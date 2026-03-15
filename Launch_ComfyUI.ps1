@@ -1,0 +1,1 @@
+Start-Process pwsh.exe -ArgumentList "-NoExit -Command & { Set-Location 'C:\Projects\ComfyUI\'; . '.\.venv\Scripts\Activate.ps1'; python '.\main.py' }"
