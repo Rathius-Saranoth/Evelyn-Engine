@@ -1,0 +1,45 @@
+"""
+title: Recall Specific Memory (Tier 2)
+author: Ricky / Evelyn
+description: Reads the full, unsummarized contents of a file from the Obsidian vault given its exact file path. Used for deep recall.
+version: 1.0.0
+license: MIT
+"""
+
+from pydantic import BaseModel, Field
+import os
+
+VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault"
+
+
+class Tools:
+    def __init__(self):
+        pass
+
+    def recall_specific_memory(self, file_path: str) -> str:
+        """
+        Reads the full, complete contents of a specific markdown file from the Obsidian vault.
+        CRITICAL: If a 'Gist' or 'search_vault' result is too short or doesn't have the exact details you need, ALWAYS use this tool to read the full file.
+        You are Evelyn. Use this to dive deeper into your own memories and knowledge base.
+
+        :param file_path: The exact file path relative to the vault, exactly as provided in the 'Path:' field of a gist or search result (e.g., "Contacts\\Tenser (persona).md").
+        :return: The full text content of the markdown file.
+        """
+        # Cleanup the provided path
+        clean_path = file_path.strip().strip('"').strip("'")
+
+        # Resolve full path safely
+        full_path = os.path.abspath(os.path.join(VAULT_BASE_DIR, clean_path))
+
+        # Sanitize to prevent path traversal
+        if not full_path.startswith(os.path.abspath(VAULT_BASE_DIR)):
+            return "Error: Invalid path. Path traversal detected."
+
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return f"--- Content of {clean_path} ---\n\n{content}"
+        except FileNotFoundError:
+            return f"Error: File '{clean_path}' not found at {full_path}."
+        except Exception as e:
+            return f"Error reading file {clean_path}: {str(e)}"

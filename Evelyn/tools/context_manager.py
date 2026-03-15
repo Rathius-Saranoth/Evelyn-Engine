@@ -1,0 +1,178 @@
+import os
+import datetime
+import json
+
+CONTEXT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Categories"
+VAULT_MAP_FILE = r"G:\My Drive\Obsidian_Vault\Projects\Vault_Map\vault_map_data.json"
+PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Pending_Approvals\Context"
+
+
+def append_context_log(
+    category_code: str,
+    summary: str,
+    secondary_cats: list = None,
+):
+    """
+    Creates a new Context Category file in the Pending Approvals folder.
+
+    Args:
+        category_code: e.g., "Cat08-R", "Cat01-E".
+        summary: The content of the log.
+        secondary_cats: Optional list of other categories to cross-reference (e.g. ["Cat02-E"]).
+    """
+    if not os.path.exists(PENDING_DIR):
+        os.makedirs(PENDING_DIR, exist_ok=True)
+
+    # 2. Format File Name and Content
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    filename = f"CE_{today}_{category_code}.md"
+
+    # Handle multiple entries on the same day gracefully
+    counter = 1
+    filepath = os.path.join(PENDING_DIR, filename)
+    while os.path.exists(filepath):
+        filename = f"CE_{today}_{category_code} ({counter}).md"
+        filepath = os.path.join(PENDING_DIR, filename)
+        counter += 1
+
+    primary_tag = f"[[{category_code}]]"
+    secs = ", ".join([f"[[{c}]]" for c in secondary_cats]) if secondary_cats else ""
+    secondary_line = f"**Secondary:** {secs}\n\n" if secs else ""
+
+    file_content = f"""---
+tags: [CY-{today.replace("-", "/")}]
+---
+
+# {filename.replace(".md", "")}
+
+**Primary:** {primary_tag}
+
+{secondary_line}**Summary:** {summary}
+"""
+
+    # 3. Create File
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(file_content)
+
+    return f"Created Context Entry: {filename} in Pending Approvals Folder."
+
+
+def search_vault_map(query: str, limit: int = 5) -> str:
+    """
+    Searches the JSON vault map for the query in titles, tags, and gists.
+    Provides a general 'everything in obsidian' search.
+    """
+    if not os.path.exists(VAULT_MAP_FILE):
+        return "Error: Vault map file not found."
+
+    try:
+        with open(VAULT_MAP_FILE, "r", encoding="utf-8") as f:
+            vault_data = json.load(f)
+    except Exception as e:
+        return f"Error reading vault map: {e}"
+
+    query_lower = query.lower()
+    results = []
+
+    for rel_path, file_info in vault_data.items():
+        data = file_info.get("data", {})
+        if not data:
+            continue
+
+        title = data.get("title", "").lower()
+        tags = [t.lower() for t in data.get("tags", [])]
+        links = [lnk.lower() for lnk in data.get("links", [])]
+        gist = data.get("gist", "").lower()
+
+        score = 0
+        if query_lower in title:
+            score += 10
+        if any(query_lower in t for t in tags):
+            score += 5
+        if any(query_lower in lnk for lnk in links):
+            score += 5
+        if query_lower in gist:
+            score += 2
+
+        if score > 0:
+            results.append(
+                {
+                    "path": rel_path,
+                    "title": data.get("title", ""),
+                    "score": score,
+                    "tags": data.get("tags", []),
+                    "gist": data.get("gist", ""),
+                }
+            )
+
+    if not results:
+        return f"No results found in the Obsidian Vault for '{query}'."
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    output = f"Top {min(limit, len(results))} Vault Search Results for '{query}':\n\n"
+    for r in results[:limit]:
+        output += f"--- {r['title']} ---\n"
+        output += f"Path: {r['path']}\n"
+        if r["tags"]:
+            output += f"Tags: {', '.join(r['tags'])}\n"
+        output += f"Gist: {r['gist']}\n\n"
+
+    return output.strip()
+
+
+class Tools:
+    def __init__(self):
+        pass
+
+    def search_vault(self, query: str, limit: int = 5) -> str:
+        """
+        Searches the Obsidian Vault map for exact string matches and semantic hints (tags, titles, gists).
+        Use this tool to find an existing memory or context entry if you need to update it or recall specific existing facts BEFORE creating an update request.
+
+        :param query: The search query.
+        :param limit: Max number of results.
+        """
+        return search_vault_map(query, limit)
+
+    def update_context_log(self, target_filepaths: list[str], new_summary: str) -> str:
+        """
+        Creates an update request for an existing Context Fact. Use search_vault FIRST if you don't know the exact file path to update.
+
+        :param target_filepaths: A list of the absolute (or relative) paths to the files in the vault you are requesting Ricky to update.
+        :param new_summary: The new fact/summary data you want inserted into those files.
+        """
+        if not os.path.exists(PENDING_DIR):
+            os.makedirs(PENDING_DIR, exist_ok=True)
+
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        timestamp = datetime.datetime.now().strftime("%H%M%S")
+        filename = f"[UPDATE_REQUEST]_{today}_{timestamp}.md"
+        filepath = os.path.join(PENDING_DIR, filename)
+
+        paths_str = "\n".join([f"- {p}" for p in target_filepaths])
+
+        file_content = f"""# Update Request
+
+Please update the following context files:
+{paths_str}
+
+## New Summary Data:
+{new_summary}
+"""
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(file_content)
+
+        return f"Update request created: {filename} in Pending Approvals Folder. Ricky will review it."
+
+    def log_context(self, category: str, summary: str, cross_refs: str) -> str:
+        """
+        Logs a new fact or event to the Context Database Pending Approvals Quarantine.
+        Use this ONLY when creating a NEW fact, not updating an old one.
+
+        :param category: REQUIRED. The primary category code (e.g., Cat08-R).
+        :param summary: REQUIRED. The fact/event description. Ensure you link Entities, not Concepts.
+        :param cross_refs: REQUIRED. Comma-separated secondary categories. If none, pass an empty string "".
+        """
+        refs = [c.strip() for c in cross_refs.split(",")] if cross_refs.strip() else []
+        return append_context_log(category, summary, refs)

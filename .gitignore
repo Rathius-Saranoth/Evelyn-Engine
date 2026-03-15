@@ -1,0 +1,34 @@
+# --- Secrets & Keys ---
+.webui_secret_key
+endpoints.txt
+*.env
+secrets.json
+
+# --- Personal Memory & Soul (DO NOT SHARE) ---
+# These contain your private conversations and journals
+Evelyn/journals/
+Evelyn/context/
+reference/System_Directives.md
+reference/Ricky_Narrative_Profile.md
+reference/owui_current_system_prompt.md
+Update Logs/
+
+# --- Local Data & State ---
+# Temporary state files for sync
+Evelyn/tools/gist_sync_state.json
+Evelyn/tools/vault_sync_state.json
+Vault_Map/
+Void_Connections/
+__pycache__/
+*.pyc
+
+# --- Large Files / Binary ---
+# Don't upload the LLM definitions or large JSONs unless specific to the tool
+openapi.json
+*.log
+*.tmp
+
+# --- IDE & OS ---
+.vscode/
+.DS_Store
+Thumbs.db
