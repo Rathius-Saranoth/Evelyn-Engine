@@ -3,7 +3,7 @@ import datetime
 import json
 
 CONTEXT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Categories"
-VAULT_MAP_FILE = r"G:\My Drive\Obsidian_Vault\Projects\Vault_Map\vault_map_data.json"
+VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json"
 PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Pending_Approvals\Context"
 
 
@@ -128,8 +128,9 @@ class Tools:
     def search_vault(self, query: str, limit: int = 5) -> str:
         """
         Searches the Obsidian Vault map for exact string matches and semantic hints (tags, titles, gists).
-        Use this tool to find an existing memory or context entry if you need to update it or recall specific existing facts BEFORE creating an update request.
-
+        Use this tool for deep recall OR to find specific file paths if your core intuition (knowledge base) 
+        doesn't have the granular details needed.
+        
         :param query: The search query.
         :param limit: Max number of results.
         """
