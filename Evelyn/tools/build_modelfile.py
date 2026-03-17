@@ -64,9 +64,6 @@ PARAMETER num_ctx 4096
 PARAMETER temperature 1.1
 PARAMETER min_p 0.05
 PARAMETER top_k 40
-PARAMETER stop "<|start_header_id|>"
-PARAMETER stop "<|end_header_id|>"
-PARAMETER stop "<|eot_id|>"
 """
 
     # Create version directory if not exists
