@@ -1,3 +1,28 @@
+"""
+qwen_tts_server.py — OpenAI-compatible TTS proxy bridging Open WebUI to ComfyUI.
+
+Runs a FastAPI server on ``http://127.0.0.1:5050`` that exposes the OpenAI
+TTS endpoint format (``POST /v1/audio/speech``) so Open WebUI can use ComfyUI's
+Qwen3-TTS node as its voice synthesis backend.
+
+Flow:
+  1. Open WebUI sends a JSON body: ``{"model": "...", "input": "<text>", "voice": "..."}`.
+  2. The server loads the ComfyUI API-format workflow from ``WORKFLOW_PATH``.
+  3. It injects the input text into the TTS node (``target_text``, ``text``,
+     or ``prompt`` field, searched in priority order).
+  4. Submits the workflow to ComfyUI via HTTP and waits for completion over
+     a WebSocket connection.
+  5. Locates the output audio file from the ``SaveAudio`` node in the
+     generation history.
+  6. Returns the audio file as a ``FileResponse`` (``audio/flac``).
+  7. Schedules the temp file for deletion 60 seconds after delivery.
+
+Prerequisites:
+  - ComfyUI running at ``COMFY_URL`` with the Qwen3-TTS workflow loaded.
+  - ``pip install fastapi uvicorn websocket-client`` in the environment.
+
+Run directly: ``python qwen_tts_server.py``
+"""
 import os
 import json
 import uuid
@@ -25,6 +50,16 @@ class SpeechRequest(BaseModel):
     voice: str = ""
 
 async def delete_file_after_delay(filepath: str, delay: int = 60):
+    """
+    Coroutine: deletes a file after a specified delay in seconds.
+
+    Used as a FastAPI background task to clean up temporary audio files
+    after they have been streamed to the client.
+
+    Args:
+        filepath: Absolute path to the file to delete.
+        delay: Seconds to wait before attempting deletion. Defaults to 60.
+    """
     await asyncio.sleep(delay)
     try:
         if os.path.exists(filepath):
@@ -35,6 +70,27 @@ async def delete_file_after_delay(filepath: str, delay: int = 60):
 
 @app.post("/v1/audio/speech")
 def generate_speech(data: SpeechRequest, background_tasks: BackgroundTasks):
+    """
+    Synthesises speech from text using a ComfyUI TTS workflow.
+
+    Accepts an OpenAI-format TTS request body (``model``, ``input``, ``voice``)
+    and returns the generated audio as a FLAC file. The ``voice`` and ``model``
+    fields are accepted for API compatibility but currently ignored — voice
+    selection is managed inside the ComfyUI workflow itself.
+
+    Args:
+        data: ``SpeechRequest`` with at minimum a non-empty ``input`` field.
+        background_tasks: FastAPI ``BackgroundTasks`` used to schedule cleanup
+            of the temporary audio file 60 seconds after delivery.
+
+    Returns:
+        FileResponse: The generated FLAC audio file.
+
+    Raises:
+        HTTPException 400: ``input`` field is empty.
+        HTTPException 500: ComfyUI is unreachable, workflow injection fails,
+            WebSocket error, or the output file cannot be located.
+    """
     
     # OpenAI format: {"model": "...", "input": "text to say", "voice": "..."}
     text = data.input
