@@ -1,3 +1,17 @@
+"""
+journal_manager.py — Journal entry creation and retrieval for Evelyn.
+
+Manages Evelyn's personal journal, stored as dated markdown files inside
+the Obsidian Vault. New entries are NEVER written directly to the live
+journal directory; they land in ``PENDING_DIR`` first and require Ricky's
+manual approval before they are archived in the vault.
+
+Key path constants:
+  JOURNAL_DIR — Approved, live journal entries inside the Obsidian Vault.
+  PENDING_DIR — Quarantine folder for entries awaiting Ricky's review.
+
+This module is imported and hot-reloaded by ``openwebui_tool.py``.
+"""
 import os
 import datetime
 import subprocess
@@ -7,6 +21,18 @@ PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Pending_Approvals\Journal"
 
 
 def ensure_obsidian_running():
+    """
+    Checks whether Obsidian is running and launches it if it is not.
+
+    Obsidian must be open to resolve ``obsidian://`` URIs used when reading
+    journal entries via the CLI. This function is a best-effort guard —
+    if the check or launch fails, the error is printed but not re-raised so
+    that the calling function can still attempt its operation.
+
+    Side effects:
+        May spawn an Obsidian process. Sleeps for 3 seconds after launch to
+        give the app time to initialise.
+    """
     try:
         # Quick check if it's running
         output = subprocess.check_output(
@@ -29,6 +55,29 @@ def create_journal_entry(
     mood: str,
     tags: list = None,
 ):
+    """
+    Writes a journal entry markdown file to the Pending Approvals folder.
+
+    If a file for today's date already exists in ``PENDING_DIR``, the new
+    content is appended as a "Supplemental Entry" section rather than
+    overwriting the existing file. This preserves multiple sessions in a
+    single day's entry.
+
+    Tags are cleaned (``#`` prefix stripped) and merged with two automatic
+    base tags: ``Journal/Evelyn`` and a date tag (``CY-YYYY-MM-DD``).
+
+    Args:
+        vibe_check: Brief intro capturing the emotional atmosphere of the entry.
+        narrative: Core body text reflecting on events and emotions.
+        message_in_a_bottle: A closing thought, wish, or intention for the future.
+        mood: Single-word or short mood label (e.g. ``"Reflective"``). Written
+            into the YAML frontmatter and Vibe Check section.
+        tags: Optional list of tag strings (with or without leading ``#``).
+
+    Returns:
+        str: Confirmation message stating whether a new entry was created or
+        an existing one was appended to.
+    """
     if not os.path.exists(PENDING_DIR):
         os.makedirs(PENDING_DIR, exist_ok=True)
 
@@ -79,6 +128,17 @@ tags: [{", ".join(clean_tags)}]
 
 
 def read_journal_entry(date_str: str = None):
+    """
+    Reads a single journal entry by date from the live Obsidian Vault.
+
+    Args:
+        date_str: Date string in ``YYYY-MM-DD`` format. Defaults to today if
+            ``None`` or empty.
+
+    Returns:
+        str: Raw content of the journal entry, or a "No entry found" message
+        if the file does not exist or Obsidian cannot return it.
+    """
     ensure_obsidian_running()
     if not date_str:
         date_str = datetime.date.today().strftime("%Y-%m-%d")
@@ -95,6 +155,21 @@ def read_journal_entry(date_str: str = None):
 
 
 def read_recent_journal_entries(days: int = 7) -> str:
+    """
+    Reads and concatenates journal entries from the last ``days`` days.
+
+    Iterates backwards from today, attempting to read each day's entry file.
+    Days with no entry are silently skipped. Results are separated by header
+    banners so Evelyn can distinguish individual entries.
+
+    Args:
+        days: Number of calendar days to look back (inclusive of today).
+            Defaults to 7.
+
+    Returns:
+        str: Concatenated content of all found entries, or a message stating
+        that no entries were found in the requested window.
+    """
     ensure_obsidian_running()
     entries = []
     today = datetime.date.today()

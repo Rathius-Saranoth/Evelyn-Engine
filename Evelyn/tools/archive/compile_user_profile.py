@@ -1,3 +1,15 @@
+"""
+compile_user_profile.py — Assembles Ricky's compiled user profile for Evelyn.
+
+Scans the Context Category Summaries directory for all ``Cat*-R.md`` files
+(the "-R" suffix denotes Ricky's profile categories) and concatenates their
+bodies into a single ``compiled_user_profile.md`` output file.
+
+This compiled file is used as the "USER PROFILE" section when building
+Evelyn's Ollama Modelfile via ``build_modelfile.py``.
+
+Run directly: ``python compile_user_profile.py``
+"""
 import os
 import glob
 import re
@@ -22,6 +34,17 @@ def extract_content(filepath):
 
 
 def compile_user_profile():
+    """
+    Scans ``SOURCE_DIR`` for all ``Cat*-R.md`` category summary files, strips
+    their YAML frontmatter, and writes a combined markdown document to
+    ``OUTPUT_FILE``.
+
+    Files are sorted by filename so categories appear in order (Cat01, Cat02, …).
+    Each section is prefixed with a horizontal rule and a heading so the LLM
+    can identify category boundaries inside the compiled prompt.
+
+    Prints progress and a final success/failure message to stdout.
+    """
     print(f"Scanning for User Profile files in: {SOURCE_DIR}")
 
     # Find all Cat*-R.md files (User/Ricky's summaries)

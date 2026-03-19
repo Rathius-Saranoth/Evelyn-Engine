@@ -1,3 +1,20 @@
+"""
+read_latest_chat.py — Diagnostic script: dumps the latest Open WebUI chat to a text file.
+
+Connects directly to Open WebUI's SQLite database (``webui.db``), queries the
+most recently updated chat, and writes the last 15 messages to a text file at:
+  ``c:\\Projects\\LocalAI\\Evelyn\\tools\\chat_dump.txt``
+
+This is a standalone debugging/diagnostic tool. It has no functions or classes;
+it runs entirely as module-level code when executed directly.
+
+Output format:
+  [ROLE]:
+  <message content>
+  ----------------------------------------
+
+Run directly: ``python read_latest_chat.py``
+"""
 import sqlite3
 import json
 

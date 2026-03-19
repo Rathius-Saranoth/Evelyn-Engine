@@ -1,0 +1,151 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start Evelyn Services",
+            "dependsOn": [
+                "Run Ollama",
+                "Run Tailscale",
+                "Run Qwen3 TTS",
+                "Run Open WebUI",
+                "Run ComfyUI",
+                "Run Obsidian"
+            ],
+            "dependsOrder": "parallel",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Ollama",
+            "type": "shell",
+            "command": "ollama serve",
+            "isBackground": true,
+            "options": {
+                "env": {
+                    "OLLAMA_KEEP_ALIVE": "-1"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "group": "evelyn"
+            },
+            "problemMatcher": [
+                {
+                    "pattern": [
+                        {
+                            "regexp": ".",
+                            "file": 1,
+                            "location": 2,
+                            "message": 3
+                        }
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": ".",
+                        "endsPattern": "."
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Run Tailscale",
+            "type": "shell",
+            "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' serve --bg 8080",
+            "presentation": {
+                "reveal": "never"
+            }
+        },
+        {
+            "label": "Run Qwen3 TTS",
+            "type": "shell",
+            "command": "& 'C:\\Users\\ricky\\AppData\\Local\\Programs\\Python\\Python311\\python.exe' 'C:\\Projects\\LocalAI\\Evelyn\\tools\\qwen_tts_server.py'",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "group": "evelyn"
+            },
+            "problemMatcher": [
+                {
+                    "pattern": [
+                        {
+                            "regexp": ".",
+                            "file": 1,
+                            "location": 2,
+                            "message": 3
+                        }
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": ".",
+                        "endsPattern": "."
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Run Open WebUI",
+            "type": "shell",
+            "command": "$env:WEBUI_SECRET_KEY = Get-Content -Path 'C:\\Projects\\LocalAI\\.webui_secret_key' -Raw; $env:CORS_ALLOW_ORIGIN = 'https://localhost:8080;https://192.168.1.125:8080;https://ricky-pc.tail0e161b.ts.net;https://rickys-lenovo-tab-k-11.tail0e161b.ts.net;https://rickys-pixel-9-pro.tail0e161b.ts.net'; $env:USER_AGENT = 'Evelyn/1.0'; & 'C:\\Users\\ricky\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\open-webui.exe' serve",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "group": "evelyn"
+            },
+            "problemMatcher": [
+                {
+                    "pattern": [
+                        {
+                            "regexp": ".",
+                            "file": 1,
+                            "location": 2,
+                            "message": 3
+                        }
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": ".",
+                        "endsPattern": "."
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Run ComfyUI",
+            "type": "shell",
+            "command": "Set-Location 'C:\\Projects\\ComfyUI\\'; . '.\\.venv\\Scripts\\Activate.ps1'; python '.\\main.py' --listen",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "group": "evelyn"
+            },
+            "problemMatcher": [
+                {
+                    "pattern": [
+                        {
+                            "regexp": ".",
+                            "file": 1,
+                            "location": 2,
+                            "message": 3
+                        }
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": ".",
+                        "endsPattern": "."
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Run Obsidian",
+            "type": "shell",
+            "command": "Start-Process 'obsidian://open'",
+            "presentation": {
+                "reveal": "never"
+            }
+        }
+    ]
+}

@@ -6,6 +6,21 @@ version: 1.2.0
 license: MIT
 """
 
+# --- Module Overview ---
+# This file is an Open WebUI Tool (uploaded via the Tools UI).
+# It imports `journal_manager` and `context_manager` from TOOLS_DIR at load
+# time and reloads them on every tool call so that edits to those files are
+# reflected without restarting Open WebUI.
+#
+# Exposed tools (all within the `Tools` class):
+#   write_journal_entry  — Compose and queue a new journal entry for review.
+#   read_journal_entry   — Read a single journal entry by date.
+#   read_recent_journal_entries — Read the last N days of journal entries.
+#   search_vault         — Full-text search across the entire Obsidian Vault map.
+#   recall_specific_memory — Read the raw markdown for a specific vault file.
+#   log_context_fact     — Queue a NEW context fact for Ricky's review.
+#   update_context_fact  — Queue an UPDATE request for an existing context fact.
+
 import sys
 import os
 
@@ -29,7 +44,15 @@ class Tools:
         pass
 
     def _reload_modules(self):
-        """Dynamically reload the modules inside tool execution to pick up live changes without restarting OpenWebUI."""
+        """
+        Dynamically reloads `journal_manager` and `context_manager` from disk
+        before every tool call.
+
+        Open WebUI caches uploaded tool files in memory. Without this reload,
+        any edits made to the underlying scripts in TOOLS_DIR would only take
+        effect after a full service restart. Hot-reloading here means changes
+        can be tested live.
+        """
         if "journal_manager" in sys.modules:
             importlib.reload(sys.modules["journal_manager"])
         if "context_manager" in sys.modules:

@@ -1,15 +1,30 @@
 """
 title: Sync Knowledge DBs
 author: Ricky / Evelyn
-description: Syncs Evelyn's memory by ingesting new or modified Obsidian Vault gists and Evelyn's core knowledge directory into the Open WebUI Knowledge DBs.
-version: 1.1.0
+description: Syncs Evelyn's memory by ingesting new or modified Obsidian Vault gists
+             and Evelyn's core knowledge directory into the Open WebUI Knowledge DBs.
+version: 1.3.0
 license: MIT
 """
 
-import sys
-import os
+# --- Module Overview ---
+# This file is an Open WebUI Tool (uploaded via the Tools UI).
+# It exposes a single callable: `Tools.sync_context_memory()`.
+#
+# When Evelyn calls that tool, it spawns a background thread that runs two
+# sequential sync operations:
+#   1. Core Memory  — calls `ingest_obsidian_knowledge.main()` to push full
+#      journal + context markdown files into the "Evelyn's Memory" collection.
+#   2. Vault Gists  — calls `ingest_gists.main()` to upload LLM-generated
+#      gist summaries for every new/changed file into the "Evelyn Vault Gists"
+#      collection.
+#
+# Both ingest modules are hot-reloaded at call time from TOOLS_DIR so that live
+# edits to those files take effect without restarting Open WebUI.
 
-# Ensure the tools directory is in the path so we can import ingest scripts.
+import sys
+import importlib
+
 TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
@@ -23,96 +38,72 @@ except ImportError as e:
     print(f"Failed to import ingestion scripts: {e}")
 
 
+def _reload_modules():
+    """
+    Reloads both ingest modules from disk so that live edits take effect
+    without requiring an Open WebUI restart.
+    """
+    global ingest_gists, ingest_obsidian_knowledge
+    try:
+        if ingest_gists:
+            ingest_gists = importlib.reload(ingest_gists)
+        if ingest_obsidian_knowledge:
+            ingest_obsidian_knowledge = importlib.reload(ingest_obsidian_knowledge)
+    except Exception as e:
+        print(f"Warning: module reload failed: {e}")
+
+
 class Tools:
     def __init__(self):
         pass
 
     def sync_context_memory(self) -> str:
         """
-        Triggers a synchronization of the Obsidian Vault gists and Evelyn's core knowledge directory into the remote Knowledge Collection.
-        Call this tool when the user says "Good morning", explicitly asks you to update your memory, sync your context, or when you think your information is stale.
+        Triggers a synchronization of the Obsidian Vault gists and Evelyn's core
+        knowledge directory into the remote Knowledge Collections.
 
-        :return: A status message indicating how many new files were processed.
+        Call this tool when the user says "Good morning", explicitly asks you to
+        update your memory, sync your context, or when you think your information
+        is stale.
+
+        :return: A status message indicating that sync has been initiated.
         """
-        if not ingest_gists:
-            return "Error: Could not load the underlying ingestion script from the host system."
+        if not ingest_gists or not ingest_obsidian_knowledge:
+            return "Error: Could not load the underlying ingestion scripts from the host system."
 
         import threading
 
         def background_task():
+            """
+            Runs the two-phase knowledge sync sequentially in a background thread
+            so the tool can return immediately to the chat UI without blocking.
+
+            Phase 1 — Core Memory:
+                Delegates to ``ingest_obsidian_knowledge.main()``, which handles
+                state tracking, GC, and upload of full journal/context files.
+
+            Phase 2 — Vault Gists:
+                Delegates to ``ingest_gists.main()``, which handles state tracking,
+                GC, and upload of LLM-generated gist summaries.
+
+            Both modules are reloaded before use so that any edits made to the
+            scripts since Open WebUI started are picked up automatically.
+            """
             try:
-                # 1. Sync Core Memory (Full Text)
-                if ingest_obsidian_knowledge:
-                    print("Starting Core Memory Sync...")
-                    ingest_obsidian_knowledge.main()
+                _reload_modules()
 
-                # 2. Sync Vault Gists (Summaries)
-                if ingest_gists:
-                    print("Starting Vault Gists Sync...")
-                    # Re-run the main logic, but capture the stats
-                    vault_map_file = ingest_gists.VAULT_MAP_FILE
-                sync_state_file = ingest_gists.SYNC_STATE_FILE
+                # Phase 1: Core Memory (full text files)
+                print("Starting Core Memory Sync...")
+                ingest_obsidian_knowledge.main()
 
-                if not os.path.exists(vault_map_file):
-                    print(f"Error: Vault map file not found ({vault_map_file}).")
-                    return
+                # Phase 2: Vault Gists (LLM summaries)
+                print("Starting Vault Gists Sync...")
+                ingest_gists.main()
 
-                import json
-                import time
-
-                with open(vault_map_file, "r", encoding="utf-8") as f:
-                    vault_data = json.load(f)
-
-                sync_state = {}
-                if os.path.exists(sync_state_file):
-                    with open(sync_state_file, "r", encoding="utf-8") as f:
-                        sync_state = json.load(f)
-
-                collection_id = ingest_gists.get_or_create_knowledge()
-                if not collection_id:
-                    print("Error: Could not connect to Open WebUI Knowledge API.")
-                    return
-
-                processed = 0
-                errors = 0
-                skipped = 0
-
-                for file_path, file_info in vault_data.items():
-                    mtime = file_info.get("mtime", 0)
-                    data = file_info.get("data", {})
-                    gist = data.get("gist", "")
-
-                    if not gist:
-                        continue
-
-                    if file_path in sync_state and sync_state[file_path] >= mtime:
-                        skipped += 1
-                        continue
-
-                    tags = data.get("tags", [])
-                    links = data.get("links", [])
-
-                    file_id = ingest_gists.upload_gist_file(
-                        file_path, gist, tags, links
-                    )
-                    if file_id:
-                        ingest_gists.add_file_to_knowledge(collection_id, file_id)
-                        sync_state[file_path] = mtime
-                        processed += 1
-                    else:
-                        errors += 1
-
-                    time.sleep(0.1)
-
-                with open(sync_state_file, "w", encoding="utf-8") as f:
-                    json.dump(sync_state, f, indent=4)
-
-                print(
-                    f"Sync complete. Updated {processed} entries. Skipped {skipped}, {errors} errors."
-                )
+                print("Both sync operations complete.")
 
             except Exception as e:
-                print(f"Error during background sync process: {str(e)}")
+                print(f"Error during background sync: {str(e)}")
 
         thread = threading.Thread(target=background_task)
         thread.start()

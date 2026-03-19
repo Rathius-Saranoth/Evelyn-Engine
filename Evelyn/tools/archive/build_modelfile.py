@@ -1,3 +1,22 @@
+"""
+build_modelfile.py — Compiles and registers a versioned Evelyn Ollama model.
+
+Reads three source markdown files and assembles them into an Ollama ``Modelfile``
+that is then registered as a new versioned model (``evelyn:vN``) via the
+``ollama create`` CLI command.
+
+Source files:
+  PERSONA_FILE      — Evelyn's narrative persona (identity, tone, background).
+  USER_PROFILE_FILE — Ricky's compiled profile (preferences, context).
+  PROTOCOL_FILE     — System directives and operational boundaries.
+
+Versioning:
+  Each run increments the version number by scanning ``VERSIONS_DIR`` for
+  existing ``vN`` subfolders. The Modelfile is written to ``versions/vN/Modelfile``
+  and the model is created in Ollama as ``evelyn:vN``.
+
+Run directly: ``python build_modelfile.py [base_model_name]``
+"""
 import os
 import glob
 import re
@@ -11,6 +30,16 @@ VERSIONS_DIR = r"C:\Projects\LocalAI\Evelyn\versions"
 
 
 def get_next_version():
+    """
+    Determines the next sequential version string for a model build.
+
+    Scans ``VERSIONS_DIR`` for folders matching the pattern ``vN`` and returns
+    the next integer as a formatted string.
+
+    Returns:
+        str: Version string, e.g. ``"v3"`` if ``v1`` and ``v2`` already exist.
+            Returns ``"v1"`` if no versioned folders exist yet.
+    """
     os.makedirs(VERSIONS_DIR, exist_ok=True)
     existing_versions = glob.glob(os.path.join(VERSIONS_DIR, "v*"))
     max_ver = 0
@@ -22,12 +51,35 @@ def get_next_version():
 
 
 def read_file(filepath):
+    """
+    Reads and returns the full text content of a file.
+
+    Args:
+        filepath: Absolute path to the file to read.
+
+    Returns:
+        str: Complete file contents as a UTF-8 decoded string.
+    """
     print(f"Reading: {filepath}")
     with open(filepath, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def build_modelfile(base_model=BASE_MODEL):
+    """
+    Builds the Evelyn Modelfile and registers it with Ollama.
+
+    Pipeline:
+      1. Determine the next version string via ``get_next_version()``.
+      2. Read the persona, user profile, and protocol markdown files.
+      3. Compose a system prompt by combining all three sections.
+      4. Write the full Ollama ``Modelfile`` format to ``versions/vN/Modelfile``.
+      5. Run ``ollama create evelyn:vN -f <Modelfile>`` to register the model.
+
+    Args:
+        base_model: The Ollama base model to use as the ``FROM`` directive.
+            Defaults to ``BASE_MODEL`` (currently ``mistral-small3.1``).
+    """
     VERSION = get_next_version()
     OUTPUT_FILE = os.path.join(VERSIONS_DIR, VERSION, "Modelfile")
 
