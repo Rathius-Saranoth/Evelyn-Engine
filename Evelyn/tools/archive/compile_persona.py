@@ -1,3 +1,16 @@
+"""
+compile_persona.py — Assembles Evelyn's compiled persona core for Modelfile injection.
+
+Scans the Context Category Summaries directory for all ``Cat*-E.md`` files
+(the "-E" suffix denotes Evelyn's identity and personality categories) and
+concatenates their bodies into a single ``compiled_persona.md`` output file.
+
+The compiled file is used as the base persona section when building Evelyn's
+Ollama Modelfile via ``build_modelfile.py``. It also injects the current
+system date so Evelyn has temporal awareness during conversation.
+
+Run directly: ``python compile_persona.py``
+"""
 import os
 import glob
 import re
@@ -26,6 +39,18 @@ def extract_content(filepath):
 
 
 def compile_persona():
+    """
+    Scans ``SOURCE_DIR`` for all ``Cat*-E.md`` category summary files, strips
+    their YAML frontmatter, and writes a combined markdown document to
+    ``OUTPUT_FILE``.
+
+    Files are sorted by filename so categories appear in order (Cat01, Cat02, …).
+    Prepends the current date (``CURRENT SYSTEM DATE: YYYY-MM-DD``) to give
+    Evelyn temporal awareness. Each section is prefixed with a horizontal rule
+    and a heading for clear category separation inside the compiled prompt.
+
+    Prints progress and a final success/failure message to stdout.
+    """
     print(f"Scanning for persona files in: {SOURCE_DIR}")
 
     # Find all Cat*-E.md files (Evelyn's summaries)
