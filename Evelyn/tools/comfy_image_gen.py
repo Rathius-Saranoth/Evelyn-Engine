@@ -5,6 +5,23 @@ author: Ricky
 version: 1.1.0
 """
 
+# --- Module Overview ---
+# This file is an Open WebUI Tool (uploaded via the Tools UI).
+# It exposes a single callable: `Tools.generate_image(params)`.
+#
+# The tool accepts five structured prompt fields (ActionParams), injects them
+# into named PrimitiveStringMultiline nodes in a ComfyUI API workflow JSON,
+# submits the job, waits for completion over a WebSocket, fetches the output
+# filename from the generation history, and returns an Obsidian-style markdown
+# image embed pointing at the Tailscale public URL of the ComfyUI server.
+#
+# Configurable via `Valves` (set in the Open WebUI tool settings UI):
+#   comfyui_url          — Local ComfyUI HTTP endpoint.
+#   websocket_url        — Local ComfyUI WebSocket endpoint.
+#   public_comfyui_url   — Tailscale/public URL embedded in the returned image link.
+#   default_workflow_path— Path to the ComfyUI API-export workflow JSON.
+#   output_dir           — Directory where ComfyUI saves generated images.
+
 import json
 import urllib.request
 import urllib.parse
@@ -63,7 +80,29 @@ class Tools:
 
     def generate_image(self, params: ActionParams) -> str:
         """
-        Generate an image using ComfyUI. Provide highly detailed descriptions for all fields. DO NOT leave any field blank.
+        Generates an image via ComfyUI and returns a markdown embed to the chat.
+
+        Provide highly detailed descriptions for ALL five ActionParams fields.
+        DO NOT leave any field blank — sparse prompts produce poor results.
+
+        Workflow injection:
+          The tool looks for ``PrimitiveStringMultiline`` nodes in the workflow
+          JSON whose ``_meta.title`` matches one of the five field names
+          ("Art & Style", "Camera Style", "Composition Style",
+          "Character Description", "Setting & Actions") and injects the
+          corresponding param value. If none are found (e.g. the workflow was
+          changed), it falls back to combining all fields into a single string
+          and injecting it into the first ``CLIPTextEncode`` positive prompt node.
+
+        Blocking behaviour:
+          This call blocks until ComfyUI signals completion via the WebSocket
+          ``executing`` event with ``node: null``. Expect 5–60 seconds depending
+          on hardware and resolution.
+
+        Returns:
+            str: A natural-language confirmation message containing the exact
+            markdown image embed (``![Generated Image](<url>)``) for Open WebUI
+            to render inline. Returns an error string on any failure.
         """
         if isinstance(params, dict):
             params = self.ActionParams(**params)

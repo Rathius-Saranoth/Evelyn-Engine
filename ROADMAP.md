@@ -29,8 +29,9 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] Implement Text-to-Speech (TTS) via local Kokoro API.
 - [x] Configure OpenWebUI to use the local Kokoro endpoint.
 - [x] Implement Speech-to-Text (STT).
+- [x] Implement time awareness via Open WebUI built-in Time & Calculation tool + behavioral directive.
 - [ ] Explore Google Drive File Integration.
-- [ ] Implement time awareness, scheduling, and reminders.
+- [ ] Implement scheduling and reminders.
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).
 
 ---
@@ -39,12 +40,17 @@ This is the primary source of truth for project progress. AI agents MUST update 
 
 *Ongoing technical improvements and AI guardrails.*
 
-- [x] **AI Instructions**: Formalize `.ai-instructions.md` for assistant continuity.
+- [x] **AI Instructions**: Formalize `.ai-instructions.md` for assistant continuity (strengthened ROADMAP authority rule).
 - [x] **Service Management**: Implement `.agents/workflows/start-services.md`.
 - [x] **Coding Standards**: Enforce Google-style Docstrings across core scripts.
 - [x] **Version Control**: Initialize local Git repository with protective `.gitignore`.
+- [x] **Architecture Overhaul**: Retired Modelfile pipeline; Open WebUI model builder is now the sole authority for model config, system prompt, and parameters.
+- [x] **Prompt Engineering**: Rewrote Evelyn persona (first-person structured), system prompt (with tool priority ordering), and RAG prompt.
+- [x] **Sync Scripts**: Fixed state-based file_id tracking in ingest scripts; fixed openwebui_sync_tool.py Phase 2 duplication bug.
+- [x] **Workspace Cleanup**: Reorganized reference/, archived stale outputs, renamed status checker script.
 - [ ] **Backup**: Regularly push code "Engine" to GitHub using the `backup-to-github` workflow.
 - [ ] **RAG Tuning**: Further optimize chunk size and similarity thresholds.
+- [ ] **Model Testing**: Evaluate aia/Dolphin3.0-Mistral-24B and CognitiveComputations/dolphin-mistral-nemo against mistral-small3.1 using 3-scenario test suite.
 
 ## Future Expansion
 
