@@ -30,3 +30,15 @@ openapi.json
 .vscode/settings.json
 .DS_Store
 Thumbs.db
+
+# --- SSL Certs (machine-specific) ---
+*.crt
+*.key
+
+# --- Local Database & Logs ---
+*.db
+evelyn_log_dump.txt
+
+# --- Chroma Vector DB (runtime) ---
+chroma_db/
+

@@ -132,7 +132,7 @@ class Tools:
         CRITICAL: If a 'Gist' or 'search_vault' result is too short or doesn't have the exact details you need, ALWAYS use this tool to read the full file.
         You are Evelyn. Use this to dive deeper into your own memories and knowledge base.
 
-        :param file_path: The exact file path relative to the vault, exactly as provided in the 'Path:' field of a gist or search result (e.g., "Contacts\\Tenser (persona).md").
+        :param file_path: The exact file path relative to the vault, exactly as provided in the 'Path:' field of a gist or search result. NEVER construct this path yourself — always copy it from search_vault output. Example: "Schyler\\Schyler Sekulich.md" or "Contacts\\Tenser (persona).md". File locations vary — do not assume a folder.
         :return: The full text content of the markdown file.
         """
         clean_path = file_path.strip().strip('"').strip("'")
@@ -187,7 +187,7 @@ class Tools:
         Creates an update request for an existing Context Fact in Ricky's Pending Approvals Quarantine.
         Use search_vault FIRST if you don't know the exact file path to update.
 
-        :param target_filepaths: REQUIRED. A list of the precise absolute (or relative to vault) paths to the files you are requesting Ricky to update.
+        :param target_filepaths: REQUIRED. A list of the precise file paths relative to the vault for the files to update. CRITICAL: You MUST use the exact 'Path:' value returned by search_vault or recall_specific_memory. NEVER construct or guess a file path — if you do not have a confirmed path from a tool result, call search_vault first.
         :param new_summary: REQUIRED. The new fact/summary data you want inserted into those files.
         """
         self._reload_modules()

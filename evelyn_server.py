@@ -1,0 +1,644 @@
+"""
+evelyn_server.py — Custom Evelyn backend server.
+
+FastAPI app providing:
+  - POST /chat       — Streaming chat with tool loop, RAG injection, inline think-tag parsing
+  - GET  /history    — Chat history
+  - DELETE /history  — Clear chat history
+  - GET  /status     — Health check
+  - GET  /           — Serve the chat UI
+
+Auth: X-Evelyn-Key header checked against EVELYN_API_KEY env var.
+Run: python evelyn_server.py
+"""
+
+import asyncio
+import json
+import importlib
+import sqlite3
+import sys
+import time
+import httpx
+from datetime import datetime
+from pathlib import Path
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# Path setup
+# ---------------------------------------------------------------------------
+BASE_DIR = Path(__file__).parent
+TOOLS_DIR = BASE_DIR / "Evelyn" / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
+
+import evelyn_config as cfg
+from evelyn_tools import TOOL_DEFINITIONS, TOOL_FUNCTIONS
+from chroma_rag import build_rag_context
+
+# ---------------------------------------------------------------------------
+# Logging helper
+# ---------------------------------------------------------------------------
+
+
+def dlog(*args):
+    """Debug-only log. Reads cfg.DEBUG_LOGGING per-call so toggling takes effect live."""
+    if cfg.DEBUG_LOGGING:
+        print("[DEBUG]", *args)
+
+
+# ---------------------------------------------------------------------------
+# System prompt loader
+# ---------------------------------------------------------------------------
+
+
+def load_system_prompt() -> str:
+    """Assemble system prompt from persona markdown files."""
+    parts = []
+    date_str = datetime.now().strftime("%A, %B %d, %Y")
+    time_str = datetime.now().strftime("%I:%M %p")
+    parts.append(f"The current date and time is {date_str} - {time_str}.")
+    parts.append(
+        "Before responding, briefly verify any facts about people, relationships, or past events "
+        "from your knowledge. Use <think> tags for this verification step. For complex questions "
+        "requiring multi-step logic, use <think> tags for full reasoning. Keep thinking concise -- "
+        "you don't need lengthy chains for casual conversation."
+    )
+    for fname in [
+        "Evelyn_Narrative_Persona.md",
+        "Ricky_Narrative_Profile.md",
+        "System_Directives.md",
+    ]:
+        fpath = PERSONA_DIR / fname
+        if fpath.exists():
+            parts.append(fpath.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# SQLite chat history
+# ---------------------------------------------------------------------------
+
+
+def get_db():
+    con = sqlite3.connect(cfg.CHAT_DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def init_db():
+    con = get_db()
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            role      TEXT NOT NULL,
+            content   TEXT NOT NULL,
+            thinking  TEXT,
+            ts        REAL NOT NULL
+        )
+    """)
+    con.commit()
+    con.close()
+
+
+PLACEHOLDER_MARKER = "[Response interrupted"
+
+
+def load_history() -> list[dict]:
+    con = get_db()
+    rows = con.execute("SELECT role, content FROM messages ORDER BY id").fetchall()
+    con.close()
+    # Skip empty-content rows and internal placeholder messages.
+    # Placeholders must NOT be sent to the model -- they confuse magistral
+    # and cause it to produce empty responses on every subsequent request.
+    messages = [
+        {"role": r["role"], "content": r["content"]}
+        for r in rows
+        if r["content"].strip() and not r["content"].startswith(PLACEHOLDER_MARKER)
+    ]
+    # Strip orphaned trailing user messages (no assistant response yet).
+    # These form double-user-message chains that confuse the model.
+    while messages and messages[-1]["role"] == "user":
+        messages.pop()
+    return messages
+
+
+def save_message(role: str, content: str, thinking: str = None):
+    con = get_db()
+    con.execute(
+        "INSERT INTO messages (role, content, thinking, ts) VALUES (?, ?, ?, ?)",
+        (role, content, thinking, time.time()),
+    )
+    con.commit()
+    con.close()
+
+
+def clear_history():
+    con = get_db()
+    con.execute("DELETE FROM messages")
+    con.commit()
+    con.close()
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+
+def check_auth(request: Request):
+    if not cfg.API_KEY:
+        return  # No key configured = open (local-only use)
+    key = request.headers.get("X-Evelyn-Key", "")
+    if key != cfg.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+# ---------------------------------------------------------------------------
+# Ollama interaction
+# ---------------------------------------------------------------------------
+
+
+async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
+    """Stream a chat request to Ollama (content-only / follow-up pass, no tools).
+    Yields raw JSON lines.
+
+    NOTE: streaming + think=True silently swallows tool_call tokens in Ollama.
+    Tool detection uses call_ollama_full (non-streaming) instead.
+    This function is only used for the content follow-up pass (no tools).
+    """
+    use_think = cfg.THINK
+    payload = {
+        "model": cfg.MODEL_NAME,
+        "messages": messages,
+        "stream": True,
+        "options": {"num_ctx": cfg.NUM_CTX},
+        "think": use_think,
+    }
+    if tools:
+        payload["tools"] = tools
+
+    dlog("Streaming to Ollama. think:", use_think, "Roles:", [m["role"] for m in messages])
+
+    async with httpx.AsyncClient(timeout=600) as client:
+        async with client.stream(
+            "POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if line.strip():
+                    yield line
+
+
+async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> dict:
+    """Non-streaming Ollama call for tool detection (Pass 1).
+
+    Streaming + think=True silently swallows tool_call tokens in Ollama --
+    the model generates ~20 tokens for the tool call JSON but emits a single
+    done chunk with empty message. Non-streaming correctly surfaces tool_calls.
+    """
+    payload = {
+        "model": cfg.MODEL_NAME,
+        "messages": messages,
+        "stream": False,
+        "options": {"num_ctx": cfg.NUM_CTX},
+        "think": cfg.THINK,
+        "tools": tools or [],
+    }
+    async with httpx.AsyncClient(timeout=600) as client:
+        resp = await client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Tool dispatch
+# ---------------------------------------------------------------------------
+
+
+def dispatch_tool(name: str, args: dict) -> str:
+    """Execute a tool by name with the given arguments."""
+    fn = TOOL_FUNCTIONS.get(name)
+    if not fn:
+        return f"Error: unknown tool '{name}'"
+    try:
+        dlog(f"Tool call: {name}({args})")
+        result = fn(**args)
+        dlog(f"Tool result preview: {str(result)[:200]}")
+        return result
+    except Exception as e:
+        return f"Tool '{name}' raised an error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Streaming helper: parse & emit a content-only Ollama stream
+# ---------------------------------------------------------------------------
+
+
+async def _stream_content(msgs: list[dict]):
+    """
+    Stream the content follow-up pass (no tool definitions).
+    Handles native think field + inline <think> tag parsing.
+    Yields SSE data strings.
+    Returns final (content_buf, thinking_buf) via a _state sentinel event.
+    """
+    thinking_buf = ""
+    content_buf = ""
+    parse_buf = ""
+    in_think = False
+    OPEN_TAG = "<think>"
+    CLOSE_TAG = "</think>"
+
+    print("[PASS2] Streaming content. Roles:", [m["role"] for m in msgs], flush=True)
+
+    _SENTINEL = object()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _feed():
+        try:
+            async for line in call_ollama_stream(msgs, tools=None):
+                await queue.put(("line", line))
+        except BaseException as exc:
+            await queue.put(("error", exc))
+            return
+        await queue.put(("done", _SENTINEL))
+
+    feeder = asyncio.create_task(_feed())
+    try:
+        while True:
+            try:
+                kind, item = await asyncio.wait_for(queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                yield 'data: {"type":"heartbeat"}\n\n'
+                continue
+
+            if kind == "error":
+                print(f"[PASS2 ERROR] {type(item).__name__}: {item}", flush=True)
+                raise item
+            if kind == "done":
+                break
+
+            try:
+                chunk = json.loads(item)
+            except Exception:
+                continue
+
+            msg = chunk.get("message", {})
+
+            # Native thinking field
+            native_think = msg.get("thinking", "")
+            if native_think:
+                thinking_buf += native_think
+                yield f"data: {json.dumps({'type': 'thinking', 'delta': native_think})}\n\n"
+
+            # Content field -- route through inline-tag parser
+            text_delta = msg.get("content", "")
+            if text_delta:
+                parse_buf += text_delta
+                while parse_buf:
+                    if in_think:
+                        ct_idx = parse_buf.find(CLOSE_TAG)
+                        if ct_idx == -1:
+                            safe = len(parse_buf) - len(CLOSE_TAG)
+                            if safe > 0:
+                                out = parse_buf[:safe]
+                                thinking_buf += out
+                                yield f"data: {json.dumps({'type': 'thinking', 'delta': out})}\n\n"
+                                parse_buf = parse_buf[safe:]
+                            break
+                        else:
+                            if ct_idx > 0:
+                                out = parse_buf[:ct_idx]
+                                thinking_buf += out
+                                yield f"data: {json.dumps({'type': 'thinking', 'delta': out})}\n\n"
+                            parse_buf = parse_buf[ct_idx + len(CLOSE_TAG):]
+                            in_think = False
+                    else:
+                        ot_idx = parse_buf.find(OPEN_TAG)
+                        if ot_idx == -1:
+                            found_partial = False
+                            for plen in range(len(OPEN_TAG) - 1, 0, -1):
+                                if parse_buf.endswith(OPEN_TAG[:plen]):
+                                    safe = len(parse_buf) - plen
+                                    if safe > 0:
+                                        out = parse_buf[:safe]
+                                        content_buf += out
+                                        yield f"data: {json.dumps({'type': 'text', 'delta': out})}\n\n"
+                                        parse_buf = parse_buf[safe:]
+                                    found_partial = True
+                                    break
+                            if not found_partial:
+                                content_buf += parse_buf
+                                yield f"data: {json.dumps({'type': 'text', 'delta': parse_buf})}\n\n"
+                                parse_buf = ""
+                            break
+                        else:
+                            if ot_idx > 0:
+                                out = parse_buf[:ot_idx]
+                                content_buf += out
+                                yield f"data: {json.dumps({'type': 'text', 'delta': out})}\n\n"
+                            parse_buf = parse_buf[ot_idx + len(OPEN_TAG):]
+                            in_think = True
+
+            if chunk.get("done"):
+                if parse_buf:
+                    if in_think:
+                        thinking_buf += parse_buf
+                        yield f"data: {json.dumps({'type': 'thinking', 'delta': parse_buf})}\n\n"
+                    else:
+                        content_buf += parse_buf
+                        yield f"data: {json.dumps({'type': 'text', 'delta': parse_buf})}\n\n"
+                break
+
+    except BaseException as exc:
+        print(f"[PASS2 STREAM ERROR] {type(exc).__name__}: {exc}", flush=True)
+        feeder.cancel()
+        raise
+    finally:
+        if not feeder.done():
+            feeder.cancel()
+
+    yield f"data: {json.dumps({'type': '_state', 'content': content_buf, 'thinking': thinking_buf})}\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Chat endpoint
+# ---------------------------------------------------------------------------
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+async def chat_stream(user_message: str):
+    """
+    Core streaming generator.
+
+    Architecture (two-pass):
+
+    Pass 1 -- NON-STREAMING with tools:
+        call_ollama_full() reliably surfaces tool_calls.
+        Streaming + think=True silently swallows tool_call tokens in Ollama
+        (model generates ~20 tokens for the JSON but emits a single empty done chunk).
+        We send SSE heartbeats while awaiting the non-streaming response.
+
+    Pass 2 -- STREAMING without tools:
+        If no tool was called: re-stream the content from pass 1 word-by-word
+        (already have the text, so this is instant progressive rendering).
+        If tools were called: stream a fresh follow-up call after tool dispatch.
+
+    Config is reloaded from disk at the start of each request so changes to
+    evelyn_config.py (DEBUG_LOGGING, etc.) take effect immediately, no restart needed.
+    """
+    importlib.reload(cfg)
+
+    yield "data: " + json.dumps({"type": "status", "msg": "Processing..."}) + "\n\n"
+
+    # RAG injection
+    rag_context = build_rag_context(user_message)
+    system = load_system_prompt()
+    if rag_context:
+        system += f"\n\n{rag_context}"
+        dlog("RAG injected:", rag_context[:300])
+
+    history = load_history()
+    save_message("user", user_message)
+
+    messages = (
+        [{"role": "system", "content": system}]
+        + history
+        + [{"role": "user", "content": user_message}]
+    )
+
+    yield "data: " + json.dumps({"type": "status", "msg": "Querying model..."}) + "\n\n"
+
+    # ------------------------------------------------------------------
+    # Pass 1: Non-streaming call with tools (heartbeats sent while waiting)
+    # ------------------------------------------------------------------
+    print("[PASS1] Non-streaming tool-detection. Roles:", [m["role"] for m in messages], flush=True)
+
+    pass1_task = asyncio.ensure_future(call_ollama_full(messages, tools=TOOL_DEFINITIONS))
+    while not pass1_task.done():
+        yield 'data: {"type":"heartbeat"}\n\n'
+        await asyncio.sleep(1.0)
+
+    try:
+        pass1_resp = pass1_task.result()
+    except Exception as exc:
+        print(f"[PASS1 ERROR] {type(exc).__name__}: {exc}", flush=True)
+        save_message("assistant", "[Response interrupted -- please try again.]")
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return
+
+    pass1_msg      = pass1_resp.get("message", {})
+    tool_calls     = pass1_msg.get("tool_calls") or []
+    pass1_content  = pass1_msg.get("content") or ""
+    pass1_thinking = pass1_msg.get("thinking") or ""
+
+    dlog(f"Pass1 -- content: {len(pass1_content)} chars, thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}")
+
+    content_buf  = ""
+    thinking_buf = pass1_thinking
+
+    if not tool_calls:
+        # ------------------------------------------------------------------
+        # No tool call -- emit pass1 content progressively to the client
+        # ------------------------------------------------------------------
+        if pass1_thinking:
+            yield f"data: {json.dumps({'type': 'thinking', 'delta': pass1_thinking})}\n\n"
+
+        words = pass1_content.split(" ")
+        for i, word in enumerate(words):
+            delta = word if i == 0 else " " + word
+            yield f"data: {json.dumps({'type': 'text', 'delta': delta})}\n\n"
+            await asyncio.sleep(0)  # keep event loop alive between words
+
+        content_buf = pass1_content
+
+    else:
+        # ------------------------------------------------------------------
+        # Tools fired -- dispatch, then stream the follow-up response
+        # ------------------------------------------------------------------
+        messages.append({
+            "role": "assistant",
+            "content": pass1_content,
+            "tool_calls": tool_calls,
+        })
+
+        loop = asyncio.get_running_loop()
+        for tc in tool_calls:
+            fn_name = tc["function"]["name"]
+            fn_args = tc["function"].get("arguments", {})
+            if isinstance(fn_args, str):
+                try:
+                    fn_args = json.loads(fn_args)
+                except Exception:
+                    fn_args = {}
+
+            yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
+            dlog(f"Dispatching tool: {fn_name}({fn_args})")
+
+            tool_task = loop.run_in_executor(
+                None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
+            )
+            while not tool_task.done():
+                yield 'data: {"type":"heartbeat"}\n\n'
+                await asyncio.sleep(1.0)
+            result = tool_task.result()
+            dlog(f"Tool result preview: {str(result)[:200]}")
+            messages.append({"role": "tool", "content": result, "name": fn_name})
+
+        # Streaming follow-up (no tools)
+        async for event in _stream_content(messages):
+            if event.startswith("data: "):
+                try:
+                    d = json.loads(event[6:])
+                    if d.get("type") == "_state":
+                        content_buf  = d["content"]
+                        thinking_buf = d.get("thinking", "")
+                        continue
+                except Exception:
+                    pass
+            yield event
+
+    # ------------------------------------------------------------------
+    # Save to history
+    # ------------------------------------------------------------------
+    if content_buf.strip():
+        save_message(
+            "assistant",
+            content_buf.strip(),
+            thinking=thinking_buf if thinking_buf else None,
+        )
+    else:
+        save_message("assistant", "[Response interrupted -- please try again.]")
+
+    if not content_buf.strip():
+        dlog("WARNING: empty assistant response. thinking len:", len(thinking_buf), "tools fired:", bool(tool_calls))
+    dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
+    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    print(f"Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}")
+    print(f"Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
+    print(f"Debug logging: {cfg.DEBUG_LOGGING}")
+    yield
+
+
+app = FastAPI(title="Evelyn", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cfg.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+UI_DIR = BASE_DIR / "evelyn_ui"
+if UI_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@app.get("/status")
+async def status(_: None = Depends(check_auth)):
+    return {
+        "status": "ok",
+        "model": cfg.MODEL_NAME,
+        "think": cfg.THINK,
+        "debug": cfg.DEBUG_LOGGING,
+    }
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest, _: None = Depends(check_auth)):
+    return StreamingResponse(
+        chat_stream(req.message),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/history")
+async def get_history(_: None = Depends(check_auth)):
+    con = get_db()
+    rows = con.execute(
+        "SELECT role, content, thinking, ts FROM messages ORDER BY id"
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+@app.delete("/history")
+async def delete_history(_: None = Depends(check_auth)):
+    clear_history()
+    return {"status": "cleared"}
+
+
+@app.post("/sync")
+async def trigger_sync(_: None = Depends(check_auth)):
+    """Trigger a background Chroma ingest directly (no chat turn required)."""
+    import threading
+    from evelyn_tools import TOOL_FUNCTIONS
+    def _run():
+        try:
+            print("[SYNC] Manual sync triggered via /sync endpoint", flush=True)
+            TOOL_FUNCTIONS["sync_context_memory"]()
+        except Exception as e:
+            print(f"[SYNC ERROR] {e}", flush=True)
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "sync started"}
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    index = UI_DIR / "index.html"
+    if index.exists():
+        return HTMLResponse(index.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        "<h1>Evelyn Server Running</h1><p>Place UI files in evelyn_ui/</p>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+
+    SSL_KEY  = "image-host.internal.net.key"
+    SSL_CERT = "image-host.internal.net.crt"
+    ssl_args = {}
+    if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT):
+        ssl_args = {"ssl_keyfile": SSL_KEY, "ssl_certfile": SSL_CERT}
+        print("SSL certs found -- starting with HTTPS")
+    else:
+        print("No SSL certs found -- starting with plain HTTP (fine for Tailscale)")
+
+    uvicorn.run(
+        "evelyn_server:app",
+        host=cfg.BIND_HOST,
+        port=cfg.SERVER_PORT,
+        reload=False,
+        log_level="info",
+        **ssl_args,
+    )
