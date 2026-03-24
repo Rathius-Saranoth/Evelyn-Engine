@@ -62,9 +62,9 @@ class Tools:
         Triggers a synchronization of the Obsidian Vault gists and Evelyn's core
         knowledge directory into the remote Knowledge Collections.
 
-        Call this tool when the user says "Good morning", explicitly asks you to
-        update your memory, sync your context, or when you think your information
-        is stale.
+        Call this tool ONCE at the start of a conversation when Ricky says "Good
+        morning", or if he explicitly asks you to sync, update your memory, or
+        refresh your context. Do NOT call this tool more than once per session.
 
         :return: A status message indicating that sync has been initiated.
         """

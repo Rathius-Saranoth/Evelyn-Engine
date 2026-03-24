@@ -7,7 +7,7 @@
                 "Run Ollama",
                 "Run Tailscale",
                 "Run Qwen3 TTS",
-                "Run Open WebUI",
+                "Run Evelyn Server",
                 "Run ComfyUI",
                 "Run Obsidian"
             ],
@@ -53,7 +53,8 @@
             "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' serve --bg 8080",
             "presentation": {
                 "reveal": "never"
-            }
+            },
+            "problemMatcher": []
         },
         {
             "label": "Run Qwen3 TTS",
@@ -84,9 +85,15 @@
             ]
         },
         {
-            "label": "Run Open WebUI",
+            "label": "Run Evelyn Server",
             "type": "shell",
-            "command": "$env:WEBUI_SECRET_KEY = Get-Content -Path 'C:\\Projects\\LocalAI\\.webui_secret_key' -Raw; $env:CORS_ALLOW_ORIGIN = 'https://localhost:8080;https://192.168.1.125:8080;https://ricky-pc.tail0e161b.ts.net;https://rickys-lenovo-tab-k-11.tail0e161b.ts.net;https://rickys-pixel-9-pro.tail0e161b.ts.net'; $env:USER_AGENT = 'Evelyn/1.0'; & 'C:\\Users\\ricky\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\open-webui.exe' serve",
+            "command": "cmd /c \"python evelyn_server.py > evelyn_server.log 2>&1\"",
+            "options": {
+                "cwd": "C:\\Projects\\LocalAI",
+                "env": {
+                    "EVELYN_API_KEY": "${env:EVELYN_API_KEY}"
+                }
+            },
             "isBackground": true,
             "presentation": {
                 "reveal": "always",
@@ -145,7 +152,8 @@
             "command": "Start-Process 'obsidian://open'",
             "presentation": {
                 "reveal": "never"
-            }
+            },
+            "problemMatcher": []
         }
     ]
 }

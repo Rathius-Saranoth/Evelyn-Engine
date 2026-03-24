@@ -50,7 +50,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Workspace Cleanup**: Reorganized reference/, archived stale outputs, renamed status checker script.
 - [ ] **Backup**: Regularly push code "Engine" to GitHub using the `backup-to-github` workflow.
 - [ ] **RAG Tuning**: Further optimize chunk size and similarity thresholds.
-- [ ] **Model Testing**: Evaluate aia/Dolphin3.0-Mistral-24B and CognitiveComputations/dolphin-mistral-nemo against mistral-small3.1 using 3-scenario test suite.
+- [x] **Model Testing**: Evaluated aia/Dolphin3.0-Mistral-24B and CognitiveComputations/dolphin-mistral-nemo against mistral-small3.1. **Result: mistral-small3.1 retained.** Nemo was too fantastical/non-grounded; Dolphin 24B had no memory anchoring and hallucinated. Small uses vault retrieval correctly and now actively calls the context update tool.
+- [ ] **Entity Resolution**: Investigate Schyler entity mismatch — model matched `Schyler Sekulich` (vault file) but tried to update `Schyler (persona)` (different entry). Review context_manager.py entity lookup logic.
 
 ## Future Expansion
 
@@ -60,6 +61,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Awareness**: Add real-time visual awareness.
 - [ ] **XR**: Add VR/AR integration.
 - [ ] **Voice Nuance**: Explore and implement TTS emotional tags (Qwen3 TTS).
+- [ ] **Web Search Tool**: Build a custom `search_web` tool using the Tavily API (key already available). Wrap as an Open WebUI tool with a tight trigger docstring so it only fires for current events / public info not in the vault. Keeps web search under Evelyn's control and separate from OWUI's global web search toggle.
+- [ ] **Research Mode**: A separate model/pipe or OWUI Skill that bundles web search + a different retrieval priority order — useful for looking things up vs. Evelyn's normal memory-first conversation mode. Investigate OWUI Skills tab as a potential packaging mechanism.
 
 ## Phase 6: Open Source & Community (Future)
 
