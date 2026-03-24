@@ -12,6 +12,7 @@ Key path constants:
 
 This module is imported and hot-reloaded by ``openwebui_tool.py``.
 """
+
 import os
 import datetime
 import subprocess
@@ -82,7 +83,7 @@ def create_journal_entry(
         os.makedirs(PENDING_DIR, exist_ok=True)
 
     today = datetime.date.today()
-    filename = f"Journal Entry {today.strftime('%Y-%m-%d')}.md"
+    filename = f"Journal Notes {today.strftime('%Y-%m-%d')}.md"
     filepath = os.path.join(PENDING_DIR, filename)
 
     if tags is None:
@@ -117,58 +118,51 @@ tags: [{", ".join(clean_tags)}]
 """
 
     # Try append first
-    if os.path.exists(filepath):
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(append_content)
-        return f"Appended to existing pending entry: {filename}"
-    else:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(file_content)
-        return f"Created new pending entry: {filename}"
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(append_content)
+            return f"Appended to existing pending entry: {filename}"
+        else:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(file_content)
+            return f"Created new pending entry: {filename}"
+    except OSError as e:
+        return f"Error writing journal entry — is Google Drive available? Details: {e}"
 
 
 def read_journal_entry(date_str: str = None):
     """
-    Reads a single journal entry by date from the live Obsidian Vault.
-
-    Args:
-        date_str: Date string in ``YYYY-MM-DD`` format. Defaults to today if
-            ``None`` or empty.
-
-    Returns:
-        str: Raw content of the journal entry, or a "No entry found" message
-        if the file does not exist or Obsidian cannot return it.
+    Reads a single journal entry by date.
+    Tries the Obsidian CLI first; falls back to direct filesystem read if
+    the CLI returns no output (Electron app doesn't write to stdout).
     """
     ensure_obsidian_running()
     if not date_str:
         date_str = datetime.date.today().strftime("%Y-%m-%d")
 
     filename = f"Journal Entry {date_str}.md"
+
+    # Try Obsidian CLI
     res = subprocess.run(
         ["obsidian", "read", f"file={filename}"], capture_output=True, text=True
     )
-
-    if res.returncode == 0 and not res.stdout.strip().startswith("Error:"):
+    if res.returncode == 0 and res.stdout.strip() and not res.stdout.strip().startswith("Error:"):
         return res.stdout
+
+    # Fallback: read directly from vault
+    filepath = os.path.join(JOURNAL_DIR, filename)
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
 
     return f"No entry found for {date_str}."
 
 
 def read_recent_journal_entries(days: int = 7) -> str:
     """
-    Reads and concatenates journal entries from the last ``days`` days.
-
-    Iterates backwards from today, attempting to read each day's entry file.
-    Days with no entry are silently skipped. Results are separated by header
-    banners so Evelyn can distinguish individual entries.
-
-    Args:
-        days: Number of calendar days to look back (inclusive of today).
-            Defaults to 7.
-
-    Returns:
-        str: Concatenated content of all found entries, or a message stating
-        that no entries were found in the requested window.
+    Reads journal entries from the last N days.
+    Tries Obsidian CLI first; falls back to direct filesystem read per entry.
     """
     ensure_obsidian_running()
     entries = []
@@ -176,13 +170,19 @@ def read_recent_journal_entries(days: int = 7) -> str:
     for i in range(days):
         date_obj = today - datetime.timedelta(days=i)
         date_str = date_obj.strftime("%Y-%m-%d")
-
         filename = f"Journal Entry {date_str}.md"
+
         res = subprocess.run(
             ["obsidian", "read", f"file={filename}"], capture_output=True, text=True
         )
-        if res.returncode == 0 and not res.stdout.strip().startswith("Error:"):
+        if res.returncode == 0 and res.stdout.strip() and not res.stdout.strip().startswith("Error:"):
             entries.append(f"--- Entry for {date_str} ---\n{res.stdout}\n")
+        else:
+            # Fallback to direct read
+            filepath = os.path.join(JOURNAL_DIR, filename)
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    entries.append(f"--- Entry for {date_str} ---\n{f.read()}\n")
 
     if not entries:
         return f"No journal entries found in the last {days} days."
