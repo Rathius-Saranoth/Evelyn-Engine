@@ -607,6 +607,32 @@ async def trigger_sync(_: None = Depends(check_auth)):
     return {"status": "sync started"}
 
 
+@app.post("/tts")
+async def tts_proxy(request: Request):
+    """Proxy TTS requests to the local qwen_tts_server.
+    Keeps the TTS server local-only while allowing Tailscale/mobile clients
+    to reach it through evelyn_server (which is already on 0.0.0.0).
+    """
+    body = await request.body()
+    async with httpx.AsyncClient(timeout=300) as client:
+        try:
+            resp = await client.post(
+                f"{cfg.TTS_SERVER_URL}/v1/audio/speech",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="TTS server is not running")
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=str(e))
+    from fastapi.responses import Response
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "audio/flac"),
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     index = UI_DIR / "index.html"

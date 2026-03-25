@@ -349,10 +349,10 @@ let ttsAudio = null;
 function playTTS(text, btn) {
   if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; btn.textContent = '🔊'; return; }
   btn.textContent = '⏳';
-  fetch('http://localhost:8019/tts', {
+  fetch(`${API_BASE}/tts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ model: 'tts', input: text }),
   })
   .then(r => r.blob())
   .then(blob => {
