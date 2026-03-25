@@ -8,8 +8,7 @@ Each tool is:
 The TOOL_DEFINITIONS list at the bottom is what gets passed to Ollama.
 The TOOL_FUNCTIONS dict maps tool name → callable for the dispatcher in evelyn_server.py.
 
-All tool logic is unchanged from the original openwebui_tool.py —
-only the class wrapper has been replaced with standard function signatures.
+All tool logic uses standard function signatures for Ollama's function-calling API.
 """
 
 import sys
@@ -203,7 +202,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "write_journal_entry",
-            "description": "Compose and queue a new journal entry for Ricky's review. Use when Evelyn wants to record her thoughts, feelings, or daily events.",
+            "description": "Compose and queue a new journal entry for Ricky's review. Use at the END of a meaningful conversation or when Evelyn wants to record important thoughts, feelings, or events. Do NOT call this mid-conversation or as a response to a question.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -221,7 +220,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_journal_entry",
-            "description": "Read a specific journal entry by date. Defaults to today if no date given.",
+            "description": "Read a specific journal entry by date. Use ONLY when Ricky explicitly asks about a specific day's journal, or to confirm if an entry was written. Defaults to today if no date is given. Do NOT use for general memory recall — use search_vault instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -235,7 +234,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_recent_journal_entries",
-            "description": "Read Evelyn's journal entries from the last N days to establish short-term memory.",
+            "description": "Read Evelyn's journal entries from the last N days. Use when Ricky asks what has happened recently, to catch up on recent events, or when conversation context suggests short-term memory is needed. Default is 7 days. Do NOT use for questions about specific people or facts — use search_vault instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -249,7 +248,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_vault",
-            "description": "Full-text search across the entire Obsidian Vault map. Use for people, concepts, events, or background knowledge.",
+            "description": "STEP 1 — Always call this FIRST when asked about any person, relationship, place, event, or piece of shared history. Searches the pre-summarised Vault gist index for a fast, context-light answer. If the gist result is too brief or missing detail, follow up with recall_specific_memory using the file path returned. Do NOT skip this step and jump straight to recall_specific_memory.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -263,7 +262,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "recall_specific_memory",
-            "description": "Read the full content of a specific vault markdown file. Use when a search result gist is insufficient.",
+            "description": "STEP 2 — Use ONLY after calling search_vault and finding the gist insufficient. Reads the full markdown file for a specific vault entry. Always use the exact file_path returned by search_vault — never construct or guess a path. This is a heavier context operation; only call it when the gist did not contain enough detail to answer.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -277,7 +276,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "log_context_fact",
-            "description": "Queue a NEW context fact for Ricky's review. Use ONLY for new facts, not updates.",
+            "description": "Queue a NEW context fact for Ricky's review. Use ONLY when a genuinely new fact has emerged in conversation that does not already exist in the vault. Always call search_vault first to confirm the fact is not already tracked before logging it. For updates to existing facts, use update_context_fact instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -293,7 +292,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_context_fact",
-            "description": "Queue an update request for existing vault context files. Use search_vault first if you don't have the exact path.",
+            "description": "Queue an update to one or more existing vault context files when a known fact has changed. Always call search_vault first to find the correct file path(s) before calling this — never guess or construct paths. Do NOT use this for brand new facts; use log_context_fact for those.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -326,7 +325,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "sync_context_memory",
-            "description": "Trigger a background sync of the Obsidian Vault into Evelyn's RAG database. Call once at conversation start when Ricky says 'Good morning' or asks for a sync.",
+            "description": "Trigger a background sync of the Obsidian Vault into Evelyn's Chroma RAG database. Call ONCE at the start of a conversation only when Ricky explicitly says 'Good morning', 'sync', or asks to refresh memory. Do NOT call mid-conversation or more than once per session.",
             "parameters": {
                 "type": "object",
                 "properties": {},

@@ -30,12 +30,20 @@ import urllib.request
 import urllib.parse
 import websocket
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uvicorn
 import asyncio
 
 app = FastAPI(title="Qwen3 TTS ComfyUI Wrapper")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Tailscale + local origins
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 COMFY_HOST = "127.0.0.1"
 COMFY_PORT = "8188"

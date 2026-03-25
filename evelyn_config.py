@@ -39,7 +39,7 @@ RAG_EXCLUDED_SUBDIRS = ["Archived", "Pending_Approvals"]
 # =============================================================================
 # Services
 # =============================================================================
-TTS_SERVER_URL = "http://localhost:8019"  # Qwen TTS server
+TTS_SERVER_URL = "http://localhost:5050"  # Qwen TTS server
 COMFY_HTTP_URL = "http://127.0.0.1:8188"
 COMFY_WS_URL = "127.0.0.1:8188"
 COMFY_PUBLIC_URL = "http://ricky-pc.tail0e161b.ts.net:8188"
