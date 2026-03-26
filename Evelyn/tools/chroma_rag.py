@@ -2,14 +2,18 @@
 chroma_rag.py — Chroma vector DB wrapper for Evelyn's RAG pipeline.
 
 Provides:
-  - ingest_markdown_file()    — add/update a file in a collection
-  - delete_document()         — remove a document by its source path ID
+  - ingest_markdown_file()    — add/update a file in a collection (auto-chunked)
+  - delete_document()         — remove all chunks for a document by source path
   - query_collection()        — retrieve top-K relevant chunks for a query
   - get_or_create_collection() — idempotently get a named collection
 
 Collections:
-  evelyn_memory  — full markdown files (journels, context entries)
+  evelyn_memory  — full markdown files (journals, context entries)
   evelyn_gists   — LLM-generated gist summaries from vault map
+
+Chunking:
+  nomic-embed-text has a hard 8192-token context limit. Files are split into
+  overlapping chunks before embedding to avoid HTTP 400 errors on large files.
 """
 
 import os
@@ -17,6 +21,53 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 import evelyn_config as cfg
+
+# ---------------------------------------------------------------------------
+# Chunking config
+# ---------------------------------------------------------------------------
+# nomic-embed-text has a hard 8192-token context limit (~6000 chars for typical
+# text). We chunk conservatively at 1800 chars with 200-char overlap so no
+# single embed call can exceed the limit, even for dense markdown.
+CHUNK_SIZE    = 1800  # chars per chunk
+CHUNK_OVERLAP = 200   # chars of overlap between consecutive chunks
+
+
+def chunk_text(content: str) -> list[str]:
+    """
+    Split content into overlapping chunks of at most CHUNK_SIZE characters.
+
+    Tries to split on paragraph boundaries (double newline) first for
+    cleaner semantic chunks; falls back to hard character splits.
+    Returns a list of at least one chunk (even for empty content).
+    """
+    if len(content) <= CHUNK_SIZE:
+        return [content] if content.strip() else ["(empty)"]
+
+    chunks = []
+    # Split on paragraph boundaries
+    paragraphs = content.split("\n\n")
+    current = ""
+    for para in paragraphs:
+        candidate = (current + "\n\n" + para).lstrip() if current else para
+        if len(candidate) <= CHUNK_SIZE:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            # Para itself may be too long — hard-split it
+            if len(para) > CHUNK_SIZE:
+                for i in range(0, len(para), CHUNK_SIZE - CHUNK_OVERLAP):
+                    part = para[i : i + CHUNK_SIZE]
+                    if part.strip():
+                        chunks.append(part)
+                current = ""
+            else:
+                current = para
+    if current:
+        chunks.append(current)
+
+    # Ensure no empty chunks
+    return [c for c in chunks if c.strip()] or ["(empty)"]
 
 # ---------------------------------------------------------------------------
 # Client singleton
@@ -55,41 +106,61 @@ def get_or_create_collection(name: str) -> chromadb.Collection:
 def ingest_markdown_file(file_path: str, content: str, collection_name: str,
                           extra_metadata: dict = None) -> bool:
     """
-    Upsert a markdown file into a Chroma collection.
+    Upsert a markdown file into a Chroma collection, split into chunks.
 
-    Uses the file_path as the document ID so re-ingesting the same file
-    replaces the previous version cleanly.
+    Each chunk is stored as a separate document with ID:
+        {file_path}::chunk-{n}
+
+    Re-ingesting the same file first removes all old chunks for that path,
+    then upserts the new set — so the chunk count can grow or shrink cleanly.
 
     Args:
-        file_path:       Absolute path — used as the unique document ID.
+        file_path:       Absolute path — used as the document ID prefix.
         content:         Text content to embed and store.
         collection_name: Target collection (evelyn_memory or evelyn_gists).
-        extra_metadata:  Optional extra fields stored alongside the document.
+        extra_metadata:  Optional extra fields stored alongside each chunk.
 
     Returns:
         True on success, False on failure.
     """
     try:
         col = get_or_create_collection(collection_name)
-        meta = {"source": file_path}
-        if extra_metadata:
-            meta.update(extra_metadata)
-        col.upsert(
-            ids=[file_path],
-            documents=[content],
-            metadatas=[meta],
-        )
+
+        # Remove old chunks for this file before upserting the new set
+        _delete_chunks_by_source(col, file_path)
+
+        chunks = chunk_text(content)
+        ids       = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
+        metadatas = []
+        for i in range(len(chunks)):
+            meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
+            if extra_metadata:
+                meta.update(extra_metadata)
+            metadatas.append(meta)
+
+        col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
         return True
     except Exception as e:
         print(f"[chroma_rag] ingest failed for {file_path}: {e}")
         return False
 
 
+def _delete_chunks_by_source(col: chromadb.Collection, file_path: str):
+    """Internal: delete all chunk documents for a given source path."""
+    try:
+        results = col.get(where={"source": file_path}, include=[])
+        ids_to_delete = results.get("ids", [])
+        if ids_to_delete:
+            col.delete(ids=ids_to_delete)
+    except Exception as e:
+        print(f"[chroma_rag] chunk cleanup failed for {file_path}: {e}")
+
+
 def delete_document(file_path: str, collection_name: str) -> bool:
-    """Remove a document from a collection by its source file path ID."""
+    """Remove all chunks for a document from a collection by source path."""
     try:
         col = get_or_create_collection(collection_name)
-        col.delete(ids=[file_path])
+        _delete_chunks_by_source(col, file_path)
         return True
     except Exception as e:
         print(f"[chroma_rag] delete failed for {file_path}: {e}")

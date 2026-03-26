@@ -2,10 +2,10 @@
 context_manager.py — Context Category management for Evelyn's memory system.
 
 Provides two sets of functionality:
-  - Standalone helper functions used by `openwebui_tool.py` and other modules:
+  - Standalone helper functions used by `evelyn_tools.py` and other modules:
       append_context_log()  — Create a new context fact file in Pending Approvals.
       search_vault_map()    — Keyword search across the full vault map JSON.
-  - An Open WebUI `Tools` class exposing the same operations as LLM-callable tools.
+  - These same functions are registered as LLM-callable tools in `evelyn_tools.py`.
 
 Key path constants:
   CONTEXT_DIR   — Live context category markdown files in the Obsidian Vault.

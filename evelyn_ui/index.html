@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Evelyn</title>
+  <link rel="icon" type="image/x-icon" href="/ui/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
   <style>
@@ -223,7 +224,7 @@
   <div class="header-actions">
     <button class="btn-ghost" id="sync-btn" title="Sync memory to Chroma" onclick="syncMemory()">⟳ Sync</button>
     <button class="btn-ghost" id="clear-btn" title="Clear chat history">Clear</button>
-    <button class="btn-ghost" id="debug-badge" onclick="toggleDebug()">Debug: OFF</button>
+
   </div>
 </header>
 
@@ -633,16 +634,7 @@ document.getElementById('input').addEventListener('input', function() {
 });
 document.getElementById('send-btn').addEventListener('click', sendMessage);
 
-function toggleDebug() {
-  const btn = document.getElementById('debug-badge');
-  const cur = btn.textContent.includes('OFF');
-  btn.textContent = cur ? 'Debug: ON' : 'Debug: OFF';
-  btn.style.borderColor = cur ? '#7c6af7' : '';
-  // Note: actual debug toggle requires editing evelyn_config.py DEBUG_LOGGING = True/False
-  alert(cur
-    ? 'Set DEBUG_LOGGING = True in evelyn_config.py (no restart needed)'
-    : 'Set DEBUG_LOGGING = False in evelyn_config.py');
-}
+
 
 // API key prompt if not set
 if (!API_KEY && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {

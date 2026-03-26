@@ -5,6 +5,15 @@
             "label": "Start Evelyn Services",
             "dependsOn": [
                 "Run Ollama",
+                "Wait for Ollama",
+                "Start Remaining Services"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Start Remaining Services",
+            "dependsOn": [
                 "Run Tailscale",
                 "Run Qwen3 TTS",
                 "Run Evelyn Server",
@@ -48,6 +57,17 @@
             ]
         },
         {
+            "label": "Wait for Ollama",
+            "type": "shell",
+            "command": "powershell -ExecutionPolicy Bypass -File '${workspaceFolder}\\wait_for_ollama.ps1'",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "group": "evelyn"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Run Tailscale",
             "type": "shell",
             "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' serve --bg 8080",
@@ -87,7 +107,7 @@
         {
             "label": "Run Evelyn Server",
             "type": "shell",
-            "command": "cmd /c \"python evelyn_server.py > evelyn_server.log 2>&1\"",
+            "command": "python evelyn_server.py",
             "options": {
                 "cwd": "C:\\Projects\\LocalAI",
                 "env": {
@@ -121,7 +141,7 @@
         {
             "label": "Run ComfyUI",
             "type": "shell",
-            "command": "Set-Location 'C:\\Projects\\ComfyUI\\'; . '.\\.venv\\Scripts\\Activate.ps1'; python '.\\main.py' --listen",
+            "command": "Set-Location 'C:\\Projects\\ComfyUI\\'; . '.\\.venv\\Scripts\\Activate.ps1'; python '.\\main.py' --listen --lowvram",
             "isBackground": true,
             "presentation": {
                 "reveal": "always",
@@ -152,6 +172,17 @@
             "command": "Start-Process 'obsidian://open'",
             "presentation": {
                 "reveal": "never"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Unload Evelyn Model",
+            "type": "shell",
+            "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"magistral:24b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "close": false
             },
             "problemMatcher": []
         }
