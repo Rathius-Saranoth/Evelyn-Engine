@@ -6,7 +6,7 @@ version: 1.1.0
 """
 
 # --- Module Overview ---
-# This file is an Open WebUI Tool (uploaded via the Tools UI).
+# This file is an Evelyn tool registered via evelyn_tools.py.
 # It exposes a single callable: `Tools.generate_image(params)`.
 #
 # The tool accepts five structured prompt fields (ActionParams), injects them
@@ -15,7 +15,7 @@ version: 1.1.0
 # filename from the generation history, and returns an Obsidian-style markdown
 # image embed pointing at the Tailscale public URL of the ComfyUI server.
 #
-# Configurable via `Valves` (set in the Open WebUI tool settings UI):
+# Configurable via `Valves` (defaults sourced from evelyn_config.py constants):
 #   comfyui_url          — Local ComfyUI HTTP endpoint.
 #   websocket_url        — Local ComfyUI WebSocket endpoint.
 #   public_comfyui_url   — Tailscale/public URL embedded in the returned image link.
@@ -29,8 +29,7 @@ import uuid
 import websocket
 from pydantic import BaseModel, Field
 
-# Ensure you have "websocket-client" installed in your Open WebUI python environment:
-# pip install websocket-client
+# Requires: pip install websocket-client
 
 COMFY_URL = "127.0.0.1:8188"
 COMFY_HTTP_URL = f"http://{COMFY_URL}"
@@ -101,8 +100,8 @@ class Tools:
 
         Returns:
             str: A natural-language confirmation message containing the exact
-            markdown image embed (``![Generated Image](<url>)``) for Open WebUI
-            to render inline. Returns an error string on any failure.
+            markdown image embed (``![Generated Image](<url>)``) for the Evelyn
+            chat UI to render inline. Returns an error string on any failure.
         """
         if isinstance(params, dict):
             params = self.ActionParams(**params)

@@ -1,6 +1,6 @@
 # Evelyn's Narrative Persona
 
-*Source document — edit here, then update the Open WebUI system prompt to match.*
+*Source document — `evelyn_server.py` loads this file automatically into every request. Edit here and changes take effect immediately (no restart needed).*
 
 ---
 

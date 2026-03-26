@@ -29,7 +29,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] Implement Text-to-Speech (TTS) via local Kokoro API.
 - [x] Configure OpenWebUI to use the local Kokoro endpoint.
 - [x] Implement Speech-to-Text (STT).
-- [x] Implement time awareness via Open WebUI built-in Time & Calculation tool + behavioral directive.
+- [x] Implement time awareness via date/time injection in `evelyn_server.py`'s `load_system_prompt()` + behavioral directive.
 - [ ] Explore Google Drive File Integration.
 - [ ] Implement scheduling and reminders.
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).
@@ -44,11 +44,15 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Service Management**: Implement `.agents/workflows/start-services.md`.
 - [x] **Coding Standards**: Enforce Google-style Docstrings across core scripts.
 - [x] **Version Control**: Initialize local Git repository with protective `.gitignore`.
-- [x] **Architecture Overhaul**: Retired Modelfile pipeline; Open WebUI model builder is now the sole authority for model config, system prompt, and parameters.
+- [x] **Architecture Overhaul**: Retired Modelfile pipeline and Open WebUI entirely; `evelyn_server.py` is now the sole authority for model config, system prompt, and parameters.
 - [x] **Prompt Engineering**: Rewrote Evelyn persona (first-person structured), system prompt (with tool priority ordering), and RAG prompt.
 - [x] **Sync Scripts**: Fixed state-based file_id tracking in ingest scripts; fixed openwebui_sync_tool.py Phase 2 duplication bug.
 - [x] **Workspace Cleanup**: Reorganized reference/, archived stale outputs, renamed status checker script.
-- [ ] **Backup**: Regularly push code "Engine" to GitHub using the `backup-to-github` workflow.
+- [x] **Backup**: Regularly push code "Engine" to GitHub using the `backup-to-github` workflow.
+- [x] **Model Tuning Parameters**: Added `TEMPERATURE`, `MIN_P`, `TOP_K`, `TOP_P`, `REPEAT_PENALTY`, `REPEAT_LAST_N`, `SEED`, and `NUM_PREDICT` to `evelyn_config.py` Model Parameters section. All params hot-reload per-request; set any to `None` to defer to Ollama default. `MIN_P = 0.05` is the key speed improvement from the OWUI migration.
+- [x] **Startup Sequencing**: Rewrote `tasks.json` so "Start Evelyn Services" sequences `Run Ollama` → `Wait for Ollama` (TCP gate via `wait_for_ollama.ps1`) → all remaining services in parallel. Ensures Ollama claims GPU layers before ComfyUI loads.
+- [x] **ComfyUI VRAM**: Added `--lowvram` flag to Run ComfyUI task so ComfyUI releases model weights from VRAM when idle rather than holding them continuously.
+- [x] **On-Demand Model Unload**: Added "Unload Evelyn Model" VS Code task — sends `keep_alive:0` to Ollama API to evict the model from VRAM without stopping the server. Frees ~9.2 GB VRAM for gaming or other GPU-intensive workloads.
 - [ ] **RAG Tuning**: Optimize chunk size and similarity thresholds for Magistral 24B. Per the Magistral paper (arXiv:2506.10910), the model has a **128k context window** but is trained with a **32k–40k reasoning budget**. Target: **512–768 token chunks** (post-frontmatter strip) with **100–150 token overlap**, `RAG_TOP_K = 3–5`. This keeps retrieved context under 4k tokens, preserving headroom for reasoning traces.
 - [/] **Search Priority Order**: Enforce Gist-first → Core Knowledge → Obsidian → Web Search tool priority. **Phase 1 done**: tool `description` strings in `evelyn_tools.py` updated with explicit STEP 1/STEP 2 ordering and DO NOT use guards. **Phase 2 pending**: RAG pre-processing and frontmatter stripping.
 - [ ] **RAG Pre-processing**: Strip YAML frontmatter and Obsidian headers from knowledge documents before ingestion so RAG chunks contain dense content, not metadata. Prevents context lobotomy from header-bloated chunks.
@@ -65,8 +69,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Awareness**: Add real-time visual awareness.
 - [ ] **XR**: Add VR/AR integration.
 - [ ] **Voice Nuance**: Explore and implement TTS emotional tags (Qwen3 TTS).
-- [ ] **Web Search Tool**: Build a custom `search_web` tool backed by **SearXNG** (self-hosted, free, no API key) rather than Tavily. SearXNG queries Google/Bing/DDG and returns clean JSON. Wrap as an Open WebUI tool with a tight trigger docstring — fires only for current events / public info not in the vault. Include a chunk-and-summarize step before injecting results into context to prevent overflow.
-- [ ] **Research Mode**: A separate model/pipe or OWUI Skill that bundles web search + a different retrieval priority order — useful for looking things up vs. Evelyn's normal memory-first conversation mode. Investigate OWUI Skills tab as a potential packaging mechanism.
+- [ ] **Web Search Tool**: Build a custom `search_web` tool backed by **SearXNG** (self-hosted, free, no API key) rather than Tavily. SearXNG queries Google/Bing/DDG and returns clean JSON. Register it in `evelyn_tools.py` with a tight trigger docstring — fires only for current events / public info not in the vault. Include a chunk-and-summarize step before injecting results into context to prevent overflow.
+- [ ] **Research Mode**: A separate model config or `evelyn_server.py` route that bundles web search + a different retrieval priority order — useful for looking things up vs. Evelyn's normal memory-first conversation mode.
 
 ## Phase 6: Open Source & Community (Future)
 

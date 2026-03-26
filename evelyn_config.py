@@ -14,6 +14,47 @@ NUM_CTX = 16384
 THINK = True  # Pass think:true to Ollama for native reasoning tokens
 
 # =============================================================================
+# Model Parameters  (passed to Ollama's "options" dict on every request)
+# Set a value to None to omit it and let Ollama use its built-in default.
+# Docs: https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
+# =============================================================================
+
+# Temperature — controls randomness. Lower = more deterministic.
+# Range: 0.0–2.0  |  Ollama default: 0.8
+TEMPERATURE = 1.1
+
+# Min-P — minimum probability relative to the top token. Trims the long tail
+# of unlikely tokens cheaply, which noticeably speeds up generation.
+# Range: 0.0–1.0  |  Ollama default: 0.0 (disabled)
+MIN_P = 0.05
+
+# Top-K — limits the pool to the K most likely tokens. 0 = disabled.
+# Range: 0–∞      |  Ollama default: 40
+TOP_K = 40
+
+# Top-P (nucleus sampling) — cumulative probability cutoff.
+# Range: 0.0–1.0  |  Ollama default: 0.9
+TOP_P = 0.9
+
+# Repeat penalty — discourages repeating tokens that appeared recently.
+# Values > 1.0 penalize repeats; 1.0 = disabled.
+# Range: 0.0–2.0  |  Ollama default: 1.1
+REPEAT_PENALTY = 1.1
+
+# Repeat last N — how many tokens back to scan for the repeat penalty.
+# 0 = disabled, -1 = full context window.
+# Range: 0–num_ctx  |  Ollama default: 64
+REPEAT_LAST_N = 64
+
+# Seed — set to a fixed integer for reproducible outputs, 0 for random.
+# Range: 0–2^32     |  Ollama default: 0 (random)
+SEED = 0
+
+# Num predict — maximum tokens to generate. -1 = unlimited, -2 = fill context.
+# Range: -2–∞       |  Ollama default: -1
+NUM_PREDICT = -1
+
+# =============================================================================
 # Paths
 # =============================================================================
 VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault"
