@@ -1,12 +1,12 @@
 """
-qwen_tts_server.py — OpenAI-compatible TTS proxy bridging Open WebUI to ComfyUI.
+qwen_tts_server.py — OpenAI-compatible TTS proxy bridging Evelyn's /tts endpoint to ComfyUI.
 
 Runs a FastAPI server on ``http://127.0.0.1:5050`` that exposes the OpenAI
-TTS endpoint format (``POST /v1/audio/speech``) so Open WebUI can use ComfyUI's
+TTS endpoint format (``POST /v1/audio/speech``) so the Evelyn server can use ComfyUI's
 Qwen3-TTS node as its voice synthesis backend.
 
 Flow:
-  1. Open WebUI sends a JSON body: ``{"model": "...", "input": "<text>", "voice": "..."}`.
+  1. Evelyn server's ``/tts`` proxy sends a JSON body: ``{"model": "...", "input": "<text>", "voice": "..."}`.
   2. The server loads the ComfyUI API-format workflow from ``WORKFLOW_PATH``.
   3. It injects the input text into the TTS node (``target_text``, ``text``,
      or ``prompt`` field, searched in priority order).

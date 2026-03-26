@@ -173,11 +173,24 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
     This function is only used for the content follow-up pass (no tools).
     """
     use_think = cfg.THINK
+    options = {"num_ctx": cfg.NUM_CTX}
+    for key, val in {
+        "temperature":    cfg.TEMPERATURE,
+        "min_p":          cfg.MIN_P,
+        "top_k":          cfg.TOP_K,
+        "top_p":          cfg.TOP_P,
+        "repeat_penalty": cfg.REPEAT_PENALTY,
+        "repeat_last_n":  cfg.REPEAT_LAST_N,
+        "seed":           cfg.SEED,
+        "num_predict":    cfg.NUM_PREDICT,
+    }.items():
+        if val is not None:
+            options[key] = val
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": messages,
         "stream": True,
-        "options": {"num_ctx": cfg.NUM_CTX},
+        "options": options,
         "think": use_think,
     }
     if tools:
@@ -202,11 +215,24 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
     the model generates ~20 tokens for the tool call JSON but emits a single
     done chunk with empty message. Non-streaming correctly surfaces tool_calls.
     """
+    options = {"num_ctx": cfg.NUM_CTX}
+    for key, val in {
+        "temperature":    cfg.TEMPERATURE,
+        "min_p":          cfg.MIN_P,
+        "top_k":          cfg.TOP_K,
+        "top_p":          cfg.TOP_P,
+        "repeat_penalty": cfg.REPEAT_PENALTY,
+        "repeat_last_n":  cfg.REPEAT_LAST_N,
+        "seed":           cfg.SEED,
+        "num_predict":    cfg.NUM_PREDICT,
+    }.items():
+        if val is not None:
+            options[key] = val
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": messages,
         "stream": False,
-        "options": {"num_ctx": cfg.NUM_CTX},
+        "options": options,
         "think": cfg.THINK,
         "tools": tools or [],
     }
@@ -443,22 +469,25 @@ async def chat_stream(user_message: str):
     dlog(f"Pass1 -- content: {len(pass1_content)} chars, thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}")
 
     content_buf  = ""
-    thinking_buf = pass1_thinking
+    thinking_buf = ""
 
     if not tool_calls:
         # ------------------------------------------------------------------
-        # No tool call -- emit pass1 content progressively to the client
+        # No tool call -- stream a fresh Pass 2 call so thinking tokens
+        # surface correctly. (Pass 1 non-streaming silently drops Magistral
+        # thinking tokens; streaming is the only reliable path for them.)
         # ------------------------------------------------------------------
-        if pass1_thinking:
-            yield f"data: {json.dumps({'type': 'thinking', 'delta': pass1_thinking})}\n\n"
-
-        words = pass1_content.split(" ")
-        for i, word in enumerate(words):
-            delta = word if i == 0 else " " + word
-            yield f"data: {json.dumps({'type': 'text', 'delta': delta})}\n\n"
-            await asyncio.sleep(0)  # keep event loop alive between words
-
-        content_buf = pass1_content
+        async for event in _stream_content(messages):
+            if event.startswith("data: "):
+                try:
+                    d = json.loads(event[6:])
+                    if d.get("type") == "_state":
+                        content_buf  = d["content"]
+                        thinking_buf = d.get("thinking", "")
+                        continue
+                except Exception:
+                    pass
+            yield event
 
     else:
         # ------------------------------------------------------------------

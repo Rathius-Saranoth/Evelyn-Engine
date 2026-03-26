@@ -33,21 +33,13 @@ if (Get-NetTCPConnection -LocalPort $QwenPort -State Listen -ErrorAction Silentl
     $AllClear = $false
 }
 
-# 4. Check Open WebUI
-$OpenWebUIPort = 8080
-if (Get-NetTCPConnection -LocalPort $OpenWebUIPort -State Listen -ErrorAction SilentlyContinue) {
-    Write-Host "✅ [Open WebUI] is running on port $OpenWebUIPort." -ForegroundColor Green
+# 4. Check Evelyn Server
+$EvelynPort = 7860
+if (Get-NetTCPConnection -LocalPort $EvelynPort -State Listen -ErrorAction SilentlyContinue) {
+    Write-Host "✅ [Evelyn Server] is running on port $EvelynPort." -ForegroundColor Green
 } else {
-    # Check if we can hit it locally just in case
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:8080" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-        if ($response.StatusCode -eq 200) {
-            Write-Host "✅ [Open WebUI] is running." -ForegroundColor Green
-        }
-    } catch {
-        Write-Host "❌ [Open WebUI] is NOT running." -ForegroundColor Red
-        $AllClear = $false
-    }
+    Write-Host "❌ [Evelyn Server] is NOT running." -ForegroundColor Red
+    $AllClear = $false
 }
 
 # 5. Check ComfyUI
