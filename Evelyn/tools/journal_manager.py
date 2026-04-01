@@ -79,9 +79,6 @@ def create_journal_entry(
         str: Confirmation message stating whether a new entry was created or
         an existing one was appended to.
     """
-    if not os.path.exists(PENDING_DIR):
-        os.makedirs(PENDING_DIR, exist_ok=True)
-
     today = datetime.date.today()
     filename = f"Journal Notes {today.strftime('%Y-%m-%d')}.md"
     filepath = os.path.join(PENDING_DIR, filename)
@@ -119,6 +116,9 @@ tags: [{", ".join(clean_tags)}]
 
     # Try append first
     try:
+        if not os.path.exists(PENDING_DIR):
+            os.makedirs(PENDING_DIR, exist_ok=True)
+            
         if os.path.exists(filepath):
             with open(filepath, "a", encoding="utf-8") as f:
                 f.write(append_content)
