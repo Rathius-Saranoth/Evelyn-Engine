@@ -61,6 +61,18 @@
       cursor: pointer; font-size: 12px; transition: all 0.15s;
     }
     .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-ghost.danger:hover { border-color: #e86040; color: #e86040; }
+
+    /* Thread divider */
+    .thread-divider {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 0; color: var(--text-dim); font-size: 11px;
+      letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .thread-divider::before, .thread-divider::after {
+      content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+    }
 
     /* Messages */
     #messages {
@@ -176,6 +188,23 @@
       font-size: 16px; padding: 2px 4px; border-radius: 4px; transition: color 0.15s;
     }
     .btn-tts:hover { color: var(--accent); }
+    .btn-regen {
+      background: none; border: none; cursor: pointer; color: var(--text-dim);
+      font-size: 14px; padding: 2px 4px; border-radius: 4px; transition: color 0.15s;
+    }
+    .btn-regen:hover { color: var(--accent); }
+
+    /* Write-tool badges */
+    .write-badges {
+      display: flex; gap: 6px; flex-wrap: wrap;
+      padding: 0 2px; margin-top: 2px;
+    }
+    .write-badge {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 11px; color: var(--tool-text);
+      background: var(--tool-bg); border: 1px solid var(--tool-border);
+      border-radius: 4px; padding: 2px 8px;
+    }
 
     /* Markdown-ish: inline code */
     .bubble code {
@@ -222,9 +251,8 @@
     <span id="status-text">Ready</span>
   </div>
   <div class="header-actions">
+    <button class="btn-ghost" id="new-thread-btn" title="Start a new conversation thread" onclick="newThread()">✦ New Thread</button>
     <button class="btn-ghost" id="sync-btn" title="Sync memory to Chroma" onclick="syncMemory()">⟳ Sync</button>
-    <button class="btn-ghost" id="clear-btn" title="Clear chat history">Clear</button>
-
   </div>
 </header>
 
@@ -331,6 +359,7 @@ function appendUserMessage(text, ts) {
   div.appendChild(bubble);
   document.getElementById('messages').appendChild(div);
   scrollBottom();
+  return div;
 }
 
 function createAssistantMessage(ts) {
@@ -367,6 +396,47 @@ function playTTS(text, btn) {
 }
 
 // ---------------------------------------------------------------------------
+// Wake Lock — keeps screen alive while streaming (mobile)
+// ---------------------------------------------------------------------------
+let wakeLockSentinel = null;
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try { wakeLockSentinel = await navigator.wakeLock.request('screen'); }
+    catch { /* user denied or not supported */ }
+  }
+}
+function releaseWakeLock() {
+  if (wakeLockSentinel) { wakeLockSentinel.release().catch(() => {}); wakeLockSentinel = null; }
+}
+
+// ---------------------------------------------------------------------------
+// Write-tool tracking — tools that create/edit files
+// ---------------------------------------------------------------------------
+const WRITE_TOOLS = {
+  write_journal_entry:  { icon: '📓', label: 'Journal entry written' },
+  log_context_fact:     { icon: '📌', label: 'Context fact logged' },
+  update_context_fact:  { icon: '📝', label: 'Context fact updated' },
+  generate_image:       { icon: '🎨', label: 'Image generated' },
+};
+
+function addWriteBadges(wrap, usedTools) {
+  const writesUsed = usedTools.filter(t => WRITE_TOOLS[t]);
+  if (writesUsed.length === 0) return;
+  const container = document.createElement('div');
+  container.className = 'write-badges';
+  for (const t of writesUsed) {
+    const badge = document.createElement('span');
+    badge.className = 'write-badge';
+    badge.textContent = `${WRITE_TOOLS[t].icon} ${WRITE_TOOLS[t].label}`;
+    container.appendChild(badge);
+  }
+  // Insert before msg-actions (TTS/regen) if present, otherwise append
+  const actions = wrap.querySelector('.msg-actions');
+  if (actions) wrap.insertBefore(container, actions);
+  else wrap.appendChild(container);
+}
+
+// ---------------------------------------------------------------------------
 // SSE streaming chat
 // ---------------------------------------------------------------------------
 let isStreaming = false;
@@ -382,9 +452,10 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
   setStatus('Thinking…');
+  await requestWakeLock();
 
   const sentAt = Date.now() / 1000;
-  appendUserMessage(text, sentAt);
+  const userMsgDiv = appendUserMessage(text, sentAt);
 
   // Build assistant message container with activity log
   const wrap = createAssistantMessage();
@@ -417,6 +488,7 @@ async function sendMessage() {
   let bubble = null;
   let contentText = '';
   let cursorEl = null;
+  const usedTools = [];
 
   try {
     const resp = await fetch(`${API_BASE}/chat`, {
@@ -479,6 +551,7 @@ async function sendMessage() {
           };
           addActivity('⚙️', toolLabels[evt.name] || evt.name.replace(/_/g, ' '));
           setStatus((toolLabels[evt.name] || evt.name) + '…');
+          usedTools.push(evt.name);
           scrollBottom();
         }
 
@@ -514,7 +587,7 @@ async function sendMessage() {
         if (evt.type === 'done') {
           if (cursorEl) cursorEl.remove();
           if (bubble) bubble.innerHTML = renderMarkdown(contentText);
-          // Add TTS + actions
+          // Add TTS on assistant
           const actions = document.createElement('div');
           actions.className = 'msg-actions';
           const ttsBtn = document.createElement('button');
@@ -525,6 +598,9 @@ async function sendMessage() {
           ttsBtn.onclick = () => playTTS(captured, ttsBtn);
           actions.appendChild(ttsBtn);
           wrap.appendChild(actions);
+          addWriteBadges(wrap, usedTools);
+          // Add regen button on the user message
+          addRegenToUserMsg(userMsgDiv);
           setStatus('Ready');
           scrollBottom();
         }
@@ -537,9 +613,12 @@ async function sendMessage() {
     errBubble.style.color = '#ff6666';
     errBubble.textContent = `Error: ${err.message}`;
     wrap.appendChild(errBubble);
+    // Add regen button on the user message
+    addRegenToUserMsg(userMsgDiv);
     setStatus('Error');
   } finally {
     isStreaming = false;
+    releaseWakeLock();
     document.getElementById('send-btn').disabled = false;
     document.querySelector('.avatar').classList.remove('active');
     input.focus();
@@ -559,6 +638,12 @@ async function loadHistory() {
     for (const m of msgs) {
       if (m.role === 'user') {
         appendUserMessage(m.content, m.ts);
+      } else if (m.content === '[THREAD_BREAK]') {
+        // Render a visual thread divider
+        const divider = document.createElement('div');
+        divider.className = 'thread-divider';
+        divider.textContent = 'new thread';
+        container.appendChild(divider);
       } else if (m.role === 'assistant') {
         const wrap = createAssistantMessage(m.ts);
         if (m.thinking) {
@@ -583,6 +668,11 @@ async function loadHistory() {
         wrap.appendChild(actions);
       }
     }
+    // Add regen button to the last user message only
+    const allUser = container.querySelectorAll('.msg.user');
+    if (allUser.length > 0) {
+      addRegenToUserMsg(allUser[allUser.length - 1]);
+    }
     scrollBottom();
   } catch (e) {
     console.warn('Could not load history:', e);
@@ -592,11 +682,187 @@ async function loadHistory() {
 // ---------------------------------------------------------------------------
 // Controls
 // ---------------------------------------------------------------------------
-document.getElementById('clear-btn').onclick = async () => {
-  if (!confirm('Clear all chat history?')) return;
-  await fetch(`${API_BASE}/history`, { method: 'DELETE', headers: headers() });
-  document.getElementById('messages').innerHTML = '';
-};
+// History clear removed from UI — use DELETE /history API directly if needed.
+
+function addRegenToUserMsg(userMsgDiv) {
+  // Remove any existing regen button from other user messages
+  document.querySelectorAll('.msg.user .btn-regen').forEach(b => b.remove());
+  // Add regen actions to this user message
+  let actions = userMsgDiv.querySelector('.msg-actions');
+  if (!actions) {
+    actions = document.createElement('div');
+    actions.className = 'msg-actions';
+    userMsgDiv.appendChild(actions);
+  }
+  const regenBtn = document.createElement('button');
+  regenBtn.className = 'btn-regen';
+  regenBtn.textContent = '🔄';
+  regenBtn.title = 'Regenerate response';
+  regenBtn.onclick = () => regenerateResponse(userMsgDiv);
+  actions.appendChild(regenBtn);
+}
+
+async function regenerateResponse(userMsgDiv) {
+  if (isStreaming) return;
+  // Remove the assistant message(s) following this user message
+  let next = userMsgDiv.nextElementSibling;
+  while (next && next.classList.contains('msg') && next.classList.contains('assistant')) {
+    const toRemove = next;
+    next = next.nextElementSibling;
+    toRemove.remove();
+  }
+  // Remove the regen button from this user message
+  const oldBtn = userMsgDiv.querySelector('.btn-regen');
+  if (oldBtn) oldBtn.remove();
+
+  isStreaming = true;
+  document.getElementById('send-btn').disabled = true;
+  document.querySelector('.avatar').classList.add('active');
+  setStatus('Regenerating…');
+  await requestWakeLock();
+
+  const wrap = createAssistantMessage();
+  const actLog = document.createElement('div');
+  actLog.className = 'activity-log';
+  wrap.appendChild(actLog);
+  let actRemoved = false;
+
+  function addActivity(icon, text, isDone = false) {
+    const prev = actLog.querySelector('.activity-step:last-child');
+    if (prev) prev.classList.add('done');
+    const step = document.createElement('div');
+    step.className = 'activity-step';
+    step.innerHTML = icon
+      ? `<span class="step-icon">${icon}</span><span>${text}</span>`
+      : `<div class="step-dot"></div><span>${text}</span>`;
+    if (isDone) step.classList.add('done');
+    actLog.appendChild(step);
+    scrollBottom();
+  }
+
+  function removeActivity() {
+    if (!actRemoved) { actLog.remove(); actRemoved = true; }
+  }
+
+  addActivity('🔄', 'Regenerating response…');
+  let thinkBlock = null;
+  let thinkContent = null;
+  let bubble = null;
+  let contentText = '';
+  let cursorEl = null;
+  const usedTools = [];
+
+  try {
+    const resp = await fetch(`${API_BASE}/regenerate`, {
+      method: 'POST',
+      headers: headers(),
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let evt;
+        try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (evt.type === 'status') addActivity(null, evt.msg);
+
+        if (evt.type === 'thinking') {
+          if (!thinkBlock) {
+            addActivity('🧠', 'Model thinking…');
+            thinkBlock = createThinkBlock();
+            thinkContent = thinkBlock.querySelector('.think-content');
+            if (bubble) wrap.insertBefore(thinkBlock, bubble);
+            else wrap.appendChild(thinkBlock);
+          }
+          thinkContent.textContent += evt.delta;
+          thinkContent.scrollTop = thinkContent.scrollHeight;
+          scrollBottom();
+        }
+
+        if (evt.type === 'tool') {
+          const toolLabels = {
+            search_vault: 'Searching vault', recall_specific_memory: 'Reading memory',
+            read_journal_entry: 'Reading journal', read_recent_journal_entries: 'Reviewing recent journal',
+            write_journal_entry: 'Writing journal entry', log_context_fact: 'Logging context fact',
+            update_context_fact: 'Updating context fact', generate_image: 'Generating image',
+            sync_context_memory: 'Syncing memory',
+          };
+          addActivity('⚙️', toolLabels[evt.name] || evt.name.replace(/_/g, ' '));
+          setStatus((toolLabels[evt.name] || evt.name) + '…');
+          usedTools.push(evt.name);
+        }
+
+        if (evt.type === 'text') {
+          if (!bubble) {
+            addActivity('✍️', 'Generating response…');
+            removeActivity();
+            bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            cursorEl = document.createElement('span');
+            cursorEl.className = 'cursor';
+            bubble.appendChild(cursorEl);
+            wrap.appendChild(bubble);
+            if (thinkBlock) {
+              thinkBlock.querySelector('.think-label').textContent = 'Thought process';
+              thinkBlock.classList.remove('open');
+            }
+          }
+          contentText += evt.delta;
+          bubble.innerHTML = renderMarkdown(contentText);
+          bubble.appendChild(cursorEl);
+          setStatus('Streaming…');
+          scrollBottom();
+        }
+
+        if (evt.type === 'done') {
+          if (cursorEl) cursorEl.remove();
+          if (bubble) bubble.innerHTML = renderMarkdown(contentText);
+          const actions = document.createElement('div');
+          actions.className = 'msg-actions';
+          const ttsBtn = document.createElement('button');
+          ttsBtn.className = 'btn-tts';
+          ttsBtn.textContent = '🔊';
+          const captured = contentText;
+          ttsBtn.onclick = () => playTTS(captured, ttsBtn);
+          actions.appendChild(ttsBtn);
+          wrap.appendChild(actions);
+          addWriteBadges(wrap, usedTools);
+          // Add regen to user message
+          addRegenToUserMsg(userMsgDiv);
+          setStatus('Ready');
+          scrollBottom();
+        }
+      }
+    }
+  } catch (err) {
+    removeActivity();
+    const errBubble = document.createElement('div');
+    errBubble.className = 'bubble';
+    errBubble.style.color = '#ff6666';
+    errBubble.textContent = `Error: ${err.message}`;
+    wrap.appendChild(errBubble);
+    addRegenToUserMsg(userMsgDiv);
+    setStatus('Error');
+  } finally {
+    isStreaming = false;
+    releaseWakeLock();
+    document.getElementById('send-btn').disabled = false;
+    document.querySelector('.avatar').classList.remove('active');
+  }
+}
 
 async function syncMemory() {
   const btn = document.getElementById('sync-btn');
@@ -625,6 +891,39 @@ async function syncMemory() {
   }
 }
 
+async function newThread() {
+  const btn = document.getElementById('new-thread-btn');
+  if (btn.disabled || isStreaming) return;
+  btn.disabled = true;
+  btn.textContent = '✦ Starting…';
+  btn.style.borderColor = 'var(--accent)';
+  btn.style.color = 'var(--accent)';
+  try {
+    const resp = await fetch(`${API_BASE}/new_thread`, { method: 'POST', headers: headers() });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    // Insert a visual divider in the current chat
+    const divider = document.createElement('div');
+    divider.className = 'thread-divider';
+    divider.textContent = 'new thread';
+    document.getElementById('messages').appendChild(divider);
+    scrollBottom();
+    btn.textContent = '✓ Thread started';
+    btn.style.borderColor = 'var(--tool-text)';
+    btn.style.color = 'var(--tool-text)';
+  } catch (e) {
+    btn.textContent = '✗ Failed';
+    btn.style.borderColor = '#ff6666';
+    btn.style.color = '#ff6666';
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '✦ New Thread';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 3000);
+  }
+}
+
 document.getElementById('input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
@@ -635,6 +934,28 @@ document.getElementById('input').addEventListener('input', function() {
 document.getElementById('send-btn').addEventListener('click', sendMessage);
 
 
+
+// ---------------------------------------------------------------------------
+// Visibility recovery — reload history if connection was lost while backgrounded
+// ---------------------------------------------------------------------------
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && isStreaming) {
+    // Page came back and we were in a streaming state — the SSE likely died.
+    // Give a brief moment then reload history from DB to recover.
+    setTimeout(async () => {
+      if (isStreaming) {
+        console.log('[Recovery] Page became visible during stream — reloading history');
+        isStreaming = false;
+        releaseWakeLock();
+        document.getElementById('send-btn').disabled = false;
+        document.querySelector('.avatar').classList.remove('active');
+        setStatus('Reconnected');
+        await loadHistory();
+        setStatus('Ready');
+      }
+    }, 2000);
+  }
+});
 
 // API key prompt if not set
 if (!API_KEY && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
