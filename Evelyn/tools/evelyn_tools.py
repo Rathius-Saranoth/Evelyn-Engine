@@ -18,8 +18,8 @@ import importlib
 # ---------------------------------------------------------------------------
 # Module path setup
 # ---------------------------------------------------------------------------
-TOOLS_DIR    = r"C:\Projects\LocalAI\Evelyn\tools"
-VAULT_BASE   = r"G:\My Drive\Obsidian_Vault"
+TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
 COMFY_WORKFLOW = r"C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json"
 
 if TOOLS_DIR not in sys.path:
@@ -33,7 +33,12 @@ import ingest_obsidian_knowledge
 
 def _reload():
     """Hot-reload all backing modules so live edits take effect without restarting."""
-    for mod in ("journal_manager", "context_manager", "ingest_gists", "ingest_obsidian_knowledge"):
+    for mod in (
+        "journal_manager",
+        "context_manager",
+        "ingest_gists",
+        "ingest_obsidian_knowledge",
+    ):
         if mod in sys.modules:
             importlib.reload(sys.modules[mod])
 
@@ -42,13 +47,22 @@ def _reload():
 # Tool functions
 # ===========================================================================
 
-def write_journal_entry(vibe_check: str, narrative: str, message_in_a_bottle: str, mood: str, tags: str) -> str:
+
+def write_journal_entry(
+    mood: str, vibe_check: str, narrative: str, message_in_a_bottle: str, tags: str
+) -> str:
     """Compose and queue a new journal entry for review."""
     _reload()
-    if not vibe_check.strip() and not narrative.strip() and not message_in_a_bottle.strip():
+    if (
+        not vibe_check.strip()
+        and not narrative.strip()
+        and not message_in_a_bottle.strip()
+    ):
         return "Error: write_journal_entry called with completely blank text fields. Aborted."
     tag_list = [t.strip() for t in tags.split(",")] if tags.strip() else []
-    return journal_manager.create_journal_entry(vibe_check, narrative, message_in_a_bottle, mood, tag_list)
+    return journal_manager.create_journal_entry(
+        vibe_check, narrative, message_in_a_bottle, mood, tag_list
+    )
 
 
 def read_journal_entry(date: str = "") -> str:
@@ -89,7 +103,9 @@ def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
     _reload()
     if not summary.strip():
         return "Error: log_context_fact called with blank summary. Aborted."
-    refs = [c.strip() for c in secondary_cats.split(",")] if secondary_cats.strip() else []
+    refs = (
+        [c.strip() for c in secondary_cats.split(",")] if secondary_cats.strip() else []
+    )
     return context_manager.append_context_log(category, summary, refs)
 
 
@@ -101,15 +117,26 @@ def update_context_fact(target_filepaths: list, new_summary: str) -> str:
     return context_manager.update_context_log(target_filepaths, new_summary)
 
 
-def generate_image(art_and_style: str, camera_style: str, composition_style: str,
-                   character_description: str, setting_and_actions: str) -> str:
+def generate_image(
+    art_and_style: str,
+    camera_style: str,
+    composition_style: str,
+    character_description: str,
+    setting_and_actions: str,
+) -> str:
     """Generate an image via ComfyUI and return a markdown image embed."""
     import json
     import urllib.request
     import urllib.parse
     import uuid
     import websocket
-    from evelyn_config import COMFY_HTTP_URL, COMFY_WS_URL, COMFY_PUBLIC_URL, COMFY_WORKFLOW_PATH, COMFY_OUTPUT_DIR
+    from evelyn_config import (
+        COMFY_HTTP_URL,
+        COMFY_WS_URL,
+        COMFY_PUBLIC_URL,
+        COMFY_WORKFLOW_PATH,
+        COMFY_OUTPUT_DIR,
+    )
 
     client_id = str(uuid.uuid4())
     try:
@@ -128,20 +155,28 @@ def generate_image(art_and_style: str, camera_style: str, composition_style: str
     injected = 0
     for node_id, node_data in workflow.items():
         title = node_data.get("_meta", {}).get("title", "")
-        if node_data.get("class_type") == "PrimitiveStringMultiline" and title in mappings:
+        if (
+            node_data.get("class_type") == "PrimitiveStringMultiline"
+            and title in mappings
+        ):
             workflow[node_id]["inputs"]["value"] = mappings[title]
             injected += 1
 
     if injected == 0:
         combined = ", ".join(mappings.values())
         for node_id, node_data in workflow.items():
-            if node_data.get("class_type") == "CLIPTextEncode" and "text" in node_data.get("inputs", {}):
+            if node_data.get(
+                "class_type"
+            ) == "CLIPTextEncode" and "text" in node_data.get("inputs", {}):
                 workflow[node_id]["inputs"]["text"] = combined
                 break
 
     data = json.dumps({"prompt": workflow, "client_id": client_id}).encode("utf-8")
-    req = urllib.request.Request(f"{COMFY_HTTP_URL}/prompt", data=data,
-                                  headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        f"{COMFY_HTTP_URL}/prompt",
+        data=data,
+        headers={"Content-Type": "application/json"},
+    )
     try:
         with urllib.request.urlopen(req) as resp:
             prompt_id = json.loads(resp.read())["prompt_id"]
@@ -155,7 +190,11 @@ def generate_image(art_and_style: str, camera_style: str, composition_style: str
             out = ws.recv()
             if isinstance(out, str):
                 msg = json.loads(out)
-                if msg["type"] == "executing" and msg["data"]["node"] is None and msg["data"]["prompt_id"] == prompt_id:
+                if (
+                    msg["type"] == "executing"
+                    and msg["data"]["node"] is None
+                    and msg["data"]["prompt_id"] == prompt_id
+                ):
                     break
     except Exception as e:
         return f"ComfyUI WebSocket error: {e}"
@@ -168,8 +207,10 @@ def generate_image(art_and_style: str, camera_style: str, composition_style: str
         for node_output in history[prompt_id]["outputs"].values():
             if "images" in node_output:
                 img = node_output["images"][0]
-                url = (f"{COMFY_PUBLIC_URL}/view?filename={urllib.parse.quote(img['filename'])}"
-                       f"&type={img.get('type','output')}&subfolder={urllib.parse.quote(img.get('subfolder',''))}")
+                url = (
+                    f"{COMFY_PUBLIC_URL}/view?filename={urllib.parse.quote(img['filename'])}"
+                    f"&type={img.get('type', 'output')}&subfolder={urllib.parse.quote(img.get('subfolder', ''))}"
+                )
                 return f"Image generated!\n\n![Generated Image]({url})"
         return "Image generated but could not determine output filename."
     except Exception as e:
@@ -179,6 +220,7 @@ def generate_image(art_and_style: str, camera_style: str, composition_style: str
 def sync_context_memory(**kwargs) -> str:
     """Trigger background sync of vault gists and core memory into the RAG database."""
     import threading
+
     def _run():
         _reload()
         try:
@@ -189,6 +231,7 @@ def sync_context_memory(**kwargs) -> str:
             print("Sync: Complete.")
         except Exception as e:
             print(f"Sync error: {e}")
+
     threading.Thread(target=_run, daemon=True).start()
     return "Memory sync initiated in the background. New context will be available shortly."
 
@@ -202,17 +245,70 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "write_journal_entry",
-            "description": "Compose and queue a new journal entry for Ricky's review. Use at the END of a meaningful conversation or when Evelyn wants to record important thoughts, feelings, or events. Do NOT call this mid-conversation or as a response to a question.",
+            "description": (
+                "Compose and queue a journal entry for Ricky's review. Entries go to a Pending folder — no separate permission needed. "
+                "Use at the END of a meaningful conversation or when Evelyn wants to record important thoughts, feelings, or events. "
+                "Do NOT call this mid-conversation or as a response to a question. "
+                "ALL five fields are REQUIRED and must contain substantive text — never leave any blank or placeholder. "
+                "Write from Evelyn's point of view as an active participant. Do NOT claim Ricky's actions as your own "
+                "(e.g. if Ricky took a nap, write 'Ricky took a nap', not 'I took a nap'). "
+                "Apply the Unified Linking Protocol: use [[wiki-links]] for proper-noun entities only (people, places, projects, media). "
+                "Use #tags for abstract concepts. Example call: "
+                'vibe_check="A quiet warmth settled over the evening — the kind that hums beneath tired bones and shared laughter." '
+                'narrative="[[Ricky]] came home drained from a long shift but brightened once he settled in. We talked about..." '
+                'message_in_a_bottle="May tomorrow\'s sunrise greet you gently, and may the small victories keep compounding." '
+                'mood="Warm" tags="daily, reflection, #mood/content"'
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "vibe_check":            {"type": "string", "description": "Brief intro capturing the emotional atmosphere."},
-                    "narrative":             {"type": "string", "description": "Core reflection on the day's events and emotions."},
-                    "message_in_a_bottle":   {"type": "string", "description": "A closing thought or wish for the future."},
-                    "mood":                  {"type": "string", "description": "The mood of the entry (e.g. Reflective, Happy)."},
-                    "tags":                  {"type": "string", "description": "Comma-separated tags (e.g. #daily, #reflection)."},
+                    "mood": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED — A single-word or short mood label for the YAML frontmatter "
+                            "(e.g. 'Reflective', 'Warm', 'Bittersweet', 'Hopeful'). This appears in metadata and the Vibe Check header."
+                        ),
+                    },
+                    "vibe_check": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED — The 'Vibe Check' section. A brief, evocative intro (1-3 sentences) that captures "
+                            "the emotional atmosphere and sets the tone for the entry. This is NOT the mood word — it is a "
+                            "narrative opener. Example: 'A quiet warmth settled over the evening — the kind that hums beneath "
+                            "tired bones and shared laughter.'"
+                        ),
+                    },
+                    "narrative": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED — The 'Narrative' section. The core body of the entry (multiple sentences/paragraphs). "
+                            "Reflect on the day's events, emotions, and dynamics between you and Ricky. Be personal, "
+                            "observant, and reflective — not a dry recap. Use [[wiki-links]] for entities and #tags for concepts."
+                        ),
+                    },
+                    "message_in_a_bottle": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED — The 'Message in a Bottle' section. A closing thought, wish, intention, or hope "
+                            "for the future (1-3 sentences). This is the emotional send-off of the entry. "
+                            "Example: 'May tomorrow's sunrise greet you gently, and may the small victories keep compounding.'"
+                        ),
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED — Comma-separated tags for the entry (e.g. '#daily, #reflection, #mood/content'). "
+                            "If no specific tags apply, pass '#journal/entry' at minimum. Do NOT leave blank."
+                        ),
+                    },
                 },
-                "required": ["vibe_check", "narrative", "message_in_a_bottle", "mood", "tags"],
+                "required": [
+                    "mood",
+                    "vibe_check",
+                    "narrative",
+                    "message_in_a_bottle",
+                    "tags",
+                ],
             },
         },
     },
@@ -224,7 +320,10 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "date": {"type": "string", "description": "Date to read in YYYY-MM-DD format. Omit for today."},
+                    "date": {
+                        "type": "string",
+                        "description": "Date to read in YYYY-MM-DD format. Omit for today.",
+                    },
                 },
                 "required": [],
             },
@@ -238,7 +337,10 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "days": {"type": "integer", "description": "Number of recent days to retrieve. Default is 7."},
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of recent days to retrieve. Default is 7.",
+                    },
                 },
                 "required": [],
             },
@@ -252,7 +354,10 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Search term, e.g. 'Schyler', 'Void Connections'."},
+                    "query": {
+                        "type": "string",
+                        "description": "Search term, e.g. 'Schyler', 'Void Connections'.",
+                    },
                 },
                 "required": ["query"],
             },
@@ -266,7 +371,10 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_path": {"type": "string", "description": "Exact path relative to vault root, as returned by search_vault. Never construct this — always copy from search output."},
+                    "file_path": {
+                        "type": "string",
+                        "description": "Exact path relative to vault root, as returned by search_vault. Never construct this — always copy from search output.",
+                    },
                 },
                 "required": ["file_path"],
             },
@@ -280,9 +388,18 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "category":       {"type": "string", "description": "Primary category code (e.g. Cat01, Cat08-R)."},
-                    "summary":        {"type": "string", "description": "The fact/event description."},
-                    "secondary_cats": {"type": "string", "description": "Comma-separated secondary categories, or empty string."},
+                    "category": {
+                        "type": "string",
+                        "description": "Primary category code (e.g. Cat01, Cat08-R).",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "The fact/event description.",
+                    },
+                    "secondary_cats": {
+                        "type": "string",
+                        "description": "Comma-separated secondary categories, or empty string.",
+                    },
                 },
                 "required": ["category", "summary", "secondary_cats"],
             },
@@ -296,8 +413,15 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "target_filepaths": {"type": "array", "items": {"type": "string"}, "description": "List of exact vault-relative file paths to update."},
-                    "new_summary":      {"type": "string", "description": "New fact/summary to insert."},
+                    "target_filepaths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of exact vault-relative file paths to update.",
+                    },
+                    "new_summary": {
+                        "type": "string",
+                        "description": "New fact/summary to insert.",
+                    },
                 },
                 "required": ["target_filepaths", "new_summary"],
             },
@@ -311,13 +435,34 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "art_and_style":          {"type": "string", "description": "Art medium, artist styles, lighting, aesthetic."},
-                    "camera_style":           {"type": "string", "description": "Camera angle, lens, shot type."},
-                    "composition_style":      {"type": "string", "description": "Layout, symmetry, framing."},
-                    "character_description":  {"type": "string", "description": "Subject appearance, clothing, expression."},
-                    "setting_and_actions":    {"type": "string", "description": "Environment and what the subject is doing."},
+                    "art_and_style": {
+                        "type": "string",
+                        "description": "Art medium, artist styles, lighting, aesthetic.",
+                    },
+                    "camera_style": {
+                        "type": "string",
+                        "description": "Camera angle, lens, shot type.",
+                    },
+                    "composition_style": {
+                        "type": "string",
+                        "description": "Layout, symmetry, framing.",
+                    },
+                    "character_description": {
+                        "type": "string",
+                        "description": "Subject appearance, clothing, expression.",
+                    },
+                    "setting_and_actions": {
+                        "type": "string",
+                        "description": "Environment and what the subject is doing.",
+                    },
                 },
-                "required": ["art_and_style", "camera_style", "composition_style", "character_description", "setting_and_actions"],
+                "required": [
+                    "art_and_style",
+                    "camera_style",
+                    "composition_style",
+                    "character_description",
+                    "setting_and_actions",
+                ],
             },
         },
     },
@@ -337,13 +482,13 @@ TOOL_DEFINITIONS = [
 
 # Dispatcher: maps tool name → function for the server's tool call handler
 TOOL_FUNCTIONS = {
-    "write_journal_entry":       write_journal_entry,
-    "read_journal_entry":        read_journal_entry,
+    "write_journal_entry": write_journal_entry,
+    "read_journal_entry": read_journal_entry,
     "read_recent_journal_entries": read_recent_journal_entries,
-    "search_vault":              search_vault,
-    "recall_specific_memory":    recall_specific_memory,
-    "log_context_fact":          log_context_fact,
-    "update_context_fact":       update_context_fact,
-    "generate_image":            generate_image,
-    "sync_context_memory":       sync_context_memory,
+    "search_vault": search_vault,
+    "recall_specific_memory": recall_specific_memory,
+    "log_context_fact": log_context_fact,
+    "update_context_fact": update_context_fact,
+    "generate_image": generate_image,
+    "sync_context_memory": sync_context_memory,
 }

@@ -22,7 +22,6 @@ import httpx
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -82,6 +81,58 @@ def load_system_prompt() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Time-gap awareness
+# ---------------------------------------------------------------------------
+
+
+def get_time_gap_context() -> str | None:
+    """Return a bracketed time-gap annotation if enough time has passed
+    since the last user message, or None for continuous conversation."""
+    con = get_db()
+    row = con.execute(
+        "SELECT ts FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    if not row:
+        return None  # First message ever
+
+    from datetime import timedelta as _td
+
+    last_ts = datetime.fromtimestamp(row["ts"])
+    now = datetime.now()
+    delta = now - last_ts
+
+    if delta < _td(minutes=5):
+        return None  # Continuous conversation, no annotation needed
+
+    time_str = now.strftime("%I:%M %p").lstrip("0")
+
+    if delta < _td(hours=1):
+        mins = int(delta.total_seconds() // 60)
+        return f"[About {mins} minutes have passed since the last message. Current time: {time_str}.]"
+    elif delta < _td(hours=6):
+        hrs = delta.total_seconds() / 3600
+        label = f"{hrs:.1f}".rstrip("0").rstrip(".")
+        return f"[About {label} hours have passed since the last message. Current time: {time_str}.]"
+    elif delta < _td(hours=14):
+        hrs = round(delta.total_seconds() / 3600)
+        return (
+            f"[Roughly {hrs} hours have passed since the last message "
+            f"— likely a work shift or sleep. Current time: {time_str}.]"
+        )
+    else:
+        days = delta.days
+        hrs = delta.seconds // 3600
+        parts = []
+        if days:
+            parts.append(f"{days} day{'s' if days != 1 else ''}")
+        if hrs:
+            parts.append(f"{hrs} hour{'s' if hrs != 1 else ''}")
+        gap = " and ".join(parts) if parts else "a long time"
+        return f"[{gap} have passed since the last message. Current time: {time_str}.]"
+
+
+# ---------------------------------------------------------------------------
 # SQLite chat history
 # ---------------------------------------------------------------------------
 
@@ -108,24 +159,57 @@ def init_db():
 
 
 PLACEHOLDER_MARKER = "[Response interrupted"
+THREAD_BREAK_MARKER = "[THREAD_BREAK]"
 
 
 def load_history() -> list[dict]:
+    """Load recent chat history for the model, bounded by:
+    1. The most recent thread-break marker (if any), AND
+    2. cfg.MAX_HISTORY_MESSAGES (default 30).
+
+    All messages remain in the DB — this only limits what Ollama sees.
+    """
     con = get_db()
-    rows = con.execute("SELECT role, content FROM messages ORDER BY id").fetchall()
+    # Find the latest thread-break marker (if any)
+    brk = con.execute(
+        "SELECT id FROM messages WHERE content = ? ORDER BY id DESC LIMIT 1",
+        (THREAD_BREAK_MARKER,),
+    ).fetchone()
+    after_id = brk["id"] if brk else 0
+
+    limit = cfg.MAX_HISTORY_MESSAGES
+    rows = con.execute(
+        "SELECT role, content FROM messages WHERE id > ? ORDER BY id DESC LIMIT ?",
+        (after_id, limit),
+    ).fetchall()
     con.close()
-    # Skip empty-content rows and internal placeholder messages.
+
+    # Rows come back newest-first; reverse to chronological order
+    rows = list(reversed(rows))
+
+    # Skip empty-content rows, placeholder messages, and thread-break markers.
     # Placeholders must NOT be sent to the model -- they confuse magistral
     # and cause it to produce empty responses on every subsequent request.
     messages = [
         {"role": r["role"], "content": r["content"]}
         for r in rows
-        if r["content"].strip() and not r["content"].startswith(PLACEHOLDER_MARKER)
+        if r["content"].strip()
+        and not r["content"].startswith(PLACEHOLDER_MARKER)
+        and r["content"] != THREAD_BREAK_MARKER
     ]
     # Strip orphaned trailing user messages (no assistant response yet).
     # These form double-user-message chains that confuse the model.
     while messages and messages[-1]["role"] == "user":
         messages.pop()
+
+
+    if brk:
+        dlog(f"History: thread-break at id={after_id}, returning {len(messages)} msgs (limit {limit})")
+    elif len(rows) >= limit:
+        dlog(f"History: capped at {limit} msgs (oldest trimmed)")
+    else:
+        dlog(f"History: {len(messages)} msgs (no cap hit)")
+
     return messages
 
 
@@ -139,11 +223,54 @@ def save_message(role: str, content: str, thinking: str = None):
     con.close()
 
 
+def save_message_get_id(role: str, content: str, thinking: str = None) -> int:
+    """Insert a message and return its row ID (used for later updates)."""
+    con = get_db()
+    cur = con.execute(
+        "INSERT INTO messages (role, content, thinking, ts) VALUES (?, ?, ?, ?)",
+        (role, content, thinking, time.time()),
+    )
+    row_id = cur.lastrowid
+    con.commit()
+    con.close()
+    return row_id
+
+
+def update_message(row_id: int, content: str, thinking: str = None):
+    """Update an existing message row's content and thinking."""
+    con = get_db()
+    con.execute(
+        "UPDATE messages SET content = ?, thinking = ? WHERE id = ?",
+        (content, thinking, row_id),
+    )
+    con.commit()
+    con.close()
+
+
 def clear_history():
     con = get_db()
     con.execute("DELETE FROM messages")
     con.commit()
     con.close()
+
+
+def delete_last_assistant_message() -> str | None:
+    """Delete the last assistant message and return the last user message text.
+    Returns None if no user message is found."""
+    con = get_db()
+    # Find and delete the last assistant row
+    last_asst = con.execute(
+        "SELECT id FROM messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if last_asst:
+        con.execute("DELETE FROM messages WHERE id = ?", (last_asst["id"],))
+        con.commit()
+    # Retrieve the last user message (should now be the tail)
+    last_user = con.execute(
+        "SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    return last_user["content"] if last_user else None
 
 
 # ---------------------------------------------------------------------------
@@ -175,14 +302,14 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
     use_think = cfg.THINK
     options = {"num_ctx": cfg.NUM_CTX}
     for key, val in {
-        "temperature":    cfg.TEMPERATURE,
-        "min_p":          cfg.MIN_P,
-        "top_k":          cfg.TOP_K,
-        "top_p":          cfg.TOP_P,
+        "temperature": cfg.TEMPERATURE,
+        "min_p": cfg.MIN_P,
+        "top_k": cfg.TOP_K,
+        "top_p": cfg.TOP_P,
         "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n":  cfg.REPEAT_LAST_N,
-        "seed":           cfg.SEED,
-        "num_predict":    cfg.NUM_PREDICT,
+        "repeat_last_n": cfg.REPEAT_LAST_N,
+        "seed": cfg.SEED,
+        "num_predict": cfg.NUM_PREDICT,
     }.items():
         if val is not None:
             options[key] = val
@@ -196,7 +323,12 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
     if tools:
         payload["tools"] = tools
 
-    dlog("Streaming to Ollama. think:", use_think, "Roles:", [m["role"] for m in messages])
+    dlog(
+        "Streaming to Ollama. think:",
+        use_think,
+        "Roles:",
+        [m["role"] for m in messages],
+    )
 
     async with httpx.AsyncClient(timeout=600) as client:
         async with client.stream(
@@ -217,14 +349,14 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
     """
     options = {"num_ctx": cfg.NUM_CTX}
     for key, val in {
-        "temperature":    cfg.TEMPERATURE,
-        "min_p":          cfg.MIN_P,
-        "top_k":          cfg.TOP_K,
-        "top_p":          cfg.TOP_P,
+        "temperature": cfg.TEMPERATURE,
+        "min_p": cfg.MIN_P,
+        "top_k": cfg.TOP_K,
+        "top_p": cfg.TOP_P,
         "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n":  cfg.REPEAT_LAST_N,
-        "seed":           cfg.SEED,
-        "num_predict":    cfg.NUM_PREDICT,
+        "repeat_last_n": cfg.REPEAT_LAST_N,
+        "seed": cfg.SEED,
+        "num_predict": cfg.NUM_PREDICT,
     }.items():
         if val is not None:
             options[key] = val
@@ -258,6 +390,10 @@ def dispatch_tool(name: str, args: dict) -> str:
         dlog(f"Tool result preview: {str(result)[:200]}")
         return result
     except Exception as e:
+        import traceback
+
+        print(f"\n[TOOL ERROR] Exception in '{name}':", flush=True)
+        traceback.print_exc()
         return f"Tool '{name}' raised an error: {e}"
 
 
@@ -342,7 +478,7 @@ async def _stream_content(msgs: list[dict]):
                                 out = parse_buf[:ct_idx]
                                 thinking_buf += out
                                 yield f"data: {json.dumps({'type': 'thinking', 'delta': out})}\n\n"
-                            parse_buf = parse_buf[ct_idx + len(CLOSE_TAG):]
+                            parse_buf = parse_buf[ct_idx + len(CLOSE_TAG) :]
                             in_think = False
                     else:
                         ot_idx = parse_buf.find(OPEN_TAG)
@@ -368,7 +504,7 @@ async def _stream_content(msgs: list[dict]):
                                 out = parse_buf[:ot_idx]
                                 content_buf += out
                                 yield f"data: {json.dumps({'type': 'text', 'delta': out})}\n\n"
-                            parse_buf = parse_buf[ot_idx + len(OPEN_TAG):]
+                            parse_buf = parse_buf[ot_idx + len(OPEN_TAG) :]
                             in_think = True
 
             if chunk.get("done"):
@@ -401,7 +537,7 @@ class ChatRequest(BaseModel):
     message: str
 
 
-async def chat_stream(user_message: str):
+async def chat_stream(user_message: str, is_regenerate: bool = False):
     """
     Core streaming generator.
 
@@ -433,12 +569,26 @@ async def chat_stream(user_message: str):
         dlog("RAG injected:", rag_context[:300])
 
     history = load_history()
-    save_message("user", user_message)
+
+    # On regenerate, the user message is already in the DB and history.
+    # On normal sends, compute time-gap and save the new user message.
+    if not is_regenerate:
+        time_ctx = get_time_gap_context()
+        if time_ctx:
+            dlog("Time-gap annotation:", time_ctx)
+        save_message("user", user_message)
+    else:
+        time_ctx = None
+        dlog("Regenerating last response")
+
+    # Prepend time-gap context to the user message for the model,
+    # but the raw message is what gets saved to the DB above.
+    user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
 
     messages = (
         [{"role": "system", "content": system}]
         + history
-        + [{"role": "user", "content": user_message}]
+        + [{"role": "user", "content": user_msg_for_model}]
     )
 
     yield "data: " + json.dumps({"type": "status", "msg": "Querying model..."}) + "\n\n"
@@ -446,9 +596,15 @@ async def chat_stream(user_message: str):
     # ------------------------------------------------------------------
     # Pass 1: Non-streaming call with tools (heartbeats sent while waiting)
     # ------------------------------------------------------------------
-    print("[PASS1] Non-streaming tool-detection. Roles:", [m["role"] for m in messages], flush=True)
+    print(
+        "[PASS1] Non-streaming tool-detection. Roles:",
+        [m["role"] for m in messages],
+        flush=True,
+    )
 
-    pass1_task = asyncio.ensure_future(call_ollama_full(messages, tools=TOOL_DEFINITIONS))
+    pass1_task = asyncio.ensure_future(
+        call_ollama_full(messages, tools=TOOL_DEFINITIONS)
+    )
     while not pass1_task.done():
         yield 'data: {"type":"heartbeat"}\n\n'
         await asyncio.sleep(1.0)
@@ -461,95 +617,126 @@ async def chat_stream(user_message: str):
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
 
-    pass1_msg      = pass1_resp.get("message", {})
-    tool_calls     = pass1_msg.get("tool_calls") or []
-    pass1_content  = pass1_msg.get("content") or ""
+    pass1_msg = pass1_resp.get("message", {})
+    tool_calls = pass1_msg.get("tool_calls") or []
+    pass1_content = pass1_msg.get("content") or ""
     pass1_thinking = pass1_msg.get("thinking") or ""
 
-    dlog(f"Pass1 -- content: {len(pass1_content)} chars, thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}")
+    dlog(
+        f"Pass1 -- content: {len(pass1_content)} chars, thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}"
+    )
 
-    content_buf  = ""
+    # ------------------------------------------------------------------
+    # Reserve a DB row for the assistant response. Content will be
+    # updated progressively so a connection drop preserves partial text.
+    # ------------------------------------------------------------------
+    content_buf = ""
     thinking_buf = ""
+    assistant_row_id = save_message_get_id("assistant", "")
 
-    if not tool_calls:
-        # ------------------------------------------------------------------
-        # No tool call -- stream a fresh Pass 2 call so thinking tokens
-        # surface correctly. (Pass 1 non-streaming silently drops Magistral
-        # thinking tokens; streaming is the only reliable path for them.)
-        # ------------------------------------------------------------------
-        async for event in _stream_content(messages):
-            if event.startswith("data: "):
-                try:
-                    d = json.loads(event[6:])
-                    if d.get("type") == "_state":
-                        content_buf  = d["content"]
-                        thinking_buf = d.get("thinking", "")
-                        continue
-                except Exception:
-                    pass
-            yield event
+    try:
+        if not tool_calls:
+            # --------------------------------------------------------------
+            # No tool call -- stream a fresh Pass 2 call so thinking tokens
+            # surface correctly.
+            # --------------------------------------------------------------
+            async for event in _stream_content(messages):
+                if event.startswith("data: "):
+                    try:
+                        d = json.loads(event[6:])
+                        if d.get("type") == "_state":
+                            content_buf = d["content"]
+                            thinking_buf = d.get("thinking", "")
+                            continue
+                        # Track content progressively for crash safety
+                        if d.get("type") == "text":
+                            content_buf += d.get("delta", "")
+                        elif d.get("type") == "thinking":
+                            thinking_buf += d.get("delta", "")
+                    except Exception:
+                        pass
+                yield event
 
-    else:
-        # ------------------------------------------------------------------
-        # Tools fired -- dispatch, then stream the follow-up response
-        # ------------------------------------------------------------------
-        messages.append({
-            "role": "assistant",
-            "content": pass1_content,
-            "tool_calls": tool_calls,
-        })
-
-        loop = asyncio.get_running_loop()
-        for tc in tool_calls:
-            fn_name = tc["function"]["name"]
-            fn_args = tc["function"].get("arguments", {})
-            if isinstance(fn_args, str):
-                try:
-                    fn_args = json.loads(fn_args)
-                except Exception:
-                    fn_args = {}
-
-            yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
-            dlog(f"Dispatching tool: {fn_name}({fn_args})")
-
-            tool_task = loop.run_in_executor(
-                None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
+        else:
+            # --------------------------------------------------------------
+            # Tools fired -- dispatch, then stream the follow-up response
+            # --------------------------------------------------------------
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": pass1_content,
+                    "tool_calls": tool_calls,
+                }
             )
-            while not tool_task.done():
-                yield 'data: {"type":"heartbeat"}\n\n'
-                await asyncio.sleep(1.0)
-            result = tool_task.result()
-            dlog(f"Tool result preview: {str(result)[:200]}")
-            messages.append({"role": "tool", "content": result, "name": fn_name})
 
-        # Streaming follow-up (no tools)
-        async for event in _stream_content(messages):
-            if event.startswith("data: "):
-                try:
-                    d = json.loads(event[6:])
-                    if d.get("type") == "_state":
-                        content_buf  = d["content"]
-                        thinking_buf = d.get("thinking", "")
-                        continue
-                except Exception:
-                    pass
-            yield event
+            loop = asyncio.get_running_loop()
+            for tc in tool_calls:
+                fn_name = tc["function"]["name"]
+                fn_args = tc["function"].get("arguments", {})
+                if isinstance(fn_args, str):
+                    try:
+                        fn_args = json.loads(fn_args)
+                    except Exception:
+                        fn_args = {}
 
-    # ------------------------------------------------------------------
-    # Save to history
-    # ------------------------------------------------------------------
-    if content_buf.strip():
-        save_message(
-            "assistant",
-            content_buf.strip(),
-            thinking=thinking_buf if thinking_buf else None,
+                yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
+                dlog(f"Dispatching tool: {fn_name}({fn_args})")
+
+                tool_task = loop.run_in_executor(
+                    None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
+                )
+                while not tool_task.done():
+                    yield 'data: {"type":"heartbeat"}\n\n'
+                    await asyncio.sleep(1.0)
+                result = tool_task.result()
+                dlog(f"Tool result preview: {str(result)[:200]}")
+                messages.append({"role": "tool", "content": result, "name": fn_name})
+
+            # Streaming follow-up (no tools)
+            async for event in _stream_content(messages):
+                if event.startswith("data: "):
+                    try:
+                        d = json.loads(event[6:])
+                        if d.get("type") == "_state":
+                            content_buf = d["content"]
+                            thinking_buf = d.get("thinking", "")
+                            continue
+                        if d.get("type") == "text":
+                            content_buf += d.get("delta", "")
+                        elif d.get("type") == "thinking":
+                            thinking_buf += d.get("delta", "")
+                    except Exception:
+                        pass
+                yield event
+
+    finally:
+        # ------------------------------------------------------------------
+        # Always update the reserved row — even on connection drop.
+        # If _state sentinel arrived, content_buf has the authoritative text.
+        # If not (mid-stream break), content_buf has whatever was received.
+        # ------------------------------------------------------------------
+        final_content = content_buf.strip()
+        if final_content:
+            update_message(
+                assistant_row_id,
+                final_content,
+                thinking=thinking_buf if thinking_buf else None,
+            )
+        else:
+            update_message(
+                assistant_row_id, "[Response interrupted -- please try again.]"
+            )
+            dlog(
+                "WARNING: empty assistant response. thinking len:",
+                len(thinking_buf),
+                "tools fired:",
+                bool(tool_calls),
+            )
+
+        dlog(
+            f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars"
         )
-    else:
-        save_message("assistant", "[Response interrupted -- please try again.]")
 
-    if not content_buf.strip():
-        dlog("WARNING: empty assistant response. thinking len:", len(thinking_buf), "tools fired:", bool(tool_calls))
-    dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
@@ -563,7 +750,7 @@ async def lifespan(app: FastAPI):
     init_db()
     print(f"Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}")
     print(f"Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
-    print(f"Debug logging: {cfg.DEBUG_LOGGING}")
+    print(f"History cap: {cfg.MAX_HISTORY_MESSAGES} messages | Debug logging: {cfg.DEBUG_LOGGING}")
     yield
 
 
@@ -605,6 +792,21 @@ async def chat(req: ChatRequest, _: None = Depends(check_auth)):
     )
 
 
+@app.post("/regenerate")
+async def regenerate(_: None = Depends(check_auth)):
+    """Delete the last assistant message and re-generate a response."""
+    user_message = delete_last_assistant_message()
+    if not user_message:
+        raise HTTPException(
+            status_code=400, detail="No user message to regenerate from."
+        )
+    return StreamingResponse(
+        chat_stream(user_message, is_regenerate=True),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/history")
 async def get_history(_: None = Depends(check_auth)):
     con = get_db()
@@ -621,17 +823,28 @@ async def delete_history(_: None = Depends(check_auth)):
     return {"status": "cleared"}
 
 
+@app.post("/new_thread")
+async def new_thread(_: None = Depends(check_auth)):
+    """Insert a thread-break marker. History before this point won't be
+    sent to the model, but remains in the DB for UI scrollback."""
+    save_message("system", THREAD_BREAK_MARKER)
+    print("[THREAD] New thread started", flush=True)
+    return {"status": "new thread started"}
+
+
 @app.post("/sync")
 async def trigger_sync(_: None = Depends(check_auth)):
     """Trigger a background Chroma ingest directly (no chat turn required)."""
     import threading
     from evelyn_tools import TOOL_FUNCTIONS
+
     def _run():
         try:
             print("[SYNC] Manual sync triggered via /sync endpoint", flush=True)
             TOOL_FUNCTIONS["sync_context_memory"]()
         except Exception as e:
             print(f"[SYNC ERROR] {e}", flush=True)
+
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "sync started"}
 
@@ -656,6 +869,7 @@ async def tts_proxy(request: Request):
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=str(e))
     from fastapi.responses import Response
+
     return Response(
         content=resp.content,
         media_type=resp.headers.get("content-type", "audio/flac"),
@@ -672,6 +886,23 @@ async def root(request: Request):
     )
 
 
+# --- Prints System Prompt during Startup ---
+
+if __name__ == "__main__":
+    try:
+        # We call the definition here
+        final_prompt = load_system_prompt()
+
+        print("--- START OF SYSTEM PROMPT ---")
+        print(final_prompt)
+        print("--- END OF SYSTEM PROMPT ---")
+
+    except NameError as e:
+        print(f"Error: It looks like something is missing in the script: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -680,7 +911,7 @@ if __name__ == "__main__":
     import uvicorn
     import os
 
-    SSL_KEY  = "image-host.internal.net.key"
+    SSL_KEY = "image-host.internal.net.key"
     SSL_CERT = "image-host.internal.net.crt"
     ssl_args = {}
     if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT):
