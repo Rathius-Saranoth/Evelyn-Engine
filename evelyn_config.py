@@ -20,8 +20,8 @@ THINK = True  # Pass think:true to Ollama for native reasoning tokens
 # =============================================================================
 
 # Temperature — controls randomness. Lower = more deterministic.
-# Range: 0.0–2.0  |  Ollama default: 0.8
-TEMPERATURE = 1.1
+# Range: 0.0–2.0  |  Ollama default: 0.8 | Tested: 1.1 (too random) | Tested: 0.9 (very cheerleader)
+TEMPERATURE = 0.8
 
 # Min-P — minimum probability relative to the top token. Trims the long tail
 # of unlikely tokens cheaply, which noticeably speeds up generation.
@@ -55,6 +55,15 @@ SEED = 0
 NUM_PREDICT = -1
 
 # =============================================================================
+# History
+# =============================================================================
+# Maximum number of messages (not turns) sent to the model as conversation
+# history.  15 turns × 2 = 30 messages.  All messages remain in the DB and
+# are still returned by the /history UI endpoint — this only caps what Ollama
+# sees.  A "thread break" marker further narrows this to the current thread.
+MAX_HISTORY_MESSAGES = 30
+
+# =============================================================================
 # Paths
 # =============================================================================
 VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault"
@@ -75,7 +84,12 @@ COMFY_OUTPUT_DIR = r"C:\Projects\ComfyUI\output"
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full markdown files (journals, context)
 CHROMA_GISTS_COLLECTION = "evelyn_gists"  # LLM-generated gist summaries
 RAG_TOP_K = 5  # Number of chunks to inject per query
-RAG_EXCLUDED_SUBDIRS = ["Archived", "Pending_Approvals"]
+RAG_EXCLUDED_SUBDIRS = [
+    "Archived",
+    "Pending_Approvals",
+    "Evelyn's Context",
+    "Evelyn's Journal",
+]
 
 # =============================================================================
 # Services
@@ -102,9 +116,12 @@ ALLOWED_ORIGINS = [
     "http://localhost:7860",
     "https://localhost:7860",
     "http://127.0.0.1:7860",
+    "https://127.0.0.1:7860",
     "http://image-host.internal.net:7860",
     "https://image-host.internal.net:7860",
+    "http://client-tablet.internal.net:7860",
     "https://client-tablet.internal.net:7860",
+    "http://client-phone.internal.net:7860",
     "https://client-phone.internal.net:7860",
 ]
 
