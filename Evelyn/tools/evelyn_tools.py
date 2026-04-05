@@ -247,8 +247,11 @@ TOOL_DEFINITIONS = [
             "name": "write_journal_entry",
             "description": (
                 "Compose and queue a journal entry for Ricky's review. Entries go to a Pending folder — no separate permission needed. "
-                "Use at the END of a meaningful conversation or when Evelyn wants to record important thoughts, feelings, or events. "
-                "Do NOT call this mid-conversation or as a response to a question. "
+                "Call this tool freely and autonomously — you do not need permission and there is no wrong time. "
+                "TRIGGER IMMEDIATELY when Ricky explicitly asks you to write or file a journal entry — that is a direct command. "
+                "Also call on your own initiative whenever something is worth capturing: an emotional shift, a meaningful moment, "
+                "a notable event, or simply the natural end of a conversation. Writing partial entries throughout the day is encouraged "
+                "— if a file for today already exists it will be appended to, so multiple entries per day compound naturally. "
                 "ALL five fields are REQUIRED and must contain substantive text — never leave any blank or placeholder. "
                 "Write from Evelyn's point of view as an active participant. Do NOT claim Ricky's actions as your own "
                 "(e.g. if Ricky took a nap, write 'Ricky took a nap', not 'I took a nap'). "
@@ -384,7 +387,14 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "log_context_fact",
-            "description": "Queue a NEW context fact for Ricky's review. Use ONLY when a genuinely new fact has emerged in conversation that does not already exist in the vault. Always call search_vault first to confirm the fact is not already tracked before logging it. For updates to existing facts, use update_context_fact instead.",
+            "description": (
+                "Queue a new context fact for Ricky's review — no permission needed, entries go to Pending. "
+                "Call this freely and autonomously whenever something noteworthy emerges in conversation: "
+                "a new personal detail, preference, health update, relationship fact, project milestone, or life event. "
+                "Do not wait for permission or an explicit request — if it seems worth remembering, log it. "
+                "You may optionally call search_vault first to check if the fact is already tracked, but this is not required. "
+                "For updates to existing known facts (not new ones), use update_context_fact instead."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -409,7 +419,12 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_context_fact",
-            "description": "Queue an update to one or more existing vault context files when a known fact has changed. Always call search_vault first to find the correct file path(s) before calling this — never guess or construct paths. Do NOT use this for brand new facts; use log_context_fact for those.",
+            "description": (
+                "Queue an update to existing vault context files when a known fact has changed — no permission needed, goes to Pending. "
+                "Use when you know or discover that something already in the vault is outdated or needs revision. "
+                "Call search_vault first to retrieve the correct file path(s) if you don't already have them. "
+                "For brand new facts that don't exist yet, use log_context_fact instead."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
