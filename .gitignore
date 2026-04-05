@@ -6,7 +6,7 @@ secrets.json
 # --- Personal Memory & Soul (DO NOT SHARE) ---
 # These contain private conversations, journals, and identity data
 Evelyn/persona/
-reference/owui_current_system_prompt.md
+reference/archive/
 reference/system/
 Update Logs/
 reference/chat/
@@ -43,3 +43,5 @@ evelyn_log_dump.txt
 # --- Chroma Vector DB (runtime) ---
 chroma_db/
 
+# --- Scratch folder (debug output only, scripts are committed) ---
+scratch/out/

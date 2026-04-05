@@ -515,6 +515,7 @@ async function sendMessage() {
         if (!line.startsWith('data: ')) continue;
         let evt;
         try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+        lastStreamActivity = Date.now();
 
         if (evt.type === 'status') {
           addActivity(null, evt.msg);
@@ -666,6 +667,10 @@ async function loadHistory() {
         ttsBtn.onclick = () => playTTS(captured, ttsBtn);
         actions.appendChild(ttsBtn);
         wrap.appendChild(actions);
+        // Render write-tool badges from persisted data
+        if (m.tools_used) {
+          addWriteBadges(wrap, m.tools_used.split(','));
+        }
       }
     }
     // Add regen button to the last user message only
@@ -776,6 +781,7 @@ async function regenerateResponse(userMsgDiv) {
         if (!line.startsWith('data: ')) continue;
         let evt;
         try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+        lastStreamActivity = Date.now();
 
         if (evt.type === 'status') addActivity(null, evt.msg);
 
@@ -936,15 +942,21 @@ document.getElementById('send-btn').addEventListener('click', sendMessage);
 
 
 // ---------------------------------------------------------------------------
-// Visibility recovery — reload history if connection was lost while backgrounded
+// Visibility recovery — reload history only if the SSE stream is truly dead
 // ---------------------------------------------------------------------------
+let lastStreamActivity = 0;  // timestamp of last SSE data received
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && isStreaming) {
-    // Page came back and we were in a streaming state — the SSE likely died.
-    // Give a brief moment then reload history from DB to recover.
+    // Page came back while we think we're streaming.
+    // Only recover if no SSE data arrived in the last 5 seconds — a sign
+    // the connection actually died while backgrounded.
+    const staleSec = (Date.now() - lastStreamActivity) / 1000;
+    if (staleSec < 5) return;  // Stream still alive, don't touch the DOM
+
     setTimeout(async () => {
       if (isStreaming) {
-        console.log('[Recovery] Page became visible during stream — reloading history');
+        console.log(`[Recovery] Stream stale ${staleSec.toFixed(1)}s — reloading history`);
         isStreaming = false;
         releaseWakeLock();
         document.getElementById('send-btn').disabled = false;
