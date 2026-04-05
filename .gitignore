@@ -45,3 +45,4 @@ chroma_db/
 
 # --- Scratch folder (debug output only, scripts are committed) ---
 scratch/out/
+scratch/*.txt
