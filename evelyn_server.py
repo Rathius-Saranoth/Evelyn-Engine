@@ -147,13 +147,19 @@ def init_db():
     con = get_db()
     con.execute("""
         CREATE TABLE IF NOT EXISTS messages (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            role      TEXT NOT NULL,
-            content   TEXT NOT NULL,
-            thinking  TEXT,
-            ts        REAL NOT NULL
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            role        TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            thinking    TEXT,
+            tools_used  TEXT,
+            ts          REAL NOT NULL
         )
     """)
+    # Migrate: add tools_used column if missing (existing DBs)
+    try:
+        con.execute("ALTER TABLE messages ADD COLUMN tools_used TEXT")
+    except Exception:
+        pass  # Column already exists
     con.commit()
     con.close()
 
@@ -213,22 +219,22 @@ def load_history() -> list[dict]:
     return messages
 
 
-def save_message(role: str, content: str, thinking: str = None):
+def save_message(role: str, content: str, thinking: str = None, tools_used: str = None):
     con = get_db()
     con.execute(
-        "INSERT INTO messages (role, content, thinking, ts) VALUES (?, ?, ?, ?)",
-        (role, content, thinking, time.time()),
+        "INSERT INTO messages (role, content, thinking, tools_used, ts) VALUES (?, ?, ?, ?, ?)",
+        (role, content, thinking, tools_used, time.time()),
     )
     con.commit()
     con.close()
 
 
-def save_message_get_id(role: str, content: str, thinking: str = None) -> int:
+def save_message_get_id(role: str, content: str, thinking: str = None, tools_used: str = None) -> int:
     """Insert a message and return its row ID (used for later updates)."""
     con = get_db()
     cur = con.execute(
-        "INSERT INTO messages (role, content, thinking, ts) VALUES (?, ?, ?, ?)",
-        (role, content, thinking, time.time()),
+        "INSERT INTO messages (role, content, thinking, tools_used, ts) VALUES (?, ?, ?, ?, ?)",
+        (role, content, thinking, tools_used, time.time()),
     )
     row_id = cur.lastrowid
     con.commit()
@@ -236,12 +242,12 @@ def save_message_get_id(role: str, content: str, thinking: str = None) -> int:
     return row_id
 
 
-def update_message(row_id: int, content: str, thinking: str = None):
-    """Update an existing message row's content and thinking."""
+def update_message(row_id: int, content: str, thinking: str = None, tools_used: str = None):
+    """Update an existing message row's content, thinking, and tools_used."""
     con = get_db()
     con.execute(
-        "UPDATE messages SET content = ?, thinking = ? WHERE id = ?",
-        (content, thinking, row_id),
+        "UPDATE messages SET content = ?, thinking = ?, tools_used = ? WHERE id = ?",
+        (content, thinking, tools_used, row_id),
     )
     con.commit()
     con.close()
@@ -632,6 +638,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     # ------------------------------------------------------------------
     content_buf = ""
     thinking_buf = ""
+    tools_used_list = []
     assistant_row_id = save_message_get_id("assistant", "")
 
     try:
@@ -680,6 +687,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                         fn_args = {}
 
                 yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
+                tools_used_list.append(fn_name)
                 dlog(f"Dispatching tool: {fn_name}({fn_args})")
 
                 tool_task = loop.run_in_executor(
@@ -716,11 +724,13 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
         # If not (mid-stream break), content_buf has whatever was received.
         # ------------------------------------------------------------------
         final_content = content_buf.strip()
+        tools_str = ",".join(tools_used_list) if tools_used_list else None
         if final_content:
             update_message(
                 assistant_row_id,
                 final_content,
                 thinking=thinking_buf if thinking_buf else None,
+                tools_used=tools_str,
             )
         else:
             update_message(
@@ -811,7 +821,7 @@ async def regenerate(_: None = Depends(check_auth)):
 async def get_history(_: None = Depends(check_auth)):
     con = get_db()
     rows = con.execute(
-        "SELECT role, content, thinking, ts FROM messages ORDER BY id"
+        "SELECT role, content, thinking, tools_used, ts FROM messages ORDER BY id"
     ).fetchall()
     con.close()
     return [dict(r) for r in rows]

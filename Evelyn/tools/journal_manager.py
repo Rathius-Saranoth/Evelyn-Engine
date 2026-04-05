@@ -65,7 +65,7 @@ def create_journal_entry(
     single day's entry.
 
     Tags are cleaned (``#`` prefix stripped) and merged with two automatic
-    base tags: ``Journal/Evelyn`` and a date tag (``CY-YYYY-MM-DD``).
+    base tags: ``journal/entry`` and a date tag (``CY-YYYY/MM/DD``).
 
     Args:
         vibe_check: Brief intro capturing the emotional atmosphere of the entry.
@@ -89,7 +89,7 @@ def create_journal_entry(
     # Strip any '#' from tags for valid YAML
     clean_tags = [t.strip().lstrip("#") for t in tags]
 
-    base_tags = ["Journal/Evelyn", f"CY-{today.strftime('%Y-%m-%d')}"]
+    base_tags = ["journal/entry", f"CY-{today.strftime('%Y/%m/%d')}"]
     for t in base_tags:
         if t not in clean_tags:
             clean_tags.append(t)
@@ -118,7 +118,7 @@ tags: [{", ".join(clean_tags)}]
     try:
         if not os.path.exists(PENDING_DIR):
             os.makedirs(PENDING_DIR, exist_ok=True)
-            
+
         if os.path.exists(filepath):
             with open(filepath, "a", encoding="utf-8") as f:
                 f.write(append_content)
@@ -147,7 +147,11 @@ def read_journal_entry(date_str: str = None):
     res = subprocess.run(
         ["obsidian", "read", f"file={filename}"], capture_output=True, text=True
     )
-    if res.returncode == 0 and res.stdout.strip() and not res.stdout.strip().startswith("Error:"):
+    if (
+        res.returncode == 0
+        and res.stdout.strip()
+        and not res.stdout.strip().startswith("Error:")
+    ):
         return res.stdout
 
     # Fallback: read directly from vault
@@ -175,7 +179,11 @@ def read_recent_journal_entries(days: int = 7) -> str:
         res = subprocess.run(
             ["obsidian", "read", f"file={filename}"], capture_output=True, text=True
         )
-        if res.returncode == 0 and res.stdout.strip() and not res.stdout.strip().startswith("Error:"):
+        if (
+            res.returncode == 0
+            and res.stdout.strip()
+            and not res.stdout.strip().startswith("Error:")
+        ):
             entries.append(f"--- Entry for {date_str} ---\n{res.stdout}\n")
         else:
             # Fallback to direct read

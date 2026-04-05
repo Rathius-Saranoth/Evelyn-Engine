@@ -61,7 +61,7 @@ NUM_PREDICT = -1
 # history.  15 turns × 2 = 30 messages.  All messages remain in the DB and
 # are still returned by the /history UI endpoint — this only caps what Ollama
 # sees.  A "thread break" marker further narrows this to the current thread.
-MAX_HISTORY_MESSAGES = 30
+MAX_HISTORY_MESSAGES = 20
 
 # =============================================================================
 # Paths
