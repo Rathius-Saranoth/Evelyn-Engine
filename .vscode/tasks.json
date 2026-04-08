@@ -178,6 +178,17 @@
             "problemMatcher": []
         },
         {
+            "label": "Update Ollama",
+            "type": "shell",
+            "command": "Write-Host 'Downloading latest Ollama installer...'; Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'C:\\Windows\\Temp\\OllamaSetup.exe'; Write-Host 'Installing (UAC will prompt once, then silent)...'; Start-Process 'C:\\Windows\\Temp\\OllamaSetup.exe' -ArgumentList '/S' -Verb RunAs -Wait; Write-Host 'Update complete!'; ollama --version",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "close": false
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Unload Evelyn Model",
             "type": "shell",
             "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"magistral:24b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
