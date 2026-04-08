@@ -9,7 +9,8 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 # Model
 # =============================================================================
 OLLAMA_URL = "http://localhost:11434"
-MODEL_NAME = "magistral:24b"
+# MODEL_NAME = "magistral:24b"
+MODEL_NAME = "gemma4:26b"
 NUM_CTX = 16384
 THINK = True  # Pass think:true to Ollama for native reasoning tokens
 

@@ -46,6 +46,19 @@ This ensures Ollama claims its GPU layers before ComfyUI starts, which maximises
 - Tailscale: http://ricky-pc.tail0e161b.ts.net:7860
 - Set `EVELYN_API_KEY` env var before starting the server for auth.
 
-## 5. Debugging
+## 5. Updating Ollama
+
+Run the **"Update Ollama"** VS Code task to download and silently install the latest Ollama release.
+
+> [!IMPORTANT]
+> This task is **intentionally NOT part of the startup sequence**. Auto-updating on every boot is risky — a new Ollama release could change API behavior and break Evelyn. Run this task manually when you want to update (e.g., to support a new model family). After it completes, run **"Start Evelyn Services"** as usual.
+
+The task will:
+1. Download the latest `OllamaSetup.exe` from `ollama.com`
+2. Install it silently (`/S` flag) — UAC may prompt once
+3. Print the new version number to confirm success
+
+## 6. Debugging
 
 To inspect Evelyn's chat history or debug conversation issues, see `/debug-chat-db`.
+
