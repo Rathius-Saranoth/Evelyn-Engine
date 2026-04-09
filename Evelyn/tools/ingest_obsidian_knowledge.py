@@ -19,9 +19,11 @@ import time
 from glob import glob
 
 # Chroma RAG wrapper
+ROOT_DIR  = r"C:\Projects\LocalAI"
 TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
-if TOOLS_DIR not in sys.path:
-    sys.path.insert(0, TOOLS_DIR)
+for _d in (ROOT_DIR, TOOLS_DIR):
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
 import chroma_rag  # noqa: E402
 
 # Paths
@@ -30,6 +32,13 @@ PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Desc
 EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals"]
 SYNC_STATE_FILE    = r"C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json"
 COLLECTION_NAME    = "evelyn_memory"
+
+# Ricky/ files that belong in core memory (full-text, high-fidelity operational docs).
+# General Ricky facts (work history, education, etc.) flow through the gist pipeline instead.
+RICKY_CORE_FILES = [
+    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Psychological Blueprint.md",
+    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Love Languages & Connection.md",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +98,7 @@ def main():
 
     # Build active file list
     all_files = get_markdown_files(EVELYN_DIR)
+    all_files += [f for f in RICKY_CORE_FILES if os.path.exists(f)]
     if os.path.exists(PHYSICAL_DESC_FILE):
         all_files.append(PHYSICAL_DESC_FILE)
 
