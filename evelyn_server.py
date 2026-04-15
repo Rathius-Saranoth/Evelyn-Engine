@@ -818,12 +818,33 @@ async def regenerate(_: None = Depends(check_auth)):
 
 
 @app.get("/history")
-async def get_history(_: None = Depends(check_auth)):
+async def get_history(
+    _: None = Depends(check_auth),
+    limit: int = 50,
+    before: int | None = None,
+):
+    """Return chat messages, newest last.
+
+    Query params:
+      limit  – max messages to return (default 50)
+      before – return messages with id < this value (cursor pagination)
+    """
     con = get_db()
-    rows = con.execute(
-        "SELECT role, content, thinking, tools_used, ts FROM messages ORDER BY id"
-    ).fetchall()
+    if before:
+        rows = con.execute(
+            "SELECT id, role, content, thinking, tools_used, ts "
+            "FROM messages WHERE id < ? ORDER BY id DESC LIMIT ?",
+            (before, limit),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT id, role, content, thinking, tools_used, ts "
+            "FROM messages ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
     con.close()
+    # Rows come back newest-first from DESC; reverse to chronological
+    rows = list(reversed(rows))
     return [dict(r) for r in rows]
 
 
