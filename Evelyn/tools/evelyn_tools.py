@@ -392,7 +392,6 @@ TOOL_DEFINITIONS = [
                 "Call this freely and autonomously whenever something noteworthy emerges in conversation: "
                 "a new personal detail, preference, health update, relationship fact, project milestone, or life event. "
                 "Do not wait for permission or an explicit request — if it seems worth remembering, log it. "
-                "You may optionally call search_vault first to check if the fact is already tracked, but this is not required. "
                 "For updates to existing known facts (not new ones), use update_context_fact instead."
             ),
             "parameters": {

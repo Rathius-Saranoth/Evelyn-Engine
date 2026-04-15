@@ -241,6 +241,23 @@
     #send-btn:hover { background: var(--accent-dim); }
     #send-btn:disabled { background: var(--border); cursor: not-allowed; }
     .input-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; padding-left: 4px; }
+
+    /* Load-more button */
+    .load-more-wrap {
+      display: flex; justify-content: center; padding: 12px 0;
+    }
+    .btn-load-more {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text-dim); font-family: 'Inter', sans-serif; font-size: 13px;
+      padding: 8px 20px; border-radius: 8px; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .btn-load-more:hover {
+      border-color: var(--accent); color: var(--text); background: var(--surface);
+    }
+    .btn-load-more:disabled {
+      cursor: not-allowed; opacity: 0.5;
+    }
   </style>
 </head>
 <body>
@@ -627,51 +644,86 @@ async function sendMessage() {
 }
 
 // ---------------------------------------------------------------------------
-// History load
+// History load (paginated — last 50 messages initially)
 // ---------------------------------------------------------------------------
+const HISTORY_PAGE_SIZE = 50;
+let oldestLoadedId = null;   // tracks cursor for "load more"
+let hasMoreHistory  = false; // whether older messages exist
+
+function renderMessageToContainer(m, container) {
+  if (m.role === 'user') {
+    appendUserMessage(m.content, m.ts);
+  } else if (m.content === '[THREAD_BREAK]') {
+    const divider = document.createElement('div');
+    divider.className = 'thread-divider';
+    divider.textContent = 'new thread';
+    container.appendChild(divider);
+  } else if (m.role === 'assistant') {
+    const wrap = createAssistantMessage(m.ts);
+    if (m.thinking) {
+      const tb = createThinkBlock();
+      tb.querySelector('.think-content').textContent = m.thinking;
+      tb.querySelector('.think-label').textContent = 'Thought process';
+      tb.classList.remove('open');
+      wrap.appendChild(tb);
+    }
+    const b = document.createElement('div');
+    b.className = 'bubble';
+    b.innerHTML = renderMarkdown(m.content);
+    wrap.appendChild(b);
+    const actions = document.createElement('div');
+    actions.className = 'msg-actions';
+    const ttsBtn = document.createElement('button');
+    ttsBtn.className = 'btn-tts';
+    ttsBtn.textContent = '🔊';
+    const captured = m.content;
+    ttsBtn.onclick = () => playTTS(captured, ttsBtn);
+    actions.appendChild(ttsBtn);
+    wrap.appendChild(actions);
+    if (m.tools_used) {
+      addWriteBadges(wrap, m.tools_used.split(','));
+    }
+  }
+}
+
+function insertLoadMoreButton() {
+  const container = document.getElementById('messages');
+  // Remove any existing load-more button
+  const existing = container.querySelector('.load-more-wrap');
+  if (existing) existing.remove();
+  if (!hasMoreHistory) return;
+  const wrapDiv = document.createElement('div');
+  wrapDiv.className = 'load-more-wrap';
+  const btn = document.createElement('button');
+  btn.className = 'btn-load-more';
+  btn.textContent = '↑ Load older messages';
+  btn.onclick = loadOlderMessages;
+  wrapDiv.appendChild(btn);
+  container.insertBefore(wrapDiv, container.firstChild);
+}
+
 async function loadHistory() {
   try {
-    const resp = await fetch(`${API_BASE}/history`, { headers: headers() });
+    const resp = await fetch(`${API_BASE}/history?limit=${HISTORY_PAGE_SIZE}`, { headers: headers() });
     if (!resp.ok) return;
     const msgs = await resp.json();
     const container = document.getElementById('messages');
     container.innerHTML = '';
+
+    // Track pagination cursor
+    if (msgs.length > 0) {
+      oldestLoadedId = msgs[0].id;
+      hasMoreHistory = msgs.length >= HISTORY_PAGE_SIZE;
+    } else {
+      oldestLoadedId = null;
+      hasMoreHistory = false;
+    }
+
+    // Show "load more" button if there are likely older messages
+    insertLoadMoreButton();
+
     for (const m of msgs) {
-      if (m.role === 'user') {
-        appendUserMessage(m.content, m.ts);
-      } else if (m.content === '[THREAD_BREAK]') {
-        // Render a visual thread divider
-        const divider = document.createElement('div');
-        divider.className = 'thread-divider';
-        divider.textContent = 'new thread';
-        container.appendChild(divider);
-      } else if (m.role === 'assistant') {
-        const wrap = createAssistantMessage(m.ts);
-        if (m.thinking) {
-          const tb = createThinkBlock();
-          tb.querySelector('.think-content').textContent = m.thinking;
-          tb.querySelector('.think-label').textContent = 'Thought process';
-          tb.classList.remove('open');
-          wrap.appendChild(tb);
-        }
-        const b = document.createElement('div');
-        b.className = 'bubble';
-        b.innerHTML = renderMarkdown(m.content);
-        wrap.appendChild(b);
-        const actions = document.createElement('div');
-        actions.className = 'msg-actions';
-        const ttsBtn = document.createElement('button');
-        ttsBtn.className = 'btn-tts';
-        ttsBtn.textContent = '🔊';
-        const captured = m.content;
-        ttsBtn.onclick = () => playTTS(captured, ttsBtn);
-        actions.appendChild(ttsBtn);
-        wrap.appendChild(actions);
-        // Render write-tool badges from persisted data
-        if (m.tools_used) {
-          addWriteBadges(wrap, m.tools_used.split(','));
-        }
-      }
+      renderMessageToContainer(m, container);
     }
     // Add regen button to the last user message only
     const allUser = container.querySelectorAll('.msg.user');
@@ -681,6 +733,74 @@ async function loadHistory() {
     scrollBottom();
   } catch (e) {
     console.warn('Could not load history:', e);
+  }
+}
+
+async function loadOlderMessages() {
+  if (!oldestLoadedId || !hasMoreHistory) return;
+  const btn = document.querySelector('.btn-load-more');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+
+  try {
+    const resp = await fetch(
+      `${API_BASE}/history?limit=${HISTORY_PAGE_SIZE}&before=${oldestLoadedId}`,
+      { headers: headers() }
+    );
+    if (!resp.ok) return;
+    const msgs = await resp.json();
+    if (msgs.length === 0) {
+      hasMoreHistory = false;
+      const wrap = document.querySelector('.load-more-wrap');
+      if (wrap) wrap.remove();
+      return;
+    }
+
+    // Update cursor
+    oldestLoadedId = msgs[0].id;
+    hasMoreHistory = msgs.length >= HISTORY_PAGE_SIZE;
+
+    const container = document.getElementById('messages');
+    // Remember scroll position so we can restore it after prepending
+    const prevScrollHeight = container.scrollHeight;
+
+    // Remove existing load-more button before prepending
+    const existingBtn = container.querySelector('.load-more-wrap');
+    if (existingBtn) existingBtn.remove();
+
+    // Build a document fragment with the older messages
+    // We need to temporarily append to container to reuse render helpers,
+    // then move those nodes to the top.
+    const marker = document.createElement('div');
+    marker.id = '_load-more-marker';
+    container.appendChild(marker);
+
+    for (const m of msgs) {
+      renderMessageToContainer(m, container);
+    }
+
+    // Collect all nodes that were appended after the marker
+    const newNodes = [];
+    let node = marker.nextSibling;
+    while (node) {
+      newNodes.push(node);
+      node = node.nextSibling;
+    }
+    marker.remove();
+
+    // Find the first real message (skip old load-more button position)
+    const firstChild = container.firstChild;
+    for (const n of newNodes) {
+      container.insertBefore(n, firstChild);
+    }
+
+    // Re-insert load-more button at top if more history exists
+    insertLoadMoreButton();
+
+    // Restore scroll position so the user stays where they were
+    container.scrollTop = container.scrollHeight - prevScrollHeight;
+
+  } catch (e) {
+    console.warn('Could not load older messages:', e);
   }
 }
 
