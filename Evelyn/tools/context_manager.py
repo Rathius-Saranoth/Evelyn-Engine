@@ -172,8 +172,7 @@ def update_context_log(target_filepaths: list, new_summary: str) -> str:
     Creates an update request file for one or more existing Context Fact files.
 
     The file is placed in PENDING_DIR for Ricky to review — it is NOT applied
-    directly to the vault. Use search_vault_map() first if you don't have
-    the exact file paths.
+    directly to the vault.
 
     Args:
         target_filepaths: List of absolute or vault-relative paths to update.
@@ -207,4 +206,3 @@ Please update the following context files:
         return f"Error writing update request — is Google Drive available? Details: {e}"
 
     return f"Update request created for Ricky to review: {filename} created in Pending Approvals Folder."
-
