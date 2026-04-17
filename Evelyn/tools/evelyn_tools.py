@@ -78,13 +78,18 @@ def read_recent_journal_entries(days: int = 7) -> str:
 
 
 def search_vault(query: str) -> str:
-    """Full-text search across the entire Obsidian Vault map."""
+    """Search the pre-summarised Obsidian Vault gist index.
+    Returns a concise summary (gist) of matching documents and their vault-relative file paths.
+    If the gist result lacks enough detail, follow up with recall_specific_memory using the returned path.
+    """
     _reload()
     return context_manager.search_vault_map(query)
 
 
 def recall_specific_memory(file_path: str) -> str:
-    """Read the full content of a specific markdown file from the vault."""
+    """Read the full markdown content of a specific Obsidian vault file.
+    Use when search_vault returned a path but the gist lacked sufficient detail.
+    Always use the exact file path returned by search_vault — never construct or guess one."""
     clean_path = file_path.strip().strip('"').strip("'")
     full_path = os.path.abspath(os.path.join(VAULT_BASE, clean_path))
     if not full_path.startswith(os.path.abspath(VAULT_BASE)):
@@ -236,6 +241,34 @@ def sync_context_memory(**kwargs) -> str:
     return "Memory sync initiated in the background. New context will be available shortly."
 
 
+def web_search(query: str, max_results: int = 5) -> str:
+    """Search the web via DuckDuckGo and return a brief summary of the top results.
+    Use only when the question requires up-to-date information, real-time data, or
+    facts that are unlikely to be in training data or the vault (e.g. current events,
+    live prices, recent releases). For personal/shared history, always prefer search_vault.
+    Keep queries concise and specific.
+    """
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        return "Error: ddgs library is not installed. Run 'pip install ddgs' to enable web search."
+
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+        if not results:
+            return f"No results found for: {query}"
+        lines = [f"Web search results for: {query}\n"]
+        for i, r in enumerate(results, 1):
+            title = r.get("title", "(no title)")
+            href = r.get("href", "")
+            body = r.get("body", "").strip()
+            lines.append(f"{i}. {title}\n   {href}\n   {body[:300]}")
+        return "\n\n".join(lines)
+    except Exception as e:
+        return f"Web search error: {e}"
+
+
 # ===========================================================================
 # Tool definitions (OpenAI function-calling schema for Ollama)
 # ===========================================================================
@@ -353,7 +386,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_vault",
-            "description": "STEP 1 — Always call this FIRST when asked about any person, relationship, place, event, or piece of shared history. Searches the pre-summarised Vault gist index for a fast, context-light answer. If the gist result is too brief or missing detail, follow up with recall_specific_memory using the file path returned. Do NOT skip this step and jump straight to recall_specific_memory.",
+            "description": "Search the pre-summarised Obsidian Vault gist index. Use when asked about any person, relationship, place, event, or piece of shared history. Returns a concise summary and file paths. If the gist lacks enough detail, follow up with recall_specific_memory using the returned path. Prefer this over recall_specific_memory as a lighter first step.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -370,7 +403,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "recall_specific_memory",
-            "description": "STEP 2 — Use ONLY after calling search_vault and finding the gist insufficient. Reads the full markdown file for a specific vault entry. Always use the exact file_path returned by search_vault — never construct or guess a path. This is a heavier context operation; only call it when the gist did not contain enough detail to answer.",
+            "description": "Read the full markdown content of a specific Obsidian vault file. Use when search_vault returned a path but the gist lacked sufficient detail to answer. Always use the exact file_path from search_vault output — never construct or guess a path. This is a heavier context operation; use search_vault first when in doubt.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -420,8 +453,8 @@ TOOL_DEFINITIONS = [
             "name": "update_context_fact",
             "description": (
                 "Queue an update to existing vault context files when a known fact has changed — no permission needed, goes to Pending. "
-                "Use when you know or discover that something already in the vault is outdated or needs revision. "
-                "Call search_vault first to retrieve the correct file path(s) if you don't already have them. "
+                "Use when something already in the vault is outdated or needs revision. "
+                "If you do not already have the target file path, search_vault can retrieve it first. "
                 "For brand new facts that don't exist yet, use log_context_fact instead."
             ),
             "parameters": {
@@ -492,6 +525,32 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the web via DuckDuckGo for up-to-date information. "
+                "Use for current events, live data, recent releases, or facts unlikely to be in training data or the vault. "
+                "Do NOT use for personal/shared history — search_vault handles that. "
+                "Keep queries concise and specific. Use sparingly — only when the answer genuinely requires real-time data."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "A concise, specific search query.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Number of results to return. Default 5, max 10. Keep low to conserve context.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 # Dispatcher: maps tool name → function for the server's tool call handler
@@ -505,4 +564,5 @@ TOOL_FUNCTIONS = {
     "update_context_fact": update_context_fact,
     "generate_image": generate_image,
     "sync_context_memory": sync_context_memory,
+    "web_search": web_search,
 }
