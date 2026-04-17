@@ -217,7 +217,9 @@ def build_rag_context(query: str) -> str:
     Query both collections and return a formatted context block for injection
     into the system prompt.
 
-    Returns an empty string if nothing relevant is found.
+    Chunks with cosine distance above cfg.RAG_DISTANCE_THRESHOLD are discarded
+    as too dissimilar to be useful. Returns an empty string if nothing passes
+    the threshold so no context block is injected for casual turns.
     """
     memory_chunks = query_collection(query, cfg.CHROMA_MEMORY_COLLECTION)
     gist_chunks   = query_collection(query, cfg.CHROMA_GISTS_COLLECTION)
@@ -226,8 +228,23 @@ def build_rag_context(query: str) -> str:
     if not all_chunks:
         return ""
 
+    threshold = cfg.RAG_DISTANCE_THRESHOLD
+    relevant = [c for c in all_chunks if c["distance"] <= threshold]
+
+    # Debug: show what was retrieved and what was kept
+    if cfg.DEBUG_LOGGING:
+        for c in all_chunks:
+            kept = "KEEP" if c["distance"] <= threshold else "DROP"
+            print(
+                f"[RAG] {kept} dist={c['distance']:.3f} src={os.path.basename(c['source'])}",
+                flush=True,
+            )
+
+    if not relevant:
+        return ""
+
     parts = ["--- Retrieved Context ---"]
-    for chunk in all_chunks:
+    for chunk in relevant:
         src = os.path.basename(chunk["source"])
         parts.append(f"[{src}]\n{chunk['content']}")
     parts.append("--- End Context ---")

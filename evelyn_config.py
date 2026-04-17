@@ -55,6 +55,12 @@ SEED = 0
 # Range: -2–∞       |  Ollama default: -1
 NUM_PREDICT = -1
 
+# Stop sequences — generation halts immediately when any of these strings are
+# produced. Primarily added to prevent the model from looping inside its own
+# <think> block on self-prompting tokens like "(Send)." instead of emitting
+# the final response. Set to an empty list [] to disable.
+STOP_SEQUENCES = ["(Send).", "(Final).", "(Done)."]
+
 # =============================================================================
 # History
 # =============================================================================
@@ -63,6 +69,12 @@ NUM_PREDICT = -1
 # are still returned by the /history UI endpoint — this only caps what Ollama
 # sees.  A "thread break" marker further narrows this to the current thread.
 MAX_HISTORY_MESSAGES = 20
+
+# Maximum agentic tool-dispatch rounds per turn.
+# Each round: model is offered tools; if it calls one, results are fed back and
+# it gets another turn. Loop exits when the model produces no tool calls or this
+# cap is hit, then the streaming response pass runs.
+MAX_TOOL_ROUNDS = 5
 
 # =============================================================================
 # Paths
@@ -84,7 +96,14 @@ COMFY_OUTPUT_DIR = r"C:\Projects\ComfyUI\output"
 # =============================================================================
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full markdown files (journals, context)
 CHROMA_GISTS_COLLECTION = "evelyn_gists"  # LLM-generated gist summaries
-RAG_TOP_K = 5  # Number of chunks to inject per query
+RAG_TOP_K = 5  # Number of chunks to retrieve per query
+
+# Cosine distance threshold for RAG injection (0.0 = identical, 1.0 = unrelated).
+# Chunks with distance ABOVE this value are discarded before injection.
+# If all chunks are filtered out, nothing is added to the system prompt for that turn.
+# Tune down (e.g. 0.35) to be stricter; tune up (e.g. 0.55) to be more permissive.
+RAG_DISTANCE_THRESHOLD = 0.35
+
 RAG_EXCLUDED_SUBDIRS = [
     "Archived",
     "Pending_Approvals",
@@ -132,3 +151,8 @@ ALLOWED_ORIGINS = [
 # Set to True to log full prompts, RAG chunks, tool calls, and thinking content.
 # Reads per-request — no restart needed to toggle.
 DEBUG_LOGGING = True
+
+# Set to True to print the full text of each tool result to the console.
+# Reads per-request — no restart needed to toggle.
+# Useful when inspecting search_vault, web_search, recall_specific_memory, etc.
+DEBUG_TOOL_FULL = False
