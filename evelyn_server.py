@@ -319,6 +319,8 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
     }.items():
         if val is not None:
             options[key] = val
+    if cfg.STOP_SEQUENCES:
+        options["stop"] = cfg.STOP_SEQUENCES
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": messages,
@@ -366,6 +368,8 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
     }.items():
         if val is not None:
             options[key] = val
+    if cfg.STOP_SEQUENCES:
+        options["stop"] = cfg.STOP_SEQUENCES
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": messages,
@@ -666,41 +670,105 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
 
         else:
             # --------------------------------------------------------------
-            # Tools fired -- dispatch, then stream the follow-up response
+            # Agentic tool loop — model may call tools across multiple rounds
+            # before producing a final response.
+            #
+            # Round structure:
+            #   1. Append the assistant's tool-call message to messages
+            #   2. Dispatch each tool in the call list, append results
+            #   3. Call the model again (with tools still attached)
+            #   4. If it calls more tools → loop; if it responds → break
+            #   5. After the loop, Pass 2 streams the final content
             # --------------------------------------------------------------
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": pass1_content,
-                    "tool_calls": tool_calls,
-                }
-            )
-
             loop = asyncio.get_running_loop()
-            for tc in tool_calls:
-                fn_name = tc["function"]["name"]
-                fn_args = tc["function"].get("arguments", {})
-                if isinstance(fn_args, str):
-                    try:
-                        fn_args = json.loads(fn_args)
-                    except Exception:
-                        fn_args = {}
+            current_tool_calls = tool_calls
+            current_content = pass1_content
 
-                yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
-                tools_used_list.append(fn_name)
-                dlog(f"Dispatching tool: {fn_name}({fn_args})")
+            for tool_round in range(1, cfg.MAX_TOOL_ROUNDS + 1):
+                dlog(f"Tool round {tool_round}/{cfg.MAX_TOOL_ROUNDS}: {len(current_tool_calls)} call(s)")
+                yield f"data: {json.dumps({'type': 'status', 'msg': f'Tool round {tool_round}...'})}\n\n"
 
-                tool_task = loop.run_in_executor(
-                    None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
+                # Append assistant turn with tool calls
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": current_content,
+                        "tool_calls": current_tool_calls,
+                    }
                 )
-                while not tool_task.done():
+
+                # Dispatch all tool calls in this round
+                for tc in current_tool_calls:
+                    fn_name = tc["function"]["name"]
+                    fn_args = tc["function"].get("arguments", {})
+                    if isinstance(fn_args, str):
+                        try:
+                            fn_args = json.loads(fn_args)
+                        except Exception:
+                            fn_args = {}
+
+                    yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
+                    tools_used_list.append(fn_name)
+                    dlog(f"Dispatching tool: {fn_name}({fn_args})")
+
+                    tool_task = loop.run_in_executor(
+                        None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
+                    )
+                    while not tool_task.done():
+                        yield 'data: {"type":"heartbeat"}\n\n'
+                        await asyncio.sleep(1.0)
+                    result = tool_task.result()
+                    if cfg.DEBUG_TOOL_FULL:
+                        print(
+                            f"[TOOL RESULT] {fn_name}\n"
+                            f"{'─' * 60}\n{result}\n{'─' * 60}",
+                            flush=True,
+                        )
+                    else:
+                        dlog(f"Tool result preview: {str(result)[:200]}")
+                    messages.append({"role": "tool", "content": result, "name": fn_name})
+
+                # Check if we've hit the cap
+                if tool_round >= cfg.MAX_TOOL_ROUNDS:
+                    print(
+                        f"[TOOL LOOP] Hit MAX_TOOL_ROUNDS ({cfg.MAX_TOOL_ROUNDS}). Forcing final response.",
+                        flush=True,
+                    )
+                    yield f"data: {json.dumps({'type': 'status', 'msg': 'Generating response...'})}\n\n"
+                    break
+
+                # Ask the model again with tool results in context
+                yield f"data: {json.dumps({'type': 'status', 'msg': 'Thinking...'})}\n\n"
+                print(
+                    f"[TOOL LOOP] Round {tool_round} complete. Re-querying model. Roles:",
+                    [m["role"] for m in messages],
+                    flush=True,
+                )
+
+                followup_task = asyncio.ensure_future(
+                    call_ollama_full(messages, tools=TOOL_DEFINITIONS)
+                )
+                while not followup_task.done():
                     yield 'data: {"type":"heartbeat"}\n\n'
                     await asyncio.sleep(1.0)
-                result = tool_task.result()
-                dlog(f"Tool result preview: {str(result)[:200]}")
-                messages.append({"role": "tool", "content": result, "name": fn_name})
 
-            # Streaming follow-up (no tools)
+                followup_resp = followup_task.result()
+                followup_msg = followup_resp.get("message", {})
+                current_tool_calls = followup_msg.get("tool_calls") or []
+                current_content = followup_msg.get("content") or ""
+
+                dlog(
+                    f"Round {tool_round} follow-up: content={len(current_content)} chars, "
+                    f"tools={len(current_tool_calls)}"
+                )
+
+                if not current_tool_calls:
+                    # Model is done with tools — proceed to streaming pass
+                    dlog("Model produced no more tool calls. Exiting tool loop.")
+                    yield f"data: {json.dumps({'type': 'status', 'msg': 'Generating response...'})}\n\n"
+                    break
+
+            # Streaming follow-up (no tools) — final response
             async for event in _stream_content(messages):
                 if event.startswith("data: "):
                     try:
