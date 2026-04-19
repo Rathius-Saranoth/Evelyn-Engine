@@ -52,3 +52,4 @@ scratch/
 !scratch/db_search.py
 !scratch/db_all_tools.py
 !scratch/db_tool_calls.py
+!scratch/find_bad_gists.py
