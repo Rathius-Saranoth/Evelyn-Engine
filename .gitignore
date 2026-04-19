@@ -44,6 +44,11 @@ reference/bugs/
 # --- Chroma Vector DB (runtime) ---
 chroma_db/
 
-# --- Scratch folder (debug output only, scripts are committed) ---
+# --- Scratch folder (debug output only, reusable DB tools are committed) ---
 scratch/out/
 scratch/
+!scratch/check_pending.py
+!scratch/db_recent.py
+!scratch/db_search.py
+!scratch/db_all_tools.py
+!scratch/db_tool_calls.py
