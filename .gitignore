@@ -10,13 +10,13 @@ reference/archive/
 reference/system/
 Update Logs/
 reference/chat/
-reference/bugs/
 reference/archive/persona copy/
 # --- Local Data & State ---
 # Temporary state files for sync
 Evelyn/tools/gist_sync_state.json
 Evelyn/tools/vault_sync_state.json
 Vault_Map/
+!Vault_Map/generate_vault_map.py
 Void_Connections/
 __pycache__/
 *.pyc
@@ -39,10 +39,11 @@ Thumbs.db
 # --- Local Database & Logs ---
 *.db
 evelyn_log_dump.txt
+reference/bugs/
 
 # --- Chroma Vector DB (runtime) ---
 chroma_db/
 
 # --- Scratch folder (debug output only, scripts are committed) ---
 scratch/out/
-scratch/*.txt
+scratch/
