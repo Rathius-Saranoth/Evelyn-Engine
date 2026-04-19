@@ -14,6 +14,7 @@ Run directly or imported via sync_context_memory() in evelyn_tools.py.
 
 import os
 import sys
+import re
 import json
 import time
 from glob import glob
@@ -73,6 +74,39 @@ def save_state(state, state_file):
 def get_markdown_files(directory):
     """Return all *.md files under directory (recursive)."""
     return glob(os.path.join(directory, "**", "*.md"), recursive=True)
+
+
+def parse_rag_frontmatter(content: str) -> dict:
+    """
+    Extract rag_priority, rag_pinned, and aliases from YAML frontmatter.
+
+    Returns a dict with defaults if frontmatter is absent or fields are missing:
+        {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
+    """
+    defaults = {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
+    fm_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+    if not fm_match:
+        return defaults
+    fm_text = fm_match.group(1)
+
+    # rag_priority
+    m = re.search(r"^rag_priority:\s*(\S+)", fm_text, re.MULTILINE)
+    if m:
+        defaults["rag_priority"] = m.group(1).strip().lower()
+
+    # rag_pinned
+    m = re.search(r"^rag_pinned:\s*(\S+)", fm_text, re.MULTILINE)
+    if m:
+        defaults["rag_pinned"] = m.group(1).strip().lower() == "true"
+
+    # aliases
+    m = re.search(r"^aliases:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE)
+    if m:
+        raw = m.group(1).replace("[", "").replace("]", "").replace('"', "").replace("'", "")
+        aliases = [a.strip() for a in raw.split(",") if a.strip()]
+        defaults["aliases"] = ", ".join(aliases)
+
+    return defaults
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +175,9 @@ def main():
             continue
 
         print(f"Ingesting: {os.path.basename(file_path)}")
-        if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME):
+        rag_meta = parse_rag_frontmatter(content)
+        if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,
+                                           extra_metadata=rag_meta):
             state[file_path] = {"mtime": mtime}
             processed += 1
         else:

@@ -19,9 +19,11 @@ import json
 import time
 
 # Chroma RAG wrapper
+ROOT_DIR  = r"C:\Projects\LocalAI"
 TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
-if TOOLS_DIR not in sys.path:
-    sys.path.insert(0, TOOLS_DIR)
+for _d in (ROOT_DIR, TOOLS_DIR):
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
 import chroma_rag  # noqa: E402
 
 # Paths
@@ -142,7 +144,13 @@ def main():
         )
 
         print(f"Ingesting gist: {os.path.basename(file_path)}")
-        extra = {"title": data.get("title", ""), "tags": ", ".join(data.get("tags", []))}
+        extra = {
+            "title":        data.get("title", ""),
+            "tags":         ", ".join(data.get("tags", [])),
+            "rag_priority": data.get("rag_priority", "normal"),
+            "rag_pinned":   data.get("rag_pinned", False),
+            "aliases":      ", ".join(data.get("aliases", [])),
+        }
         if chroma_rag.ingest_markdown_file(file_path, document, COLLECTION_NAME, extra_metadata=extra):
             state[file_path] = {"mtime": mtime}
             processed += 1

@@ -269,6 +269,7 @@
   </div>
   <div class="header-actions">
     <button class="btn-ghost" id="new-thread-btn" title="Start a new conversation thread" onclick="newThread()">✦ New Thread</button>
+    <button class="btn-ghost" id="vault-map-btn" title="Regenerate Obsidian Vault Map" onclick="generateVaultMap()">🗺 Vault Map</button>
     <button class="btn-ghost" id="sync-btn" title="Sync memory to Chroma" onclick="syncMemory()">⟳ Sync</button>
   </div>
 </header>
@@ -1011,6 +1012,33 @@ async function syncMemory() {
     setTimeout(() => {
       btn.disabled = false;
       btn.textContent = '⟳ Sync';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 4000);
+  }
+}
+
+async function generateVaultMap() {
+  const btn = document.getElementById('vault-map-btn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '🗺 Mapping…';
+  btn.style.borderColor = 'var(--accent)';
+  btn.style.color = 'var(--accent)';
+  try {
+    const resp = await fetch(`${API_BASE}/vault_map`, { method: 'POST', headers: headers() });
+    const data = await resp.json();
+    btn.textContent = '✓ Map started';
+    btn.style.borderColor = 'var(--tool-text)';
+    btn.style.color = 'var(--tool-text)';
+  } catch (e) {
+    btn.textContent = '✗ Map failed';
+    btn.style.borderColor = '#ff6666';
+    btn.style.color = '#ff6666';
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '🗺 Vault Map';
       btn.style.borderColor = '';
       btn.style.color = '';
     }, 4000);
