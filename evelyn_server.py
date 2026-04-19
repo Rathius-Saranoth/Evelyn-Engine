@@ -948,6 +948,33 @@ async def trigger_sync(_: None = Depends(check_auth)):
     return {"status": "sync started"}
 
 
+@app.post("/vault_map")
+async def trigger_vault_map(_: None = Depends(check_auth)):
+    """Regenerate the Obsidian vault map in the background (no chat turn required)."""
+    import threading
+    import subprocess
+    import sys
+
+    def _run():
+        try:
+            script = str(BASE_DIR / "Vault_Map" / "generate_vault_map.py")
+            print("[VAULT MAP] Regeneration triggered via /vault_map endpoint", flush=True)
+            result = subprocess.run(
+                [sys.executable, script],
+                capture_output=True, text=True, cwd=str(BASE_DIR),
+            )
+            if result.returncode == 0:
+                print("[VAULT MAP] Done.", flush=True)
+            else:
+                print(f"[VAULT MAP ERROR] {result.stderr[:500]}", flush=True)
+        except Exception as e:
+            print(f"[VAULT MAP ERROR] {e}", flush=True)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "vault map generation started"}
+
+
+
 @app.post("/tts")
 async def tts_proxy(request: Request):
     """Proxy TTS requests to the local qwen_tts_server.

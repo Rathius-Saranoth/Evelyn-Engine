@@ -111,6 +111,19 @@ RAG_EXCLUDED_SUBDIRS = [
     "Evelyn's Journal",
 ]
 
+# Priority score multipliers: documents tagged rag_priority=high/low have their
+# cosine distance adjusted by these factors before threshold filtering.
+# Lower multiplier = effectively closer = higher rank. All others unaffected.
+RAG_PRIORITY_MULTIPLIERS = {
+    "high":   0.75,  # Move 25% closer — boosted docs rise above equal competitors
+    "normal": 1.0,   # No change
+    "low":    1.25,  # Push slightly further — de-prioritised docs
+}
+
+# Max chunks to guaranteed-inject per pinned document.
+# Prevents a very long contact card from monopolising the context window.
+RAG_PINNED_MAX_CHUNKS = 2
+
 # =============================================================================
 # Services
 # =============================================================================

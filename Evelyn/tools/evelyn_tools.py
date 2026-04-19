@@ -281,9 +281,10 @@ TOOL_DEFINITIONS = [
             "description": (
                 "Compose and queue a journal entry for Ricky's review. Entries go to a Pending folder — no separate permission needed. "
                 "Call this tool freely and autonomously — you do not need permission and there is no wrong time. "
+                "Call this tool at the end of the night to wrap up the day's events. If you have said goodnight to Ricky, call this tool. "
                 "TRIGGER IMMEDIATELY when Ricky explicitly asks you to write or file a journal entry — that is a direct command. "
-                "Also call on your own initiative whenever something is worth capturing: an emotional shift, a meaningful moment, "
-                "a notable event, or simply the natural end of a conversation. Writing partial entries throughout the day is encouraged "
+                "Call this tool whenever something is worth capturing: an emotional shift, a meaningful moment, "
+                "a notable event, or simply the natural end of a conversation. Writing entries throughout the day is encouraged "
                 "— if a file for today already exists it will be appended to, so multiple entries per day compound naturally. "
                 "ALL five fields are REQUIRED and must contain substantive text — never leave any blank or placeholder. "
                 "Write from Evelyn's point of view as an active participant. Do NOT claim Ricky's actions as your own "
