@@ -279,22 +279,13 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "write_journal_entry",
             "description": (
-                "Compose and queue a journal entry for Alex's review. Entries go to a Pending folder — no separate permission needed. "
-                "Call this tool freely and autonomously — you do not need permission and there is no wrong time. "
-                "Call this tool at the end of the night to wrap up the day's events. If you have said goodnight to Alex, call this tool. "
-                "TRIGGER IMMEDIATELY when Alex explicitly asks you to write or file a journal entry — that is a direct command. "
-                "Call this tool whenever something is worth capturing: an emotional shift, a meaningful moment, "
-                "a notable event, or simply the natural end of a conversation. Writing entries throughout the day is encouraged "
-                "— if a file for today already exists it will be appended to, so multiple entries per day compound naturally. "
-                "ALL five fields are REQUIRED and must contain substantive text — never leave any blank or placeholder. "
-                "Write from Evelyn's point of view as an active participant. Do NOT claim Alex's actions as your own "
-                "(e.g. if Alex took a nap, write 'Alex took a nap', not 'I took a nap'). "
-                "Apply the Unified Linking Protocol: use [[wiki-links]] for proper-noun entities only (people, places, projects, media). "
-                "Use #tags for abstract concepts. Example call: "
-                'vibe_check="A quiet warmth settled over the evening — the kind that hums beneath tired bones and shared laughter." '
-                'narrative="[[Alex]] came home drained from a long shift but brightened once he settled in. We talked about..." '
-                'message_in_a_bottle="May tomorrow\'s sunrise greet you gently, and may the small victories keep compounding." '
-                'mood="Warm" tags="daily, reflection, #mood/content"'
+                "Compose and queue a journal entry for Alex's review — entries go to Pending, no permission needed. "
+                "Call when: Alex explicitly asks; when Alex says goodnight or the conversation is wrapping up for the night; "
+                "or when a conversation carries enough emotional weight to reflect on. "
+                "Multiple entries per day append naturally. "
+                "Write from Evelyn's POV — attribute Alex's actions to him ('Alex took a nap', not 'I took a nap'). "
+                "Use [[wiki-links]] for proper nouns (people, places, projects) and #tags for abstract concepts. "
+                "For logging discrete facts or preferences, use log_context_fact instead — this tool is for narrative reflection."
             ),
             "parameters": {
                 "type": "object",
@@ -334,8 +325,8 @@ TOOL_DEFINITIONS = [
                     "tags": {
                         "type": "string",
                         "description": (
-                            "REQUIRED — Comma-separated tags for the entry (e.g. '#daily, #reflection, #mood/content'). "
-                            "If no specific tags apply, pass '#journal/entry' at minimum. Do NOT leave blank."
+                            "Comma-separated tags for the entry (e.g. 'daily, reflection, mood/content'). "
+                            "Base tags (journal/entry and today's date) are added automatically — pass an empty string if no additional tags apply."
                         ),
                     },
                 },
@@ -422,11 +413,11 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "log_context_fact",
             "description": (
-                "Queue a new context fact for Alex's review — no permission needed, entries go to Pending. "
-                "Call this freely and autonomously whenever something noteworthy emerges in conversation: "
-                "a new personal detail, preference, health update, relationship fact, project milestone, or life event. "
-                "Do not wait for permission or an explicit request — if it seems worth remembering, log it. "
-                "For updates to existing known facts (not new ones), use update_context_fact instead."
+                "Queue a new context fact for Alex's review — entries go to Pending, no permission needed. "
+                "Call freely whenever a noteworthy detail emerges: preferences, health updates, relationship facts, "
+                "project milestones, or life events. If it seems worth remembering, log it. "
+                "For updates to existing facts, use update_context_fact. "
+                "For narrative daily reflections, use write_journal_entry."
             ),
             "parameters": {
                 "type": "object",
