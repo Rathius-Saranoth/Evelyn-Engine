@@ -91,11 +91,13 @@ def _get_client() -> chromadb.PersistentClient:
 
 
 def _get_embedding_fn():
-    """Use nomic-embed-text via Ollama for embeddings (same model already running)."""
-    return embedding_functions.OllamaEmbeddingFunction(
-        url=f"{cfg.OLLAMA_URL}/api/embeddings",
-        model_name="nomic-embed-text",
-    )
+    """Use ChromaDB's built-in default embedding model (all-MiniLM-L6-v2 via ONNX).
+
+    Runs entirely on CPU (~100ms per query). This avoids calling Ollama for
+    embeddings, which would evict the main chat model from VRAM on every turn
+    and cause a ~20-30 second model swap penalty.
+    """
+    return embedding_functions.DefaultEmbeddingFunction()
 
 
 def get_or_create_collection(name: str) -> chromadb.Collection:

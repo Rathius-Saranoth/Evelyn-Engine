@@ -40,6 +40,12 @@ PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
 import evelyn_config as cfg
 from evelyn_tools import TOOL_DEFINITIONS, TOOL_FUNCTIONS
 from chroma_rag import build_rag_context
+from context_summarizer import (
+    build_conversation_summary,
+    trigger_summary_update,
+    invalidate_summary_cache,
+    cancel_pending_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Logging helper
@@ -569,6 +575,10 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     """
     importlib.reload(cfg)
 
+    # Cancel any in-flight background summarization so it doesn't
+    # queue behind this request on Ollama
+    cancel_pending_summary()
+
     yield "data: " + json.dumps({"type": "status", "msg": "Processing..."}) + "\n\n"
 
     # RAG injection
@@ -577,6 +587,12 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     if rag_context:
         system += f"\n\n{rag_context}"
         dlog("RAG injected:", rag_context[:300])
+
+    # Conversation summary injection (sliding window)
+    conv_summary = build_conversation_summary()
+    if conv_summary:
+        system += f"\n\n--- Conversation Summary (older messages) ---\n{conv_summary}\n--- End Summary ---"
+        dlog("Summary injected:", conv_summary[:200])
 
     history = load_history()
 
@@ -815,6 +831,11 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
             f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars"
         )
 
+        # Trigger async summary update in background (runs during user's read/think/type cycle)
+        if final_content:
+            import context_summarizer
+            context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
+
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
@@ -829,6 +850,10 @@ async def lifespan(app: FastAPI):
     print(f"Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}")
     print(f"Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"History cap: {cfg.MAX_HISTORY_MESSAGES} messages | Debug logging: {cfg.DEBUG_LOGGING}")
+    # Rebuild conversation summary cache in background (covers mid-day restarts)
+    import context_summarizer
+    context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
+    print("Context summarizer: background rebuild started")
     yield
 
 
@@ -927,6 +952,7 @@ async def new_thread(_: None = Depends(check_auth)):
     """Insert a thread-break marker. History before this point won't be
     sent to the model, but remains in the DB for UI scrollback."""
     save_message("system", THREAD_BREAK_MARKER)
+    invalidate_summary_cache()
     print("[THREAD] New thread started", flush=True)
     return {"status": "new thread started"}
 
