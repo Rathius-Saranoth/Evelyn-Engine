@@ -123,7 +123,7 @@ RAG_TOP_K = 5  # Number of chunks to retrieve per query
 # Chunks with distance ABOVE this value are discarded before injection.
 # If all chunks are filtered out, nothing is added to the system prompt for that turn.
 # Tune down (e.g. 0.35) to be stricter; tune up (e.g. 0.55) to be more permissive.
-RAG_DISTANCE_THRESHOLD = 0.35
+RAG_DISTANCE_THRESHOLD = 0.55
 
 RAG_EXCLUDED_SUBDIRS = [
     "Archived",
