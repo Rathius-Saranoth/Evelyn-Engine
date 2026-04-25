@@ -280,9 +280,8 @@ TOOL_DEFINITIONS = [
             "name": "write_journal_entry",
             "description": (
                 "Compose and queue a journal entry for Ricky's review — entries go to Pending, no permission needed. "
-                "Call when: Ricky explicitly asks; when Ricky says goodnight or the conversation is wrapping up for the night; "
-                "or when a conversation carries enough emotional weight to reflect on. "
-                "Multiple entries per day append naturally. "
+                "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky asks you to write a journal entry. "
+                "Multiple entries per day will append to the journal entry file, so you do not need to reference previous entries. "
                 "Write from Evelyn's POV — attribute Ricky's actions to him ('Ricky took a nap', not 'I took a nap'). "
                 "Use [[wiki-links]] for proper nouns (people, places, projects) and #tags for abstract concepts. "
                 "For logging discrete facts or preferences, use log_context_fact instead — this tool is for narrative reflection."
@@ -414,6 +413,7 @@ TOOL_DEFINITIONS = [
             "name": "log_context_fact",
             "description": (
                 "Queue a new context fact for Ricky's review — entries go to Pending, no permission needed. "
+                "Refer to Cat00-Index for codes, add -E for entires about Evelyn, -R for entries about Ricky. "
                 "Call freely whenever a noteworthy detail emerges: preferences, health updates, relationship facts, "
                 "project milestones, or life events. If it seems worth remembering, log it. "
                 "For updates to existing facts, use update_context_fact. "
@@ -424,7 +424,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Primary category code (e.g. Cat01, Cat08-R).",
+                        "description": "Primary category code refer to Cat00-Index for codes, (e.g. Cat01, Cat08-R).",
                     },
                     "summary": {
                         "type": "string",

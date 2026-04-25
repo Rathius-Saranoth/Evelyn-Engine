@@ -11,6 +11,8 @@ reference/system/
 Update Logs/
 reference/chat/
 reference/archive/persona copy/
+reference/ideas/
+
 # --- Local Data & State ---
 # Temporary state files for sync
 Evelyn/tools/gist_sync_state.json

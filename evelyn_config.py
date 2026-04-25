@@ -59,7 +59,7 @@ NUM_PREDICT = -1
 # produced. Primarily added to prevent the model from looping inside its own
 # <think> block on self-prompting tokens like "(Send)." instead of emitting
 # the final response. Set to an empty list [] to disable.
-STOP_SEQUENCES = ["(Send).", "(Final).", "(Done)."]
+STOP_SEQUENCES = ["(Send).", "(Final).", "(Done).", "*Perfect."]
 
 # =============================================================================
 # History
@@ -75,6 +75,27 @@ MAX_HISTORY_MESSAGES = 20
 # it gets another turn. Loop exits when the model produces no tool calls or this
 # cap is hit, then the streaming response pass runs.
 MAX_TOOL_ROUNDS = 5
+
+# --- Context Summarizer ---
+# Compresses older messages that have fallen out of the active history window
+# into a lean summary block, injected into the system prompt each turn.
+# Summarization runs asynchronously after each response — zero user-facing latency.
+
+# Number of messages (beyond the active window) to include in summarization.
+# These are the messages that just fell out of MAX_HISTORY_MESSAGES.
+SUMMARY_WINDOW_SIZE = 50
+
+# Maximum word count for the generated summary. Controls token budget.
+# ~200 words ≈ ~270 tokens. Keep under 600 tokens to preserve response headroom.
+SUMMARY_MAX_WORDS = 200
+
+# How many of the active messages to overlap into the summary window,
+# giving the summarizer context about what the model already "sees."
+SUMMARY_OVERLAP = 4
+
+# Model override for summarization. "default" = use MODEL_NAME (recommended).
+# Set to a specific model name only if you want to experiment with a lighter model.
+SUMMARY_MODEL_OVERRIDE = "default"
 
 # =============================================================================
 # Paths

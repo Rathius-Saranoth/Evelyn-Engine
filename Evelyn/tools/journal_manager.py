@@ -80,7 +80,7 @@ def create_journal_entry(
         an existing one was appended to.
     """
     today = datetime.date.today()
-    filename = f"Journal Notes {today.strftime('%Y-%m-%d')}.md"
+    filename = f"Journal Entry {today.strftime('%Y-%m-%d')}.md"
     filepath = os.path.join(PENDING_DIR, filename)
 
     if tags is None:
