@@ -48,6 +48,19 @@ from context_summarizer import (
 )
 
 # ---------------------------------------------------------------------------
+# Console colors (ANSI — native on Windows Terminal, VS Code, etc.)
+# ---------------------------------------------------------------------------
+_RST = "\033[0m"
+_BLD = "\033[1m"
+_DIM = "\033[2m"
+_RED = "\033[91m"
+_GRN = "\033[92m"
+_YEL = "\033[93m"
+_CYN = "\033[96m"
+_MAG = "\033[95m"
+
+
+# ---------------------------------------------------------------------------
 # Logging helper
 # ---------------------------------------------------------------------------
 
@@ -55,7 +68,7 @@ from context_summarizer import (
 def dlog(*args):
     """Debug-only log. Reads cfg.DEBUG_LOGGING per-call so toggling takes effect live."""
     if cfg.DEBUG_LOGGING:
-        print("[DEBUG]", *args)
+        print(f"{_DIM}[DEBUG]", *args, end=f"{_RST}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +133,6 @@ def get_time_gap_context() -> str | None:
         hrs = delta.total_seconds() / 3600
         label = f"{hrs:.1f}".rstrip("0").rstrip(".")
         return f"[About {label} hours have passed since the last message. Current time: {time_str}.]"
-    elif delta < _td(hours=14):
-        hrs = round(delta.total_seconds() / 3600)
-        return (
-            f"[Roughly {hrs} hours have passed since the last message "
-            f"— likely a work shift or sleep. Current time: {time_str}.]"
-        )
     else:
         days = delta.days
         hrs = delta.seconds // 3600
@@ -408,7 +415,7 @@ def dispatch_tool(name: str, args: dict) -> str:
     except Exception as e:
         import traceback
 
-        print(f"\n[TOOL ERROR] Exception in '{name}':", flush=True)
+        print(f"\n{_RED}[TOOL ERROR]{_RST} Exception in '{name}':", flush=True)
         traceback.print_exc()
         return f"Tool '{name}' raised an error: {e}"
 
@@ -432,7 +439,7 @@ async def _stream_content(msgs: list[dict]):
     OPEN_TAG = "<think>"
     CLOSE_TAG = "</think>"
 
-    print("[PASS2] Streaming content. Roles:", [m["role"] for m in msgs], flush=True)
+    print(f"{_CYN}[PASS2]{_RST} Streaming content. Roles:", [m["role"] for m in msgs], flush=True)
 
     _SENTINEL = object()
     queue: asyncio.Queue = asyncio.Queue()
@@ -456,7 +463,7 @@ async def _stream_content(msgs: list[dict]):
                 continue
 
             if kind == "error":
-                print(f"[PASS2 ERROR] {type(item).__name__}: {item}", flush=True)
+                print(f"{_RED}[PASS2 ERROR]{_RST} {type(item).__name__}: {item}", flush=True)
                 raise item
             if kind == "done":
                 break
@@ -534,7 +541,7 @@ async def _stream_content(msgs: list[dict]):
                 break
 
     except BaseException as exc:
-        print(f"[PASS2 STREAM ERROR] {type(exc).__name__}: {exc}", flush=True)
+        print(f"{_RED}[PASS2 STREAM ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
         feeder.cancel()
         raise
     finally:
@@ -586,7 +593,10 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     system = load_system_prompt()
     if rag_context:
         system += f"\n\n{rag_context}"
-        dlog("RAG injected:", rag_context[:300])
+        # Count chunks by counting "[filename]" markers in the assembled block
+        chunk_count = rag_context.count("\n[")
+        pinned_count = rag_context.count("[primary source]")
+        dlog(f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}")
 
     # Conversation summary injection (sliding window)
     conv_summary = build_conversation_summary()
@@ -623,7 +633,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     # Pass 1: Non-streaming call with tools (heartbeats sent while waiting)
     # ------------------------------------------------------------------
     print(
-        "[PASS1] Non-streaming tool-detection. Roles:",
+        f"{_CYN}[PASS1]{_RST} Non-streaming tool-detection. Roles:",
         [m["role"] for m in messages],
         flush=True,
     )
@@ -638,7 +648,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     try:
         pass1_resp = pass1_task.result()
     except Exception as exc:
-        print(f"[PASS1 ERROR] {type(exc).__name__}: {exc}", flush=True)
+        print(f"{_RED}[PASS1 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
         save_message("assistant", "[Response interrupted -- please try again.]")
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
@@ -736,7 +746,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                     result = tool_task.result()
                     if cfg.DEBUG_TOOL_FULL:
                         print(
-                            f"[TOOL RESULT] {fn_name}\n"
+                            f"{_YEL}[TOOL RESULT]{_RST} {fn_name}\n"
                             f"{'─' * 60}\n{result}\n{'─' * 60}",
                             flush=True,
                         )
@@ -747,7 +757,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                 # Check if we've hit the cap
                 if tool_round >= cfg.MAX_TOOL_ROUNDS:
                     print(
-                        f"[TOOL LOOP] Hit MAX_TOOL_ROUNDS ({cfg.MAX_TOOL_ROUNDS}). Forcing final response.",
+                        f"{_YEL}[TOOL LOOP]{_RST} Hit MAX_TOOL_ROUNDS ({cfg.MAX_TOOL_ROUNDS}). Forcing final response.",
                         flush=True,
                     )
                     yield f"data: {json.dumps({'type': 'status', 'msg': 'Generating response...'})}\n\n"
@@ -756,7 +766,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                 # Ask the model again with tool results in context
                 yield f"data: {json.dumps({'type': 'status', 'msg': 'Thinking...'})}\n\n"
                 print(
-                    f"[TOOL LOOP] Round {tool_round} complete. Re-querying model. Roles:",
+                    f"{_YEL}[TOOL LOOP]{_RST} Round {tool_round} complete. Re-querying model. Roles:",
                     [m["role"] for m in messages],
                     flush=True,
                 )
@@ -847,13 +857,13 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    print(f"Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}")
-    print(f"Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
-    print(f"History cap: {cfg.MAX_HISTORY_MESSAGES} messages | Debug logging: {cfg.DEBUG_LOGGING}")
+    print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
+    print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
+    print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
     # Rebuild conversation summary cache in background (covers mid-day restarts)
     import context_summarizer
     context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
-    print("Context summarizer: background rebuild started")
+    print(f"  {_GRN}Summarizer:{_RST} background rebuild started")
     yield
 
 
@@ -953,7 +963,7 @@ async def new_thread(_: None = Depends(check_auth)):
     sent to the model, but remains in the DB for UI scrollback."""
     save_message("system", THREAD_BREAK_MARKER)
     invalidate_summary_cache()
-    print("[THREAD] New thread started", flush=True)
+    print(f"{_MAG}[THREAD]{_RST} New thread started", flush=True)
     return {"status": "new thread started"}
 
 
@@ -965,10 +975,10 @@ async def trigger_sync(_: None = Depends(check_auth)):
 
     def _run():
         try:
-            print("[SYNC] Manual sync triggered via /sync endpoint", flush=True)
+            print(f"{_GRN}[SYNC]{_RST} Manual sync triggered via /sync endpoint", flush=True)
             TOOL_FUNCTIONS["sync_context_memory"]()
         except Exception as e:
-            print(f"[SYNC ERROR] {e}", flush=True)
+            print(f"{_RED}[SYNC ERROR]{_RST} {e}", flush=True)
 
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "sync started"}
@@ -984,17 +994,17 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     def _run():
         try:
             script = str(BASE_DIR / "Vault_Map" / "generate_vault_map.py")
-            print("[VAULT MAP] Regeneration triggered via /vault_map endpoint", flush=True)
+            print(f"{_GRN}[VAULT MAP]{_RST} Regeneration triggered via /vault_map endpoint", flush=True)
             result = subprocess.run(
                 [sys.executable, script],
                 capture_output=True, text=True, cwd=str(BASE_DIR),
             )
             if result.returncode == 0:
-                print("[VAULT MAP] Done.", flush=True)
+                print(f"{_GRN}[VAULT MAP]{_RST} Done.", flush=True)
             else:
-                print(f"[VAULT MAP ERROR] {result.stderr[:500]}", flush=True)
+                print(f"{_RED}[VAULT MAP ERROR]{_RST} {result.stderr[:500]}", flush=True)
         except Exception as e:
-            print(f"[VAULT MAP ERROR] {e}", flush=True)
+            print(f"{_RED}[VAULT MAP ERROR]{_RST} {e}", flush=True)
 
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "vault map generation started"}

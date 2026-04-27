@@ -91,10 +91,9 @@ def search_vault_map(query: str, limit: int = 5) -> str:
     Searches the JSON vault map for files matching the query string.
 
     Scoring heuristic (higher = stronger match):
-      +10 points  — query found in the file title
-      +5 points   — query found in a tag
-      +5 points   — query found in a wiki-link entity
-      +2 points   — query found in the LLM-generated gist
+      +10 points  -- query found in the file title
+      +5 points   -- query found in a tag
+      +2 points   -- query found in the LLM-generated gist
 
     Results are sorted by descending score; only the top ``limit`` entries
     are returned. Matching is case-insensitive.
@@ -127,15 +126,12 @@ def search_vault_map(query: str, limit: int = 5) -> str:
 
         title = data.get("title", "").lower()
         tags = [t.lower() for t in data.get("tags", [])]
-        links = [lnk.lower() for lnk in data.get("links", [])]
         gist = data.get("gist", "").lower()
 
         score = 0
         if query_lower in title:
             score += 10
         if any(query_lower in t for t in tags):
-            score += 5
-        if any(query_lower in lnk for lnk in links):
             score += 5
         if query_lower in gist:
             score += 2
