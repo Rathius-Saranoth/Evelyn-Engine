@@ -122,7 +122,8 @@ RAG_TOP_K = 5  # Number of chunks to retrieve per query
 # Cosine distance threshold for RAG injection (0.0 = identical, 1.0 = unrelated).
 # Chunks with distance ABOVE this value are discarded before injection.
 # If all chunks are filtered out, nothing is added to the system prompt for that turn.
-# Tune down (e.g. 0.35) to be stricter; tune up (e.g. 0.55) to be more permissive.
+# NOTE: This value is model-specific. Current: all-MiniLM-L6-v2 (0.55).
+#       Previous: nomic-embed-text via Ollama (0.35). Recalibrate if embedding model changes.
 RAG_DISTANCE_THRESHOLD = 0.55
 
 RAG_EXCLUDED_SUBDIRS = [
@@ -144,6 +145,14 @@ RAG_PRIORITY_MULTIPLIERS = {
 # Max chunks to guaranteed-inject per pinned document.
 # Prevents a very long contact card from monopolising the context window.
 RAG_PINNED_MAX_CHUNKS = 2
+
+# --- RAG Query Reformulation ---
+# Uses the already-loaded LLM to extract search keywords from conversational
+# messages before embedding. Adds ~1-2s latency but dramatically improves
+# retrieval accuracy for casual/conversational messages.
+RAG_REFORMULATE_ENABLED = True    # Master switch — set False to bypass
+RAG_REFORMULATE_MIN_WORDS = 4    # Skip reformulation for messages with fewer words
+RAG_REFORMULATE_TIMEOUT = 10     # Seconds before falling back to raw message
 
 # =============================================================================
 # Services
