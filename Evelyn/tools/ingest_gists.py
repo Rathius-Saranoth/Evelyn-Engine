@@ -65,14 +65,12 @@ def save_state(state, state_file):
         json.dump(state, f, indent=4)
 
 
-def format_gist_document(file_path, gist_text, tags, links, title=None):
+def format_gist_document(file_path, gist_text, tags, title=None):
     """Format a gist into a plain-text document for Chroma storage."""
     safe_title = title if title else os.path.basename(file_path).replace(".md", "")
     parts = [f"Topic: {safe_title}", f"File Path: {file_path}"]
     if tags:
         parts.append(f"Tags: {', '.join(tags)}")
-    if links:
-        parts.append(f"Entities: {', '.join(links)}")
     parts.append("")
     parts.append(gist_text)
     return "\n".join(parts)
@@ -139,7 +137,6 @@ def main():
         document = format_gist_document(
             file_path, gist,
             data.get("tags", []),
-            data.get("links", []),
             title=data.get("title"),
         )
 

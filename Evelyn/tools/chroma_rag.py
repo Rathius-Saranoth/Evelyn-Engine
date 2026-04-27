@@ -13,13 +13,25 @@ Collections:
   evelyn_memory  — full markdown files (journals, context entries)
   evelyn_gists   — LLM-generated gist summaries from vault map
 
+Embedding model:
+  all-MiniLM-L6-v2 (22.7M params, 384-dim) via Chroma's built-in ONNX runtime.
+  Runs on CPU (~100ms/query) to avoid VRAM eviction of the main chat model.
+  Hard context limit: 256 WordPiece tokens (~1000 chars). Chunks exceeding this
+  are silently truncated at embedding time.
+
+Index:
+  HNSW (Hierarchical Navigable Small World) with cosine distance metric.
+  Cosine distance range: 0.0 (identical) to 1.0 (orthogonal).
+
 Chunking:
-  nomic-embed-text has a hard 8192-token context limit. Files are split into
-  overlapping chunks before embedding to avoid HTTP 400 errors on large files.
+  Files are split into overlapping chunks of ~1000 chars to stay within the
+  embedding model's 256-token context window. YAML frontmatter is stripped
+  before chunking since it is stored separately as Chroma metadata.
 
 Priority & Pinning:
   Documents ingested with rag_priority=high|low receive a score multiplier
   that adjusts their effective cosine distance before threshold filtering.
+  Note: priority boost can promote chunks past the distance threshold.
   Documents with rag_pinned=true are guaranteed-injected into context when any
   of their aliases appear in the user query, regardless of cosine score.
 """
@@ -34,11 +46,11 @@ import evelyn_config as cfg
 # ---------------------------------------------------------------------------
 # Chunking config
 # ---------------------------------------------------------------------------
-# nomic-embed-text has a hard 8192-token context limit (~6000 chars for typical
-# text). We chunk conservatively at 1800 chars with 200-char overlap so no
-# single embed call can exceed the limit, even for dense markdown.
-CHUNK_SIZE    = 1800  # chars per chunk
-CHUNK_OVERLAP = 200   # chars of overlap between consecutive chunks
+# all-MiniLM-L6-v2 has a 256 WordPiece token context window (~1000 chars for
+# typical English text). We chunk at 1000 chars with 150-char overlap to stay
+# within the embedding window and avoid silent truncation.
+CHUNK_SIZE    = 1000  # chars per chunk (fits ~250 tokens)
+CHUNK_OVERLAP = 150   # chars of overlap between consecutive chunks
 
 
 def chunk_text(content: str) -> list[str]:
@@ -48,6 +60,10 @@ def chunk_text(content: str) -> list[str]:
     Tries to split on paragraph boundaries (double newline) first for
     cleaner semantic chunks; falls back to hard character splits.
     Returns a list of at least one chunk (even for empty content).
+
+    Note: CHUNK_SIZE (1000 chars) is calibrated to fit within the embedding
+    model's 256-token context window. Chunks exceeding the token limit are
+    silently truncated by the model, degrading retrieval accuracy.
     """
     if len(content) <= CHUNK_SIZE:
         return [content] if content.strip() else ["(empty)"]
@@ -82,6 +98,7 @@ def chunk_text(content: str) -> list[str]:
 # Client singleton
 # ---------------------------------------------------------------------------
 _client = None
+_embedding_fn = None
 
 def _get_client() -> chromadb.PersistentClient:
     global _client
@@ -91,17 +108,32 @@ def _get_client() -> chromadb.PersistentClient:
 
 
 def _get_embedding_fn():
-    """Use ChromaDB's built-in default embedding model (all-MiniLM-L6-v2 via ONNX).
+    """Return a cached instance of Chroma's default embedding model.
 
-    Runs entirely on CPU (~100ms per query). This avoids calling Ollama for
-    embeddings, which would evict the main chat model from VRAM on every turn
-    and cause a ~20-30 second model swap penalty.
+    Model: all-MiniLM-L6-v2 (22.7M params, 384-dim, 256-token context).
+    Runs via ONNX on CPU (~100ms per query). Cached as a module-level
+    singleton to avoid re-loading the ONNX session on every call.
+
+    This avoids calling Ollama for embeddings, which would evict the main
+    chat model from VRAM and cause a ~20-30 second model swap penalty.
     """
-    return embedding_functions.DefaultEmbeddingFunction()
+    global _embedding_fn
+    if _embedding_fn is None:
+        _embedding_fn = embedding_functions.DefaultEmbeddingFunction()
+    return _embedding_fn
 
 
 def get_or_create_collection(name: str) -> chromadb.Collection:
-    """Idempotently get or create a named Chroma collection."""
+    """Idempotently get or create a named Chroma collection.
+
+    Configures the collection with:
+      - Embedding: all-MiniLM-L6-v2 via ONNX (CPU, cached singleton)
+      - Index: HNSW (Hierarchical Navigable Small World)
+      - Distance: cosine (0.0 = identical, 1.0 = orthogonal)
+
+    The HNSW index and cosine metric are set at creation time and cannot
+    be changed without recreating the collection.
+    """
     client = _get_client()
     return client.get_or_create_collection(
         name=name,
@@ -125,6 +157,10 @@ def ingest_markdown_file(file_path: str, content: str, collection_name: str,
     Re-ingesting the same file first removes all old chunks for that path,
     then upserts the new set — so the chunk count can grow or shrink cleanly.
 
+    YAML frontmatter (---\n...\n---) is stripped before chunking since the
+    ingestion scripts extract metadata fields separately. This preserves
+    embedding token budget for actual content.
+
     Args:
         file_path:       Absolute path — used as the document ID prefix.
         content:         Text content to embed and store.
@@ -141,18 +177,17 @@ def ingest_markdown_file(file_path: str, content: str, collection_name: str,
         # Remove old chunks for this file before upserting the new set
         _delete_chunks_by_source(col, file_path)
 
-        chunks = chunk_text(content)
+        # Strip YAML frontmatter before chunking — metadata is already
+        # extracted by the ingestion scripts and stored via extra_metadata.
+        clean_content = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
+
+        chunks = chunk_text(clean_content)
         ids       = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
         metadatas = []
         for i in range(len(chunks)):
             meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
             if extra_metadata:
-                # Chroma metadata values must be str/int/float/bool — coerce booleans
-                for k, v in extra_metadata.items():
-                    if isinstance(v, bool):
-                        meta[k] = v  # Chroma supports bool natively
-                    else:
-                        meta[k] = v
+                meta.update(extra_metadata)
             # Defaults so the fields always exist for query-time inspection
             meta.setdefault("rag_priority", "normal")
             meta.setdefault("rag_pinned", False)
@@ -196,6 +231,8 @@ def query_collection(query: str, collection_name: str, n_results: int = None) ->
     """
     Retrieve the top-K most relevant chunks from a collection.
 
+    Uses HNSW index with cosine distance for approximate nearest-neighbor search.
+
     Args:
         query:           Natural language query string.
         collection_name: Collection to search.
@@ -203,6 +240,7 @@ def query_collection(query: str, collection_name: str, n_results: int = None) ->
 
     Returns:
         List of dicts with keys: 'content', 'source', 'distance', 'metadata'.
+        Distance is cosine distance: 0.0 = identical, 1.0 = orthogonal.
         Empty list if collection is empty or query fails.
     """
     if n_results is None:
@@ -231,7 +269,9 @@ def query_collection(query: str, collection_name: str, n_results: int = None) ->
             })
         return chunks
     except Exception as e:
-        print(f"[chroma_rag] query failed ({collection_name}): {e}")
+        # Always log query failures (not debug-gated) — a failed query means
+        # total RAG context loss for this turn, which should never be silent.
+        print(f"[chroma_rag] QUERY FAILED ({collection_name}): {e}", flush=True)
         return []
 
 
@@ -243,6 +283,11 @@ def _apply_priority_boost(chunks: list[dict]) -> list[dict]:
       high   → distance × 0.75  (moves chunk closer, raises rank)
       normal → distance × 1.0   (unchanged)
       low    → distance × 1.25  (pushes chunk further, lowers rank)
+
+    Note: boosted distances can cross the RAG_DISTANCE_THRESHOLD, promoting
+    otherwise-irrelevant chunks into context. For example, a 'high' priority
+    chunk at raw distance 0.72 becomes 0.54, passing a 0.55 threshold.
+    This is by design — priority is an intentional relevance override.
 
     Returns the same list with distances updated in place, re-sorted.
     """
@@ -322,8 +367,13 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
                     })
                 seen_sources.add(src)
                 if cfg.DEBUG_LOGGING:
+                    matched_alias = next((a for a in aliases if a and a in query_lower), "?")
+                    chunks_injected = min(len(docs), max_chunks)
                     print(
-                        f"[RAG] PINNED '{os.path.basename(src)}' matched alias in query",
+                        f"[RAG] PINNED src={os.path.basename(src)}"
+                        f" matched_alias='{matched_alias}'"
+                        f" aliases_checked={len(aliases)}"
+                        f" chunks_injected={chunks_injected}",
                         flush=True,
                     )
 
@@ -339,9 +389,11 @@ def build_rag_context(query: str) -> str:
     into the system prompt.
 
     Pipeline:
+      0. Query reformulation — extract search keywords from conversational text.
       1. Pinned doc scan — guaranteed inject for any contact/primary-source
-         whose alias appears in the query.
-      2. Normal top-K vector search across both collections.
+         whose alias appears in the ORIGINAL query (substring match, not semantic).
+      2. Normal top-K vector search across both collections using the
+         REFORMULATED query for better embedding accuracy.
       3. Priority re-ranking — adjust distances by rag_priority multiplier.
       4. Distance threshold filter — drop chunks above RAG_DISTANCE_THRESHOLD.
       5. Deduplicate — pinned chunks already in context are not duplicated.
@@ -350,13 +402,17 @@ def build_rag_context(query: str) -> str:
     Returns an empty string if nothing passes the threshold or no query matches,
     so no context block is injected for casual turns.
     """
-    # Step 1: Pinned guaranteed chunks
+    # Step 0: Query reformulation — extract search keywords from conversational text
+    from query_reformulator import reformulate_query
+    search_query = reformulate_query(query)
+
+    # Step 1: Pinned guaranteed chunks (uses ORIGINAL query for alias substring matching)
     pinned_chunks = _fetch_pinned_chunks(query)
     pinned_sources = {c["source"] for c in pinned_chunks}
 
-    # Step 2: Normal vector search
-    memory_chunks = query_collection(query, cfg.CHROMA_MEMORY_COLLECTION)
-    gist_chunks   = query_collection(query, cfg.CHROMA_GISTS_COLLECTION)
+    # Step 2: Normal vector search (uses REFORMULATED query for semantic matching)
+    memory_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION)
+    gist_chunks   = query_collection(search_query, cfg.CHROMA_GISTS_COLLECTION)
     all_chunks = memory_chunks + gist_chunks
 
     # Step 3: Priority re-ranking
@@ -370,9 +426,13 @@ def build_rag_context(query: str) -> str:
             kept = "KEEP" if c["distance"] <= threshold else "DROP"
             pinned_flag = " [already pinned]" if c["source"] in pinned_sources else ""
             priority = c["metadata"].get("rag_priority", "normal")
+            chunk_idx = c["metadata"].get("chunk", "?")
+            total = c["metadata"].get("total_chunks", "?")
+            preview = c["content"][:120].replace("\n", " ") if c.get("content") else ""
             print(
-                f"[RAG] {kept} dist={c['distance']:.3f} priority={priority}"
-                f" src={os.path.basename(c['source'])}{pinned_flag}",
+                f"[RAG]   {kept} dist={c['distance']:.3f} priority={priority}"
+                f" src={os.path.basename(c['source'])} chunk={chunk_idx}/{total}"
+                f"{pinned_flag} preview='{preview}'",
                 flush=True,
             )
 
@@ -380,6 +440,18 @@ def build_rag_context(query: str) -> str:
         c for c in all_chunks
         if c["distance"] <= threshold and c["source"] not in pinned_sources
     ]
+
+    # RAG query summary (debug-gated, structured for grep)
+    if cfg.DEBUG_LOGGING:
+        dropped = len(all_chunks) - len(relevant)
+        deduped = sum(1 for c in all_chunks if c["source"] in pinned_sources and c["distance"] <= threshold)
+        print(
+            f"[RAG] SUMMARY query='{query[:80]}'"
+            f" retrieved={len(all_chunks)} kept={len(relevant)}"
+            f" pinned={len(pinned_chunks)} dropped={dropped}"
+            f" deduped={deduped}",
+            flush=True,
+        )
 
     # Step 6: Assemble
     all_context = pinned_chunks + relevant
