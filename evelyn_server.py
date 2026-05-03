@@ -856,6 +856,17 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Suppress noisy Windows ProactorEventLoop ConnectionResetError tracebacks.
+    # These fire when browser clients (polling /task_status) disconnect mid-response.
+    # WinError 10054 is harmless — the background task continues regardless.
+    def _suppress_connection_reset(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, ConnectionResetError):
+            return  # Swallow silently — expected on Windows with polling clients
+        loop.default_exception_handler(context)
+
+    asyncio.get_event_loop().set_exception_handler(_suppress_connection_reset)
+
     init_db()
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
@@ -967,17 +978,39 @@ async def new_thread(_: None = Depends(check_auth)):
     return {"status": "new thread started"}
 
 
+# ---------------------------------------------------------------------------
+# Background task tracking
+# ---------------------------------------------------------------------------
+# Simple in-memory dict for tracking background process status.
+# The UI polls GET /task_status/{name} to know when a process finishes.
+_background_tasks: dict[str, dict] = {}
+
+
+@app.get("/task_status/{task_name}")
+async def task_status(task_name: str, _: None = Depends(check_auth)):
+    """Return the current status of a background task."""
+    task = _background_tasks.get(task_name)
+    if not task:
+        return {"status": "unknown", "task": task_name}
+    return task
+
+
 @app.post("/sync")
 async def trigger_sync(_: None = Depends(check_auth)):
     """Trigger a background Chroma ingest directly (no chat turn required)."""
     import threading
     from evelyn_tools import TOOL_FUNCTIONS
 
+    _background_tasks["sync"] = {"status": "running", "started_at": time.time()}
+
     def _run():
         try:
             print(f"{_GRN}[SYNC]{_RST} Manual sync triggered via /sync endpoint", flush=True)
             TOOL_FUNCTIONS["sync_context_memory"]()
+            _background_tasks["sync"] = {"status": "done", "finished_at": time.time()}
+            print(f"{_GRN}[SYNC]{_RST} Complete.", flush=True)
         except Exception as e:
+            _background_tasks["sync"] = {"status": "error", "error": str(e), "finished_at": time.time()}
             print(f"{_RED}[SYNC ERROR]{_RST} {e}", flush=True)
 
     threading.Thread(target=_run, daemon=True).start()
@@ -991,19 +1024,25 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     import subprocess
     import sys
 
+    _background_tasks["vault_map"] = {"status": "running", "started_at": time.time()}
+
     def _run():
         try:
             script = str(BASE_DIR / "Vault_Map" / "generate_vault_map.py")
             print(f"{_GRN}[VAULT MAP]{_RST} Regeneration triggered via /vault_map endpoint", flush=True)
             result = subprocess.run(
-                [sys.executable, script],
-                capture_output=True, text=True, cwd=str(BASE_DIR),
+                [sys.executable, "-u", script],
+                stdout=sys.stdout, stderr=sys.stderr,
+                cwd=str(BASE_DIR),
             )
             if result.returncode == 0:
+                _background_tasks["vault_map"] = {"status": "done", "finished_at": time.time()}
                 print(f"{_GRN}[VAULT MAP]{_RST} Done.", flush=True)
             else:
-                print(f"{_RED}[VAULT MAP ERROR]{_RST} {result.stderr[:500]}", flush=True)
+                _background_tasks["vault_map"] = {"status": "error", "error": f"Exit code {result.returncode}", "finished_at": time.time()}
+                print(f"{_RED}[VAULT MAP ERROR]{_RST} Process exited with code {result.returncode}", flush=True)
         except Exception as e:
+            _background_tasks["vault_map"] = {"status": "error", "error": str(e), "finished_at": time.time()}
             print(f"{_RED}[VAULT MAP ERROR]{_RST} {e}", flush=True)
 
     threading.Thread(target=_run, daemon=True).start()

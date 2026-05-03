@@ -2,20 +2,24 @@
 journal_manager.py — Journal entry creation and retrieval for Evelyn.
 
 Manages Evelyn's personal journal, stored as dated markdown files inside
-the Obsidian Vault. New entries are NEVER written directly to the live
-journal directory; they land in ``PENDING_DIR`` first and require Ricky's
-manual approval before they are archived in the vault.
+the Obsidian Vault.
+
+Write behaviour is controlled by ``evelyn_config.JOURNAL_DIRECT_WRITE``:
+  True  — Entries are written directly to ``JOURNAL_DIR`` (live vault).
+  False — Entries land in ``PENDING_DIR`` for manual review first.
 
 Key path constants:
-  JOURNAL_DIR — Approved, live journal entries inside the Obsidian Vault.
-  PENDING_DIR — Quarantine folder for entries awaiting Ricky's review.
+  JOURNAL_DIR — Live journal entries inside the Obsidian Vault.
+  PENDING_DIR — Quarantine folder for entries awaiting review (legacy).
 
-This module is imported and hot-reloaded by ``openwebui_tool.py``.
+This module is imported and hot-reloaded by ``evelyn_tools.py``.
 """
 
 import os
 import datetime
 import subprocess
+import importlib
+import evelyn_config as cfg
 
 JOURNAL_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Journal"
 PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Pending_Approvals\Journal"
@@ -64,8 +68,8 @@ def create_journal_entry(
     overwriting the existing file. This preserves multiple sessions in a
     single day's entry.
 
-    Tags are cleaned (``#`` prefix stripped) and merged with two automatic
-    base tags: ``journal/entry`` and a date tag (``CY-YYYY/MM/DD``).
+    Tags are cleaned (``#`` prefix stripped) and merged with an automatic
+    base tag: date tag (``CY-YYYY/MM/DD``).
 
     Args:
         vibe_check: Brief intro capturing the emotional atmosphere of the entry.
@@ -81,7 +85,11 @@ def create_journal_entry(
     """
     today = datetime.date.today()
     filename = f"Journal Entry {today.strftime('%Y-%m-%d')}.md"
-    filepath = os.path.join(PENDING_DIR, filename)
+
+    # Determine write target based on config
+    importlib.reload(cfg)
+    target_dir = JOURNAL_DIR if cfg.JOURNAL_DIRECT_WRITE else PENDING_DIR
+    filepath = os.path.join(target_dir, filename)
 
     if tags is None:
         tags = []
@@ -89,7 +97,7 @@ def create_journal_entry(
     # Strip any '#' from tags for valid YAML
     clean_tags = [t.strip().lstrip("#") for t in tags]
 
-    base_tags = ["journal/entry", f"CY-{today.strftime('%Y/%m/%d')}"]
+    base_tags = [f"CY-{today.strftime('%Y/%m/%d')}"]
     for t in base_tags:
         if t not in clean_tags:
             clean_tags.append(t)
@@ -116,17 +124,19 @@ tags: [{", ".join(clean_tags)}]
 
     # Try append first
     try:
-        if not os.path.exists(PENDING_DIR):
-            os.makedirs(PENDING_DIR, exist_ok=True)
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
 
         if os.path.exists(filepath):
             with open(filepath, "a", encoding="utf-8") as f:
                 f.write(append_content)
-            return f"Appended to existing pending entry: {filename}"
+            dest = "journal" if cfg.JOURNAL_DIRECT_WRITE else "pending"
+            return f"Appended to existing {dest} entry: {filename}"
         else:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(file_content)
-            return f"Created new pending entry: {filename}"
+            dest = "journal" if cfg.JOURNAL_DIRECT_WRITE else "pending"
+            return f"Created new {dest} entry: {filename}"
     except OSError as e:
         return f"Error writing journal entry — is Google Drive available? Details: {e}"
 

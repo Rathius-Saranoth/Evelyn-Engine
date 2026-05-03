@@ -74,6 +74,17 @@
       background: linear-gradient(90deg, transparent, var(--border), transparent);
     }
 
+    /* System notices (background task status) */
+    .system-notice {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px; color: var(--text-dim); font-size: 12px;
+      background: rgba(255,255,255,0.03); border-radius: 8px;
+      border-left: 3px solid var(--accent);
+      transition: opacity 0.3s;
+    }
+    .system-notice.done { border-left-color: var(--tool-text); }
+    .system-notice.error { border-left-color: #ff6666; }
+
     /* Messages */
     #messages {
       flex: 1; overflow-y: auto; padding: 20px;
@@ -991,6 +1002,75 @@ async function regenerateResponse(userMsgDiv) {
   }
 }
 
+function addSystemNotice(icon, text, cssClass = '') {
+  const notice = document.createElement('div');
+  notice.className = 'system-notice' + (cssClass ? ' ' + cssClass : '');
+  notice.innerHTML = `<span>${icon}</span><span>${text}</span>`;
+  document.getElementById('messages').appendChild(notice);
+  scrollBottom();
+  return notice;
+}
+
+async function pollTaskStatus(taskName, intervalMs, btn, defaultLabel, notice) {
+  return new Promise((resolve) => {
+    let networkErrors = 0;
+    const MAX_NETWORK_ERRORS = 3;
+
+    function resetBtn() {
+      btn.disabled = false;
+      btn.textContent = defaultLabel;
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }
+
+    const poll = setInterval(async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/task_status/${taskName}`, { headers: headers() });
+        const data = await resp.json();
+        networkErrors = 0; // Reset on successful response
+
+        if (data.status === 'done') {
+          clearInterval(poll);
+          notice.className = 'system-notice done';
+          notice.innerHTML = `<span>✅</span><span>${defaultLabel} completed.</span>`;
+          btn.textContent = `✓ ${defaultLabel} done`;
+          btn.style.borderColor = 'var(--tool-text)';
+          btn.style.color = 'var(--tool-text)';
+          setTimeout(resetBtn, 4000);
+          resolve('done');
+        } else if (data.status === 'error') {
+          clearInterval(poll);
+          notice.className = 'system-notice error';
+          notice.innerHTML = `<span>❌</span><span>${defaultLabel} failed: ${data.error || 'unknown error'}</span>`;
+          btn.textContent = `✗ ${defaultLabel} failed`;
+          btn.style.borderColor = '#ff6666';
+          btn.style.color = '#ff6666';
+          setTimeout(resetBtn, 4000);
+          resolve('error');
+        } else if (data.status === 'unknown') {
+          // Server restarted — task state was lost (in-memory dict cleared)
+          clearInterval(poll);
+          notice.className = 'system-notice error';
+          notice.innerHTML = `<span>⚠️</span><span>${defaultLabel} — server restarted, task state lost. Check console for result.</span>`;
+          setTimeout(resetBtn, 4000);
+          resolve('unknown');
+        }
+        // status === 'running' — keep polling
+      } catch {
+        // Network error — give it a few tries before giving up
+        networkErrors++;
+        if (networkErrors >= MAX_NETWORK_ERRORS) {
+          clearInterval(poll);
+          notice.className = 'system-notice error';
+          notice.innerHTML = `<span>⚠️</span><span>${defaultLabel} — lost connection to server. Check if it's still running.</span>`;
+          setTimeout(resetBtn, 4000);
+          resolve('disconnected');
+        }
+      }
+    }, intervalMs);
+  });
+}
+
 async function syncMemory() {
   const btn = document.getElementById('sync-btn');
   if (btn.disabled) return;
@@ -998,17 +1078,17 @@ async function syncMemory() {
   btn.textContent = '⟳ Syncing…';
   btn.style.borderColor = 'var(--accent)';
   btn.style.color = 'var(--accent)';
+  const notice = addSystemNotice('⟳', 'Memory sync started…');
   try {
     const resp = await fetch(`${API_BASE}/sync`, { method: 'POST', headers: headers() });
-    const data = await resp.json();
-    btn.textContent = '✓ Sync started';
-    btn.style.borderColor = 'var(--tool-text)';
-    btn.style.color = 'var(--tool-text)';
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    pollTaskStatus('sync', 30000, btn, '⟳ Sync', notice);
   } catch (e) {
+    notice.className = 'system-notice error';
+    notice.innerHTML = `<span>❌</span><span>Sync failed to start: ${e.message}</span>`;
     btn.textContent = '✗ Sync failed';
     btn.style.borderColor = '#ff6666';
     btn.style.color = '#ff6666';
-  } finally {
     setTimeout(() => {
       btn.disabled = false;
       btn.textContent = '⟳ Sync';
@@ -1025,17 +1105,17 @@ async function generateVaultMap() {
   btn.textContent = '🗺 Mapping…';
   btn.style.borderColor = 'var(--accent)';
   btn.style.color = 'var(--accent)';
+  const notice = addSystemNotice('🗺', 'Vault Map generation started…');
   try {
     const resp = await fetch(`${API_BASE}/vault_map`, { method: 'POST', headers: headers() });
-    const data = await resp.json();
-    btn.textContent = '✓ Map started';
-    btn.style.borderColor = 'var(--tool-text)';
-    btn.style.color = 'var(--tool-text)';
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    pollTaskStatus('vault_map', 60000, btn, '🗺 Vault Map', notice);
   } catch (e) {
+    notice.className = 'system-notice error';
+    notice.innerHTML = `<span>❌</span><span>Vault Map failed to start: ${e.message}</span>`;
     btn.textContent = '✗ Map failed';
     btn.style.borderColor = '#ff6666';
     btn.style.color = '#ff6666';
-  } finally {
     setTimeout(() => {
       btn.disabled = false;
       btn.textContent = '🗺 Vault Map';
