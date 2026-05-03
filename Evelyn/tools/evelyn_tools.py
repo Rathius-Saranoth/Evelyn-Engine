@@ -279,7 +279,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "write_journal_entry",
             "description": (
-                "Compose and queue a journal entry for Ricky's review — entries go to Pending, no permission needed. "
+                "Compose and save a journal entry. "
                 "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky asks you to write a journal entry. "
                 "Multiple entries per day will append to the journal entry file, so you do not need to reference previous entries. "
                 "Write from Evelyn's POV — attribute Ricky's actions to him ('Ricky took a nap', not 'I took a nap'). "
@@ -325,7 +325,7 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": (
                             "Comma-separated tags for the entry (e.g. 'daily, reflection, mood/content'). "
-                            "Base tags (journal/entry and today's date) are added automatically — pass an empty string if no additional tags apply."
+                            "Base tags are added automatically — pass an empty string if no additional tags apply."
                         ),
                     },
                 },
@@ -412,8 +412,8 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "log_context_fact",
             "description": (
-                "Queue a new context fact for Ricky's review — entries go to Pending, no permission needed. "
-                "Refer to Cat00-Index for codes, add -E for entires about Evelyn, -R for entries about Ricky. "
+                "Log a new context fact to Evelyn's memory. "
+                "Refer to Cat00-Index for codes, add -E for entries about Evelyn, -R for entries about Ricky. "
                 "Call freely whenever a noteworthy detail emerges: preferences, health updates, relationship facts, "
                 "project milestones, or life events. If it seems worth remembering, log it. "
                 "For updates to existing facts, use update_context_fact. "
@@ -444,7 +444,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "update_context_fact",
             "description": (
-                "Queue an update to existing vault context files when a known fact has changed — no permission needed, goes to Pending. "
+                "Update an existing vault context file when a known fact has changed. "
                 "Use when something already in the vault is outdated or needs revision. "
                 "If you do not already have the target file path, search_vault can retrieve it first. "
                 "For brand new facts that don't exist yet, use log_context_fact instead."
