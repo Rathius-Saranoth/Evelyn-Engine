@@ -155,6 +155,14 @@ RAG_REFORMULATE_MIN_WORDS = 4    # Skip reformulation for messages with fewer wo
 RAG_REFORMULATE_TIMEOUT = 10     # Seconds before falling back to raw message
 
 # =============================================================================
+# Entry Management
+# =============================================================================
+# When True, journal entries are written directly to the live vault directory
+# (Evelyn's Journal) instead of the Pending_Approvals quarantine folder.
+# Context entries always go to their in-vault Pending folder regardless.
+JOURNAL_DIRECT_WRITE = True
+
+# =============================================================================
 # Services
 # =============================================================================
 TTS_SERVER_URL = "http://localhost:5050"  # Qwen TTS server
