@@ -104,7 +104,7 @@ def recall_specific_memory(file_path: str) -> str:
 
 
 def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
-    """Queue a new context fact for Ricky's review."""
+    """Write a context fact file to the in-vault Pending folder (system use)."""
     _reload()
     if not summary.strip():
         return "Error: log_context_fact called with blank summary. Aborted."
@@ -115,7 +115,7 @@ def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
 
 
 def update_context_fact(target_filepaths: list, new_summary: str) -> str:
-    """Queue an update request for one or more existing vault context files."""
+    """Write an update-request file to Pending for an existing vault context file (system use)."""
     _reload()
     if not new_summary.strip():
         return "Error: update_context_fact called with blank new_summary. Aborted."
@@ -223,7 +223,7 @@ def generate_image(
 
 
 def sync_context_memory(**kwargs) -> str:
-    """Trigger background sync of vault gists and core memory into the RAG database."""
+    """Trigger background sync of vault gists and core memory into the RAG database (system use)."""
     import threading
 
     def _run():
@@ -270,10 +270,20 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 
 # ===========================================================================
-# Tool definitions (OpenAI function-calling schema for Ollama)
+# Tool registries
+# ===========================================================================
+#
+# MODEL_TOOL_DEFINITIONS — JSON schemas passed to Ollama on every request.
+#   These are the tools Evelyn can call herself during a conversation.
+#   Token cost: ~1944 tokens per request. Keep this list lean.
+#
+# TOOL_FUNCTIONS — All dispatchable callables (superset of model tools).
+#   Includes system tools not exposed to the model. dispatch_tool() uses
+#   this dict, so server code can invoke any function by name regardless
+#   of whether it's in the model schema.
 # ===========================================================================
 
-TOOL_DEFINITIONS = [
+MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
@@ -410,65 +420,6 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "log_context_fact",
-            "description": (
-                "Log a new context fact to Evelyn's memory. "
-                "Refer to Cat00-Index for codes, add -E for entries about Evelyn, -R for entries about Ricky. "
-                "Call freely whenever a noteworthy detail emerges: preferences, health updates, relationship facts, "
-                "project milestones, or life events. If it seems worth remembering, log it. "
-                "For updates to existing facts, use update_context_fact. "
-                "For narrative daily reflections, use write_journal_entry."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "Primary category code refer to Cat00-Index for codes, (e.g. Cat01, Cat08-R).",
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "The fact/event description.",
-                    },
-                    "secondary_cats": {
-                        "type": "string",
-                        "description": "Comma-separated secondary categories, or empty string.",
-                    },
-                },
-                "required": ["category", "summary", "secondary_cats"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_context_fact",
-            "description": (
-                "Update an existing vault context file when a known fact has changed. "
-                "Use when something already in the vault is outdated or needs revision. "
-                "If you do not already have the target file path, search_vault can retrieve it first. "
-                "For brand new facts that don't exist yet, use log_context_fact instead."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "target_filepaths": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of exact vault-relative file paths to update.",
-                    },
-                    "new_summary": {
-                        "type": "string",
-                        "description": "New fact/summary to insert.",
-                    },
-                },
-                "required": ["target_filepaths", "new_summary"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "generate_image",
             "description": "Generate an image via ComfyUI. Provide highly detailed descriptions for all fields.",
             "parameters": {
@@ -508,18 +459,6 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "sync_context_memory",
-            "description": "Trigger a background sync of the Obsidian Vault into Evelyn's Chroma RAG database. Call ONCE at the start of a conversation only when Ricky explicitly says 'Good morning', 'sync', or asks to refresh memory. Do NOT call mid-conversation or more than once per session.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "web_search",
             "description": (
                 "Search the web via DuckDuckGo for up-to-date information. "
@@ -543,9 +482,16 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    # --- Tools removed from model schema (system use only) ---
+    # log_context_fact    — automated by fact_extractor.py
+    # update_context_fact — automated by fact_consolidator.py
+    # sync_context_memory — triggered via UI button / server endpoint
 ]
 
-# Dispatcher: maps tool name → function for the server's tool call handler
+# ---------------------------------------------------------------------------
+# Dispatcher: maps tool name → function for the server's tool call handler.
+# Includes ALL functions (model + system) so dispatch_tool() works for any.
+# ---------------------------------------------------------------------------
 TOOL_FUNCTIONS = {
     "write_journal_entry": write_journal_entry,
     "read_journal_entry": read_journal_entry,
