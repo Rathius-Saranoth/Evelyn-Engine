@@ -112,6 +112,11 @@ PERSONA_DIR = r"C:\Projects\LocalAI\Evelyn\persona"
 COMFY_WORKFLOW_PATH = r"C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json"
 COMFY_OUTPUT_DIR = r"C:\Projects\ComfyUI\output"
 
+# Context entry paths
+CONTEXT_ENTRIES_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries"
+PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Pending"
+EXTRACTED_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Extracted"
+
 # =============================================================================
 # Chroma RAG
 # =============================================================================
@@ -161,6 +166,92 @@ RAG_REFORMULATE_TIMEOUT = 10     # Seconds before falling back to raw message
 # (Evelyn's Journal) instead of the Pending_Approvals quarantine folder.
 # Context entries always go to their in-vault Pending folder regardless.
 JOURNAL_DIRECT_WRITE = True
+
+# =============================================================================
+# Fact Extraction
+# =============================================================================
+# Extends the context summarizer's async pass to extract structured personal
+# facts from the conversation. Zero extra VRAM cost — same model, same options.
+# Extracted files are written to EXTRACTED_DIR for manual review.
+
+# Master switch — set False to disable without touching the summarizer.
+FACT_EXTRACTION_ENABLED = True
+
+# Minimum number of new messages required before the extractor runs.
+# At 2 messages per turn (user + assistant), 6 means ~3 turns of conversation.
+FACT_EXTRACTION_MIN_MESSAGES = 6
+
+# Seconds of server inactivity before extraction is allowed to run.
+# Shorter than CONSOLIDATION_IDLE_THRESHOLD — extraction is fast and low-risk.
+FACT_EXTRACTION_IDLE_THRESHOLD = 300  # 5 minutes
+
+# How often (seconds) the idle-time loop checks for extraction eligibility.
+FACT_EXTRACTION_IDLE_CHECK_INTERVAL = 60  # 1 minute
+
+# Minimum seconds between extraction runs (cooldown).
+FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
+
+# Maximum number of DB messages to fetch and process per extraction run.
+# Keep low to bound each Ollama call to a predictable size (~5-10s).
+FACT_EXTRACTION_BATCH_SIZE = 20
+
+# Per-run Ollama call timeout (seconds).
+FACT_EXTRACTION_TIMEOUT = 45
+
+# Starting DB message ID for the high-water mark.
+# 0 = process all history on first run (default).
+# Set to the current max message ID to skip all history and only extract
+# messages from this point forward (useful after bulk imports or resets).
+FACT_EXTRACTION_START_ID = 0
+
+# =============================================================================
+# Idle-Time Consolidation
+# =============================================================================
+# Scans live context entries during server idle time to find duplicates,
+# contradictions, and miscategorized facts. Uses think=True for nuanced
+# semantic reasoning. Produces proposal files in PENDING_DIR for review.
+# Nothing is auto-applied to the live vault.
+
+# Master switch.
+CONSOLIDATION_ENABLED = True
+
+# True  — Preserve fact evolution in merged summaries
+#         (e.g., "Previously disliked apples [2020]; now likes them [2022].")
+# False — Overwrite: keep only the most recent fact, discard older versions.
+CONSOLIDATION_KEEP_HISTORY = True
+
+# Seconds of server inactivity before consolidation is allowed to run.
+# Default: 30 minutes (1800s) so it never interrupts active conversations.
+CONSOLIDATION_IDLE_THRESHOLD = 1800  # 30 minutes
+
+# How often (seconds) the idle-time loop checks for inactivity.
+# Default: every 5 minutes. Keep low enough to catch idle windows but not
+# so low that the check itself creates noticeable overhead.
+CONSOLIDATION_IDLE_CHECK_INTERVAL = 300  # 5 minutes
+
+# Minimum seconds between consolidation runs. Prevents back-to-back passes.
+# Default: 24 hours. The consolidator tracks its own last-run timestamp.
+CONSOLIDATION_COOLDOWN = 86400
+
+# Maximum number of conflict clusters to process per run.
+# Each cluster = one LLM call (detect) + one LLM call (merge). Keep low
+# to bound the idle-time cost to a predictable budget.
+CONSOLIDATION_BATCH_SIZE = 10
+
+# Maximum number of category groups to run the detection LLM call against.
+# Each group = one LLM call. BATCH_SIZE caps proposals; this caps detections.
+# With 30 groups and think=True at ~45s each, limit to avoid monopolizing Ollama.
+# Groups are scanned in category order (Cat01 first); adjust to taste.
+CONSOLIDATION_GROUP_SCAN_LIMIT = 8
+
+# Maximum records shown per group in the detection prompt.
+# Newest-first; older entries are omitted with a count note.
+# Prevents prompt overflow in high-volume categories (Cat08-R has 134 entries).
+CONSOLIDATION_MAX_RECORDS_PER_GROUP = 30
+
+# Per-cluster LLM call timeout (seconds). Consolidation uses think=True
+# so allow generous headroom for reasoning traces.
+CONSOLIDATION_TIMEOUT = 90
 
 # =============================================================================
 # Services
