@@ -21,9 +21,13 @@ import os
 import datetime
 import json
 
+import evelyn_config as cfg
+
 CONTEXT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Categories"
 VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json"
-PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Pending"
+
+# These are sourced from evelyn_config so paths stay in one place.
+PENDING_DIR = cfg.PENDING_DIR
 
 
 def append_context_log(
