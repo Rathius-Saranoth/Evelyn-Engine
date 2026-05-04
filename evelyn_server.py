@@ -38,7 +38,7 @@ if str(TOOLS_DIR) not in sys.path:
 PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
 
 import evelyn_config as cfg
-from evelyn_tools import TOOL_DEFINITIONS, TOOL_FUNCTIONS
+from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS
 from chroma_rag import build_rag_context
 from context_summarizer import (
     build_conversation_summary,
@@ -46,6 +46,8 @@ from context_summarizer import (
     invalidate_summary_cache,
     cancel_pending_summary,
 )
+from fact_consolidator import run_consolidation, cancel_pending_consolidation
+from fact_extractor import run_extraction, cancel_pending_extraction
 
 # ---------------------------------------------------------------------------
 # Console colors (ANSI — native on Windows Terminal, VS Code, etc.)
@@ -58,6 +60,14 @@ _GRN = "\033[92m"
 _YEL = "\033[93m"
 _CYN = "\033[96m"
 _MAG = "\033[95m"
+
+# ---------------------------------------------------------------------------
+# Activity tracking for idle-time consolidation
+# ---------------------------------------------------------------------------
+
+# Updated at the top of every chat_stream() call. The consolidation loop
+# checks this to decide whether the server is idle enough to run.
+_last_activity_ts: float = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -580,11 +590,15 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     Config is reloaded from disk at the start of each request so changes to
     evelyn_config.py (DEBUG_LOGGING, etc.) take effect immediately, no restart needed.
     """
+    global _last_activity_ts
+    _last_activity_ts = time.time()  # Mark server as active
     importlib.reload(cfg)
 
-    # Cancel any in-flight background summarization so it doesn't
+    # Cancel any in-flight background tasks so they don't
     # queue behind this request on Ollama
     cancel_pending_summary()
+    cancel_pending_consolidation()
+    cancel_pending_extraction()
 
     yield "data: " + json.dumps({"type": "status", "msg": "Processing..."}) + "\n\n"
 
@@ -639,7 +653,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     )
 
     pass1_task = asyncio.ensure_future(
-        call_ollama_full(messages, tools=TOOL_DEFINITIONS)
+        call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
     )
     while not pass1_task.done():
         yield 'data: {"type":"heartbeat"}\n\n'
@@ -772,7 +786,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                 )
 
                 followup_task = asyncio.ensure_future(
-                    call_ollama_full(messages, tools=TOOL_DEFINITIONS)
+                    call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
                 )
                 while not followup_task.done():
                     yield 'data: {"type":"heartbeat"}\n\n'
@@ -871,10 +885,64 @@ async def lifespan(app: FastAPI):
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
+
     # Rebuild conversation summary cache in background (covers mid-day restarts)
     import context_summarizer
     context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
     print(f"  {_GRN}Summarizer:{_RST} background rebuild started")
+
+    # Idle-time consolidation loop — wakes every CONSOLIDATION_IDLE_CHECK_INTERVAL
+    # seconds, checks inactivity, and runs run_consolidation() when idle long enough.
+    async def _idle_consolidation_loop():
+        """Background loop that triggers fact consolidation during idle periods."""
+        while True:
+            await asyncio.sleep(cfg.CONSOLIDATION_IDLE_CHECK_INTERVAL)
+            importlib.reload(cfg)
+            if not cfg.CONSOLIDATION_ENABLED:
+                continue
+            idle_seconds = time.time() - _last_activity_ts
+            if idle_seconds >= cfg.CONSOLIDATION_IDLE_THRESHOLD:
+                print(
+                    f"{_MAG}[CONSOLIDATOR]{_RST} Idle for "
+                    f"{idle_seconds / 60:.1f}m — starting consolidation pass.",
+                    flush=True,
+                )
+                import fact_consolidator
+                fact_consolidator._consolidation_task = asyncio.create_task(run_consolidation())
+
+    asyncio.create_task(_idle_consolidation_loop())
+    print(
+        f"  {_GRN}Consolidator:{_RST} idle loop started "
+        f"(threshold={cfg.CONSOLIDATION_IDLE_THRESHOLD // 60}m, "
+        f"check={cfg.CONSOLIDATION_IDLE_CHECK_INTERVAL // 60}m)"
+    )
+
+    # Idle-time extraction loop — shorter threshold than consolidation.
+    # Reads new messages directly from the DB; no summarizer dependency.
+    async def _idle_extraction_loop():
+        """Background loop that triggers fact extraction during idle periods."""
+        while True:
+            await asyncio.sleep(cfg.FACT_EXTRACTION_IDLE_CHECK_INTERVAL)
+            importlib.reload(cfg)
+            if not cfg.FACT_EXTRACTION_ENABLED:
+                continue
+            idle_seconds = time.time() - _last_activity_ts
+            if idle_seconds >= cfg.FACT_EXTRACTION_IDLE_THRESHOLD:
+                print(
+                    f"{_CYN}[EXTRACTOR]{_RST} Idle for "
+                    f"{idle_seconds / 60:.1f}m — starting extraction pass.",
+                    flush=True,
+                )
+                import fact_extractor
+                fact_extractor._extraction_task = asyncio.create_task(run_extraction())
+
+    asyncio.create_task(_idle_extraction_loop())
+    print(
+        f"  {_GRN}Extractor:{_RST}   idle loop started "
+        f"(threshold={cfg.FACT_EXTRACTION_IDLE_THRESHOLD // 60}m, "
+        f"check={cfg.FACT_EXTRACTION_IDLE_CHECK_INTERVAL // 60}m)"
+    )
+
     yield
 
 
