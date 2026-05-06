@@ -1070,9 +1070,18 @@ async def task_status(task_name: str, _: None = Depends(check_auth)):
 
 @app.post("/sync")
 async def trigger_sync(_: None = Depends(check_auth)):
-    """Trigger a background Chroma ingest directly (no chat turn required)."""
+    """Trigger a background Chroma ingest directly (no chat turn required).
+
+    Cancels any in-flight consolidation or extraction tasks before starting
+    so that Ollama is not shared between the sync process and idle-time LLM
+    calls simultaneously.
+    """
     import threading
     from evelyn_tools import TOOL_FUNCTIONS
+
+    # Free Ollama before a heavy background operation starts
+    cancel_pending_consolidation()
+    cancel_pending_extraction()
 
     _background_tasks["sync"] = {"status": "running", "started_at": time.time()}
 
@@ -1092,10 +1101,19 @@ async def trigger_sync(_: None = Depends(check_auth)):
 
 @app.post("/vault_map")
 async def trigger_vault_map(_: None = Depends(check_auth)):
-    """Regenerate the Obsidian vault map in the background (no chat turn required)."""
+    """Regenerate the Obsidian vault map in the background (no chat turn required).
+
+    Cancels any in-flight consolidation or extraction tasks before starting.
+    Vault map generation is CPU/IO heavy and runs Ollama for gist generation;
+    sharing Ollama with idle-time tasks simultaneously causes timeouts.
+    """
     import threading
     import subprocess
     import sys
+
+    # Free Ollama before a heavy background operation starts
+    cancel_pending_consolidation()
+    cancel_pending_extraction()
 
     _background_tasks["vault_map"] = {"status": "running", "started_at": time.time()}
 
