@@ -1051,6 +1051,11 @@ async def new_thread(_: None = Depends(check_auth)):
 # ---------------------------------------------------------------------------
 # Simple in-memory dict for tracking background process status.
 # The UI polls GET /task_status/{name} to know when a process finishes.
+#
+# IMPORTANT: Idle-time tasks (fact_consolidator, fact_extractor) monitor this
+# dictionary. If ANY task in this dict has "status": "running", idle tasks
+# will yield/defer to prevent overwhelming Ollama. Future heavy background tasks
+# should track their status here to automatically benefit from mutual exclusion.
 _background_tasks: dict[str, dict] = {}
 
 
