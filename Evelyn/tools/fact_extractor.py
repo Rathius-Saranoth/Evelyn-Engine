@@ -141,6 +141,23 @@ _extraction_task = None
 # ---------------------------------------------------------------------------
 
 
+def _heavy_tasks_running() -> bool:
+    """Return True if any heavy server background task is running.
+    
+    Checks the _background_tasks dict in evelyn_server.py. Any task with
+    status="running" (e.g. "vault_map", "sync", or future tasks) will
+    cause this to return True, preventing Ollama overload.
+    """
+    import sys
+    server = sys.modules.get("evelyn_server")
+    if server:
+        tasks = getattr(server, "_background_tasks", {})
+        for task in tasks.values():
+            if task.get("status") == "running":
+                return True
+    return False
+
+
 def cancel_pending_extraction():
     """Cancel any in-flight extraction task.
 
@@ -188,6 +205,14 @@ async def run_extraction():
             return
     except ImportError:
         pass
+
+    # Defer if a heavy server background task (Vault Map Gen, Sync, etc) is running.
+    if _heavy_tasks_running():
+        print(
+            "[EXTRACTOR] Server background task is running — deferring extraction.",
+            flush=True,
+        )
+        return
 
     now = time.time()
     if (now - _last_run_ts) < cfg.FACT_EXTRACTION_COOLDOWN:

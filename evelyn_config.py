@@ -189,7 +189,7 @@ FACT_EXTRACTION_IDLE_THRESHOLD = 300  # 5 minutes
 FACT_EXTRACTION_IDLE_CHECK_INTERVAL = 60  # 1 minute
 
 # Minimum seconds between extraction runs (cooldown).
-FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
+FACT_EXTRACTION_COOLDOWN = 300  # 5 minutes
 
 # Maximum number of DB messages to fetch and process per extraction run.
 # Keep low to bound each Ollama call to a predictable size (~5-10s).
@@ -215,14 +215,19 @@ FACT_EXTRACTION_START_ID = 0
 # Master switch.
 CONSOLIDATION_ENABLED = True
 
+# When True, also scan EX_*.md files from the Extracted/ staging folder.
+# Useful while the live CE_ vault is sparse — finds duplicate auto-extracted
+# facts before they are promoted. Set False to limit scope to live CE_ entries only.
+CONSOLIDATION_INCLUDE_EXTRACTED = True
+
 # True  — Preserve fact evolution in merged summaries
 #         (e.g., "Previously disliked apples [2020]; now likes them [2022].")
 # False — Overwrite: keep only the most recent fact, discard older versions.
 CONSOLIDATION_KEEP_HISTORY = True
 
 # Seconds of server inactivity before consolidation is allowed to run.
-# Default: 30 minutes (1800s) so it never interrupts active conversations.
-CONSOLIDATION_IDLE_THRESHOLD = 1800  # 30 minutes
+# Default: 15 minutes (900s) so it never interrupts active conversations.
+CONSOLIDATION_IDLE_THRESHOLD = 900  # 15 minutes
 
 # How often (seconds) the idle-time loop checks for inactivity.
 # Default: every 5 minutes. Keep low enough to catch idle windows but not
@@ -230,8 +235,8 @@ CONSOLIDATION_IDLE_THRESHOLD = 1800  # 30 minutes
 CONSOLIDATION_IDLE_CHECK_INTERVAL = 300  # 5 minutes
 
 # Minimum seconds between consolidation runs. Prevents back-to-back passes.
-# Default: 24 hours. The consolidator tracks its own last-run timestamp.
-CONSOLIDATION_COOLDOWN = 86400
+# Default: 5 minutes. The consolidator tracks its own last-run timestamp.
+CONSOLIDATION_COOLDOWN = 300 # 5 minutes
 
 # Maximum number of conflict clusters to process per run.
 # Each cluster = one LLM call (detect) + one LLM call (merge). Keep low
@@ -246,12 +251,14 @@ CONSOLIDATION_GROUP_SCAN_LIMIT = 8
 
 # Maximum records shown per group in the detection prompt.
 # Newest-first; older entries are omitted with a count note.
-# Prevents prompt overflow in high-volume categories (Cat08-R has 134 entries).
-CONSOLIDATION_MAX_RECORDS_PER_GROUP = 30
+# Keeps prompts focused and KV cache lean. With the anchor-based scan,
+# all entries are still visited over multiple passes.
+CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
 
 # Per-cluster LLM call timeout (seconds). Consolidation uses think=True
-# so allow generous headroom for reasoning traces.
-CONSOLIDATION_TIMEOUT = 90
+# for proposal generation — allow generous headroom for reasoning traces.
+# Detection calls use think=False and complete well under this limit.
+CONSOLIDATION_TIMEOUT = 150
 
 # =============================================================================
 # Services

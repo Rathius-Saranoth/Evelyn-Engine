@@ -2,25 +2,30 @@
 fact_consolidator.py — Idle-time context entry consolidation for Evelyn's memory system.
 
 Runs during server idle time to scan live context entries for duplicates, contradictions,
-and miscategorized facts. Uses the loaded LLM with thinking tokens enabled for nuanced
-semantic reasoning. Produces human-readable consolidation proposal files in the Pending
-folder — nothing is auto-applied to the live vault.
+and miscategorized facts. Uses the loaded LLM with thinking tokens for nuanced semantic
+reasoning. Produces human-readable proposal files in the Pending folder — nothing is
+auto-applied to the live vault.
 
 Architecture:
-  - scan_context_entries()             — Walk all live Cat##/Cat##-{E,R}/*.md files
-  - find_consolidation_candidates()    — Group by category, detect conflict clusters
-  - generate_consolidation_proposal()  — LLM-driven merge + re-categorization reasoning
-  - run_consolidation()                — Top-level coroutine for idle-time scheduling
-  - cancel_pending_consolidation()     — Cancels any in-flight run (called on new chat)
+  - scan_context_entries()              — Walk all live Cat##/Cat##-{E,R}/*.md files
+  - find_consolidation_candidates()     — Group by category, detect conflict clusters
+                                          and standalone recategorization items
+  - generate_consolidation_proposal()   — LLM-driven merge verdict (think=True)
+  - _write_recategorization_proposal()  — Instant file output for category moves (no LLM)
+  - run_consolidation()                 — Top-level coroutine for idle-time scheduling
+  - cancel_pending_consolidation()      — Cancels any in-flight run (called on new chat)
+
+Output file types (both written to PENDING_DIR):
+  CONSOLIDATION_*.md   — Merge/supersede proposal for 2+ overlapping entries.
+                         source_date frontmatter = most-recent source entry date.
+  RECATEGORIZE_*.md    — Single-entry category move proposal. No LLM call needed.
 
 Key behaviors:
   - CONSOLIDATION_KEEP_HISTORY (True)  — Preserve fact evolution in merged summaries
   - CONSOLIDATION_KEEP_HISTORY (False) — Overwrite with the most recent fact only
-  - Category correction                — If a fact belongs in a different Cat##, the
-    proposal includes the target path so the user can move/rename the file.
-  - Think tokens                       — Enabled for consolidation reasoning calls so
-    the model can weigh evidence carefully before reaching a verdict.
-  - Cancellation                       — A new chat request immediately cancels any
+  - Detection uses think=False          — Fast classification; YAML schema only
+  - Proposal uses think=True            — Careful reasoning before merge verdict
+  - Cancellation                        — A new chat request immediately cancels any
     in-flight consolidation pass so Ollama is freed for the user's message.
 
 All config is read from evelyn_config.py (single source of truth).
@@ -29,6 +34,7 @@ All config is read from evelyn_config.py (single source of truth).
 import asyncio
 import datetime
 import importlib
+import json
 import os
 import re
 import time
@@ -70,10 +76,23 @@ from fact_extractor import load_cat00_index
 _consolidating = False
 _last_run_ts: float = 0.0
 
-# Rotating offset into the sorted group list.
-# Each run advances by CONSOLIDATION_GROUP_SCAN_LIMIT so every category
-# eventually gets scanned across multiple idle passes.
+# Rotating index into the category group list for round-robin category selection.
+# Each run starts from this category so all categories are visited over time.
 _group_start_index: int = 0
+
+# Per-category anchor-based scan state.
+# Maps category_code → {"anchor": int, "offset": int, "n": int}
+#   anchor: index of current anchor entry in oldest-first sorted records
+#   offset: index into comparison pool (all entries except the anchor)
+#   n:      record count when state was saved (reset trigger if N changes)
+# Loaded from disk on startup; saved after each _do_consolidation pass.
+_category_scan_state: dict[str, dict] = {}
+
+# State file lives next to the chat DB for colocation with other state files.
+_SCAN_STATE_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(cfg.CHAT_DB_PATH)),
+    "evelyn_consolidation_offsets.json",
+)
 
 # Reference to the in-flight consolidation asyncio.Task so it can be cancelled
 # when a new chat request arrives (same pattern as context_summarizer._summary_task).
@@ -91,6 +110,179 @@ def _extracting_elsewhere() -> bool:
         return bool(fact_extractor._extracting)
     except AttributeError:
         return False
+
+
+def _heavy_tasks_running() -> bool:
+    """Return True if any heavy server background task is running.
+    
+    Checks the _background_tasks dict in evelyn_server.py. Any task with
+    status="running" (e.g. "vault_map", "sync", or future tasks) will
+    cause this to return True, preventing Ollama overload.
+    """
+    import sys
+    server = sys.modules.get("evelyn_server")
+    if server:
+        tasks = getattr(server, "_background_tasks", {})
+        for task in tasks.values():
+            if task.get("status") == "running":
+                return True
+    return False
+
+
+def _ensure_pending_dir() -> None:
+    """Create PENDING_DIR and write a placeholder README if it doesn't exist.
+
+    The placeholder prevents sync tools (Google Drive, Obsidian Sync) from
+    removing the folder when it has no proposal files in it.
+    """
+    importlib.reload(cfg)
+    pending_dir = cfg.PENDING_DIR
+    os.makedirs(pending_dir, exist_ok=True)
+
+    readme_path = os.path.join(pending_dir, "_README.md")
+    if not os.path.exists(readme_path):
+        try:
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "# Consolidation Proposals\n\n"
+                    "This folder contains automatically generated consolidation "
+                    "proposal files created by `fact_consolidator.py`.\n\n"
+                    "Each `CONSOLIDATION_*.md` file describes potential duplicates "
+                    "or conflicts found in the live context entries, with a "
+                    "recommended merge/supersede action.\n\n"
+                    "**To use:** Review each proposal, apply or skip the "
+                    "recommendation, then delete the proposal file.\n"
+                )
+            print("[CONSOLIDATOR] Created PENDING_DIR placeholder README.", flush=True)
+        except OSError as e:
+            print(f"[CONSOLIDATOR] Warning: could not write README: {e}", flush=True)
+
+
+def _load_scan_state() -> None:
+    """Load per-category anchor scan state from disk into _category_scan_state.
+
+    Called once at module import so progress survives server restarts.
+    Falls back to an empty dict (all categories start fresh) on first run
+    or if the file is unreadable.
+    """
+    global _category_scan_state
+    try:
+        with open(_SCAN_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            _category_scan_state = data
+            print(
+                f"[CONSOLIDATOR] Loaded anchor scan state for {len(data)} category/ies.",
+                flush=True,
+            )
+    except FileNotFoundError:
+        _category_scan_state = {}
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[CONSOLIDATOR] Warning: could not load scan state: {e}", flush=True)
+        _category_scan_state = {}
+
+
+def _save_scan_state() -> None:
+    """Persist _category_scan_state to disk after each consolidation pass."""
+    try:
+        with open(_SCAN_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_category_scan_state, f, indent=2)
+    except OSError as e:
+        print(f"[CONSOLIDATOR] Warning: could not save scan state: {e}", flush=True)
+
+
+def _get_anchor_batch(
+    category: str, records: list[dict]
+) -> tuple[dict, list[dict]]:
+    """Return the current (anchor_record, comparison_window) for a category.
+
+    Records must be sorted oldest-first (with filename tiebreaker) before
+    calling this so index positions are stable across passes.
+
+    If the stored N differs from the current N (new entries extracted since
+    the last pass), the category state is reset to (anchor=0, offset=0).
+
+    Args:
+        category: The category code, e.g. "Cat11-E".
+        records:  All FactRecords for this category, sorted oldest-first.
+
+    Returns:
+        Tuple of (anchor_record, comparison_window).
+        anchor_record:     The single fixed entry for this detection batch.
+        comparison_window: Up to (CONSOLIDATION_MAX_RECORDS_PER_GROUP - 1)
+                           other entries to compare the anchor against,
+                           drawn oldest-first from the comparison pool.
+    """
+    global _category_scan_state
+    n = len(records)
+    max_records = cfg.CONSOLIDATION_MAX_RECORDS_PER_GROUP
+    batch = max_records - 1  # comparison slots (1 slot reserved for the anchor)
+
+    state = _category_scan_state.get(category, {"anchor": 0, "offset": 0, "n": n})
+
+    # Reset if the number of entries changed (extractor wrote new files).
+    if state.get("n", n) != n:
+        print(
+            f"[CONSOLIDATOR] {category}: entry count changed "
+            f"({state.get('n')} → {n}) — resetting scan state.",
+            flush=True,
+        )
+        state = {"anchor": 0, "offset": 0, "n": n}
+        _category_scan_state[category] = state
+
+    anchor_idx = state["anchor"] % n
+    offset = state["offset"]
+
+    anchor_record = records[anchor_idx]
+    # Comparison pool: all entries except the anchor, oldest-first order preserved.
+    comparison_pool = records[:anchor_idx] + records[anchor_idx + 1 :]
+    comparison_window = comparison_pool[offset : offset + batch]
+    return anchor_record, comparison_window
+
+
+def _advance_scan_state(category: str, n: int) -> None:
+    """Advance anchor/offset pointers after one detection call.
+
+    When a comparison pool is exhausted the anchor advances to the next entry.
+    When the last anchor is exhausted the full cycle completes and resets to
+    (anchor=0, offset=0) so the next cycle begins from scratch.
+
+    Args:
+        category: The category code.
+        n:        Current number of records in this category.
+    """
+    global _category_scan_state
+    max_records = cfg.CONSOLIDATION_MAX_RECORDS_PER_GROUP
+    batch = max_records - 1
+    comparison_pool_size = n - 1
+
+    state = _category_scan_state.get(category, {"anchor": 0, "offset": 0, "n": n})
+    anchor = state.get("anchor", 0)
+    offset = state.get("offset", 0)
+
+    next_offset = offset + batch
+    if next_offset >= comparison_pool_size:
+        # This anchor has seen all other entries — advance to the next anchor.
+        next_anchor = (anchor + 1) % n
+        next_offset = 0
+        if next_anchor == 0:
+            print(
+                f"[CONSOLIDATOR] {category}: full anchor cycle complete — "
+                f"all {n} entries compared. Restarting cycle.",
+                flush=True,
+            )
+    else:
+        next_anchor = anchor
+
+    _category_scan_state[category] = {
+        "anchor": next_anchor,
+        "offset": next_offset,
+        "n": n,
+    }
+
+
+# Load persisted scan state on module import.
+_load_scan_state()
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +332,14 @@ async def run_consolidation():
         )
         return
 
+    # Defer if a heavy server background task (Vault Map Gen, Sync, etc) is running.
+    if _heavy_tasks_running():
+        print(
+            "[CONSOLIDATOR] Server background task is running — deferring consolidation.",
+            flush=True,
+        )
+        return
+
     now = time.time()
     if (now - _last_run_ts) < cfg.CONSOLIDATION_COOLDOWN:
         remaining = int(cfg.CONSOLIDATION_COOLDOWN - (now - _last_run_ts))
@@ -175,24 +375,41 @@ _CAT_CODE_RE = re.compile(r"(Cat\d{2}-[ER])", re.IGNORECASE)
 
 
 def scan_context_entries() -> list[dict]:
-    """Walk all live context entry markdown files and parse their key fields.
+    """Walk live context entry markdown files and parse their key fields.
 
     Scans the directory tree rooted at CONTEXT_ENTRIES_DIR, visiting folders
-    that match the Cat##/Cat##-{E,R}/ layout. Skips the Extracted/ and
-    Pending/ staging folders.
+    that match the Cat##/Cat##-{E,R}/ layout.
+
+    When CONSOLIDATION_INCLUDE_EXTRACTED is True, also includes EX_*.md files
+    from the Extracted/ staging folder so the consolidator can flag duplicate
+    auto-extracted facts before they are promoted to live CE_ entries.
 
     Returns:
         List of FactRecord dicts, sorted oldest-first within each category.
     """
     importlib.reload(cfg)
     entries_dir = cfg.CONTEXT_ENTRIES_DIR
+    include_extracted = cfg.CONSOLIDATION_INCLUDE_EXTRACTED
 
     records = []
-    skip_dirs = {"Extracted", "Pending"}
+    category_counts: dict[str, int] = {}
+    skip_dirs = {"Pending"}  # always skip proposal output dir
+    if not include_extracted:
+        skip_dirs.add("Extracted")
 
     for cat_dir in sorted(Path(entries_dir).iterdir()):
         if not cat_dir.is_dir() or cat_dir.name in skip_dirs:
             continue
+
+        # Handle Extracted/ separately — flat structure (no Cat##-R subfolders)
+        if cat_dir.name == "Extracted":
+            for md_file in sorted(cat_dir.glob("EX_*.md")):
+                record = _parse_entry_file(md_file, "Extracted", "R", entries_dir)
+                if record:
+                    records.append(record)
+                    category_counts["Extracted"] = category_counts.get("Extracted", 0) + 1
+            continue
+
         for subcat_dir in sorted(cat_dir.iterdir()):
             if not subcat_dir.is_dir():
                 continue
@@ -206,8 +423,15 @@ def scan_context_entries() -> list[dict]:
                 record = _parse_entry_file(md_file, category, subject, entries_dir)
                 if record:
                     records.append(record)
+                    category_counts[category] = category_counts.get(category, 0) + 1
 
-    print(f"[CONSOLIDATOR] Scanned {len(records)} context entry file(s).", flush=True)
+    print(
+        f"[CONSOLIDATOR] Scanned {len(records)} context entry file(s) "
+        f"across {len(category_counts)} category group(s):",
+        flush=True,
+    )
+    for cat, count in sorted(category_counts.items()):
+        print(f"  {cat}: {count} file(s)", flush=True)
     return records
 
 
@@ -225,6 +449,16 @@ def _parse_entry_file(
     Returns:
         FactRecord dict or None if the file lacks a parseable summary.
     """
+    # For EX_ files (from Extracted/ folder) the category is encoded in the
+    # filename — EX_2024-04-25_Cat05-R.md — not the parent folder name.
+    if category == "Extracted":
+        cat_match = _CAT_CODE_RE.search(path.name)
+        if cat_match:
+            category = cat_match.group(1)
+            subject = category[-1]
+        else:
+            return None  # No recognisable category in filename — skip
+
     try:
         text = path.read_text(encoding="utf-8")
     except Exception as e:
@@ -269,19 +503,23 @@ def _parse_entry_file(
 
 
 def _group_by_category(records: list[dict]) -> dict[str, list[dict]]:
-    """Group FactRecords by category code, sorted oldest-first within each group."""
+    """Group FactRecords by category code, sorted oldest-first within each group.
+
+    The filename is used as a tiebreaker so the sort is fully deterministic.
+    Stable ordering is required for anchor-based scanning: the same index must
+    refer to the same entry across successive passes.
+    """
     groups: dict[str, list[dict]] = {}
     for r in records:
         groups.setdefault(r["category"], []).append(r)
-    # Sort each group chronologically
     for key in groups:
-        groups[key].sort(key=lambda r: r["date"])
+        groups[key].sort(key=lambda r: (r["date"], r["filename"]))
     return groups
 
 
 async def find_consolidation_candidates(
     records: list[dict], cat00: str
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     """Identify groups of entries that address the same topic within a category.
 
     Uses a rotating start index (_group_start_index) so successive runs scan
@@ -297,7 +535,9 @@ async def find_consolidation_candidates(
         cat00:   Cat00 taxonomy text for category reference.
 
     Returns:
-        List of Cluster dicts: {category, topic, records}.
+        Tuple of (clusters, recat_items):
+          - clusters:    Cluster dicts ready for proposal generation.
+          - recat_items: Standalone recategorization dicts for direct file output.
     """
     global _group_start_index
 
@@ -306,7 +546,7 @@ async def find_consolidation_candidates(
     total_groups = len(group_items)
 
     if total_groups == 0:
-        return []
+        return [], []
 
     # Wrap start index in case categories were added/removed since last run
     start = _group_start_index % total_groups
@@ -315,6 +555,7 @@ async def find_consolidation_candidates(
     rotated = group_items[start:] + group_items[:start]
 
     clusters: list[dict] = []
+    recat_items: list[dict] = []
     group_scan_limit = cfg.CONSOLIDATION_GROUP_SCAN_LIMIT
     batch_limit = cfg.CONSOLIDATION_BATCH_SIZE
     groups_scanned = 0
@@ -333,8 +574,11 @@ async def find_consolidation_candidates(
             continue
 
         groups_scanned += 1
-        new_clusters = await _detect_clusters_in_group(category, group_records, cat00)
+        new_clusters, new_recats = await _detect_clusters_in_group(
+            category, group_records, cat00
+        )
         clusters.extend(new_clusters)
+        recat_items.extend(new_recats)
 
         if len(clusters) >= batch_limit:
             clusters = clusters[:batch_limit]
@@ -355,52 +599,61 @@ async def find_consolidation_candidates(
         f"Found {len(clusters)} candidate cluster(s).",
         flush=True,
     )
-    return clusters
+    return clusters, recat_items
 
 
-def _build_cluster_detection_prompt(
-    category: str, records: list[dict], cat00: str
+def _build_anchor_prompt(
+    category: str,
+    anchor: dict,
+    comparison_window: list[dict],
+    cat00: str,
 ) -> str:
-    """Build the prompt for identifying duplicate/conflicting topic clusters.
+    """Build the anchor-based cluster detection prompt.
 
-    Caps the number of records shown to CONSOLIDATION_MAX_RECORDS_PER_GROUP
-    (newest-first) to prevent prompt overflow on high-volume categories.
+    The anchor entry is always index [1]. Comparison entries follow as [2]..[N].
+    This focused structure gives the LLM a specific yes/no question per call
+    ("does this entry conflict with any of these?") rather than asking it to
+    find all clusters among a crowd — a cleaner, less ambiguous task.
+
+    Args:
+        category:         Category code being audited, e.g. "Cat11-E".
+        anchor:           The fixed FactRecord for this batch.
+        comparison_window: Up to (CONSOLIDATION_MAX_RECORDS_PER_GROUP - 1)
+                          other FactRecords to compare the anchor against.
+        cat00:            Cat00 taxonomy text for category reference.
+
+    Returns:
+        Formatted prompt string.
     """
-    max_records = cfg.CONSOLIDATION_MAX_RECORDS_PER_GROUP
-    # Sort newest-first for truncation so we keep the most recent context
-    sorted_records = sorted(records, key=lambda r: r["date"], reverse=True)
-    truncated = sorted_records[:max_records]
-    was_truncated = len(records) > max_records
-
-    entries_text = ""
-    for i, r in enumerate(truncated, 1):
-        date_str = r["date"].strftime("%Y-%m-%d") if r["date"] != datetime.datetime.min else "unknown"
-        entries_text += f"\n[{i}] {r['filename']} ({date_str})\n    Summary: {r['summary']}\n"
-
-    if was_truncated:
-        entries_text += (
-            f"\n[Note: {len(records) - max_records} older entries omitted "
-            f"(total {len(records)}). Showing newest {max_records} only.]"
+    def _fmt(r: dict, idx: int) -> str:
+        date_str = (
+            r["date"].strftime("%Y-%m-%d")
+            if r["date"] != datetime.datetime.min
+            else "unknown"
         )
+        return f"\n[{idx}] {r['filename']} ({date_str})\n    Summary: {r['summary']}\n"
 
+    anchor_text = _fmt(anchor, 1)
+    comparison_text = "".join(_fmt(r, i + 2) for i, r in enumerate(comparison_window))
     cat_ref = f"\n\nCATEGORY REFERENCE:\n{cat00}" if cat00 else ""
 
     return (
-        f"You are auditing context memory entries for category {category}. "
-        "Your task has TWO parts:\n\n"
-        "PART A — CLUSTER DETECTION: Identify which entries address the same topic "
-        "and may be duplicates, contradictions, or superseded facts. "
-        "Only flag clusters where consolidation would genuinely improve clarity. "
-        "If entries are distinct facts, do NOT cluster them.\n\n"
-        "PART B — CATEGORY AUDIT: Check whether any entry is miscategorized and "
-        "would be better placed in a different category. Use the Category Reference below."
+        f"You are auditing one context memory entry against a comparison set "
+        f"for category {category}. Your task has TWO parts:\n\n"
+        "PART A — CLUSTER DETECTION: Does ANCHOR ENTRY [1] duplicate, contradict, "
+        "or overlap with any COMPARISON ENTRY? Only flag entries where consolidation "
+        "would genuinely improve clarity. If the anchor is a distinct fact from all "
+        "comparison entries, output empty clusters.\n\n"
+        "PART B — CATEGORY AUDIT: Is the ANCHOR ENTRY or any COMPARISON ENTRY "
+        "miscategorized? Check against the Category Reference below."
         f"{cat_ref}\n\n"
-        f"ENTRIES IN {category}:\n{entries_text}\n\n"
+        f"ANCHOR ENTRY (always [1]):\n{anchor_text}\n"
+        f"COMPARISON ENTRIES:\n{comparison_text}\n"
         "Output ONLY a YAML block in this exact format:\n\n"
         "```yaml\n"
         "clusters:\n"
         "  - topic: \"brief topic label\"\n"
-        "    entry_indices: [1, 3]  # 1-based indices from the list above\n"
+        "    entry_indices: [1, 3]  # must include [1] (the anchor) if involved\n"
         "    reason: \"why these conflict or overlap\"\n"
         "recategorize:\n"
         "  - entry_index: 2\n"
@@ -413,26 +666,41 @@ def _build_cluster_detection_prompt(
 
 async def _detect_clusters_in_group(
     category: str, records: list[dict], cat00: str
-) -> list[dict]:
-    """Ask the LLM to identify conflict clusters within a single category group.
+) -> tuple[list[dict], list[dict]]:
+    """Run one anchor-based detection call for a category.
 
-    The records list passed here may be longer than CONSOLIDATION_MAX_RECORDS_PER_GROUP;
-    the prompt builder handles truncation internally. Index resolution in
-    _parse_cluster_yaml uses the same truncated slice the prompt was built from.
+    Uses _get_anchor_batch() to retrieve the current (anchor, comparison_window)
+    pair from persisted state, then advances the state via _advance_scan_state()
+    after the LLM call — whether or not it succeeded — to prevent getting stuck
+    on a failing batch.
+
+    Records must already be sorted oldest-first with filename tiebreaker
+    (guaranteed by _group_by_category).
 
     Args:
         category: The category code being examined.
-        records:  All FactRecords for this category, sorted oldest-first.
+        records:  All FactRecords for this category, oldest-first.
         cat00:    Cat00 index text for category reference.
 
     Returns:
-        List of Cluster dicts found within this category.
+        Tuple of (clusters, recat_items): Cluster dicts and standalone
+        recategorization dicts found in this anchor batch (may be empty lists).
     """
-    # Truncate records for index resolution to match what the prompt sees
-    max_records = cfg.CONSOLIDATION_MAX_RECORDS_PER_GROUP
-    prompt_records = sorted(records, key=lambda r: r["date"], reverse=True)[:max_records]
-    prompt = _build_cluster_detection_prompt(category, records, cat00)
+    anchor, comparison_window = _get_anchor_batch(category, records)
 
+    if not comparison_window:
+        # Edge case: only one entry in the category, or state is at boundary.
+        _advance_scan_state(category, len(records))
+        return [], []
+
+    anchor_idx = records.index(anchor)
+    print(
+        f"[CONSOLIDATOR] {category}: anchor=[{anchor_idx}] '{anchor['filename']}' "
+        f"vs {len(comparison_window)} comparison entry/ies.",
+        flush=True,
+    )
+
+    prompt = _build_anchor_prompt(category, anchor, comparison_window, cat00)
     messages = [
         {
             "role": "system",
@@ -444,12 +712,24 @@ async def _detect_clusters_in_group(
         {"role": "user", "content": prompt},
     ]
 
-    raw = await _call_ollama_think(messages, timeout=cfg.CONSOLIDATION_TIMEOUT)
-    if not raw:
-        return []
+    raw = await _call_ollama(
+        messages,
+        timeout=cfg.CONSOLIDATION_TIMEOUT,
+        think=False,      # Classification task — no reasoning chain needed
+        num_predict=512,  # YAML block only; no thinking trace to budget for
+    )
 
-    # Pass prompt_records (the truncated slice) so index resolution is consistent
-    return _parse_cluster_yaml(raw, category, prompt_records)
+    # Always advance state — prevents a persistent LLM failure on one batch
+    # from blocking all future progress for this category.
+    _advance_scan_state(category, len(records))
+
+    if not raw:
+        return [], []
+
+    # Index resolution: combined list is [anchor] + comparison_window (1-based).
+    # Anchor is always index [1] in the prompt → records[0] here.
+    combined_records = [anchor] + comparison_window
+    return _parse_cluster_yaml(raw, category, combined_records)
 
 
 def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[dict]:
@@ -458,8 +738,9 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
     Args:
         raw:      Raw model response string.
         category: Category being processed.
-        records:  The truncated slice of FactRecords the prompt was built from
-                  (1-based indices in the YAML correspond to this list).
+        records:  Combined list [anchor] + comparison_window as passed to the
+                  prompt. Index [1] in the YAML → records[0] (the anchor).
+                  Index [N] → records[N-1]. Resolution is purely 1-based.
 
     Returns:
         List of Cluster dicts (may be empty).
@@ -500,11 +781,11 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
                     "topic": topic,
                     "reason": reason,
                     "records": cluster_records,
-                    "recategorize": [],
                 }
             )
 
-    # Attach recategorization hints to the appropriate cluster (or as standalone)
+    # Parse standalone recategorization items — returned separately from clusters
+    # and written as individual RECATEGORIZE_*.md files (no LLM call needed).
     recats = data.get("recategorize") or []
     recat_items = []
     for rc in recats:
@@ -521,23 +802,10 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
             }
         )
 
-    # If there are only recategorization items (no conflict clusters), wrap
-    # them in a synthetic cluster so they still generate a proposal file.
-    if recat_items and not clusters:
-        clusters.append(
-            {
-                "category": category,
-                "topic": "Category Audit",
-                "reason": "Entries may be miscategorized.",
-                "records": [ri["record"] for ri in recat_items],
-                "recategorize": recat_items,
-            }
-        )
-    elif recat_items and clusters:
-        # Attach to first cluster for the proposal
-        clusters[0]["recategorize"] = recat_items
-
-    return clusters
+    # If there are only recategorization items (no conflict clusters), return
+    # just the recat list — they will be written as separate RECATEGORIZE_*.md
+    # files without needing an LLM proposal call.
+    return clusters, recat_items
 
 
 # ---------------------------------------------------------------------------
@@ -548,8 +816,9 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
 async def generate_consolidation_proposal(cluster: dict) -> str | None:
     """Ask the LLM to produce a merged summary and verdict for a cluster.
 
-    Uses think=True so the model can reason carefully about conflicting facts,
-    date ordering, and category correctness before committing to a verdict.
+    Uses think=True so the model can reason carefully about conflicting facts
+    and date ordering before committing to a merge/supersede/keep_both verdict.
+    Category corrections are handled separately via _write_recategorization_proposal.
 
     Args:
         cluster: A Cluster dict from find_consolidation_candidates().
@@ -578,19 +847,6 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
         else "Use only the most recent fact in the merged summary; discard older versions."
     )
 
-    recat_block = ""
-    if cluster.get("recategorize"):
-        recat_text = "\n".join(
-            f"  - {rc['record']['filename']} → {rc['suggested_category']}: {rc['reason']}"
-            for rc in cluster["recategorize"]
-        )
-        recat_block = (
-            f"\n\nADDITIONAL TASK — CATEGORY CORRECTION:\n"
-            f"The following entries may belong in a different category. "
-            f"Confirm or refute each suggestion using the Category Reference below.\n"
-            f"{recat_text}"
-        )
-
     cat_ref = f"\n\nCATEGORY REFERENCE:\n{cat00}" if cat00 else ""
 
     prompt = (
@@ -602,14 +858,13 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
         f"3. Choose a verdict: 'supersede' (one entry wins), 'merge' (combine insights), "
         f"or 'keep_both' (genuinely distinct facts that should remain separate).\n"
         f"4. If verdict is 'keep_both', set merged_summary to an empty string."
-        f"{recat_block}"
         f"{cat_ref}\n\n"
         "Output ONLY a YAML block:\n\n"
         "```yaml\n"
         "verdict: supersede   # supersede / merge / keep_both\n"
         "merged_summary: \"The consolidated fact as a single clear sentence.\"\n"
         "target_category: Cat05-R   # confirm or correct category; use same as input if correct\n"
-        "reasoning: \"Brief explanation of the verdict and any category correction.\"\n"
+        "reasoning: \"Brief explanation of the verdict.\"\n"
         "```"
     )
 
@@ -625,7 +880,12 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
         {"role": "user", "content": prompt},
     ]
 
-    raw = await _call_ollama_think(messages, timeout=cfg.CONSOLIDATION_TIMEOUT)
+    raw = await _call_ollama(
+        messages,
+        timeout=cfg.CONSOLIDATION_TIMEOUT,
+        think=True,        # Proposal genuinely needs reasoning
+        num_predict=3072,  # Headroom for reasoning trace + YAML verdict
+    )
     if not raw:
         return None
 
@@ -665,6 +925,14 @@ def _parse_proposal_yaml(raw: str, category: str) -> dict | None:
 def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     """Write a human-readable consolidation proposal markdown file to Pending/.
 
+    The proposal file contains strictly one action: merge or supersede the
+    listed source entries. Recategorization suggestions are written as
+    separate RECATEGORIZE_*.md files by _write_recategorization_proposal().
+
+    The `source_date` frontmatter field is set to the most-recent date across
+    all source entries. The reviewer script uses this to name the new CE_ file
+    chronologically rather than using today's date.
+
     Args:
         cluster:  The Cluster dict describing the conflict group.
         proposal: Parsed verdict dict from _parse_proposal_yaml().
@@ -689,39 +957,17 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     reasoning = proposal["reasoning"]
     records = cluster["records"]
 
+    # Compute the most-recent source entry date for chronological CE_ naming.
+    valid_dates = [
+        r["date"] for r in records if r["date"] != datetime.datetime.min
+    ]
+    source_date = max(valid_dates).strftime("%Y-%m-%d") if valid_dates else now.strftime("%Y-%m-%d")
+
     # Build entries section
     entries_block = "\n".join(
         f"- `{r['filename']}` — {r['summary']}"
         for r in records
     )
-
-    # Build category correction section (if applicable)
-    recat_section = ""
-    if cluster.get("recategorize"):
-        recat_lines = []
-        for rc in cluster["recategorize"]:
-            old_cat = rc["record"]["category"]
-            new_cat = rc["suggested_category"]
-            fname = rc["record"]["filename"]
-            old_path = rc["record"]["path"]
-
-            # Compute what the new path would be (for user convenience)
-            # Pattern: Context Entries/Cat##/Cat##-{E,R}/filename
-            entries_dir = cfg.CONTEXT_ENTRIES_DIR
-            cat_num = new_cat[:5]  # "Cat05"
-            new_rel = os.path.join(entries_dir, cat_num, new_cat, fname)
-
-            recat_lines.append(
-                f"- **{fname}**\n"
-                f"  - Current: `{old_cat}` → `{old_path}`\n"
-                f"  - Suggested: `{new_cat}` → `{new_rel}`\n"
-                f"  - Reason: {rc['reason']}"
-            )
-        recat_section = (
-            "\n## Category Correction Suggestions\n\n"
-            + "\n".join(recat_lines)
-            + "\n\n*To apply: move the file to the suggested path and update its **Primary:** line.*"
-        )
 
     # Build merged summary section
     if verdict == "keep_both":
@@ -743,7 +989,7 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
             + "\n\n"
             "*Action Required:*\n"
             "1. Review and edit the merged summary above if needed.\n"
-            "2. Create a new `CE_` entry in the target category with the merged summary.\n"
+            f"2. Create a new `CE_{source_date}_{target_cat}.md` in the target category.\n"
             "3. Delete the source entries listed above.\n"
             "4. Delete this proposal file when done.\n"
             "*(Or delete this file to skip this consolidation.)*"
@@ -759,6 +1005,7 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
         f"---\n"
         f"tags: [consolidation-proposal]\n"
         f"created: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"source_date: {source_date}\n"
         f"---\n\n"
         f"# Consolidation Proposal — {now.strftime('%Y-%m-%d %H:%M')}\n\n"
         f"**Category:** `{category}` | **Topic:** {topic}\n\n"
@@ -768,8 +1015,7 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
         f"{entries_block}\n\n"
         f"## Reasoning\n\n"
         f"{reasoning}\n\n"
-        f"{action_section}"
-        f"{recat_section}\n"
+        f"{action_section}\n"
     )
 
     try:
@@ -783,6 +1029,76 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Step 3b: Write recategorization proposals (no LLM call needed)
+# ---------------------------------------------------------------------------
+
+
+def _write_recategorization_proposal(recat_item: dict) -> str | None:
+    """Write a single-action recategorization proposal file to Pending/.
+
+    The detection LLM already provides the suggested category and reason,
+    so no additional LLM call is needed. The reviewer script handles the
+    physical file move on approval.
+
+    Args:
+        recat_item: Dict with keys 'record', 'suggested_category', 'reason'.
+
+    Returns:
+        Absolute path to the written RECATEGORIZE_*.md file, or None on failure.
+    """
+    importlib.reload(cfg)
+    pending_dir = cfg.PENDING_DIR
+    os.makedirs(pending_dir, exist_ok=True)
+
+    record = recat_item["record"]
+    suggested = recat_item["suggested_category"]
+    reason = recat_item["reason"]
+    old_cat = record["category"]
+    filename = record["filename"]
+    old_path = record["path"]
+
+    # Compute suggested new path for reviewer convenience
+    cat_num = suggested[:5]  # "Cat05"
+    new_rel = os.path.join(
+        cfg.CONTEXT_ENTRIES_DIR, cat_num, suggested, filename
+    )
+
+    now = datetime.datetime.now()
+    timestamp = now.strftime("%Y-%m-%d_%H%M%S")
+    out_filename = f"RECATEGORIZE_{timestamp}_{old_cat}.md"
+    filepath = os.path.join(pending_dir, out_filename)
+
+    content = (
+        f"---\n"
+        f"tags: [recategorize-proposal]\n"
+        f"created: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"---\n\n"
+        f"# Recategorization Proposal — {now.strftime('%Y-%m-%d %H:%M')}\n\n"
+        f"**Entry:** `{filename}`\n\n"
+        f"**Current Category:** `{old_cat}`\n"
+        f"**Suggested Category:** `{suggested}`\n\n"
+        f"**Reason:** {reason}\n\n"
+        f"---\n\n"
+        f"## Current Path\n\n"
+        f"`{old_path}`\n\n"
+        f"## Suggested Path\n\n"
+        f"`{new_rel}`\n\n"
+        f"---\n\n"
+        f"*Action Required:*\n"
+        f"- **Approve:** Move the file to the suggested path and update its `Primary:` tag.\n"
+        f"- **Deny:** Delete this proposal file — entry stays in current category.\n"
+    )
+
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"[CONSOLIDATOR] Recategorize proposal written: {out_filename}", flush=True)
+        return filepath
+    except OSError as e:
+        print(f"[CONSOLIDATOR] Failed to write recategorize proposal: {e}", flush=True)
+        return None
+
+# ---------------------------------------------------------------------------
 # Step 4: Top-level orchestration
 # ---------------------------------------------------------------------------
 
@@ -793,6 +1109,10 @@ async def _do_consolidation():
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)
     start = time.time()
 
+    # Ensure the output folder exists before scanning — prevents sync tools
+    # from removing an empty Pending/ between runs.
+    _ensure_pending_dir()
+
     cat00 = load_cat00_index()
     records = scan_context_entries()
 
@@ -800,21 +1120,31 @@ async def _do_consolidation():
         print("[CONSOLIDATOR] No context entries found.", flush=True)
         return
 
-    clusters = await find_consolidation_candidates(records, cat00)
+    clusters, recat_items = await find_consolidation_candidates(records, cat00)
+
+    # Write standalone recategorization proposals immediately — no LLM call needed.
+    recats_written = 0
+    for recat_item in recat_items:
+        if _write_recategorization_proposal(recat_item):
+            recats_written += 1
 
     if not clusters:
         print("[CONSOLIDATOR] No consolidation candidates found.", flush=True)
-        return
-
+    
     proposals_written = 0
     for cluster in clusters:
         result = await generate_consolidation_proposal(cluster)
         if result:
             proposals_written += 1
 
+    # Persist anchor scan state so the next idle pass continues from where
+    # this one left off rather than restarting all categories from anchor=0.
+    _save_scan_state()
+
     elapsed = time.time() - start
     print(
-        f"[CONSOLIDATOR] Done. {proposals_written} proposal(s) written in {elapsed:.1f}s.",
+        f"[CONSOLIDATOR] Done. {proposals_written} consolidation proposal(s), "
+        f"{recats_written} recategorization proposal(s) written in {elapsed:.1f}s.",
         flush=True,
     )
 
@@ -824,15 +1154,37 @@ async def _do_consolidation():
 # ---------------------------------------------------------------------------
 
 
-async def _call_ollama_think(messages: list[dict], timeout: int = 60) -> str:
-    """Non-streaming Ollama call with think=True, returns content string.
+async def _call_ollama(
+    messages: list[dict],
+    timeout: int = 60,
+    think: bool = True,
+    num_predict: int = 2048,
+) -> str:
+    """Generic non-streaming Ollama call for consolidator tasks, returns content string.
 
-    Matches main model config to avoid VRAM eviction. The thinking trace is
-    consumed server-side and not written to any file.
+    Matches main model config to avoid VRAM eviction. The thinking trace (when
+    enabled) is consumed server-side and not written to any file.
+
+    Call sites should choose their own think/num_predict based on task type:
+      - Detection (classification):  think=False, num_predict=512
+        A structured yes/no task with a fixed YAML schema. No reasoning chain
+        needed; the model just needs enough tokens to emit the YAML block.
+      - Proposal generation (reasoning): think=True, num_predict=3072
+        Weighing date ordering, semantic meaning, and category correctness
+        before committing to a merge/supersede verdict. The larger budget
+        covers the thinking trace plus the final YAML output.
+
+    NOTE on stop sequences: the main-chat stop sequences ("(Send).", etc.) are
+    designed to prevent chat looping, not for structured LLM calls. They are
+    intentionally omitted here so they cannot truncate YAML mid-block.
 
     Args:
-        messages: List of {role, content} dicts.
-        timeout:  Request timeout in seconds.
+        messages:    List of {role, content} dicts.
+        timeout:     Request timeout in seconds.
+        think:       Whether to enable reasoning tokens (think=True for proposals,
+                     think=False for detection).
+        num_predict: Maximum tokens to generate. Covers reasoning trace + output
+                     when think=True, output only when think=False.
 
     Returns:
         The model's content response string, or "" on failure.
@@ -853,16 +1205,15 @@ async def _call_ollama_think(messages: list[dict], timeout: int = 60) -> str:
     }.items():
         if val is not None:
             options[key] = val
-    options["num_predict"] = 768  # Consolidation output is bounded
-    if cfg.STOP_SEQUENCES:
-        options["stop"] = cfg.STOP_SEQUENCES
+    # Stop sequences are deliberately omitted — see docstring above.
+    options["num_predict"] = num_predict
 
     payload = {
         "model": model,
         "messages": messages,
         "stream": False,
         "options": options,
-        "think": True,  # Deliberate — consolidation requires careful reasoning
+        "think": think,
     }
 
     try:
@@ -871,14 +1222,32 @@ async def _call_ollama_think(messages: list[dict], timeout: int = 60) -> str:
             resp.raise_for_status()
             result = resp.json()
         content = result.get("message", {}).get("content", "").strip()
-        thinking = result.get("message", {}).get("thinking", "")
-        if thinking and cfg.DEBUG_LOGGING:
+        thinking_trace = result.get("message", {}).get("thinking", "")
+        if thinking_trace and cfg.DEBUG_LOGGING:
             print(
-                f"[CONSOLIDATOR] Think trace ({len(thinking.split())} words): "
-                f"{thinking[:300]}...",
+                f"[CONSOLIDATOR] Think trace ({len(thinking_trace.split())} words): "
+                f"{thinking_trace[:300]}...",
+                flush=True,
+            )
+        if not content:
+            # Diagnostic: surface what Ollama actually returned so we can
+            # identify future model-specific quirks without guessing.
+            msg_keys = list(result.get("message", {}).keys())
+            done_reason = result.get("done_reason", "unknown")
+            print(
+                f"[CONSOLIDATOR] Warning: empty content from model. "
+                f"done_reason={done_reason!r} message_keys={msg_keys} "
+                f"think={think} num_predict={num_predict}",
                 flush=True,
             )
         return content
+    except httpx.ReadTimeout:
+        print(
+            f"[CONSOLIDATOR] Ollama call timed out after {timeout}s "
+            f"(think={think}, num_predict={num_predict}).",
+            flush=True,
+        )
+        return ""
     except Exception as e:
-        print(f"[CONSOLIDATOR] Ollama call failed: {e}", flush=True)
+        print(f"[CONSOLIDATOR] Ollama call failed: {type(e).__name__}: {e}", flush=True)
         return ""
