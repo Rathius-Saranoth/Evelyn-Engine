@@ -30,7 +30,7 @@ import chroma_rag  # noqa: E402
 # Paths
 EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
 PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md"
-EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals"]
+EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals", "Extracted", "Pending"]
 SYNC_STATE_FILE    = r"C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json"
 COLLECTION_NAME    = "evelyn_memory"
 
@@ -119,7 +119,7 @@ def main():
 
     Pipeline:
       1. Load state from vault_sync_state.json.
-      2. Collect active markdown files (excluding Archived, Pending_Approvals).
+      2. Collect active markdown files (excluding Archived, Extracted, Pending, Pending_Approvals).
       3. GC: remove Chroma records for files no longer present/active.
       4. For each active file: skip if mtime unchanged, else upsert into Chroma.
       5. Save updated state to disk.

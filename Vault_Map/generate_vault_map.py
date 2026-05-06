@@ -43,6 +43,8 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "Obsidian_Vault_Map.md")
 # Paths/Folders to Exclude (normalized to lowercase for case-insensitive check)
 EXCLUDE_DIRS = {
     "evelyn/archived",
+    "evelyn/evelyn's context/context entries/extracted",
+    "evelyn/evelyn's context/context entries/pending",
     "evelyn/pending_approvals",
     ".obsidian",
     "attachments",
