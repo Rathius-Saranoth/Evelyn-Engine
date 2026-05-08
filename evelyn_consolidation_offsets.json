@@ -1,137 +1,137 @@
 {
   "Cat01-E": {
-    "anchor": 0,
-    "offset": 14,
+    "anchor": 13,
+    "offset": 0,
     "n": 33
   },
   "Cat01-R": {
-    "anchor": 0,
-    "offset": 14,
-    "n": 65
+    "anchor": 7,
+    "offset": 42,
+    "n": 66
   },
   "Cat02-E": {
-    "anchor": 6,
-    "offset": 0,
+    "anchor": 18,
+    "offset": 28,
     "n": 39
   },
   "Cat02-R": {
-    "anchor": 0,
-    "offset": 14,
+    "anchor": 12,
+    "offset": 0,
     "n": 40
   },
   "Cat03-E": {
-    "anchor": 0,
-    "offset": 14,
+    "anchor": 16,
+    "offset": 0,
     "n": 23
   },
   "Cat03-R": {
-    "anchor": 1,
+    "anchor": 6,
     "offset": 0,
     "n": 13
   },
   "Cat04-E": {
-    "anchor": 1,
+    "anchor": 8,
     "offset": 0,
     "n": 12
   },
   "Cat04-R": {
-    "anchor": 1,
+    "anchor": 2,
     "offset": 0,
     "n": 8
   },
   "Cat05-E": {
-    "anchor": 0,
+    "anchor": 8,
     "offset": 14,
-    "n": 38
+    "n": 39
   },
   "Cat05-R": {
-    "anchor": 1,
-    "offset": 14,
+    "anchor": 3,
+    "offset": 56,
     "n": 153
   },
   "Cat06-E": {
-    "anchor": 3,
+    "anchor": 6,
     "offset": 14,
-    "n": 51
+    "n": 53
   },
   "Cat06-R": {
-    "anchor": 5,
-    "offset": 0,
-    "n": 34
+    "anchor": 8,
+    "offset": 14,
+    "n": 35
   },
   "Cat07-E": {
-    "anchor": 7,
+    "anchor": 3,
     "offset": 0,
-    "n": 10
+    "n": 11
   },
   "Cat07-R": {
-    "anchor": 2,
-    "offset": 0,
-    "n": 4
-  },
-  "Cat08-E": {
     "anchor": 0,
     "offset": 0,
-    "n": 7
+    "n": 5
+  },
+  "Cat08-E": {
+    "anchor": 7,
+    "offset": 0,
+    "n": 9
   },
   "Cat08-R": {
-    "anchor": 1,
-    "offset": 28,
-    "n": 162
+    "anchor": 2,
+    "offset": 14,
+    "n": 166
   },
   "Cat09-E": {
-    "anchor": 6,
+    "anchor": 10,
     "offset": 0,
-    "n": 14
+    "n": 15
   },
   "Cat09-R": {
-    "anchor": 2,
-    "offset": 0,
+    "anchor": 10,
+    "offset": 14,
     "n": 42
   },
   "Cat10-E": {
-    "anchor": 0,
+    "anchor": 1,
     "offset": 0,
     "n": 2
   },
   "Cat10-R": {
-    "anchor": 12,
+    "anchor": 11,
     "offset": 0,
     "n": 13
   },
   "Cat11-E": {
-    "anchor": 0,
-    "offset": 168,
-    "n": 189
+    "anchor": 1,
+    "offset": 154,
+    "n": 190
   },
   "Cat11-R": {
-    "anchor": 0,
-    "offset": 84,
+    "anchor": 2,
+    "offset": 14,
     "n": 207
   },
   "Cat12-R": {
-    "anchor": 3,
-    "offset": 14,
-    "n": 29
+    "anchor": 2,
+    "offset": 28,
+    "n": 36
   },
   "Cat13-R": {
-    "anchor": 7,
-    "offset": 14,
-    "n": 25
+    "anchor": 16,
+    "offset": 0,
+    "n": 28
   },
   "Cat14-E": {
-    "anchor": 7,
+    "anchor": 15,
     "offset": 14,
-    "n": 22
+    "n": 23
   },
   "Cat14-R": {
-    "anchor": 4,
-    "offset": 28,
+    "anchor": 15,
+    "offset": 0,
     "n": 31
   },
   "Cat16-R": {
-    "anchor": 2,
+    "anchor": 1,
     "offset": 0,
-    "n": 9
+    "n": 12
   }
 }
