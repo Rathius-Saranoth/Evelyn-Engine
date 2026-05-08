@@ -640,12 +640,20 @@ def _build_anchor_prompt(
     return (
         f"You are auditing one context memory entry against a comparison set "
         f"for category {category}. Your task has TWO parts:\n\n"
-        "PART A — CLUSTER DETECTION: Does ANCHOR ENTRY [1] duplicate, contradict, "
-        "or overlap with any COMPARISON ENTRY? Only flag entries where consolidation "
-        "would genuinely improve clarity. If the anchor is a distinct fact from all "
-        "comparison entries, output empty clusters.\n\n"
-        "PART B — CATEGORY AUDIT: Is the ANCHOR ENTRY or any COMPARISON ENTRY "
-        "miscategorized? Check against the Category Reference below."
+        "PART A — CLUSTER DETECTION: Does ANCHOR ENTRY [1] describe the same "
+        "specific fact as any COMPARISON ENTRY — meaning one is redundant, or "
+        "one directly contradicts or supersedes the other?\n"
+        "Do NOT flag entries merely because they share a topic or category. "
+        "Two entries may both relate to, for example, food or hobbies and still "
+        "describe completely different facts that should remain separate. "
+        "Only flag entries where consolidation would remove genuine redundancy. "
+        "When in doubt, output keep_both.\n\n"
+        "PART B — CATEGORY AUDIT: Does the ANCHOR ENTRY or any COMPARISON ENTRY "
+        "primarily belong in a different category? Suggest recategorization ONLY "
+        "when the entry's main subject matter fits another category better — not "
+        "because it references or touches on another topic. Entries that relate to "
+        "multiple categories stay in the category with the most weight; cross-category "
+        "relevance is captured via Secondary links, not file moves."
         f"{cat_ref}\n\n"
         f"ANCHOR ENTRY (always [1]):\n{anchor_text}\n"
         f"COMPARISON ENTRIES:\n{comparison_text}\n"
@@ -654,11 +662,12 @@ def _build_anchor_prompt(
         "clusters:\n"
         "  - topic: \"brief topic label\"\n"
         "    entry_indices: [1, 3]  # must include [1] (the anchor) if involved\n"
-        "    reason: \"why these conflict or overlap\"\n"
+        "    reason: \"why these are the same specific fact\"\n"
         "recategorize:\n"
         "  - entry_index: 2\n"
         "    suggested_category: Cat08-R\n"
-        "    reason: \"why this better fits the other category\"\n"
+        "    topic: \"brief topic label\"\n"
+        "    reason: \"why primary weight belongs in the other category\"\n"
         "```\n\n"
         "If no clusters or recategorizations are needed, output empty lists."
     )
@@ -743,7 +752,8 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
                   Index [N] → records[N-1]. Resolution is purely 1-based.
 
     Returns:
-        List of Cluster dicts (may be empty).
+        Tuple of (clusters, recat_items): lists of Cluster dicts and
+        recategorization dicts respectively (both may be empty).
     """
     # Extract YAML block
     match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
@@ -753,10 +763,10 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
         data = yaml.safe_load(block)
     except yaml.YAMLError as e:
         print(f"[CONSOLIDATOR] YAML parse error in cluster detection: {e}", flush=True)
-        return []
+        return [], []
 
     if not isinstance(data, dict):
-        return []
+        return [], []
 
     clusters = []
 
@@ -798,6 +808,7 @@ def _parse_cluster_yaml(raw: str, category: str, records: list[dict]) -> list[di
             {
                 "record": records[idx - 1],
                 "suggested_category": str(rc.get("suggested_category", "")).strip(),
+                "topic": str(rc.get("topic", "")).strip(),
                 "reason": str(rc.get("reason", "")).strip(),
             }
         )
@@ -969,7 +980,12 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
         for r in records
     )
 
-    # Build merged summary section
+    keep_history_note = (
+        "*(History-preserving merge — fact evolution retained.)*"
+        if cfg.CONSOLIDATION_KEEP_HISTORY
+        else "*(Overwrite mode — older facts discarded.)*"
+    )
+
     if verdict == "keep_both":
         action_section = (
             "## Verdict: Keep Both\n\n"
@@ -979,42 +995,32 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     else:
         verb = "Supersede" if verdict == "supersede" else "Merge"
         action_section = (
-            f"## Verdict: {verb}\n\n"
-            f"**Proposed Merged Summary:**\n> {merged}\n\n"
+            f"## Proposed Summary\n\n"
+            f"> {merged}\n\n"
+            f"**Verdict:** {verb}  "
             f"**Target Category:** `{target_cat}`"
             + (
                 f" *(correction from `{category}`)*"
                 if target_cat != category else ""
             )
-            + "\n\n"
-            "*Action Required:*\n"
-            "1. Review and edit the merged summary above if needed.\n"
-            f"2. Create a new `CE_{source_date}_{target_cat}.md` in the target category.\n"
-            "3. Delete the source entries listed above.\n"
-            "4. Delete this proposal file when done.\n"
-            "*(Or delete this file to skip this consolidation.)*"
+            + f"\n\n{keep_history_note}"
         )
-
-    keep_history_note = (
-        "*(History-preserving merge — fact evolution retained.)*"
-        if cfg.CONSOLIDATION_KEEP_HISTORY
-        else "*(Overwrite mode — older facts discarded.)*"
-    )
 
     content = (
         f"---\n"
         f"tags: [consolidation-proposal]\n"
         f"created: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
         f"source_date: {source_date}\n"
+        f"verdict: {verdict}\n"
+        f"category: {category}\n"
+        f"topic: \"{topic}\"\n"
         f"---\n\n"
         f"# Consolidation Proposal — {now.strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"**Category:** `{category}` | **Topic:** {topic}\n\n"
-        f"**Reason flagged:** {cluster.get('reason', 'Duplicate or conflicting entries detected.')}\n\n"
-        f"{keep_history_note}\n\n"
+        f"## Reasoning\n\n"
+        f"**Flagged:** {cluster.get('reason', 'Duplicate or conflicting entries detected.')}\n\n"
+        f"**Analysis:** {reasoning}\n\n"
         f"## Source Entries\n\n"
         f"{entries_block}\n\n"
-        f"## Reasoning\n\n"
-        f"{reasoning}\n\n"
         f"{action_section}\n"
     )
 
@@ -1057,36 +1063,38 @@ def _write_recategorization_proposal(recat_item: dict) -> str | None:
     filename = record["filename"]
     old_path = record["path"]
 
-    # Compute suggested new path for reviewer convenience
-    cat_num = suggested[:5]  # "Cat05"
+    # Compute suggested new path — rename the category code in the filename too.
+    cat_num = suggested[:5]  # "Cat12"
+    new_filename = filename.replace(old_cat, suggested)
     new_rel = os.path.join(
-        cfg.CONTEXT_ENTRIES_DIR, cat_num, suggested, filename
+        cfg.CONTEXT_ENTRIES_DIR, cat_num, suggested, new_filename
     )
 
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H%M%S")
     out_filename = f"RECATEGORIZE_{timestamp}_{old_cat}.md"
+
+    # Derive source_date from the CE filename (e.g. CE_2025-07-25_Cat03-R.md → 2025-07-25)
+    date_m = _DATE_FROM_FILENAME_RE.search(filename)
+    source_date = date_m.group(1) if date_m else now.strftime("%Y-%m-%d")
     filepath = os.path.join(pending_dir, out_filename)
 
     content = (
         f"---\n"
         f"tags: [recategorize-proposal]\n"
         f"created: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        f"source_date: {source_date}\n"
+        f"current_cat: {old_cat}\n"
+        f"suggested_cat: {suggested}\n"
+        f"topic: \"{recat_item.get('topic', reason[:60])}\"\n"
+        f"source_path: {old_path}\n"
+        f"suggested_path: {new_rel}\n"
         f"---\n\n"
         f"# Recategorization Proposal — {now.strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"**Entry:** `{filename}`\n\n"
-        f"**Current Category:** `{old_cat}`\n"
-        f"**Suggested Category:** `{suggested}`\n\n"
-        f"**Reason:** {reason}\n\n"
-        f"---\n\n"
-        f"## Current Path\n\n"
-        f"`{old_path}`\n\n"
-        f"## Suggested Path\n\n"
-        f"`{new_rel}`\n\n"
-        f"---\n\n"
-        f"*Action Required:*\n"
-        f"- **Approve:** Move the file to the suggested path and update its `Primary:` tag.\n"
-        f"- **Deny:** Delete this proposal file — entry stays in current category.\n"
+        f"## Reasoning\n\n"
+        f"{reason}\n\n"
+        f"## Entry\n\n"
+        f"`{filename}`\n"
     )
 
     try:
