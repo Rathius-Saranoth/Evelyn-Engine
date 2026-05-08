@@ -186,17 +186,17 @@ FACT_EXTRACTION_MIN_MESSAGES = 6
 FACT_EXTRACTION_IDLE_THRESHOLD = 300  # 5 minutes
 
 # How often (seconds) the idle-time loop checks for extraction eligibility.
-FACT_EXTRACTION_IDLE_CHECK_INTERVAL = 60  # 1 minute
+FACT_EXTRACTION_IDLE_CHECK_INTERVAL = 300  # 5 minutes
 
 # Minimum seconds between extraction runs (cooldown).
-FACT_EXTRACTION_COOLDOWN = 300  # 5 minutes
+FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
 
 # Maximum number of DB messages to fetch and process per extraction run.
 # Keep low to bound each Ollama call to a predictable size (~5-10s).
 FACT_EXTRACTION_BATCH_SIZE = 20
 
 # Per-run Ollama call timeout (seconds).
-FACT_EXTRACTION_TIMEOUT = 45
+FACT_EXTRACTION_TIMEOUT = 90
 
 # Starting DB message ID for the high-water mark.
 # 0 = process all history on first run (default).
@@ -258,7 +258,7 @@ CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
 # Per-cluster LLM call timeout (seconds). Consolidation uses think=True
 # for proposal generation — allow generous headroom for reasoning traces.
 # Detection calls use think=False and complete well under this limit.
-CONSOLIDATION_TIMEOUT = 150
+CONSOLIDATION_TIMEOUT = 180
 
 # =============================================================================
 # Services
