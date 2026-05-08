@@ -240,6 +240,7 @@ def _display_file(path: Path, idx: int, total: int, target_dir: Path | None, ce_
     print(f"\n{DIM}{_DIV}{RESET}")
     print(
         f"  {GREEN}[A]{RESET} Approve & promote   "
+        f"{CYAN}[E]{RESET} Edit   "
         f"{YELLOW}[D]{RESET} Deny / skip   "
         f"{RED}[X]{RESET} Delete   "
         f"{DIM}[Q]{RESET} Quit"
@@ -319,6 +320,17 @@ def run_phase1() -> None:
                 errors += 1
             time.sleep(0.5)
             idx += 1
+
+        elif ch == "e":
+            try:
+                os.startfile(str(path))
+                print(f"\n  {CYAN}→ Opened in editor. Press any key when done...{RESET}")
+                sys.stdout.flush()
+                _getch()
+            except Exception as exc:
+                print(f"\n  {RED}✗ Could not open editor: {exc}{RESET}")
+                time.sleep(1.2)
+            # Re-display without advancing
 
         elif ch == "d":
             denied += 1
