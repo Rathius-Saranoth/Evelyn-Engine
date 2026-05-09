@@ -16,6 +16,8 @@ import time
 import shutil
 import datetime
 from pathlib import Path
+
+import yaml
 from dataclasses import dataclass, field
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -163,24 +165,21 @@ _CAT_NAMES = {
 _CAT_CODE_RE   = re.compile(r"(Cat\d{2}-[ER])", re.IGNORECASE)
 _DATE_RE       = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-# RECATEGORIZE
-_ENTRY_RE        = re.compile(r"\*\*Entry:\*\*\s+`([^`]+)`")
-_CURRENT_CAT_RE  = re.compile(r"\*\*Current Category:\*\*\s+`([^`]+)`")
-_SUGGEST_CAT_RE  = re.compile(r"\*\*Suggested Category:\*\*\s+`([^`]+)`")
-_REASON_RE       = re.compile(r"\*\*Reason:\*\*\s+(.+)")
-_CURRENT_PATH_RE = re.compile(r"## Current Path\s*\n\s*`([^`]+)`")
-_SUGGEST_PATH_RE = re.compile(r"## Suggested Path\s*\n\s*`([^`]+)`")
-# Match the full Primary tag line including optional parenthetical name:
-# **Primary:** [[Cat##-X]] (Category Name)
+# CE file tag replacement (used in approve actions)
 _PRIMARY_TAG_RE  = re.compile(
     r"(\*\*Primary:\*\*\s+\[\[)(Cat\d{2}-[ER])(\]\])(\s*\([^)]*\))?"
 )
 
-# CONSOLIDATION
-_TARGET_CAT_RE   = re.compile(r"\*\*Target Category:\*\*\s+`([^`]+)`")
-_SOURCE_DATE_RE  = re.compile(r"^source_date:\s*(\S+)", re.MULTILINE)
+# CONSOLIDATION body-section patterns (still needed — body format unchanged)
 _SOURCE_ENTRY_RE = re.compile(r"^-\s+`([^`]+)`", re.MULTILINE)
-_MERGED_SUM_RE   = re.compile(r"\*\*Proposed Merged Summary:\*\*\s*\n((?:[ \t]*>.*\n?)+)", re.MULTILINE)
+_MERGED_SUM_RE   = re.compile(
+    r"## Proposed Summary\s*\n((?:[ \t]*>.*\n?)+)", re.MULTILINE
+)
+# Reason sub-patterns from ## Reasoning body section
+_FLAGGED_RE      = re.compile(r"\*\*Flagged:\*\*\s*(.+)")
+_ANALYSIS_RE     = re.compile(r"\*\*Analysis:\*\*\s*(.+)")
+# Recategorize body: ## Reasoning contains the full reason text
+_RECAT_REASON_RE = re.compile(r"## Reasoning\s*\n\s*(.+)")
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -195,6 +194,7 @@ class RecatProposal:
     reason: str
     current_path: Path
     suggested_path: Path
+    topic: str = ""
 
 
 @dataclass
@@ -204,6 +204,8 @@ class ConsolProposal:
     target_cat: str
     merged_summary: str
     source_entries: list = field(default_factory=list)
+    topic: str = ""
+    verdict: str = "merge"
 
 
 # ---------------------------------------------------------------------------
@@ -215,8 +217,35 @@ def _norm(text: str) -> str:
     return text.replace("\ufffd", "—").replace("\x00", "").strip()
 
 
+def _read_frontmatter(path: Path) -> dict:
+    """Read YAML frontmatter from a markdown file.
+
+    Args:
+        path: Path to the markdown file.
+
+    Returns:
+        Dict of frontmatter fields, or empty dict on failure.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    try:
+        return yaml.safe_load(text[3:end]) or {}
+    except Exception:
+        return {}
+
+
 def parse_recat(path: Path):
     """Parse a RECATEGORIZE_*.md proposal file into a RecatProposal.
+
+    Reads structured fields from YAML frontmatter and the reasoning
+    text from the ``## Reasoning`` body section.
 
     Args:
         path: Absolute path to the proposal file.
@@ -224,35 +253,48 @@ def parse_recat(path: Path):
     Returns:
         RecatProposal on success, or None if the file is missing/unparseable.
     """
+    fm = _read_frontmatter(path)
+    if not fm:
+        return None
+
+    current_cat  = fm.get("current_cat", "")
+    suggest_cat  = fm.get("suggested_cat", "")
+    current_path = fm.get("source_path", "")
+    suggest_path = fm.get("suggested_path", "")
+    topic        = str(fm.get("topic", "")).strip()
+
+    if not all([current_cat, suggest_cat, current_path, suggest_path]):
+        return None
+
+    # Extract entry filename from the ## Entry body section
     try:
         raw = path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return None
+    entry_m = re.search(r"## Entry\s*\n\s*`([^`]+)`", raw)
+    entry_name = entry_m.group(1).strip() if entry_m else Path(current_path).name
 
-    entry        = _m(_ENTRY_RE, raw)
-    current_cat  = _m(_CURRENT_CAT_RE, raw)
-    suggest_cat  = _m(_SUGGEST_CAT_RE, raw)
-    reason       = _norm(_m(_REASON_RE, raw) or "")
-    current_path = _m(_CURRENT_PATH_RE, raw)
-    suggest_path = _m(_SUGGEST_PATH_RE, raw)
-
-    if not all([entry, current_cat, suggest_cat, current_path, suggest_path]):
-        return None
+    # Extract reason from ## Reasoning body section
+    reason_m = _RECAT_REASON_RE.search(raw)
+    reason = _norm(reason_m.group(1)) if reason_m else ""
 
     return RecatProposal(
         path=path,
-        entry_name=entry,
+        entry_name=entry_name,
         current_cat=current_cat,
         suggested_cat=suggest_cat,
         reason=reason,
         current_path=Path(current_path),
         suggested_path=Path(suggest_path),
+        topic=topic,
     )
 
 
 def parse_consol(path: Path):
     """Parse a CONSOLIDATION_*.md proposal file into a ConsolProposal.
 
+    Reads structured fields from YAML frontmatter and body sections
+    (source entries list, merged summary blockquote) via targeted regex.
     Re-reads the file from disk each time, so edits made via [E]dit are
     reflected immediately on re-parse.
 
@@ -262,20 +304,34 @@ def parse_consol(path: Path):
     Returns:
         ConsolProposal on success, or None if the file is missing/unparseable.
     """
+    fm = _read_frontmatter(path)
+    if not fm:
+        return None
+
+    target_cat  = fm.get("category", "")
+    source_date = str(fm.get("source_date", "2026-01-01"))
+    verdict     = str(fm.get("verdict", "merge")).strip().lower()
+    topic       = str(fm.get("topic", "")).strip()
+
+    if not target_cat:
+        return None
+
     try:
         raw = path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return None
 
-    target_cat  = _m(_TARGET_CAT_RE, raw)
-    source_date = _m(_SOURCE_DATE_RE, raw) or "2026-01-01"
-    entries     = [e.strip() for e in _SOURCE_ENTRY_RE.findall(raw)]
-    sm          = _MERGED_SUM_RE.search(raw)
-    if not target_cat or not sm:
+    entries = [e.strip() for e in _SOURCE_ENTRY_RE.findall(raw)]
+    sm = _MERGED_SUM_RE.search(raw)
+
+    # keep_both verdicts have no merged summary — that's valid
+    if verdict != "keep_both" and not sm:
         return None
 
-    lines = [l.lstrip().lstrip(">").strip() for l in sm.group(1).splitlines()]
-    merged = _norm(" ".join(l for l in lines if l))
+    merged = ""
+    if sm:
+        lines = [l.lstrip().lstrip(">").strip() for l in sm.group(1).splitlines()]
+        merged = _norm(" ".join(l for l in lines if l))
 
     return ConsolProposal(
         path=path,
@@ -283,13 +339,9 @@ def parse_consol(path: Path):
         target_cat=target_cat,
         merged_summary=merged,
         source_entries=entries,
+        topic=topic,
+        verdict=verdict,
     )
-
-
-def _m(pattern, text):
-    """Return the first capture group of *pattern* in *text*, or None."""
-    m = pattern.search(text)
-    return m.group(1).strip() if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -297,11 +349,55 @@ def _m(pattern, text):
 # ---------------------------------------------------------------------------
 
 def collect_recats() -> list:
-    """Return sorted list of RECATEGORIZE_*.md files from PENDING_DIR."""
+    """Return deduplicated, sorted list of RECATEGORIZE_*.md files from PENDING_DIR.
+
+    Deduplication: Multiple passes of the consolidator may flag the same
+    source entry repeatedly.  This groups proposals by ``source_path``
+    (from frontmatter) and keeps only the most recent proposal per unique
+    source entry, deleting the stale duplicates from disk.
+
+    Returns:
+        List of Paths, sorted by filename (chronological).
+    """
     d = Path(cfg.PENDING_DIR)
     if not d.exists():
         return []
-    return sorted(f for f in d.glob("RECATEGORIZE_*.md") if not f.name.startswith("_"))
+
+    all_files = sorted(
+        (f for f in d.glob("RECATEGORIZE_*.md") if not f.name.startswith("_")),
+    )
+
+    # Group by source_path — keep only the newest proposal per source
+    by_source: dict[str, list[Path]] = {}
+    no_source: list[Path] = []  # fallback for files with no parseable frontmatter
+
+    for f in all_files:
+        fm = _read_frontmatter(f)
+        src = fm.get("source_path", "")
+        if src:
+            by_source.setdefault(src, []).append(f)
+        else:
+            no_source.append(f)
+
+    kept: list[Path] = list(no_source)
+    stale_count = 0
+    for src, paths in by_source.items():
+        # Paths are already sorted chronologically; keep the last (newest)
+        kept.append(paths[-1])
+        for stale in paths[:-1]:
+            try:
+                stale.unlink()
+                stale_count += 1
+            except OSError:
+                pass
+
+    if stale_count:
+        print(
+            f"  {DIM}Deduplicated: removed {stale_count} stale "
+            f"recategorization proposal(s).{RESET}"
+        )
+
+    return sorted(kept)
 
 
 def collect_consols() -> list:
@@ -409,11 +505,15 @@ def _display_recat(proposal: RecatProposal, idx: int, total: int):
         total:    Total number of recategorization proposals.
     """
     _clr()
+    cur_name = _CAT_NAMES.get(proposal.current_cat, "")
+    sug_name = _CAT_NAMES.get(proposal.suggested_cat, "")
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Evelyn — Pending Reviewer       Phase A: Recategorizations{RESET}")
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"  File {BOLD}{idx + 1}{RESET} of {BOLD}{total}{RESET}:  {YELLOW}{proposal.path.name}{RESET}")
-    print(f"  {BOLD}{proposal.current_cat}{RESET}  →  {GREEN}{proposal.suggested_cat}{RESET}")
+    if proposal.topic:
+        print(f"  Topic: {BOLD}{proposal.topic}{RESET}")
+    print(f"  {BOLD}{proposal.current_cat}{RESET} ({cur_name})  →  {GREEN}{proposal.suggested_cat}{RESET} ({sug_name})")
     if proposal.reason:
         print(f"  {DIM}Reason: {proposal.reason}{RESET}")
     print(f"{DIM}{_DIV}{RESET}\n")
@@ -432,6 +532,7 @@ def _display_recat(proposal: RecatProposal, idx: int, total: int):
     print(f"\n{DIM}{_DIV}{RESET}")
     print(
         f"  {GREEN}[A]{RESET} Approve & move   "
+        f"{MAGENTA}[+]{RESET} Add Secondary   "
         f"{CYAN}[E]{RESET} Edit source   "
         f"{YELLOW}[D]{RESET} Deny   "
         f"{DIM}[S]{RESET} Skip   "
@@ -459,12 +560,18 @@ def _display_consol(proposal: ConsolProposal, idx: int, total: int):
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"  File {BOLD}{idx + 1}{RESET} of {BOLD}{total}{RESET}:  {YELLOW}{proposal.path.name}{RESET}")
     n = len(proposal.source_entries)
-    print(f"  Merge {BOLD}{n}{RESET} entr{'y' if n == 1 else 'ies'}  →  {GREEN}{proposal.target_cat}{RESET}")
+    verb = proposal.verdict.capitalize()
+    if proposal.topic:
+        print(f"  Topic: {BOLD}{proposal.topic}{RESET}")
+    print(f"  {verb} {BOLD}{n}{RESET} entr{'y' if n == 1 else 'ies'}  →  {GREEN}{proposal.target_cat}{RESET}")
     print(f"{DIM}{_DIV}{RESET}\n")
 
-    print(f"  {BOLD}PROPOSED MERGED SUMMARY:{RESET}")
-    for line in _wrap(proposal.merged_summary, 64):
-        print(f"  {MAGENTA}> {line}{RESET}")
+    if proposal.verdict == "keep_both":
+        print(f"  {YELLOW}VERDICT: Keep Both — entries are distinct.{RESET}\n")
+    else:
+        print(f"  {BOLD}PROPOSED MERGED SUMMARY:{RESET}")
+        for line in _wrap(proposal.merged_summary, 64):
+            print(f"  {MAGENTA}> {line}{RESET}")
 
     print(f"\n  {BOLD}SOURCE ENTRIES ({n}):{RESET}")
     for entry in proposal.source_entries:
@@ -593,6 +700,63 @@ def _deny_proposal(path: Path):
     time.sleep(0.5)
 
 
+def _add_secondary(proposal: RecatProposal) -> bool:
+    """Add the suggested category as a **Secondary:** link in the source CE.
+
+    Instead of moving the file (full recategorization), this keeps the entry
+    in its current category but adds a cross-reference link to the suggested
+    category.  The original file timestamps are preserved.
+
+    Args:
+        proposal: The parsed RecatProposal to action.
+
+    Returns:
+        True on success, False if the source was missing or an error occurred.
+    """
+    src = proposal.current_path
+    if not src.exists():
+        print(f"\n  {RED}✗ Source file not found — cannot update.{RESET}")
+        time.sleep(1.5)
+        return False
+
+    try:
+        content = src.read_text(encoding="utf-8")
+        new_cat = proposal.suggested_cat
+        cat_name = _CAT_NAMES.get(new_cat, new_cat)
+        secondary_line = f"**Secondary:** [[{new_cat}]] ({cat_name})"
+
+        # Replace existing Secondary line, or insert after Primary line
+        secondary_re = re.compile(r"^\*\*Secondary:\*\*.*$", re.MULTILINE)
+        if secondary_re.search(content):
+            content = secondary_re.sub(secondary_line, content, count=1)
+        else:
+            # Insert after the **Primary:** line
+            primary_re = re.compile(r"(^\*\*Primary:\*\*.+$)", re.MULTILINE)
+            m = primary_re.search(content)
+            if m:
+                insert_pos = m.end()
+                content = content[:insert_pos] + "\n" + secondary_line + content[insert_pos:]
+            else:
+                # No Primary found — append before Summary as fallback
+                content = content.rstrip() + "\n\n" + secondary_line + "\n"
+
+        # Write back, preserving original timestamps
+        src_stat = src.stat()
+        src.write_text(content, encoding="utf-8")
+        os.utime(src, (src_stat.st_atime, src_stat.st_mtime))
+
+        proposal.path.unlink()
+
+        print(f"\n  {GREEN}✓ Added Secondary: [[{new_cat}]] — proposal resolved.{RESET}")
+        time.sleep(0.6)
+        return True
+
+    except Exception as e:
+        print(f"\n  {RED}✗ Error: {e}{RESET}")
+        time.sleep(1.5)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Actions: Consolidation
 # ---------------------------------------------------------------------------
@@ -684,15 +848,16 @@ def run_recats():
     """Interactive review loop for RECATEGORIZE proposals.
 
     Presents each proposal one at a time with single-key commands:
-    A → approve & move, E → edit source, D → deny/delete proposal,
-    S → skip, Q → quit.  Prints a summary on exit.
+    A → approve & move, + → add as secondary category, E → edit source,
+    D → deny/delete proposal, S → skip, Q → quit.
+    Prints a summary on exit.
     """
     files = collect_recats()
     if not files:
         print(f"\n  {YELLOW}No RECATEGORIZE_*.md files found.{RESET}\n")
         return
 
-    approved = denied = skipped = errors = 0
+    approved = denied = skipped = errors = secondary = 0
     idx = 0
 
     while idx < len(files):
@@ -722,6 +887,12 @@ def run_recats():
             else:
                 errors += 1
             idx += 1
+        elif ch == "+":
+            if _add_secondary(proposal):
+                secondary += 1
+            else:
+                errors += 1
+            idx += 1
         elif ch == "e":
             _open_in_editor(proposal.current_path if proposal.current_path.exists() else proposal.path)
         elif ch == "d":
@@ -732,7 +903,7 @@ def run_recats():
             skipped += 1
             idx += 1
 
-    _print_summary("Recategorizations", approved, denied, skipped, errors)
+    _print_summary("Recategorizations", approved, denied, skipped, errors, secondary)
 
 
 def run_consols():
@@ -796,17 +967,22 @@ def run_consols():
     _print_summary("Consolidations", approved, denied, skipped, errors)
 
 
-def _print_summary(label: str, approved: int, denied: int, skipped: int, errors: int):
+def _print_summary(
+    label: str, approved: int, denied: int, skipped: int, errors: int,
+    secondary: int = 0,
+):
     """Print the end-of-phase review summary screen."""
     _clr()
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Review Complete — {label}{RESET}")
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
-    print(f"  {GREEN}Approved : {approved}{RESET}")
-    print(f"  {YELLOW}Denied   : {denied}{RESET}")
-    print(f"  {DIM}Skipped  : {skipped}{RESET}")
+    print(f"  {GREEN}Approved  : {approved}{RESET}")
+    if secondary:
+        print(f"  {MAGENTA}Secondary : {secondary}{RESET}")
+    print(f"  {YELLOW}Denied    : {denied}{RESET}")
+    print(f"  {DIM}Skipped   : {skipped}{RESET}")
     if errors:
-        print(f"  {RED}Errors   : {errors}{RESET}")
+        print(f"  {RED}Errors    : {errors}{RESET}")
     print()
 
 
