@@ -100,6 +100,80 @@ _consolidation_task = None
 
 
 # ---------------------------------------------------------------------------
+# Pending proposal index — built once per pass to skip re-proposals
+# ---------------------------------------------------------------------------
+
+def _build_pending_index() -> tuple[set[str], set[frozenset[str]]]:
+    """Scan PENDING_DIR and return two identity sets for duplicate suppression.
+
+    Called once at the top of each consolidation pass.  Uses only the YAML
+    frontmatter of existing proposal files — no body parsing needed.
+
+    Returns:
+        Tuple of:
+          pending_recat_sources:  Set of ``source_path`` strings from all
+                                  existing RECATEGORIZE_*.md files.  Used to
+                                  skip re-proposing a recat for the same file.
+          pending_consol_sets:    Set of frozensets, each containing the
+                                  basenames of source entries for one existing
+                                  CONSOLIDATION_*.md.  Used to skip re-running
+                                  the LLM proposal call for the same cluster.
+    """
+    importlib.reload(cfg)
+    pending_dir = cfg.PENDING_DIR
+    pending_recat_sources: set[str] = set()
+    pending_consol_sets: set[frozenset] = set()
+
+    try:
+        files = list(Path(pending_dir).iterdir())
+    except OSError:
+        return pending_recat_sources, pending_consol_sets
+
+    for f in files:
+        if not f.suffix == ".md" or f.name.startswith("_"):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not text.startswith("---"):
+            continue
+        end = text.find("\n---", 3)
+        if end == -1:
+            continue
+        try:
+            fm = yaml.safe_load(text[3:end]) or {}
+        except Exception:
+            continue
+
+        tags = fm.get("tags", [])
+        if not isinstance(tags, list):
+            tags = [str(tags)]
+
+        if "recategorize-proposal" in tags:
+            src = fm.get("source_path", "")
+            if src:
+                pending_recat_sources.add(str(src))
+
+        elif "consolidation-proposal" in tags:
+            # Extract source basenames from body '- `filename.md`' list
+            entry_re = re.compile(r"^-\s+`([^`]+)`", re.MULTILINE)
+            basenames = frozenset(m.group(1).strip() for m in entry_re.finditer(text))
+            if basenames:
+                pending_consol_sets.add(basenames)
+
+    recat_count = len(pending_recat_sources)
+    consol_count = len(pending_consol_sets)
+    if recat_count or consol_count:
+        print(
+            f"[CONSOLIDATOR] Pending index: {recat_count} recat source(s), "
+            f"{consol_count} consolidation cluster(s) already queued.",
+            flush=True,
+        )
+    return pending_recat_sources, pending_consol_sets
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -1041,7 +1115,10 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _write_recategorization_proposal(recat_item: dict) -> str | None:
+def _write_recategorization_proposal(
+    recat_item: dict,
+    pending_recat_sources: set[str] | None = None,
+) -> str | None:
     """Write a single-action recategorization proposal file to Pending/.
 
     The detection LLM already provides the suggested category and reason,
@@ -1049,7 +1126,11 @@ def _write_recategorization_proposal(recat_item: dict) -> str | None:
     physical file move on approval.
 
     Args:
-        recat_item: Dict with keys 'record', 'suggested_category', 'reason'.
+        recat_item:            Dict with keys 'record', 'suggested_category',
+                               'topic', and 'reason'.
+        pending_recat_sources: Optional set of source_path strings already
+                               present in Pending/.  If the item's source path
+                               is found here, the write is skipped.
 
     Returns:
         Absolute path to the written RECATEGORIZE_*.md file, or None on failure.
@@ -1064,6 +1145,14 @@ def _write_recategorization_proposal(recat_item: dict) -> str | None:
     old_cat = record["category"]
     filename = record["filename"]
     old_path = record["path"]
+
+    # Skip if a proposal for this source file is already pending review.
+    if pending_recat_sources and old_path in pending_recat_sources:
+        print(
+            f"[CONSOLIDATOR] Recat skip (already pending): {filename}",
+            flush=True,
+        )
+        return None
 
     # Compute suggested new path — rename the category code in the filename too.
     cat_num = suggested[:5]  # "Cat12"
@@ -1132,17 +1221,35 @@ async def _do_consolidation():
 
     clusters, recat_items = await find_consolidation_candidates(records, cat00)
 
-    # Write standalone recategorization proposals immediately — no LLM call needed.
-    recats_written = 0
+    # Build a one-shot index of already-pending proposals so we can skip
+    # re-writing duplicates without scanning the directory per-item.
+    pending_recat_sources, pending_consol_sets = _build_pending_index()
+
+    # Write standalone recategorization proposals — skip any whose source
+    # file already has a proposal waiting in Pending/.
+    recats_written = recats_skipped = 0
     for recat_item in recat_items:
-        if _write_recategorization_proposal(recat_item):
+        result = _write_recategorization_proposal(recat_item, pending_recat_sources)
+        if result:
             recats_written += 1
+        elif recat_item["record"]["path"] in pending_recat_sources:
+            recats_skipped += 1
 
     if not clusters:
         print("[CONSOLIDATOR] No consolidation candidates found.", flush=True)
-    
-    proposals_written = 0
+
+    proposals_written = proposals_skipped = 0
     for cluster in clusters:
+        # Skip if every source file in this cluster already has an open proposal.
+        cluster_files = frozenset(r["filename"] for r in cluster["records"])
+        if cluster_files in pending_consol_sets:
+            print(
+                f"[CONSOLIDATOR] Consol skip (already pending): "
+                f"{cluster['topic']} ({len(cluster_files)} entries)",
+                flush=True,
+            )
+            proposals_skipped += 1
+            continue
         result = await generate_consolidation_proposal(cluster)
         if result:
             proposals_written += 1
@@ -1153,8 +1260,11 @@ async def _do_consolidation():
 
     elapsed = time.time() - start
     print(
-        f"[CONSOLIDATOR] Done. {proposals_written} consolidation proposal(s), "
-        f"{recats_written} recategorization proposal(s) written in {elapsed:.1f}s.",
+        f"[CONSOLIDATOR] Done. {proposals_written} consolidation proposal(s) written, "
+        f"{proposals_skipped} skipped (already pending). "
+        f"{recats_written} recat proposal(s) written, "
+        f"{recats_skipped} skipped (already pending). "
+        f"Elapsed: {elapsed:.1f}s.",
         flush=True,
     )
 
