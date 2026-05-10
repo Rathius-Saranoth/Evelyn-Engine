@@ -13,7 +13,6 @@ import os
 import re
 import sys
 import time
-import shutil
 import datetime
 from pathlib import Path
 
@@ -175,9 +174,6 @@ _SOURCE_ENTRY_RE = re.compile(r"^-\s+`([^`]+)`", re.MULTILINE)
 _MERGED_SUM_RE   = re.compile(
     r"## Proposed Summary\s*\n((?:[ \t]*>.*\n?)+)", re.MULTILINE
 )
-# Reason sub-patterns from ## Reasoning body section
-_FLAGGED_RE      = re.compile(r"\*\*Flagged:\*\*\s*(.+)")
-_ANALYSIS_RE     = re.compile(r"\*\*Analysis:\*\*\s*(.+)")
 # Recategorize body: ## Reasoning contains the full reason text
 _RECAT_REASON_RE = re.compile(r"## Reasoning\s*\n\s*(.+)")
 
@@ -1103,7 +1099,7 @@ def main():
         if recat_purged:
             print(f"  {DIM}Auto-removed {recat_purged} recat proposal(s) — source file(s) missing.{RESET}")
         if consol_purged:
-            print(f"  {DIM}Auto-removed {consol_purged} consolidation proposal(s) — all source files missing.{RESET}")
+            print(f"  {DIM}Auto-removed {consol_purged} consolidation proposal(s) — a source file is missing.{RESET}")
         print()
         time.sleep(1.5)
         _clr()
