@@ -948,8 +948,9 @@ def run_consols():
             errors += 1
             continue
 
-        # Mid-session orphan check: if all sources vanished since startup, remove.
-        all_sources_gone = all(
+        # Mid-session orphan check: purge if ANY source is missing since
+        # a partial proposal cannot be properly reviewed.
+        any_source_missing = any(
             _resolve_source(
                 (_CAT_CODE_RE.search(e).group(1) if _CAT_CODE_RE.search(e) else proposal.target_cat),
                 e,
@@ -957,7 +958,7 @@ def run_consols():
             for e in proposal.source_entries
         ) if proposal.source_entries else False
 
-        if all_sources_gone:
+        if any_source_missing:
             try:
                 path.unlink()
             except OSError:
@@ -1027,12 +1028,12 @@ def _purge_orphaned_proposals() -> tuple[int, int]:
     """Scan all pending proposals and delete those with no surviving source files.
 
     Runs once at startup before the menu is shown.  A proposal is considered
-    orphaned when *every* source CE it references is missing from disk:
+    orphaned when ANY source CE it references is missing from disk:
 
     - RECATEGORIZE_*.md: the single ``current_path`` no longer exists.
-    - CONSOLIDATION_*.md: *all* source entries are unresolvable.  If even one
-      source survives the proposal is kept — a partial merge can still be
-      reviewed and acted on.
+    - CONSOLIDATION_*.md: *any* source entry is unresolvable.  A partial
+      proposal cannot be properly reviewed; the consolidator will re-evaluate
+      once the remaining entries are processed.
 
     Returns:
         Tuple of (recat_purged, consol_purged) counts.
@@ -1062,16 +1063,18 @@ def _purge_orphaned_proposals() -> tuple[int, int]:
             proposal = parse_consol(f)
             if proposal is None:
                 continue
-            # Keep if ANY source is still resolvable
-            any_alive = any(
+            # Purge if ANY source is missing — a partial proposal cannot be
+            # properly reviewed and the consolidator will re-evaluate cleanly
+            # once remaining entries are processed.
+            any_missing = any(
                 _resolve_source(
                     (_CAT_CODE_RE.search(e).group(1)
                      if _CAT_CODE_RE.search(e) else proposal.target_cat),
                     e,
-                ) is not None
+                ) is None
                 for e in proposal.source_entries
             )
-            if not any_alive and proposal.source_entries:
+            if any_missing and proposal.source_entries:
                 try:
                     f.unlink()
                     consol_purged += 1
