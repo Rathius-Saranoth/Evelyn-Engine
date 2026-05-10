@@ -164,10 +164,12 @@ _CAT_NAMES = {
 _CAT_CODE_RE   = re.compile(r"(Cat\d{2}-[ER])", re.IGNORECASE)
 _DATE_RE       = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-# CE file tag replacement (used in approve actions)
+# CE file tag replacement and secondary insertion (used in approve actions)
 _PRIMARY_TAG_RE  = re.compile(
     r"(\*\*Primary:\*\*\s+\[\[)(Cat\d{2}-[ER])(\]\])(\s*\([^)]*\))?"
 )
+_SECONDARY_TAG_RE = re.compile(r"^\*\*Secondary:\*\*.*$", re.MULTILINE)
+_PRIMARY_BODY_RE  = re.compile(r"(^\*\*Primary:\*\*.+$)", re.MULTILINE)
 
 # CONSOLIDATION body-section patterns (still needed — body format unchanged)
 _SOURCE_ENTRY_RE = re.compile(r"^-\s+`([^`]+)`", re.MULTILINE)
@@ -722,13 +724,11 @@ def _add_secondary(proposal: RecatProposal) -> bool:
         secondary_line = f"**Secondary:** [[{new_cat}]] ({cat_name})"
 
         # Replace existing Secondary line, or insert after Primary line
-        secondary_re = re.compile(r"^\*\*Secondary:\*\*.*$", re.MULTILINE)
-        if secondary_re.search(content):
-            content = secondary_re.sub(secondary_line, content, count=1)
+        if _SECONDARY_TAG_RE.search(content):
+            content = _SECONDARY_TAG_RE.sub(secondary_line, content, count=1)
         else:
             # Insert after the **Primary:** line
-            primary_re = re.compile(r"(^\*\*Primary:\*\*.+$)", re.MULTILINE)
-            m = primary_re.search(content)
+            m = _PRIMARY_BODY_RE.search(content)
             if m:
                 insert_pos = m.end()
                 content = content[:insert_pos] + "\n" + secondary_line + content[insert_pos:]
