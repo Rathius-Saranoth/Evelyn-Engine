@@ -121,40 +121,9 @@ def _render_file_lines(path: Path, max_lines: int = 40):
 # Category name lookup
 # ---------------------------------------------------------------------------
 
-_CAT_NAMES = {
-    "Cat01-R": "Core Identity",
-    "Cat01-E": "Core Identity (Evelyn)",
-    "Cat02-R": "Core Values and Beliefs",
-    "Cat02-E": "Core Values and Beliefs (Evelyn)",
-    "Cat03-R": "Emotional Awareness",
-    "Cat03-E": "Emotional Awareness (Evelyn)",
-    "Cat04-R": "Communication Style",
-    "Cat04-E": "Communication Style (Evelyn)",
-    "Cat05-R": "Preferences & Interests",
-    "Cat05-E": "Preferences & Interests (Evelyn)",
-    "Cat06-R": "Relationship Dynamics",
-    "Cat06-E": "Relationship Dynamics (Evelyn)",
-    "Cat07-R": "Motivations and Aspirations",
-    "Cat07-E": "Motivations and Aspirations (Evelyn)",
-    "Cat08-R": "Shared Experiences & Daily Events",
-    "Cat08-E": "Shared Experiences & Daily Events (Evelyn)",
-    "Cat09-R": "Cognitive & Decision-Making Style",
-    "Cat09-E": "Cognitive & Decision-Making Style (Evelyn)",
-    "Cat10-R": "Humor, Creativity, and Play",
-    "Cat10-E": "Humor, Creativity, and Play (Evelyn)",
-    "Cat11-R": "Factual References & Knowledge",
-    "Cat11-E": "Factual References & Knowledge (Evelyn)",
-    "Cat12-R": "Emotional States & Responses",
-    "Cat12-E": "Emotional States & Responses (Evelyn)",
-    "Cat13-R": "Goals & Future Planning",
-    "Cat13-E": "Goals & Future Planning (Evelyn)",
-    "Cat14-R": "Platform & Environment",
-    "Cat14-E": "Platform & Environment (Evelyn)",
-    "Cat15-R": "The Lexicon",
-    "Cat15-E": "The Lexicon (Evelyn)",
-    "Cat16-R": "Protocols",
-    "Cat16-E": "Protocols (Evelyn)",
-}
+# Alias to the shared source of truth in evelyn_config.
+# Update category names in evelyn_config.CATEGORY_NAMES (sourced from Cat00 - Index.md).
+_CAT_NAMES: dict = cfg.CATEGORY_NAMES
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -1017,6 +986,61 @@ def _print_summary(
 
 
 # ---------------------------------------------------------------------------
+# Topic normalizer — patch existing recat proposals to use official cat titles
+# ---------------------------------------------------------------------------
+
+def _normalize_recat_topics() -> int:
+    """Rewrite the ``topic:`` frontmatter field in existing RECATEGORIZE
+    proposals to use the official category title instead of the LLM-generated
+    free-form string.
+
+    Runs once at startup. For each proposal, looks up ``suggested_cat`` in
+    ``_CAT_NAMES`` and overwrites the ``topic:`` line if it differs. The
+    operation is idempotent — already-correct files are skipped.
+
+    Returns:
+        Number of proposal files updated.
+    """
+    updated = 0
+    d = Path(cfg.PENDING_DIR)
+    if not d.exists():
+        return 0
+
+    topic_re = re.compile(r'^topic:.*$', re.MULTILINE)
+
+    for f in sorted(d.glob("RECATEGORIZE_*.md")):
+        if f.name.startswith("_"):
+            continue
+        fm = _read_frontmatter(f)
+        suggested = fm.get("suggested_cat", "")
+        if not suggested:
+            continue
+        official = _CAT_NAMES.get(suggested, "")
+        if not official:
+            continue
+        current_topic = str(fm.get("topic", "")).strip()
+        if current_topic == official:
+            continue  # already correct
+        try:
+            raw = f.read_text(encoding="utf-8")
+            # Only rewrite the topic: line inside the frontmatter block
+            end_fm = raw.find("\n---", 3)
+            if end_fm == -1:
+                continue
+            fm_text = raw[:end_fm]
+            body_text = raw[end_fm:]
+            new_fm = topic_re.sub(f'topic: "{official}"', fm_text, count=1)
+            if new_fm == fm_text:
+                continue
+            f.write_text(new_fm + body_text, encoding="utf-8")
+            updated += 1
+        except OSError:
+            pass
+
+    return updated
+
+
+# ---------------------------------------------------------------------------
 # Orphan purge — auto-remove proposals whose source files are gone
 # ---------------------------------------------------------------------------
 
@@ -1089,13 +1113,17 @@ def main():
     _clr()
 
     # Purge proposals whose source files have already been removed by a
-    # previous review or consolidation pass, before counting or displaying.
+    # Normalize recat topic labels to official category titles, then
+    # purge proposals whose source files have already been removed.
+    topics_fixed = _normalize_recat_topics()
     recat_purged, consol_purged = _purge_orphaned_proposals()
     total_purged = recat_purged + consol_purged
-    if total_purged:
+    if total_purged or topics_fixed:
         print(f"{BOLD}{CYAN}{_BAR}{RESET}")
-        print(f"{BOLD}{CYAN}  Evelyn — Startup: Orphan Purge{RESET}")
+        print(f"{BOLD}{CYAN}  Evelyn — Startup: Housekeeping{RESET}")
         print(f"{BOLD}{CYAN}{_BAR}{RESET}")
+        if topics_fixed:
+            print(f"  {DIM}Normalized {topics_fixed} recat topic label(s) to official category titles.{RESET}")
         if recat_purged:
             print(f"  {DIM}Auto-removed {recat_purged} recat proposal(s) — source file(s) missing.{RESET}")
         if consol_purged:

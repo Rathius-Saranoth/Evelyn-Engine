@@ -117,6 +117,44 @@ CONTEXT_ENTRIES_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Conte
 PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Pending"
 EXTRACTED_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Extracted"
 
+# Official category names — single source of truth for the consolidator and reviewer.
+# Sourced from: Context Categories/Cat00 - Index.md
+CATEGORY_NAMES: dict = {
+    "Cat01-R": "Core Identity",
+    "Cat01-E": "Core Identity (Evelyn)",
+    "Cat02-R": "Core Values and Beliefs",
+    "Cat02-E": "Core Values and Beliefs (Evelyn)",
+    "Cat03-R": "Emotional Awareness",
+    "Cat03-E": "Emotional Awareness (Evelyn)",
+    "Cat04-R": "Communication Style",
+    "Cat04-E": "Communication Style (Evelyn)",
+    "Cat05-R": "Preferences & Interests",
+    "Cat05-E": "Preferences & Interests (Evelyn)",
+    "Cat06-R": "Relationship Dynamics",
+    "Cat06-E": "Relationship Dynamics (Evelyn)",
+    "Cat07-R": "Motivations and Aspirations",
+    "Cat07-E": "Motivations and Aspirations (Evelyn)",
+    "Cat08-R": "Shared Experiences & Daily Events",
+    "Cat08-E": "Shared Experiences & Daily Events (Evelyn)",
+    "Cat09-R": "Cognitive & Decision-Making Style",
+    "Cat09-E": "Cognitive & Decision-Making Style (Evelyn)",
+    "Cat10-R": "Humor, Creativity, and Play",
+    "Cat10-E": "Humor, Creativity, and Play (Evelyn)",
+    "Cat11-R": "Factual References & Knowledge",
+    "Cat11-E": "Factual References & Knowledge (Evelyn)",
+    "Cat12-R": "Emotional States & Responses",
+    "Cat12-E": "Emotional States & Responses (Evelyn)",
+    "Cat13-R": "Goals & Future Planning",
+    "Cat13-E": "Goals & Future Planning (Evelyn)",
+    "Cat14-R": "Platform & Environment",
+    "Cat14-E": "Platform & Environment (Evelyn)",
+    "Cat15-R": "The Lexicon",
+    "Cat15-E": "The Lexicon (Evelyn)",
+    "Cat16-R": "Protocols",
+    "Cat16-E": "Protocols (Evelyn)",
+}
+
+
 # =============================================================================
 # Chroma RAG
 # =============================================================================
