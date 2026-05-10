@@ -1179,7 +1179,7 @@ def _write_recategorization_proposal(
         f"source_date: {source_date}\n"
         f"current_cat: {old_cat}\n"
         f"suggested_cat: {suggested}\n"
-        f"topic: \"{recat_item.get('topic', reason[:60])}\"\n"
+        f"topic: \"{cfg.CATEGORY_NAMES.get(suggested, recat_item.get('topic', reason[:60]))}\"\n"
         f"source_path: {old_path}\n"
         f"suggested_path: {new_rel}\n"
         f"---\n\n"
