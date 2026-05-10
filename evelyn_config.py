@@ -242,6 +242,11 @@ FACT_EXTRACTION_TIMEOUT = 90
 # messages from this point forward (useful after bulk imports or resets).
 FACT_EXTRACTION_START_ID = 0
 
+# Model override for extraction. "default" = use MODEL_NAME (recommended).
+# Set to a specific model name only to use a different model for extraction.
+# Independent from SUMMARY_MODEL_OVERRIDE — the two tasks can be configured separately.
+FACT_EXTRACTION_MODEL_OVERRIDE = "default"
+
 # =============================================================================
 # Idle-Time Consolidation
 # =============================================================================
