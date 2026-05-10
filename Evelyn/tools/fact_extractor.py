@@ -40,6 +40,14 @@ import yaml
 import evelyn_config as cfg
 
 # ---------------------------------------------------------------------------
+# Module-level regex constants
+# ---------------------------------------------------------------------------
+
+_YAML_BLOCK_RE = re.compile(r"```(?:facts|yaml)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+_FACTS_KEY_RE  = re.compile(r"^\s*facts\s*:", re.MULTILINE)
+_DATE_RE       = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# ---------------------------------------------------------------------------
 # Category taxonomy cache
 # ---------------------------------------------------------------------------
 
@@ -395,12 +403,6 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         List of validated fact dicts with keys:
         subject, category, summary, confidence, date.
     """
-    _YAML_BLOCK_RE = re.compile(
-        r"```(?:facts|yaml)?\s*\n(.*?)```",
-        re.DOTALL | re.IGNORECASE,
-    )
-    _FACTS_KEY_RE = re.compile(r"^\s*facts\s*:", re.MULTILINE)
-
     match = _YAML_BLOCK_RE.search(raw)
     if match:
         block = match.group(1)
@@ -428,7 +430,6 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
 
     validated = []
     valid_cats = {f"Cat{n:02d}" for n in range(1, 17)}
-    _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
     for item in facts:
         if not isinstance(item, dict):
@@ -498,7 +499,7 @@ async def _do_extraction(messages: list[dict]):
     ]
 
     importlib.reload(cfg)
-    override = cfg.SUMMARY_MODEL_OVERRIDE
+    override = cfg.FACT_EXTRACTION_MODEL_OVERRIDE
     model = cfg.MODEL_NAME if override == "default" else override
     options = {"num_ctx": cfg.NUM_CTX}
     for key, val in {
@@ -604,7 +605,7 @@ def write_extracted_facts(facts: list[dict]) -> int:
             filepath = os.path.join(extracted_dir, base_name)
             counter += 1
 
-        date_tag = fact_date.replace("-", "/")
+        date_tag = fact_date.replace("-", "/")[:7]  # CY-YYYY/MM — matches consolidator format
         file_content = (
             f"---\n"
             f"tags: [CY-{date_tag}, extracted]\n"
