@@ -858,6 +858,7 @@ def run_recats():
         return
 
     approved = denied = skipped = errors = secondary = 0
+    auto_removed = 0
     idx = 0
 
     while idx < len(files):
@@ -873,6 +874,16 @@ def run_recats():
             time.sleep(1.2)
             idx += 1
             errors += 1
+            continue
+
+        # Mid-session orphan check: source vanished since startup.
+        if not proposal.current_path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            auto_removed += 1
+            idx += 1
             continue
 
         _display_recat(proposal, idx, len(files))
@@ -903,7 +914,7 @@ def run_recats():
             skipped += 1
             idx += 1
 
-    _print_summary("Recategorizations", approved, denied, skipped, errors, secondary)
+    _print_summary("Recategorizations", approved, denied, skipped, errors, secondary, auto_removed)
 
 
 def run_consols():
@@ -919,6 +930,7 @@ def run_consols():
         return
 
     approved = denied = skipped = errors = 0
+    auto_removed = 0
     idx = 0
 
     while idx < len(files):
@@ -934,6 +946,24 @@ def run_consols():
             time.sleep(1.2)
             idx += 1
             errors += 1
+            continue
+
+        # Mid-session orphan check: if all sources vanished since startup, remove.
+        all_sources_gone = all(
+            _resolve_source(
+                (_CAT_CODE_RE.search(e).group(1) if _CAT_CODE_RE.search(e) else proposal.target_cat),
+                e,
+            ) is None
+            for e in proposal.source_entries
+        ) if proposal.source_entries else False
+
+        if all_sources_gone:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            auto_removed += 1
+            idx += 1
             continue
 
         _display_consol(proposal, idx, len(files))
@@ -964,26 +994,91 @@ def run_consols():
             skipped += 1
             idx += 1
 
-    _print_summary("Consolidations", approved, denied, skipped, errors)
+    _print_summary("Consolidations", approved, denied, skipped, errors, auto_removed=auto_removed)
 
 
 def _print_summary(
     label: str, approved: int, denied: int, skipped: int, errors: int,
     secondary: int = 0,
+    auto_removed: int = 0,
 ):
     """Print the end-of-phase review summary screen."""
     _clr()
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Review Complete — {label}{RESET}")
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
-    print(f"  {GREEN}Approved  : {approved}{RESET}")
+    print(f"  {GREEN}Approved    : {approved}{RESET}")
     if secondary:
-        print(f"  {MAGENTA}Secondary : {secondary}{RESET}")
-    print(f"  {YELLOW}Denied    : {denied}{RESET}")
-    print(f"  {DIM}Skipped   : {skipped}{RESET}")
+        print(f"  {MAGENTA}Secondary   : {secondary}{RESET}")
+    print(f"  {YELLOW}Denied      : {denied}{RESET}")
+    print(f"  {DIM}Skipped     : {skipped}{RESET}")
+    if auto_removed:
+        print(f"  {DIM}Auto-removed: {auto_removed} (missing sources){RESET}")
     if errors:
-        print(f"  {RED}Errors    : {errors}{RESET}")
+        print(f"  {RED}Errors      : {errors}{RESET}")
     print()
+
+
+# ---------------------------------------------------------------------------
+# Orphan purge — auto-remove proposals whose source files are gone
+# ---------------------------------------------------------------------------
+
+def _purge_orphaned_proposals() -> tuple[int, int]:
+    """Scan all pending proposals and delete those with no surviving source files.
+
+    Runs once at startup before the menu is shown.  A proposal is considered
+    orphaned when *every* source CE it references is missing from disk:
+
+    - RECATEGORIZE_*.md: the single ``current_path`` no longer exists.
+    - CONSOLIDATION_*.md: *all* source entries are unresolvable.  If even one
+      source survives the proposal is kept — a partial merge can still be
+      reviewed and acted on.
+
+    Returns:
+        Tuple of (recat_purged, consol_purged) counts.
+    """
+    recat_purged = consol_purged = 0
+
+    # --- Recategorizations ---
+    d = Path(cfg.PENDING_DIR)
+    if d.exists():
+        for f in sorted(d.glob("RECATEGORIZE_*.md")):
+            if f.name.startswith("_"):
+                continue
+            proposal = parse_recat(f)
+            if proposal is None:
+                continue  # unparseable — leave for the error path in the runner
+            if not proposal.current_path.exists():
+                try:
+                    f.unlink()
+                    recat_purged += 1
+                except OSError:
+                    pass
+
+        # --- Consolidations ---
+        for f in sorted(d.glob("CONSOLIDATION_*.md")):
+            if f.name.startswith("_"):
+                continue
+            proposal = parse_consol(f)
+            if proposal is None:
+                continue
+            # Keep if ANY source is still resolvable
+            any_alive = any(
+                _resolve_source(
+                    (_CAT_CODE_RE.search(e).group(1)
+                     if _CAT_CODE_RE.search(e) else proposal.target_cat),
+                    e,
+                ) is not None
+                for e in proposal.source_entries
+            )
+            if not any_alive and proposal.source_entries:
+                try:
+                    f.unlink()
+                    consol_purged += 1
+                except OSError:
+                    pass
+
+    return recat_purged, consol_purged
 
 
 # ---------------------------------------------------------------------------
@@ -991,8 +1086,25 @@ def _print_summary(
 # ---------------------------------------------------------------------------
 
 def main():
-    """Entry point.  Displays counts and a startup menu to select review mode."""
+    """Entry point.  Purges orphaned proposals then shows the startup menu."""
     _clr()
+
+    # Purge proposals whose source files have already been removed by a
+    # previous review or consolidation pass, before counting or displaying.
+    recat_purged, consol_purged = _purge_orphaned_proposals()
+    total_purged = recat_purged + consol_purged
+    if total_purged:
+        print(f"{BOLD}{CYAN}{_BAR}{RESET}")
+        print(f"{BOLD}{CYAN}  Evelyn — Startup: Orphan Purge{RESET}")
+        print(f"{BOLD}{CYAN}{_BAR}{RESET}")
+        if recat_purged:
+            print(f"  {DIM}Auto-removed {recat_purged} recat proposal(s) — source file(s) missing.{RESET}")
+        if consol_purged:
+            print(f"  {DIM}Auto-removed {consol_purged} consolidation proposal(s) — all source files missing.{RESET}")
+        print()
+        time.sleep(1.5)
+        _clr()
+
     recats  = collect_recats()
     consols = collect_consols()
 
@@ -1003,6 +1115,8 @@ def main():
     print()
     print(f"  Found {BOLD}{len(recats)}{RESET} recategorization proposal(s).")
     print(f"  Found {BOLD}{len(consols)}{RESET} consolidation proposal(s).")
+    if total_purged:
+        print(f"  {DIM}({total_purged} orphaned proposal(s) auto-removed at startup.){RESET}")
     print()
     print(f"  {BOLD}[1]{RESET} Review Recategorizations  ({len(recats)})")
     print(f"  {BOLD}[2]{RESET} Review Consolidations     ({len(consols)})")
