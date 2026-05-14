@@ -17,6 +17,8 @@ reference/ideas/
 # Temporary state files for sync
 Evelyn/tools/gist_sync_state.json
 Evelyn/tools/vault_sync_state.json
+evelyn_consolidation_offsets.json
+evelyn_extraction_state.json
 Vault_Map/
 !Vault_Map/generate_vault_map.py
 Void_Connections/

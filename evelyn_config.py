@@ -150,8 +150,8 @@ CATEGORY_NAMES: dict = {
     "Cat14-E": "Platform & Environment (Evelyn)",
     "Cat15-R": "The Lexicon",
     "Cat15-E": "The Lexicon (Evelyn)",
-    "Cat16-R": "Protocols",
-    "Cat16-E": "Protocols (Evelyn)",
+    "Cat16-R": "Protocols & Routines",
+    "Cat16-E": "Protocols & Routines (Evelyn)",
 }
 
 
