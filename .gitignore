@@ -6,12 +6,8 @@ secrets.json
 # --- Personal Memory & Soul (DO NOT SHARE) ---
 # These contain private conversations, journals, and identity data
 Evelyn/persona/
-reference/archive/
-reference/system/
+reference/
 Update Logs/
-reference/chat/
-reference/archive/persona copy/
-reference/ideas/
 
 # --- Local Data & State ---
 # Temporary state files for sync
