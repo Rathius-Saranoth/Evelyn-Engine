@@ -67,6 +67,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Write-Tool Badges**: Persistent badges on assistant messages when file-writing tools fire: 📓 Journal entry written, 📌 Context fact logged, 📝 Context fact updated, 🎨 Image generated. Applied to both `sendMessage()` and `regenerateResponse()` flows.
 - [x] **Context Summarizer**: Implemented async sliding-window summarizer (`context_summarizer.py`). Compresses older messages (beyond the active 20-msg window) into a ~200-word summary injected into the system prompt. Runs in background via `asyncio.create_task()` after each response — zero user-facing latency. Uses same model/`num_ctx` via in-process Ollama call (no model swap). Cache rebuilds on server startup; invalidates on thread break. Config in `evelyn_config.py`: `SUMMARY_WINDOW_SIZE`, `SUMMARY_MAX_WORDS`, `SUMMARY_OVERLAP`, `SUMMARY_MODEL`.
 - [ ] **Token Count Display**: Surface per-message or per-request token counts in the chat UI or server console. Enables monitoring of context utilization and early warning when approaching the `num_ctx` ceiling.
+- [x] **SSH Remote Access**: Enabled Windows OpenSSH Server for Tailscale-routed remote access from Android (Termux). Created `evelyn_tools.ps1` — a menu-driven launcher for `context_reviewer.py`, `pending_reviewer.py`, and future tools. Displays separate counts (Extracted / Consolidations / Recategorizations) on launch; numbered menu with descriptions; `Read-Host` input works correctly over mobile SSH without requiring raw pty mode. PS7 (`pwsh.exe`) set as default SSH shell — handles UTF-8 correctly and avoids PS5 single-item `.Count` bug. New tools added by appending to the `$TOOLS` array only.
 - [x] **Engineering Standards**: Codified Dave Plummer's "Notes to Live By" quality gates and operational disciplines into `.ai-instructions.md` §2. Added `/quality-review` workflow for structured self-review.
 - [ ] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. Deferred until Evelyn has code-generation capabilities.
 - [ ] **Prompt & Docstring Lean-Out**: Audit and compress Evelyn's system prompt and all tool docstrings for token efficiency. Strip redundancy, tighten language, eliminate verbose phrasing that costs context window without adding signal.
@@ -82,6 +83,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 ## Future Expansion
 
 *Experimental features and high-level upgrades.*
+
+- [ ] **Developer Web UI**: A dedicated browser-based interface for tool access — primarily the review queues (Extracted facts, Pending proposals) but extensible to other engine tools. Touch-optimized card layout; inline markdown rendering for source CEs; reuses the existing `EVELYN_API_KEY` auth. Deferred until the tool ecosystem grows or the SQLite migration lands, whichever comes first. SSH + `evelyn_tools.ps1` serves as the interim access path.
 
 - [ ] **Visuals**: Add v-tuber style avatar and animation system.
 - [ ] **Awareness**: Add real-time visual awareness.
