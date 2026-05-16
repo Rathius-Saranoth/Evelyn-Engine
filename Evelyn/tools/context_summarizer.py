@@ -282,7 +282,7 @@ async def _do_summary_update():
     start = time.time()
 
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=180) as client:
             resp = await client.post(
                 f"{cfg.OLLAMA_URL}/api/chat", json=payload
             )
