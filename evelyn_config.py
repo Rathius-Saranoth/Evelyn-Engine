@@ -9,7 +9,6 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 # Model
 # =============================================================================
 OLLAMA_URL = "http://localhost:11434"
-# MODEL_NAME = "magistral:24b"
 MODEL_NAME = "gemma4:26b"
 NUM_CTX = 16384
 THINK = True  # Pass think:true to Ollama for native reasoning tokens
@@ -120,37 +119,37 @@ EXTRACTED_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Ent
 # Official category names — single source of truth for the consolidator and reviewer.
 # Sourced from: Context Categories/Cat00 - Index.md
 CATEGORY_NAMES: dict = {
-    "Cat01-R": "Core Identity",
+    "Cat01-R": "Core Identity (Ricky)",
     "Cat01-E": "Core Identity (Evelyn)",
-    "Cat02-R": "Core Values and Beliefs",
+    "Cat02-R": "Core Values and Beliefs (Ricky)",
     "Cat02-E": "Core Values and Beliefs (Evelyn)",
-    "Cat03-R": "Emotional Awareness",
+    "Cat03-R": "Emotional Awareness (Ricky)",
     "Cat03-E": "Emotional Awareness (Evelyn)",
-    "Cat04-R": "Communication Style",
+    "Cat04-R": "Communication Style (Ricky)",
     "Cat04-E": "Communication Style (Evelyn)",
-    "Cat05-R": "Preferences & Interests",
+    "Cat05-R": "Preferences & Interests (Ricky)",
     "Cat05-E": "Preferences & Interests (Evelyn)",
-    "Cat06-R": "Relationship Dynamics",
+    "Cat06-R": "Relationship Dynamics (Ricky)",
     "Cat06-E": "Relationship Dynamics (Evelyn)",
-    "Cat07-R": "Motivations and Aspirations",
+    "Cat07-R": "Motivations and Aspirations (Ricky)",
     "Cat07-E": "Motivations and Aspirations (Evelyn)",
-    "Cat08-R": "Shared Experiences & Daily Events",
+    "Cat08-R": "Shared Experiences & Daily Events (Ricky)",
     "Cat08-E": "Shared Experiences & Daily Events (Evelyn)",
-    "Cat09-R": "Cognitive & Decision-Making Style",
+    "Cat09-R": "Cognitive & Decision-Making Style (Ricky)",
     "Cat09-E": "Cognitive & Decision-Making Style (Evelyn)",
-    "Cat10-R": "Humor, Creativity, and Play",
+    "Cat10-R": "Humor, Creativity, and Play (Ricky)",
     "Cat10-E": "Humor, Creativity, and Play (Evelyn)",
-    "Cat11-R": "Factual References & Knowledge",
+    "Cat11-R": "Factual References & Knowledge (Ricky)",
     "Cat11-E": "Factual References & Knowledge (Evelyn)",
-    "Cat12-R": "Emotional States & Responses",
+    "Cat12-R": "Emotional States & Responses (Ricky)",
     "Cat12-E": "Emotional States & Responses (Evelyn)",
-    "Cat13-R": "Goals & Future Planning",
+    "Cat13-R": "Goals & Future Planning (Ricky)",
     "Cat13-E": "Goals & Future Planning (Evelyn)",
-    "Cat14-R": "Platform & Environment",
+    "Cat14-R": "Platform & Environment (Ricky)",
     "Cat14-E": "Platform & Environment (Evelyn)",
-    "Cat15-R": "The Lexicon",
+    "Cat15-R": "The Lexicon (Ricky)",
     "Cat15-E": "The Lexicon (Evelyn)",
-    "Cat16-R": "Protocols & Routines",
+    "Cat16-R": "Protocols & Routines (Ricky)",
     "Cat16-E": "Protocols & Routines (Evelyn)",
 }
 
@@ -270,7 +269,7 @@ CONSOLIDATION_KEEP_HISTORY = True
 
 # Seconds of server inactivity before consolidation is allowed to run.
 # Default: 15 minutes (900s) so it never interrupts active conversations.
-CONSOLIDATION_IDLE_THRESHOLD = 900  # 15 minutes
+CONSOLIDATION_IDLE_THRESHOLD = 60  # 1 minute (for testing)
 
 # How often (seconds) the idle-time loop checks for inactivity.
 # Default: every 5 minutes. Keep low enough to catch idle windows but not
