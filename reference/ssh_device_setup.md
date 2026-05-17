@@ -1,3 +1,7 @@
+---
+title: ssh_device_setup.md
+---
+
 # SSH Remote Access -- Adding a New Android Device
 
 **Purpose:** Reference for connecting a new Android device (phone or tablet) to the

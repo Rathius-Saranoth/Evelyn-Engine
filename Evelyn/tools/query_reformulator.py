@@ -22,6 +22,8 @@ Config (from evelyn_config.py):
   RAG_REFORMULATE_TIMEOUT     — Seconds before fallback (default: 5)
 """
 
+# query_reformulator.py
+
 import re
 import time
 

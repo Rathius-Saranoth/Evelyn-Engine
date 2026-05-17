@@ -14,6 +14,8 @@ Usage:
     python sync_vault_map_tags.py              # Apply
 """
 
+# sync_vault_map_tags.py
+
 import argparse
 import json
 import os

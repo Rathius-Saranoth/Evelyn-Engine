@@ -12,6 +12,10 @@ Key behaviour:
 Run directly or imported via sync_context_memory() in evelyn_tools.py.
 """
 
+# ingest_obsidian_knowledge.py
+
+# [[ingest_obsidian_knowledge.py]]
+
 import os
 import sys
 import re
@@ -29,16 +33,16 @@ import chroma_rag  # noqa: E402
 
 # Paths
 EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
-PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md"
+PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
 EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals", "Extracted", "Pending"]
-SYNC_STATE_FILE    = r"C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json"
+SYNC_STATE_FILE    = r"C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json" # [[vault_sync_state.json]]
 COLLECTION_NAME    = "evelyn_memory"
 
 # Ricky/ files that belong in core memory (full-text, high-fidelity operational docs).
 # General Ricky facts (work history, education, etc.) flow through the gist pipeline instead.
 RICKY_CORE_FILES = [
-    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Psychological Blueprint.md",
-    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Love Languages & Connection.md",
+    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Psychological Blueprint.md", # [[Ricky - Psychological Blueprint.md]]
+    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Love Languages & Connection.md", # [[Ricky - Love Languages & Connection.md]]
 ]
 
 

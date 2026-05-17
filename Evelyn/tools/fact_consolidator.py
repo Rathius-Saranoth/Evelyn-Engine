@@ -71,6 +71,8 @@ Key behaviors:
 All config is read from evelyn_config.py (single source of truth).
 """
 
+# fact_consolidator.py
+
 import asyncio
 import datetime
 import importlib
@@ -83,10 +85,10 @@ from pathlib import Path
 import httpx
 import yaml
 
-import evelyn_config as cfg
+import evelyn_config as cfg # [[evelyn_config.py]]
 
 # Import full module so we can read fact_extractor._extracting for mutual exclusion.
-import fact_extractor
+import fact_extractor # [[fact_extractor.py]]
 from fact_extractor import load_cat00_index
 
 

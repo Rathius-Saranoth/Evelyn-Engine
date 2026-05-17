@@ -1,3 +1,7 @@
+---
+title: ROADMAP.md
+---
+
 # Evelyn Project Roadmap
 
 This is the primary source of truth for project progress. AI agents MUST update this file after completing significant milestones.

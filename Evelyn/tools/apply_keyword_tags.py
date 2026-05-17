@@ -19,6 +19,8 @@ Usage:
     python apply_keyword_tags.py --limit 10   # Process only the first 10 files
 """
 
+# apply_keyword_tags.py
+
 import argparse
 import json
 import os
@@ -30,7 +32,7 @@ import time
 # Paths
 # ---------------------------------------------------------------------------
 VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
-VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json"
+VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json" # [[vault_map_data.json]]
 
 # ---------------------------------------------------------------------------
 # Keyword parsing

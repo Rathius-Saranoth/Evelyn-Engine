@@ -11,24 +11,27 @@ The TOOL_FUNCTIONS dict maps tool name → callable for the dispatcher in evelyn
 All tool logic uses standard function signatures for Ollama's function-calling API.
 """
 
+# evelyn_tools.py
+
 import sys
 import os
 import importlib
+
 
 # ---------------------------------------------------------------------------
 # Module path setup
 # ---------------------------------------------------------------------------
 TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
 VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
-COMFY_WORKFLOW = r"C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json"
+COMFY_WORKFLOW = r"C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json" # [[comfy_image_gen.py]]
 
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
 
-import journal_manager
-import context_manager
-import ingest_gists
-import ingest_obsidian_knowledge
+import journal_manager # [[journal_manager.py]]
+import context_manager # [[context_manager.py]]
+import ingest_gists # [[ingest_gists.py]]
+import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
 
 
 def _reload():
@@ -482,11 +485,8 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
-    # --- Tools removed from model schema (system use only) ---
-    # log_context_fact    — automated by fact_extractor.py
-    # update_context_fact — automated by fact_consolidator.py
-    # sync_context_memory — triggered via UI button / server endpoint
 ]
+
 
 # ---------------------------------------------------------------------------
 # Dispatcher: maps tool name → function for the server's tool call handler.

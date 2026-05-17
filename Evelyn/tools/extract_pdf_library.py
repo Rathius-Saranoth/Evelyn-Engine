@@ -21,6 +21,8 @@ Designed to plug into Evelyn's existing RAG pipeline:
   - search_vault + recall_specific_memory work out of the box
 """
 
+# extract_pdf_library.py
+
 import argparse
 import json
 import os

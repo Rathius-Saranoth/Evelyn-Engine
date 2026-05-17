@@ -6,6 +6,8 @@ text-slice fallbacks (same heuristics as find_bad_gists.py) and sets
 gist_failed=True on them so the next vault map run picks them up for retry.
 """
 
+# backfill_gist_failed.py
+
 import json
 
 STATE_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json"

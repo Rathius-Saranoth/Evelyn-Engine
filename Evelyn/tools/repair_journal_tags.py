@@ -12,6 +12,8 @@ Usage:
     python repair_journal_tags.py              # Apply
 """
 
+# repair_journal_tags.py
+
 import argparse
 import os
 import re

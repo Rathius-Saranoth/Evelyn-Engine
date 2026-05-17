@@ -14,6 +14,8 @@ Detection heuristics (any one is sufficient):
 Run from project root: python scratch/find_bad_gists.py
 """
 
+# find_bad_gists.py
+
 import json
 import os
 import re

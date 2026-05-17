@@ -9,6 +9,8 @@ Run from the project root:
     python Evelyn\\tools\\pending_reviewer.py
 """
 
+# pending_reviewer.py
+
 import os
 import re
 import sys
