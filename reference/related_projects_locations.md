@@ -1,5 +1,6 @@
 ---
 Gist: [This file serves as a reference point to remember the locations of other related projects and tools, allowing them to be safely disconnected from the main VS Code workspace without losing track of them.]
+title: related_projects_locations.md
 ---
 
 # Related Project Directories & Workspaces

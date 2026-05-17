@@ -8,6 +8,8 @@ Usage:
 Output is written to scratch/out/db_recent.txt for clean reading.
 """
 
+# db_recent.py
+
 import sqlite3
 import datetime
 import sys

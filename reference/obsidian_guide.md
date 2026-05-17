@@ -1,3 +1,7 @@
+---
+title: obsidian_guide.md
+---
+
 # Evelyn Integration Guide: Obsidian
 
 This guide explains how to connect your Obsidian Vault to the local `evelyn:v1` model.

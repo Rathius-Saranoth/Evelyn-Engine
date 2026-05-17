@@ -17,6 +17,8 @@ so Ollama reuses the already-loaded model with zero swap overhead.
 All config is read from evelyn_config.py (single source of truth).
 """
 
+# context_summarizer.py
+
 import asyncio
 import hashlib
 import importlib

@@ -5,6 +5,8 @@ Queries by tools_used column and by role='tool' (if applicable).
 Output is written to scratch/out/db_tool_calls.txt for clean reading.
 """
 
+# db_tool_calls.py
+
 import sqlite3
 import datetime
 import os

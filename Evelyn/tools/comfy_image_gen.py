@@ -5,6 +5,7 @@ author: Ricky
 version: 1.1.0
 """
 
+# comfy_image_gen.py
 # --- Module Overview ---
 # This file is an Evelyn tool registered via evelyn_tools.py.
 # It exposes a single callable: `Tools.generate_image(params)`.

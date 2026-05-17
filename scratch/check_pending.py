@@ -4,6 +4,8 @@ scratch/check_pending.py — List pending journal and context files awaiting app
 Output is written to scratch/out/check_pending.txt for clean reading.
 """
 
+# check_pending.py
+
 import os
 import datetime
 

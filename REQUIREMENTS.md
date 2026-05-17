@@ -1,18 +1,24 @@
+---
+title: REQUIREMENTS.md
+date created: 2026-05-13 20:27:49
+date modified: 2026-05-17 14:06:09
+tags: 
+---
 # Evelyn Engine — Full System Requirements
 
 > [!IMPORTANT]
 > This document covers **all** dependencies — not just Python packages.
-> For Python-only installs, see [`requirements.txt`](file:///c:/Projects/LocalAI/requirements.txt).
+> For Python-only installs, see [[python_requirements.md]]
 
 ---
 
 ## 1. Runtime Environment
 
-| Component | Required | Tested Version | Notes |
-|-----------|----------|----------------|-------|
-| **Python** | 3.11+ | 3.11.9 | System install; no venv used for the main project |
-| **PowerShell** | 7+ (pwsh) | PS7 | Default SSH shell; handles UTF-8 correctly |
-| **Windows** | 10/11 | Windows 11 | Tested platform; Linux untested |
+| Component      | Required  | Tested Version | Notes                                             |
+| -------------- | --------- | -------------- | ------------------------------------------------- |
+| **Python**     | 3.11+     | 3.11.9         | System install; no venv used for the main project |
+| **PowerShell** | 7+ (pwsh) | PS7            | Default SSH shell; handles UTF-8 correctly        |
+| **Windows**    | 10/11     | Windows 11     | Tested platform; Linux untested                   |
 
 ---
 
@@ -25,34 +31,34 @@ pip install -r requirements.txt
 
 ### Core Server (`evelyn_server.py`)
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `fastapi` | ≥0.135 | ASGI web framework — API endpoints, SSE streaming, static file serving |
-| `uvicorn` | ≥0.41 | ASGI server — runs the FastAPI application |
-| `httpx` | ≥0.28 | Async HTTP client — all Ollama API calls (chat, summarizer, extractor, consolidator) |
-| `pydantic` | ≥2.12 | Data validation — request/response models |
+| Package    | Version | Purpose                                                                              |
+| ---------- | ------- | ------------------------------------------------------------------------------------ |
+| `fastapi`  | ≥0.135  | ASGI web framework — API endpoints, SSE streaming, static file serving               |
+| `uvicorn`  | ≥0.41   | ASGI server — runs the FastAPI application                                           |
+| `httpx`    | ≥0.28   | Async HTTP client — all Ollama API calls (chat, summarizer, extractor, consolidator) |
+| `pydantic` | ≥2.12   | Data validation — request/response models                                            |
 
 ### RAG Pipeline (`chroma_rag.py`, `ingest_*.py`)
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `chromadb` | ≥1.5 | Vector database with HNSW index and cosine distance. Includes built-in ONNX runtime for `all-MiniLM-L6-v2` embeddings (CPU, ~100ms/query) |
-| `sentence-transformers` | ≥5.0 | **Optional** — only needed for `benchmark_rag.py --compare` model evaluation. Not required at runtime |
+| Package                 | Version | Purpose                                                                                                                                   |
+| ----------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `chromadb`              | ≥1.5    | Vector database with HNSW index and cosine distance. Includes built-in ONNX runtime for `all-MiniLM-L6-v2` embeddings (CPU, ~100ms/query) |
+| `sentence-transformers` | ≥5.0    | **Optional** — only needed for `benchmark_rag.py --compare` model evaluation. Not required at runtime                                     |
 
 ### LLM Integration & Data Parsing
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `PyYAML` | ≥6.0 | YAML parsing — fact extractor output, consolidator proposals, pending reviewer, frontmatter processing |
-| `requests` | ≥2.32 | Synchronous HTTP — vault map generator (`generate_vault_map.py`) |
+| Package    | Version | Purpose                                                                                                |
+| ---------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `PyYAML`   | ≥6.0    | YAML parsing — fact extractor output, consolidator proposals, pending reviewer, frontmatter processing |
+| `requests` | ≥2.32   | Synchronous HTTP — vault map generator (`generate_vault_map.py`)                                       |
 
 ### Tools
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `websocket-client` | ≥1.9 | WebSocket connections to ComfyUI — image generation and TTS job polling |
-| `ddgs` | ≥9.0 | DuckDuckGo search — powers the `web_search` tool |
-| `PyMuPDF` | ≥1.27 | PDF text extraction with font metadata — `extract_pdf_library.py`. Import as `import fitz` |
+| Package            | Version | Purpose                                                                                    |
+| ------------------ | ------- | ------------------------------------------------------------------------------------------ |
+| `websocket-client` | ≥1.9    | WebSocket connections to ComfyUI — image generation and TTS job polling                    |
+| `ddgs`             | ≥9.0    | DuckDuckGo search — powers the `web_search` tool                                           |
+| `PyMuPDF`          | ≥1.27   | PDF text extraction with font metadata — `extract_pdf_library.py`. Import as `import fitz` |
 
 ### Standard Library (No Install Needed)
 
@@ -70,13 +76,13 @@ These are used extensively but ship with Python:
 
 ### Ollama (Required)
 
-| Detail | Value |
-|--------|-------|
-| **What** | Local LLM inference server |
-| **Version** | ≥0.20.3 (tested: 0.23.1) |
-| **Install** | https://ollama.com/download |
-| **Model** | `gemma4:26b` (active), `magistral:24b` (fallback) |
-| **Startup** | `ollama serve` |
+| Detail       | Value                                                                           |
+| ------------ | ------------------------------------------------------------------------------- |
+| **What**     | Local LLM inference server                                                      |
+| **Version**  | ≥0.20.3 (tested: 0.23.1)                                                        |
+| **Install**  | https://ollama.com/download                                                     |
+| **Model**    | `gemma4:26b` (active), `magistral:24b` (fallback)                               |
+| **Startup**  | `ollama serve`                                                                  |
 | **Env Vars** | `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0` |
 
 Pull the active model after installation:
@@ -86,67 +92,68 @@ ollama pull gemma4:26b
 
 ### Tailscale (Optional — Remote Access)
 
-| Detail | Value |
-|--------|-------|
-| **What** | Mesh VPN for secure remote access to Evelyn from mobile devices |
-| **Install** | https://tailscale.com/download |
-| **Usage** | `tailscale serve --bg 8080` — exposes the Evelyn server over Tailscale |
+| Detail      | Value                                                                  |
+| ----------- | ---------------------------------------------------------------------- |
+| **What**    | Mesh VPN for secure remote access to Evelyn from mobile devices        |
+| **Install** | https://tailscale.com/download                                         |
+| **Usage**   | `tailscale serve --bg 8080` — exposes the Evelyn server over Tailscale |
 
 ### ComfyUI (Optional — Image Generation & TTS)
 
-| Detail | Value |
-|--------|-------|
-| **What** | Node-based image/audio generation framework |
-| **Install** | https://github.com/comfyanonymous/ComfyUI |
-| **Location** | `C:\Projects\ComfyUI\` (separate venv) |
-| **Startup** | `python main.py --listen --fp16-intermediates` |
-| **Used by** | `generate_image` tool, `qwen_tts_server.py` TTS proxy |
+| Detail       | Value                                                 |
+| ------------ | ----------------------------------------------------- |
+| **What**     | Node-based image/audio generation framework           |
+| **Install**  | https://github.com/comfyanonymous/ComfyUI             |
+| **Location** | `C:\Projects\ComfyUI\` (separate venv)                |
+| **Startup**  | `python main.py --listen --fp16-intermediates`        |
+| **Used by**  | `generate_image` tool, `qwen_tts_server.py` TTS proxy |
 
 Required ComfyUI custom nodes:
+
 - Qwen3-TTS node (for text-to-speech)
 - Standard SDXL/Flux nodes (for image generation)
 
 ### Obsidian (Optional — Knowledge Base UI)
 
-| Detail | Value |
-|--------|-------|
-| **What** | Markdown knowledge base — Evelyn's "vault" |
-| **Install** | https://obsidian.md |
-| **Vault Path** | `G:\My Drive\Obsidian_Vault` |
-| **Usage** | Launched via `Start-Process 'obsidian://open'` |
+| Detail         | Value                                          |
+| -------------- | ---------------------------------------------- |
+| **What**       | Markdown knowledge base — Evelyn's "vault"     |
+| **Install**    | https://obsidian.md                            |
+| **Vault Path** | `G:\My Drive\Obsidian_Vault`                   |
+| **Usage**      | Launched via `Start-Process 'obsidian://open'` |
 
 ### Windows OpenSSH Server (Optional — Remote Tool Access)
 
-| Detail | Value |
-|--------|-------|
-| **What** | Enables SSH access for remote tool management from mobile (Termux) |
-| **Shell** | PowerShell 7 (`pwsh.exe`) |
-| **Usage** | `evelyn_tools.ps1` menu launcher over SSH |
+| Detail    | Value                                                              |
+| --------- | ------------------------------------------------------------------ |
+| **What**  | Enables SSH access for remote tool management from mobile (Termux) |
+| **Shell** | PowerShell 7 (`pwsh.exe`)                                          |
+| **Usage** | `evelyn_tools.ps1` menu launcher over SSH                          |
 
 ---
 
 ## 4. Environment Variables
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `EVELYN_API_KEY` | Yes | API key for thin auth on all endpoints. Set in system env or pass via VS Code task |
-| `OLLAMA_KEEP_ALIVE` | Recommended | Set to `-1` to keep the model loaded permanently (avoids cold-start penalty) |
-| `OLLAMA_FLASH_ATTENTION` | Recommended | Set to `1` for faster inference on supported GPUs |
-| `OLLAMA_KV_CACHE_TYPE` | Recommended | Set to `q8_0` for quantized KV cache (saves VRAM) |
+| Variable                 | Required    | Purpose                                                                            |
+| ------------------------ | ----------- | ---------------------------------------------------------------------------------- |
+| `EVELYN_API_KEY`         | Yes         | API key for thin auth on all endpoints. Set in system env or pass via VS Code task |
+| `OLLAMA_KEEP_ALIVE`      | Recommended | Set to `-1` to keep the model loaded permanently (avoids cold-start penalty)       |
+| `OLLAMA_FLASH_ATTENTION` | Recommended | Set to `1` for faster inference on supported GPUs                                  |
+| `OLLAMA_KV_CACHE_TYPE`   | Recommended | Set to `q8_0` for quantized KV cache (saves VRAM)                                  |
 
 ---
 
 ## 5. Hardware Recommendations
 
 > [!NOTE]
-> See [`reference/system/system_specs.md`](file:///c:/Projects/LocalAI/reference/system/system_specs.md) for the full hardware analysis.
+> See [[system_specs.md]] for the full hardware analysis.
 
-| Component | Minimum | Recommended (Current Setup) |
-|-----------|---------|----------------------------|
-| **GPU** | 8 GB VRAM | NVIDIA RTX 4070 (12 GB VRAM) |
-| **RAM** | 16 GB | 32 GB DDR5-6000 |
-| **CPU** | 8 cores | AMD Ryzen 7 7800X3D (8C/16T, 96 MB L3) |
-| **Storage** | SSD | NVMe SSD for project + model weights |
+| Component   | Minimum   | Recommended (Current Setup)            |
+| ----------- | --------- | -------------------------------------- |
+| **GPU**     | 8 GB VRAM | NVIDIA RTX 4070 (12 GB VRAM)           |
+| **RAM**     | 16 GB     | 32 GB DDR5-6000                        |
+| **CPU**     | 8 cores   | AMD Ryzen 7 7800X3D (8C/16T, 96 MB L3) |
+| **Storage** | SSD       | NVMe SSD for project + model weights   |
 
 The 26B parameter model (Q4_K_M quantization) uses ~13.5 GB and partially offloads to CPU RAM.
 `NUM_CTX=16384` is the confirmed ceiling for the 12 GB VRAM budget.
@@ -186,7 +193,7 @@ G:\My Drive\Obsidian_Vault\      # Obsidian vault (Google Drive synced)
 git clone https://github.com/Rathius-Saranoth/Evelyn-Engine.git C:\Projects\LocalAI
 
 # 2. Install Python dependencies
-pip install -r requirements.txt
+pip install -r requirements.txt # [[python_requirements.md]]
 
 # 3. Install and start Ollama
 # Download from https://ollama.com/download
@@ -207,5 +214,5 @@ python evelyn_server.py
 # 7. Open in browser
 # http://localhost:7860
 ```
-
-Or use the VS Code task: **Start Evelyn Services** (handles sequencing and parallel startup automatically).
+[python_requirements.md]: python_requirements.md "python_requirements.md"
+[system_specs.md]: reference/system/system_specs.md "RICKY-PC System Specifications"
