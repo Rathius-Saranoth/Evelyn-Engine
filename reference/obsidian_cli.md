@@ -1,6 +1,8 @@
 ---
+node_label: obsidian_cli.md
 permalink: cli
 description: Anything you can do in Obsidian can be done from the command line.
+title: obsidian_cli.md
 ---
 Obsidian CLI is a command line interface that lets you control Obsidian from your terminal for scripting, automation, and integration with external tools.
 
@@ -1414,3 +1416,12 @@ If it is a user install:
 ```
 ln -s ~/.local/share/flatpak/exports/bin/md.obsidian.Obsidian ~/.local/bin/obsidian
 ```
+
+
+[#Developer commands|developer commands]: obsidian_cli.md "obsidian_cli"
+[#Troubleshooting]: obsidian_cli.md "obsidian_cli"
+[#Keyboard shortcuts]: obsidian_cli.md "obsidian_cli"
+[#Developer commands]: obsidian_cli.md "obsidian_cli"
+[#Sync|sync:history]: obsidian_cli.md "obsidian_cli"
+[#`move`|move]: obsidian_cli.md "obsidian_cli"
+[#Use the terminal interface|TUI]: obsidian_cli.md "obsidian_cli"

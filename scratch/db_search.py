@@ -8,6 +8,8 @@ Usage:
 Output is written to scratch/out/db_search.txt for clean reading.
 """
 
+# db_search.py
+
 import sqlite3
 import datetime
 import sys

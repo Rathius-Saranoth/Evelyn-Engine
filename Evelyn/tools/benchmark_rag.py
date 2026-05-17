@@ -25,6 +25,8 @@ Usage:
 Requires: reference/rag_benchmark_queries.json (golden test set)
 """
 
+# benchmark_rag.py
+
 import sys
 import os
 import json
