@@ -23,6 +23,8 @@ Key design decisions:\r
 Run directly: ``python generate_vault_map.py``\r
 """
 
+# generate_vault_map.py
+
 import os
 import re
 import json

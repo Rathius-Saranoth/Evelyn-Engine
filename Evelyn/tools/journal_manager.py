@@ -15,11 +15,13 @@ Key path constants:
 This module is imported and hot-reloaded by ``evelyn_tools.py``.
 """
 
+# journal_manager.py
+
 import os
 import datetime
 import subprocess
 import importlib
-import evelyn_config as cfg
+import evelyn_config as cfg # [[evelyn_config.py]]
 
 JOURNAL_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Journal"
 PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Pending_Approvals\Journal"

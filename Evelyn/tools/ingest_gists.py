@@ -13,6 +13,8 @@ Key behaviour:
 Run directly or imported via sync_context_memory() in evelyn_tools.py.
 """
 
+# ingest_gists.py
+
 import os
 import sys
 import json
@@ -27,13 +29,13 @@ for _d in (ROOT_DIR, TOOLS_DIR):
 import chroma_rag  # noqa: E402
 
 # Paths
-VAULT_MAP_FILE  = r"c:\Projects\LocalAI\Vault_Map\vault_map_data.json"
-SYNC_STATE_FILE = r"C:\Projects\LocalAI\Evelyn\tools\gist_sync_state.json"
+VAULT_MAP_FILE  = r"c:\Projects\LocalAI\Vault_Map\vault_map_data.json" # [[vault_map_data.json]]
+SYNC_STATE_FILE = r"C:\Projects\LocalAI\Evelyn\tools\gist_sync_state.json" # [[gist_sync_state.json]]
 COLLECTION_NAME = "evelyn_gists"
 
-# Excluded paths — handled by ingest_obsidian_knowledge.py
+# Excluded paths — handled by [[ingest_obsidian_knowledge.py]]
 EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
-PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md"
+PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
 
 
 # ---------------------------------------------------------------------------

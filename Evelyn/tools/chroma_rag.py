@@ -1,3 +1,8 @@
+
+# chroma_rag.py
+
+# Chroma Rag.py
+
 """
 chroma_rag.py — Chroma vector DB wrapper for Evelyn's RAG pipeline.
 

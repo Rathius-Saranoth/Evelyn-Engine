@@ -17,14 +17,16 @@ Key path constants:
   PENDING_DIR    — In-vault staging folder for new context entries.
 """
 
+# context_manager.py
+
 import os
 import datetime
 import json
 
-import evelyn_config as cfg
+import evelyn_config as cfg # [[evelyn_config.py]]
 
 CONTEXT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Categories"
-VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json"
+VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json" # [[vault_map_data.json]]
 
 # These are sourced from evelyn_config so paths stay in one place.
 PENDING_DIR = cfg.PENDING_DIR
@@ -36,7 +38,7 @@ def append_context_log(
     secondary_cats: list = None,
 ):
     """
-    Creates a new Context Category markdown file in the in-vault Pending folder.
+    Creates a new Context Entry markdown file in the in-vault Pending folder.
 
     The file is written to the vault's ``Pending`` subfolder for review.
     It is visible to the gist/sync pipeline immediately.

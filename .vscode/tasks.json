@@ -12,6 +12,16 @@
             "problemMatcher": []
         },
         {
+            "label": "Start Evelyn Minimal",
+            "dependsOn": [
+                "Run Ollama",
+                "Wait for Ollama",
+                "Run Evelyn Server"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
             "label": "Start Remaining Services",
             "dependsOn": [
                 "Run Tailscale",
@@ -196,6 +206,30 @@
                 "reveal": "always",
                 "panel": "shared",
                 "close": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Stop Evelyn Services",
+            "type": "shell",
+            "command": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'evelyn_server\\.py|qwen_tts_server\\.py|ollama serve|ComfyUI' -and $_.ProcessName -notmatch 'Code\\.exe' } | Invoke-CimMethod -MethodName Terminate; Write-Host 'Evelyn Core Services stopped.'",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Update Frontmatter",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}\\update_frontmatter.py",
+                "${file}"
+            ],
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared"
             },
             "problemMatcher": []
         }

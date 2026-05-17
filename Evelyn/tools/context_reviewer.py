@@ -15,6 +15,8 @@ Run from the project root:
 Google-style docstrings throughout for AI tool inspection.
 """
 
+# context_reviewer.py
+
 import os
 import re
 import sys
