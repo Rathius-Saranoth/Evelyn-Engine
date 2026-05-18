@@ -212,7 +212,7 @@
         {
             "label": "Stop Evelyn Services",
             "type": "shell",
-            "command": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'evelyn_server\\.py|qwen_tts_server\\.py|ollama serve|ComfyUI' -and $_.ProcessName -notmatch 'Code\\.exe' } | Invoke-CimMethod -MethodName Terminate; Write-Host 'Evelyn Core Services stopped.'",
+            "command": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'evelyn_server\\.py|qwen_tts_server\\.py|ollama.exe|ComfyUI' -and $_.ProcessName -notmatch 'Code\\.exe' } | Invoke-CimMethod -MethodName Terminate; Write-Host 'Evelyn Core Services stopped.'",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared"
