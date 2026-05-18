@@ -1,5 +1,8 @@
 ---
 title: ROADMAP.md
+date created: 2026-03-14 22:34:06
+date modified: 2026-05-17 21:16:24
+tags: 
 ---
 
 # Evelyn Project Roadmap
@@ -67,7 +70,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Entity Resolution**: Investigate Schyler entity mismatch — model matched `Schyler Sekulich` (vault file) but tried to update `Schyler (persona)` (different entry). Review context_manager.py entity lookup logic.
 - [x] **Message History Cap**: `load_history()` was sending every message ever stored to Ollama with no limit. Added `MAX_HISTORY_MESSAGES = 30` (15 turns) config cap. Only the most recent messages are sent to the model; all messages remain in the DB and `/history` UI endpoint.
 - [x] **Thread Break System**: Added `[THREAD_BREAK]` marker row and `POST /new_thread` endpoint. "✦ New Thread" button in the UI inserts a boundary — `load_history()` only returns messages after the latest break. Visual `── new thread ──` divider renders in chat history. Gives Evelyn a clean conversational slate without losing any stored messages.
-- [x] **Mobile Connection Recovery**: Added Screen Wake Lock API to keep the display alive while streaming (prevents phone screen-off mid-response). Added `visibilitychange` recovery handler — if the SSE connection dies while the page is backgrounded, returning to the page reloads the completed response from the DB.
+- [x] **Mobile Connection Recovery**: Added Screen Wake Lock API to keep the display alive while streaming (prevents phone screen-off mid-response). Added `visibilitychange` recovery handler — pull-based design using `GET /latest_message_id` endpoint. On tab-focus, the UI compares the server's latest committed message ID against the last rendered ID; if the server has newer content, history reloads automatically. Immune to new SSE event types — previous timestamp-based approach broke when status/heartbeat events were added. *(Redesigned 2026-05-17)*
 - [x] **Write-Tool Badges**: Persistent badges on assistant messages when file-writing tools fire: 📓 Journal entry written, 📌 Context fact logged, 📝 Context fact updated, 🎨 Image generated. Applied to both `sendMessage()` and `regenerateResponse()` flows.
 - [x] **Context Summarizer**: Implemented async sliding-window summarizer (`context_summarizer.py`). Compresses older messages (beyond the active 20-msg window) into a ~200-word summary injected into the system prompt. Runs in background via `asyncio.create_task()` after each response — zero user-facing latency. Uses same model/`num_ctx` via in-process Ollama call (no model swap). Cache rebuilds on server startup; invalidates on thread break. Config in `evelyn_config.py`: `SUMMARY_WINDOW_SIZE`, `SUMMARY_MAX_WORDS`, `SUMMARY_OVERLAP`, `SUMMARY_MODEL`.
 - [ ] **Token Count Display**: Surface per-message or per-request token counts in the chat UI or server console. Enables monitoring of context utilization and early warning when approaching the `num_ctx` ceiling.
