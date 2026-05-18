@@ -13,6 +13,8 @@ Run: python evelyn_server.py
 """
 
 # evelyn_server.py
+# date created: 2026-03-23 15:43:21
+# date modified: 2026-05-17 22:18:07
 
 import asyncio
 import json
@@ -572,174 +574,127 @@ class ChatRequest(BaseModel):
     message: str
 
 
-async def chat_stream(user_message: str, is_regenerate: bool = False):
+async def _process_chat_background(
+    user_message: str,
+    is_regenerate: bool,
+    time_ctx: str | None,
+    assistant_row_id: int,
+    queue: asyncio.Queue,
+):
+    """Background chat worker — runs independently of the SSE connection.
+
+    Spawned via asyncio.create_task() so a client disconnect cannot cancel it.
+    Puts SSE-formatted event strings into `queue` for the thin SSE pipe to
+    forward to the client when connected.  Always commits the final response
+    to the DB via the finally block regardless of client state.
     """
-    Core streaming generator.
-
-    Architecture (two-pass):
-
-    Pass 1 -- NON-STREAMING with tools:
-        call_ollama_full() reliably surfaces tool_calls.
-        Streaming + think=True silently swallows tool_call tokens in Ollama
-        (model generates ~20 tokens for the JSON but emits a single empty done chunk).
-        We send SSE heartbeats while awaiting the non-streaming response.
-
-    Pass 2 -- STREAMING without tools:
-        If no tool was called: re-stream the content from pass 1 word-by-word
-        (already have the text, so this is instant progressive rendering).
-        If tools were called: stream a fresh follow-up call after tool dispatch.
-
-    Config is reloaded from disk at the start of each request so changes to
-    evelyn_config.py (DEBUG_LOGGING, etc.) take effect immediately, no restart needed.
-    """
-    global _last_activity_ts
-    _last_activity_ts = time.time()  # Mark server as active
-    importlib.reload(cfg)
-
-    # Cancel any in-flight background tasks so they don't
-    # queue behind this request on Ollama
-    cancel_pending_summary()
-    cancel_pending_consolidation()
-    cancel_pending_extraction()
-
-    yield "data: " + json.dumps({"type": "status", "msg": "Processing..."}) + "\n\n"
-
-    # RAG injection
-    rag_context = build_rag_context(user_message)
-    system = load_system_prompt()
-    if rag_context:
-        system += f"\n\n{rag_context}"
-        # Count chunks by counting "[filename]" markers in the assembled block
-        chunk_count = rag_context.count("\n[")
-        pinned_count = rag_context.count("[primary source]")
-        dlog(f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}")
-
-    # Conversation summary injection (sliding window)
-    conv_summary = build_conversation_summary()
-    if conv_summary:
-        system += f"\n\n--- Conversation Summary (older messages) ---\n{conv_summary}\n--- End Summary ---"
-        dlog("Summary injected:", conv_summary[:200])
-
-    history = load_history()
-
-    # On regenerate, the user message is already in the DB and history.
-    # On normal sends, compute time-gap and save the new user message.
-    if not is_regenerate:
-        time_ctx = get_time_gap_context()
-        if time_ctx:
-            dlog("Time-gap annotation:", time_ctx)
-        save_message("user", user_message)
-    else:
-        time_ctx = None
-        dlog("Regenerating last response")
-
-    # Prepend time-gap context to the user message for the model,
-    # but the raw message is what gets saved to the DB above.
-    user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
-
-    messages = (
-        [{"role": "system", "content": system}]
-        + history
-        + [{"role": "user", "content": user_msg_for_model}]
-    )
-
-    yield "data: " + json.dumps({"type": "status", "msg": "Querying model..."}) + "\n\n"
-
-    # ------------------------------------------------------------------
-    # Pass 1: Non-streaming call with tools (heartbeats sent while waiting)
-    # ------------------------------------------------------------------
-    print(
-        f"{_CYN}[PASS1]{_RST} Non-streaming tool-detection. Roles:",
-        [m["role"] for m in messages],
-        flush=True,
-    )
-
-    pass1_task = asyncio.ensure_future(
-        call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
-    )
-    while not pass1_task.done():
-        yield 'data: {"type":"heartbeat"}\n\n'
-        await asyncio.sleep(1.0)
-
-    try:
-        pass1_resp = pass1_task.result()
-    except Exception as exc:
-        print(f"{_RED}[PASS1 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
-        save_message("assistant", "[Response interrupted -- please try again.]")
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-        return
-
-    pass1_msg = pass1_resp.get("message", {})
-    tool_calls = pass1_msg.get("tool_calls") or []
-    pass1_content = pass1_msg.get("content") or ""
-    pass1_thinking = pass1_msg.get("thinking") or ""
-
-    dlog(
-        f"Pass1 -- content: {len(pass1_content)} chars, thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}"
-    )
-
-    # ------------------------------------------------------------------
-    # Reserve a DB row for the assistant response. Content will be
-    # updated progressively so a connection drop preserves partial text.
-    # ------------------------------------------------------------------
     content_buf = ""
     thinking_buf = ""
     tools_used_list = []
-    assistant_row_id = save_message_get_id("assistant", "")
+
+    async def put(type_: str, **kw):
+        await queue.put("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
+
+    async def drain_stream(stream):
+        """Iterate _stream_content, buffer state, and forward events to queue."""
+        nonlocal content_buf, thinking_buf
+        async for event in stream:
+            if event.startswith("data: "):
+                try:
+                    d = json.loads(event[6:])
+                    if d.get("type") == "_state":
+                        content_buf = d["content"]
+                        thinking_buf = d.get("thinking", "")
+                        continue          # _state is internal bookkeeping only
+                    if d.get("type") == "text":
+                        content_buf += d.get("delta", "")
+                    elif d.get("type") == "thinking":
+                        thinking_buf += d.get("delta", "")
+                except Exception:
+                    pass
+            await queue.put(event)
 
     try:
+        await put("status", msg="Processing...")
+
+        # RAG + system prompt + history (fast synchronous work)
+        rag_context = build_rag_context(user_message)
+        system = load_system_prompt()
+        if rag_context:
+            system += f"\n\n{rag_context}"
+            chunk_count = rag_context.count("\n[")
+            pinned_count = rag_context.count("[primary source]")
+            dlog(f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}")
+
+        conv_summary = build_conversation_summary()
+        if conv_summary:
+            system += f"\n\n--- Conversation Summary (older messages) ---\n{conv_summary}\n--- End Summary ---"
+            dlog("Summary injected:", conv_summary[:200])
+
+        history = load_history()
+
+        user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
+        messages = (
+            [{"role": "system", "content": system}]
+            + history
+            + [{"role": "user", "content": user_msg_for_model}]
+        )
+
+        await put("status", msg="Querying model...")
+
+        # ------------------------------------------------------------------
+        # Pass 1: Non-streaming tool detection
+        # ------------------------------------------------------------------
+        print(
+            f"{_CYN}[PASS1]{_RST} Non-streaming tool-detection. Roles:",
+            [m["role"] for m in messages],
+            flush=True,
+        )
+
+        pass1_task = asyncio.ensure_future(
+            call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
+        )
+        while not pass1_task.done():
+            await queue.put('data: {"type":"heartbeat"}\n\n')
+            await asyncio.sleep(1.0)
+
+        try:
+            pass1_resp = pass1_task.result()
+        except Exception as exc:
+            print(f"{_RED}[PASS1 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
+            # finally block will log the empty response and update DB
+            return
+
+        pass1_msg = pass1_resp.get("message", {})
+        tool_calls = pass1_msg.get("tool_calls") or []
+        pass1_content = pass1_msg.get("content") or ""
+        pass1_thinking = pass1_msg.get("thinking") or ""
+        dlog(
+            f"Pass1 -- content: {len(pass1_content)} chars, "
+            f"thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}"
+        )
+
         if not tool_calls:
-            # --------------------------------------------------------------
-            # No tool call -- stream a fresh Pass 2 call so thinking tokens
-            # surface correctly.
-            # --------------------------------------------------------------
-            async for event in _stream_content(messages):
-                if event.startswith("data: "):
-                    try:
-                        d = json.loads(event[6:])
-                        if d.get("type") == "_state":
-                            content_buf = d["content"]
-                            thinking_buf = d.get("thinking", "")
-                            continue
-                        # Track content progressively for crash safety
-                        if d.get("type") == "text":
-                            content_buf += d.get("delta", "")
-                        elif d.get("type") == "thinking":
-                            thinking_buf += d.get("delta", "")
-                    except Exception:
-                        pass
-                yield event
+            await drain_stream(_stream_content(messages))
 
         else:
-            # --------------------------------------------------------------
-            # Agentic tool loop — model may call tools across multiple rounds
-            # before producing a final response.
-            #
-            # Round structure:
-            #   1. Append the assistant's tool-call message to messages
-            #   2. Dispatch each tool in the call list, append results
-            #   3. Call the model again (with tools still attached)
-            #   4. If it calls more tools → loop; if it responds → break
-            #   5. After the loop, Pass 2 streams the final content
-            # --------------------------------------------------------------
+            # ------------------------------------------------------------------
+            # Agentic tool loop
+            # ------------------------------------------------------------------
             loop = asyncio.get_running_loop()
             current_tool_calls = tool_calls
             current_content = pass1_content
 
             for tool_round in range(1, cfg.MAX_TOOL_ROUNDS + 1):
                 dlog(f"Tool round {tool_round}/{cfg.MAX_TOOL_ROUNDS}: {len(current_tool_calls)} call(s)")
-                yield f"data: {json.dumps({'type': 'status', 'msg': f'Tool round {tool_round}...'})}\n\n"
+                await put("status", msg=f"Tool round {tool_round}...")
 
-                # Append assistant turn with tool calls
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": current_content,
-                        "tool_calls": current_tool_calls,
-                    }
-                )
+                messages.append({
+                    "role": "assistant",
+                    "content": current_content,
+                    "tool_calls": current_tool_calls,
+                })
 
-                # Dispatch all tool calls in this round
                 for tc in current_tool_calls:
                     fn_name = tc["function"]["name"]
                     fn_args = tc["function"].get("arguments", {})
@@ -749,7 +704,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                         except Exception:
                             fn_args = {}
 
-                    yield f"data: {json.dumps({'type': 'tool', 'name': fn_name})}\n\n"
+                    await put("tool", name=fn_name)
                     tools_used_list.append(fn_name)
                     dlog(f"Dispatching tool: {fn_name}({fn_args})")
 
@@ -757,7 +712,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                         None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
                     )
                     while not tool_task.done():
-                        yield 'data: {"type":"heartbeat"}\n\n'
+                        await queue.put('data: {"type":"heartbeat"}\n\n')
                         await asyncio.sleep(1.0)
                     result = tool_task.result()
                     if cfg.DEBUG_TOOL_FULL:
@@ -770,17 +725,15 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                         dlog(f"Tool result preview: {str(result)[:200]}")
                     messages.append({"role": "tool", "content": result, "name": fn_name})
 
-                # Check if we've hit the cap
                 if tool_round >= cfg.MAX_TOOL_ROUNDS:
                     print(
                         f"{_YEL}[TOOL LOOP]{_RST} Hit MAX_TOOL_ROUNDS ({cfg.MAX_TOOL_ROUNDS}). Forcing final response.",
                         flush=True,
                     )
-                    yield f"data: {json.dumps({'type': 'status', 'msg': 'Generating response...'})}\n\n"
+                    await put("status", msg="Generating response...")
                     break
 
-                # Ask the model again with tool results in context
-                yield f"data: {json.dumps({'type': 'status', 'msg': 'Thinking...'})}\n\n"
+                await put("status", msg="Thinking...")
                 print(
                     f"{_YEL}[TOOL LOOP]{_RST} Round {tool_round} complete. Re-querying model. Roles:",
                     [m["role"] for m in messages],
@@ -791,7 +744,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                     call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
                 )
                 while not followup_task.done():
-                    yield 'data: {"type":"heartbeat"}\n\n'
+                    await queue.put('data: {"type":"heartbeat"}\n\n')
                     await asyncio.sleep(1.0)
 
                 followup_resp = followup_task.result()
@@ -805,34 +758,15 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                 )
 
                 if not current_tool_calls:
-                    # Model is done with tools — proceed to streaming pass
                     dlog("Model produced no more tool calls. Exiting tool loop.")
-                    yield f"data: {json.dumps({'type': 'status', 'msg': 'Generating response...'})}\n\n"
+                    await put("status", msg="Generating response...")
                     break
 
-            # Streaming follow-up (no tools) — final response
-            async for event in _stream_content(messages):
-                if event.startswith("data: "):
-                    try:
-                        d = json.loads(event[6:])
-                        if d.get("type") == "_state":
-                            content_buf = d["content"]
-                            thinking_buf = d.get("thinking", "")
-                            continue
-                        if d.get("type") == "text":
-                            content_buf += d.get("delta", "")
-                        elif d.get("type") == "thinking":
-                            thinking_buf += d.get("delta", "")
-                    except Exception:
-                        pass
-                yield event
+            # Final streaming response after tool loop
+            await drain_stream(_stream_content(messages))
 
     finally:
-        # ------------------------------------------------------------------
-        # Always update the reserved row — even on connection drop.
-        # If _state sentinel arrived, content_buf has the authoritative text.
-        # If not (mid-stream break), content_buf has whatever was received.
-        # ------------------------------------------------------------------
+        # Always commit to DB — independent of whether SSE pipe is alive
         final_content = content_buf.strip()
         tools_str = ",".join(tools_used_list) if tools_used_list else None
         if final_content:
@@ -853,16 +787,79 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
                 bool(tool_calls),
             )
 
-        dlog(
-            f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars"
-        )
+        dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
 
-        # Trigger async summary update in background (runs during user's read/think/type cycle)
+        # Signal SSE pipe to close cleanly
+        await queue.put(f"data: {json.dumps({'type': 'done'})}\n\n")
+        await queue.put(None)  # sentinel
+
+        # Trigger summary update
         if final_content:
             import context_summarizer
             context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
 
-    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+async def chat_stream(user_message: str, is_regenerate: bool = False):
+    """SSE pipe — thin wrapper around _process_chat_background.
+
+    All Ollama calls and DB writes run in a detached asyncio task so client
+    disconnect cannot cancel them.  This generator only forwards queued events
+    to the connected client.  If the client disconnects mid-stream the
+    background task keeps running and saves the response to the DB.
+    """
+    global _last_activity_ts
+    _last_activity_ts = time.time()
+    importlib.reload(cfg)
+
+    cancel_pending_summary()
+    cancel_pending_consolidation()
+    cancel_pending_extraction()
+
+    if not is_regenerate:
+        time_ctx = get_time_gap_context()
+        if time_ctx:
+            dlog("Time-gap annotation:", time_ctx)
+        save_message("user", user_message)
+    else:
+        time_ctx = None
+        dlog("Regenerating last response")
+
+    # Reserve DB row and spawn the background task synchronously.
+    # From this point the task owns all processing — client can disconnect freely.
+    assistant_row_id = save_message_get_id("assistant", "")
+    event_queue: asyncio.Queue = asyncio.Queue()
+
+    asyncio.create_task(
+        _process_chat_background(
+            user_message, is_regenerate, time_ctx, assistant_row_id, event_queue
+        )
+    )
+    print(f"{_CYN}[CHAT]{_RST} Background task started — SSE pipe open", flush=True)
+
+    # Drain queue and forward to client.
+    # GeneratorExit/CancelledError = client disconnected — log and exit cleanly.
+    # The background task is completely unaffected.
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                yield 'data: {"type":"heartbeat"}\n\n'
+                continue
+            if event is None:  # sentinel from _process_chat_background
+                break
+            yield event
+    except (GeneratorExit, asyncio.CancelledError):
+        print(
+            f"{_CYN}[CHAT]{_RST} SSE pipe closed (client disconnected) — "
+            f"background task continues independently",
+            flush=True,
+        )
+
+
+
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +996,13 @@ async def regenerate(_: None = Depends(check_auth)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+@app.get("/latest_message_id")
+async def get_latest_message_id(_: None = Depends(check_auth)):
+    """Return the ID of the latest committed message."""
+    con = get_db()
+    row = con.execute("SELECT MAX(id) as max_id FROM messages WHERE content != ''").fetchone()
+    con.close()
+    return {"id": row["max_id"] or 0}
 
 
 @app.get("/history")
@@ -1017,13 +1021,13 @@ async def get_history(
     if before:
         rows = con.execute(
             "SELECT id, role, content, thinking, tools_used, ts "
-            "FROM messages WHERE id < ? ORDER BY id DESC LIMIT ?",
+            "FROM messages WHERE id < ? AND content != '' ORDER BY id DESC LIMIT ?",
             (before, limit),
         ).fetchall()
     else:
         rows = con.execute(
             "SELECT id, role, content, thinking, tools_used, ts "
-            "FROM messages ORDER BY id DESC LIMIT ?",
+            "FROM messages WHERE content != '' ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
     con.close()

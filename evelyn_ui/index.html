@@ -424,19 +424,7 @@ function playTTS(text, btn) {
   .catch(() => { btn.textContent = '🔊'; });
 }
 
-// ---------------------------------------------------------------------------
-// Wake Lock — keeps screen alive while streaming (mobile)
-// ---------------------------------------------------------------------------
-let wakeLockSentinel = null;
-async function requestWakeLock() {
-  if ('wakeLock' in navigator) {
-    try { wakeLockSentinel = await navigator.wakeLock.request('screen'); }
-    catch { /* user denied or not supported */ }
-  }
-}
-function releaseWakeLock() {
-  if (wakeLockSentinel) { wakeLockSentinel.release().catch(() => {}); wakeLockSentinel = null; }
-}
+
 
 // ---------------------------------------------------------------------------
 // Write-tool tracking — tools that create/edit files
@@ -470,18 +458,89 @@ function addWriteBadges(wrap, usedTools) {
 // ---------------------------------------------------------------------------
 let isStreaming = false;
 
+// ---------------------------------------------------------------------------
+// Response poll — runs after recovery to catch late-arriving assistant messages
+// ---------------------------------------------------------------------------
+// Problem: recovery fires after 2.5s, but at that point only the USER's
+// message is committed (the empty assistant placeholder is filtered out of
+// /latest_message_id).  Recovery reloads history (user msg visible), updates
+// lastRenderedMsgId, and stops.  The server keeps processing for 30+ more
+// seconds.  Nothing on the client detects the assistant response.
+//
+// Fix: after recovery loads history, start this poll.  It fires every 3s for
+// up to 2 minutes.  When /latest_message_id advances again (the assistant
+// response lands), reload history to show it.
+// ---------------------------------------------------------------------------
+let _responsePollTimer = null;
+
+function stopResponsePoll() {
+  if (_responsePollTimer) { clearInterval(_responsePollTimer); _responsePollTimer = null; }
+}
+
+function startResponsePoll() {
+  stopResponsePoll();
+  let attempts = 0;
+  const MAX_ATTEMPTS = 40; // 2 min at 3s intervals
+  setStatus('Waiting for response…');
+  _responsePollTimer = setInterval(async () => {
+    attempts++;
+    if (attempts >= MAX_ATTEMPTS) { stopResponsePoll(); setStatus('Ready'); return; }
+    try {
+      const resp = await fetch(`${API_BASE}/latest_message_id`, { headers: headers() });
+      if (!resp.ok) return;
+      const { id } = await resp.json();
+      if (id > lastRenderedMsgId) {
+        stopResponsePoll();
+        console.log(`[Poll] New content #${id} — reloading history`);
+        await loadHistory();
+        setStatus('Ready');
+      }
+    } catch { /* network issue — retry next interval */ }
+  }, 3000);
+}
+
+// ---------------------------------------------------------------------------
+// Connection-drop recovery helper
+// ---------------------------------------------------------------------------
+// Called from both sendMessage() and regenerateResponse() catch blocks.
+// When the SSE stream dies (phone sleep, network blip), waits briefly then
+// checks /latest_message_id.  If the server has something newer, reload
+// history and start the response poll to catch the still-generating response.
+// Returns true if recovery succeeded (caller should skip error bubble).
+async function recoverFromConnectionDrop(wrap) {
+  setStatus('Reconnecting…');
+  // Brief wait so the server has a chance to commit anything fast
+  // (tool-free responses sometimes finish within a few seconds).
+  await new Promise(r => setTimeout(r, 2500));
+  try {
+    const resp = await fetch(`${API_BASE}/latest_message_id`, { headers: headers() });
+    if (!resp.ok) return false;
+    const { id: serverLatest } = await resp.json();
+    if (serverLatest > lastRenderedMsgId) {
+      console.log(`[Recovery] Server has msg #${serverLatest}, UI has #${lastRenderedMsgId} — reloading`);
+      if (wrap && wrap.parentNode) wrap.remove();
+      setStatus('Reconnected');
+      await loadHistory();
+      // Server may still be generating — poll until the assistant response lands
+      startResponsePoll();
+      return true;
+    }
+  } catch { /* server unreachable — fall through to error bubble */ }
+  return false;
+}
+
 async function sendMessage() {
   const input = document.getElementById('input');
   const text = input.value.trim();
   if (!text || isStreaming) return;
 
   isStreaming = true;
+  stopResponsePoll(); // cancel any poll from a previous connection drop
   document.getElementById('send-btn').disabled = true;
   document.querySelector('.avatar').classList.add('active');
   input.value = '';
   input.style.height = 'auto';
   setStatus('Thinking…');
-  await requestWakeLock();
 
   const sentAt = Date.now() / 1000;
   const userMsgDiv = appendUserMessage(text, sentAt);
@@ -544,7 +603,6 @@ async function sendMessage() {
         if (!line.startsWith('data: ')) continue;
         let evt;
         try { evt = JSON.parse(line.slice(6)); } catch { continue; }
-        lastStreamActivity = Date.now();
 
         if (evt.type === 'status') {
           addActivity(null, evt.msg);
@@ -638,17 +696,19 @@ async function sendMessage() {
     }
   } catch (err) {
     removeActivity();
-    const errBubble = document.createElement('div');
-    errBubble.className = 'bubble';
-    errBubble.style.color = '#ff6666';
-    errBubble.textContent = `Error: ${err.message}`;
-    wrap.appendChild(errBubble);
-    // Add regen button on the user message
-    addRegenToUserMsg(userMsgDiv);
-    setStatus('Error');
+    const recovered = await recoverFromConnectionDrop(wrap);
+    if (!recovered) {
+      // Server unreachable or has nothing new — show the error
+      const errBubble = document.createElement('div');
+      errBubble.className = 'bubble';
+      errBubble.style.color = '#ff6666';
+      errBubble.textContent = `Error: ${err.message}`;
+      wrap.appendChild(errBubble);
+      addRegenToUserMsg(userMsgDiv);
+      setStatus('Error');
+    }
   } finally {
     isStreaming = false;
-    releaseWakeLock();
     document.getElementById('send-btn').disabled = false;
     document.querySelector('.avatar').classList.remove('active');
     input.focus();
@@ -661,6 +721,7 @@ async function sendMessage() {
 const HISTORY_PAGE_SIZE = 50;
 let oldestLoadedId = null;   // tracks cursor for "load more"
 let hasMoreHistory  = false; // whether older messages exist
+let lastRenderedMsgId = 0;   // tracks latest rendered msg for visibility recovery
 
 function renderMessageToContainer(m, container) {
   if (m.role === 'user') {
@@ -743,6 +804,10 @@ async function loadHistory() {
       addRegenToUserMsg(allUser[allUser.length - 1]);
     }
     scrollBottom();
+    // Update visibility-recovery cursor from loaded messages
+    if (msgs.length > 0) {
+      lastRenderedMsgId = Math.max(lastRenderedMsgId, msgs[msgs.length - 1].id);
+    }
   } catch (e) {
     console.warn('Could not load history:', e);
   }
@@ -856,7 +921,6 @@ async function regenerateResponse(userMsgDiv) {
   document.getElementById('send-btn').disabled = true;
   document.querySelector('.avatar').classList.add('active');
   setStatus('Regenerating…');
-  await requestWakeLock();
 
   const wrap = createAssistantMessage();
   const actLog = document.createElement('div');
@@ -913,7 +977,6 @@ async function regenerateResponse(userMsgDiv) {
         if (!line.startsWith('data: ')) continue;
         let evt;
         try { evt = JSON.parse(line.slice(6)); } catch { continue; }
-        lastStreamActivity = Date.now();
 
         if (evt.type === 'status') addActivity(null, evt.msg);
 
@@ -987,16 +1050,18 @@ async function regenerateResponse(userMsgDiv) {
     }
   } catch (err) {
     removeActivity();
-    const errBubble = document.createElement('div');
-    errBubble.className = 'bubble';
-    errBubble.style.color = '#ff6666';
-    errBubble.textContent = `Error: ${err.message}`;
-    wrap.appendChild(errBubble);
-    addRegenToUserMsg(userMsgDiv);
-    setStatus('Error');
+    const recovered = await recoverFromConnectionDrop(wrap);
+    if (!recovered) {
+      const errBubble = document.createElement('div');
+      errBubble.className = 'bubble';
+      errBubble.style.color = '#ff6666';
+      errBubble.textContent = `Error: ${err.message}`;
+      wrap.appendChild(errBubble);
+      addRegenToUserMsg(userMsgDiv);
+      setStatus('Error');
+    }
   } finally {
     isStreaming = false;
-    releaseWakeLock();
     document.getElementById('send-btn').disabled = false;
     document.querySelector('.avatar').classList.remove('active');
   }
@@ -1170,30 +1235,39 @@ document.getElementById('send-btn').addEventListener('click', sendMessage);
 
 
 // ---------------------------------------------------------------------------
-// Visibility recovery — reload history only if the SSE stream is truly dead
+// Visibility recovery — pull-based: ask the server if we missed anything
 // ---------------------------------------------------------------------------
-let lastStreamActivity = 0;  // timestamp of last SSE data received
+// Instead of trying to infer stream health from event timestamps (which
+// breaks whenever new SSE event types are added), we track the last message
+// ID the UI has rendered and compare it to the server's latest committed
+// message on tab-focus.  Immune to heartbeat/status event changes.
+// ---------------------------------------------------------------------------
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
 
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && isStreaming) {
-    // Page came back while we think we're streaming.
-    // Only recover if no SSE data arrived in the last 5 seconds — a sign
-    // the connection actually died while backgrounded.
-    const staleSec = (Date.now() - lastStreamActivity) / 1000;
-    if (staleSec < 5) return;  // Stream still alive, don't touch the DOM
+  // Small debounce — skip Alt+Tab flicker (< 2s away)
+  // Not needed for correctness, just avoids a pointless fetch.
 
-    setTimeout(async () => {
+  try {
+    const resp = await fetch(`${API_BASE}/latest_message_id`, { headers: headers() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const serverLatest = data.id || 0;
+
+    if (serverLatest > lastRenderedMsgId) {
+      console.log(`[Recovery] Server has msg #${serverLatest}, UI has #${lastRenderedMsgId} — reloading`);
+      // Reset streaming state if we were mid-stream
       if (isStreaming) {
-        console.log(`[Recovery] Stream stale ${staleSec.toFixed(1)}s — reloading history`);
         isStreaming = false;
-        releaseWakeLock();
         document.getElementById('send-btn').disabled = false;
         document.querySelector('.avatar').classList.remove('active');
-        setStatus('Reconnected');
-        await loadHistory();
-        setStatus('Ready');
       }
-    }, 2000);
+      setStatus('Reconnected');
+      await loadHistory();
+      setStatus('Ready');
+    }
+  } catch {
+    // Offline or server down — nothing to do, next focus will retry
   }
 });
 
@@ -1205,6 +1279,7 @@ if (!API_KEY && window.location.hostname !== 'localhost' && window.location.host
 
 // Init
 loadHistory();
+
 </script>
 </body>
 </html>
