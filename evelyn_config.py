@@ -6,6 +6,8 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 """
 
 # evelyn_config.py
+# date created: 2026-03-23 15:37:14
+# date modified: 2026-05-18 21:13:28
 
 # =============================================================================
 # Model
@@ -271,7 +273,7 @@ CONSOLIDATION_KEEP_HISTORY = True
 
 # Seconds of server inactivity before consolidation is allowed to run.
 # Default: 15 minutes (900s) so it never interrupts active conversations.
-CONSOLIDATION_IDLE_THRESHOLD = 60  # 1 minute (for testing)
+CONSOLIDATION_IDLE_THRESHOLD = 900  # 15 minutes
 
 # How often (seconds) the idle-time loop checks for inactivity.
 # Default: every 5 minutes. Keep low enough to catch idle windows but not

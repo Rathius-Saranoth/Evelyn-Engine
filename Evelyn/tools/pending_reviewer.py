@@ -136,9 +136,7 @@ _CAT_CODE_RE   = re.compile(r"(Cat\d{2}-[ER])", re.IGNORECASE)
 _DATE_RE       = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 # CE file tag replacement and secondary insertion (used in approve actions)
-_PRIMARY_TAG_RE  = re.compile(
-    r"(\*\*Primary:\*\*\s+\[\[)(Cat\d{2}-[ER])(\]\])(\s*\([^)]*\))?"
-)
+_PRIMARY_TAG_RE  = re.compile(r"^\*\*Primary:\*\*.*$", re.MULTILINE)
 _SECONDARY_TAG_RE = re.compile(r"^\*\*Secondary:\*\*.*$", re.MULTILINE)
 _PRIMARY_BODY_RE  = re.compile(r"(^\*\*Primary:\*\*.+$)", re.MULTILINE)
 
@@ -444,7 +442,6 @@ def _build_ce_content(proposal: ConsolProposal) -> str:
     cat    = proposal.target_cat
     now    = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     cy_tag = "CY-" + date.replace("-", "/")[:7]  # CY-YYYY/MM
-    cat_name = _CAT_NAMES.get(cat, cat)
 
     return (
         f"---\n"
@@ -456,7 +453,7 @@ def _build_ce_content(proposal: ConsolProposal) -> str:
         f"---\n\n"
         f"# CE_{date}_{cat}\n\n"
         f"#{cy_tag}\n\n"
-        f"**Primary:** [[{cat}]] ({cat_name})\n\n"
+        f"**Primary:** {cat}\n\n"
         f"**Summary:** {proposal.merged_summary}\n"
     )
 
@@ -605,13 +602,11 @@ def _approve_recat(proposal: RecatProposal) -> bool:
     try:
         content = src.read_text(encoding="utf-8")
 
-        # Update Primary tag: replace cat code and parenthetical name (first match only).
+        # Update Primary tag (first match only).
         # count=1 prevents accidental replacement of **Primary:** mentions in body text.
         new_cat = proposal.suggested_cat
-        cat_name = _CAT_NAMES.get(new_cat, new_cat)
-        def _replace_primary(m: re.Match) -> str:
-            return m.group(1) + new_cat + "]]" + f" ({cat_name})"
-        content = _PRIMARY_TAG_RE.sub(_replace_primary, content, count=1)
+        new_line = f"**Primary:** {new_cat}"
+        content = _PRIMARY_TAG_RE.sub(new_line, content, count=1)
 
         # Preserve original filename date; only swap the category code portion.
         # Falls back to date extraction if the name format is non-standard.
@@ -691,8 +686,7 @@ def _add_secondary(proposal: RecatProposal) -> bool:
     try:
         content = src.read_text(encoding="utf-8")
         new_cat = proposal.suggested_cat
-        cat_name = _CAT_NAMES.get(new_cat, new_cat)
-        secondary_line = f"**Secondary:** [[{new_cat}]] ({cat_name})"
+        secondary_line = f"**Secondary:** {new_cat}"
 
         # Replace existing Secondary line, or insert after Primary line
         if _SECONDARY_TAG_RE.search(content):
@@ -714,7 +708,7 @@ def _add_secondary(proposal: RecatProposal) -> bool:
 
         proposal.path.unlink()
 
-        print(f"\n  {GREEN}✓ Added Secondary: [[{new_cat}]] — proposal resolved.{RESET}")
+        print(f"\n  {GREEN}✓ Added Secondary: {new_cat} — proposal resolved.{RESET}")
         time.sleep(0.6)
         return True
 
