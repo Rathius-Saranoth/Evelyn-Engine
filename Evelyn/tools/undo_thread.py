@@ -4,6 +4,16 @@
 
 """
 Undo the last [THREAD_BREAK] in the Evelyn chat database.
+Exists because I accidentally split the thread, often.
+
+Usage:
+    python undo_thread.py
+
+This will:
+1. Find the last [THREAD_BREAK] in the database.
+2. Show you the number of messages since that break.
+3. Ask for confirmation to delete the [THREAD_BREAK] message.
+4. If confirmed, it deletes the message and merges the threads.
 """
 
 import sqlite3

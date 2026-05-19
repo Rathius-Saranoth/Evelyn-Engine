@@ -26,6 +26,8 @@ All config is read from evelyn_config.py (single source of truth).
 """
 
 # fact_extractor.py
+# date created: 2026-05-03 18:05:36
+# date modified: 2026-05-18 19:20:14
 
 import asyncio
 import datetime
@@ -39,7 +41,7 @@ import time
 import httpx
 import yaml
 
-import evelyn_config as cfg
+import evelyn_config as cfg # [[evelyn_config.py]]
 
 # ---------------------------------------------------------------------------
 # Module-level regex constants
@@ -50,7 +52,7 @@ _FACTS_KEY_RE  = re.compile(r"^\s*facts\s*:", re.MULTILINE)
 _DATE_RE       = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # ---------------------------------------------------------------------------
-# Category taxonomy cache
+# Category taxonomy cache - [[Cat00 - Index.md]]
 # ---------------------------------------------------------------------------
 
 _cat00_text: str = ""
@@ -97,6 +99,7 @@ def load_cat00_index() -> str:
 # ---------------------------------------------------------------------------
 
 # State file lives next to the chat DB so both are together.
+# [[evelym_extraction_state.json]]
 # Contains: {"last_extracted_id": <int>}
 # To reset the high-water mark: delete this file and restart the server.
 _STATE_FILE = os.path.join(
@@ -373,9 +376,10 @@ def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
         "about Ricky (the user) or Evelyn (the AI). "
         "Extract: preferences, physical traits, relationships, goals, beliefs, skills, events, "
         "opinions, habits, or any detail worth remembering long-term. "
-        "DO NOT extract: greetings, small talk, questions without answers, "
-        "hypotheticals, jokes, or transient status updates.\n"
+        "DO NOT extract: greetings, small talk, questions without answers, or hypotheticals. \n"
         f"{category_block}\n\n"
+        "CRITICAL RULE: Write pure, factual observations. Do not 'summarize' or evaluate the event. "
+        "Do NOT inject the Category Reference titles into the text of the observation.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no durable facts are found, output an empty list.\n\n"
         "```facts\n"
@@ -495,7 +499,8 @@ async def _do_extraction(messages: list[dict]):
     extraction_messages = [
         {
             "role": "system",
-            "content": "You are a precise fact extractor. Output only the YAML block, nothing else.",
+            "content": "You are a precise fact extractor. You record pure, objective observations. "
+                       "Output only the YAML block, nothing else.",
         },
         {"role": "user", "content": prompt},
     ]
