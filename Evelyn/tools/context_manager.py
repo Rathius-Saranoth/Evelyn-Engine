@@ -71,8 +71,8 @@ def append_context_log(
         filepath = os.path.join(PENDING_DIR, filename)
         counter += 1
 
-    primary_tag = f"[[{category_code}]]"
-    secs = ", ".join([f"[[{c}]]" for c in secondary_cats]) if secondary_cats else ""
+    primary_tag = category_code
+    secs = ", ".join(secondary_cats) if secondary_cats else ""
     secondary_line = f"**Secondary:** {secs}\n\n" if secs else ""
 
     file_content = f"""---

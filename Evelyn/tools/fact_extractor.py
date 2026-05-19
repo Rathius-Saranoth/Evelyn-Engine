@@ -27,7 +27,7 @@ All config is read from evelyn_config.py (single source of truth).
 
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-18 19:20:14
+# date modified: 2026-05-18 20:25:16
 
 import asyncio
 import datetime
@@ -619,7 +619,7 @@ def write_extracted_facts(facts: list[dict]) -> int:
             f"confidence: {confidence}\n"
             f"---\n\n"
             f"# {base_name.replace('.md', '')}\n\n"
-            f"**Primary:** [[{category}]]\n\n"
+            f"**Primary:** {category}\n\n"
             f"**Subject:** {subject}\n\n"
             f"**Summary:** {summary}\n\n"
             f"**Confidence:** {confidence}\n\n"
