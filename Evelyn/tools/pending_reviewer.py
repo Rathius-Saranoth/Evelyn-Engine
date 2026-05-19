@@ -732,7 +732,8 @@ def _approve_consol(proposal: ConsolProposal) -> bool:
     """Execute the approve action for a consolidation proposal.
 
     Creates a new CE file from the merged summary, deletes each resolved
-    source CE, and deletes the proposal file.
+    source CE, and deletes the proposal file. If the verdict is 'keep_both',
+    it simply dismisses the proposal and preserves the source entries.
 
     Args:
         proposal: The parsed ConsolProposal to action.
@@ -741,6 +742,12 @@ def _approve_consol(proposal: ConsolProposal) -> bool:
         True on success, False if an error occurred.
     """
     try:
+        if proposal.verdict == "keep_both":
+            proposal.path.unlink()
+            print(f"\n  {GREEN}✓ Kept both sources. Proposal dismissed.{RESET}")
+            time.sleep(0.7)
+            return True
+
         cat     = proposal.target_cat
         cat_num = cat[:5]
         target_dir = Path(cfg.CONTEXT_ENTRIES_DIR) / cat_num / cat
