@@ -30,8 +30,8 @@ def main():
     date_created = datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
     date_modified = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Handle Python files with comment blocks
-    if ext == '.py':
+    # Handle Python and PowerShell files with comment blocks
+    if ext in ('.py', '.ps1'):
         lines = content.split('\n')
         out_lines = []
         i = 0

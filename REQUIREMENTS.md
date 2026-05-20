@@ -17,7 +17,7 @@ tags:
 | Component      | Required  | Tested Version | Notes                                             |
 | -------------- | --------- | -------------- | ------------------------------------------------- |
 | **Python**     | 3.11+     | 3.11.9         | System install; no venv used for the main project |
-| **PowerShell** | 7+ (pwsh) | PS7            | Default SSH shell; handles UTF-8 correctly        |
+| **PowerShell** | 5.1+ / 7+ | PS5.1 / PS7    | Used for startup/wait scripts (wait_for_ollama)   |
 | **Windows**    | 10/11     | Windows 11     | Tested platform; Linux untested                   |
 
 ---
@@ -122,13 +122,6 @@ Required ComfyUI custom nodes:
 | **Vault Path** | `G:\My Drive\Obsidian_Vault`                   |
 | **Usage**      | Launched via `Start-Process 'obsidian://open'` |
 
-### Windows OpenSSH Server (Optional — Remote Tool Access)
-
-| Detail    | Value                                                              |
-| --------- | ------------------------------------------------------------------ |
-| **What**  | Enables SSH access for remote tool management from mobile (Termux) |
-| **Shell** | PowerShell 7 (`pwsh.exe`)                                          |
-| **Usage** | `evelyn_tools.ps1` menu launcher over SSH                          |
 
 ---
 

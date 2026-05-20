@@ -1,11 +1,11 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-18 20:03:00
+date modified: 2026-05-19 21:02:13
 tags: 
 ---
 
-# Evelyn Project Roadmap
+## Evelyn Project Roadmap
 
 This is the primary source of truth for project progress. AI agents MUST update this file after completing significant milestones.
 
@@ -74,7 +74,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Write-Tool Badges**: Persistent badges on assistant messages when file-writing tools fire: 📓 Journal entry written, 📌 Context fact logged, 📝 Context fact updated, 🎨 Image generated. Applied to both `sendMessage()` and `regenerateResponse()` flows.
 - [x] **Context Summarizer**: Implemented async sliding-window summarizer (`context_summarizer.py`). Compresses older messages (beyond the active 20-msg window) into a ~200-word summary injected into the system prompt. Runs in background via `asyncio.create_task()` after each response — zero user-facing latency. Uses same model/`num_ctx` via in-process Ollama call (no model swap). Cache rebuilds on server startup; invalidates on thread break. Config in `evelyn_config.py`: `SUMMARY_WINDOW_SIZE`, `SUMMARY_MAX_WORDS`, `SUMMARY_OVERLAP`, `SUMMARY_MODEL`.
 - [ ] **Token Count Display**: Surface per-message or per-request token counts in the chat UI or server console. Enables monitoring of context utilization and early warning when approaching the `num_ctx` ceiling.
-- [x] **SSH Remote Access**: Enabled Windows OpenSSH Server for Tailscale-routed remote access from Android (Termux). Created `evelyn_tools.ps1` — a menu-driven launcher for `context_reviewer.py`, `pending_reviewer.py`, and future tools. Displays separate counts (Extracted / Consolidations / Recategorizations) on launch; numbered menu with descriptions; `Read-Host` input works correctly over mobile SSH without requiring raw pty mode. PS7 (`pwsh.exe`) set as default SSH shell — handles UTF-8 correctly and avoids PS5 single-item `.Count` bug. New tools added by appending to the `$TOOLS` array only.
+- [x] **SSH Remote Access (Retired)**: Enabled Windows OpenSSH Server for Tailscale-routed remote access from Android (Termux) and created `evelyn_tools.ps1`. *Retired in favor of Google Remote Desktop (cleaner, easier to use).*
 - [x] **Engineering Standards**: Codified Dave Plummer's "Notes to Live By" quality gates and operational disciplines into `.ai-instructions.md` §2. Added `/quality-review` workflow for structured self-review. *Audit complete (2026-05-19): performed a full Quality Review over `evelyn_server.py`, `fact_extractor.py`, `fact_consolidator.py`, `pending_reviewer.py`, and `context_manager.py`, confirming 100% compliant and stable status.*
 - [ ] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. Deferred until Evelyn has code-generation capabilities.
 - [ ] **Prompt & Docstring Lean-Out**: Audit and compress Evelyn's system prompt and all tool docstrings for token efficiency. Strip redundancy, tighten language, eliminate verbose phrasing that costs context window without adding signal.
@@ -90,13 +90,13 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Memory Extraction Prompt Hardening**: Upgraded the system and user prompts inside `fact_extractor.py` to enforce factual, objective writing. Injected a strict behavior priming guard instructing the model to write pure observations without meta-commentary, evaluation, or embedding category titles in the summary. *(Completed 2026-05-18)*
 - [x] **Taxonomy Context-Entry Remediation**: Developed a multi-phase cleanup pipeline for context entries containing meta-commentary and taxonomy titles. Cleaned ~300 entries via regex, and executed an optimized background batch-cleaning script using `gemma4:26b` to rewrite remaining entries. Disabled reasoning traces and limited context size to `4096` tokens in the background script to yield a 60x processing speedup (down to ~1.3s per entry). *(Completed 2026-05-18)*
 - [x] **Workspace Tool Cleanup**: Reorganized the Evelyn `tools` folder by moving one-time experimental and repair scripts to the root `scratch` directory, neatly structured into categorised subfolders (`lovelang/`, `gists/`, `misc_debug/`). Promoted `remove_wikilinks.py` to a permanent system utility in `tools` alongside the `undo_thread.py` tool. *(Completed 2026-05-18)*
+- [x] **Frontmatter Ingestion Stabilization**: Migrated the YAML frontmatter and title injection trigger from a heavy VS Code Integrated Terminal task (`Trigger Task on Save` extension) to the silent background `emeraldwalk.runonsave` extension. Resolves the terminal-conflict bug that forcefully closed the `Evelyn Server` process, reduces file-save trigger latency from ~1.5s to <50ms, and eliminates all terminal panel clutter. *(Completed 2026-05-19)*
 
 ## Future Expansion
 
 *Experimental features and high-level upgrades.*
 
-- [ ] **Developer Web UI**: A dedicated browser-based interface for tool access — primarily the review queues (Extracted facts, Pending proposals) but extensible to other engine tools. Touch-optimized card layout; inline markdown rendering for source CEs; reuses the existing `EVELYN_API_KEY` auth. Deferred until the tool ecosystem grows or the SQLite migration lands, whichever comes first. SSH + `evelyn_tools.ps1` serves as the interim access path.
-
+- [ ] **Developer Web UI**: A dedicated browser-based interface for tool access — primarily the review queues (Extracted facts, Pending proposals) but extensible to other engine tools. Touch-optimized card layout; inline markdown rendering for source CEs; reuses the existing `EVELYN_API_KEY` auth. Deferred until the tool ecosystem grows or the SQLite migration lands, whichever comes first. Google Remote Desktop serves as the interim access path.
 - [ ] **Visuals**: Add v-tuber style avatar and animation system.
 - [ ] **Awareness**: Add real-time visual awareness.
 - [ ] **XR**: Add VR/AR integration.
