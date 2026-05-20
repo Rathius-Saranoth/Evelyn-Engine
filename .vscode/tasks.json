@@ -218,20 +218,6 @@
                 "panel": "shared"
             },
             "problemMatcher": []
-        },
-        {
-            "label": "Update Frontmatter",
-            "type": "shell",
-            "command": "python",
-            "args": [
-                "${workspaceFolder}\\update_frontmatter.py",
-                "${file}"
-            ],
-            "presentation": {
-                "reveal": "never",
-                "panel": "shared"
-            },
-            "problemMatcher": []
         }
     ]
 }

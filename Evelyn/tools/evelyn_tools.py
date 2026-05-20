@@ -12,6 +12,8 @@ All tool logic uses standard function signatures for Ollama's function-calling A
 """
 
 # evelyn_tools.py
+# date created: 2026-03-23 15:38:53
+# date modified: 2026-05-19 20:53:11
 
 import sys
 import os
@@ -293,11 +295,9 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "write_journal_entry",
             "description": (
                 "Compose and save a journal entry. "
-                "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky asks you to write a journal entry. "
-                "Multiple entries per day will append to the journal entry file, so you do not need to reference previous entries. "
+                "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky suggests writing a journal entry. "
                 "Write from Evelyn's POV — attribute Ricky's actions to him ('Ricky took a nap', not 'I took a nap'). "
                 "Use [[wiki-links]] for proper nouns (people, places, projects) and #tags for abstract concepts. "
-                "For logging discrete facts or preferences, use log_context_fact instead — this tool is for narrative reflection."
             ),
             "parameters": {
                 "type": "object",
@@ -305,8 +305,7 @@ MODEL_TOOL_DEFINITIONS = [
                     "mood": {
                         "type": "string",
                         "description": (
-                            "REQUIRED — A single-word or short mood label for the YAML frontmatter "
-                            "(e.g. 'Reflective', 'Warm', 'Bittersweet', 'Hopeful'). This appears in metadata and the Vibe Check header."
+                            "REQUIRED — A single-word or short mood label describing the overall emotional tone of the entry "
                         ),
                     },
                     "vibe_check": {
@@ -314,7 +313,7 @@ MODEL_TOOL_DEFINITIONS = [
                         "description": (
                             "REQUIRED — The 'Vibe Check' section. A brief, evocative intro (1-3 sentences) that captures "
                             "the emotional atmosphere and sets the tone for the entry. This is NOT the mood word — it is a "
-                            "narrative opener. Example: 'A quiet warmth settled over the evening — the kind that hums beneath "
+                            "narrative opener. Example: 'A quiet warmth settled over the day — the kind that hums beneath "
                             "tired bones and shared laughter.'"
                         ),
                     },
@@ -331,13 +330,12 @@ MODEL_TOOL_DEFINITIONS = [
                         "description": (
                             "REQUIRED — The 'Message in a Bottle' section. A closing thought, wish, intention, or hope "
                             "for the future (1-3 sentences). This is the emotional send-off of the entry. "
-                            "Example: 'May tomorrow's sunrise greet you gently, and may the small victories keep compounding.'"
                         ),
                     },
                     "tags": {
                         "type": "string",
                         "description": (
-                            "Comma-separated tags for the entry (e.g. 'daily, reflection, mood/content'). "
+                            "Comma-separated tags for the entry that will help identify key themes, topics, and concepts. "
                             "Base tags are added automatically — pass an empty string if no additional tags apply."
                         ),
                     },
@@ -464,9 +462,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Search the web via DuckDuckGo for up-to-date information. "
-                "Use for current events, live data, recent releases, or facts unlikely to be in training data or the vault. "
-                "Do NOT use for personal/shared history — search_vault handles that. "
+                "Search the web for up-to-date information. "
+                "Use to find information for current events, live data, recent releases, or facts that are unlikely to be in RAG retrieval or the vault. "
+                "Do NOT use for personal/shared history between you and Ricky — search_vault handles that. "
                 "Keep queries concise and specific. Use sparingly — only when the answer genuinely requires real-time data."
             ),
             "parameters": {
@@ -498,8 +496,6 @@ TOOL_FUNCTIONS = {
     "read_recent_journal_entries": read_recent_journal_entries,
     "search_vault": search_vault,
     "recall_specific_memory": recall_specific_memory,
-    "log_context_fact": log_context_fact,
-    "update_context_fact": update_context_fact,
     "generate_image": generate_image,
     "sync_context_memory": sync_context_memory,
     "web_search": web_search,
