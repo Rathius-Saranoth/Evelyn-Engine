@@ -194,6 +194,17 @@ def init_db():
 PLACEHOLDER_MARKER = "[Response interrupted"
 THREAD_BREAK_MARKER = "[THREAD_BREAK]"
 
+# Gemma 4 intermittently leaks non-standard internal token strings into the
+# content stream after heavy tool calls (journal, multi-step reasoning, etc.).
+# These are stripped silently in _stream_content() as a safety net.
+# Add new patterns here as model quirks are discovered.
+_LEAKED_MODEL_TOKENS = [
+    "thought\n",
+    "<channel|>",
+    "lania_thought\n",
+    "<tool_call|>",
+]
+
 
 def load_history() -> list[dict]:
     """Load recent chat history for the model, bounded by:
@@ -495,9 +506,11 @@ async def _stream_content(msgs: list[dict]):
                 thinking_buf += native_think
                 yield f"data: {json.dumps({'type': 'thinking', 'delta': native_think})}\n\n"
 
-            # Content field -- route through inline-tag parser
+            # Content field -- strip leaked model tokens, then route through inline-tag parser
             text_delta = msg.get("content", "")
             if text_delta:
+                for _tok in _LEAKED_MODEL_TOKENS:
+                    text_delta = text_delta.replace(_tok, "")
                 parse_buf += text_delta
                 while parse_buf:
                     if in_think:
@@ -691,7 +704,7 @@ async def _process_chat_background(
 
                 messages.append({
                     "role": "assistant",
-                    "content": current_content,
+                    "content": "",  # Strip pre-tool reasoning — prevents Pass-2 echo of journal/tool content
                     "tool_calls": current_tool_calls,
                 })
 
