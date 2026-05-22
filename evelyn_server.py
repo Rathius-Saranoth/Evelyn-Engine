@@ -1146,6 +1146,90 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     return {"status": "vault map generation started"}
 
 
+# Phase display labels for the /refresh_memory endpoint's stdout parser.
+# Module-level constant — no need to recreate on every request.
+_REFRESH_PHASE_LABELS = {
+    "vault_map":        "Mapping Obsidian Vault...",
+    "ingest_knowledge": "Ingesting Core Knowledge...",
+    "ingest_gists":     "Ingesting Gists into Chroma...",
+}
+
+
+@app.post("/refresh_memory")
+async def trigger_refresh_memory(_: None = Depends(check_auth)):
+    """Trigger the unified Memory Refresh pipeline as an async subprocess.
+
+    Sequentially runs:
+      Phase 1 — Vault Map generation (generate_vault_map.py)
+      Phase 2 — Core Knowledge ingest (ingest_obsidian_knowledge.py)
+      Phase 3 — Gist ingest (ingest_gists.py)
+
+    Cancels in-flight consolidation/extraction tasks first to free VRAM.
+    Returns 200 OK immediately; the pipeline runs in the background.
+    The UI polls GET /task_status/refresh_memory for phase updates.
+    """
+    # Free VRAM before a heavy multi-phase Ollama operation starts.
+    # Idle-time tasks automatically stand down because _background_tasks will
+    # show status="running" for the duration (see _heavy_tasks_running()).
+    cancel_pending_consolidation()
+    cancel_pending_extraction()
+
+    _background_tasks["refresh_memory"] = {
+        "status": "running",
+        "phase": "Starting...",
+        "started_at": time.time(),
+    }
+
+    async def _run_subprocess():
+        try:
+            script_path = str(BASE_DIR / "Evelyn" / "tools" / "refresh_memory.py")
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-u", script_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(BASE_DIR),
+            )
+
+            # Read stdout line-by-line; parse phase markers in real-time.
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    break
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                print(f"{_GRN}[REFRESH]{_RST} {line}", flush=True)
+
+                if line.startswith("[PHASE_START:"):
+                    key = line.split("[PHASE_START:")[1].split("]")[0]
+                    _background_tasks["refresh_memory"]["phase"] = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
+
+                elif line.startswith("[PHASE_FAIL:"):
+                    key = line.split("[PHASE_FAIL:")[1].split("]")[0]
+                    raise RuntimeError(f"Phase '{key}' failed.")
+
+            await proc.wait()
+
+            if proc.returncode == 0:
+                _background_tasks["refresh_memory"].update({
+                    "status": "done",
+                    "phase": "Completed successfully.",
+                    "finished_at": time.time(),
+                })
+                print(f"{_GRN}[REFRESH]{_RST} All phases done.", flush=True)
+            else:
+                raise RuntimeError(f"Pipeline exited with code {proc.returncode}")
+
+        except Exception as e:
+            _background_tasks["refresh_memory"].update({
+                "status": "error",
+                "phase": "Failed.",
+                "error": str(e),
+                "finished_at": time.time(),
+            })
+            print(f"{_RED}[REFRESH ERROR]{_RST} {e}", flush=True)
+
+    asyncio.create_task(_run_subprocess())
+    return {"status": "refresh memory started"}
+
 
 @app.post("/tts")
 async def tts_proxy(request: Request):
