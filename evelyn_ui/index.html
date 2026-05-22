@@ -280,8 +280,7 @@
   </div>
   <div class="header-actions">
     <button class="btn-ghost" id="new-thread-btn" title="Start a new conversation thread" onclick="newThread()">✦ New Thread</button>
-    <button class="btn-ghost" id="vault-map-btn" title="Regenerate Obsidian Vault Map" onclick="generateVaultMap()">🗺 Vault Map</button>
-    <button class="btn-ghost" id="sync-btn" title="Sync memory to Chroma" onclick="syncMemory()">⟳ Sync</button>
+    <button class="btn-ghost" id="refresh-memory-btn" title="Rebuild Vault Map then re-ingest all knowledge into Chroma" onclick="refreshMemory()">✦ Refresh Memory</button>
   </div>
 </header>
 
@@ -1136,54 +1135,83 @@ async function pollTaskStatus(taskName, intervalMs, btn, defaultLabel, notice) {
   });
 }
 
-async function syncMemory() {
-  const btn = document.getElementById('sync-btn');
+async function refreshMemory() {
+  const btn = document.getElementById('refresh-memory-btn');
   if (btn.disabled) return;
+
+  const defaultLabel = '✦ Refresh Memory';
   btn.disabled = true;
-  btn.textContent = '⟳ Syncing…';
+  btn.textContent = '✦ Refreshing…';
   btn.style.borderColor = 'var(--accent)';
   btn.style.color = 'var(--accent)';
-  const notice = addSystemNotice('⟳', 'Memory sync started…');
+
+  const notice = addSystemNotice('✦', 'Memory refresh initiated…');
+
   try {
-    const resp = await fetch(`${API_BASE}/sync`, { method: 'POST', headers: headers() });
+    const resp = await fetch(`${API_BASE}/refresh_memory`, { method: 'POST', headers: headers() });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    pollTaskStatus('sync', 30000, btn, '⟳ Sync', notice);
-  } catch (e) {
-    notice.className = 'system-notice error';
-    notice.innerHTML = `<span>❌</span><span>Sync failed to start: ${e.message}</span>`;
-    btn.textContent = '✗ Sync failed';
-    btn.style.borderColor = '#ff6666';
-    btn.style.color = '#ff6666';
-    setTimeout(() => {
+
+    // Poll every 10s — each phase can take several minutes
+    let networkErrors = 0;
+    const MAX_NETWORK_ERRORS = 3;
+
+    function resetBtn() {
       btn.disabled = false;
-      btn.textContent = '⟳ Sync';
+      btn.textContent = defaultLabel;
       btn.style.borderColor = '';
       btn.style.color = '';
-    }, 4000);
-  }
-}
+    }
 
-async function generateVaultMap() {
-  const btn = document.getElementById('vault-map-btn');
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.textContent = '🗺 Mapping…';
-  btn.style.borderColor = 'var(--accent)';
-  btn.style.color = 'var(--accent)';
-  const notice = addSystemNotice('🗺', 'Vault Map generation started…');
-  try {
-    const resp = await fetch(`${API_BASE}/vault_map`, { method: 'POST', headers: headers() });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    pollTaskStatus('vault_map', 60000, btn, '🗺 Vault Map', notice);
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/task_status/refresh_memory`, { headers: headers() });
+        const data = await r.json();
+        networkErrors = 0;
+
+        if (data.status === 'running') {
+          notice.innerHTML = `<span>⏳</span><span>Memory Refresh: <strong>${data.phase || '…'}</strong></span>`;
+        } else if (data.status === 'done') {
+          clearInterval(poll);
+          notice.className = 'system-notice done';
+          notice.innerHTML = `<span>✅</span><span>Memory refreshed successfully!</span>`;
+          btn.textContent = '✓ Refreshed';
+          btn.style.borderColor = 'var(--tool-text)';
+          btn.style.color = 'var(--tool-text)';
+          setTimeout(resetBtn, 4000);
+        } else if (data.status === 'error') {
+          clearInterval(poll);
+          notice.className = 'system-notice error';
+          notice.innerHTML = `<span>❌</span><span>Refresh failed: ${data.error || 'unknown error'}</span>`;
+          btn.textContent = '✗ Refresh failed';
+          btn.style.borderColor = '#ff6666';
+          btn.style.color = '#ff6666';
+          setTimeout(resetBtn, 4000);
+        } else if (data.status === 'unknown') {
+          clearInterval(poll);
+          notice.className = 'system-notice error';
+          notice.innerHTML = `<span>⚠️</span><span>Task state lost — server may have restarted.</span>`;
+          setTimeout(resetBtn, 4000);
+        }
+      } catch {
+        networkErrors++;
+        if (networkErrors >= MAX_NETWORK_ERRORS) {
+          clearInterval(poll);
+          notice.className = 'system-notice error';
+          notice.innerHTML = `<span>⚠️</span><span>Lost connection to server.</span>`;
+          setTimeout(resetBtn, 4000);
+        }
+      }
+    }, 10000);
+
   } catch (e) {
     notice.className = 'system-notice error';
-    notice.innerHTML = `<span>❌</span><span>Vault Map failed to start: ${e.message}</span>`;
-    btn.textContent = '✗ Map failed';
+    notice.innerHTML = `<span>❌</span><span>Failed to start refresh: ${e.message}</span>`;
+    btn.textContent = '✗ Refresh failed';
     btn.style.borderColor = '#ff6666';
     btn.style.color = '#ff6666';
     setTimeout(() => {
       btn.disabled = false;
-      btn.textContent = '🗺 Vault Map';
+      btn.textContent = defaultLabel;
       btn.style.borderColor = '';
       btn.style.color = '';
     }, 4000);
