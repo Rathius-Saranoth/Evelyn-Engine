@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-19 21:02:13
+date modified: 2026-05-21 20:41:09
 tags: 
 ---
 
@@ -91,6 +91,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Taxonomy Context-Entry Remediation**: Developed a multi-phase cleanup pipeline for context entries containing meta-commentary and taxonomy titles. Cleaned ~300 entries via regex, and executed an optimized background batch-cleaning script using `gemma4:26b` to rewrite remaining entries. Disabled reasoning traces and limited context size to `4096` tokens in the background script to yield a 60x processing speedup (down to ~1.3s per entry). *(Completed 2026-05-18)*
 - [x] **Workspace Tool Cleanup**: Reorganized the Evelyn `tools` folder by moving one-time experimental and repair scripts to the root `scratch` directory, neatly structured into categorised subfolders (`lovelang/`, `gists/`, `misc_debug/`). Promoted `remove_wikilinks.py` to a permanent system utility in `tools` alongside the `undo_thread.py` tool. *(Completed 2026-05-18)*
 - [x] **Frontmatter Ingestion Stabilization**: Migrated the YAML frontmatter and title injection trigger from a heavy VS Code Integrated Terminal task (`Trigger Task on Save` extension) to the silent background `emeraldwalk.runonsave` extension. Resolves the terminal-conflict bug that forcefully closed the `Evelyn Server` process, reduces file-save trigger latency from ~1.5s to <50ms, and eliminates all terminal panel clutter. *(Completed 2026-05-19)*
+- [x] **Unified Memory Refresh (Option BC)**: Merged the separate Vault Map and Sync operations into a single `POST /refresh_memory` endpoint backed by `Evelyn/tools/refresh_memory.py`. Uses `asyncio.create_subprocess_exec` so the FastAPI event loop stays unblocked during all three phases (Vault Map → Core Knowledge Ingest → Gist Ingest). Phase-tagged stdout (`[PHASE_START:]`, `[PHASE_DONE:]`, `[PHASE_FAIL:]`) drives real-time status updates via the existing `_background_tasks` / `GET /task_status/refresh_memory` polling API. The two old `🗺 Vault Map` and `⟳ Sync` header buttons replaced by a single `✦ Refresh Memory` button with phase-label polling at 10s intervals. Old `/vault_map` and `/sync` endpoints preserved for direct API access. *(Completed 2026-05-21)*
 
 ## Future Expansion
 
