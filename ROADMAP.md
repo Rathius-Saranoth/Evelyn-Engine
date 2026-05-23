@@ -33,8 +33,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 
 *Goal: Equip Evelyn with a voice and basic file/system interaction.*
 
-- [x] Implement Text-to-Speech (TTS) via local Kokoro API.
-- [x] Configure OpenWebUI to use the local Kokoro endpoint.
+- [x] Migrate TTS to the robust Chatterbox (F5-TTS/Matcha) local engine, supporting natural phrasing, voice cloning, and dynamic emotion/expression tags.
+- [x] Port image generation from legacy multi-field ComfyUI websockets to a standalone, on-demand FLUX.1 [schnell] NF4 FastAPI server (port 5055) with lazy-loading, sequential CPU offloading, and auto-unload on idle (120s) to guarantee zero VRAM impact on coexisting services.
 - [x] Implement Speech-to-Text (STT).
 - [x] Implement time awareness via date/time injection in `evelyn_server.py`'s `load_system_prompt()` + behavioral directive.
 - [ ] Explore Google Drive File Integration.
@@ -58,7 +58,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Backup**: Regularly push code "Engine" to GitHub using the `backup-to-github` workflow.
 - [x] **Model Tuning Parameters**: Added `TEMPERATURE`, `MIN_P`, `TOP_K`, `TOP_P`, `REPEAT_PENALTY`, `REPEAT_LAST_N`, `SEED`, and `NUM_PREDICT` to `evelyn_config.py` Model Parameters section. All params hot-reload per-request; set any to `None` to defer to Ollama default. `MIN_P = 0.05` is the key speed improvement from the OWUI migration.
 - [x] **Startup Sequencing**: Rewrote `tasks.json` so "Start Evelyn Services" sequences `Run Ollama` → `Wait for Ollama` (TCP gate via `wait_for_ollama.ps1`) → all remaining services in parallel. Ensures Ollama claims GPU layers before ComfyUI loads.
-- [x] **ComfyUI VRAM**: Added `--lowvram` flag to Run ComfyUI task so ComfyUI releases model weights from VRAM when idle rather than holding them continuously.
+- [x] **ComfyUI Deprecation & Purge**: Successfully decoupled the Media Engine architecture from ComfyUI. Removed `websocket-client` dependencies, deleted the massive 90GB ComfyUI installation, and replaced legacy websocket proxy scripts (`comfy_image_gen.py`, `qwen_tts_server.py`) with standalone, lean FastAPI inference servers for TTS (Chatterbox) and Image Generation (FLUX.1).
 - [x] **On-Demand Model Unload**: Added "Unload Evelyn Model" VS Code task — sends `keep_alive:0` to Ollama API to evict the model from VRAM without stopping the server. Frees ~9.2 GB VRAM for gaming or other GPU-intensive workloads.
 - [x] **RAG Tuning**: Optimize chunk size and similarity thresholds for Magistral 24B. Per the Magistral paper (arXiv:2506.10910), the model has a **128k context window** but is trained with a **32k–40k reasoning budget**. Target: **512–768 token chunks** (post-frontmatter strip) with **100–150 token overlap**, `RAG_TOP_K = 3–5`. This keeps retrieved context under 4k tokens, preserving headroom for reasoning traces.
 - [x] **Search Priority Order**: Enforce Gist-first → Core Knowledge → Obsidian → Web Search tool priority. **Phase 1 done**: tool `description` strings in `evelyn_tools.py` updated with explicit STEP 1/STEP 2 ordering and DO NOT use guards. **Phase 2 done**: RAG pre-processing and frontmatter stripping.

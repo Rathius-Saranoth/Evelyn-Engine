@@ -56,7 +56,6 @@ pip install -r requirements.txt
 
 | Package            | Version | Purpose                                                                                    |
 | ------------------ | ------- | ------------------------------------------------------------------------------------------ |
-| `websocket-client` | ≥1.9    | WebSocket connections to ComfyUI — image generation and TTS job polling                    |
 | `ddgs`             | ≥9.0    | DuckDuckGo search — powers the `web_search` tool                                           |
 | `PyMuPDF`          | ≥1.27   | PDF text extraction with font metadata — `extract_pdf_library.py`. Import as `import fitz` |
 
@@ -98,20 +97,7 @@ ollama pull gemma4:26b
 | **Install** | https://tailscale.com/download                                         |
 | **Usage**   | `tailscale serve --bg 8080` — exposes the Evelyn server over Tailscale |
 
-### ComfyUI (Optional — Image Generation & TTS)
 
-| Detail       | Value                                                 |
-| ------------ | ----------------------------------------------------- |
-| **What**     | Node-based image/audio generation framework           |
-| **Install**  | https://github.com/comfyanonymous/ComfyUI             |
-| **Location** | `C:\Projects\ComfyUI\` (separate venv)                |
-| **Startup**  | `python main.py --listen --fp16-intermediates`        |
-| **Used by**  | `generate_image` tool, `qwen_tts_server.py` TTS proxy |
-
-Required ComfyUI custom nodes:
-
-- Qwen3-TTS node (for text-to-speech)
-- Standard SDXL/Flux nodes (for image generation)
 
 ### Obsidian (Optional — Knowledge Base UI)
 
