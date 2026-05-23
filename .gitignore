@@ -53,3 +53,6 @@ scratch/
 !scratch/db_all_tools.py
 !scratch/db_tool_calls.py
 !scratch/find_bad_gists.py
+
+# --- Standalone Services (venvs, model weights, generated audio) ---
+services/

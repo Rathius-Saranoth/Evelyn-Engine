@@ -972,6 +972,9 @@ UI_DIR = BASE_DIR / "evelyn_ui"
 if UI_DIR.exists():
     app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
 
+# Serve generated images directly via the main server
+app.mount("/images", StaticFiles(directory=cfg.IMAGE_OUTPUT_DIR), name="images")
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
