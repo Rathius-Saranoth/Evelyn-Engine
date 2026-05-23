@@ -309,10 +309,9 @@ CONSOLIDATION_TIMEOUT = 180
 # =============================================================================
 # Services
 # =============================================================================
-TTS_SERVER_URL = "http://localhost:5050"  # Qwen TTS server
-COMFY_HTTP_URL = "http://127.0.0.1:8188"
-COMFY_WS_URL = "127.0.0.1:8188"
-COMFY_PUBLIC_URL = "http://image-host.internal.net:8188"
+TTS_SERVER_URL = "http://localhost:5050"  # Chatterbox TTS server
+IMAGE_SERVER_URL = "http://localhost:5055"  # FLUX.1 [schnell] Image server
+IMAGE_OUTPUT_DIR = r"C:\Projects\LocalAI\services\image\output"
 
 # =============================================================================
 # Server

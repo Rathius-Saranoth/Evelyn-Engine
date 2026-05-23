@@ -39,14 +39,6 @@ requests>=2.32,<3.0          # HTTP client — vault map generator (sync calls)
 
 ## Tools
 
-websocket-client>=1.9,<2.0   # WebSocket — ComfyUI job polling (image gen, TTS)
 ddgs>=9.0                    # DuckDuckGo search — web_search tool
 PyMuPDF>=1.27,<2.0           # PDF text extraction — extract_pdf_library.py
                              # (import as: import fitz)
-
-## Optional: TTS Server (qwen_tts_server.py)
-
-- These are already listed above but called out for clarity
-- The TTS server is a standalone FastAPI app that also needs
-  - fastapi, uvicorn, websocket-client, pydantic
-- No additional packages beyond what is already listed

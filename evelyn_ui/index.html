@@ -435,13 +435,28 @@ const WRITE_TOOLS = {
   generate_image:       { icon: '🎨', label: 'Image generated' },
 };
 
-function addWriteBadges(wrap, usedTools) {
+function addWriteBadges(wrap, usedTools, contentText = '') {
   const writesUsed = usedTools.filter(t => WRITE_TOOLS[t]);
   if (writesUsed.length === 0) return;
   const container = document.createElement('div');
   container.className = 'write-badges';
   for (const t of writesUsed) {
-    const badge = document.createElement('span');
+    let badge;
+    if (t === 'generate_image') {
+      // Try to extract the image URL from the markdown
+      const match = contentText.match(/!\[.*?\]\((.*?)\)/);
+      if (match) {
+        badge = document.createElement('a');
+        badge.href = match[1];
+        badge.target = '_blank';
+        badge.style.textDecoration = 'none';
+        badge.title = 'Click to open full image';
+      } else {
+        badge = document.createElement('span');
+      }
+    } else {
+      badge = document.createElement('span');
+    }
     badge.className = 'write-badge';
     badge.textContent = `${WRITE_TOOLS[t].icon} ${WRITE_TOOLS[t].label}`;
     container.appendChild(badge);
@@ -685,7 +700,7 @@ async function sendMessage() {
           ttsBtn.onclick = () => playTTS(captured, ttsBtn);
           actions.appendChild(ttsBtn);
           wrap.appendChild(actions);
-          addWriteBadges(wrap, usedTools);
+          addWriteBadges(wrap, usedTools, contentText);
           // Add regen button on the user message
           addRegenToUserMsg(userMsgDiv);
           setStatus('Ready');
@@ -753,7 +768,7 @@ function renderMessageToContainer(m, container) {
     actions.appendChild(ttsBtn);
     wrap.appendChild(actions);
     if (m.tools_used) {
-      addWriteBadges(wrap, m.tools_used.split(','));
+      addWriteBadges(wrap, m.tools_used.split(','), m.content);
     }
   }
 }
