@@ -25,9 +25,9 @@
             "label": "Start Remaining Services",
             "dependsOn": [
                 "Run Tailscale",
-                "Run Qwen3 TTS",
+                "Run Chatterbox TTS",
                 "Run Evelyn Server",
-                "Run ComfyUI",
+                "Run Image Server",
                 "Run Obsidian"
             ],
             "dependsOrder": "parallel",
@@ -89,9 +89,9 @@
             "problemMatcher": []
         },
         {
-            "label": "Run Qwen3 TTS",
+            "label": "Run Chatterbox TTS",
             "type": "shell",
-            "command": "& 'C:\\Users\\ricky\\AppData\\Local\\Programs\\Python\\Python311\\python.exe' 'C:\\Projects\\LocalAI\\Evelyn\\tools\\qwen_tts_server.py'",
+            "command": "& '${workspaceFolder}\\services\\tts\\venv\\Scripts\\python.exe' '${workspaceFolder}\\services\\tts\\tts_server.py'",
             "isBackground": true,
             "presentation": {
                 "reveal": "always",
@@ -151,9 +151,9 @@
             ]
         },
         {
-            "label": "Run ComfyUI",
+            "label": "Run Image Server",
             "type": "shell",
-            "command": "Set-Location 'C:\\Projects\\ComfyUI\\'; . '.\\.venv\\Scripts\\Activate.ps1'; python '.\\main.py' --listen --fp16-intermediates",
+            "command": "& '${workspaceFolder}\\services\\image\\venv\\Scripts\\python.exe' '${workspaceFolder}\\services\\image\\image_server.py'",
             "isBackground": true,
             "presentation": {
                 "reveal": "always",
@@ -201,7 +201,7 @@
         {
             "label": "Unload Evelyn Model",
             "type": "shell",
-            "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"magistral:24b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
+            "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"gemma4:26b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared",
@@ -212,7 +212,7 @@
         {
             "label": "Stop Evelyn Services",
             "type": "shell",
-            "command": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'evelyn_server\\.py|qwen_tts_server\\.py|ollama.exe|ComfyUI' -and $_.ProcessName -notmatch 'Code\\.exe' } | Invoke-CimMethod -MethodName Terminate; Write-Host 'Evelyn Core Services stopped.'",
+            "command": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'evelyn_server\\.py|tts_server\\.py|image_server\\.py|ollama.exe' -and $_.ProcessName -notmatch 'Code\\.exe' } | Invoke-CimMethod -MethodName Terminate; Write-Host 'Evelyn Core Services stopped.'",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared"

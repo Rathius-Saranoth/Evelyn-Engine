@@ -128,103 +128,40 @@ def update_context_fact(target_filepaths: list, new_summary: str) -> str:
 
 
 def generate_image(
-    art_and_style: str,
-    camera_style: str,
-    composition_style: str,
-    character_description: str,
-    setting_and_actions: str,
+    prompt: str,
+    aspect_ratio: str = "16:9",
+    seed: int | None = None,
+    short_title: str | None = None,
 ) -> str:
-    """Generate an image via ComfyUI and return a markdown image embed."""
-    import json
-    import urllib.request
-    import urllib.parse
-    import uuid
-    import websocket
-    from evelyn_config import (
-        COMFY_HTTP_URL,
-        COMFY_WS_URL,
-        COMFY_PUBLIC_URL,
-        COMFY_WORKFLOW_PATH,
-        COMFY_OUTPUT_DIR,
-    )
-
-    client_id = str(uuid.uuid4())
-    try:
-        with open(COMFY_WORKFLOW_PATH, "r", encoding="utf-8") as f:
-            workflow = json.load(f)
-    except Exception as e:
-        return f"Error loading ComfyUI workflow: {e}"
-
-    mappings = {
-        "Art & Style": art_and_style,
-        "Camera Style": camera_style,
-        "Composition Style": composition_style,
-        "Character Description": character_description,
-        "Setting & Actions": setting_and_actions,
-    }
-    injected = 0
-    for node_id, node_data in workflow.items():
-        title = node_data.get("_meta", {}).get("title", "")
-        if (
-            node_data.get("class_type") == "PrimitiveStringMultiline"
-            and title in mappings
-        ):
-            workflow[node_id]["inputs"]["value"] = mappings[title]
-            injected += 1
-
-    if injected == 0:
-        combined = ", ".join(mappings.values())
-        for node_id, node_data in workflow.items():
-            if node_data.get(
-                "class_type"
-            ) == "CLIPTextEncode" and "text" in node_data.get("inputs", {}):
-                workflow[node_id]["inputs"]["text"] = combined
-                break
-
-    data = json.dumps({"prompt": workflow, "client_id": client_id}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{COMFY_HTTP_URL}/prompt",
-        data=data,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            prompt_id = json.loads(resp.read())["prompt_id"]
-    except Exception as e:
-        return f"Error sending to ComfyUI: {e}"
-
-    ws = websocket.WebSocket()
-    try:
-        ws.connect(f"ws://{COMFY_WS_URL}/ws?clientId={client_id}")
-        while True:
-            out = ws.recv()
-            if isinstance(out, str):
-                msg = json.loads(out)
-                if (
-                    msg["type"] == "executing"
-                    and msg["data"]["node"] is None
-                    and msg["data"]["prompt_id"] == prompt_id
-                ):
-                    break
-    except Exception as e:
-        return f"ComfyUI WebSocket error: {e}"
-    finally:
-        ws.close()
+    """Generate a high-quality image from a natural language prompt via FLUX.1 [schnell].
+    
+    Accepts preset aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4.
+    """
+    import requests
+    from evelyn_config import IMAGE_SERVER_URL
 
     try:
-        with urllib.request.urlopen(f"{COMFY_HTTP_URL}/history/{prompt_id}") as resp:
-            history = json.loads(resp.read())
-        for node_output in history[prompt_id]["outputs"].values():
-            if "images" in node_output:
-                img = node_output["images"][0]
-                url = (
-                    f"{COMFY_PUBLIC_URL}/view?filename={urllib.parse.quote(img['filename'])}"
-                    f"&type={img.get('type', 'output')}&subfolder={urllib.parse.quote(img.get('subfolder', ''))}"
-                )
-                return f"Image generated!\n\n![Generated Image]({url})"
-        return "Image generated but could not determine output filename."
+        payload = {
+            "prompt": prompt,
+            "aspect_ratio": aspect_ratio,
+        }
+        if short_title:
+            payload["short_title"] = short_title
+        if seed is not None:
+            payload["seed"] = seed
+
+        url = f"{IMAGE_SERVER_URL}/generate"
+        resp = requests.post(url, json=payload, timeout=600)
+        if resp.status_code != 200:
+            return f"Error from Image Engine: {resp.text}"
+        
+        result = resp.json()
+        filename = result["filename"]
+        # Served statically via the main evelyn_server mount
+        image_url = f"/images/{filename}"
+        return f"Image generated successfully at {image_url}. YOU MUST INCLUDE THIS EXACT MARKDOWN IN YOUR FINAL RESPONSE TO SHOW IT TO RICKY: ![Image]({image_url})"
     except Exception as e:
-        return f"Error retrieving generation history: {e}"
+        return f"Failed to generate image via FLUX.1 server at {IMAGE_SERVER_URL}: {e}"
 
 
 def sync_context_memory(**kwargs) -> str:
@@ -422,38 +359,24 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "generate_image",
-            "description": "Generate an image via ComfyUI. Provide highly detailed descriptions for all fields.",
+            "description": "Generate a beautiful image using the FLUX.1 vision engine. Call this tool to show Ricky a visual representation of a scene, character, or idea. You should use this tool proactively to surprise him, or reactively when he asks to see something.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "art_and_style": {
+                    "prompt": {
                         "type": "string",
-                        "description": "Art medium, artist styles, lighting, aesthetic.",
+                        "description": "REQUIRED — A descriptive natural language prompt (e.g. 'A beautiful Victorian street at twilight, oil painting style, cinematic lighting, highly detailed').",
                     },
-                    "camera_style": {
+                    "aspect_ratio": {
                         "type": "string",
-                        "description": "Camera angle, lens, shot type.",
+                        "description": "Optional aspect ratio preset. Choose from: '1:1' (portrait/square), '16:9' (landscape/widescreen), '9:16' (tall/phone), '4:3' (general), '3:4' (portrait layout). Default is '16:9'.",
                     },
-                    "composition_style": {
+                    "short_title": {
                         "type": "string",
-                        "description": "Layout, symmetry, framing.",
-                    },
-                    "character_description": {
-                        "type": "string",
-                        "description": "Subject appearance, clothing, expression.",
-                    },
-                    "setting_and_actions": {
-                        "type": "string",
-                        "description": "Environment and what the subject is doing.",
+                        "description": "A very short, 1-3 word title for the image to be used in the filename (e.g. 'library_girl', 'cyberpunk_city').",
                     },
                 },
-                "required": [
-                    "art_and_style",
-                    "camera_style",
-                    "composition_style",
-                    "character_description",
-                    "setting_and_actions",
-                ],
+                "required": ["prompt", "short_title"],
             },
         },
     },
