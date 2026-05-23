@@ -54,5 +54,9 @@ scratch/
 !scratch/db_tool_calls.py
 !scratch/find_bad_gists.py
 
-# --- Standalone Services (venvs, model weights, generated audio) ---
-services/
+# --- Standalone Services (venvs, model weights, generated output) ---
+services/*/venv/
+services/*/output/
+services/*/audio/
+services/*/.huggingface/
+services/*/.cache/
