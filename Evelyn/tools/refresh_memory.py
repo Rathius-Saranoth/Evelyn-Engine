@@ -6,7 +6,7 @@
 refresh_memory.py — Unified memory refresh runner for Evelyn.
 
 Runs three phases in strict sequential order:
-  Phase 1 (vault_map):        generate_vault_map.py — builds/updates vault_map_data.json
+  Phase 1 (vault_map):        vault_indexer.py — builds/updates SQLite evelyn_vault.db
   Phase 2 (ingest_knowledge): ingest_obsidian_knowledge.py — pushes core docs to Chroma
   Phase 3 (ingest_gists):     ingest_gists.py — pushes gist entries to Chroma
 
@@ -73,7 +73,7 @@ def main() -> None:
     # Phase 1 — Vault Map (heavy: reads every vault file, calls Ollama for gists)
     run_phase_subprocess(
         "vault_map",
-        [os.path.join(ROOT_DIR, "Vault_Map", "generate_vault_map.py")],
+        [os.path.join(TOOLS_DIR, "vault_indexer.py")],
     )
 
     # Phase 2 — Core Knowledge Ingest (pushes processed vault docs to Chroma)
