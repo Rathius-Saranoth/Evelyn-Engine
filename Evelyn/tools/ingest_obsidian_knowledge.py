@@ -1,3 +1,7 @@
+# ingest_obsidian_knowledge.py
+# date created: 2026-05-03 18:05:36
+# date modified: 2026-05-24 10:28:03
+
 """
 ingest_obsidian_knowledge.py — Syncs Evelyn's core memory files into Chroma.
 
@@ -11,10 +15,6 @@ Key behaviour:
 
 Run directly or imported via sync_context_memory() in evelyn_tools.py.
 """
-
-# ingest_obsidian_knowledge.py
-
-# [[ingest_obsidian_knowledge.py]]
 
 import os
 import sys
@@ -35,7 +35,7 @@ import chroma_rag  # noqa: E402
 EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
 PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
 EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals", "Extracted", "Pending"]
-SYNC_STATE_FILE    = r"C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json" # [[vault_sync_state.json]]
+SYNC_STATE_FILE    = r"C:\Projects\LocalAI\data\vault_sync_state.json" # [[vault_sync_state.json]]
 COLLECTION_NAME    = "evelyn_memory"
 
 # Ricky/ files that belong in core memory (full-text, high-fidelity operational docs).

@@ -1,6 +1,6 @@
 # undo_thread.py
 # date created: 2026-05-17 14:48:24
-# date modified: 2026-05-17 14:49:04
+# date modified: 2026-05-24 10:25:27
 
 """
 Undo the last [THREAD_BREAK] in the Evelyn chat database.
@@ -20,7 +20,16 @@ import sqlite3
 import os
 import argparse
 
-DB_PATH = r"C:\Projects\LocalAI\evelyn_chat.db"
+import sys
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+import evelyn_config as cfg
+
+DB_PATH = cfg.CHAT_DB_PATH
 
 def main():
     parser = argparse.ArgumentParser(description="Undo the last [THREAD_BREAK] in the chat database.")

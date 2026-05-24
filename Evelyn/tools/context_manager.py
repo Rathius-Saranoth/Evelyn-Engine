@@ -1,3 +1,7 @@
+# context_manager.py
+# date created: 2026-02-12 19:08:42
+# date modified: 2026-05-24 10:39:21
+
 """
 context_manager.py — Context Category management for Evelyn's memory system.
 
@@ -17,19 +21,13 @@ Key path constants:
   PENDING_DIR    — In-vault staging folder for new context entries.
 """
 
-# context_manager.py
-
 import os
 import datetime
 import json
 
 import evelyn_config as cfg # [[evelyn_config.py]]
 
-CONTEXT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Categories"
 VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json" # [[vault_map_data.json]]
-
-# These are sourced from evelyn_config so paths stay in one place.
-PENDING_DIR = cfg.PENDING_DIR
 
 
 def append_context_log(
@@ -38,62 +36,41 @@ def append_context_log(
     secondary_cats: list = None,
 ):
     """
-    Creates a new Context Entry markdown file in the in-vault Pending folder.
-
-    The file is written to the vault's ``Pending`` subfolder for review.
-    It is visible to the gist/sync pipeline immediately.
-
-    Filename format: ``CE_<YYYY-MM-DD>_<category_code>.md``
-    If a file with the same name already exists for today, a numeric suffix is
-    appended (e.g. ``CE_2026-03-17_Cat01 (1).md``) to avoid collisions.
+    Creates a new Context Entry in the SQLite memory DB, pending review.
 
     Args:
         category_code: Primary category identifier, e.g. ``"Cat08-R"`` or ``"Cat01-E"``.
         summary: The fact or event to log. Should be a concise, self-contained statement.
-        secondary_cats: Optional list of additional category codes to cross-reference
-            (e.g. ``["Cat02-E", "Cat05-R"]``). Rendered as Obsidian wiki-links.
+        secondary_cats: Optional list of additional category codes to cross-reference.
 
     Returns:
-        str: A human-readable confirmation message with the filename that was created.
+        str: A human-readable confirmation message with the ID that was created.
     """
-    if not os.path.exists(PENDING_DIR):
-        os.makedirs(PENDING_DIR, exist_ok=True)
-
-    # 2. Format File Name and Content
+    import memory_db
+    
     today = datetime.date.today().strftime("%Y-%m-%d")
-    filename = f"CE_{today}_{category_code}.md"
+    
+    # Determine subject from category code suffix
+    subject_code = category_code[-1].upper() if category_code else ""
+    subject = "Evelyn" if subject_code == "E" else ("Ricky" if subject_code == "R" else "Unknown")
+    
+    secs = ", ".join(secondary_cats) if secondary_cats else None
 
-    # Handle multiple entries on the same day gracefully
-    counter = 1
-    filepath = os.path.join(PENDING_DIR, filename)
-    while os.path.exists(filepath):
-        filename = f"CE_{today}_{category_code} ({counter}).md"
-        filepath = os.path.join(PENDING_DIR, filename)
-        counter += 1
-
-    primary_tag = category_code
-    secs = ", ".join(secondary_cats) if secondary_cats else ""
-    secondary_line = f"**Secondary:** {secs}\n\n" if secs else ""
-
-    file_content = f"""---
-tags: [CY-{today.replace("-", "/")}]
----
-
-# {filename.replace(".md", "")}
-
-**Primary:** {primary_tag}
-
-{secondary_line}**Summary:** {summary}
-"""
-
-    # 3. Create File
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(file_content)
-    except OSError as e:
-        return f"Error writing context entry — is Google Drive available? Details: {e}"
+        row_id = memory_db.insert_entry(
+            category=category_code,
+            subject=subject,
+            observation=summary,
+            confidence="medium",
+            source="manual",
+            status="pending_review",
+            date=today,
+            secondary_cats=secs
+        )
+    except Exception as e:
+        return f"Error writing context entry: {e}"
 
-    return f"Created Context Entry: {filename} in Pending folder."
+    return f"Created Context Entry (ID: {row_id}) pending review."
 
 
 def search_vault_map(query: str, limit: int = 5) -> str:
@@ -175,40 +152,35 @@ def search_vault_map(query: str, limit: int = 5) -> str:
 
 def update_context_log(target_filepaths: list, new_summary: str) -> str:
     """
-    Creates an update request file for one or more existing Context Fact files.
-
-    The file is placed in PENDING_DIR for Ricky to review — it is NOT applied
-    directly to the vault.
+    Creates an update proposal for existing context entries.
 
     Args:
-        target_filepaths: List of absolute or vault-relative paths to update.
-        new_summary: The new fact/summary data to insert into those files.
+        target_filepaths: List of target paths or IDs (currently passed as paths by LLM).
+        new_summary: The new fact/summary data.
 
     Returns:
-        str: Confirmation message with the filename created, or an error string.
+        str: Confirmation message.
     """
-    if not os.path.exists(PENDING_DIR):
-        os.makedirs(PENDING_DIR, exist_ok=True)
-
-    today = datetime.date.today().strftime("%Y-%m-%d")
-    timestamp = datetime.datetime.now().strftime("%H%M%S")
-    filename = f"[UPDATE_REQUEST]_{today}_{timestamp}.md"
-    filepath = os.path.join(PENDING_DIR, filename)
-
-    paths_str = "\n".join([f"- {p}" for p in target_filepaths])
-
-    file_content = f"""# Update Request
-
-Please update the following context files:
-{paths_str}
-
-## New Summary Data:
-{new_summary}
-"""
+    import memory_db
+    
+    source_ids = []
+    for p in target_filepaths:
+        basename = os.path.basename(p)
+        con = memory_db.get_db()
+        row = con.execute("SELECT id FROM context_entries WHERE original_file = ? OR id = ?", (basename, p)).fetchone()
+        con.close()
+        if row:
+            source_ids.append(row["id"])
+            
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(file_content)
-    except OSError as e:
-        return f"Error writing update request — is Google Drive available? Details: {e}"
+        pid = memory_db.insert_proposal(
+            type="update_request",
+            source_ids=source_ids,
+            verdict="update requested by Evelyn",
+            merged_observation=new_summary,
+            status="pending"
+        )
+    except Exception as e:
+        return f"Error creating update proposal: {e}"
 
-    return f"Update request created for Ricky to review: {filename} created in Pending Approvals Folder."
+    return f"Update proposal created (ID: {pid}) for Ricky to review."
