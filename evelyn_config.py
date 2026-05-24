@@ -1,13 +1,13 @@
+# evelyn_config.py
+# date created: 2026-03-23 15:37:14
+# date modified: 2026-05-24 10:24:42
+
 """
 evelyn_config.py — Single source of truth for the Evelyn backend stack.
 
 Edit this file to change any path, URL, or behaviour flag.
 No restart required for DEBUG_LOGGING changes — the server reads it per-request.
 """
-
-# evelyn_config.py
-# date created: 2026-03-23 15:37:14
-# date modified: 2026-05-18 21:13:28
 
 # =============================================================================
 # Model
@@ -107,18 +107,19 @@ VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault" # [[G:\My Drive\Obsidian_Vault]]
 EVELYN_MEMORY_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn" # [[G:\My Drive\Obsidian_Vault\Evelyn]]
 PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md]]
 VAULT_MAP_FILE = r"C:\Projects\LocalAI\Vault_Map\vault_map_data.json" # [[C:\Projects\LocalAI\Vault_Map\vault_map_data.json]]
-VAULT_SYNC_STATE = r"C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json" # [[C:\Projects\LocalAI\Evelyn\tools\vault_sync_state.json]]
-GIST_SYNC_STATE = r"C:\Projects\LocalAI\Evelyn\tools\gist_sync_state.json" # [[C:\Projects\LocalAI\Evelyn\tools\gist_sync_state.json]]
-CHROMA_DB_PATH = r"C:\Projects\LocalAI\chroma_db" # [[C:\Projects\LocalAI\chroma_db]]
-CHAT_DB_PATH = r"C:\Projects\LocalAI\evelyn_chat.db" # [[C:\Projects\LocalAI\evelyn_chat.db]]
+VAULT_SYNC_STATE = r"C:\Projects\LocalAI\data\vault_sync_state.json" # [[C:\Projects\LocalAI\data\vault_sync_state.json]]
+GIST_SYNC_STATE = r"C:\Projects\LocalAI\data\gist_sync_state.json" # [[C:\Projects\LocalAI\data\gist_sync_state.json]]
+CHROMA_DB_PATH = r"C:\Projects\LocalAI\data\chroma_db" # [[C:\Projects\LocalAI\data\chroma_db]]
+CHAT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_chat.db" # [[C:\Projects\LocalAI\data\evelyn_chat.db]]
+MEMORY_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_memory.db" # [[C:\Projects\LocalAI\data\evelyn_memory.db]]
 PERSONA_DIR = r"C:\Projects\LocalAI\Evelyn\persona" # [[C:\Projects\LocalAI\Evelyn\persona]]
 COMFY_WORKFLOW_PATH = r"C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json" # [[C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json]]
 COMFY_OUTPUT_DIR = r"C:\Projects\ComfyUI\output" # [[C:\Projects\ComfyUI\output]]
 
-# Context entry paths
-CONTEXT_ENTRIES_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries" # [[G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries]]
-PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Pending" # [[G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Pending]]
-EXTRACTED_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Extracted" # [[G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Extracted]]
+# Context entry paths (Deprecated in Phase 3 SQLite migration)
+# CONTEXT_ENTRIES_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries"
+# PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Pending"
+# EXTRACTED_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Context\Context Entries\Extracted"
 
 # Official category names — single source of truth for the consolidator and reviewer.
 # Sourced from: Context Categories/Cat00 - Index.md

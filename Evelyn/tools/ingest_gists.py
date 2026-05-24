@@ -1,3 +1,7 @@
+# ingest_gists.py
+# date created: 2026-05-03 18:05:36
+# date modified: 2026-05-24 10:28:11
+
 """
 ingest_gists.py — Syncs Obsidian Vault gists into Chroma.
 
@@ -12,8 +16,6 @@ Key behaviour:
 
 Run directly or imported via sync_context_memory() in evelyn_tools.py.
 """
-
-# ingest_gists.py
 
 import os
 import sys
@@ -30,7 +32,7 @@ import chroma_rag  # noqa: E402
 
 # Paths
 VAULT_MAP_FILE  = r"c:\Projects\LocalAI\Vault_Map\vault_map_data.json" # [[vault_map_data.json]]
-SYNC_STATE_FILE = r"C:\Projects\LocalAI\Evelyn\tools\gist_sync_state.json" # [[gist_sync_state.json]]
+SYNC_STATE_FILE = r"C:\Projects\LocalAI\data\gist_sync_state.json" # [[gist_sync_state.json]]
 COLLECTION_NAME = "evelyn_gists"
 
 # Excluded paths — handled by [[ingest_obsidian_knowledge.py]]

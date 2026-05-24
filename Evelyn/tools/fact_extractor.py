@@ -1,3 +1,7 @@
+# fact_extractor.py
+# date created: 2026-05-03 18:05:36
+# date modified: 2026-05-24 10:57:28
+
 """
 fact_extractor.py — Idle-time personal-fact extraction for Evelyn's memory system.
 
@@ -14,7 +18,7 @@ Architecture:
   - cancel_pending_extraction()   — cancels in-flight run on new chat request
   - _fetch_new_messages()         — reads messages WHERE id > _last_extracted_id
   - _do_extraction()              — calls Ollama, parses YAML, writes staging files
-  - write_extracted_facts()       — writes EX_*.md to EXTRACTED_DIR
+  - write_extracted_facts()       — writes facts to the SQLite memory DB
   - load_cat00_index()            — Cat00 taxonomy (cached 1h)
 
 High-water mark:
@@ -24,10 +28,6 @@ High-water mark:
 
 All config is read from evelyn_config.py (single source of truth).
 """
-
-# fact_extractor.py
-# date created: 2026-05-03 18:05:36
-# date modified: 2026-05-18 20:25:16
 
 import asyncio
 import datetime
@@ -566,9 +566,9 @@ async def _do_extraction(messages: list[dict]):
         print("[EXTRACTOR] No valid facts extracted.", flush=True)
         return
 
-    print(f"[EXTRACTOR] {len(facts)} fact(s) extracted. Writing staging files...", flush=True)
+    print(f"[EXTRACTOR] {len(facts)} fact(s) extracted. Writing to memory DB...", flush=True)
     written = write_extracted_facts(facts)
-    print(f"[EXTRACTOR] Wrote {written} file(s) to Extracted/ folder.", flush=True)
+    print(f"[EXTRACTOR] Wrote {written} fact(s) to SQLite DB.", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -577,24 +577,22 @@ async def _do_extraction(messages: list[dict]):
 
 
 def write_extracted_facts(facts: list[dict]) -> int:
-    """Write extracted facts to the EXTRACTED_DIR staging folder.
+    """Write extracted facts to the SQLite memory database.
 
-    Each fact gets its own EX_YYYY-MM-DD_Cat##-{E,R}.md file where the date
-    is taken from the fact's `date` field (when it was discussed), NOT today.
-    Duplicate filenames get a numeric suffix.
+    Inserts rows with status='extracted'. Before inserting, queries existing
+    live entries in the same category to check for near-duplicates using
+    keyword overlap.
 
     Args:
         facts: List of validated fact dicts (must include 'date' key).
 
     Returns:
-        int: Number of files successfully written.
+        int: Number of facts successfully written.
     """
-    importlib.reload(cfg)
-    extracted_dir = cfg.EXTRACTED_DIR
-    os.makedirs(extracted_dir, exist_ok=True)
-
+    import memory_db
     import datetime as dt
-    today_str = dt.date.today().strftime("%Y-%m-%d")  # fallback only
+
+    today_str = dt.date.today().strftime("%Y-%m-%d")
     written = 0
 
     for fact in facts:
@@ -602,35 +600,31 @@ def write_extracted_facts(facts: list[dict]) -> int:
         subject = fact["subject"]
         summary = fact["summary"]
         confidence = fact["confidence"]
-        fact_date = fact.get("date") or today_str  # date fact was discussed
+        fact_date = fact.get("date") or today_str
 
-        base_name = f"EX_{fact_date}_{category}.md"
-        filepath = os.path.join(extracted_dir, base_name)
-        counter = 1
-        while os.path.exists(filepath):
-            base_name = f"EX_{fact_date}_{category} ({counter}).md"
-            filepath = os.path.join(extracted_dir, base_name)
-            counter += 1
-
-        date_tag = fact_date.replace("-", "/")[:7]  # CY-YYYY/MM — matches consolidator format
-        file_content = (
-            f"---\n"
-            f"tags: [CY-{date_tag}, extracted]\n"
-            f"confidence: {confidence}\n"
-            f"---\n\n"
-            f"# {base_name.replace('.md', '')}\n\n"
-            f"**Primary:** {category}\n\n"
-            f"**Subject:** {subject}\n\n"
-            f"**Summary:** {summary}\n\n"
-            f"**Confidence:** {confidence}\n\n"
-            f"> [!NOTE] Auto-extracted by fact_extractor.py - review before promoting to live vault.\n"
+        # Dedup check against live entries in the same category
+        similar = memory_db.find_similar_entries(
+            category=category,
+            observation_text=summary,
+            min_overlap=0.5,
+            status="live"
         )
+        if similar:
+            print(f"[EXTRACTOR] Skipping duplicate ({similar[0]['overlap']:.2f} overlap): {summary[:80]}...", flush=True)
+            continue
 
         try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(file_content)
+            memory_db.insert_entry(
+                category=category,
+                subject=subject,
+                observation=summary,
+                confidence=confidence,
+                source="extracted",
+                status="extracted",
+                date=fact_date,
+            )
             written += 1
-        except OSError as e:
-            print(f"[EXTRACTOR] Failed to write {base_name}: {e}", flush=True)
+        except Exception as e:
+            print(f"[EXTRACTOR] Failed to insert fact: {e}", flush=True)
 
     return written

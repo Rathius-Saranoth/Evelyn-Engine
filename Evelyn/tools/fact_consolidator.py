@@ -1,3 +1,7 @@
+# fact_consolidator.py
+# date created: 2026-05-03 18:07:33
+# date modified: 2026-05-24 10:15:59
+
 """
 fact_consolidator.py — Idle-time context entry consolidation for Evelyn's memory system.
 
@@ -70,8 +74,6 @@ Key behaviors:
 
 All config is read from evelyn_config.py (single source of truth).
 """
-
-# fact_consolidator.py
 
 import asyncio
 import datetime
@@ -437,126 +439,62 @@ async def run_consolidation():
 
 
 def scan_context_entries() -> list[dict]:
-    """Walk live context entry markdown files and parse their key fields.
-
-    Scans the directory tree rooted at CONTEXT_ENTRIES_DIR, visiting folders
-    that match the Cat##/Cat##-{E,R}/ layout.
-
-    When CONSOLIDATION_INCLUDE_EXTRACTED is True, also includes EX_*.md files
-    from the Extracted/ staging folder so the consolidator can flag duplicate
-    auto-extracted facts before they are promoted to live CE_ entries.
+    """Fetch all live context entries from SQLite and format as FactRecords.
 
     Returns:
         List of FactRecord dicts, sorted oldest-first within each category.
     """
+    import memory_db
+    import datetime
+
+    # Get live entries (and optionally extracted ones if configured)
+    statuses = ["live"]
     importlib.reload(cfg)
-    entries_dir = cfg.CONTEXT_ENTRIES_DIR
-    include_extracted = cfg.CONSOLIDATION_INCLUDE_EXTRACTED
+    if cfg.CONSOLIDATION_INCLUDE_EXTRACTED:
+        statuses.append("extracted")
 
+    rows = memory_db.get_all_entries(statuses=statuses)
     records = []
+
     category_counts: dict[str, int] = {}
-    skip_dirs = {"Pending"}  # always skip proposal output dir
-    if not include_extracted:
-        skip_dirs.add("Extracted")
 
-    for cat_dir in sorted(Path(entries_dir).iterdir()):
-        if not cat_dir.is_dir() or cat_dir.name in skip_dirs:
-            continue
+    for row in rows:
+        cat = row["category"]
+        # Infer cat number for sorting
+        cat_num_match = re.search(r"Cat(\d{2})", cat)
+        cat_num = int(cat_num_match.group(1)) if cat_num_match else 0
+        
+        # Parse date
+        try:
+            if row["date"]:
+                entry_date = datetime.datetime.strptime(row["date"], "%Y-%m-%d")
+            else:
+                entry_date = datetime.datetime.min
+        except ValueError:
+            entry_date = datetime.datetime.min
 
-        # Handle Extracted/ separately — flat structure (no Cat##-R subfolders)
-        if cat_dir.name == "Extracted":
-            for md_file in sorted(cat_dir.glob("EX_*.md")):
-                record = _parse_entry_file(md_file, "Extracted", "R", entries_dir)
-                if record:
-                    records.append(record)
-                    category_counts["Extracted"] = category_counts.get("Extracted", 0) + 1
-            continue
-
-        for subcat_dir in sorted(cat_dir.iterdir()):
-            if not subcat_dir.is_dir():
-                continue
-            cat_match = _CAT_CODE_RE.match(subcat_dir.name)
-            if not cat_match:
-                continue
-            category = cat_match.group(1)
-            subject = category[-1]  # "E" or "R"
-
-            for md_file in sorted(subcat_dir.glob("*.md")):
-                record = _parse_entry_file(md_file, category, subject, entries_dir)
-                if record:
-                    records.append(record)
-                    category_counts[category] = category_counts.get(category, 0) + 1
+        records.append({
+            "id": row["id"],
+            "path": str(row["id"]),     # Stub for legacy path usage
+            "rel_path": str(row["id"]), # Stub for legacy path usage
+            "category": cat,
+            "cat_num": cat_num,
+            "subject": row["subject"],
+            "date": entry_date,
+            "summary": row["observation"],
+            "filename": row.get("original_file") or f"Entry_{row['id']}",
+        })
+        category_counts[cat] = category_counts.get(cat, 0) + 1
 
     print(
-        f"[CONSOLIDATOR] Scanned {len(records)} context entry file(s) "
+        f"[CONSOLIDATOR] Scanned {len(records)} context entries "
         f"across {len(category_counts)} category group(s):",
         flush=True,
     )
     for cat, count in sorted(category_counts.items()):
-        print(f"  {cat}: {count} file(s)", flush=True)
+        print(f"  {cat}: {count} entry/ies", flush=True)
+        
     return records
-
-
-def _parse_entry_file(
-    path: Path, category: str, subject: str, entries_dir: str
-) -> dict | None:
-    """Parse a single context entry file into a FactRecord dict.
-
-    Args:
-        path:        Absolute Path to the .md file.
-        category:    Category code from the containing folder name, e.g. "Cat05-R".
-        subject:     "E" or "R".
-        entries_dir: Root of the Context Entries tree (for rel_path computation).
-
-    Returns:
-        FactRecord dict or None if the file lacks a parseable summary.
-    """
-    # For EX_ files (from Extracted/ folder) the category is encoded in the
-    # filename — EX_2024-04-25_Cat05-R.md — not the parent folder name.
-    if category == "Extracted":
-        cat_match = _CAT_CODE_RE.search(path.name)
-        if cat_match:
-            category = cat_match.group(1)
-            subject = category[-1]
-        else:
-            return None  # No recognisable category in filename — skip
-
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception as e:
-        print(f"[CONSOLIDATOR] Could not read {path.name}: {e}", flush=True)
-        return None
-
-    # Extract summary line
-    summ_match = _SUMMARY_RE.search(text)
-    if not summ_match:
-        return None
-    summary = summ_match.group(1).strip()
-
-    # Extract date from filename
-    date_match = _DATE_FROM_FILENAME_RE.search(path.name)
-    if date_match:
-        try:
-            entry_date = datetime.datetime.strptime(date_match.group(1), "%Y-%m-%d")
-        except ValueError:
-            entry_date = datetime.datetime.min
-    else:
-        entry_date = datetime.datetime.min
-
-    # Infer cat number for sorting
-    cat_num_match = re.search(r"Cat(\d{2})", category)
-    cat_num = int(cat_num_match.group(1)) if cat_num_match else 0
-
-    return {
-        "path": str(path),
-        "rel_path": str(path.relative_to(entries_dir)),
-        "category": category,
-        "cat_num": cat_num,
-        "subject": subject,
-        "date": entry_date,
-        "summary": summary,
-        "filename": path.name,
-    }
 
 
 # ============================================================================
@@ -1303,32 +1241,17 @@ def _parse_proposal_yaml(raw: str, category: str) -> dict | None:
 
 
 def _write_proposal(cluster: dict, proposal: dict) -> str | None:
-    """Write a human-readable consolidation proposal markdown file to Pending/.
-
-    The proposal file contains strictly one action: merge or supersede the
-    listed source entries. Recategorization suggestions are written as
-    separate RECATEGORIZE_*.md files by _write_recategorization_proposal().
-
-    The `source_date` frontmatter field is set to the most-recent date across
-    all source entries. The reviewer script uses this to name the new CE_ file
-    chronologically rather than using today's date.
+    """Write a consolidation proposal to the SQLite database.
 
     Args:
         cluster:  The Cluster dict describing the conflict group.
         proposal: Parsed verdict dict from _parse_proposal_yaml().
 
     Returns:
-        Absolute path to the written file, or None on write failure.
+        Proposal ID string, or None on write failure.
     """
-    importlib.reload(cfg)
-    pending_dir = cfg.PENDING_DIR
-    os.makedirs(pending_dir, exist_ok=True)
-
-    now = datetime.datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H%M%S")
-    filename = f"CONSOLIDATION_{timestamp}_{cluster['category']}.md"
-    filepath = os.path.join(pending_dir, filename)
-
+    import memory_db
+    
     category = cluster["category"]
     topic = cluster["topic"]
     verdict = proposal["verdict"]
@@ -1337,68 +1260,25 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     reasoning = proposal["reasoning"]
     records = cluster["records"]
 
-    # Compute the most-recent source entry date for chronological CE_ naming.
-    valid_dates = [
-        r["date"] for r in records if r["date"] != datetime.datetime.min
-    ]
-    source_date = max(valid_dates).strftime("%Y-%m-%d") if valid_dates else now.strftime("%Y-%m-%d")
-
-    # Build entries section
-    entries_block = "\n".join(
-        f"- `{r['filename']}` — {r['summary']}"
-        for r in records
-    )
-
-    keep_history_note = (
-        "*(History-preserving merge — fact evolution retained.)*"
-        if cfg.CONSOLIDATION_KEEP_HISTORY
-        else "*(Overwrite mode — older facts discarded.)*"
-    )
-
     if verdict == "keep_both":
-        action_section = (
-            "## Verdict: Keep Both\n\n"
-            "These entries represent genuinely distinct facts and should remain separate.\n\n"
-            "*Action: Delete this proposal file to acknowledge.*"
-        )
-    else:
-        verb = "Supersede" if verdict == "supersede" else "Merge"
-        action_section = (
-            f"## Proposed Summary\n\n"
-            f"> {merged}\n\n"
-            f"**Verdict:** {verb}  "
-            f"**Target Category:** `{target_cat}`"
-            + (
-                f" *(correction from `{category}`)*"
-                if target_cat != category else ""
-            )
-            + f"\n\n{keep_history_note}"
-        )
+        return None  # We don't need to write 'keep_both' proposals to SQLite
 
-    content = (
-        f"---\n"
-        f"tags: [consolidation-proposal]\n"
-        f"created: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
-        f"source_date: {source_date}\n"
-        f"verdict: {verdict}\n"
-        f"category: {category}\n"
-        f"topic: \"{topic}\"\n"
-        f"---\n\n"
-        f"# Consolidation Proposal — {now.strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"## Reasoning\n\n"
-        f"**Flagged:** {cluster.get('reason', 'Duplicate or conflicting entries detected.')}\n\n"
-        f"**Analysis:** {reasoning}\n\n"
-        f"## Source Entries\n\n"
-        f"{entries_block}\n\n"
-        f"{action_section}\n"
-    )
+    source_ids = [r["id"] for r in records]
 
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"[CONSOLIDATOR] Proposal written: {filename}", flush=True)
-        return filepath
-    except OSError as e:
+        pid = memory_db.insert_proposal(
+            type=verdict,
+            source_ids=source_ids,
+            verdict=verdict,
+            merged_observation=merged,
+            suggested_category=target_cat,
+            reason=reasoning,
+            topic=topic,
+            status="pending"
+        )
+        print(f"[CONSOLIDATOR] Proposal created: ID {pid} ({verdict})", flush=True)
+        return str(pid)
+    except Exception as e:
         print(f"[CONSOLIDATOR] Failed to write proposal: {e}", flush=True)
         return None
 
@@ -1414,82 +1294,39 @@ def _write_recategorization_proposal(
     recat_item: dict,
     pending_recat_sources: set[str] | None = None,
 ) -> str | None:
-    """Write a single-action recategorization proposal file to Pending/.
-
-    The detection LLM already provides the suggested category and reason,
-    so no additional LLM call is needed. The reviewer script handles the
-    physical file move on approval.
+    """Auto-apply recategorization and record an audit trail in SQLite.
 
     Args:
         recat_item:            Dict with keys 'record', 'suggested_category',
                                'topic', and 'reason'.
-        pending_recat_sources: Optional set of source_path strings already
-                               present in Pending/.  If the item's source path
-                               is found here, the write is skipped.
+        pending_recat_sources: Ignored. Used in legacy signature.
 
     Returns:
-        Absolute path to the written RECATEGORIZE_*.md file, or None on failure.
+        Proposal ID string, or None on failure.
     """
-    importlib.reload(cfg)
-    pending_dir = cfg.PENDING_DIR
-    os.makedirs(pending_dir, exist_ok=True)
+    import memory_db
 
     record = recat_item["record"]
     suggested = recat_item["suggested_category"]
     reason = recat_item["reason"]
-    old_cat = record["category"]
-    filename = record["filename"]
-    old_path = record["path"]
-
-    # Skip if a proposal for this source file is already pending review.
-    if pending_recat_sources and old_path in pending_recat_sources:
-        print(
-            f"[CONSOLIDATOR] Recat skip (already pending): {filename}",
-            flush=True,
-        )
-        return None
-
-    # Compute suggested new path — rename the category code in the filename too.
-    cat_num = suggested[:5]  # "Cat12"
-    new_filename = filename.replace(old_cat, suggested)
-    new_rel = os.path.join(
-        cfg.CONTEXT_ENTRIES_DIR, cat_num, suggested, new_filename
-    )
-
-    now = datetime.datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H%M%S")
-    out_filename = f"RECATEGORIZE_{timestamp}_{old_cat}.md"
-
-    # Derive source_date from the CE filename (e.g. CE_2025-07-25_Cat03-R.md → 2025-07-25)
-    date_m = _DATE_FROM_FILENAME_RE.search(filename)
-    source_date = date_m.group(1) if date_m else now.strftime("%Y-%m-%d")
-    filepath = os.path.join(pending_dir, out_filename)
-
-    content = (
-        f"---\n"
-        f"tags: [recategorize-proposal]\n"
-        f"created: {now.strftime('%Y-%m-%dT%H:%M:%S')}\n"
-        f"source_date: {source_date}\n"
-        f"current_cat: {old_cat}\n"
-        f"suggested_cat: {suggested}\n"
-        f"topic: \"{cfg.CATEGORY_NAMES.get(suggested, recat_item.get('topic', reason[:60]))}\"\n"
-        f"source_path: {old_path}\n"
-        f"suggested_path: {new_rel}\n"
-        f"---\n\n"
-        f"# Recategorization Proposal — {now.strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"## Reasoning\n\n"
-        f"{reason}\n\n"
-        f"## Entry\n\n"
-        f"`{filename}`\n"
-    )
-
+    topic = recat_item.get("topic", reason[:60])
+    
+    # We auto-apply recats per user preference (1 pass).
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"[CONSOLIDATOR] Recategorize proposal written: {out_filename}", flush=True)
-        return filepath
-    except OSError as e:
-        print(f"[CONSOLIDATOR] Failed to write recategorize proposal: {e}", flush=True)
+        pid = memory_db.insert_proposal(
+            type="recategorize",
+            source_ids=[record["id"]],
+            verdict="recategorize",
+            suggested_category=suggested,
+            reason=reason,
+            topic=topic,
+            status="auto_applied"
+        )
+        memory_db.update_entry(record["id"], category=suggested)
+        print(f"[CONSOLIDATOR] Auto-applied recategorization (Proposal {pid}): entry {record['id']} -> {suggested}", flush=True)
+        return str(pid)
+    except Exception as e:
+        print(f"[CONSOLIDATOR] Failed to auto-apply recategorization: {e}", flush=True)
         return None
 
 
@@ -1499,97 +1336,22 @@ def _write_recategorization_proposal(
 # ============================================================================
 
 
-def _build_pending_index() -> tuple[set[str], set[frozenset[str]]]:
-    """Scan PENDING_DIR and return two identity sets for duplicate suppression.
-
-    Called once at the top of each consolidation pass. Uses only the YAML
-    frontmatter of existing proposal files — no body parsing needed.
-
-    Returns:
-        Tuple of:
-          pending_recat_sources:  Set of ``source_path`` strings from all
-                                  existing RECATEGORIZE_*.md files.  Used to
-                                  skip re-proposing a recat for the same file.
-          pending_consol_sets:    Set of frozensets, each containing the
-                                  basenames of source entries for one existing
-                                  CONSOLIDATION_*.md.  Used to skip re-running
-                                  the LLM proposal call for the same cluster.
-    """
-    importlib.reload(cfg)
-    pending_dir = cfg.PENDING_DIR
-    pending_recat_sources: set[str] = set()
-    pending_consol_sets: set[frozenset] = set()
-
-    try:
-        files = list(Path(pending_dir).iterdir())
-    except OSError:
-        return pending_recat_sources, pending_consol_sets
-
-    for f in files:
-        if not f.suffix == ".md" or f.name.startswith("_"):
-            continue
-        try:
-            text = f.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if not text.startswith("---"):
-            continue
-        end = text.find("\n---", 3)
-        if end == -1:
-            continue
-        try:
-            fm = yaml.safe_load(text[3:end]) or {}
-        except Exception:
-            continue
-
-        tags = fm.get("tags", [])
-        if not isinstance(tags, list):
-            tags = [str(tags)]
-
-        if "recategorize-proposal" in tags:
-            src = fm.get("source_path", "")
-            if src:
-                pending_recat_sources.add(str(src))
-
-        elif "consolidation-proposal" in tags:
-            # Extract source basenames from body '- `filename.md`' list
-            entry_re = re.compile(r"^-\s+`([^`]+)`", re.MULTILINE)
-            basenames = frozenset(m.group(1).strip() for m in entry_re.finditer(text))
-            if basenames:
-                pending_consol_sets.add(basenames)
-
-    recat_count = len(pending_recat_sources)
-    consol_count = len(pending_consol_sets)
-    if recat_count or consol_count:
-        print(
-            f"[CONSOLIDATOR] Pending index: {recat_count} recat source(s), "
-            f"{consol_count} consolidation cluster(s) already queued.",
-            flush=True,
-        )
-    return pending_recat_sources, pending_consol_sets
-
-
 async def _do_consolidation():
     """Core consolidation pipeline. Called by run_consolidation().
 
     Execution order:
-      1. Ensure Pending/ exists.
-      2. Scan all live context entries into FactRecord dicts.
-      3. Detect duplicate clusters and recategorization candidates.
-      4. Build the pending-proposal index (duplicate suppression).
-      5. Write RECATEGORIZE_*.md files (no LLM — instant output).
-      6. Write CONSOLIDATION_*.md files via LLM proposal calls (think=True).
-      7. Persist anchor scan state to disk.
+      1. Scan all live context entries into FactRecord dicts.
+      2. Detect duplicate clusters and recategorization candidates.
+      3. Auto-apply recategorization candidates.
+      4. Write consolidation proposals via LLM proposal calls (think=True).
+      5. Persist anchor scan state to disk.
     """
     importlib.reload(cfg)
+    import memory_db
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)
     start = time.time()
 
-    # Step 1 — Ensure the output folder exists before scanning.
-    # Prevents sync tools from removing an empty Pending/ between runs.
-    _ensure_pending_dir()
-
-    # Step 2 — Scan vault
+    # Step 1 — Scan vault
     cat00 = load_cat00_index()
     records = scan_context_entries()
 
@@ -1597,43 +1359,42 @@ async def _do_consolidation():
         print("[CONSOLIDATOR] No context entries found.", flush=True)
         return
 
-    # Step 3 — Detect clusters and recategorization candidates
+    # Step 2 — Detect clusters and recategorization candidates
     clusters, recat_items = await find_consolidation_candidates(records, cat00)
 
-    # Step 4 — Build one-shot pending index to skip re-proposals without
-    # scanning the directory per-item.
-    pending_recat_sources, pending_consol_sets = _build_pending_index()
-
-    # Step 5 — Write recategorization proposals (no LLM needed)
+    # Step 3 — Write recategorization proposals (Auto-applied)
     recats_written = recats_skipped = 0
     for recat_item in recat_items:
-        result = _write_recategorization_proposal(recat_item, pending_recat_sources)
+        if memory_db.has_pending_proposal_for([recat_item["record"]["id"]]):
+            recats_skipped += 1
+            continue
+            
+        result = _write_recategorization_proposal(recat_item, None)
         if result:
             recats_written += 1
-        elif recat_item["record"]["path"] in pending_recat_sources:
-            recats_skipped += 1
 
     if not clusters:
         print("[CONSOLIDATOR] No consolidation candidates found.", flush=True)
 
-    # Step 6 — Write consolidation proposals via LLM
+    # Step 4 — Write consolidation proposals via LLM
     proposals_written = proposals_skipped = 0
     for cluster in clusters:
-        # Skip if every source file in this cluster already has an open proposal.
-        cluster_files = frozenset(r["filename"] for r in cluster["records"])
-        if cluster_files in pending_consol_sets:
+        # Skip if any source file in this cluster already has an open proposal.
+        cluster_ids = [r["id"] for r in cluster["records"]]
+        if memory_db.has_pending_proposal_for(cluster_ids):
             print(
                 f"[CONSOLIDATOR] Consol skip (already pending): "
-                f"{cluster['topic']} ({len(cluster_files)} entries)",
+                f"{cluster['topic']} ({len(cluster_ids)} entries)",
                 flush=True,
             )
             proposals_skipped += 1
             continue
+            
         result = await generate_consolidation_proposal(cluster)
         if result:
             proposals_written += 1
 
-    # Step 7 — Persist anchor scan state
+    # Step 5 — Persist anchor scan state
     _save_scan_state()
 
     elapsed = time.time() - start
@@ -1645,3 +1406,4 @@ async def _do_consolidation():
         f"Elapsed: {elapsed:.1f}s.",
         flush=True,
     )
+
