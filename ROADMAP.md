@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-23 21:28:36
+date modified: 2026-05-23 21:31:59
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -102,7 +102,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 
 *Goal: Evolve the underlying databases, formalize tool metadata, and tighten the Obsidian knowledge link.*
 
-- [ ] **Context Entries → SQLite Migration**: Replace the `Cat##/Cat##-{E,R}/*.md` flat-file layout with a proper SQLite table (columns: `id`, `category`, `subject`, `date`, `summary`, `confidence`, `source`, `created_at`). Eliminates all file-scanning overhead in the extractor and consolidator, enables true all-pairs indexing with a single join.
+- [x] **Context Entries → SQLite Migration**: Replace the `Cat##/Cat##-{E,R}/*.md` flat-file layout with a proper SQLite table (columns: `id`, `category`, `subject`, `date`, `summary`, `confidence`, `source`, `created_at`). Eliminates all file-scanning overhead in the extractor and consolidator, enables true all-pairs indexing with a single join. (Completed 2026-05-24)
 - [ ] **Formal Tool Metadata schema**: Add a `tool_metadata` JSON column to the SQLite `messages` table. Instead of string-hacking tool outputs into the `tools_used` column, store a structured key-value map mapping tool executions to their raw output file names/identifiers (e.g., `{"write_journal_entry": "2026-05-23.md"}`).
 - [ ] **Upgraded Tool Badges & UI Viewers**: Leverage the `tool_metadata` column to turn all write-tool badges into interactive elements. Provide clickable links or inline UI modals for *all* outputs: viewing generated images, reading newly created journal entries, and reviewing context creations directly in the chat UI without opening Obsidian.
 - [ ] **Developer Web UI**: A dedicated browser-based interface for tool access — primarily the review queues (Extracted facts, Pending proposals) but extensible to other engine tools. Touch-optimized card layout; inline markdown rendering for source CEs.
@@ -117,7 +117,6 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Visuals**: Add v-tuber style avatar and animation system.
 - [ ] **Awareness**: Add real-time visual awareness.
 - [ ] **XR**: Add VR/AR integration.
-
 
 ## Phase 6: Open Source & Community (Future)
 

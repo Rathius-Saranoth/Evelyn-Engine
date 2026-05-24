@@ -13,7 +13,7 @@ All tool logic uses standard function signatures for Ollama's function-calling A
 
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-05-19 20:53:11
+# date modified: 2026-05-24 11:06:58
 
 import sys
 import os
@@ -25,7 +25,7 @@ import importlib
 # ---------------------------------------------------------------------------
 TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
 VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
-COMFY_WORKFLOW = r"C:\Projects\LocalAI\Evelyn\workflows\comfy_image_gen.json" # [[comfy_image_gen.py]]
+
 
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
@@ -159,7 +159,7 @@ def generate_image(
         filename = result["filename"]
         # Served statically via the main evelyn_server mount
         image_url = f"/images/{filename}"
-        return f"Image generated successfully at {image_url}. YOU MUST INCLUDE THIS EXACT MARKDOWN IN YOUR FINAL RESPONSE TO SHOW IT TO RICKY: ![Image]({image_url})"
+        return f"Image generated successfully at {image_url}."
     except Exception as e:
         return f"Failed to generate image via FLUX.1 server at {IMAGE_SERVER_URL}: {e}"
 
