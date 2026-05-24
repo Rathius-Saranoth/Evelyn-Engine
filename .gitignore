@@ -10,11 +10,8 @@ reference/
 Update Logs/
 
 # --- Local Data & State ---
-# Temporary state files for sync
-Evelyn/tools/gist_sync_state.json
-Evelyn/tools/vault_sync_state.json
-evelyn_consolidation_offsets.json
-evelyn_extraction_state.json
+# Centralized data directory (databases, Chroma vectors, sync states)
+data/
 Vault_Map/
 !Vault_Map/generate_vault_map.py
 Void_Connections/
@@ -40,9 +37,6 @@ Thumbs.db
 *.db
 evelyn_log_dump.txt
 reference/bugs/
-
-# --- Chroma Vector DB (runtime) ---
-chroma_db/
 
 # --- Scratch folder (debug output only, reusable DB tools are committed) ---
 scratch/out/

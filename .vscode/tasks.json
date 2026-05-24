@@ -71,7 +71,7 @@
         {
             "label": "Wait for Ollama",
             "type": "shell",
-            "command": "powershell -ExecutionPolicy Bypass -File '${workspaceFolder}\\wait_for_ollama.ps1'",
+            "command": "powershell -ExecutionPolicy Bypass -File '${workspaceFolder}\\scripts\\wait_for_ollama.ps1'",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared",
