@@ -1,8 +1,8 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-21 20:41:09
-tags: 
+date modified: 2026-05-23 21:28:36
+tags: roadmap, goals, features, implementation, planning
 ---
 
 ## Evelyn Project Roadmap
@@ -29,9 +29,9 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] Implement `log_context_fact` tool (Draft mode/Preview constraint).
 - [x] Implement system for context fact updates.
 
-## Phase 3: External Senses & Basic Tools (In Progress)
+## Phase 3: Senses, Tools, & Agency (In Progress)
 
-*Goal: Equip Evelyn with a voice and basic file/system interaction.*
+*Goal: Equip Evelyn with a voice, basic file/system interaction, and autonomous agency.*
 
 - [x] Migrate TTS to the robust Chatterbox (F5-TTS/Matcha) local engine, supporting natural phrasing, voice cloning, and dynamic emotion/expression tags.
 - [x] Port image generation from legacy multi-field ComfyUI websockets to a standalone, on-demand FLUX.1 [schnell] NF4 FastAPI server (port 5055) with lazy-loading, sequential CPU offloading, and auto-unload on idle (120s) to guarantee zero VRAM impact on coexisting services.
@@ -39,6 +39,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] Implement time awareness via date/time injection in `evelyn_server.py`'s `load_system_prompt()` + behavioral directive.
 - [x] **Web Search Tool**: Build a custom `search_web` tool backed by DuckDuckGo Search (ddgs) for current events / public info not in the vault.
 - [ ] **Research Mode**: A separate model config or `evelyn_server.py` route that bundles web search + a different retrieval priority order — useful for looking things up vs. Evelyn's normal memory-first conversation mode.
+- [ ] **Code & Terminal Agency**: Equip Evelyn with safe, scoped tools to read files, write scripts, and execute commands within the LocalAI workspace environment, enabling true pair-programming and self-modification.
 - [ ] Explore Google Drive File Integration.
 - [ ] Implement scheduling and reminders.
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).
@@ -79,7 +80,6 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **SSH Remote Access (Retired)**: Enabled Windows OpenSSH Server for Tailscale-routed remote access from Android (Termux) and created `evelyn_tools.ps1`. *Retired in favor of Google Remote Desktop (cleaner, easier to use).*
 - [x] **Engineering Standards**: Codified Dave Plummer's "Notes to Live By" quality gates and operational disciplines into `.ai-instructions.md` §2. Added `/quality-review` workflow for structured self-review. *Audit complete (2026-05-19): performed a full Quality Review over `evelyn_server.py`, `fact_extractor.py`, `fact_consolidator.py`, `pending_reviewer.py`, and `context_manager.py`, confirming 100% compliant and stable status.*
 - [ ] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. Deferred until Evelyn has code-generation capabilities.
-
 - [x] **Suppress Windows Asyncio Noise**: The `ProactorEventLoop` on Windows throws noisy `ConnectionResetError` tracebacks when browser polling requests disconnect mid-response. Harmless but clutters the console. Suppress or compress to a single-line warning.
 - [x] **RAG Retrieval Benchmark**: Built golden test set (`reference/rag_benchmark_queries.json`, 25 queries across 6 categories) and standalone `Evelyn/tools/benchmark_rag.py` script computing Hit Rate, MRR, and per-category breakdowns. Includes `--compare` flag for side-by-side embedding model evaluation and `--reformulate` flag for query reformulation testing. L12 vs L6 comparison showed no improvement — bottleneck is query quality, not embedding depth. *(Completed 2026-04-26)*
 - [x] **RAG Query Reformulation**: Implemented `Evelyn/tools/query_reformulator.py` — uses the already-loaded Gemma 4 (think=false, num_predict=50, ~3s per call) to extract search keywords from conversational messages before embedding. Skip heuristic for short messages (< 4 words). Wired into `build_rag_context()` with pinned alias matching still using the original query. **Results: 36% → 59% hit rate** on conversational queries. Remaining gap is vocabulary mismatch between user phrasing and document terminology. *(Completed 2026-04-26)*
