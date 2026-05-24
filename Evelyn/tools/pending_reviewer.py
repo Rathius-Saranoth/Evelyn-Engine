@@ -164,12 +164,26 @@ def run_review():
                     # Use subject from the first source entry, default to 'R' if unknown
                     subject = source_entries[0]["subject"] if source_entries else "R"
                     date = source_entries[0]["date"] if source_entries else None
+                    
+                    # Use LLM-generated merged tags if available, else fallback to union
+                    if prop.get("merged_tags"):
+                        merged_tags = prop["merged_tags"]
+                    else:
+                        merged_tags_set = set()
+                        for entry in source_entries:
+                            if entry.get("tags"):
+                                for t in entry["tags"].split(","):
+                                    if t.strip():
+                                        merged_tags_set.add(t.strip())
+                        merged_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
+                    
                     memory_db.insert_entry(
                         category=prop["suggested_category"],
                         subject=subject,
                         observation=prop["merged_observation"],
                         source="consolidated",
-                        date=date
+                        date=date,
+                        tags=merged_tags
                     )
                     memory_db.apply_proposal(prop["id"])
                 

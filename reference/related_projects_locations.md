@@ -14,6 +14,8 @@ title: related_projects_locations.md
 - **Evelyn Tools:** `C:\Projects\LocalAI\Evelyn\tools`
 - **Evelyn Integrations:** `C:\Projects\LocalAI\Evelyn\integrations`
 - **Startup Script:** `C:\Projects\LocalAI\start_evelyn.ps1`
+- **SQLite Data:** `C:\Projects\LocalAI\data`
+- **Evelyn UI:** `C:\Projects\LocalAI\evelyn_ui`
 
 ## Evelyn's external context & resources
 

@@ -386,6 +386,7 @@ def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
         "facts:\n"
         "  - subject: Ricky          # or Evelyn\n"
         "    category: Cat05-R        # best matching Cat##-E or Cat##-R code\n"
+        "    tags: \"kw/ricky, kw/habit\" # comma-separated semantic tags starting with kw/\n"
         "    summary: \"Exact fact.\"   # one clear, self-contained sentence\n"
         "    confidence: high         # high / medium / low\n"
         "    date: \"2025-03-15\"      # date this was discussed (from message timestamps above)\n"
@@ -442,6 +443,7 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
             continue
         subj = str(item.get("subject", "")).strip()
         cat = str(item.get("category", "")).strip()
+        tags = str(item.get("tags", "")).strip()
         summ = str(item.get("summary", "")).strip()
         conf = str(item.get("confidence", "medium")).strip().lower()
         raw_date = str(item.get("date", "")).strip()
@@ -473,7 +475,7 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
                 )
 
         validated.append(
-            {"subject": subj, "category": cat, "summary": summ,
+            {"subject": subj, "category": cat, "tags": tags, "summary": summ,
              "confidence": conf, "date": fact_date}
         )
 
@@ -603,15 +605,19 @@ def write_extracted_facts(facts: list[dict]) -> int:
         fact_date = fact.get("date") or today_str
 
         # Dedup check against live entries in the same category
+        # Adjust min_overlap for more or less strict duplicate detection
         similar = memory_db.find_similar_entries(
             category=category,
             observation_text=summary,
-            min_overlap=0.5,
+            min_overlap=0.90,
             status="live"
         )
         if similar:
             print(f"[EXTRACTOR] Skipping duplicate ({similar[0]['overlap']:.2f} overlap): {summary[:80]}...", flush=True)
             continue
+
+        # Auto-accept high confidence extractions
+        final_status = "live" if confidence == "high" else "extracted"
 
         try:
             memory_db.insert_entry(
@@ -620,8 +626,9 @@ def write_extracted_facts(facts: list[dict]) -> int:
                 observation=summary,
                 confidence=confidence,
                 source="extracted",
-                status="extracted",
+                status=final_status,
                 date=fact_date,
+                tags=fact.get("tags"),
             )
             written += 1
         except Exception as e:

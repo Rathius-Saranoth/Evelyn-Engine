@@ -35,7 +35,7 @@ sentence-transformers>=5.0   # Embedding model loader (for --compare benchmarks)
 
 PyYAML>=6.0,<7.0             # YAML parsing — fact extractor, consolidator,
                              #   pending reviewer, frontmatter processing
-requests>=2.32,<3.0          # HTTP client — vault map generator (sync calls)
+requests>=2.32,<3.0          # HTTP client — vault indexer (sync calls)
 
 ## Tools
 

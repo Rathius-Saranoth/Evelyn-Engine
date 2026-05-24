@@ -187,6 +187,20 @@ def init_db():
         con.execute("ALTER TABLE messages ADD COLUMN tools_used TEXT")
     except Exception:
         pass  # Column already exists
+        
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS message_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            prompt_eval_count INTEGER,
+            prompt_eval_duration REAL,
+            eval_count INTEGER,
+            eval_duration REAL,
+            total_duration REAL,
+            load_duration REAL,
+            FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+        )
+    """)
     con.commit()
     con.close()
 
@@ -280,12 +294,35 @@ def save_message_get_id(role: str, content: str, thinking: str = None, tools_use
     return row_id
 
 
-def update_message(row_id: int, content: str, thinking: str = None, tools_used: str = None):
-    """Update an existing message row's content, thinking, and tools_used."""
+def update_message(row_id: int, content: str, thinking: str = None, tools_used: str = None, tool_metadata: str = None):
+    """Update an existing message row's content, thinking, tools_used, and tool_metadata."""
     con = get_db()
     con.execute(
-        "UPDATE messages SET content = ?, thinking = ?, tools_used = ? WHERE id = ?",
-        (content, thinking, tools_used, row_id),
+        "UPDATE messages SET content = ?, thinking = ?, tools_used = ?, tool_metadata = ? WHERE id = ?",
+        (content, thinking, tools_used, tool_metadata, row_id),
+    )
+    con.commit()
+    con.close()
+
+
+def save_message_metrics(message_id: int, metrics: dict):
+    """Insert metrics for a given message."""
+    if not metrics:
+        return
+    con = get_db()
+    con.execute(
+        """INSERT INTO message_metrics 
+           (message_id, prompt_eval_count, prompt_eval_duration, eval_count, eval_duration, total_duration, load_duration)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            message_id,
+            metrics.get("prompt_eval_count"),
+            metrics.get("prompt_eval_duration"),
+            metrics.get("eval_count"),
+            metrics.get("eval_duration"),
+            metrics.get("total_duration"),
+            metrics.get("load_duration")
+        )
     )
     con.commit()
     con.close()
@@ -460,6 +497,7 @@ async def _stream_content(msgs: list[dict]):
     thinking_buf = ""
     content_buf = ""
     parse_buf = ""
+    metrics_dict = {}
     in_think = False
     OPEN_TAG = "<think>"
     CLOSE_TAG = "</think>"
@@ -558,6 +596,14 @@ async def _stream_content(msgs: list[dict]):
                             in_think = True
 
             if chunk.get("done"):
+                metrics_dict = {
+                    "prompt_eval_count": chunk.get("prompt_eval_count"),
+                    "prompt_eval_duration": chunk.get("prompt_eval_duration"),
+                    "eval_count": chunk.get("eval_count"),
+                    "eval_duration": chunk.get("eval_duration"),
+                    "total_duration": chunk.get("total_duration"),
+                    "load_duration": chunk.get("load_duration"),
+                }
                 if parse_buf:
                     if in_think:
                         thinking_buf += parse_buf
@@ -575,7 +621,7 @@ async def _stream_content(msgs: list[dict]):
         if not feeder.done():
             feeder.cancel()
 
-    yield f"data: {json.dumps({'type': '_state', 'content': content_buf, 'thinking': thinking_buf})}\n\n"
+    yield f"data: {json.dumps({'type': '_state', 'content': content_buf, 'thinking': thinking_buf, 'metrics': metrics_dict})}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -603,14 +649,16 @@ async def _process_chat_background(
     """
     content_buf = ""
     thinking_buf = ""
+    metrics_dict = {}
     tools_used_list = []
+    tool_metadata_list = []
 
     async def put(type_: str, **kw):
         await queue.put("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
 
     async def drain_stream(stream):
         """Iterate _stream_content, buffer state, and forward events to queue."""
-        nonlocal content_buf, thinking_buf
+        nonlocal content_buf, thinking_buf, metrics_dict
         async for event in stream:
             if event.startswith("data: "):
                 try:
@@ -618,6 +666,9 @@ async def _process_chat_background(
                     if d.get("type") == "_state":
                         content_buf = d["content"]
                         thinking_buf = d.get("thinking", "")
+                        metrics_dict = d.get("metrics", {})
+                        if metrics_dict:
+                            await put("metrics", **metrics_dict)
                         continue          # _state is internal bookkeeping only
                     if d.get("type") == "text":
                         content_buf += d.get("delta", "")
@@ -729,14 +780,25 @@ async def _process_chat_background(
                     result = tool_task.result()
                     
                     tool_entry = fn_name
+                    meta_entry = {"name": fn_name, "data": None}
+                    
                     if fn_name == "generate_image":
                         import re
                         m = re.search(r'(/images/[^\s\)]+)', result)
                         if m:
                             tool_entry = f"{fn_name}[{m.group(1)}]"
+                            meta_entry["data"] = {"path": m.group(1)}
+                            await put("tool_data", name=fn_name, data=m.group(1))
+                    elif fn_name == "write_journal_entry":
+                        import re
+                        m = re.search(r'entry: (Journal Entry [^\.]+\.md)', result)
+                        if m:
+                            tool_entry = f"{fn_name}[{m.group(1)}]"
+                            meta_entry["data"] = {"id": m.group(1)}
                             await put("tool_data", name=fn_name, data=m.group(1))
                             
                     tools_used_list.append(tool_entry)
+                    tool_metadata_list.append(meta_entry)
                     if cfg.DEBUG_TOOL_FULL:
                         print(
                             f"{_YEL}[TOOL RESULT]{_RST} {fn_name}\n"
@@ -791,13 +853,16 @@ async def _process_chat_background(
         # Always commit to DB — independent of whether SSE pipe is alive
         final_content = content_buf.strip()
         tools_str = ",".join(tools_used_list) if tools_used_list else None
+        tools_meta_str = json.dumps(tool_metadata_list) if tool_metadata_list else None
         if final_content:
             update_message(
                 assistant_row_id,
                 final_content,
                 thinking=thinking_buf if thinking_buf else None,
                 tools_used=tools_str,
+                tool_metadata=tools_meta_str
             )
+            save_message_metrics(assistant_row_id, metrics_dict)
         else:
             update_message(
                 assistant_row_id, "[Response interrupted -- please try again.]"
@@ -1045,14 +1110,24 @@ async def get_history(
     con = get_db()
     if before:
         rows = con.execute(
-            "SELECT id, role, content, thinking, tools_used, ts "
-            "FROM messages WHERE id < ? AND content != '' ORDER BY id DESC LIMIT ?",
+            """
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count
+            FROM messages m
+            LEFT JOIN message_metrics mm ON m.id = mm.message_id
+            WHERE m.id < ? AND m.content != ''
+            ORDER BY m.id DESC LIMIT ?
+            """,
             (before, limit),
         ).fetchall()
     else:
         rows = con.execute(
-            "SELECT id, role, content, thinking, tools_used, ts "
-            "FROM messages WHERE content != '' ORDER BY id DESC LIMIT ?",
+            """
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count
+            FROM messages m
+            LEFT JOIN message_metrics mm ON m.id = mm.message_id
+            WHERE m.content != ''
+            ORDER BY m.id DESC LIMIT ?
+            """,
             (limit,),
         ).fetchall()
     con.close()
@@ -1065,6 +1140,21 @@ async def get_history(
 async def delete_history(_: None = Depends(check_auth)):
     clear_history()
     return {"status": "cleared"}
+
+
+@app.get("/artifact")
+async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
+    if type == "journal":
+        from tools.journal_manager import read_journal_entry
+        import re
+        m = re.search(r'Journal Entry ([0-9\-]+)\.md', id)
+        if m:
+            content = read_journal_entry(m.group(1))
+            return {"content": content}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid journal ID")
+    else:
+        raise HTTPException(status_code=400, detail="Unknown artifact type")
 
 
 @app.post("/new_thread")
@@ -1150,7 +1240,7 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
 
     def _run():
         try:
-            script = str(BASE_DIR / "Vault_Map" / "generate_vault_map.py")
+            script = str(BASE_DIR / "Evelyn" / "tools" / "vault_indexer.py")
             print(f"{_GRN}[VAULT MAP]{_RST} Regeneration triggered via /vault_map endpoint", flush=True)
             result = subprocess.run(
                 [sys.executable, "-u", script],
@@ -1185,7 +1275,7 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
     """Trigger the unified Memory Refresh pipeline as an async subprocess.
 
     Sequentially runs:
-      Phase 1 — Vault Map generation (generate_vault_map.py)
+      Phase 1 — Vault Map generation (vault_indexer.py)
       Phase 2 — Core Knowledge ingest (ingest_obsidian_knowledge.py)
       Phase 3 — Gist ingest (ingest_gists.py)
 
@@ -1313,6 +1403,96 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Developer Web UI Endpoints
+# ---------------------------------------------------------------------------
+class EditEntryRequest(BaseModel):
+    observation: str = None
+
+@app.get("/api/review/extractions")
+async def get_extractions(_: None = Depends(check_auth)):
+    import Evelyn.tools.memory_db as memory_db
+    return memory_db.get_all_entries(statuses=["extracted"])
+
+@app.post("/api/review/extractions/{id}/{action}")
+async def action_extraction(id: int, action: str, req: EditEntryRequest = None, _: None = Depends(check_auth)):
+    import Evelyn.tools.memory_db as memory_db
+    if action == "approve":
+        memory_db.update_entry(id, status="live")
+    elif action == "delete":
+        memory_db.delete_entry(id)
+    elif action == "edit" and req and req.observation:
+        memory_db.update_entry(id, observation=req.observation, status="live")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    return {"status": "ok"}
+
+@app.get("/api/review/proposals")
+async def get_proposals(_: None = Depends(check_auth)):
+    import Evelyn.tools.memory_db as memory_db
+    proposals = memory_db.get_pending_proposals()
+    for p in proposals:
+        source_entries = []
+        for eid in p.get("source_ids", []):
+            entry = memory_db.get_entry(eid)
+            if entry:
+                source_entries.append(entry)
+        p["source_entries"] = source_entries
+    return proposals
+
+@app.post("/api/review/proposals/{id}/{action}")
+async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
+    import Evelyn.tools.memory_db as memory_db
+    if action == "deny":
+        memory_db.reject_proposal(id)
+        return {"status": "ok"}
+    elif action == "approve":
+        proposals = memory_db.get_pending_proposals()
+        prop = next((p for p in proposals if p["id"] == id), None)
+        if not prop:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+            
+        source_entries = []
+        for eid in prop.get("source_ids", []):
+            entry = memory_db.get_entry(eid)
+            if entry:
+                source_entries.append(entry)
+        
+        if prop["type"] == "recategorize":
+            for entry in source_entries:
+                memory_db.update_entry(entry["id"], category=prop["suggested_category"])
+            memory_db.apply_proposal(id)
+        elif prop["type"] in ("merge", "supersede"):
+            for entry in source_entries:
+                memory_db.delete_entry(entry["id"])
+            subject = source_entries[0]["subject"] if source_entries else "R"
+            date = source_entries[0]["date"] if source_entries else None
+            
+            if prop.get("merged_tags"):
+                merged_tags = prop["merged_tags"]
+            else:
+                merged_tags_set = set()
+                for entry in source_entries:
+                    if entry.get("tags"):
+                        for t in entry["tags"].split(","):
+                            if t.strip():
+                                merged_tags_set.add(t.strip())
+                merged_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
+            
+            memory_db.insert_entry(
+                category=prop["suggested_category"],
+                subject=subject,
+                observation=prop["merged_observation"],
+                source="consolidated",
+                date=date,
+                tags=merged_tags
+            )
+            memory_db.apply_proposal(id)
+        return {"status": "ok"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+
 
 if __name__ == "__main__":
     import uvicorn
