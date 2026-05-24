@@ -70,8 +70,7 @@ def init_db() -> None:
             source          TEXT NOT NULL DEFAULT 'manual',
             status          TEXT NOT NULL DEFAULT 'live',
             date            TEXT,
-            secondary_cats  TEXT,
-            original_file   TEXT,
+            tags            TEXT,
             created_at      REAL NOT NULL,
             updated_at      REAL
         )
@@ -82,11 +81,12 @@ def init_db() -> None:
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             type                TEXT NOT NULL,
             source_ids          TEXT NOT NULL,
-            verdict             TEXT,
             merged_observation  TEXT,
+            merged_tags         TEXT,
             suggested_category  TEXT,
             reason              TEXT,
             topic               TEXT,
+            confidence          TEXT NOT NULL DEFAULT 'medium',
             status              TEXT NOT NULL DEFAULT 'pending',
             created_at          REAL NOT NULL,
             reviewed_at         REAL
@@ -120,8 +120,7 @@ def insert_entry(
     source: str = "manual",
     status: str = "live",
     date: Optional[str] = None,
-    secondary_cats: Optional[str] = None,
-    original_file: Optional[str] = None,
+    tags: Optional[str] = None,
 ) -> int:
     """Insert a new context entry and return its row ID.
 
@@ -143,10 +142,10 @@ def insert_entry(
     cur = con.execute(
         """INSERT INTO context_entries
            (category, subject, observation, confidence, source, status,
-            date, secondary_cats, original_file, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            date, tags, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (category, subject, observation, confidence, source, status,
-         date, secondary_cats, original_file, time.time()),
+         date, tags, time.time()),
     )
     row_id = cur.lastrowid
     con.commit()
@@ -227,7 +226,7 @@ def update_entry(entry_id: int, **fields) -> bool:
     """
     valid_cols = {
         "category", "subject", "observation", "confidence", "source",
-        "status", "date", "secondary_cats", "original_file",
+        "status", "date", "tags",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -248,20 +247,18 @@ def update_entry(entry_id: int, **fields) -> bool:
 
 
 def delete_entry(entry_id: int) -> bool:
-    """Permanently delete a context entry by ID.
+    """Soft delete a context entry by ID.
+
+    Sets status='deleted' instead of removing the row. This allows
+    the Chroma garbage collector to naturally remove it from RAG.
 
     Args:
-        entry_id: Row ID of the entry to delete.
+        entry_id: Row ID of the entry to soft delete.
 
     Returns:
-        True if a row was deleted, False if not found.
+        True if a row was updated, False if not found.
     """
-    con = get_db()
-    cur = con.execute("DELETE FROM context_entries WHERE id = ?", (entry_id,))
-    con.commit()
-    affected = cur.rowcount
-    con.close()
-    return affected > 0
+    return update_entry(entry_id, status="deleted")
 
 
 def count_entries(status: Optional[str] = None) -> int:
@@ -389,11 +386,12 @@ def _extract_keywords(text: str) -> set[str]:
 def insert_proposal(
     type: str,
     source_ids: list[int],
-    verdict: Optional[str] = None,
     merged_observation: Optional[str] = None,
+    merged_tags: Optional[str] = None,
     suggested_category: Optional[str] = None,
     reason: Optional[str] = None,
     topic: Optional[str] = None,
+    confidence: str = "medium",
     status: str = "pending",
 ) -> int:
     """Insert a new proposal and return its row ID.
@@ -403,6 +401,7 @@ def insert_proposal(
         source_ids:          List of context_entry IDs involved.
         verdict:             Proposed action summary.
         merged_observation:  Proposed merged text (for merge/supersede).
+        merged_tags:         Proposed tags.
         suggested_category:  New category (for recategorize).
         reason:              LLM reasoning for the proposal.
         topic:               LLM-identified topic label.
@@ -413,12 +412,16 @@ def insert_proposal(
     """
     con = get_db()
     cur = con.execute(
-        """INSERT INTO proposals
-           (type, source_ids, verdict, merged_observation, suggested_category,
-            reason, topic, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (type, json.dumps(source_ids), verdict, merged_observation,
-         suggested_category, reason, topic, status, time.time()),
+        """
+        INSERT INTO proposals (
+            type, source_ids, merged_observation, merged_tags,
+            suggested_category, reason, topic, confidence, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            type, json.dumps(source_ids), merged_observation, merged_tags,
+            suggested_category, reason, topic, confidence, status, time.time()
+        ),
     )
     row_id = cur.lastrowid
     con.commit()

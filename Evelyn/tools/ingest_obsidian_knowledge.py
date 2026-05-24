@@ -30,6 +30,7 @@ for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 import chroma_rag  # noqa: E402
+import memory_db   # noqa: E402
 
 # Paths
 EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
@@ -146,6 +147,18 @@ def main():
             continue
         active_paths.add(fp)
 
+    # Fetch live SQLite context entries
+    try:
+        live_entries = memory_db.get_all_entries(statuses=["live"])
+        sqlite_entries_map = {}
+        for row in live_entries:
+            db_id = f"sqlite::context_entry::{row['id']}"
+            active_paths.add(db_id)
+            sqlite_entries_map[db_id] = row
+    except Exception as e:
+        print(f"Failed to query memory_db: {e}")
+        sqlite_entries_map = {}
+
     processed = skipped = cleaned = 0
 
     # Garbage collection
@@ -159,27 +172,48 @@ def main():
     print("Starting core memory sync...")
 
     for file_path in active_paths:
-        try:
-            mtime = os.path.getmtime(file_path)
-        except OSError:
-            continue
+        if file_path.startswith("sqlite::context_entry::"):
+            # It's a SQLite DB entry
+            row = sqlite_entries_map.get(file_path)
+            if not row:
+                continue
+            mtime = float(row.get("updated_at") or row.get("created_at") or 0)
+            
+            entry = state.get(file_path, {})
+            stored_mtime = entry.get("mtime", 0) if isinstance(entry, dict) else float(entry)
 
-        entry = state.get(file_path, {})
-        stored_mtime = entry.get("mtime", 0) if isinstance(entry, dict) else float(entry)
+            if stored_mtime >= mtime:
+                skipped += 1
+                continue
 
-        if stored_mtime >= mtime:
-            skipped += 1
-            continue
+            content = f"Date: {row['date'] or 'Unknown'}\nTags: {row.get('tags', '')}\nObservation: {row['observation']}"
+            rag_meta = {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
+            print(f"Ingesting DB Entry: {file_path}")
+            
+        else:
+            # It's a flat file
+            try:
+                mtime = os.path.getmtime(file_path)
+            except OSError:
+                continue
 
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-        except Exception as e:
-            print(f"Failed to read {file_path}: {e}")
-            continue
+            entry = state.get(file_path, {})
+            stored_mtime = entry.get("mtime", 0) if isinstance(entry, dict) else float(entry)
 
-        print(f"Ingesting: {os.path.basename(file_path)}")
-        rag_meta = parse_rag_frontmatter(content)
+            if stored_mtime >= mtime:
+                skipped += 1
+                continue
+
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception as e:
+                print(f"Failed to read {file_path}: {e}")
+                continue
+
+            print(f"Ingesting: {os.path.basename(file_path)}")
+            rag_meta = parse_rag_frontmatter(content)
+            
         if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,
                                            extra_metadata=rag_meta):
             state[file_path] = {"mtime": mtime}

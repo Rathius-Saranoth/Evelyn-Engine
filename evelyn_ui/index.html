@@ -269,6 +269,41 @@
     .btn-load-more:disabled {
       cursor: not-allowed; opacity: 0.5;
     }
+
+    /* Modal / Lightbox */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000; opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .modal-container {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); width: 90%; max-width: 800px;
+      max-height: 85vh; display: flex; flex-direction: column;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      transform: translateY(20px); transition: transform 0.2s ease;
+    }
+    .modal-overlay.open .modal-container { transform: translateY(0); }
+    .modal-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-title { font-weight: 500; font-size: 15px; }
+    .modal-close {
+      background: none; border: none; color: var(--text-dim);
+      font-size: 20px; cursor: pointer; transition: color 0.15s;
+    }
+    .modal-close:hover { color: #fff; }
+    .modal-content {
+      padding: 20px; overflow-y: auto; flex: 1;
+      font-size: 14px; line-height: 1.6;
+    }
+    .modal-content img { max-width: 100%; border-radius: 8px; }
+    .modal-content h1, .modal-content h2, .modal-content h3 { margin-top: 1em; margin-bottom: 0.5em; color: #fff; }
+    .modal-content p { margin-bottom: 1em; }
   </style>
 </head>
 <body>
@@ -291,10 +326,40 @@
     <textarea id="input" rows="1" placeholder="Message Evelyn…" autofocus></textarea>
     <button id="send-btn" title="Send">↑</button>
   </div>
-  <div class="input-hint">Enter to send · Shift+Enter for newline</div>
+  <div class="input-hint" style="display: flex; justify-content: space-between;">
+    <span>Enter to send · Shift+Enter for newline</span>
+    <span style="display: flex; gap: 12px; align-items: center;">
+      <a href="/ui/dev.html" title="Review Queue" style="text-decoration: none; color: var(--text-dim); font-size: 11px; transition: color 0.2s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-dim)'">⚙️ Dev UI</a>
+      <span id="telemetry" style="transition: color 0.3s; opacity: 0.8;"></span>
+    </span>
+  </div>
 </footer>
 
+<div class="modal-overlay" id="artifact-modal" onclick="closeModal(event)">
+  <div class="modal-container" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Artifact</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-content" id="modal-content"></div>
+  </div>
+</div>
+
 <script>
+// ---------------------------------------------------------------------------
+// ARCHITECTURE NOTE: Mobile Backgrounding & State Hydration
+// ---------------------------------------------------------------------------
+// Mobile browsers (iOS Safari, Chrome) will pause JS and kill active SSE/fetch
+// streams when this tab is backgrounded or the screen turns off. 
+// When the tab is resumed, recoverFromConnectionDrop() detects the dead 
+// stream and forces a full DOM rebuild via loadHistory().
+//
+// RULE: Any UI state driven by SSE events MUST have a fallback hydration path.
+// If you add a new streaming event (e.g. metrics, tool states, indicators), 
+// you must also ensure the backend /history endpoint serves that data, and 
+// that loadHistory() can parse it to reconstruct the exact UI state on reload.
+// ---------------------------------------------------------------------------
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -313,10 +378,24 @@ function escapeHtml(s) {
 }
 
 function renderMarkdown(text) {
-  // Minimal markdown: bold, inline code, line breaks
+  // Minimal markdown for chat bubbles
   return escapeHtml(text)
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function renderFullMarkdown(text) {
+  // Extended markdown for modals
+  let html = escapeHtml(text)
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  return `<p>${html}</p>`;
 }
 
 function scrollBottom() {
@@ -449,11 +528,18 @@ function addWriteBadges(wrap, usedTools, contentText = '') {
     if (t.name === 'generate_image') {
       let imgUrl = t.data;
       if (imgUrl) {
-        badge = document.createElement('a');
-        badge.href = imgUrl;
-        badge.target = '_blank';
-        badge.style.textDecoration = 'none';
-        badge.title = 'Click to open full image';
+        badge = document.createElement('button');
+        badge.onclick = () => openModal('image', imgUrl);
+        badge.style.cursor = 'pointer';
+      } else {
+        badge = document.createElement('span');
+      }
+    } else if (t.name === 'write_journal_entry') {
+      let docId = t.data;
+      if (docId) {
+        badge = document.createElement('button');
+        badge.onclick = () => openModal('journal', docId);
+        badge.style.cursor = 'pointer';
       } else {
         badge = document.createElement('span');
       }
@@ -468,6 +554,38 @@ function addWriteBadges(wrap, usedTools, contentText = '') {
   const actions = wrap.querySelector('.msg-actions');
   if (actions) wrap.insertBefore(container, actions);
   else wrap.appendChild(container);
+}
+
+// ---------------------------------------------------------------------------
+// Modals
+// ---------------------------------------------------------------------------
+async function openModal(type, id) {
+  const overlay = document.getElementById('artifact-modal');
+  const title = document.getElementById('modal-title');
+  const content = document.getElementById('modal-content');
+  
+  overlay.classList.add('open');
+  content.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-dim);">Loading...</div>';
+  
+  if (type === 'image') {
+    title.textContent = 'Generated Image';
+    content.innerHTML = `<img src="${id}" style="display:block; margin:0 auto;">`;
+  } else if (type === 'journal') {
+    title.textContent = id;
+    try {
+      const resp = await fetch(`${API_BASE}/artifact?type=journal&id=${encodeURIComponent(id)}`, { headers: headers() });
+      if (!resp.ok) throw new Error('Failed to load artifact from server');
+      const data = await resp.json();
+      content.innerHTML = renderFullMarkdown(data.content);
+    } catch (err) {
+      content.innerHTML = `<div style="color:#ff6666;">Error: ${err.message}</div>`;
+    }
+  }
+}
+
+function closeModal(e) {
+  if (e && e.target !== e.currentTarget && !e.target.classList.contains('modal-close')) return;
+  document.getElementById('artifact-modal').classList.remove('open');
 }
 
 // ---------------------------------------------------------------------------
@@ -544,6 +662,16 @@ async function recoverFromConnectionDrop(wrap) {
     }
   } catch { /* server unreachable — fall through to error bubble */ }
   return false;
+}
+
+function updateTelemetry(tokens) {
+  const el = document.getElementById('telemetry');
+  if (!el) return;
+  const max = 16384; // 16k context window
+  el.textContent = `Context: ${(tokens / 1000).toFixed(1)}k / 16k`;
+  if (tokens > max * 0.9) el.style.color = '#e86040'; // Red
+  else if (tokens > max * 0.75) el.style.color = '#e8b040'; // Amber
+  else el.style.color = 'var(--text-dim)'; // Normal
 }
 
 async function sendMessage() {
@@ -696,6 +824,10 @@ async function sendMessage() {
           scrollBottom();
         }
 
+        if (evt.type === 'metrics') {
+          updateTelemetry(evt.prompt_eval_count);
+        }
+
         if (evt.type === 'done') {
           if (cursorEl) cursorEl.remove();
           if (bubble) bubble.innerHTML = renderMarkdown(contentText);
@@ -828,6 +960,16 @@ async function loadHistory() {
       addRegenToUserMsg(allUser[allUser.length - 1]);
     }
     scrollBottom();
+    // Hydrate telemetry from the most recent assistant message
+    let latestTokens = 0;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].prompt_eval_count) {
+        latestTokens = msgs[i].prompt_eval_count;
+        break;
+      }
+    }
+    if (latestTokens > 0) updateTelemetry(latestTokens);
+
     // Update visibility-recovery cursor from loaded messages
     if (msgs.length > 0) {
       lastRenderedMsgId = Math.max(lastRenderedMsgId, msgs[msgs.length - 1].id);

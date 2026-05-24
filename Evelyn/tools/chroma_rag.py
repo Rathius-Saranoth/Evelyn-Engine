@@ -467,6 +467,13 @@ def build_rag_context(query: str) -> str:
     for chunk in all_context:
         src = os.path.basename(chunk["source"])
         pin_marker = " [primary source]" if chunk.get("pinned") else ""
-        parts.append(f"[{src}{pin_marker}]\n{chunk['content']}")
+        
+        # Intercept gist-based documents to strip out tags and search bloat
+        if "gist" in chunk.get("metadata", {}):
+            clean_content = chunk["metadata"]["gist"]
+        else:
+            clean_content = chunk["content"]
+            
+        parts.append(f"[{src}{pin_marker}]\n{clean_content}")
     parts.append("--- End Context ---")
     return "\n\n".join(parts)

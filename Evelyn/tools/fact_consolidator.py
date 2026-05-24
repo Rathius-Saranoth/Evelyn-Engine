@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-05-24 10:15:59
+# date modified: 2026-05-24 11:29:32
 
 """
 fact_consolidator.py — Idle-time context entry consolidation for Evelyn's memory system.
@@ -14,7 +14,6 @@ Architecture (top-to-bottom execution order):
   SECTION 0 — Infrastructure
     _extracting_elsewhere()             — Mutual-exclusion check against fact_extractor
     _heavy_tasks_running()              — Defer if vault-map / sync tasks are active
-    _ensure_pending_dir()               — Create Pending/ and write placeholder README
     _load_scan_state()                  — Restore per-category anchor pointers from disk
     _save_scan_state()                  — Persist anchor pointers after each pass
     _call_ollama()                      — Shared non-streaming Ollama call primitive
@@ -59,10 +58,9 @@ Architecture (top-to-bottom execution order):
     _build_pending_index()              — Index existing proposals to prevent re-runs
     _do_consolidation()                 — Core pipeline; called by run_consolidation()
 
-Output file types (both written to PENDING_DIR):
-  CONSOLIDATION_*.md   — Merge/supersede proposal for 2+ overlapping entries.
-                         source_date frontmatter = most-recent source entry date.
-  RECATEGORIZE_*.md    — Single-entry category move proposal. No LLM call needed.
+Output (written to SQLite memory DB):
+  CONSOLIDATION proposals   — Merge/supersede proposal for 2+ overlapping entries.
+  RECATEGORIZE proposals    — Single-entry category move proposal. No LLM call needed.
 
 Key behaviors:
   - CONSOLIDATION_KEEP_HISTORY (True)  — Preserve fact evolution in merged summaries
@@ -186,33 +184,7 @@ def _heavy_tasks_running() -> bool:
     return False
 
 
-def _ensure_pending_dir() -> None:
-    """Create PENDING_DIR and write a placeholder README if it doesn't exist.
 
-    The placeholder prevents sync tools (Google Drive, Obsidian Sync) from
-    removing the folder when it has no proposal files in it.
-    """
-    importlib.reload(cfg)
-    pending_dir = cfg.PENDING_DIR
-    os.makedirs(pending_dir, exist_ok=True)
-
-    readme_path = os.path.join(pending_dir, "_README.md")
-    if not os.path.exists(readme_path):
-        try:
-            with open(readme_path, "w", encoding="utf-8") as f:
-                f.write(
-                    "# Consolidation Proposals\n\n"
-                    "This folder contains automatically generated consolidation "
-                    "proposal files created by `fact_consolidator.py`.\n\n"
-                    "Each `CONSOLIDATION_*.md` file describes potential duplicates "
-                    "or conflicts found in the live context entries, with a "
-                    "recommended merge/supersede action.\n\n"
-                    "**To use:** Review each proposal, apply or skip the "
-                    "recommendation, then delete the proposal file.\n"
-                )
-            print("[CONSOLIDATOR] Created PENDING_DIR placeholder README.", flush=True)
-        except OSError as e:
-            print(f"[CONSOLIDATOR] Warning: could not write README: {e}", flush=True)
 
 
 def _load_scan_state() -> None:
@@ -482,7 +454,7 @@ def scan_context_entries() -> list[dict]:
             "subject": row["subject"],
             "date": entry_date,
             "summary": row["observation"],
-            "filename": row.get("original_file") or f"Entry_{row['id']}",
+            "filename": f"Entry_{row['id']}",
         })
         category_counts[cat] = category_counts.get(cat, 0) + 1
 
@@ -1146,6 +1118,8 @@ Output ONLY a YAML block:
 ```yaml
 verdict: supersede   # supersede / merge / keep_both
 merged_summary: "The consolidated fact as a single clear sentence."
+merged_tags: "kw/tag1, kw/tag2" # comma-separated semantic tags starting with kw/
+confidence: high     # high / medium / low
 reasoning: "Brief explanation of the verdict."
 ```\
 """
@@ -1235,6 +1209,8 @@ def _parse_proposal_yaml(raw: str, category: str) -> dict | None:
     return {
         "verdict": verdict,
         "merged_summary": str(data.get("merged_summary", "")).strip(),
+        "merged_tags": str(data.get("merged_tags", "")).strip(),
+        "confidence": str(data.get("confidence", "medium")).strip().lower(),
         "target_category": str(data.get("target_category", category)).strip(),
         "reasoning": str(data.get("reasoning", "")).strip(),
     }
@@ -1265,17 +1241,53 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
 
     source_ids = [r["id"] for r in records]
 
+    confidence = proposal.get("confidence", "medium")
+    
+    # Auto-apply if confidence is high
+    status = "auto_applied" if confidence == "high" else "pending"
+
     try:
         pid = memory_db.insert_proposal(
             type=verdict,
             source_ids=source_ids,
-            verdict=verdict,
             merged_observation=merged,
+            merged_tags=proposal.get("merged_tags"),
             suggested_category=target_cat,
             reason=reasoning,
             topic=topic,
-            status="pending"
+            confidence=confidence,
+            status=status
         )
+        
+        # If auto-applied, perform the merge immediately
+        if status == "auto_applied":
+            for sid in source_ids:
+                memory_db.delete_entry(sid)
+            
+            # Union tags for fallback
+            merged_tags_set = set()
+            for r in records:
+                if r.get("tags"):
+                    for t in r["tags"].split(","):
+                        if t.strip():
+                            merged_tags_set.add(t.strip())
+            fallback_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
+            final_tags = proposal.get("merged_tags") or fallback_tags
+            
+            subject = records[0]["subject"] if records else "R"
+            date = records[0]["date"] if records else None
+            
+            memory_db.insert_entry(
+                category=target_cat,
+                subject=subject,
+                observation=merged,
+                source="consolidated",
+                date=date,
+                tags=final_tags
+            )
+            print(f"[CONSOLIDATOR] Auto-applied merge (Proposal {pid})", flush=True)
+            return str(pid)
+
         print(f"[CONSOLIDATOR] Proposal created: ID {pid} ({verdict})", flush=True)
         return str(pid)
     except Exception as e:
@@ -1316,7 +1328,6 @@ def _write_recategorization_proposal(
         pid = memory_db.insert_proposal(
             type="recategorize",
             source_ids=[record["id"]],
-            verdict="recategorize",
             suggested_category=suggested,
             reason=reason,
             topic=topic,

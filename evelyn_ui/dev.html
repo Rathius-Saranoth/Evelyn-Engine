@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evelyn - Dev UI</title>
+  <link rel="icon" type="image/x-icon" href="/ui/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d0d12;
+      --surface: #13131c;
+      --surface2: #1a1a28;
+      --border: #2a2a40;
+      --accent: #7c6af7;
+      --text: #e8e8f0;
+      --text-dim: #8888aa;
+      --success: #34d399;
+      --danger: #f87171;
+      --warning: #fbbf24;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Inter', sans-serif; font-size: 15px;
+      line-height: 1.5; padding-bottom: 50px;
+    }
+    header {
+      padding: 16px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10;
+    }
+    h1 { font-size: 18px; font-weight: 500; }
+    .back-btn {
+      color: var(--text-dim); text-decoration: none; font-size: 14px;
+      background: var(--surface2); padding: 6px 12px; border-radius: 6px; transition: color 0.2s;
+    }
+    .back-btn:hover { color: #fff; }
+    
+    .tabs {
+      display: flex; gap: 8px; padding: 16px 20px; background: var(--bg);
+    }
+    .tab-btn {
+      background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border);
+      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
+      transition: all 0.2s; flex: 1; text-align: center;
+    }
+    .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    
+    main { padding: 0 20px; max-width: 800px; margin: 0 auto; }
+    
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 12px;
+    }
+    .card-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-dim); }
+    .badge { background: var(--surface2); padding: 2px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge.recategorize { color: var(--warning); }
+    .badge.merge { color: var(--accent); }
+    .badge.extraction { color: var(--success); }
+    
+    .card-body { font-size: 15px; }
+    .card-body textarea {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; resize: vertical; min-height: 80px;
+    }
+    
+    .source-list {
+      background: var(--surface2); border-radius: 8px; padding: 12px;
+      font-size: 13px; color: var(--text-dim); margin-top: 8px;
+    }
+    .source-item { padding: 4px 0; border-bottom: 1px solid var(--border); }
+    .source-item:last-child { border-bottom: none; }
+    
+    .card-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .btn {
+      flex: 1; padding: 10px; border: none; border-radius: 8px; cursor: pointer;
+      font-weight: 500; font-size: 14px; transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.8; }
+    .btn-approve { background: var(--success); color: #000; }
+    .btn-reject { background: var(--danger); color: #000; }
+    .btn-edit { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Review Queue</h1>
+    <a href="/ui/" class="back-btn">← Back to Chat</a>
+  </header>
+  
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-extractions" onclick="switchTab('extractions')">Extractions (<span id="count-ext">0</span>)</button>
+    <button class="tab-btn" id="tab-proposals" onclick="switchTab('proposals')">Proposals (<span id="count-prop">0</span>)</button>
+  </div>
+  
+  <main id="container">
+    <div class="empty-state">Loading...</div>
+  </main>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const API_KEY = localStorage.getItem('evelyn_api_key') || '';
+    let currentTab = 'extractions';
+    let extractions = [];
+    let proposals = [];
+
+    function headers() {
+      return { 'Content-Type': 'application/json', 'X-Evelyn-Key': API_KEY };
+    }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function loadData() {
+      try {
+        const [resExt, resProp] = await Promise.all([
+          fetch(`${API_BASE}/api/review/extractions`, { headers: headers() }),
+          fetch(`${API_BASE}/api/review/proposals`, { headers: headers() })
+        ]);
+        if (resExt.ok) extractions = await resExt.json();
+        if (resProp.ok) proposals = await resProp.json();
+        
+        document.getElementById('count-ext').textContent = extractions.length;
+        document.getElementById('count-prop').textContent = proposals.length;
+        
+        render();
+      } catch (e) {
+        document.getElementById('container').innerHTML = `<div class="empty-state">Error loading data.</div>`;
+      }
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('tab-extractions').classList.toggle('active', tab === 'extractions');
+      document.getElementById('tab-proposals').classList.toggle('active', tab === 'proposals');
+      render();
+    }
+
+    async function handleAction(type, id, action) {
+      const endpoint = `${API_BASE}/api/review/${type}/${id}/${action}`;
+      let body = null;
+      
+      if (action === 'edit' && type === 'extractions') {
+        const obs = document.getElementById(`obs-${id}`).value;
+        body = JSON.stringify({ observation: obs });
+      }
+      
+      try {
+        const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
+        if (res.ok) {
+          if (type === 'extractions') {
+            extractions = extractions.filter(x => x.id !== id);
+            document.getElementById('count-ext').textContent = extractions.length;
+          } else {
+            proposals = proposals.filter(x => x.id !== id);
+            document.getElementById('count-prop').textContent = proposals.length;
+          }
+          render();
+        } else {
+          alert('Action failed.');
+        }
+      } catch (e) {
+        alert('Network error.');
+      }
+    }
+
+    function handleEditInput(id) {
+      const item = extractions.find(x => x.id === id);
+      const obs = document.getElementById(`obs-${id}`).value;
+      const isDirty = (obs !== item.observation);
+      
+      document.getElementById(`btn-approve-${id}`).style.display = isDirty ? 'none' : 'block';
+      document.getElementById(`btn-edit-${id}`).style.display = isDirty ? 'block' : 'none';
+      document.getElementById(`btn-revert-${id}`).style.display = isDirty ? 'block' : 'none';
+    }
+
+    function handleRevert(id) {
+      const item = extractions.find(x => x.id === id);
+      const textarea = document.getElementById(`obs-${id}`);
+      textarea.value = item.observation;
+      handleEditInput(id);
+    }
+
+    function render() {
+      const container = document.getElementById('container');
+      const data = currentTab === 'extractions' ? extractions : proposals;
+      
+      if (data.length === 0) {
+        container.innerHTML = `<div class="empty-state">All caught up! No ${currentTab} to review.</div>`;
+        return;
+      }
+
+      container.innerHTML = data.map(item => {
+        if (currentTab === 'extractions') {
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span class="badge extraction">${item.category}</span>
+                <span>${item.date}</span>
+              </div>
+              <div class="card-body">
+                <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})">${escapeHtml(item.observation)}</textarea>
+              </div>
+              <div class="card-actions">
+                <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve')">Approve</button>
+                <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit')">Save Edit</button>
+                <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})">Revert</button>
+                <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete')">Delete</button>
+              </div>
+            </div>
+          `;
+        } else {
+          // Proposals
+          const sourcesHTML = item.source_entries.map(s => `
+            <div class="source-item"><strong>[${s.category}]</strong> ${s.observation}</div>
+          `).join('');
+          
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span class="badge ${item.type}">${item.type}</span>
+                <span>ID: ${item.id}</span>
+              </div>
+              <div class="card-body">
+                <div style="color: var(--text-dim); font-size: 13px; margin-bottom: 8px;">Reason: ${item.reason}</div>
+                ${item.type === 'recategorize' 
+                  ? `<div>Move to <strong>${item.suggested_category}</strong></div>` 
+                  : `<div><strong>Merged text:</strong><br>${item.merged_observation}</div><div style="margin-top:4px;"><strong>Target Category:</strong> ${item.suggested_category}</div>`
+                }
+                <div class="source-list">${sourcesHTML}</div>
+              </div>
+              <div class="card-actions">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+              </div>
+            </div>
+          `;
+        }
+      }).join('');
+    }
+
+    // Keyboard shortcuts for first card
+    document.addEventListener('keydown', (e) => {
+      // Ignore if typing in textarea
+      if (e.target.tagName === 'TEXTAREA') return;
+      
+      const items = currentTab === 'extractions' ? extractions : proposals;
+      if (items.length === 0) return;
+      
+      const firstId = items[0].id;
+      if (e.key.toLowerCase() === 'a') {
+        handleAction(currentTab, firstId, 'approve');
+      } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'd') {
+        handleAction(currentTab, firstId, currentTab === 'extractions' ? 'delete' : 'deny');
+      }
+    });
+
+    // Init
+    loadData();
+  </script>
+</body>
+</html>
