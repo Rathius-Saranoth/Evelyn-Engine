@@ -152,7 +152,7 @@ C:\Projects\LocalAI\             # Project root
 │   ├── persona\                 # System prompt, directives
 │   ├── tools\                   # All Python tools
 │   └── workflows\               # ComfyUI workflow JSONs
-├── Vault_Map\                   # Vault map generator + data
+├── data\                        # SQLite databases (chat, context, vault)
 ├── evelyn_ui\                   # Chat web UI (HTML + favicon)
 └── reference\                   # System specs, benchmarks
 ```
