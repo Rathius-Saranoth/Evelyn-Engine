@@ -718,7 +718,6 @@ async def _process_chat_background(
                             fn_args = {}
 
                     await put("tool", name=fn_name)
-                    tools_used_list.append(fn_name)
                     dlog(f"Dispatching tool: {fn_name}({fn_args})")
 
                     tool_task = loop.run_in_executor(
@@ -728,6 +727,16 @@ async def _process_chat_background(
                         await queue.put('data: {"type":"heartbeat"}\n\n')
                         await asyncio.sleep(1.0)
                     result = tool_task.result()
+                    
+                    tool_entry = fn_name
+                    if fn_name == "generate_image":
+                        import re
+                        m = re.search(r'(/images/[^\s\)]+)', result)
+                        if m:
+                            tool_entry = f"{fn_name}[{m.group(1)}]"
+                            await put("tool_data", name=fn_name, data=m.group(1))
+                            
+                    tools_used_list.append(tool_entry)
                     if cfg.DEBUG_TOOL_FULL:
                         print(
                             f"{_YEL}[TOOL RESULT]{_RST} {fn_name}\n"

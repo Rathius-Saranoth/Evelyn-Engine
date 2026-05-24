@@ -436,18 +436,21 @@ const WRITE_TOOLS = {
 };
 
 function addWriteBadges(wrap, usedTools, contentText = '') {
-  const writesUsed = usedTools.filter(t => WRITE_TOOLS[t]);
+  const writesUsed = usedTools.map(tstr => {
+    const match = tstr.match(/^([^\[]+)(?:\[(.*?)\])?$/);
+    return match ? { name: match[1], data: match[2] } : { name: tstr, data: null };
+  }).filter(t => WRITE_TOOLS[t.name]);
+
   if (writesUsed.length === 0) return;
   const container = document.createElement('div');
   container.className = 'write-badges';
   for (const t of writesUsed) {
     let badge;
-    if (t === 'generate_image') {
-      // Try to extract the image URL from the markdown
-      const match = contentText.match(/!\[.*?\]\((.*?)\)/);
-      if (match) {
+    if (t.name === 'generate_image') {
+      let imgUrl = t.data;
+      if (imgUrl) {
         badge = document.createElement('a');
-        badge.href = match[1];
+        badge.href = imgUrl;
         badge.target = '_blank';
         badge.style.textDecoration = 'none';
         badge.title = 'Click to open full image';
@@ -458,7 +461,7 @@ function addWriteBadges(wrap, usedTools, contentText = '') {
       badge = document.createElement('span');
     }
     badge.className = 'write-badge';
-    badge.textContent = `${WRITE_TOOLS[t].icon} ${WRITE_TOOLS[t].label}`;
+    badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
     container.appendChild(badge);
   }
   // Insert before msg-actions (TTS/regen) if present, otherwise append
@@ -655,6 +658,13 @@ async function sendMessage() {
           setStatus((toolLabels[evt.name] || evt.name) + '…');
           usedTools.push(evt.name);
           scrollBottom();
+        }
+
+        if (evt.type === 'tool_data') {
+          const idx = usedTools.indexOf(evt.name);
+          if (idx !== -1) {
+            usedTools[idx] = `${evt.name}[${evt.data}]`;
+          }
         }
 
         if (evt.type === 'text') {
