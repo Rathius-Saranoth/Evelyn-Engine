@@ -35,7 +35,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 
 - [x] Migrate TTS to the robust Chatterbox (F5-TTS/Matcha) local engine, supporting natural phrasing, voice cloning, and dynamic emotion/expression tags.
 - [x] Port image generation from legacy multi-field ComfyUI websockets to a standalone, on-demand FLUX.1 [schnell] NF4 FastAPI server (port 5055) with lazy-loading, sequential CPU offloading, and auto-unload on idle (120s) to guarantee zero VRAM impact on coexisting services.
-- [x] Implement Speech-to-Text (STT).
+- [ ] **Implement Expressive Speech-to-Text (STT)**: Go beyond basic transcription (currently handled via phone OS keyboard) and integrate a local STT engine capable of extracting vocal nuance tags (pitch, stress, hesitation) so Evelyn can 'hear' the emotion behind the words.
 - [x] Implement time awareness via date/time injection in `evelyn_server.py`'s `load_system_prompt()` + behavioral directive.
 - [ ] Explore Google Drive File Integration.
 - [ ] Implement scheduling and reminders.
