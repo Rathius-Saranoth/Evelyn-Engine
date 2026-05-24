@@ -101,7 +101,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Visuals**: Add v-tuber style avatar and animation system.
 - [ ] **Awareness**: Add real-time visual awareness.
 - [ ] **XR**: Add VR/AR integration.
-- [ ] **Voice Nuance**: Explore and implement TTS emotional tags (Qwen3 TTS).
+
 - [x] **Web Search Tool**: Build a custom `search_web` tool backed by DuckDuckGo Search (ddgs). Register it in `evelyn_tools.py` with a tight trigger docstring — fires only for current events / public info not in the vault. Include a chunk-and-summarize step before injecting results into context to prevent overflow.
 - [ ] **Research Mode**: A separate model config or `evelyn_server.py` route that bundles web search + a different retrieval priority order — useful for looking things up vs. Evelyn's normal memory-first conversation mode.
 - [ ] **Formal Tool Metadata schema**: Add a `tool_metadata` JSON column to the SQLite `messages` table. Instead of string-hacking tool outputs into the `tools_used` column, store a structured key-value map mapping tool executions to their raw output file names/identifiers (e.g., `{"write_journal_entry": "2026-05-23.md"}`).
