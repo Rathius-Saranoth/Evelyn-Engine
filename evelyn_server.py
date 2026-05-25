@@ -1145,7 +1145,7 @@ async def delete_history(_: None = Depends(check_auth)):
 @app.get("/artifact")
 async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
     if type == "journal":
-        from tools.journal_manager import read_journal_entry
+        from Evelyn.tools.journal_manager import read_journal_entry
         import re
         m = re.search(r'Journal Entry ([0-9\-]+)\.md', id)
         if m:
