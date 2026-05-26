@@ -590,7 +590,25 @@ async function openModal(type, id) {
       const resp = await fetch(`${API_BASE}/artifact?type=journal&id=${encodeURIComponent(id)}`, { headers: headers() });
       if (!resp.ok) throw new Error('Failed to load artifact from server');
       const data = await resp.json();
-      content.innerHTML = renderFullMarkdown(data.content);
+      
+      let markdownHTML = renderFullMarkdown(data.content);
+      
+      if (data.status === 'pending') {
+        const approveBar = `
+          <div id="journal-approve-bar" style="display: flex; gap: 8px; margin-bottom: 16px; padding: 12px; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 13px; color: #fbbf24; font-weight: 500;">Draft pending review. Ready to file in Obsidian Vault?</span>
+            <button class="write-badge" id="approve-journal-btn" style="cursor: pointer; background: #fbbf24; color: #000; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" onclick="approveJournalEntry('${id}')">Approve & File Entry</button>
+          </div>
+        `;
+        content.innerHTML = approveBar + markdownHTML;
+      } else {
+        const approvedBadge = `
+          <div style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 4px 10px; background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3); border-radius: 6px; font-size: 12px; color: #34d399; font-weight: 600;">
+            ✓ Filed in Vault
+          </div>
+        `;
+        content.innerHTML = approvedBadge + markdownHTML;
+      }
     } catch (err) {
       content.innerHTML = `<div style="color:#ff6666;">Error: ${err.message}</div>`;
     }
@@ -610,6 +628,54 @@ async function openModal(type, id) {
 function closeModal(e) {
   if (e && e.target !== e.currentTarget && !e.target.classList.contains('modal-close')) return;
   document.getElementById('artifact-modal').classList.remove('open');
+}
+
+async function approveJournalEntry(id) {
+  const btn = document.getElementById('approve-journal-btn');
+  if (!btn) return;
+  
+  btn.disabled = true;
+  btn.textContent = 'Filing...';
+  btn.style.opacity = 0.5;
+  btn.style.cursor = 'not-allowed';
+  
+  try {
+    const resp = await fetch(`${API_BASE}/journal/approve`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ id })
+    });
+    
+    if (resp.ok) {
+      const data = await resp.json();
+      const bar = document.getElementById('journal-approve-bar');
+      if (bar) {
+        bar.style.background = 'rgba(52,211,153,0.1)';
+        bar.style.borderColor = 'rgba(52,211,153,0.3)';
+        bar.innerHTML = `
+          <span style="font-size: 13px; color: #34d399; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+            ✓ Entry approved and successfully filed in vault!
+          </span>
+        `;
+      }
+      if (typeof updateDevUIBadge === 'function') {
+        updateDevUIBadge();
+      }
+    } else {
+      const err = await resp.text();
+      alert('Failed to approve journal entry: ' + err);
+      btn.disabled = false;
+      btn.textContent = 'Approve & File Entry';
+      btn.style.opacity = 1;
+      btn.style.cursor = 'pointer';
+    }
+  } catch (err) {
+    alert('Network error approving entry: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Approve & File Entry';
+    btn.style.opacity = 1;
+    btn.style.cursor = 'pointer';
+  }
 }
 
 // ---------------------------------------------------------------------------
