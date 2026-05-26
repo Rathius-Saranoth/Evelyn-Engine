@@ -1,5 +1,8 @@
 ---
 title: docstring_guide.md
+date created: 2026-03-14 22:22:20
+date modified: 2026-05-25 19:57:17
+tags: markdown, reference, docstring, guide, formatting
 ---
 
 # The Docstring Guide: LLMs, Agents, and Best Practices

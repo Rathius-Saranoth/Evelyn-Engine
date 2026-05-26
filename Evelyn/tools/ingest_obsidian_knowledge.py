@@ -1,6 +1,7 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-24 10:28:03
+# date modified: 2026-05-24 12:01:05
+# tags: obsidian, ingest, knowledge, sync, pipeline
 
 """
 ingest_obsidian_knowledge.py — Syncs Evelyn's core memory files into Chroma.

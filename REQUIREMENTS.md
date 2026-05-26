@@ -1,9 +1,10 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-05-17 14:06:09
-tags: 
+date modified: 2026-05-25 19:39:13
+tags: requirements, dependencies, system, hardware, environment
 ---
+
 # Evelyn Engine — Full System Requirements
 
 > [!IMPORTANT]

@@ -1,7 +1,11 @@
+# tts_server.py
+# date created: 2026-05-22 21:36:21
+# date modified: 2026-05-25 19:45:18
+# tags: tts, chatterbox, audio, fastapi, server
+
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
 
-Replaces the old qwen_tts_server.py ComfyUI proxy with a direct model inference
-server. Uses ChatterboxTurboTTS which supports paralinguistic tags ([laugh],
+Uses ChatterboxTurboTTS which supports paralinguistic tags ([laugh],
 [sigh], [chuckle], etc.) with context-aware emotional delivery.
 
 API contract (OpenAI-compatible):

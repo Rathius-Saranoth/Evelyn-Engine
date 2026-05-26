@@ -1,3 +1,8 @@
+# evelyn_server.py
+# date created: 2026-03-23 15:43:21
+# date modified: 2026-05-25 19:40:06
+# tags: server, fastAPI, RAG, async, backend
+
 """
 evelyn_server.py — Custom Evelyn backend server.
 
@@ -11,10 +16,6 @@ FastAPI app providing:
 Auth: X-Evelyn-Key header checked against EVELYN_API_KEY env var.
 Run: python evelyn_server.py
 """
-
-# evelyn_server.py
-# date created: 2026-03-23 15:43:21
-# date modified: 2026-05-17 22:18:07
 
 import asyncio
 import json

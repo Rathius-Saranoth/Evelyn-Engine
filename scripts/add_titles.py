@@ -1,5 +1,8 @@
 
 # add_titles.py
+# date created: 2026-05-17 13:41:00
+# date modified: 2026-05-19 20:39:53
+# tags: titles, header, frontmatter, automation, script
 
 import os
 import re

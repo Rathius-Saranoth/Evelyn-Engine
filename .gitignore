@@ -28,6 +28,9 @@ openapi.json
 .vscode/settings.json
 .DS_Store
 Thumbs.db
+.prettierignore
+.prettierrc.json
+
 
 # --- SSL Certs (machine-specific) ---
 *.crt

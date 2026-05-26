@@ -1,3 +1,8 @@
+# evelyn_tools.py
+# date created: 2026-03-23 15:38:53
+# date modified: 2026-05-25 19:54:05
+# tags: tools, definitions, schema, dispatch, models
+
 """
 evelyn_tools.py — Evelyn's tool definitions in standard OpenAI function-calling format.
 
@@ -10,10 +15,6 @@ The TOOL_FUNCTIONS dict maps tool name → callable for the dispatcher in evelyn
 
 All tool logic uses standard function signatures for Ollama's function-calling API.
 """
-
-# evelyn_tools.py
-# date created: 2026-03-23 15:38:53
-# date modified: 2026-05-24 11:06:58
 
 import sys
 import os
