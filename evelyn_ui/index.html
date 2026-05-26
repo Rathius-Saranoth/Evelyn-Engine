@@ -1499,22 +1499,50 @@ if (!API_KEY && window.location.hostname !== 'localhost' && window.location.host
 // Init
 loadHistory();
 
-async function checkActiveResearch() {
+async function updateDevUIBadge() {
   try {
-    const resp = await fetch(`${API_BASE}/research/list`, { headers: headers() });
-    if (!resp.ok) return;
-    const tasks = await resp.json();
-    const active = tasks.some(t => t.status === 'running' || ['plan', 'search', 'extract', 'evaluate', 'synthesize'].includes(t.status));
+    const [resResearch, resExt, resProp] = await Promise.all([
+      fetch(`${API_BASE}/research/list`, { headers: headers() }),
+      fetch(`${API_BASE}/api/review/extractions`, { headers: headers() }),
+      fetch(`${API_BASE}/api/review/proposals`, { headers: headers() })
+    ]);
+    
+    let activeResearch = false;
+    let pendingReviews = false;
+    
+    if (resResearch.ok) {
+      const tasks = await resResearch.json();
+      activeResearch = tasks.some(t => t.status === 'running' || ['plan', 'search', 'extract', 'evaluate', 'synthesize'].includes(t.status));
+    }
+    
+    if (resExt.ok && resProp.ok) {
+      const extractions = await resExt.json();
+      const proposals = await resProp.json();
+      pendingReviews = (extractions.length > 0 || proposals.length > 0);
+    }
+    
     const pulse = document.getElementById('research-pulse');
     if (pulse) {
-      pulse.style.display = active ? 'inline-block' : 'none';
+      if (activeResearch) {
+        pulse.style.display = 'inline-block';
+        pulse.style.background = 'var(--accent)';
+        pulse.style.boxShadow = '0 0 6px var(--accent)';
+        pulse.style.animation = 'pulse-research 1.5s infinite';
+      } else if (pendingReviews) {
+        pulse.style.display = 'inline-block';
+        pulse.style.background = '#fbbf24';
+        pulse.style.boxShadow = 'none';
+        pulse.style.animation = 'none';
+      } else {
+        pulse.style.display = 'none';
+      }
     }
   } catch (e) {
-    // Ignore network/connection issues during polling
+    // Ignore network issues
   }
 }
-checkActiveResearch();
-setInterval(checkActiveResearch, 15000);
+updateDevUIBadge();
+setInterval(updateDevUIBadge, 15000);
 
 </script>
 </body>
