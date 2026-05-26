@@ -452,6 +452,8 @@
         }).join('');
         
       } else if (currentTab === 'research') {
+        const hasForm = !!document.getElementById('research-query');
+        
         let formHTML = `
           <div class="research-form">
             <input type="text" id="research-query" placeholder="Enter deep research topic or question..." />
@@ -462,69 +464,124 @@
             </select>
             <button onclick="startResearchTask()">Launch Research</button>
           </div>
+          <div class="research-filters" style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+            <input type="text" id="research-search" placeholder="🔍 Filter research by topic..." style="flex: 1; min-width: 150px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+            <select id="research-sort" style="background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none; min-width: 130px;">
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="alpha">Alphanumeric</option>
+            </select>
+          </div>
+          <div id="research-list-container"></div>
         `;
         
-        if (researchTasks.length === 0) {
-          container.innerHTML = formHTML + `<div class="empty-state">No research investigations launched yet. Enter a topic above!</div>`;
-          return;
+        let savedSearch = '';
+        let savedSort = 'newest';
+        
+        if (!hasForm) {
+          container.innerHTML = formHTML;
+          document.getElementById('research-search').addEventListener('input', renderResearchList);
+          document.getElementById('research-sort').addEventListener('change', renderResearchList);
+        } else {
+          savedSearch = document.getElementById('research-search').value;
+          savedSort = document.getElementById('research-sort').value;
         }
         
-        let listHTML = researchTasks.map(task => {
-          const finished = task.finished_at ? new Date(task.finished_at * 1000).toLocaleString() : '';
-          const created = task.created_at ? new Date(task.created_at).toLocaleString() : '';
-          
-          let progressVal = 0;
-          let statusText = task.status || 'pending';
-          let stepText = task.current_step || 'plan';
-          
-          if (statusText === 'done') {
-            progressVal = 100;
-          } else if (statusText === 'error' || statusText === 'cancelled') {
-            progressVal = 100;
-          } else {
-            if (stepText === 'plan') progressVal = 15;
-            else if (stepText === 'search') progressVal = 45;
-            else if (stepText === 'evaluate') progressVal = 75;
-            else if (stepText === 'synthesize') progressVal = 90;
-          }
-          
-          let actionButtons = '';
-          if (statusText === 'done') {
-            actionButtons = `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`;
-          } else if (statusText !== 'error' && statusText !== 'cancelled') {
-            actionButtons = `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`;
-          }
-          
-          return `
-            <div class="card">
-              <div class="card-header">
-                <span class="badge ${statusText}">${statusText}</span>
-                <span>Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
-              </div>
-              <div class="card-body">
-                <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(task.query)}</h3>
-                <div style="font-size: 13px; color: var(--text-dim); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 6px;">
-                  <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
-                  <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
-                  <span>Turns: <strong>${task.orchestrator_turns || 0}</strong></span>
-                  <span>Confidence: <strong>${task.confidence_score !== undefined ? (task.confidence_score * 100).toFixed(0) + '%' : 'N/A'}</strong></span>
-                  <span>Sources: <strong>${task.sources_processed || 0}</strong></span>
-                </div>
-                ${statusText !== 'done' && statusText !== 'error' && statusText !== 'cancelled' ? `
-                  <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: ${progressVal}%;"></div>
-                  </div>
-                ` : ''}
-                ${task.error ? `<div style="color: var(--danger); font-size: 13px; margin-top: 6px; background: rgba(248,113,113,0.05); padding: 8px; border-radius: 6px; border: 1px solid rgba(248,113,113,0.15);">${escapeHtml(task.error)}</div>` : ''}
-              </div>
-              <div class="card-actions">
-                ${actionButtons}
-              </div>
-            </div>
-          `;
-        }).join('');
+        renderResearchList();
         
-        container.innerHTML = formHTML + listHTML;
+        function renderResearchList() {
+          const queryVal = document.getElementById('research-search') ? document.getElementById('research-search').value.trim().toLowerCase() : '';
+          const sortBy = document.getElementById('research-sort') ? document.getElementById('research-sort').value : 'newest';
+          
+          let filtered = [...researchTasks];
+          
+          if (queryVal) {
+            filtered = filtered.filter(task => 
+              (task.query || '').toLowerCase().includes(queryVal) ||
+              (task.error || '').toLowerCase().includes(queryVal) ||
+              (task.current_step || '').toLowerCase().includes(queryVal)
+            );
+          }
+          
+          if (sortBy === 'newest') {
+            filtered.sort((a, b) => {
+              const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+              const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+              return timeB - timeA;
+            });
+          } else if (sortBy === 'oldest') {
+            filtered.sort((a, b) => {
+              const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+              const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+              return timeA - timeB;
+            });
+          } else if (sortBy === 'alpha') {
+            filtered.sort((a, b) => (a.query || '').localeCompare(b.query || ''));
+          }
+          
+          const listContainer = document.getElementById('research-list-container');
+          if (!listContainer) return;
+          
+          if (filtered.length === 0) {
+            listContainer.innerHTML = `<div class="empty-state">No matching research tasks found.</div>`;
+            return;
+          }
+          
+          listContainer.innerHTML = filtered.map(task => {
+            const finished = task.finished_at ? new Date(task.finished_at * 1000).toLocaleString() : '';
+            const created = task.created_at ? new Date(task.created_at).toLocaleString() : '';
+            
+            let progressVal = 0;
+            let statusText = task.status || 'pending';
+            let stepText = task.current_step || 'plan';
+            
+            if (statusText === 'done') {
+              progressVal = 100;
+            } else if (statusText === 'error' || statusText === 'cancelled') {
+              progressVal = 100;
+            } else {
+              if (stepText === 'plan') progressVal = 15;
+              else if (stepText === 'search') progressVal = 45;
+              else if (stepText === 'evaluate') progressVal = 75;
+              else if (stepText === 'synthesize') progressVal = 90;
+            }
+            
+            let actionButtons = '';
+            if (statusText === 'done') {
+              actionButtons = `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`;
+            } else if (statusText !== 'error' && statusText !== 'cancelled') {
+              actionButtons = `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`;
+            }
+            
+            return `
+              <div class="card">
+                <div class="card-header">
+                  <span class="badge ${statusText}">${statusText}</span>
+                  <span>Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
+                </div>
+                <div class="card-body">
+                  <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(task.query)}</h3>
+                  <div style="font-size: 13px; color: var(--text-dim); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 6px;">
+                    <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
+                    <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
+                    <span>Turns: <strong>${task.orchestrator_turns || 0}</strong></span>
+                    <span>Confidence: <strong>${task.confidence_score !== undefined ? (task.confidence_score * 100).toFixed(0) + '%' : 'N/A'}</strong></span>
+                    <span>Sources: <strong>${task.sources_processed || 0}</strong></span>
+                  </div>
+                  ${statusText !== 'done' && statusText !== 'error' && statusText !== 'cancelled' ? `
+                    <div class="progress-bar-container">
+                      <div class="progress-bar-fill" style="width: ${progressVal}%;"></div>
+                    </div>
+                  ` : ''}
+                  ${task.error ? `<div style="color: var(--danger); font-size: 13px; margin-top: 6px; background: rgba(248,113,113,0.05); padding: 8px; border-radius: 6px; border: 1px solid rgba(248,113,113,0.15);">${escapeHtml(task.error)}</div>` : ''}
+                </div>
+                <div class="card-actions">
+                  ${actionButtons}
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
       }
     }
 
