@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-25 20:27:32
+date modified: 2026-05-25 20:38:16
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -107,6 +107,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Formal Tool Metadata schema**: Added a `tool_metadata` JSON column to the SQLite `messages` table. Instead of string-hacking tool outputs into the `tools_used` column, stores a structured key-value map mapping tool executions to their raw output file names/identifiers (e.g., `{"write_journal_entry": "2026-05-23.md"}`). *(Completed 2026-05-24)*
 - [x] **Upgraded Tool Badges & UI Viewers**: Leveraged the `tool_metadata` column to turn all write-tool badges into interactive elements. Provided clickable links or inline UI modals for *all* outputs: viewing generated images and reading newly created journal entries directly in the chat UI without opening Obsidian. *(Completed 2026-05-24)*
 - [x] **Developer Web UI**: Built a dedicated browser-based interface (`dev.html`) for tool access, replacing terminal scripts for the Review Queues (Extracted facts, Pending proposals). Features a touch-optimized card layout, inline markdown rendering for source CEs, keyboard shortcuts for triage, and full state hydration without heavy frontend frameworks. *(Completed 2026-05-24)*
+- [x] **Engine Architecture Map**: Designed and deployed a Foam-compatible structural map (`[[engine_architecture.md]]`) using Mermaid visual flowcharts to tie all active standalone scripts and database layers into a fully connected Foam visual graph, completely eliminating orphan script nodes. *(Completed 2026-05-25)*
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the `#kw/` and `#ctx/` tags written by the Keyword-to-Tag Pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
 
