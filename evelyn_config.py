@@ -303,6 +303,61 @@ CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
 CONSOLIDATION_TIMEOUT = 180
 
 # =============================================================================
+# Deep Research
+# =============================================================================
+RESEARCH_ENABLED = True
+RESEARCH_DATA_DIR = r"C:\Projects\LocalAI\data\research"
+
+# Vault directory for finished reports.
+RESEARCH_VAULT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Research"
+
+# Maximum sub-questions the planner can generate per research task.
+RESEARCH_MAX_SUB_QUESTIONS = 6
+
+# Maximum characters to extract from a single web page.
+# Longer pages are truncated. 100000 chars ≈ ~25000 tokens (enough for full academic papers).
+RESEARCH_MAX_PAGE_CHARS = 100000
+
+# --- Confidence-Driven Termination ---
+
+# Minimum confidence score (0-100) before a sub-question is considered answered.
+# The evaluate step returns a confidence score; research continues on a
+# sub-question until this threshold is met or per-SQ depth is exhausted.
+# Scope presets override this: quick=70, standard=80, deep=85.
+RESEARCH_CONFIDENCE_THRESHOLD = 80
+
+# --- Safety Nets (emergency brakes — should rarely trigger) ---
+
+# Maximum total high-level orchestrator turns per task. Catch infinite state loops.
+# Standard tasks use 10-15 turns. This is the "something went wrong" cap.
+RESEARCH_MAX_ORCHESTRATOR_TURNS = 50
+
+# Wall-clock timeout (seconds). Task is force-synthesized after this duration.
+# Default: 2 hours. This is the ultimate safety net for deep overnight research.
+RESEARCH_WALL_CLOCK_TIMEOUT = 7200  # 2 hours
+
+# --- Operational ---
+
+# Seconds between research steps during idle-time execution.
+# Gives Ollama breathing room between calls.
+RESEARCH_STEP_COOLDOWN = 5
+
+# Idle-time trigger: seconds of inactivity before research can run.
+# Must be LONGER than consolidation threshold to avoid conflicts.
+RESEARCH_IDLE_THRESHOLD = 1800  # 30 minutes
+
+# Model override for research calls. "default" = use MODEL_NAME.
+RESEARCH_MODEL_OVERRIDE = "default"
+
+# Allow Evelyn to self-initiate research during idle time.
+# When True, the idle-time loop can generate research topics from
+# recent conversations or vault gaps and queue them automatically.
+RESEARCH_SELF_INITIATE = True
+
+# Maximum queued self-initiated topics. Prevents runaway queue growth.
+RESEARCH_MAX_QUEUE_SIZE = 5
+
+# =============================================================================
 # Services
 # =============================================================================
 TTS_SERVER_URL = "http://localhost:5050"  # Chatterbox TTS server
