@@ -1,14 +1,11 @@
 ---
-aliases: []
-entities: []
-tags: []
-icon: []
-date created: 2026-04-09T21:05:13-05:00
-date modified: 2026-04-09T21:21:29-05:00
 title: Notes to Live By (Tech Version).md
+date created: 2026-04-09T21:05:13-05:00
+date modified: 2026-05-25 19:59:28
+tags: markdown, reference, notes, format, best-practices
 ---
 
-# Notes to Live By (Tech Version)
+## Notes to Live By (Tech Version)
 
 **To:** Self + AI Agents
 

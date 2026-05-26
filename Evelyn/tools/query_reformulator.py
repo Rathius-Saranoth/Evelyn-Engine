@@ -1,3 +1,8 @@
+# query_reformulator.py
+# date created: 2026-04-26 13:03:48
+# date modified: 2026-05-25 19:55:09
+# tags: query, reformulation, search, keywords, prompts
+
 """
 query_reformulator.py — Extracts search-relevant keywords from conversational messages.
 
@@ -21,8 +26,6 @@ Config (from evelyn_config.py):
   RAG_REFORMULATE_MIN_WORDS   — Skip threshold (default: 4)
   RAG_REFORMULATE_TIMEOUT     — Seconds before fallback (default: 5)
 """
-
-# query_reformulator.py
 
 import re
 import time

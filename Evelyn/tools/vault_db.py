@@ -1,3 +1,8 @@
+# vault_db.py
+# date created: 2026-05-24 17:44:20
+# date modified: 2026-05-24 17:44:20
+# tags: vault, database, sqlite, indexing, filesystem
+
 """
 vault_db.py - SQLite interface for the Obsidian Vault Map
 

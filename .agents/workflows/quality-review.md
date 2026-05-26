@@ -1,5 +1,9 @@
 ---
 description: A structured self-review checklist based on the "Notes to Live By" engineering standards
+title: quality-review.md
+date created: 2026-04-26 10:18:20
+date modified: 2026-04-26 10:18:20
+tags: quality, review, guidelines, standards, checklist
 ---
 
 # Quality Review Workflow

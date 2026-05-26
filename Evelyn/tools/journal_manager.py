@@ -1,3 +1,8 @@
+# journal_manager.py
+# date created: 2026-02-12 19:08:40
+# date modified: 2026-05-25 19:54:48
+# tags: journal, management, entries, logs, protocols
+
 """
 journal_manager.py — Journal entry creation and retrieval for Evelyn.
 
@@ -14,8 +19,6 @@ Key path constants:
 
 This module is imported and hot-reloaded by ``evelyn_tools.py``.
 """
-
-# journal_manager.py
 
 import os
 import datetime

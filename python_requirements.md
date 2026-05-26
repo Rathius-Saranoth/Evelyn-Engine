@@ -1,8 +1,11 @@
 ---
 title: python_requirements.md
+date created: 2026-05-13 20:27:01
+date modified: 2026-05-25 19:38:35
+tags: python, dependencies, requirements, installation, packages
 ---
 
-# Evelyn Engine — Python Dependencies
+## Evelyn Engine — Python Dependencies
 
 - Install with:  pip install -r requirements.txt
 - Python version: 3.11+
