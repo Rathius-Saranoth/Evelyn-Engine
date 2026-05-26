@@ -1204,6 +1204,32 @@ async def lifespan(app: FastAPI):
         f"(threshold={getattr(cfg, 'RESEARCH_IDLE_THRESHOLD', 1800) // 60}m)"
     )
 
+    # Idle-time memory refresh loop - runs during deep idle periods (45m+)
+    async def _idle_memory_refresh_loop():
+        """Background loop that triggers memory refresh during deep idle periods."""
+        last_run_time = 0
+        while True:
+            await asyncio.sleep(300) # Check every 5 minutes
+            importlib.reload(cfg)
+            
+            # Require at least 45 minutes of idle time
+            idle_seconds = time.time() - _last_activity_ts
+            if idle_seconds >= 2700:
+                # Limit running to once every 2 hours max
+                if time.time() - last_run_time >= 7200:
+                    heavy_running = False
+                    for task in _background_tasks.values():
+                        if task.get("status") == "running":
+                            heavy_running = True
+                            break
+                    if not heavy_running:
+                        print(f"{_GRN}[IDLE REFRESH]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background memory refresh.", flush=True)
+                        await start_refresh_memory_internal()
+                        last_run_time = time.time()
+
+    asyncio.create_task(_idle_memory_refresh_loop())
+    print(f"  {_GRN}Mem Refresher:{_RST} idle loop started (threshold=45m, limit=2h)")
+
     yield
 
 
@@ -1446,6 +1472,7 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
     try:
         shutil.move(source_path, target_path)
         print(f"[JOURNAL APPROVE] Moved {filename} to structured vault path: {target_path}", flush=True)
+        await start_refresh_memory_internal()
         return {"status": "success", "destination": target_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to move journal file: {e}")
@@ -1564,22 +1591,15 @@ _REFRESH_PHASE_LABELS = {
 }
 
 
-@app.post("/refresh_memory")
-async def trigger_refresh_memory(_: None = Depends(check_auth)):
-    """Trigger the unified Memory Refresh pipeline as an async subprocess.
-
-    Sequentially runs:
-      Phase 1 — Vault Map generation (vault_indexer.py)
-      Phase 2 — Core Knowledge ingest (ingest_obsidian_knowledge.py)
-      Phase 3 — Gist ingest (ingest_gists.py)
-
-    Cancels in-flight consolidation/extraction tasks first to free VRAM.
-    Returns 200 OK immediately; the pipeline runs in the background.
-    The UI polls GET /task_status/refresh_memory for phase updates.
+async def start_refresh_memory_internal():
+    """Trigger the unified Memory Refresh pipeline as an async background task.
+    Safely ignores the run if another refresh is already running to avoid overlap.
     """
+    if _background_tasks.get("refresh_memory", {}).get("status") == "running":
+        print(f"{_GRN}[REFRESH]{_RST} Memory refresh is already running; skipping redundant trigger.", flush=True)
+        return
+
     # Free VRAM before a heavy multi-phase Ollama operation starts.
-    # Idle-time tasks automatically stand down because _background_tasks will
-    # show status="running" for the duration (see _heavy_tasks_running()).
     cancel_pending_consolidation()
     cancel_pending_extraction()
 
@@ -1591,6 +1611,7 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
 
     async def _run_subprocess():
         try:
+            import sys
             script_path = str(BASE_DIR / "Evelyn" / "tools" / "refresh_memory.py")
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-u", script_path,
@@ -1599,7 +1620,6 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
                 cwd=str(BASE_DIR),
             )
 
-            # Read stdout line-by-line; parse phase markers in real-time.
             while True:
                 line_bytes = await proc.stdout.readline()
                 if not line_bytes:
@@ -1637,6 +1657,22 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
             print(f"{_RED}[REFRESH ERROR]{_RST} {e}", flush=True)
 
     asyncio.create_task(_run_subprocess())
+
+
+@app.post("/refresh_memory")
+async def trigger_refresh_memory(_: None = Depends(check_auth)):
+    """Trigger the unified Memory Refresh pipeline as an async subprocess.
+
+    Sequentially runs:
+      Phase 1 — Vault Map generation (vault_indexer.py)
+      Phase 2 — Core Knowledge ingest (ingest_obsidian_knowledge.py)
+      Phase 3 — Gist ingest (ingest_gists.py)
+
+    Cancels in-flight consolidation/extraction tasks first to free VRAM.
+    Returns 200 OK immediately; the pipeline runs in the background.
+    The UI polls GET /task_status/refresh_memory for phase updates.
+    """
+    await start_refresh_memory_internal()
     return {"status": "refresh memory started"}
 
 
@@ -1791,10 +1827,12 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
     import Evelyn.tools.memory_db as memory_db
     if action == "approve":
         memory_db.update_entry(id, status="live")
+        await start_refresh_memory_internal()
     elif action == "delete":
         memory_db.delete_entry(id)
     elif action == "edit" and req and req.observation:
         memory_db.update_entry(id, observation=req.observation, status="live")
+        await start_refresh_memory_internal()
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     return {"status": "ok"}
@@ -1860,6 +1898,7 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
                 tags=merged_tags
             )
             memory_db.apply_proposal(id)
+        await start_refresh_memory_internal()
         return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
