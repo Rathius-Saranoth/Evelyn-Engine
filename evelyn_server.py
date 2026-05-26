@@ -1328,6 +1328,37 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
             return {"content": content}
         else:
             raise HTTPException(status_code=400, detail="Invalid journal ID")
+    elif type == "research":
+        import os
+        import evelyn_config as cfg
+        import re
+        safe_id = re.sub(r'[^a-zA-Z0-9_\-]+', '-', id).strip('-')
+        report_path = os.path.join(cfg.RESEARCH_VAULT_DIR, f"{safe_id}.md")
+        if os.path.exists(report_path):
+            with open(report_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return {"content": content}
+        else:
+            # Fallback to research data dir
+            if os.path.exists(cfg.RESEARCH_DATA_DIR):
+                for d in os.listdir(cfg.RESEARCH_DATA_DIR):
+                    d_path = os.path.join(cfg.RESEARCH_DATA_DIR, d)
+                    if os.path.isdir(d_path):
+                        rep_path = os.path.join(d_path, "report.md")
+                        if os.path.exists(rep_path):
+                            state_path = os.path.join(d_path, "state.json")
+                            if os.path.exists(state_path):
+                                try:
+                                    import json
+                                    with open(state_path, "r", encoding="utf-8") as sf:
+                                        sdata = json.load(sf)
+                                    if sdata.get("task_id") == id or re.sub(r'[^a-zA-Z0-9_\-]+', '-', sdata.get("query", "").lower()).strip('-') == safe_id:
+                                        with open(rep_path, "r", encoding="utf-8") as rf:
+                                            content = rf.read()
+                                        return {"content": content}
+                                except Exception:
+                                    pass
+            raise HTTPException(status_code=404, detail="Research report not found")
     else:
         raise HTTPException(status_code=400, detail="Unknown artifact type")
 
