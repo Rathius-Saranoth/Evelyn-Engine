@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-05-25 21:00:26
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -100,7 +100,7 @@ def load_cat00_index() -> str:
 # ---------------------------------------------------------------------------
 
 # State file lives next to the chat DB so both are together.
-# [[evelym_extraction_state.json]]
+# [[evelyn_extraction_state.json]]
 # Contains: {"last_extracted_id": <int>}
 # To reset the high-water mark: delete this file and restart the server.
 _STATE_FILE = os.path.join(
