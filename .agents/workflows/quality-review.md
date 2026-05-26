@@ -32,6 +32,11 @@ Walk through each gate for the code you just wrote or modified:
 - [ ] Review AI-generated code for median-pattern traps: over-abstraction, unnecessary serialization, dependency bloat
 - [ ] Confirm no "beautifully structured catastrophe" snuck through
 
-## 4. Verdict
+## 4. Documentation Integrity
+
+- [ ] **API Endpoints (`reference/endpoints.md`)** — Have any endpoint contracts, parameter signatures, or return payloads been modified or added? Is the endpoint reference document updated to match exactly?
+- [ ] **Engine Architecture Map (`reference/engine_architecture.md`)** — Have any core scripts, background workers, or storage components been introduced or refactored? Is the structural blueprint and Mermaid diagram updated to reflect the new state?
+
+## 5. Verdict
 
 If any gate failed, fix before merge. Document trade-offs for intentional violations.
