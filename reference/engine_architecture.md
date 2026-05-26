@@ -62,9 +62,24 @@ graph TD
     IngestVault <-->|Write Context| MemoryDB
     IngestGist <-->|Vector Index| ChromaDB
     
+    %% Deep Research Subsystem
+    subgraph DeepResearch [Deep Research System]
+        ResearchEngine["[[research_engine.py]] (Orchestrator)"]
+        WebReader["[[web_reader.py]] (Scraper)"]
+        Prompts["[[research_prompts.py]] (Templates)"]
+        ResearchQueue[("queue.json<br>(Research Queue)")]
+    end
+    
+    Server <-->|Trigger & Monitor| ResearchEngine
+    Server <-->|Queue / Dequeue| ResearchQueue
+    Ollama <-->|Prompt / Synthesize| ResearchEngine
+    ResearchEngine -->|Run Extraction| WebReader
+    ResearchEngine -.->|Reads Templates| Prompts
+    
     %% External Ecosystem
     Obsidian["Obsidian Vault<br>(G:\My Drive\Obsidian_Vault)"] <-->|Read / Sync| IngestVault
     Obsidian <-->|Vector Base| IngestGist
+    ResearchEngine -->|Save Report| Obsidian
 ```
 
 ---
@@ -95,28 +110,34 @@ Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Va
 * **[[ingest_gists.py]]**: Parses vault markdown files, strips YAML bloat, generates dense summarizing gists, and uploads them to Chroma DB.
 * **[[vault_indexer.py]]**: Scans directory tree files and generates incremental database relationships (hashes, links, backlinks) inside SQLite.
 
-### 2.4 Active Runtime Agents & Tools
+### 2.4 Deep Research Subsystem
+Enables fully autonomous, multi-step search and information synthesis in the background when the server is idle.
+* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, and self-initiated gap extraction.
+* **[[web_reader.py]]**: Dynamic web scraper. Features Trafilatura integration, SSL bypasses, timeouts, and adaptive chunking for heavy documents.
+* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, extraction, and synthesis.
+
+### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`).
+* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`).
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions and stages them to memory.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
 * **[[undo_thread.py]]**: Interactive debugging script to safely rollback transactions in memory files.
 
-### 2.5 Standalone Inference Services
+### 2.6 Standalone Inference Services
 FastAPI services running locally to isolate heavy GPU model weights and guarantee zero VRAM resource leakage when idle.
 * **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech.
 * **[[image_server.py]]**: FLUX.1 [schnell] server with lazy-loading auto-eviction.
 
-### 2.6 The Frontend User Interface
+### 2.7 The Frontend User Interface
 The presentation and interaction layout loaded by the client browser. Connects directly to server APIs for state management and model inference.
 * **`evelyn_ui/index.html`**: The main user-facing dashboard. Renders the interactive companion panel, maintains Tailscale CORS setups, triggers dynamic TTS playback, and drives background task polling.
   * *API Bridges*: Communicates via [[endpoints.md#1-chat--conversation-management]] (for streaming prompts), [[endpoints.md#2-ingestion--background-task-orchestration]] (for memory refreshes), and [[endpoints.md#3-local-inference-bridges]] (for speech generation).
 * **`evelyn_ui/dev.html`**: The developer and review dashboard console. Displays a visual triaging interface for reviewing staged observations and consolidation proposals.
-  * *API Bridges*: Communicates via [[endpoints.md#5-developer--review-queue-apis-interactive-triaging]] (to approve, reject, or merge memories).
+  * *API Bridges*: Communicates via [[endpoints.md#5-developer--review-queue-apis-interactive-triaging]] (to approve, reject, or merge memories) and [[endpoints.md#6-deep-research-apis-background-search--scoping]] (to launch and monitor research tasks).
 
-### 2.7 The Cognitive Persona & Directives
+### 2.8 The Cognitive Persona & Directives
 The standing narrative parameters, constraints, and profile baselines injected dynamically into the model's system prompt at startup.
 * **[[Evelyn_Narrative_Persona.md]]**: Core psychological identity and conversational style parameters for Evelyn.
 * **[[Ricky_Narrative_Profile.md]]**: User context profile and emotional/cognitive baseline mappings.
