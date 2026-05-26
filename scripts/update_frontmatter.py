@@ -1,7 +1,7 @@
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-05-25 19:47:52
-# tags: frontmatter, metadata, headers, update, utility
+# date modified: 2026-05-25 20:08:48
+# tags: #frontmatter, #metadata, #headers, #update, #utility
 
 import sys
 import os
@@ -59,7 +59,22 @@ def main():
                 out_lines.append(f"# date modified: {date_modified}")
                 
                 if existing_tags_line is not None:
-                    out_lines.append(existing_tags_line)
+                    m = re.search(r'tags:\s*(.*)$', existing_tags_line)
+                    if m:
+                        tags_content = m.group(1).strip()
+                        if tags_content:
+                            raw_tags = [t.strip() for t in re.split(r'[, ]+', tags_content) if t.strip()]
+                            formatted = []
+                            for t in raw_tags:
+                                if t.startswith('#'):
+                                    formatted.append(t)
+                                else:
+                                    formatted.append(f"#{t}")
+                            out_lines.append(f"# tags: {', '.join(formatted)}")
+                        else:
+                            out_lines.append("# tags: ")
+                    else:
+                        out_lines.append(existing_tags_line)
                 else:
                     out_lines.append("# tags: ")
                 

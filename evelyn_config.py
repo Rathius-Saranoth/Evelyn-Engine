@@ -1,7 +1,7 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-05-25 19:40:26
-# tags: config, constants, globals, environment, settings
+# date modified: 2026-05-25 19:50:50
+# tags: #config, #constants, #globals, #environment, #settings
 
 """
 evelyn_config.py — Single source of truth for the Evelyn backend stack.
