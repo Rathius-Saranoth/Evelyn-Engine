@@ -685,6 +685,10 @@ async def execute_task_step(task_id: str) -> bool:
     if state["status"] in ("done", "error", "cancelled"):
         return True
         
+    if state["status"] == "paused":
+        # Task is paused by the server (user active). Wait for resume.
+        return False
+        
     # Increment high-level orchestrator turns (steps)
     if "orchestrator_turns" not in state:
         state["orchestrator_turns"] = 0
@@ -759,6 +763,110 @@ async def run_full_research(task_id: str) -> None:
             await asyncio.sleep(1.0) # Yield control
             
     print(f"[RESEARCH_ENGINE] Finished processing task: {task_id}", flush=True)
+
+
+
+def get_recent_chat_history(limit: int = 20) -> List[Dict[str, str]]:
+    """Fetch the most recent messages from the SQLite database."""
+    import sqlite3
+    try:
+        con = sqlite3.connect(cfg.CHAT_DB_PATH)
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT role, content FROM messages WHERE content != '' ORDER BY id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        con.close()
+        return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE ERROR] Failed to fetch chat history for self-initiate: {e}", flush=True)
+        return []
+
+
+async def self_initiate_research_topics() -> None:
+    """Analyze recent conversations to self-initiate research topics and queue them."""
+    import yaml
+    importlib.reload(cfg)
+    if not cfg.RESEARCH_SELF_INITIATE:
+        return
+        
+    queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
+    
+    # Load current queue
+    queue = []
+    if os.path.exists(queue_file):
+        try:
+            with open(queue_file, "r", encoding="utf-8") as f:
+                queue = json.load(f)
+        except Exception:
+            queue = []
+            
+    if len(queue) >= cfg.RESEARCH_MAX_QUEUE_SIZE:
+        return
+        
+    history = get_recent_chat_history(20)
+    if not history:
+        return
+        
+    # Construct history dump
+    history_text = ""
+    for msg in history:
+        history_text += f"{msg['role'].upper()}: {msg['content']}\n"
+        
+    prompt = f"""You are Evelyn, an advanced AI research companion. Review the following recent conversation history between you and Ricky:
+
+{history_text}
+
+Identify 1 to 3 interesting, factual, or technical topics or open questions mentioned or implied in this chat that would be highly beneficial to research in-depth (e.g. detailed benchmarks, technology explanations, historical events, scientific developments, or project concepts).
+Do NOT include extremely broad topics, personal plans, or vague ideas. Focus on concrete, searchable questions.
+
+Output ONLY a YAML block in this exact format:
+
+```yaml
+topics:
+  - query: "highly specific research question 1"
+    scope: "standard"
+  - query: "highly specific research question 2"
+    scope: "deep"
+```
+If no topics are worth researching, output an empty list. Output nothing else but the YAML block."""
+
+    messages = [
+        {"role": "system", "content": "You are Evelyn's analytical sub-agent. Output only YAML."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    try:
+        raw = await call_ollama(messages, num_predict=1000)
+        match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+        block = match.group(1) if match else raw
+        data = yaml.safe_load(block)
+        
+        if isinstance(data, dict) and "topics" in data:
+            new_topics = data["topics"] or []
+            added = 0
+            for t in new_topics:
+                query = t.get("query", "").strip()
+                scope = t.get("scope", "standard").strip()
+                if query and len(queue) < cfg.RESEARCH_MAX_QUEUE_SIZE:
+                    # Check if already researched or queued
+                    already_exists = any(q["query"].lower() == query.lower() for q in queue)
+                    if not already_exists:
+                        queue.append({
+                            "query": query,
+                            "scope": scope,
+                            "priority": 1,
+                            "source": "evelyn",
+                            "created_at": datetime.datetime.now().isoformat()
+                        })
+                        added += 1
+            if added > 0:
+                os.makedirs(cfg.RESEARCH_DATA_DIR, exist_ok=True)
+                with open(queue_file, "w", encoding="utf-8") as f:
+                    json.dump(queue, f, indent=2)
+                print(f"[RESEARCH_ENGINE] Successfully queued {added} self-initiated research topics.", flush=True)
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE ERROR] Failed self-initiated topic generation: {e}", flush=True)
 
 
 if __name__ == "__main__":

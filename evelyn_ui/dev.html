@@ -48,7 +48,7 @@
     }
     .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
     
-    main { padding: 0 20px; max-width: 800px; margin: 0 auto; }
+    main { padding: 0 20px; max-width: 850px; margin: 0 auto; }
     
     .card {
       background: var(--surface); border: 1px solid var(--border);
@@ -57,9 +57,20 @@
     }
     .card-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-dim); }
     .badge { background: var(--surface2); padding: 2px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    /* Badges & tabs color */
     .badge.recategorize { color: var(--warning); }
     .badge.merge { color: var(--accent); }
     .badge.extraction { color: var(--success); }
+    
+    .badge.planning { color: #818cf8; }
+    .badge.searching { color: #60a5fa; }
+    .badge.evaluating { color: #f472b6; }
+    .badge.synthesizing { color: #c084fc; }
+    .badge.done { color: var(--success); }
+    .badge.error { color: var(--danger); }
+    .badge.cancelled { color: var(--text-dim); }
+    .badge.paused { color: var(--warning); }
     
     .card-body { font-size: 15px; }
     .card-body textarea {
@@ -74,33 +85,110 @@
     .source-item { padding: 4px 0; border-bottom: 1px solid var(--border); }
     .source-item:last-child { border-bottom: none; }
     
-    .card-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .card-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .btn {
       flex: 1; padding: 10px; border: none; border-radius: 8px; cursor: pointer;
-      font-weight: 500; font-size: 14px; transition: opacity 0.2s;
+      font-weight: 500; font-size: 14px; transition: opacity 0.2s; text-align: center;
     }
     .btn:hover { opacity: 0.8; }
     .btn-approve { background: var(--success); color: #000; }
     .btn-reject { background: var(--danger); color: #000; }
     .btn-edit { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-action { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    
+    .research-form {
+      display: flex; gap: 10px; margin-bottom: 20px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;
+      align-items: center; flex-wrap: wrap;
+    }
+    .research-form input {
+      flex: 2; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;
+      min-width: 250px;
+    }
+    .research-form select {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 10px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;
+      min-width: 130px;
+    }
+    .research-form button {
+      background: var(--accent); color: #fff; border: none; padding: 10px 20px;
+      border-radius: 8px; cursor: pointer; font-weight: 500; transition: opacity 0.2s;
+    }
+    .research-form button:hover { opacity: 0.9; }
+    
+    /* Modal styles */
+    .modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 100; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal-content {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      width: 100%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5); overflow: hidden;
+    }
+    .modal-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex;
+      justify-content: space-between; align-items: center;
+    }
+    .modal-title { font-size: 16px; font-weight: 600; }
+    .close-btn {
+      background: none; border: none; color: var(--text-dim); font-size: 24px;
+      cursor: pointer; line-height: 1; transition: color 0.2s;
+    }
+    .close-btn:hover { color: #fff; }
+    .modal-body {
+      padding: 20px; overflow-y: auto; flex: 1; font-size: 15px; line-height: 1.6;
+      color: var(--text); font-family: inherit;
+    }
+    .modal-body h1, .modal-body h2, .modal-body h3 { margin-top: 16px; margin-bottom: 8px; font-weight: 600; color: #fff; }
+    .modal-body h1 { font-size: 22px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .modal-body h2 { font-size: 18px; }
+    .modal-body h3 { font-size: 15px; }
+    .modal-body p { margin-bottom: 12px; }
+    .modal-body ul, .modal-body ol { padding-left: 20px; margin-bottom: 12px; }
+    .modal-body li { margin-bottom: 4px; }
+    .modal-body code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px; color: var(--warning); }
+    .modal-body pre { background: var(--surface2); padding: 12px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; border: 1px solid var(--border); }
+    .modal-body pre code { background: none; padding: 0; color: inherit; }
     
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+    .progress-bar-container {
+      width: 100%; background: var(--surface2); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 6px;
+    }
+    .progress-bar-fill {
+      height: 100%; background: var(--accent); transition: width 0.4s ease;
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>Review Queue</h1>
+    <h1 id="header-title">Review Queue</h1>
     <a href="/ui/" class="back-btn">← Back to Chat</a>
   </header>
   
   <div class="tabs">
     <button class="tab-btn active" id="tab-extractions" onclick="switchTab('extractions')">Extractions (<span id="count-ext">0</span>)</button>
     <button class="tab-btn" id="tab-proposals" onclick="switchTab('proposals')">Proposals (<span id="count-prop">0</span>)</button>
+    <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
   </div>
   
   <main id="container">
     <div class="empty-state">Loading...</div>
   </main>
+
+  <!-- Modal for Report -->
+  <div class="modal" id="report-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="report-modal-title">Research Report</span>
+        <button class="close-btn" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="report-modal-body"></div>
+    </div>
+  </div>
 
   <script>
     const API_BASE = window.location.origin;
@@ -108,6 +196,8 @@
     let currentTab = 'extractions';
     let extractions = [];
     let proposals = [];
+    let researchTasks = [];
+    let pollInterval = null;
 
     function headers() {
       return { 'Content-Type': 'application/json', 'X-Evelyn-Key': API_KEY };
@@ -118,17 +208,53 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    // A simple, very lightweight Markdown parser to render reports beautifully
+    function renderMarkdown(md) {
+      if (!md) return '';
+      let html = escapeHtml(md);
+      
+      // Headers
+      html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+      
+      // Bold & Italic
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+      
+      // Inline Code
+      html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+      
+      // Preblocks (Code block)
+      html = html.replace(/```(.*?)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+      
+      // Unordered lists
+      html = html.replace(/^\s*-\s+(.*?)$/gm, '<li>$1</li>');
+      
+      // Fix list nesting
+      html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+      
+      // Paragraphs (split by double newlines)
+      html = html.replace(/\n\n/g, '</p><p>');
+      html = '<p>' + html + '</p>';
+      
+      return html;
+    }
+
     async function loadData() {
       try {
-        const [resExt, resProp] = await Promise.all([
+        const [resExt, resProp, resRes] = await Promise.all([
           fetch(`${API_BASE}/api/review/extractions`, { headers: headers() }),
-          fetch(`${API_BASE}/api/review/proposals`, { headers: headers() })
+          fetch(`${API_BASE}/api/review/proposals`, { headers: headers() }),
+          fetch(`${API_BASE}/research/list`, { headers: headers() })
         ]);
         if (resExt.ok) extractions = await resExt.json();
         if (resProp.ok) proposals = await resProp.json();
+        if (resRes.ok) researchTasks = await resRes.json();
         
         document.getElementById('count-ext').textContent = extractions.length;
         document.getElementById('count-prop').textContent = proposals.length;
+        document.getElementById('count-res').textContent = researchTasks.length;
         
         render();
       } catch (e) {
@@ -140,6 +266,25 @@
       currentTab = tab;
       document.getElementById('tab-extractions').classList.toggle('active', tab === 'extractions');
       document.getElementById('tab-proposals').classList.toggle('active', tab === 'proposals');
+      document.getElementById('tab-research').classList.toggle('active', tab === 'research');
+      
+      const title = document.getElementById('header-title');
+      if (tab === 'extractions') title.textContent = 'Review Queue';
+      else if (tab === 'proposals') title.textContent = 'Proposals Queue';
+      else title.textContent = 'Deep Research Dashboard';
+      
+      // Clear or set polling
+      if (tab === 'research') {
+        if (!pollInterval) {
+          pollInterval = setInterval(loadData, 5000);
+        }
+      } else {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      }
+
       render();
     }
 
@@ -171,6 +316,66 @@
       }
     }
 
+    // Research Management actions
+    async function startResearchTask() {
+      const query = document.getElementById('research-query').value.trim();
+      const scope = document.getElementById('research-scope').value;
+      if (!query) {
+        alert('Please enter a research query.');
+        return;
+      }
+      
+      try {
+        const res = await fetch(`${API_BASE}/research/start`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ query, scope })
+        });
+        if (res.ok) {
+          document.getElementById('research-query').value = '';
+          loadData();
+        } else {
+          alert('Failed to start research.');
+        }
+      } catch (e) {
+        alert('Network error starting research.');
+      }
+    }
+
+    async function cancelResearchTask(taskId) {
+      if (!confirm('Are you sure you want to cancel this research task?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/research/cancel/${taskId}`, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          loadData();
+        } else {
+          alert('Failed to cancel research task.');
+        }
+      } catch (e) {
+        alert('Network error cancelling task.');
+      }
+    }
+
+    async function readReport(taskId, topic) {
+      try {
+        const res = await fetch(`${API_BASE}/research/report/${taskId}`, { headers: headers() });
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('report-modal-title').textContent = `Report: ${topic}`;
+          document.getElementById('report-modal-body').innerHTML = renderMarkdown(data.report);
+          document.getElementById('report-modal').style.display = 'flex';
+        } else {
+          alert('Report not synthesized yet or task failed.');
+        }
+      } catch (e) {
+        alert('Network error fetching report.');
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('report-modal').style.display = 'none';
+    }
+
     function handleEditInput(id) {
       const item = extractions.find(x => x.id === id);
       const obs = document.getElementById(`obs-${id}`).value;
@@ -190,36 +395,38 @@
 
     function render() {
       const container = document.getElementById('container');
-      const data = currentTab === 'extractions' ? extractions : proposals;
       
-      if (data.length === 0) {
-        container.innerHTML = `<div class="empty-state">All caught up! No ${currentTab} to review.</div>`;
-        return;
-      }
-
-      container.innerHTML = data.map(item => {
-        if (currentTab === 'extractions') {
-          return `
-            <div class="card">
-              <div class="card-header">
-                <span class="badge extraction">${item.category}</span>
-                <span>${item.date}</span>
-              </div>
-              <div class="card-body">
-                <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})">${escapeHtml(item.observation)}</textarea>
-              </div>
-              <div class="card-actions">
-                <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve')">Approve</button>
-                <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit')">Save Edit</button>
-                <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})">Revert</button>
-                <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete')">Delete</button>
-              </div>
+      if (currentTab === 'extractions') {
+        if (extractions.length === 0) {
+          container.innerHTML = `<div class="empty-state">All caught up! No extractions to review.</div>`;
+          return;
+        }
+        container.innerHTML = extractions.map(item => `
+          <div class="card">
+            <div class="card-header">
+              <span class="badge extraction">${item.category}</span>
+              <span>${item.date || 'No Date'}</span>
             </div>
-          `;
-        } else {
-          // Proposals
+            <div class="card-body">
+              <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})">${escapeHtml(item.observation)}</textarea>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve')">Approve</button>
+              <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit')">Save Edit</button>
+              <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})">Revert</button>
+              <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete')">Delete</button>
+            </div>
+          </div>
+        `).join('');
+        
+      } else if (currentTab === 'proposals') {
+        if (proposals.length === 0) {
+          container.innerHTML = `<div class="empty-state">All caught up! No proposals to review.</div>`;
+          return;
+        }
+        container.innerHTML = proposals.map(item => {
           const sourcesHTML = item.source_entries.map(s => `
-            <div class="source-item"><strong>[${s.category}]</strong> ${s.observation}</div>
+            <div class="source-item"><strong>[${s.category}]</strong> ${escapeHtml(s.observation)}</div>
           `).join('');
           
           return `
@@ -229,10 +436,10 @@
                 <span>ID: ${item.id}</span>
               </div>
               <div class="card-body">
-                <div style="color: var(--text-dim); font-size: 13px; margin-bottom: 8px;">Reason: ${item.reason}</div>
+                <div style="color: var(--text-dim); font-size: 13px; margin-bottom: 8px;">Reason: ${escapeHtml(item.reason)}</div>
                 ${item.type === 'recategorize' 
                   ? `<div>Move to <strong>${item.suggested_category}</strong></div>` 
-                  : `<div><strong>Merged text:</strong><br>${item.merged_observation}</div><div style="margin-top:4px;"><strong>Target Category:</strong> ${item.suggested_category}</div>`
+                  : `<div><strong>Merged text:</strong><br>${escapeHtml(item.merged_observation)}</div><div style="margin-top:4px;"><strong>Target Category:</strong> ${item.suggested_category}</div>`
                 }
                 <div class="source-list">${sourcesHTML}</div>
               </div>
@@ -242,16 +449,90 @@
               </div>
             </div>
           `;
+        }).join('');
+        
+      } else if (currentTab === 'research') {
+        let formHTML = `
+          <div class="research-form">
+            <input type="text" id="research-query" placeholder="Enter deep research topic or question..." />
+            <select id="research-scope">
+              <option value="standard">Standard (~15 min, 10-15 sources)</option>
+              <option value="quick">Quick (~5 min, 3-5 sources)</option>
+              <option value="deep">Deep (~30 min, 20+ sources)</option>
+            </select>
+            <button onclick="startResearchTask()">Launch Research</button>
+          </div>
+        `;
+        
+        if (researchTasks.length === 0) {
+          container.innerHTML = formHTML + `<div class="empty-state">No research investigations launched yet. Enter a topic above!</div>`;
+          return;
         }
-      }).join('');
+        
+        let listHTML = researchTasks.map(task => {
+          const finished = task.finished_at ? new Date(task.finished_at * 1000).toLocaleString() : '';
+          const created = task.created_at ? new Date(task.created_at).toLocaleString() : '';
+          
+          let progressVal = 0;
+          let statusText = task.status || 'pending';
+          let stepText = task.current_step || 'plan';
+          
+          if (statusText === 'done') {
+            progressVal = 100;
+          } else if (statusText === 'error' || statusText === 'cancelled') {
+            progressVal = 100;
+          } else {
+            if (stepText === 'plan') progressVal = 15;
+            else if (stepText === 'search') progressVal = 45;
+            else if (stepText === 'evaluate') progressVal = 75;
+            else if (stepText === 'synthesize') progressVal = 90;
+          }
+          
+          let actionButtons = '';
+          if (statusText === 'done') {
+            actionButtons = `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`;
+          } else if (statusText !== 'error' && statusText !== 'cancelled') {
+            actionButtons = `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`;
+          }
+          
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span class="badge ${statusText}">${statusText}</span>
+                <span>Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
+              </div>
+              <div class="card-body">
+                <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(task.query)}</h3>
+                <div style="font-size: 13px; color: var(--text-dim); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 6px;">
+                  <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
+                  <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
+                  <span>Turns: <strong>${task.orchestrator_turns || 0}</strong></span>
+                  <span>Confidence: <strong>${task.confidence_score !== undefined ? (task.confidence_score * 100).toFixed(0) + '%' : 'N/A'}</strong></span>
+                  <span>Sources: <strong>${task.sources_processed || 0}</strong></span>
+                </div>
+                ${statusText !== 'done' && statusText !== 'error' && statusText !== 'cancelled' ? `
+                  <div class="progress-bar-container">
+                    <div class="progress-bar-fill" style="width: ${progressVal}%;"></div>
+                  </div>
+                ` : ''}
+                ${task.error ? `<div style="color: var(--danger); font-size: 13px; margin-top: 6px; background: rgba(248,113,113,0.05); padding: 8px; border-radius: 6px; border: 1px solid rgba(248,113,113,0.15);">${escapeHtml(task.error)}</div>` : ''}
+              </div>
+              <div class="card-actions">
+                ${actionButtons}
+              </div>
+            </div>
+          `;
+        }).join('');
+        
+        container.innerHTML = formHTML + listHTML;
+      }
     }
 
-    // Keyboard shortcuts for first card
+    // Keyboard shortcuts for review tab
     document.addEventListener('keydown', (e) => {
-      // Ignore if typing in textarea
-      if (e.target.tagName === 'TEXTAREA') return;
+      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
       
-      const items = currentTab === 'extractions' ? extractions : proposals;
+      const items = currentTab === 'extractions' ? extractions : (currentTab === 'proposals' ? proposals : []);
       if (items.length === 0) return;
       
       const firstId = items[0].id;
@@ -260,6 +541,11 @@
       } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'd') {
         handleAction(currentTab, firstId, currentTab === 'extractions' ? 'delete' : 'deny');
       }
+    });
+
+    // Close modal on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
     });
 
     // Init

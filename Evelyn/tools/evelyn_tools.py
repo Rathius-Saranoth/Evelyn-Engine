@@ -212,6 +212,72 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"Web search error: {e}"
 
 
+def start_research(query: str, scope: str = "standard", **kwargs) -> str:
+    """Launch a deep research task on a topic in the background."""
+    import time
+    import threading
+    import subprocess
+    import sys
+    
+    _reload()
+    try:
+        from research_engine import create_research_task
+        task_id = create_research_task(query, scope=scope, triggered_by="user")
+        
+        # Access evelyn_server active processes to ensure mutual exclusion
+        server = sys.modules.get("evelyn_server")
+        if server:
+            cancel_consol = getattr(server, "cancel_pending_consolidation", None)
+            cancel_extract = getattr(server, "cancel_pending_extraction", None)
+            if cancel_consol:
+                cancel_consol()
+            if cancel_extract:
+                cancel_extract()
+            
+            # Register in server's _background_tasks dict
+            bg_tasks = getattr(server, "_background_tasks", None)
+            if bg_tasks is not None:
+                bg_tasks[task_id] = {
+                    "status": "running",
+                    "query": query,
+                    "scope": scope,
+                    "started_at": time.time()
+                }
+        
+        def _run_subprocess():
+            try:
+                script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
+                result = subprocess.run(
+                    [sys.executable, "-u", script, task_id, "--scope", scope],
+                    cwd=r"C:\Projects\LocalAI",
+                    stdout=sys.stdout,
+                    stderr=sys.stderr
+                )
+                if server and bg_tasks is not None:
+                    if result.returncode == 0:
+                        bg_tasks[task_id]["status"] = "done"
+                        bg_tasks[task_id]["finished_at"] = time.time()
+                    else:
+                        bg_tasks[task_id]["status"] = "error"
+                        bg_tasks[task_id]["error"] = f"Exit code {result.returncode}"
+                        bg_tasks[task_id]["finished_at"] = time.time()
+            except Exception as e:
+                print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
+                if server and bg_tasks is not None:
+                    bg_tasks[task_id]["status"] = "error"
+                    bg_tasks[task_id]["error"] = str(e)
+                    bg_tasks[task_id]["finished_at"] = time.time()
+
+        threading.Thread(target=_run_subprocess, daemon=True).start()
+        return (
+            f"Deep research started successfully. Task ID: {task_id}. "
+            f"I am conducting research on '{query}' (scope: {scope}) in the background "
+            f"and will notify you as soon as the final report is compiled."
+        )
+    except Exception as e:
+        return f"Failed to start deep research: {e}"
+
+
 # ===========================================================================
 # Tool registries
 # ===========================================================================
@@ -407,6 +473,38 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "start_research",
+            "description": (
+                "Launch a deep research task on a topic. Use when Ricky asks you to "
+                "research something in depth, or when you encounter a topic that "
+                "requires more than a simple web search to understand. The research "
+                "runs in the background and produces a structured report. "
+                "Returns a task ID for tracking progress."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The research question or topic to investigate.",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": (
+                            "Optional scope guidance: 'quick' (3-5 sources, ~5 min, flat notes only), "
+                            "'standard' (10-15 sources, ~15 min, flat notes only), "
+                            "'deep' (20+ sources, ~30 min, creates a per-task vector store for "
+                            "cross-referencing and future retrieval). Default: 'standard'."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -423,4 +521,5 @@ TOOL_FUNCTIONS = {
     "generate_image": generate_image,
     "sync_context_memory": sync_context_memory,
     "web_search": web_search,
+    "start_research": start_research,
 }
