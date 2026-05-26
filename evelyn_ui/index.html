@@ -318,10 +318,6 @@
     <span id="status-text">Ready</span>
   </div>
   <div class="header-actions">
-    <a href="/ui/dev.html?tab=research" class="btn-ghost" id="research-btn" title="Open Deep Research Dashboard" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; line-height: 16px;">
-      <span id="research-pulse" style="display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse-research 1.5s infinite;"></span>
-      <span>🔍 Research</span>
-    </a>
     <button class="btn-ghost" id="new-thread-btn" title="Start a new conversation thread" onclick="newThread()">✦ New Thread</button>
     <button class="btn-ghost" id="refresh-memory-btn" title="Rebuild Vault Map then re-ingest all knowledge into Chroma" onclick="refreshMemory()">✦ Refresh Memory</button>
   </div>
@@ -337,7 +333,10 @@
   <div class="input-hint" style="display: flex; justify-content: space-between;">
     <span>Enter to send · Shift+Enter for newline</span>
     <span style="display: flex; gap: 12px; align-items: center;">
-      <a href="/ui/dev.html" title="Review Queue" style="text-decoration: none; color: var(--text-dim); font-size: 11px; transition: color 0.2s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-dim)'">⚙️ Dev UI</a>
+      <a href="/ui/dev.html" id="dev-ui-link" title="Review Queue" style="text-decoration: none; color: var(--text-dim); font-size: 11px; transition: color 0.2s; display: inline-flex; align-items: center; gap: 4px;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-dim)'">
+        <span id="research-pulse" style="display: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse-research 1.5s infinite;"></span>
+        <span>⚙️ Dev UI</span>
+      </a>
       <span id="telemetry" style="transition: color 0.3s; opacity: 0.8;"></span>
     </span>
   </div>
