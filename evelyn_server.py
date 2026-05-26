@@ -91,6 +91,62 @@ def dlog(*args):
 # ---------------------------------------------------------------------------
 
 
+def get_completed_research_context() -> str:
+    """Return a brief context block listing recently completed research reports."""
+    import os
+    import json
+    import re
+    research_dir = cfg.RESEARCH_DATA_DIR
+    if not os.path.exists(research_dir):
+        return ""
+    completed_tasks = []
+    for d in os.listdir(research_dir):
+        task_dir = os.path.join(research_dir, d)
+        if os.path.isdir(task_dir):
+            state_file = os.path.join(task_dir, "state.json")
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                        if state.get("status") == "done":
+                            completed_tasks.append(state)
+                except Exception:
+                    pass
+    if not completed_tasks:
+        return ""
+        
+    completed_tasks.sort(key=lambda t: t.get("finished_at") or t.get("created_at", ""), reverse=True)
+    
+    lines = ["\n=== COMPLETED DEEP RESEARCH REPORTS ===",
+             "You have recently completed the following deep research investigations in the background. "
+             "Use this information to answer Ricky's questions if relevant, or reference it to show you remember your research:"]
+    for t in completed_tasks[:5]:
+        query = t.get("query", "Unknown Topic")
+        task_id = t.get("task_id", "")
+        summary_text = ""
+        report_file = os.path.join(research_dir, task_id, "report.md")
+        if os.path.exists(report_file):
+            try:
+                with open(report_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
+                    if summary_match:
+                        summary_text = summary_match.group(1).strip()[:400] + "..."
+                    else:
+                        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+                        for p in paragraphs:
+                            if not p.startswith("#"):
+                                summary_text = p[:400] + "..."
+                                break
+            except Exception:
+                pass
+        if not summary_text:
+            summary_text = "Detailed report saved in Obsidian Vault under 'Deep Research'."
+            
+        lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}\n")
+    return "\n".join(lines)
+
+
 def load_system_prompt() -> str:
     """Assemble system prompt from persona markdown files."""
     parts = []
@@ -111,6 +167,11 @@ def load_system_prompt() -> str:
         fpath = PERSONA_DIR / fname
         if fpath.exists():
             parts.append(fpath.read_text(encoding="utf-8"))
+            
+    research_ctx = get_completed_research_context()
+    if research_ctx:
+        parts.append(research_ctx)
+        
     return "\n\n".join(parts)
 
 
@@ -1030,6 +1091,119 @@ async def lifespan(app: FastAPI):
         f"check={cfg.FACT_EXTRACTION_IDLE_CHECK_INTERVAL // 60}m)"
     )
 
+    # Idle-time deep research loop
+    async def _idle_research_loop():
+        """Background loop for deep research management."""
+        import os
+        import json
+        import subprocess
+        import sys
+        
+        while True:
+            await asyncio.sleep(60)
+            importlib.reload(cfg)
+            if not getattr(cfg, "RESEARCH_ENABLED", True):
+                continue
+                
+            idle_seconds = time.time() - _last_activity_ts
+            
+            # 1. Topic generation
+            if (
+                getattr(cfg, "RESEARCH_SELF_INITIATE", True)
+                and idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
+            ):
+                try:
+                    # Check if any heavy task is active
+                    heavy_running = False
+                    for task in _background_tasks.values():
+                        if task.get("status") == "running":
+                            heavy_running = True
+                            break
+                    if not heavy_running:
+                        from research_engine import self_initiate_research_topics
+                        await self_initiate_research_topics()
+                except Exception as e:
+                    print(f"[RESEARCH ERROR] Topic generation failed: {e}", flush=True)
+
+            # 2. Check active running research tasks for interruption
+            active_task_id = None
+            for tid, task in _background_tasks.items():
+                if tid.startswith("task_") and task.get("status") == "running":
+                    active_task_id = tid
+                    break
+                    
+            if active_task_id:
+                if idle_seconds < 10:  # User active!
+                    print(f"[RESEARCH INTERRUPT] User active (idle={idle_seconds:.1f}s) — pausing deep research task {active_task_id}", flush=True)
+                    from research_engine import load_state, save_state
+                    state = load_state(active_task_id)
+                    if state and state["status"] == "running":
+                        state["status"] = "paused"
+                        save_state(active_task_id, state)
+                        _background_tasks[active_task_id]["status"] = "paused"
+                continue
+
+            # 3. Resume paused research task if idle again
+            paused_task_id = None
+            for tid, task in list(_background_tasks.items()):
+                if tid.startswith("task_") and task.get("status") == "paused":
+                    paused_task_id = tid
+                    break
+                    
+            if paused_task_id:
+                if idle_seconds >= 60:  # Idle for 1 min
+                    # Ensure no other heavy tasks running
+                    heavy_running = False
+                    for tid, task in _background_tasks.items():
+                        if tid != paused_task_id and task.get("status") == "running":
+                            heavy_running = True
+                            break
+                    if not heavy_running:
+                        print(f"[RESEARCH RESUME] Server idle for {idle_seconds:.1f}s — resuming deep research task {paused_task_id}", flush=True)
+                        from research_engine import load_state, save_state
+                        state = load_state(paused_task_id)
+                        if state and state["status"] == "paused":
+                            state["status"] = "running"
+                            save_state(paused_task_id, state)
+                            _background_tasks[paused_task_id]["status"] = "running"
+                continue
+
+            # 4. Process queued tasks
+            if idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800):
+                heavy_running = False
+                for task in _background_tasks.values():
+                    if task.get("status") == "running":
+                        heavy_running = True
+                        break
+                if heavy_running:
+                    continue
+                    
+                queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
+                if os.path.exists(queue_file):
+                    try:
+                        with open(queue_file, "r", encoding="utf-8") as f:
+                            queue = json.load(f)
+                    except Exception:
+                        queue = []
+                        
+                    if queue:
+                        next_task = queue.pop(0)
+                        try:
+                            with open(queue_file, "w", encoding="utf-8") as f:
+                                json.dump(queue, f, indent=2)
+                        except Exception:
+                            pass
+                            
+                        print(f"[RESEARCH IDLE START] Starting queued task: '{next_task['query']}'", flush=True)
+                        from evelyn_tools import start_research
+                        start_research(next_task["query"], scope=next_task.get("scope", "standard"))
+
+    asyncio.create_task(_idle_research_loop())
+    print(
+        f"  {_GRN}Deep Research:{_RST} idle loop started "
+        f"(threshold={getattr(cfg, 'RESEARCH_IDLE_THRESHOLD', 1800) // 60}m)"
+    )
+
     yield
 
 
@@ -1345,6 +1519,83 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
 
     asyncio.create_task(_run_subprocess())
     return {"status": "refresh memory started"}
+
+
+class ResearchStartRequest(BaseModel):
+    query: str
+    scope: str = "standard"
+
+
+@app.post("/research/start")
+async def api_start_research(req: ResearchStartRequest, _: None = Depends(check_auth)):
+    """Trigger a deep research task in the background."""
+    from evelyn_tools import start_research
+    result = start_research(req.query, scope=req.scope)
+    return {"message": result}
+
+
+@app.get("/research/status/{task_id}")
+async def api_research_status(task_id: str, _: None = Depends(check_auth)):
+    """Return the real-time status of a research task."""
+    from research_engine import load_state
+    state = load_state(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Research task not found")
+    return state
+
+
+@app.get("/research/report/{task_id}")
+async def api_research_report(task_id: str, _: None = Depends(check_auth)):
+    """Return the synthesized report of a research task."""
+    import os
+    from research_engine import get_task_dir
+    task_dir = get_task_dir(task_id)
+    report_file = os.path.join(task_dir, "report.md")
+    if not os.path.exists(report_file):
+        raise HTTPException(status_code=404, detail="Report not synthesized yet or task failed")
+    with open(report_file, "r", encoding="utf-8") as f:
+        return {"report": f.read()}
+
+
+@app.get("/research/list")
+async def api_research_list(_: None = Depends(check_auth)):
+    """List all research tasks sorted by creation date."""
+    import os
+    import json
+    research_dir = cfg.RESEARCH_DATA_DIR
+    if not os.path.exists(research_dir):
+        return []
+    tasks = []
+    for d in os.listdir(research_dir):
+        task_dir = os.path.join(research_dir, d)
+        if os.path.isdir(task_dir):
+            state_file = os.path.join(task_dir, "state.json")
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        tasks.append(json.load(f))
+                except Exception:
+                    pass
+    tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
+    return tasks
+
+
+@app.post("/research/cancel/{task_id}")
+async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
+    """Cancel an in-flight research task."""
+    from research_engine import load_state, save_state
+    state = load_state(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Research task not found")
+    state["status"] = "cancelled"
+    state["termination_reason"] = "user_cancel"
+    save_state(task_id, state)
+    
+    if task_id in _background_tasks:
+        _background_tasks[task_id]["status"] = "cancelled"
+        _background_tasks[task_id]["finished_at"] = time.time()
+        
+    return {"status": "cancelled", "task_id": task_id}
 
 
 @app.post("/tts")
