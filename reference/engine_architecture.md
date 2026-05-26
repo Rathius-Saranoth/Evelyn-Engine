@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-05-25 20:38:12
+date modified: 2026-05-25 20:51:21
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -107,6 +107,13 @@ Standalone background processes and tools loaded dynamically by the model during
 FastAPI services running locally to isolate heavy GPU model weights and guarantee zero VRAM resource leakage when idle.
 * **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech.
 * **[[image_server.py]]**: FLUX.1 [schnell] server with lazy-loading auto-eviction.
+
+### 2.6 The Frontend User Interface
+The presentation and interaction layout loaded by the client browser. Connects directly to server APIs for state management and model inference.
+* **`evelyn_ui/index.html`**: The main user-facing dashboard. Renders the interactive companion panel, maintains Tailscale CORS setups, triggers dynamic TTS playback, and drives background task polling.
+  * *API Bridges*: Communicates via [[endpoints.md#1-chat--conversation-management]] (for streaming prompts), [[endpoints.md#2-ingestion--background-task-orchestration]] (for memory refreshes), and [[endpoints.md#3-local-inference-bridges]] (for speech generation).
+* **`evelyn_ui/dev.html`**: The developer and review dashboard console. Displays a visual triaging interface for reviewing staged observations and consolidation proposals.
+  * *API Bridges*: Communicates via [[endpoints.md#5-developer--review-queue-apis-interactive-triaging]] (to approve, reject, or merge memories).
 
 ---
 
