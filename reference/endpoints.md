@@ -43,7 +43,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 * **Purpose**: Inserts a `[THREAD_BREAK]` marker to start a fresh chat segment without losing any historical logs.
 
 ### `GET /artifact`
-* **Purpose**: Reads generated media assets (such as FLUX images and journal drafts) directly in the UI.
+* **Purpose**: Reads generated media assets (such as FLUX images, journal drafts) and synthesized Deep Research reports (`type=research`) directly in the UI with dynamic Obsidian vault and workspace search fallbacks.
 
 ---
 
