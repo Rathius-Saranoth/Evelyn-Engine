@@ -1,6 +1,7 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-05-24 10:16:58
+# date modified: 2026-05-24 12:29:31
+# tags: database, sqlite, memory, schemas, connections
 
 """
 memory_db.py — SQLite access layer for Evelyn's context memory database.

@@ -1,5 +1,9 @@
 ---
 description: How to check and start the core services for the Evelyn ecosystem
+title: start-services.md
+date created: 2026-03-14 22:28:48
+date modified: 2026-04-07 19:54:54
+tags: services, startup, launch, ecosystem, guide
 ---
 
 # Service Startup Workflow

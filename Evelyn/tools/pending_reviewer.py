@@ -1,3 +1,8 @@
+# pending_reviewer.py
+# date created: 2026-05-07 07:18:08
+# date modified: 2026-05-24 12:12:21
+# tags: triage, consolidation, review, terminal, interactive
+
 """
 pending_reviewer.py — Interactive reviewer for Evelyn's consolidation/recategorization proposals.
 

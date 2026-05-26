@@ -1,8 +1,11 @@
 ---
 title: obsidian_guide.md
+date created: 2026-02-12 19:09:17
+date modified: 2026-05-25 20:00:06
+tags: markdown, reference, obsidian, guide, tool
 ---
 
-# Evelyn Integration Guide: Obsidian
+## Evelyn Integration Guide: Obsidian
 
 This guide explains how to connect your Obsidian Vault to the local `evelyn:v1` model.
 

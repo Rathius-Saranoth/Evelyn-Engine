@@ -1,5 +1,8 @@
 
 # chroma_rag.py
+# date created: 2026-03-23 15:39:48
+# date modified: 2026-05-24 18:05:16
+# tags: rag, vector, chromadb, embeddings, query
 
 # Chroma Rag.py
 

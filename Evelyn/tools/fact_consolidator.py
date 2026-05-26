@@ -1,6 +1,7 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-05-24 11:29:32
+# date modified: 2026-05-24 15:55:13
+# tags: facts, consolidation, duplicates, deduplication, entities
 
 """
 fact_consolidator.py — Idle-time context entry consolidation for Evelyn's memory system.

@@ -1,6 +1,7 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-24 10:57:28
+# date modified: 2026-05-24 16:22:01
+# tags: facts, extractor, extraction, idle_time, analysis
 
 """
 fact_extractor.py — Idle-time personal-fact extraction for Evelyn's memory system.

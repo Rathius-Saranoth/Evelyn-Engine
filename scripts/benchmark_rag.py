@@ -1,3 +1,8 @@
+# benchmark_rag.py
+# date created: 2026-04-26 12:18:17
+# date modified: 2026-05-25 20:03:04
+# tags: rag, benchmark, evaluation, testing, metrics
+
 """
 benchmark_rag.py — RAG retrieval accuracy benchmark for Evelyn's Chroma pipeline.
 
@@ -24,8 +29,6 @@ Usage:
 
 Requires: reference/rag_benchmark_queries.json (golden test set)
 """
-
-# benchmark_rag.py
 
 import sys
 import os

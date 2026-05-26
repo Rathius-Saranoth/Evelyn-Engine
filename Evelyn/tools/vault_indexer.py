@@ -1,3 +1,8 @@
+# vault_indexer.py
+# date created: 2026-05-24 17:50:08
+# date modified: 2026-05-24 17:50:08
+# tags: vault, indexer, mapping, scans, metadata
+
 """
 vault_indexer.py -- Incrementally builds the Obsidian Vault index for Evelyn.
 

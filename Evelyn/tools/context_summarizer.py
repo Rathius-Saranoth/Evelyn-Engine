@@ -1,3 +1,8 @@
+# context_summarizer.py
+# date created: 2026-04-24 20:17:58
+# date modified: 2026-05-25 19:54:09
+# tags: context, summarizer, summarization, async, sliding_window
+
 """
 context_summarizer.py — Sliding-window conversation summarizer for Evelyn.
 
@@ -16,8 +21,6 @@ so Ollama reuses the already-loaded model with zero swap overhead.
 
 All config is read from evelyn_config.py (single source of truth).
 """
-
-# context_summarizer.py
 
 import asyncio
 import hashlib
