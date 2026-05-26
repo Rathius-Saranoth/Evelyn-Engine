@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-05-25 20:51:21
+date modified: 2026-05-25 20:55:04
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -82,6 +82,7 @@ Responsible for semantic vector indexing, context fact assemblies, and exact ent
 * **[[vault_db.py]]**: SQLite database connector for `evelyn_vault.db`. Handles super-fast incremental metadata writes for mapped files.
 * **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Performs vector assembly and distance scoring.
 * **[[context_manager.py]]**: Mismatch resolver and active context injector. Assembles dense facts, resolves entities, and strips search bloat.
+* **[[context_summarizer.py]]**: Sliding-window context compressor. Summarizes older context/messages and updates the rolling history boundary to keep LLM prompts thin.
 * **[[query_reformulator.py]]**: Sub-pipeline LLM trigger that optimizes conversational keywords before vector lookup, boosting hit rates by 23%.
 
 ### 2.3 The Ingestion Pipeline
@@ -115,6 +116,12 @@ The presentation and interaction layout loaded by the client browser. Connects d
 * **`evelyn_ui/dev.html`**: The developer and review dashboard console. Displays a visual triaging interface for reviewing staged observations and consolidation proposals.
   * *API Bridges*: Communicates via [[endpoints.md#5-developer--review-queue-apis-interactive-triaging]] (to approve, reject, or merge memories).
 
+### 2.7 The Cognitive Persona & Directives
+The standing narrative parameters, constraints, and profile baselines injected dynamically into the model's system prompt at startup.
+* **[[Evelyn_Narrative_Persona.md]]**: Core psychological identity and conversational style parameters for Evelyn.
+* **[[Ricky_Narrative_Profile.md]]**: User context profile and emotional/cognitive baseline mappings.
+* **[[System_Directives.md]]**: Definitive instructions governing tool call behaviors, priority matrices, and interaction boundaries.
+
 ---
 
 ## 3. Maintenance & Workflow Directives
@@ -127,3 +134,20 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **[[update_frontmatter.py]]**: Structural metadata utility running automatically on document edits.
 * **[[add_titles.py]]**: Retroactive title block scanner.
 * **[[benchmark_rag.py]]**: Diagnostic pipeline query testing framework.
+
+---
+
+## 4. Related Workspace Paths & Integrations
+
+The Evelyn ecosystem operates in tandem with external environments and local system processes. Refer to the following standardized directory mappings:
+
+### 4.1 Development Workspaces
+* **LocalAI Root**: `C:\Projects\LocalAI` (Main custom server and companion repository)
+* **ComfyUI**: `C:\Projects\ComfyUI` (External workspace for image and video generation pipelines)
+* **Scripts / Automation**: `C:\Projects\Scripts` (General utility and automation codebase)
+
+### 4.2 Resource & Data Directories
+* **Obsidian Vault Base**: `G:\My Drive\Obsidian_Vault` (Core vault hosting personal knowledge bases, prompts, and notes)
+* **Evelyn Tools**: `C:\Projects\LocalAI\Evelyn\tools` (Sub-pipelines and executable runtime actions)
+* **SQLite Data Base**: `C:\Projects\LocalAI\data` (Persistent databases, index hashes, and Chroma vectors)
+* **Ollama Data**: `C:\Users\ricky\AppData\Local\Ollama` (Local model weights and parameters)
