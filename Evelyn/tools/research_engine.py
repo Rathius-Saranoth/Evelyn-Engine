@@ -48,6 +48,10 @@ import web_reader # [[web_reader.py]]
 import research_prompts # [[research_prompts.py]]
 import evelyn_tools # [[evelyn_tools.py]]
 
+# Virtual memory cache to store chunks from previous deep research collections without re-scrapes
+VIRTUAL_SOURCES: Dict[str, str] = {}
+
+
 
 def get_task_dir(task_id: str) -> str:
     """Return the absolute path to a task's workspace directory.
@@ -271,6 +275,75 @@ def parse_web_search_results(web_results: str) -> List[Tuple[str, str]]:
     return results
 
 
+def parse_vault_search_results(vault_res: str) -> List[Tuple[str, str]]:
+    """Parse titles and paths from search_vault_map output.
+
+    Args:
+        vault_res: Formatted output string from search_vault_map.
+
+    Returns:
+        List[Tuple[str, str]]: List of (title, vault_relative_path) tuples.
+    """
+    results = []
+    # Match the exact formatting produced by search_vault_map:
+    # "--- {title} ---\nPath: {path}"
+    pattern = re.compile(r"^---\s*(.*?)\s*---\nPath:\s*(.*?)$", re.MULTILINE)
+    for match in pattern.finditer(vault_res):
+        title = match.group(1).strip()
+        path = match.group(2).strip()
+        results.append((title, path))
+    return results
+
+
+def query_previous_deep_research(search_query: str, current_task_id: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """Query completed deep-scope research task collections for relevant chunks.
+
+    Args:
+        search_query: Semantic search query string.
+        current_task_id: Current research task identifier to exclude.
+        limit: Maximum matching chunks to return.
+
+    Returns:
+        List[Dict[str, Any]]: Sorted chunks from prior deep runs.
+    """
+    results = []
+    try:
+        import chroma_rag
+        
+        # Check if research folder exists
+        if not os.path.exists(cfg.RESEARCH_DATA_DIR):
+            return []
+            
+        for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
+            if folder == current_task_id:
+                continue
+            state_path = os.path.join(cfg.RESEARCH_DATA_DIR, folder, "state.json")
+            if not os.path.exists(state_path):
+                continue
+                
+            try:
+                with open(state_path, "r", encoding="utf-8") as f:
+                    task_state = json.load(f)
+                if task_state.get("scope") == "deep" and task_state.get("status") == "done":
+                    collection_name = f"research_{folder}"
+                    # Query this task's collection
+                    chunks = chroma_rag.query_collection(search_query, collection_name, n_results=limit)
+                    for chunk in chunks:
+                        if chunk.get("distance", 1.0) <= cfg.RAG_DISTANCE_THRESHOLD:
+                            chunk["task_query"] = task_state.get("query", "")
+                            chunk["task_id"] = folder
+                            results.append(chunk)
+            except Exception:
+                continue
+                
+        # Sort results by distance and return top matches
+        results.sort(key=lambda x: x["distance"])
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE WARNING] Failed cross-task search: {e}", flush=True)
+        
+    return results[:limit]
+
+
 async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
     """Execute the PLAN step of a research task.
 
@@ -365,8 +438,33 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     search_results_str = evelyn_tools.web_search(search_query, max_results=5)
     parsed_sources = parse_web_search_results(search_results_str)
     
+    # Obsidian Vault search (Phase 3)
+    try:
+        from context_manager import search_vault_map
+        print(f"[RESEARCH_ENGINE] Searching Obsidian Vault: '{search_query}'", flush=True)
+        vault_res = search_vault_map(search_query, limit=3)
+        if vault_res and not vault_res.startswith("No results found"):
+            vault_sources = parse_vault_search_results(vault_res)
+            print(f"[RESEARCH_ENGINE] Found {len(vault_sources)} relevant documents in Obsidian Vault.", flush=True)
+            parsed_sources.extend(vault_sources)
+    except Exception as ve:
+        print(f"[RESEARCH_ENGINE WARNING] Vault search failed: {ve}", flush=True)
+        
+    # Cross-task search (Phase 3)
+    try:
+        prev_research_chunks = query_previous_deep_research(search_query, task_id, limit=3)
+        if prev_research_chunks:
+            print(f"[RESEARCH_ENGINE] Found {len(prev_research_chunks)} matching chunks from completed deep research tasks.", flush=True)
+            for chunk in prev_research_chunks:
+                title = f"Previous Research: {chunk['task_query']}"
+                url = f"sqlite::research_task::{chunk['task_id']}::{chunk['metadata'].get('source', '')}::chunk-{chunk['metadata'].get('chunk', 0)}"
+                VIRTUAL_SOURCES[url] = chunk["content"]
+                parsed_sources.append((title, url))
+    except Exception as pe:
+        print(f"[RESEARCH_ENGINE WARNING] Cross-task search failed: {pe}", flush=True)
+    
     if not parsed_sources:
-        print("[RESEARCH_ENGINE] No web search results found for query. Skipping extraction.", flush=True)
+        print("[RESEARCH_ENGINE] No web search, vault, or cross-task results found. Skipping extraction.", flush=True)
         # Advance state to prevent infinite retry
         sq["status"] = "done"
         state["current_sq_idx"] += 1
@@ -397,8 +495,41 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             print(f"[RESEARCH_ENGINE] Source already consulted: {url}. Skipping.", flush=True)
             continue
             
-        # Scrape page first to verify success before counting it against constraints
-        scrape_result = await web_reader.read_and_extract_url(url)
+        # Scrape or read page first to verify success before counting it against constraints
+        scrape_result = {"success": False, "content": None, "chunks": []}
+        
+        if url in VIRTUAL_SOURCES:
+            # Virtual cache source (cross-task search)
+            content = VIRTUAL_SOURCES[url]
+            scrape_result = {
+                "success": True,
+                "title": title,
+                "content": content,
+                "chunks": [content]
+            }
+        elif not (url.startswith("http://") or url.startswith("https://")):
+            # Local Obsidian file source!
+            try:
+                full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, url))
+                if os.path.exists(full_path):
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    # Strip frontmatter for clean extraction context
+                    content_clean = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
+                    scrape_result = {
+                        "success": True,
+                        "title": title,
+                        "content": content,
+                        "chunks": [content_clean[:12000]]
+                    }
+                else:
+                    print(f"[RESEARCH_ENGINE WARNING] Local vault file not found: {full_path}", flush=True)
+            except Exception as e:
+                print(f"[RESEARCH_ENGINE] Failed to read local vault file {url}: {e}", flush=True)
+        else:
+            # Web URL
+            scrape_result = await web_reader.read_and_extract_url(url)
+            
         if not scrape_result["success"] or not scrape_result["content"]:
             print(f"[RESEARCH_ENGINE WARNING] Could not extract text from: {url}", flush=True)
             # Register as failed so we still deduplicate in future rounds
@@ -426,6 +557,24 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         state["total_sources"] += 1
         sq["source_count"] += 1
         save_state(task_id, state)
+        
+        # If scope is deep, embed in custom Chroma collection (Phase 3)
+        if state.get("scope") == "deep" and not url.startswith("sqlite::"):
+            try:
+                import chroma_rag
+                chroma_rag.ingest_markdown_file(
+                    file_path=url,
+                    content=scrape_result["content"],
+                    collection_name=f"research_{task_id}",
+                    extra_metadata={
+                        "task_id": task_id,
+                        "url": url,
+                        "title": title
+                    }
+                )
+                print(f"[RESEARCH_ENGINE] Embedded source into per-task Chroma collection research_{task_id}", flush=True)
+            except Exception as ce:
+                print(f"[RESEARCH_ENGINE WARNING] Failed to ingest into custom Chroma collection: {ce}", flush=True)
         
         print(f"[RESEARCH_ENGINE] Extracting facts from: '{title}' [{src_id}]", flush=True)
         
