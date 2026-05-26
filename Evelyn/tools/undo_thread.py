@@ -1,7 +1,7 @@
 # undo_thread.py
 # date created: 2026-05-17 14:48:24
-# date modified: 2026-05-24 10:33:16
-# tags: undo, history, delete, reversal, state
+# date modified: 2026-05-25 19:50:51
+# tags: #undo, #history, #delete, #reversal, #state
 
 """
 Undo the last [THREAD_BREAK] in the Evelyn chat database.

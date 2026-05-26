@@ -1,7 +1,7 @@
 # extract_pdf_library.py
 # date created: 2026-04-17 21:17:42
 # date modified: 2026-05-25 20:03:01
-# tags: pdf, extraction, library, parsing, tools
+# tags: #pdf, #extraction, #library, #parsing, #tools
 
 """
 extract_pdf_library.py — Extract PDFs into structured Obsidian-compatible markdown.

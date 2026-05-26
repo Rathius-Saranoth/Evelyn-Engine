@@ -1,7 +1,7 @@
 # query_reformulator.py
 # date created: 2026-04-26 13:03:48
 # date modified: 2026-05-25 19:55:09
-# tags: query, reformulation, search, keywords, prompts
+# tags: #query, #reformulation, #search, #keywords, #prompts
 
 """
 query_reformulator.py — Extracts search-relevant keywords from conversational messages.
