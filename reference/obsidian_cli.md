@@ -1,8 +1,8 @@
 ---
 title: obsidian_cli.md
 date created: 2026-03-23 17:07:58
-date modified: 2026-05-25 19:59:50
-tags: markdown, c, reference, obsidian, cli
+date modified: 2026-05-25 20:04:43
+tags: markdown, reference, obsidian, cli, tool
 ---
 Obsidian CLI is a command line interface that lets you control Obsidian from your terminal for scripting, automation, and integration with external tools.
 

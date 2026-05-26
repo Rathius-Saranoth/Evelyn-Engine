@@ -1,7 +1,7 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-05-24 18:12:35
-# tags: context, entities, facts, lifecycle, updates
+# date modified: 2026-05-25 19:50:51
+# tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
 context_manager.py — Context Category management for Evelyn's memory system.

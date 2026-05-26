@@ -1,7 +1,7 @@
 # ingest_gists.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-24 18:12:37
-# tags: gists, ingest, indexing, memory, pipeline
+# date modified: 2026-05-25 19:50:51
+# tags: #gists, #ingest, #indexing, #memory, #pipeline
 
 """
 ingest_gists.py — Syncs Obsidian Vault gists into Chroma.
