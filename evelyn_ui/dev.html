@@ -549,7 +549,13 @@
     });
 
     // Init
-    loadData();
+    const params = new URLSearchParams(window.location.search);
+    const initialTab = params.get('tab');
+    if (initialTab && ['extractions', 'proposals', 'research'].includes(initialTab)) {
+      switchTab(initialTab);
+    } else {
+      loadData();
+    }
   </script>
 </body>
 </html>

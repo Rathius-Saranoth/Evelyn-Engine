@@ -304,6 +304,10 @@
     .modal-content img { max-width: 100%; border-radius: 8px; }
     .modal-content h1, .modal-content h2, .modal-content h3 { margin-top: 1em; margin-bottom: 0.5em; color: #fff; }
     .modal-content p { margin-bottom: 1em; }
+    @keyframes pulse-research {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -314,6 +318,10 @@
     <span id="status-text">Ready</span>
   </div>
   <div class="header-actions">
+    <a href="/ui/dev.html?tab=research" class="btn-ghost" id="research-btn" title="Open Deep Research Dashboard" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; line-height: 16px;">
+      <span id="research-pulse" style="display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse-research 1.5s infinite;"></span>
+      <span>🔍 Research</span>
+    </a>
     <button class="btn-ghost" id="new-thread-btn" title="Start a new conversation thread" onclick="newThread()">✦ New Thread</button>
     <button class="btn-ghost" id="refresh-memory-btn" title="Rebuild Vault Map then re-ingest all knowledge into Chroma" onclick="refreshMemory()">✦ Refresh Memory</button>
   </div>
@@ -379,9 +387,13 @@ function escapeHtml(s) {
 
 function renderMarkdown(text) {
   // Minimal markdown for chat bubbles
-  return escapeHtml(text)
+  let html = escapeHtml(text)
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\[\[Research\/([^\]]+)\]\]/g, (match, slug) => {
+    return `<button class="write-badge" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; vertical-align: middle; border: 1px solid var(--tool-border); background: var(--tool-bg); color: var(--tool-text);" onclick="openModal('research', '${slug}')">🔍 Deep Research: ${slug}</button>`;
+  });
+  return html;
 }
 
 function renderFullMarkdown(text) {
@@ -395,6 +407,9 @@ function renderFullMarkdown(text) {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>');
+  html = html.replace(/\[\[Research\/([^\]]+)\]\]/g, (match, slug) => {
+    return `<button class="write-badge" style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; vertical-align: middle; border: 1px solid var(--tool-border); background: var(--tool-bg); color: var(--tool-text);" onclick="openModal('research', '${slug}')">🔍 Deep Research: ${slug}</button>`;
+  });
   return `<p>${html}</p>`;
 }
 
@@ -575,6 +590,16 @@ async function openModal(type, id) {
     try {
       const resp = await fetch(`${API_BASE}/artifact?type=journal&id=${encodeURIComponent(id)}`, { headers: headers() });
       if (!resp.ok) throw new Error('Failed to load artifact from server');
+      const data = await resp.json();
+      content.innerHTML = renderFullMarkdown(data.content);
+    } catch (err) {
+      content.innerHTML = `<div style="color:#ff6666;">Error: ${err.message}</div>`;
+    }
+  } else if (type === 'research') {
+    title.textContent = `Deep Research Report: ${id}`;
+    try {
+      const resp = await fetch(`${API_BASE}/artifact?type=research&id=${encodeURIComponent(id)}`, { headers: headers() });
+      if (!resp.ok) throw new Error('Failed to load research report');
       const data = await resp.json();
       content.innerHTML = renderFullMarkdown(data.content);
     } catch (err) {
@@ -1474,6 +1499,23 @@ if (!API_KEY && window.location.hostname !== 'localhost' && window.location.host
 
 // Init
 loadHistory();
+
+async function checkActiveResearch() {
+  try {
+    const resp = await fetch(`${API_BASE}/research/list`, { headers: headers() });
+    if (!resp.ok) return;
+    const tasks = await resp.json();
+    const active = tasks.some(t => t.status === 'running' || ['plan', 'search', 'extract', 'evaluate', 'synthesize'].includes(t.status));
+    const pulse = document.getElementById('research-pulse');
+    if (pulse) {
+      pulse.style.display = active ? 'inline-block' : 'none';
+    }
+  } catch (e) {
+    // Ignore network/connection issues during polling
+  }
+}
+checkActiveResearch();
+setInterval(checkActiveResearch, 15000);
 
 </script>
 </body>
