@@ -1,6 +1,7 @@
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-05-17 14:11:17
+# date modified: 2026-05-25 19:47:52
+# tags: frontmatter, metadata, headers, update, utility
 
 import sys
 import os
@@ -43,19 +44,27 @@ def main():
             
             if not header_updated and re.match(r'^#\s*' + re.escape(filename) + r'\s*$', line):
                 created_val = date_created
+                existing_tags_line = None
                 j = i + 1
                 while j < len(lines) and lines[j].startswith('#'):
                     if 'date created:' in lines[j]:
                         m = re.search(r'date created:\s*(.*)', lines[j])
                         if m and m.group(1).strip():
                             created_val = m.group(1).strip()
+                    elif 'tags:' in lines[j]:
+                        existing_tags_line = lines[j]
                     j += 1
                 
                 out_lines.append(f"# date created: {created_val}")
                 out_lines.append(f"# date modified: {date_modified}")
                 
-                # Skip existing date lines so they are cleanly replaced
-                while i + 1 < len(lines) and lines[i+1].startswith('#') and ('date created:' in lines[i+1] or 'date modified:' in lines[i+1]):
+                if existing_tags_line is not None:
+                    out_lines.append(existing_tags_line)
+                else:
+                    out_lines.append("# tags: ")
+                
+                # Skip existing date and tag lines so they are cleanly replaced
+                while i + 1 < len(lines) and lines[i+1].startswith('#') and ('date created:' in lines[i+1] or 'date modified:' in lines[i+1] or 'tags:' in lines[i+1]):
                     i += 1
                     
                 header_updated = True
@@ -67,6 +76,7 @@ def main():
                 f"# {filename}",
                 f"# date created: {date_created}",
                 f"# date modified: {date_modified}",
+                f"# tags: ",
                 ""
             ] + lines
             

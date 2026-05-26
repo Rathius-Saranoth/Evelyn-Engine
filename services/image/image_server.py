@@ -1,3 +1,8 @@
+# image_server.py
+# date created: 2026-05-22 21:45:27
+# date modified: 2026-05-25 19:44:37
+# tags: image, generation, flux, fastapi, server
+
 """image_server.py — Standalone FLUX.1 [schnell] NF4 Image Generation Server.
 
 Runs a FastAPI server on http://127.0.0.1:5055 that handles on-demand,

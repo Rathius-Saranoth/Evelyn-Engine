@@ -1,6 +1,7 @@
 # context_reviewer.py
 # date created: 2026-05-04 17:28:42
 # date modified: 2026-05-24 10:13:47
+# tags: context, reviewer, queue, ui, interface
 
 """
 context_reviewer.py — Interactive terminal reviewer for Evelyn's auto-extracted context facts.

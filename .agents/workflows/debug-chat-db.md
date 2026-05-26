@@ -1,5 +1,9 @@
 ---
 description: How to inspect Evelyn's chat history and debug conversation issues
+title: debug-chat-db.md
+date created: 2026-03-25 19:11:00
+date modified: 2026-04-04 20:05:10
+tags: sqlite, debug, database, query, workflow
 ---
 
 # Evelyn Chat Debug Workflow

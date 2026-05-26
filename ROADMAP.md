@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-23 21:31:59
+date modified: 2026-05-25 20:02:59
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -76,7 +76,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Mobile Connection Recovery**: Added Screen Wake Lock API to keep the display alive while streaming (prevents phone screen-off mid-response). Added `visibilitychange` recovery handler — pull-based design using `GET /latest_message_id` endpoint. On tab-focus, the UI compares the server's latest committed message ID against the last rendered ID; if the server has newer content, history reloads automatically. Immune to new SSE event types — previous timestamp-based approach broke when status/heartbeat events were added. *(Redesigned 2026-05-17)*
 - [x] **Write-Tool Badges**: Persistent badges on assistant messages when file-writing tools fire: 📓 Journal entry written, 📌 Context fact logged, 📝 Context fact updated, 🎨 Image generated. Applied to both `sendMessage()` and `regenerateResponse()` flows.
 - [x] **Context Summarizer**: Implemented async sliding-window summarizer (`context_summarizer.py`). Compresses older messages (beyond the active 20-msg window) into a ~200-word summary injected into the system prompt. Runs in background via `asyncio.create_task()` after each response — zero user-facing latency. Uses same model/`num_ctx` via in-process Ollama call (no model swap). Cache rebuilds on server startup; invalidates on thread break. Config in `evelyn_config.py`: `SUMMARY_WINDOW_SIZE`, `SUMMARY_MAX_WORDS`, `SUMMARY_OVERLAP`, `SUMMARY_MODEL`.
-- [ ] **Token Count Display**: Surface per-message or per-request token counts in the chat UI or server console. Enables monitoring of context utilization and early warning when approaching the `num_ctx` ceiling.
+- [x] **Token Count Display**: Surface per-message or per-request token counts in the chat UI or server console. Enables monitoring of context utilization and early warning when approaching the `num_ctx` ceiling.
 - [x] **SSH Remote Access (Retired)**: Enabled Windows OpenSSH Server for Tailscale-routed remote access from Android (Termux) and created `evelyn_tools.ps1`. *Retired in favor of Google Remote Desktop (cleaner, easier to use).*
 - [x] **Engineering Standards**: Codified Dave Plummer's "Notes to Live By" quality gates and operational disciplines into `.ai-instructions.md` §2. Added `/quality-review` workflow for structured self-review. *Audit complete (2026-05-19): performed a full Quality Review over `evelyn_server.py`, `fact_extractor.py`, `fact_consolidator.py`, `pending_reviewer.py`, and `context_manager.py`, confirming 100% compliant and stable status.*
 - [ ] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. Deferred until Evelyn has code-generation capabilities.
@@ -107,7 +107,6 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Formal Tool Metadata schema**: Added a `tool_metadata` JSON column to the SQLite `messages` table. Instead of string-hacking tool outputs into the `tools_used` column, stores a structured key-value map mapping tool executions to their raw output file names/identifiers (e.g., `{"write_journal_entry": "2026-05-23.md"}`). *(Completed 2026-05-24)*
 - [x] **Upgraded Tool Badges & UI Viewers**: Leveraged the `tool_metadata` column to turn all write-tool badges into interactive elements. Provided clickable links or inline UI modals for *all* outputs: viewing generated images and reading newly created journal entries directly in the chat UI without opening Obsidian. *(Completed 2026-05-24)*
 - [x] **Developer Web UI**: Built a dedicated browser-based interface (`dev.html`) for tool access, replacing terminal scripts for the Review Queues (Extracted facts, Pending proposals). Features a touch-optimized card layout, inline markdown rendering for source CEs, keyboard shortcuts for triage, and full state hydration without heavy frontend frameworks. *(Completed 2026-05-24)*
-- [ ] **Source Badges**: When RAG documents are referenced in a response, display source indicator badges in the chat showing which vault files contributed to the message. Adds transparency to Evelyn's knowledge retrieval.
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the `#kw/` and `#ctx/` tags written by the Keyword-to-Tag Pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
 
