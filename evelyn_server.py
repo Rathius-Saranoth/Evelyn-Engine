@@ -1320,12 +1320,47 @@ async def delete_history(_: None = Depends(check_auth)):
 @app.get("/artifact")
 async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
     if type == "journal":
-        from Evelyn.tools.journal_manager import read_journal_entry
+        import os
         import re
-        m = re.search(r'Journal Entry ([0-9\-]+)\.md', id)
+        from Evelyn.tools.journal_manager import PENDING_DIR, JOURNAL_DIR
+
+        filename = id if id.endswith(".md") else f"{id}.md"
+        filename = os.path.basename(filename)
+
+        # 1. Try structured vault folder: Journal Entries/YYYY/MM-ShortMonth/Journal Entry YYYY-MM-DD.md
+        m = re.search(r'Journal Entry (\d{4})-(\d{2})-\d{2}\.md', filename)
+        if m:
+            year = m.group(1)
+            month_num = m.group(2)
+            import datetime
+            try:
+                month_dt = datetime.date(int(year), int(month_num), 1)
+                month_name = month_dt.strftime("%b")
+                struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", year, f"{month_num}-{month_name}", filename)
+                if os.path.exists(struct_path):
+                    with open(struct_path, "r", encoding="utf-8") as f:
+                        return {"content": f.read(), "status": "approved"}
+            except Exception:
+                pass
+
+        # 2. Try pending folder
+        pending_path = os.path.join(PENDING_DIR, filename)
+        if os.path.exists(pending_path):
+            with open(pending_path, "r", encoding="utf-8") as f:
+                return {"content": f.read(), "status": "pending"}
+
+        # 3. Try vault root path
+        root_path = os.path.join(JOURNAL_DIR, filename)
+        if os.path.exists(root_path):
+            with open(root_path, "r", encoding="utf-8") as f:
+                return {"content": f.read(), "status": "approved"}
+
+        # Fallback to journal_manager read
+        from Evelyn.tools.journal_manager import read_journal_entry
+        m = re.search(r'Journal Entry ([0-9\-]+)\.md', filename)
         if m:
             content = read_journal_entry(m.group(1))
-            return {"content": content}
+            return {"content": content, "status": "unknown"}
         else:
             raise HTTPException(status_code=400, detail="Invalid journal ID")
     elif type == "research":
@@ -1361,6 +1396,59 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
             raise HTTPException(status_code=404, detail="Research report not found")
     else:
         raise HTTPException(status_code=400, detail="Unknown artifact type")
+
+
+class ApproveJournalRequest(BaseModel):
+    id: str
+
+
+@app.post("/journal/approve")
+async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_auth)):
+    import os
+    import re
+    import shutil
+    import datetime
+    from Evelyn.tools.journal_manager import PENDING_DIR, JOURNAL_DIR
+
+    filename = req.id if req.id.endswith(".md") else f"{req.id}.md"
+    filename = os.path.basename(filename)
+
+    source_path = os.path.join(PENDING_DIR, filename)
+    if not os.path.exists(source_path):
+        # Check if already approved
+        m = re.search(r'Journal Entry (\d{4})-(\d{2})-\d{2}\.md', filename)
+        if m:
+            year = m.group(1)
+            month_num = m.group(2)
+            try:
+                month_dt = datetime.date(int(year), int(month_num), 1)
+                month_name = month_dt.strftime("%b")
+                struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", year, f"{month_num}-{month_name}", filename)
+                if os.path.exists(struct_path):
+                    return {"status": "already_approved", "destination": struct_path}
+            except Exception:
+                pass
+        raise HTTPException(status_code=404, detail="Pending journal entry file not found")
+
+    m = re.search(r'Journal Entry (\d{4})-(\d{2})-\d{2}\.md', filename)
+    if not m:
+        raise HTTPException(status_code=400, detail="Invalid journal filename format")
+
+    year = m.group(1)
+    month_num = m.group(2)
+    month_dt = datetime.date(int(year), int(month_num), 1)
+    month_name = month_dt.strftime("%b") # e.g. "May"
+    
+    target_dir = os.path.join(JOURNAL_DIR, "Journal Entries", year, f"{month_num}-{month_name}")
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, filename)
+
+    try:
+        shutil.move(source_path, target_path)
+        print(f"[JOURNAL APPROVE] Moved {filename} to structured vault path: {target_path}", flush=True)
+        return {"status": "success", "destination": target_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to move journal file: {e}")
 
 
 @app.post("/new_thread")
