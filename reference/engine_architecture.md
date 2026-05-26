@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-05-25 20:55:04
+date modified: 2026-05-25 20:58:46
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -143,7 +143,6 @@ The Evelyn ecosystem operates in tandem with external environments and local sys
 
 ### 4.1 Development Workspaces
 * **LocalAI Root**: `C:\Projects\LocalAI` (Main custom server and companion repository)
-* **ComfyUI**: `C:\Projects\ComfyUI` (External workspace for image and video generation pipelines)
 * **Scripts / Automation**: `C:\Projects\Scripts` (General utility and automation codebase)
 
 ### 4.2 Resource & Data Directories
