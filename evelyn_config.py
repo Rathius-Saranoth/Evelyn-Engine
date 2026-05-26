@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-05-25 19:50:50
+# date modified: 2026-05-25 20:32:00
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -104,16 +104,16 @@ SUMMARY_MODEL_OVERRIDE = "default"
 # =============================================================================
 # Paths
 # =============================================================================
-VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault" # [[G:\My Drive\Obsidian_Vault]]
-EVELYN_MEMORY_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn" # [[G:\My Drive\Obsidian_Vault\Evelyn]]
-PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md]]
-VAULT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_vault.db" # [[C:\Projects\LocalAI\data\evelyn_vault.db]]
-VAULT_SYNC_STATE = r"C:\Projects\LocalAI\data\vault_sync_state.json" # [[C:\Projects\LocalAI\data\vault_sync_state.json]]
-GIST_SYNC_STATE = r"C:\Projects\LocalAI\data\gist_sync_state.json" # [[C:\Projects\LocalAI\data\gist_sync_state.json]]
-CHROMA_DB_PATH = r"C:\Projects\LocalAI\data\chroma_db" # [[C:\Projects\LocalAI\data\chroma_db]]
-CHAT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_chat.db" # [[C:\Projects\LocalAI\data\evelyn_chat.db]]
-MEMORY_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_memory.db" # [[C:\Projects\LocalAI\data\evelyn_memory.db]]
-PERSONA_DIR = r"C:\Projects\LocalAI\Evelyn\persona" # [[C:\Projects\LocalAI\Evelyn\persona]]
+VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault" # [[Obsidian_Vault]]
+EVELYN_MEMORY_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn" # [[Obsidian_Vault\Evelyn]]
+PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
+VAULT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_vault.db" # [[evelyn_vault.db]]
+VAULT_SYNC_STATE = r"C:\Projects\LocalAI\data\vault_sync_state.json" # [[vault_sync_state.json]]
+GIST_SYNC_STATE = r"C:\Projects\LocalAI\data\gist_sync_state.json" # [[gist_sync_state.json]]
+CHROMA_DB_PATH = r"C:\Projects\LocalAI\data\chroma_db" # [[chroma_db]]
+CHAT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_chat.db" # [[evelyn_chat.db]]
+MEMORY_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_memory.db" # [[evelyn_memory.db]]
+PERSONA_DIR = r"C:\Projects\LocalAI\Evelyn\persona" # [[persona]]
 
 
 # Official category names — single source of truth for the consolidator and reviewer.
