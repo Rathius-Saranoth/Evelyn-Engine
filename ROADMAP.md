@@ -38,7 +38,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Implement Expressive Speech-to-Text (STT)**: Go beyond basic transcription (currently handled via phone OS keyboard) and integrate a local STT engine capable of extracting vocal nuance tags (pitch, stress, hesitation) so Evelyn can 'hear' the emotion behind the words.
 - [x] Implement time awareness via date/time injection in `evelyn_server.py`'s `load_system_prompt()` + behavioral directive.
 - [x] **Web Search Tool**: Build a custom `search_web` tool backed by DuckDuckGo Search (ddgs) for current events / public info not in the vault.
-- [ ] **Research Mode**: A separate model config or `evelyn_server.py` route that bundles web search + a different retrieval priority order — useful for looking things up vs. Evelyn's normal memory-first conversation mode.
+- [x] **Deep Research Mode — Phase 1: Core Engine (MVP)**: Designed and implemented the complete multi-step background orchestrator-worker loop (Option B). Created `web_reader.py` (async fetch, `trafilatura` extraction, and chunker), `research_prompts.py` (stateless templates for planning, extraction, evaluation, and synthesis), and `research_engine.py` (state persistence, confidence evaluation, safety guards, and Obsidian Vault publishing). Successfully tested end-to-end via CLI!
+- [ ] **Deep Research Mode — Phase 2: Integration & Web UI**: Wire the background loop into the server's idle system, build out the active-conversation interrupt triggers, implement the self-initiated queue system, add Chroma vector DB support for `deep` scope runs, and surface progress directly in the Web UI.
 - [ ] **Code & Terminal Agency**: Equip Evelyn with safe, scoped tools to read files, write scripts, and execute commands within the LocalAI workspace environment, enabling true pair-programming and self-modification.
 - [ ] Explore Google Drive File Integration.
 - [ ] Implement scheduling and reminders.
