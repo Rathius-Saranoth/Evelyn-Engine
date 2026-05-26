@@ -1,7 +1,7 @@
 # check_evelyn_status.ps1
 # date created: 2026-02-12 20:07:43
-# date modified: 2026-03-25 19:09:31
-# tags: status, monitor, processes, windows, diagnostics
+# date modified: 2026-05-25 19:50:51
+# tags: #status, #monitor, #processes, #windows, #diagnostics
 
 # Evelyn Startup Status Checker
 # Use the "Start Evelyn Services" VS Code Task to launch these apps!

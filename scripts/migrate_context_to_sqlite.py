@@ -1,7 +1,7 @@
 # migrate_context_to_sqlite.py
 # date created: 2026-05-24 09:52:43
-# date modified: 2026-05-25 19:46:42
-# tags: migration, context, sqlite, flat_file, import
+# date modified: 2026-05-25 19:50:52
+# tags: #migration, #context, #sqlite, #flat_file, #import
 
 """
 migrate_context_to_sqlite.py — One-time migration of flat-file context entries to SQLite.
