@@ -97,6 +97,7 @@
     .btn-edit { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
     .btn-action { background: var(--accent); color: #fff; }
     .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-start-now { background: #d97706; color: #fff; }
     
     .research-form {
       display: flex; gap: 10px; margin-bottom: 20px; background: var(--surface);
@@ -370,6 +371,20 @@
       }
     }
 
+    async function startNowResearchTask(taskId) {
+      try {
+        const res = await fetch(`${API_BASE}/research/start-now/${taskId}`, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          loadData();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to start task: ${err.detail || res.statusText}`);
+        }
+      } catch (e) {
+        alert('Network error starting task.');
+      }
+    }
+
     async function readReport(taskId, topic) {
       try {
         const res = await fetch(`${API_BASE}/research/report/${taskId}`, { headers: headers() });
@@ -573,7 +588,18 @@
             let actionButtons = '';
             if (statusText === 'done') {
               actionButtons = `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`;
-            } else if (statusText === 'error' || statusText === 'cancelled' || statusText === 'paused') {
+            } else if (statusText === 'queued') {
+              actionButtons = [
+                `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`
+              ].join('');
+            } else if (statusText === 'paused') {
+              actionButtons = [
+                `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
+                `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume</button>`,
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`
+              ].join('');
+            } else if (statusText === 'error' || statusText === 'cancelled') {
               actionButtons = `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume / Retry</button>`;
             } else {
               actionButtons = `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`;
