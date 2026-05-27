@@ -134,3 +134,9 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `POST /research/resume/{task_id}`
 * **Purpose**: Safe resume and retry trigger. Re-spawns the background subprocess (`research_engine.py`) completely silently (using `CREATE_NO_WINDOW`) for any paused, cancelled, or failed research task to resume execution exactly where it was interrupted.
+
+### `POST /research/start-now/{task_id}`
+* **Purpose**: Force-start a queued or paused research task immediately, bypassing idle-time scheduling.
+* **Queued items** (`task_id` starts with `queued_`): Pops the item at the given index from `queue.json` on disk and immediately invokes `start_research()`, obeying the same mutual-exclusion logic used by the idle loop (cancels any in-flight consolidation/extraction to free VRAM first).
+* **Paused / cancelled / error tasks** (real `task_id`): Delegates to `resume_research_task()` to re-spawn the subprocess in-place.
+* **UI behaviour**: Renders as an amber **▶ Start Now** button on `queued` and `paused` cards, alongside the Cancel button (and Resume for paused). Absent from active, done, error, or cancelled cards.

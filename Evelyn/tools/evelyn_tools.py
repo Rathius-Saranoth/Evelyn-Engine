@@ -221,6 +221,18 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
     
     _reload()
     try:
+        # Guard: refuse to spawn if another research subprocess is already running.
+        # Only one research engine process should run at a time to avoid Ollama contention.
+        server = sys.modules.get("evelyn_server")
+        if server:
+            bg_tasks = getattr(server, "_background_tasks", {})
+            for tid, tinfo in bg_tasks.items():
+                if tid.startswith("task_") and tinfo.get("status") == "running":
+                    return (
+                        f"A research task is already running ({tid}). "
+                        "Wait for it to complete or pause before starting another."
+                    )
+
         from research_engine import create_research_task
         task_id = create_research_task(query, scope=scope, triggered_by="user")
         
