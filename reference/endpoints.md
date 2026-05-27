@@ -130,3 +130,6 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `POST /research/cancel/{task_id}`
 * **Purpose**: Safe cancellation trigger. Sets task status to `cancelled` on disk. The orchestrator checks this status at the start of each execution turn to terminate safely and release VRAM.
+
+### `POST /research/resume/{task_id}`
+* **Purpose**: Safe resume and retry trigger. Re-spawns the background subprocess (`research_engine.py`) completely silently (using `CREATE_NO_WINDOW`) for any paused, cancelled, or failed research task to resume execution exactly where it was interrupted.

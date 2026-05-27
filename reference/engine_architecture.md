@@ -118,7 +118,7 @@ Enables fully autonomous, multi-step search and information synthesis in the bac
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`).
+* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, and background task recovery `resume_research_task`).
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions and stages them to memory.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.

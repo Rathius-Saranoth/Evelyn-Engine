@@ -356,6 +356,19 @@
       }
     }
 
+    async function resumeResearchTask(taskId) {
+      try {
+        const res = await fetch(`${API_BASE}/research/resume/${taskId}`, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          loadData();
+        } else {
+          alert('Failed to resume research task.');
+        }
+      } catch (e) {
+        alert('Network error resuming task.');
+      }
+    }
+
     async function readReport(taskId, topic) {
       try {
         const res = await fetch(`${API_BASE}/research/report/${taskId}`, { headers: headers() });
@@ -546,17 +559,29 @@
               else if (stepText === 'synthesize') progressVal = 90;
             }
             
+            let badgeClass = statusText;
+            let badgeLabel = statusText;
+            if (statusText === 'searching' || statusText === 'running') {
+              badgeLabel = stepText;
+              if (stepText === 'plan') badgeClass = 'planning';
+              else if (stepText === 'search') badgeClass = 'searching';
+              else if (stepText === 'evaluate') badgeClass = 'evaluating';
+              else if (stepText === 'synthesize') badgeClass = 'synthesizing';
+            }
+            
             let actionButtons = '';
             if (statusText === 'done') {
               actionButtons = `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`;
-            } else if (statusText !== 'error' && statusText !== 'cancelled') {
+            } else if (statusText === 'error' || statusText === 'cancelled' || statusText === 'paused') {
+              actionButtons = `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume / Retry</button>`;
+            } else {
               actionButtons = `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`;
             }
             
             return `
               <div class="card">
                 <div class="card-header">
-                  <span class="badge ${statusText}">${statusText}</span>
+                  <span class="badge ${badgeClass}">${badgeLabel}</span>
                   <span>Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
                 </div>
                 <div class="card-body">
@@ -565,8 +590,8 @@
                     <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
                     <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
                     <span>Turns: <strong>${task.orchestrator_turns || 0}</strong></span>
-                    <span>Confidence: <strong>${task.confidence_score !== undefined ? (task.confidence_score * 100).toFixed(0) + '%' : 'N/A'}</strong></span>
-                    <span>Sources: <strong>${task.sources_processed || 0}</strong></span>
+                    <span>Confidence: <strong>${task.confidence !== undefined ? task.confidence + '%' : 'N/A'}</strong></span>
+                    <span>Sources: <strong>${task.total_sources || 0}</strong></span>
                   </div>
                   ${statusText !== 'done' && statusText !== 'error' && statusText !== 'cancelled' ? `
                     <div class="progress-bar-container">
