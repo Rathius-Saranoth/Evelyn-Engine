@@ -1152,7 +1152,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print(f"[RESEARCH ERROR] Topic generation failed: {e}", flush=True)
 
-            # 2. Check active running research tasks for interruption
+            # 2. Check active running research tasks for interruption or completion
             active_task_id = None
             for tid, task in _background_tasks.items():
                 if tid.startswith("task_") and task.get("status") == "running":
@@ -1160,10 +1160,20 @@ async def lifespan(app: FastAPI):
                     break
                     
             if active_task_id:
+                from research_engine import load_state, save_state
+                state = load_state(active_task_id)
+                disk_status = state.get("status") if state else None
+                
+                # If finished or changed out-of-band on disk, sync it to memory
+                if disk_status and disk_status != "running":
+                    print(f"[RESEARCH SYNC] Task {active_task_id} completed or changed status on disk to '{disk_status}' — updating server memory.", flush=True)
+                    _background_tasks[active_task_id]["status"] = disk_status
+                    if disk_status in ("done", "error", "cancelled"):
+                        _background_tasks[active_task_id]["finished_at"] = time.time()
+                    continue
+                    
                 if idle_seconds < 10:  # User active!
                     print(f"[RESEARCH INTERRUPT] User active (idle={idle_seconds:.1f}s) — pausing deep research task {active_task_id}", flush=True)
-                    from research_engine import load_state, save_state
-                    state = load_state(active_task_id)
                     if state and state["status"] == "running":
                         state["status"] = "paused"
                         save_state(active_task_id, state)
@@ -1187,12 +1197,8 @@ async def lifespan(app: FastAPI):
                             break
                     if not heavy_running:
                         print(f"[RESEARCH RESUME] Server idle for {idle_seconds:.1f}s — resuming deep research task {paused_task_id}", flush=True)
-                        from research_engine import load_state, save_state
-                        state = load_state(paused_task_id)
-                        if state and state["status"] == "paused":
-                            state["status"] = "running"
-                            save_state(paused_task_id, state)
-                            _background_tasks[paused_task_id]["status"] = "running"
+                        from evelyn_tools import resume_research_task
+                        resume_research_task(paused_task_id)
                 continue
 
             # 4. Process queued tasks
@@ -1528,6 +1534,49 @@ async def new_thread(_: None = Depends(check_auth)):
 _background_tasks: dict[str, dict] = {}
 
 
+def _load_existing_research_tasks():
+    """Scan the research data directory and register any paused or interrupted tasks."""
+    try:
+        import os
+        import json
+        research_dir = cfg.RESEARCH_DATA_DIR
+        if not os.path.exists(research_dir):
+            return
+            
+        for d in os.listdir(research_dir):
+            if d.startswith("task_"):
+                task_dir = os.path.join(research_dir, d)
+                if os.path.isdir(task_dir):
+                    state_file = os.path.join(task_dir, "state.json")
+                    if os.path.exists(state_file):
+                        try:
+                            with open(state_file, "r", encoding="utf-8") as f:
+                                state = json.load(f)
+                            status = state.get("status")
+                            
+                            if status in ("paused", "running"):
+                                # If it was running, it is now paused because the server restarted
+                                if status == "running":
+                                    state["status"] = "paused"
+                                    with open(state_file, "w", encoding="utf-8") as fw:
+                                        json.dump(state, fw, indent=2)
+                                        
+                                _background_tasks[d] = {
+                                    "status": "paused",
+                                    "query": state.get("query", ""),
+                                    "scope": state.get("scope", "standard"),
+                                    "started_at": os.path.getmtime(state_file)
+                                }
+                                print(f"[RESEARCH RECOVERY] Registered paused/interrupted task {d} from disk.", flush=True)
+                        except Exception:
+                            pass
+    except Exception as e:
+        print(f"[RESEARCH RECOVERY ERROR] Failed to load existing tasks: {e}", flush=True)
+
+
+_load_existing_research_tasks()
+
+
 @app.get("/task_status/{task_name}")
 async def task_status(task_name: str, _: None = Depends(check_auth)):
     """Return the current status of a background task."""
@@ -1741,13 +1790,14 @@ async def api_research_report(task_id: str, _: None = Depends(check_auth)):
 
 @app.get("/research/list")
 async def api_research_list(_: None = Depends(check_auth)):
-    """List all research tasks sorted by creation date."""
+    """List all research tasks sorted by creation date, merging in-progress and queued items."""
     import os
     import json
     research_dir = cfg.RESEARCH_DATA_DIR
     if not os.path.exists(research_dir):
         return []
     tasks = []
+    existing_queries = set()
     for d in os.listdir(research_dir):
         task_dir = os.path.join(research_dir, d)
         if os.path.isdir(task_dir):
@@ -1755,16 +1805,110 @@ async def api_research_list(_: None = Depends(check_auth)):
             if os.path.exists(state_file):
                 try:
                     with open(state_file, "r", encoding="utf-8") as f:
-                        tasks.append(json.load(f))
+                        state = json.load(f)
+                        tasks.append(state)
+                        if state.get("query"):
+                            existing_queries.add(state["query"])
                 except Exception:
                     pass
-    tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
+
+    # Helper to clean/check duplicates
+    def queries_are_duplicates(q1: str, q2: str) -> bool:
+        import re
+        if not q1 or not q2:
+            return False
+        words1 = set(w for w in re.findall(r"\w+", q1.lower()) if len(w) > 3)
+        words2 = set(w for w in re.findall(r"\w+", q2.lower()) if len(w) > 3)
+        if not words1 or not words2:
+            return False
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        jaccard = len(intersection) / len(union)
+        if jaccard >= 0.45:
+            return True
+        overlap_count = len(intersection)
+        min_len = min(len(words1), len(words2))
+        if overlap_count >= 4 and (overlap_count / min_len) >= 0.75:
+            return True
+        return False
+
+    # 2. Process queue.json, filtering duplicates and adding queued items
+    queue_file = os.path.join(research_dir, "queue.json")
+    if os.path.exists(queue_file):
+        try:
+            with open(queue_file, "r", encoding="utf-8") as f:
+                queue = json.load(f)
+                
+            filtered_queue = []
+            queue_changed = False
+            
+            for item in queue:
+                q = item.get("query", "")
+                # Check if this queue item is already running/done
+                is_duplicate = False
+                for eq in existing_queries:
+                    if queries_are_duplicates(q, eq):
+                        is_duplicate = True
+                        break
+                        
+                if is_duplicate:
+                    print(f"[RESEARCH QUEUE] Automatically removing duplicate task from queue: '{q}'", flush=True)
+                    queue_changed = True
+                else:
+                    filtered_queue.append(item)
+                    
+            # If we stripped out duplicates, write the sanitized queue back to disk
+            if queue_changed:
+                with open(queue_file, "w", encoding="utf-8") as f:
+                    json.dump(filtered_queue, f, indent=2)
+                queue = filtered_queue
+                
+            # Add remaining queued items to the tasks list
+            for idx, item in enumerate(queue):
+                temp_id = f"queued_{idx}"
+                tasks.append({
+                    "task_id": temp_id,
+                    "query": item.get("query"),
+                    "scope": item.get("scope", "standard"),
+                    "status": "queued",
+                    "created_at": item.get("created_at"),
+                    "updated_at": item.get("created_at"),
+                    "triggered_by": item.get("source", "evelyn"),
+                    "current_step": "queued",
+                    "confidence": None,
+                    "total_sources": 0,
+                    "orchestrator_turns": 0
+                })
+        except Exception as e:
+            print(f"[RESEARCH LIST ERROR] Failed to process queue.json: {e}", flush=True)
+
+    tasks.sort(key=lambda t: t.get("created_at", "") or "", reverse=True)
     return tasks
 
 
 @app.post("/research/cancel/{task_id}")
 async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
-    """Cancel an in-flight research task."""
+    """Cancel an in-flight or queued research task."""
+    import os
+    if task_id.startswith("queued_"):
+        try:
+            idx = int(task_id.split("_")[1])
+            queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
+            if os.path.exists(queue_file):
+                with open(queue_file, "r", encoding="utf-8") as f:
+                    queue = json.load(f)
+                if 0 <= idx < len(queue):
+                    removed = queue.pop(idx)
+                    with open(queue_file, "w", encoding="utf-8") as f:
+                        json.dump(queue, f, indent=2)
+                    print(f"[RESEARCH QUEUE] Cancelled queued task: '{removed.get('query')}'", flush=True)
+                    return {"status": "cancelled", "task_id": task_id}
+            raise HTTPException(status_code=404, detail="Queue file not found or index invalid")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to cancel queued task: {e}")
+
     from research_engine import load_state, save_state
     state = load_state(task_id)
     if not state:
