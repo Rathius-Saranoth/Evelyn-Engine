@@ -73,6 +73,7 @@ _MAG = "\033[95m"
 # Updated at the top of every chat_stream() call. The consolidation loop
 # checks this to decide whether the server is idle enough to run.
 _last_activity_ts: float = time.time()
+_last_self_initiate_ts: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -948,6 +949,26 @@ async def _process_chat_background(
             context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
 
 
+def pause_all_active_research():
+    """Immediately pause any currently running background research tasks to prevent Ollama blockage."""
+    global _background_tasks
+    paused_any = False
+    for tid, task in list(_background_tasks.items()):
+        if tid.startswith("task_") and task.get("status") == "running":
+            print(f"[IMMEDIATE RESEARCH PAUSE] Pausing active research task {tid} due to incoming user chat activity.", flush=True)
+            from research_engine import load_state, save_state
+            try:
+                state = load_state(tid)
+                if state and state["status"] == "running":
+                    state["status"] = "paused"
+                    save_state(tid, state)
+                    _background_tasks[tid]["status"] = "paused"
+                    paused_any = True
+            except Exception as e:
+                print(f"[IMMEDIATE RESEARCH PAUSE ERROR] Failed to pause task {tid}: {e}", flush=True)
+    return paused_any
+
+
 async def chat_stream(user_message: str, is_regenerate: bool = False):
     """SSE pipe — thin wrapper around _process_chat_background.
 
@@ -959,6 +980,9 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     global _last_activity_ts
     _last_activity_ts = time.time()
     importlib.reload(cfg)
+
+    # Immediately pause any active deep research to unblock Ollama
+    pause_all_active_research()
 
     cancel_pending_summary()
     cancel_pending_consolidation()
@@ -1100,7 +1124,7 @@ async def lifespan(app: FastAPI):
         import sys
         
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(2)
             importlib.reload(cfg)
             if not getattr(cfg, "RESEARCH_ENABLED", True):
                 continue
@@ -1108,9 +1132,11 @@ async def lifespan(app: FastAPI):
             idle_seconds = time.time() - _last_activity_ts
             
             # 1. Topic generation
+            global _last_self_initiate_ts
             if (
                 getattr(cfg, "RESEARCH_SELF_INITIATE", True)
                 and idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
+                and time.time() - _last_self_initiate_ts >= 3600
             ):
                 try:
                     # Check if any heavy task is active
@@ -1120,6 +1146,7 @@ async def lifespan(app: FastAPI):
                             heavy_running = True
                             break
                     if not heavy_running:
+                        _last_self_initiate_ts = time.time()
                         from research_engine import self_initiate_research_topics
                         await self_initiate_research_topics()
                 except Exception as e:
@@ -1751,6 +1778,14 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
         _background_tasks[task_id]["finished_at"] = time.time()
         
     return {"status": "cancelled", "task_id": task_id}
+
+
+@app.post("/research/resume/{task_id}")
+async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
+    """Resume a paused, cancelled, or failed research task."""
+    from evelyn_tools import resume_research_task
+    result = resume_research_task(task_id)
+    return {"message": result}
 
 
 @app.post("/tts")
