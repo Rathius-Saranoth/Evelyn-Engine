@@ -85,7 +85,7 @@ def load_state(task_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def save_state(task_id: str, state: Dict[str, Any]) -> None:
+def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = False) -> None:
     """Persist the current research task state to disk.
 
     Ensures the task directory exists before writing.
@@ -93,13 +93,14 @@ def save_state(task_id: str, state: Dict[str, Any]) -> None:
     Args:
         task_id: The unique task identifier.
         state: State dictionary to save.
+        ignore_disk_status: If True, bypass merging old out-of-band statuses from disk.
     """
     task_dir = get_task_dir(task_id)
     os.makedirs(task_dir, exist_ok=True)
     state_file = os.path.join(task_dir, "state.json")
     
     # Merge status from disk if updated out-of-band (e.g. paused/cancelled by server chat interrupt)
-    if os.path.exists(state_file):
+    if not ignore_disk_status and os.path.exists(state_file):
         try:
             with open(state_file, "r", encoding="utf-8") as f:
                 disk_state = json.load(f)
@@ -850,8 +851,8 @@ async def execute_task_step(task_id: str) -> bool:
         return True
         
     if state["status"] == "paused":
-        # Task is paused by the server (user active). Wait for resume.
-        return False
+        print(f"[RESEARCH_ENGINE] Task {task_id} paused by server. Exiting background runner.", flush=True)
+        return True
         
     # Increment high-level orchestrator turns (steps)
     if "orchestrator_turns" not in state:
@@ -1051,7 +1052,7 @@ if __name__ == "__main__":
             if state and state["status"] == "error":
                 state["status"] = "searching" if state["current_step"] in ("search", "evaluate") else "pending"
                 state["error"] = None
-                save_state(task_id, state)
+                save_state(task_id, state, ignore_disk_status=True)
         else:
             task_id = create_research_task(args.query, scope=args.scope, triggered_by="user")
         await run_full_research(task_id)

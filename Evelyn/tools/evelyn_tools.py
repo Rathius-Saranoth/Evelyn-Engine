@@ -313,10 +313,17 @@ def resume_research_task(task_id: str) -> str:
         if not state:
             return "Research task not found."
             
+        # Check if already running in-memory on the server
+        server = sys.modules.get("evelyn_server")
+        if server:
+            bg_tasks = getattr(server, "_background_tasks", None)
+            if bg_tasks and bg_tasks.get(task_id, {}).get("status") == "running":
+                return "Research task is already running."
+            
         # Reset status to running on disk so the engine knows it should proceed
         state["status"] = "running"
         state["error"] = None
-        save_state(task_id, state)
+        save_state(task_id, state, ignore_disk_status=True)
         
         query = state.get("query", "")
         scope = state.get("scope", "standard")
