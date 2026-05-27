@@ -1124,7 +1124,7 @@ async def lifespan(app: FastAPI):
         import sys
         
         while True:
-            await asyncio.sleep(2)
+            await asyncio.sleep(10)
             importlib.reload(cfg)
             if not getattr(cfg, "RESEARCH_ENABLED", True):
                 continue
@@ -1230,6 +1230,9 @@ async def lifespan(app: FastAPI):
                         print(f"[RESEARCH IDLE START] Starting queued task: '{next_task['query']}'", flush=True)
                         from evelyn_tools import start_research
                         start_research(next_task["query"], scope=next_task.get("scope", "standard"))
+                        # Sleep long enough for the subprocess thread to register in
+                        # _background_tasks before the next iteration's active-task check.
+                        await asyncio.sleep(30)
 
     asyncio.create_task(_idle_research_loop())
     print(
@@ -1927,6 +1930,68 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
 @app.post("/research/resume/{task_id}")
 async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
     """Resume a paused, cancelled, or failed research task."""
+    from evelyn_tools import resume_research_task
+    result = resume_research_task(task_id)
+    return {"message": result}
+
+
+@app.post("/research/start-now/{task_id}")
+async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
+    """Force-start a queued or paused research task immediately, bypassing idle-time scheduling.
+
+    Handles two cases:
+      - queued_N  : Pops the item at index N from queue.json and starts it right away via
+                    start_research(), respecting the same mutual-exclusion guard as the idle loop.
+      - <real id> : Delegates to resume_research_task() for paused/cancelled/error tasks.
+
+    Returns 409 Conflict if another research subprocess is already active.
+    """
+    import os
+
+    # Concurrency check — refuse if any research task is currently running.
+    # Must happen BEFORE we touch queue.json so we don't lose the item on a blocked start.
+    running_task = next(
+        (tid for tid, t in _background_tasks.items()
+         if tid.startswith("task_") and t.get("status") == "running"),
+        None,
+    )
+    if running_task:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A research task is already running ({running_task}). Wait for it to finish or pause it first."
+        )
+
+    if task_id.startswith("queued_"):
+        try:
+            idx = int(task_id.split("_")[1])
+            queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
+            if not os.path.exists(queue_file):
+                raise HTTPException(status_code=404, detail="Queue file not found")
+
+            with open(queue_file, "r", encoding="utf-8") as f:
+                queue = json.load(f)
+
+            if not (0 <= idx < len(queue)):
+                raise HTTPException(status_code=404, detail="Queue index out of range")
+
+            item = queue.pop(idx)
+            with open(queue_file, "w", encoding="utf-8") as f:
+                json.dump(queue, f, indent=2)
+
+            query = item.get("query", "")
+            scope = item.get("scope", "standard")
+            print(f"[RESEARCH START-NOW] Dequeued and starting: '{query}' (scope={scope})", flush=True)
+
+            from evelyn_tools import start_research
+            result = start_research(query, scope=scope)
+            return {"message": result}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to start queued task: {e}")
+
+    # For real task IDs (paused / cancelled / error) — resume in-place
     from evelyn_tools import resume_research_task
     result = resume_research_task(task_id)
     return {"message": result}
