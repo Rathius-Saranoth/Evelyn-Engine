@@ -125,11 +125,12 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: JSON object containing the `report` text.
 
 ### `GET /research/list`
-* **Purpose**: Retrieves a historical list of all deep research tasks in the queue and completed library, sorted by creation date.
-* **Returns**: JSON list of task state dicts.
+* **Purpose**: Retrieves a merged, deduplicated list of all active/completed research tasks (from `data/research/*/state.json`) **and** pending queued items (from `data/research/queue.json`), sorted by creation date.
+* **Side effect**: On each call, auto-purges queue items whose queries semantically duplicate an already-started task (Jaccard word-overlap ≥ 0.45), permanently cleaning `queue.json` on disk.
+* **Returns**: JSON list of task state dicts. Queued items use temporary IDs (`queued_0`, `queued_1`, …) with `status: "queued"` and `current_step: "queued"`.
 
 ### `POST /research/cancel/{task_id}`
-* **Purpose**: Safe cancellation trigger. Sets task status to `cancelled` on disk. The orchestrator checks this status at the start of each execution turn to terminate safely and release VRAM.
+* **Purpose**: Safe cancellation trigger. For active tasks, sets status to `cancelled` on disk and in memory. For queued items (IDs starting with `queued_`), pops the item directly from `queue.json` on disk. The orchestrator checks status at the start of each execution turn to terminate safely and release VRAM.
 
 ### `POST /research/resume/{task_id}`
 * **Purpose**: Safe resume and retry trigger. Re-spawns the background subprocess (`research_engine.py`) completely silently (using `CREATE_NO_WINDOW`) for any paused, cancelled, or failed research task to resume execution exactly where it was interrupted.
