@@ -98,6 +98,21 @@ def save_state(task_id: str, state: Dict[str, Any]) -> None:
     os.makedirs(task_dir, exist_ok=True)
     state_file = os.path.join(task_dir, "state.json")
     
+    # Merge status from disk if updated out-of-band (e.g. paused/cancelled by server chat interrupt)
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                disk_state = json.load(f)
+                disk_status = disk_state.get("status")
+                if disk_status in ("paused", "cancelled", "error"):
+                    state["status"] = disk_status
+                if "termination_reason" in disk_state and disk_state["termination_reason"]:
+                    state["termination_reason"] = disk_state["termination_reason"]
+                if "error" in disk_state and disk_state["error"]:
+                    state["error"] = disk_state["error"]
+        except Exception:
+            pass
+            
     # Update timestamps
     state["updated_at"] = datetime.datetime.now().isoformat()
     

@@ -245,14 +245,35 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                 }
         
         def _run_subprocess():
+            import sys
+            import os
             try:
+                creationflags = 0
+                if sys.platform == "win32":
+                    creationflags = 0x08000000 # CREATE_NO_WINDOW
+                
                 script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
-                result = subprocess.run(
-                    [sys.executable, "-u", script, task_id, "--scope", scope],
-                    cwd=r"C:\Projects\LocalAI",
-                    stdout=sys.stdout,
-                    stderr=sys.stderr
-                )
+                log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                
+                try:
+                    with open(log_path, "a", encoding="utf-8") as log_file:
+                        result = subprocess.run(
+                            [sys.executable, "-u", script, task_id, "--scope", scope],
+                            cwd=r"C:\Projects\LocalAI",
+                            stdout=log_file,
+                            stderr=log_file,
+                            creationflags=creationflags
+                        )
+                except Exception:
+                    result = subprocess.run(
+                        [sys.executable, "-u", script, task_id, "--scope", scope],
+                        cwd=r"C:\Projects\LocalAI",
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=creationflags
+                    )
+                    
                 if server and bg_tasks is not None:
                     if result.returncode == 0:
                         bg_tasks[task_id]["status"] = "done"
@@ -276,6 +297,101 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
         )
     except Exception as e:
         return f"Failed to start deep research: {e}"
+
+
+def resume_research_task(task_id: str) -> str:
+    """Re-spawn the background subprocess for a paused, cancelled, or failed research task to resume it."""
+    import time
+    import threading
+    import subprocess
+    import sys
+    
+    _reload()
+    try:
+        from research_engine import load_state, save_state
+        state = load_state(task_id)
+        if not state:
+            return "Research task not found."
+            
+        # Reset status to running on disk so the engine knows it should proceed
+        state["status"] = "running"
+        state["error"] = None
+        save_state(task_id, state)
+        
+        query = state.get("query", "")
+        scope = state.get("scope", "standard")
+        
+        # Access evelyn_server active processes to ensure mutual exclusion
+        server = sys.modules.get("evelyn_server")
+        if server:
+            cancel_consol = getattr(server, "cancel_pending_consolidation", None)
+            cancel_extract = getattr(server, "cancel_pending_extraction", None)
+            if cancel_consol:
+                cancel_consol()
+            if cancel_extract:
+                cancel_extract()
+                
+            # Register in server's _background_tasks dict
+            bg_tasks = getattr(server, "_background_tasks", None)
+            if bg_tasks is not None:
+                bg_tasks[task_id] = {
+                    "status": "running",
+                    "query": query,
+                    "scope": scope,
+                    "started_at": time.time()
+                }
+        else:
+            bg_tasks = None
+            
+        def _run_subprocess():
+            import sys
+            import os
+            try:
+                creationflags = 0
+                if sys.platform == "win32":
+                    creationflags = 0x08000000 # CREATE_NO_WINDOW
+                
+                script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
+                log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                
+                try:
+                    with open(log_path, "a", encoding="utf-8") as log_file:
+                        result = subprocess.run(
+                            [sys.executable, "-u", script, task_id, "--scope", scope],
+                            cwd=r"C:\Projects\LocalAI",
+                            stdout=log_file,
+                            stderr=log_file,
+                            creationflags=creationflags
+                        )
+                except Exception:
+                    result = subprocess.run(
+                        [sys.executable, "-u", script, task_id, "--scope", scope],
+                        cwd=r"C:\Projects\LocalAI",
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=creationflags
+                    )
+                    
+                if server and bg_tasks is not None:
+                    if result.returncode == 0:
+                        bg_tasks[task_id]["status"] = "done"
+                        bg_tasks[task_id]["finished_at"] = time.time()
+                    else:
+                        bg_tasks[task_id]["status"] = "error"
+                        bg_tasks[task_id]["error"] = f"Exit code {result.returncode}"
+                        bg_tasks[task_id]["finished_at"] = time.time()
+            except Exception as e:
+                print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
+                if server and bg_tasks is not None:
+                    bg_tasks[task_id]["status"] = "error"
+                    bg_tasks[task_id]["error"] = str(e)
+                    bg_tasks[task_id]["finished_at"] = time.time()
+
+        threading.Thread(target=_run_subprocess, daemon=True).start()
+        return f"Research task {task_id} successfully resumed."
+    except Exception as e:
+        return f"Failed to resume research task: {e}"
 
 
 # ===========================================================================
