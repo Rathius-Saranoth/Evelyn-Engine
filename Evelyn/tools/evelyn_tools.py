@@ -28,6 +28,18 @@ TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
 VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
 
 
+def get_jaccard_similarity(str1: str, str2: str) -> float:
+    """Calculate Jaccard similarity between two strings using word tokens, excluding common stop words."""
+    stop_words = {"for", "and", "the", "a", "of", "in", "to", "behind", "on", "with", "by", "an", "at", "about"}
+    words1 = set("".join(c for c in str1.lower() if c.isalnum() or c.isspace()).split()) - stop_words
+    words2 = set("".join(c for c in str2.lower() if c.isalnum() or c.isspace()).split()) - stop_words
+    if not words1 and not words2:
+        return 1.0
+    intersection = words1.intersection(words2)
+    union = words1.union(words2)
+    return len(intersection) / len(union)
+
+
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
 
@@ -218,26 +230,99 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
     import threading
     import subprocess
     import sys
+    import os
+    import json
+    import datetime
     
     _reload()
     try:
-        # Guard: refuse to spawn if another research subprocess is already running.
-        # Only one research engine process should run at a time to avoid Ollama contention.
+        # Get bypass_queue flag
+        bypass_queue = kwargs.get("bypass_queue", False)
         server = sys.modules.get("evelyn_server")
+        import evelyn_config as cfg
+
+        # 1. Check for duplicates of ALREADY COMPLETED tasks (Jaccard similarity >= 0.45)
+        # We do this to prevent wasting computation on topics that are already done.
+        # Only check on chat-triggered runs (when bypass_queue is False).
+        if not bypass_queue and os.path.exists(cfg.RESEARCH_DATA_DIR):
+            for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
+                if folder.startswith("task_"):
+                    from research_engine import load_state
+                    disk_state = load_state(folder)
+                    if disk_state and disk_state.get("status") == "done":
+                        done_query = disk_state.get("query", "")
+                        if get_jaccard_similarity(query, done_query) >= 0.45:
+                            return (
+                                f"I have already completed deep research on a very similar topic: "
+                                f"'{done_query}' (Task ID: {folder}). Ricky can read the synthesized report "
+                                "directly in the Deep Research Dashboard, so I will not launch a new task for this."
+                            )
+
+        # 2. Concurrency & queue check: check for any unfinished research tasks (running, paused, errored, searching, synthesizing, pending)
+        unfinished_task_id = None
+        unfinished_status = None
+        unfinished_query = None
+
         if server:
             bg_tasks = getattr(server, "_background_tasks", {})
             for tid, tinfo in bg_tasks.items():
-                if tid.startswith("task_") and tinfo.get("status") == "running":
-                    return (
-                        f"A research task is already running ({tid}). "
-                        "Wait for it to complete or pause before starting another."
-                    )
+                if tid.startswith("task_"):
+                    from research_engine import load_state
+                    disk_state = load_state(tid)
+                    status = disk_state.get("status") if disk_state else tinfo.get("status")
+                    if status in ("running", "paused", "error", "searching", "synthesizing", "pending"):
+                        unfinished_task_id = tid
+                        unfinished_status = status
+                        unfinished_query = disk_state.get("query") if disk_state else tinfo.get("query", "")
+                        
+                        # If a task is actively running, we cannot start a second subprocess under any circumstances
+                        if status == "running":
+                            return (
+                                f"Cannot start immediately: another research task ({tid}) is already actively running. "
+                                "Wait for it to complete or pause before starting another."
+                            )
+
+        # If there's an unfinished task and we aren't overriding via dashboard, we queue the new request
+        if unfinished_task_id and not bypass_queue:
+            queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
+            os.makedirs(cfg.RESEARCH_DATA_DIR, exist_ok=True)
+            
+            queue = []
+            if os.path.exists(queue_file):
+                try:
+                    with open(queue_file, "r", encoding="utf-8") as f:
+                        queue = json.load(f)
+                except Exception:
+                    queue = []
+            
+            # Check if a very similar query is already queued (Jaccard similarity >= 0.45) to avoid duplicates
+            already_exists = any(get_jaccard_similarity(q.get("query", ""), query) >= 0.45 for q in queue)
+            if not already_exists:
+                queue.append({
+                    "query": query,
+                    "scope": scope,
+                    "priority": 1,
+                    "source": "user",
+                    "created_at": datetime.datetime.now().isoformat()
+                })
+                try:
+                    with open(queue_file, "w", encoding="utf-8") as f:
+                        json.dump(queue, f, indent=2)
+                except Exception as qe:
+                    return f"Failed to queue research task: {qe}"
+            
+            return (
+                f"Successfully queued deep research on '{query}' (scope: {scope}). "
+                f"I detected an unfinished research task ('{unfinished_query}', ID: {unfinished_task_id}) "
+                f"with status '{unfinished_status}'. To avoid model contention and respect research priority, "
+                f"I have added this new task to the queue and will process it chronologically when the current "
+                f"unfinished tasks are resolved. Please inform Ricky that the topic has been successfully queued."
+            )
 
         from research_engine import create_research_task
         task_id = create_research_task(query, scope=scope, triggered_by="user")
         
         # Access evelyn_server active processes to ensure mutual exclusion
-        server = sys.modules.get("evelyn_server")
         if server:
             cancel_consol = getattr(server, "cancel_pending_consolidation", None)
             cancel_extract = getattr(server, "cancel_pending_extraction", None)
@@ -268,32 +353,59 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                 log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 
+                log_file = None
+                proc = None
                 try:
-                    with open(log_path, "a", encoding="utf-8") as log_file:
-                        result = subprocess.run(
-                            [sys.executable, "-u", script, task_id, "--scope", scope],
-                            cwd=r"C:\Projects\LocalAI",
-                            stdout=log_file,
-                            stderr=log_file,
-                            creationflags=creationflags
-                        )
+                    log_file = open(log_path, "a", encoding="utf-8")
+                    proc = subprocess.Popen(
+                        [sys.executable, "-u", script, task_id, "--scope", scope],
+                        cwd=r"C:\Projects\LocalAI",
+                        stdout=log_file,
+                        stderr=log_file,
+                        creationflags=creationflags
+                    )
                 except Exception:
-                    result = subprocess.run(
+                    proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=r"C:\Projects\LocalAI",
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         creationflags=creationflags
                     )
+                
+                if log_file:
+                    try:
+                        log_file.close()
+                    except Exception:
+                        pass
+                
+                if proc:
+                    if server:
+                        active_procs = getattr(server, "_active_research_processes", None)
+                        if active_procs is not None:
+                            active_procs[task_id] = proc
+                            
+                    returncode = proc.wait()
                     
-                if server and bg_tasks is not None:
-                    if result.returncode == 0:
-                        bg_tasks[task_id]["status"] = "done"
-                        bg_tasks[task_id]["finished_at"] = time.time()
-                    else:
-                        bg_tasks[task_id]["status"] = "error"
-                        bg_tasks[task_id]["error"] = f"Exit code {result.returncode}"
-                        bg_tasks[task_id]["finished_at"] = time.time()
+                    if server:
+                        active_procs = getattr(server, "_active_research_processes", None)
+                        if active_procs is not None:
+                            active_procs.pop(task_id, None)
+                    
+                    if server and bg_tasks is not None:
+                        from research_engine import load_state
+                        disk_state = load_state(task_id)
+                        disk_status = disk_state.get("status") if disk_state else None
+                        if disk_status in ("paused", "cancelled"):
+                            bg_tasks[task_id]["status"] = disk_status
+                            bg_tasks[task_id]["finished_at"] = time.time()
+                        elif returncode == 0:
+                            bg_tasks[task_id]["status"] = "done"
+                            bg_tasks[task_id]["finished_at"] = time.time()
+                        else:
+                            bg_tasks[task_id]["status"] = "error"
+                            bg_tasks[task_id]["error"] = f"Exit code {returncode}"
+                            bg_tasks[task_id]["finished_at"] = time.time()
             except Exception as e:
                 print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
                 if server and bg_tasks is not None:
@@ -325,12 +437,15 @@ def resume_research_task(task_id: str) -> str:
         if not state:
             return "Research task not found."
             
-        # Check if already running in-memory on the server
+        # Concurrency check — refuse to resume if another research task is already running.
+        # Only one research engine process should run at a time to avoid Ollama contention.
         server = sys.modules.get("evelyn_server")
         if server:
             bg_tasks = getattr(server, "_background_tasks", None)
-            if bg_tasks and bg_tasks.get(task_id, {}).get("status") == "running":
-                return "Research task is already running."
+            if bg_tasks:
+                for tid, tinfo in bg_tasks.items():
+                    if tid.startswith("task_") and tinfo.get("status") == "running":
+                        return f"Cannot resume task {task_id}: another research task ({tid}) is already actively running."
             
         # Reset status to running on disk so the engine knows it should proceed
         state["status"] = "running"
@@ -341,7 +456,6 @@ def resume_research_task(task_id: str) -> str:
         scope = state.get("scope", "standard")
         
         # Access evelyn_server active processes to ensure mutual exclusion
-        server = sys.modules.get("evelyn_server")
         if server:
             cancel_consol = getattr(server, "cancel_pending_consolidation", None)
             cancel_extract = getattr(server, "cancel_pending_extraction", None)
@@ -374,32 +488,59 @@ def resume_research_task(task_id: str) -> str:
                 log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 
+                log_file = None
+                proc = None
                 try:
-                    with open(log_path, "a", encoding="utf-8") as log_file:
-                        result = subprocess.run(
-                            [sys.executable, "-u", script, task_id, "--scope", scope],
-                            cwd=r"C:\Projects\LocalAI",
-                            stdout=log_file,
-                            stderr=log_file,
-                            creationflags=creationflags
-                        )
+                    log_file = open(log_path, "a", encoding="utf-8")
+                    proc = subprocess.Popen(
+                        [sys.executable, "-u", script, task_id, "--scope", scope],
+                        cwd=r"C:\Projects\LocalAI",
+                        stdout=log_file,
+                        stderr=log_file,
+                        creationflags=creationflags
+                    )
                 except Exception:
-                    result = subprocess.run(
+                    proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=r"C:\Projects\LocalAI",
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         creationflags=creationflags
                     )
+                
+                if log_file:
+                    try:
+                        log_file.close()
+                    except Exception:
+                        pass
+                
+                if proc:
+                    if server:
+                        active_procs = getattr(server, "_active_research_processes", None)
+                        if active_procs is not None:
+                            active_procs[task_id] = proc
+                            
+                    returncode = proc.wait()
                     
-                if server and bg_tasks is not None:
-                    if result.returncode == 0:
-                        bg_tasks[task_id]["status"] = "done"
-                        bg_tasks[task_id]["finished_at"] = time.time()
-                    else:
-                        bg_tasks[task_id]["status"] = "error"
-                        bg_tasks[task_id]["error"] = f"Exit code {result.returncode}"
-                        bg_tasks[task_id]["finished_at"] = time.time()
+                    if server:
+                        active_procs = getattr(server, "_active_research_processes", None)
+                        if active_procs is not None:
+                            active_procs.pop(task_id, None)
+                    
+                    if server and bg_tasks is not None:
+                        from research_engine import load_state
+                        disk_state = load_state(task_id)
+                        disk_status = disk_state.get("status") if disk_state else None
+                        if disk_status in ("paused", "cancelled"):
+                            bg_tasks[task_id]["status"] = disk_status
+                            bg_tasks[task_id]["finished_at"] = time.time()
+                        elif returncode == 0:
+                            bg_tasks[task_id]["status"] = "done"
+                            bg_tasks[task_id]["finished_at"] = time.time()
+                        else:
+                            bg_tasks[task_id]["status"] = "error"
+                            bg_tasks[task_id]["error"] = f"Exit code {returncode}"
+                            bg_tasks[task_id]["finished_at"] = time.time()
             except Exception as e:
                 print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
                 if server and bg_tasks is not None:
