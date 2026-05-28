@@ -168,7 +168,10 @@
 <body>
   <header>
     <h1 id="header-title">Review Queue</h1>
-    <a href="/ui/" class="back-btn">← Back to Chat</a>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="back-btn" onclick="loadData()" style="cursor: pointer; border: none; font-family: inherit;">⟳ Refresh</button>
+      <a href="/ui/" class="back-btn">← Back to Chat</a>
+    </div>
   </header>
   
   <div class="tabs">
@@ -275,10 +278,10 @@
       else if (tab === 'proposals') title.textContent = 'Proposals Queue';
       else title.textContent = 'Deep Research Dashboard';
       
-      // Clear or set polling
+      // Clear or set polling (relaxed to 20s to prevent API/DB polling overhead)
       if (tab === 'research') {
         if (!pollInterval) {
-          pollInterval = setInterval(loadData, 5000);
+          pollInterval = setInterval(loadData, 20000);
         }
       } else {
         if (pollInterval) {
@@ -355,6 +358,20 @@
         }
       } catch (e) {
         alert('Network error cancelling task.');
+      }
+    }
+
+    async function deleteResearchTask(taskId) {
+      if (!confirm('Are you sure you want to permanently delete this research task and all its files from disk?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/research/delete/${taskId}`, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          loadData();
+        } else {
+          alert('Failed to delete research task.');
+        }
+      } catch (e) {
+        alert('Network error deleting task.');
       }
     }
 
@@ -587,7 +604,10 @@
             
             let actionButtons = '';
             if (statusText === 'done') {
-              actionButtons = `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`;
+              actionButtons = [
+                `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+              ].join('');
             } else if (statusText === 'queued') {
               actionButtons = [
                 `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
@@ -597,19 +617,27 @@
               actionButtons = [
                 `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
                 `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume</button>`,
-                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
               ].join('');
             } else if (statusText === 'error' || statusText === 'cancelled') {
-              actionButtons = `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume / Retry</button>`;
+              actionButtons = [
+                `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume / Retry</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+              ].join('');
             } else {
-              actionButtons = `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`;
+              actionButtons = [
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`
+              ].join('');
             }
             
             return `
               <div class="card">
-                <div class="card-header">
+                <div class="card-header" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                   <span class="badge ${badgeClass}">${badgeLabel}</span>
-                  <span>Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
+                  ${task.struggling ? `<span class="badge" style="background: #eab308; color: #000; font-weight: 600;">⚠️ Struggling</span>` : ''}
+                  ${task.quarantined ? `<span class="badge" style="background: #dc2626; color: #fff; font-weight: 600;">🔒 Quarantined</span>` : ''}
+                  <span style="margin-left: auto;">Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
                 </div>
                 <div class="card-body">
                   <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(task.query)}</h3>
