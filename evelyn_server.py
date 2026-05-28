@@ -1448,17 +1448,19 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
             except Exception:
                 pass
 
-        # 2. Try pending folder
+        # 2. Try vault root path — written directly (JOURNAL_DIRECT_WRITE=True) but not yet
+        # filed into the structured subfolder.  Return "unfiled" so the modal shows the
+        # approve/file button rather than the "already approved" badge.
+        root_path = os.path.join(JOURNAL_DIR, filename)
+        if os.path.exists(root_path):
+            with open(root_path, "r", encoding="utf-8") as f:
+                return {"content": f.read(), "status": "unfiled"}
+
+        # 3. Try pending folder (legacy — JOURNAL_DIRECT_WRITE=False mode)
         pending_path = os.path.join(PENDING_DIR, filename)
         if os.path.exists(pending_path):
             with open(pending_path, "r", encoding="utf-8") as f:
                 return {"content": f.read(), "status": "pending"}
-
-        # 3. Try vault root path
-        root_path = os.path.join(JOURNAL_DIR, filename)
-        if os.path.exists(root_path):
-            with open(root_path, "r", encoding="utf-8") as f:
-                return {"content": f.read(), "status": "approved"}
 
         # Fallback to journal_manager read
         from Evelyn.tools.journal_manager import read_journal_entry
@@ -1518,22 +1520,28 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
     filename = req.id if req.id.endswith(".md") else f"{req.id}.md"
     filename = os.path.basename(filename)
 
+    # Resolve source: prefer PENDING_DIR (legacy mode), fall back to vault root
+    # (JOURNAL_DIRECT_WRITE=True mode — entry written directly but not yet structured).
     source_path = os.path.join(PENDING_DIR, filename)
     if not os.path.exists(source_path):
-        # Check if already approved
-        m = re.search(r'Journal Entry (\d{4})-(\d{2})-\d{2}\.md', filename)
-        if m:
-            year = m.group(1)
-            month_num = m.group(2)
-            try:
-                month_dt = datetime.date(int(year), int(month_num), 1)
-                month_name = month_dt.strftime("%b")
-                struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", year, f"{month_num}-{month_name}", filename)
-                if os.path.exists(struct_path):
-                    return {"status": "already_approved", "destination": struct_path}
-            except Exception:
-                pass
-        raise HTTPException(status_code=404, detail="Pending journal entry file not found")
+        root_path = os.path.join(JOURNAL_DIR, filename)
+        if os.path.exists(root_path):
+            source_path = root_path
+        else:
+            # Neither source found — check if already filed in structured path
+            m_check = re.search(r'Journal Entry (\d{4})-(\d{2})-\d{2}\.md', filename)
+            if m_check:
+                try:
+                    chk_year = m_check.group(1)
+                    chk_month = m_check.group(2)
+                    chk_dt = datetime.date(int(chk_year), int(chk_month), 1)
+                    chk_name = chk_dt.strftime("%b")
+                    struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", chk_year, f"{chk_month}-{chk_name}", filename)
+                    if os.path.exists(struct_path):
+                        return {"status": "already_approved", "destination": struct_path}
+                except Exception:
+                    pass
+            raise HTTPException(status_code=404, detail="Journal entry file not found in pending or vault root")
 
     m = re.search(r'Journal Entry (\d{4})-(\d{2})-\d{2}\.md', filename)
     if not m:

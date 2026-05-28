@@ -593,11 +593,15 @@ async function openModal(type, id) {
       
       let markdownHTML = renderFullMarkdown(data.content);
       
-      if (data.status === 'pending') {
+      if (data.status === 'pending' || data.status === 'unfiled') {
+        const isUnfiled = data.status === 'unfiled';
+        const barLabel = isUnfiled
+          ? 'Entry is in vault root. Move to structured folder?'
+          : 'Draft pending review. Ready to file in Obsidian Vault?';
         const approveBar = `
           <div id="journal-approve-bar" style="display: flex; gap: 8px; margin-bottom: 16px; padding: 12px; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-            <span style="font-size: 13px; color: #fbbf24; font-weight: 500;">Draft pending review. Ready to file in Obsidian Vault?</span>
-            <button class="write-badge" id="approve-journal-btn" style="cursor: pointer; background: #fbbf24; color: #000; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" onclick="approveJournalEntry('${id}')">Approve & File Entry</button>
+            <span style="font-size: 13px; color: #fbbf24; font-weight: 500;">${barLabel}</span>
+            <button class="write-badge" id="approve-journal-btn" style="cursor: pointer; background: #fbbf24; color: #000; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" onclick="approveJournalEntry('${id}')">File Entry</button>
           </div>
         `;
         content.innerHTML = approveBar + markdownHTML;
