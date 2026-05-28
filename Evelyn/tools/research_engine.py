@@ -726,18 +726,23 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     # Evaluate termination decisions
     is_sufficient = confidence >= state["confidence_threshold"]
     depth_exhausted = state["search_depth"] >= state["max_search_depth"] - 1
-    
     if is_sufficient or depth_exhausted:
-        # Sub-question complete!
-        sq["status"] = "done"
         if is_sufficient:
+            # Sub-question complete!
+            sq["status"] = "done"
             print(f"[RESEARCH_ENGINE] SQ {sq['id']} fully resolved (Threshold met).", flush=True)
+            state["current_sq_idx"] += 1
+            state["current_step"] = "search"
+            state["search_depth"] = 0
+            if os.path.exists(gaps_file):
+                os.remove(gaps_file)
         else:
-            print(f"[RESEARCH_ENGINE] SQ {sq['id']} complete (Search depth exhausted).", flush=True)
+            print(f"[RESEARCH_ENGINE] SQ {sq['id']} exhausted search depth with low confidence. Pausing for guidance.", flush=True)
+            sq["status"] = "needs_guidance"
+            state["status"] = "needs_guidance"
+            state["struggling"] = True
             
-        state["current_sq_idx"] += 1
-        state["current_step"] = "search"
-        state["search_depth"] = 0
+        save_state(task_id, state)
     else:
         # Loop again!
         print(f"[RESEARCH_ENGINE] SQ {sq['id']} requires further search. Running iteration {state['search_depth'] + 2}.", flush=True)
@@ -887,7 +892,7 @@ async def execute_task_step(task_id: str) -> bool:
         print(f"[RESEARCH_ENGINE ERROR] Task {task_id} state file not found.", flush=True)
         return True
         
-    if state["status"] in ("done", "error", "cancelled"):
+    if state["status"] in ("done", "error", "cancelled", "needs_guidance"):
         return True
         
     if state["status"] == "paused":
