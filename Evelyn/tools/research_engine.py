@@ -236,10 +236,23 @@ async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 
         "think": False # Native reasoning off to fit maximum factual context
     }
     
-    async with httpx.AsyncClient(timeout=600.0) as client:
-        resp = await client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
-        resp.raise_for_status()
-        result = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            resp = await client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
+            resp.raise_for_status()
+            result = resp.json()
+    except httpx.ConnectError as ce:
+        raise RuntimeError(
+            f"Ollama server connection failed (is Ollama running? URL: {cfg.OLLAMA_URL}). Error: {ce}"
+        ) from ce
+    except httpx.TimeoutException as te:
+        raise RuntimeError(
+            "Ollama request timed out after 600.0 seconds. The model may be thrashing or GPU memory is saturated."
+        ) from te
+    except httpx.HTTPStatusError as hse:
+        raise RuntimeError(
+            f"Ollama server returned HTTP error status {hse.response.status_code}. Response: {hse.response.text}"
+        ) from hse
         
     content = result.get("message", {}).get("content", "").strip()
     return re.sub(r"^.*?</think>", "", content, flags=re.DOTALL).strip()
@@ -690,10 +703,21 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
         confidence = 0
         gaps = ["Insufficient evidence collected."]
         
-    print(f"[RESEARCH_ENGINE] Evaluation results -> Confidence: {confidence}%, Target: {state['confidence_threshold']}%", flush=True)
-    
     sq["confidence"] = confidence
+    sq["gaps"] = gaps
     
+    # Update struggling status based on the latest sub-question evaluation
+    if confidence < 60:
+        state["struggling"] = True
+    else:
+        # Check if any other finished sub-questions are struggling
+        any_struggling = False
+        for s in state["plan"]["sub_questions"]:
+            if s.get("status") == "done" and s.get("confidence", 100) < 60:
+                any_struggling = True
+                break
+        state["struggling"] = any_struggling
+        
     # Save gaps on disk for the next search iteration
     gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
     with open(gaps_file, "w", encoding="utf-8") as f:
@@ -790,42 +814,58 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     state["current_step"] = "done"
     state["status"] = "done"
     
-    # Copy file to Obsidian Vault
-    try:
-        # Create safe Obsidian title slug
-        slug = re.sub(r"[^\w\s-]", "", state["query"].lower())
-        slug = re.sub(r"[-\s]+", "-", slug).strip("-_")
-        vault_filename = f"{slug}.md"
-        
-        vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", r"G:\My Drive\Obsidian_Vault\Evelyn\Research")
-        os.makedirs(vault_dir, exist_ok=True)
-        vault_file_path = os.path.join(vault_dir, vault_filename)
-        
-        # Build YAML frontmatter to match requirements
-        clean_report_body = final_report
-        # If the report already has frontmatter, strip it to write a unified, structured one
-        if final_report.startswith("---"):
-            clean_report_body = re.sub(r"^---.*?---\s*\n", "", final_report, count=1, flags=re.DOTALL)
+    # Copy file to Obsidian Vault (quarantine if confidence < 60%)
+    if state["confidence"] >= 60:
+        try:
+            # Create safe Obsidian title slug
+            slug = re.sub(r"[^\w\s-]", "", state["query"].lower())
+            slug = re.sub(r"[-\s]+", "-", slug).strip("-_")
+            vault_filename = f"{slug}.md"
             
-        frontmatter = (
-            "---\n"
-            f"title: \"{state['query']}\"\n"
-            f"date created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"research_task_id: {task_id}\n"
-            f"scope: {state['scope']}\n"
-            f"source_count: {state['total_sources']}\n"
-            f"confidence: {state['confidence']}%\n"
-            f"triggered_by: {state['triggered_by']}\n"
-            "---\n\n"
-        )
-        
-        with open(vault_file_path, "w", encoding="utf-8") as f:
-            f.write(frontmatter + clean_report_body)
+            vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", r"G:\My Drive\Obsidian_Vault\Evelyn\Research")
+            os.makedirs(vault_dir, exist_ok=True)
+            vault_file_path = os.path.join(vault_dir, vault_filename)
             
-        state["vault_path"] = vault_file_path
-        print(f"[RESEARCH_ENGINE] Saved report to Obsidian Vault: {vault_file_path}", flush=True)
-    except Exception as e:
-        print(f"[RESEARCH_ENGINE ERROR] Failed to copy report to Vault: {e}", flush=True)
+            # Build YAML frontmatter to match requirements
+            clean_report_body = final_report
+            # If the report already has frontmatter, strip it to write a unified, structured one
+            if final_report.startswith("---"):
+                clean_report_body = re.sub(r"^---.*?---\s*\n", "", final_report, count=1, flags=re.DOTALL)
+                
+            # Build tags array based on quality
+            tags_list = ["research/done"]
+            if state["confidence"] >= 80:
+                tags_list.append("research/high-quality")
+            else:
+                tags_list.append("research/partial")
+            
+            tags_str = ", ".join(tags_list)
+            
+            frontmatter = (
+                "---\n"
+                f"title: \"{state['query']}\"\n"
+                f"date created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"research_task_id: {task_id}\n"
+                f"scope: {state['scope']}\n"
+                f"source_count: {state['total_sources']}\n"
+                f"confidence: {state['confidence']}%\n"
+                f"triggered_by: {state['triggered_by']}\n"
+                f"tags: [{tags_str}]\n"
+                "---\n\n"
+            )
+            
+            with open(vault_file_path, "w", encoding="utf-8") as f:
+                f.write(frontmatter + clean_report_body)
+                
+            state["vault_path"] = vault_file_path
+            state["quarantined"] = False
+            print(f"[RESEARCH_ENGINE] Saved report to Obsidian Vault: {vault_file_path}", flush=True)
+        except Exception as e:
+            print(f"[RESEARCH_ENGINE ERROR] Failed to copy report to Vault: {e}", flush=True)
+    else:
+        state["quarantined"] = True
+        state["vault_path"] = None
+        print(f"[RESEARCH_ENGINE] Research completed with low confidence ({state['confidence']}%). Quarantined task, did not copy to Obsidian Vault.", flush=True)
         
     save_state(task_id, state)
     print(f"[RESEARCH_ENGINE] Task {task_id} completed successfully!", flush=True)
@@ -906,7 +946,25 @@ async def execute_task_step(task_id: str) -> bool:
     except Exception as e:
         traceback.print_exc()
         state["status"] = "error"
-        state["error"] = f"{type(e).__name__}: {str(e)}"
+        
+        # Enrich exception output with human-actionable debug information
+        err_type = type(e).__name__
+        err_msg = str(e)
+        
+        if "ConnectError" in err_msg or "ConnectError" in err_type:
+            enriched = f"Ollama Connection Error: Could not reach Ollama server (URL: {getattr(cfg, 'OLLAMA_URL', 'default')}). Ensure the Ollama service is running."
+        elif "TimeoutException" in err_msg or "Timeout" in err_type:
+            enriched = "Ollama Timeout: The model took too long to respond. This is typically due to GPU VRAM saturation or high resource contention."
+        elif "HTTPStatusError" in err_msg or "HTTPError" in err_type:
+            enriched = f"Ollama API Error: Server returned an unsuccessful status code. details: {err_msg}"
+        elif "UnicodeDecodeError" in err_type or "UnicodeEncodeError" in err_type:
+            enriched = f"Character Encoding Failure: Encountered an illegal characters format during text extraction or output serialization. details: {err_msg}"
+        elif "FileNotFoundError" in err_type:
+            enriched = f"Filesystem Error: Required asset, directory, or state cache is missing. details: {err_msg}"
+        else:
+            enriched = f"Execution Error [{err_type}]: {err_msg}"
+            
+        state["error"] = enriched
         save_state(task_id, state)
         return True
 
