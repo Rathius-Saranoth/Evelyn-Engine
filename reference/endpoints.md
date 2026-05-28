@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-05-25 21:01:58
+date modified: 2026-05-28 16:02:23
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -140,3 +140,12 @@ Endpoints driving the background research engine and the interactive developer d
 * **Queued items** (`task_id` starts with `queued_`): Pops the item at the given index from `queue.json` on disk and immediately invokes `start_research()`, obeying the same mutual-exclusion logic used by the idle loop (cancels any in-flight consolidation/extraction to free VRAM first).
 * **Paused / cancelled / error tasks** (real `task_id`): Delegates to `resume_research_task()` to re-spawn the subprocess in-place.
 * **UI behaviour**: Renders as an amber **▶ Start Now** button on `queued` and `paused` cards, alongside the Cancel button (and Resume for paused). Absent from active, done, error, or cancelled cards.
+
+### `POST /research/guide/{task_id}`
+* **Purpose**: Inject user-defined guidance into a stalled research task that exhausted its search depth without meeting confidence thresholds.
+* **Payload**: `GuideRequest` JSON: `{"guidance": "string"}`
+* **Action**: Injects the guidance string into the task's gaps file, resets the search depth, sets status to `pending`, and immediately resumes the task subprocess so it can retry the active sub-question with the new hints.
+
+### `POST /research/delete/{task_id}`
+* **Purpose**: Permanently destroy a research task and all its disk/memory artifacts.
+* **Action**: If active, forcefully terminates the subprocess, implements a file-lock retry loop, recursively deletes the task folder from `cfg.RESEARCH_DATA_DIR`, and evicts it from the server's tracking dictionary. Used by the "Remove" button in the dashboard.
