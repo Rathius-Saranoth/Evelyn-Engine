@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-05-25 19:39:13
+date modified: 2026-05-28 15:03:58
 tags: requirements, dependencies, system, hardware, environment
 ---
 
@@ -9,7 +9,7 @@ tags: requirements, dependencies, system, hardware, environment
 
 > [!IMPORTANT]
 > This document covers **all** dependencies — not just Python packages.
-> For Python-only installs, see [[python_requirements.md]]
+> For Python-only installs, see [[requirements.txt]]
 
 ---
 
