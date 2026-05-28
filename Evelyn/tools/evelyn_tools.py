@@ -554,6 +554,63 @@ def resume_research_task(task_id: str) -> str:
         return f"Failed to resume research task: {e}"
 
 
+def guide_research(task_id: str, guidance: str) -> str:
+    """Inject user guidance into a struggling research task and resume it."""
+    import os
+    import json
+    import evelyn_config as cfg
+    _reload()
+    try:
+        from research_engine import load_state, save_state
+        state = load_state(task_id)
+        if not state:
+            return f"Research task {task_id} not found."
+            
+        if state.get("status") not in ("needs_guidance", "paused"):
+            return f"Research task {task_id} is currently '{state.get('status')}'. Guidance can only be injected when a task is stalled ('needs_guidance' or 'paused')."
+            
+        # Find the currently active sub-question
+        idx = state.get("current_sq_idx", 0)
+        plan = state.get("plan", {})
+        sqs = plan.get("sub_questions", [])
+        if 0 <= idx < len(sqs):
+            sq = sqs[idx]
+            # Inject guidance directly into the gaps file for the next search iteration
+            task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
+            gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
+            
+            existing_gaps = []
+            if os.path.exists(gaps_file):
+                try:
+                    with open(gaps_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        existing_gaps = data.get("gaps", [])
+                except Exception:
+                    pass
+                    
+            existing_gaps.append(f"USER GUIDANCE: {guidance}")
+            
+            with open(gaps_file, "w", encoding="utf-8") as f:
+                json.dump({"gaps": existing_gaps}, f, indent=2)
+                
+            # Reset search depth so it has a fresh chance to search
+            state["search_depth"] = 0
+            state["current_step"] = "search"
+            state["struggling"] = False
+            state["status"] = "pending" # So it gets picked up by idle loop or resume
+            sq["status"] = "pending"
+            
+            save_state(task_id, state, ignore_disk_status=True)
+            
+            # Immediately resume the task
+            result = resume_research_task(task_id)
+            return f"Guidance injected into sub-question '{sq.get('query')}'. Task is resuming. {result}"
+        else:
+            return "Could not determine the active sub-question to guide."
+    except Exception as e:
+        return f"Failed to guide research task: {e}"
+
+
 # ===========================================================================
 # Tool registries
 # ===========================================================================
@@ -781,6 +838,32 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "guide_research",
+            "description": (
+                "Provide guidance to a deep research task that is struggling or quarantined. "
+                "Use this when Ricky asks you to help out with a stalled task, or when you notice "
+                "a task needs direction. The guidance should be specific hints, keywords, or "
+                "rephrased questions to help the engine find what it needs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The ID of the research task (e.g. 'task_1234567890_abcdef').",
+                    },
+                    "guidance": {
+                        "type": "string",
+                        "description": "Specific search terms, hints, or instructions to redirect the research.",
+                    },
+                },
+                "required": ["task_id", "guidance"],
+            },
+        },
+    },
 ]
 
 
@@ -798,4 +881,5 @@ TOOL_FUNCTIONS = {
     "sync_context_memory": sync_context_memory,
     "web_search": web_search,
     "start_research": start_research,
+    "guide_research": guide_research,
 }

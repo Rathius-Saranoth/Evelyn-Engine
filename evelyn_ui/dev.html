@@ -195,6 +195,24 @@
     </div>
   </div>
 
+  <!-- Modal for Guidance -->
+  <div class="modal" id="guidance-modal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <span class="modal-title">Provide Research Guidance</span>
+        <button class="close-btn" onclick="closeGuidanceModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+        <p style="color: var(--text-dim); font-size: 14px; margin: 0;">This task is struggling to find relevant information. Provide specific search terms, hints, or instructions to redirect the research.</p>
+        <textarea id="guidance-input" rows="4" style="width: 100%; background: var(--bg-hover); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: inherit; resize: vertical;" placeholder="e.g. Try searching for 'X protocol' instead of 'Y standard', or focus on recent 2024 developments..."></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 5px;">
+          <button class="btn btn-reject" onclick="closeGuidanceModal()">Cancel</button>
+          <button class="btn btn-action" id="guidance-submit-btn">Submit Guidance</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = window.location.origin;
     const API_KEY = localStorage.getItem('evelyn_api_key') || '';
@@ -402,6 +420,29 @@
       }
     }
 
+    async function restartResearchTask(taskId, query, scope) {
+      if (!confirm(`Are you sure you want to completely restart the research for: "${query}"?\nThis will remove the current quarantined task and create a brand new one.`)) return;
+      try {
+        // First delete the old one
+        await fetch(`${API_BASE}/research/delete/${taskId}`, { method: 'POST', headers: headers() });
+        
+        // Then start a new one
+        const res = await fetch(`${API_BASE}/research/start`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ query: query, scope: scope })
+        });
+        
+        if (res.ok) {
+          loadData();
+        } else {
+          alert('Failed to restart task.');
+        }
+      } catch (e) {
+        alert('Network error restarting task.');
+      }
+    }
+
     async function readReport(taskId, topic) {
       try {
         const res = await fetch(`${API_BASE}/research/report/${taskId}`, { headers: headers() });
@@ -420,6 +461,48 @@
 
     function closeModal() {
       document.getElementById('report-modal').style.display = 'none';
+    }
+
+    let currentGuidanceTaskId = null;
+    
+    function openGuidanceModal(taskId) {
+      currentGuidanceTaskId = taskId;
+      document.getElementById('guidance-input').value = '';
+      document.getElementById('guidance-modal').style.display = 'flex';
+      
+      const submitBtn = document.getElementById('guidance-submit-btn');
+      submitBtn.onclick = async () => {
+        const guidance = document.getElementById('guidance-input').value.trim();
+        if (!guidance) return;
+        
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitting...';
+        
+        try {
+          const res = await fetch(`${API_BASE}/research/guide/${currentGuidanceTaskId}`, {
+            method: 'POST',
+            headers: headers(),
+            body: JSON.stringify({ guidance })
+          });
+          
+          if (res.ok) {
+            closeGuidanceModal();
+            loadData();
+          } else {
+            alert('Failed to submit guidance.');
+          }
+        } catch (e) {
+          alert('Network error submitting guidance.');
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit Guidance';
+        }
+      };
+    }
+    
+    function closeGuidanceModal() {
+      document.getElementById('guidance-modal').style.display = 'none';
+      currentGuidanceTaskId = null;
     }
 
     function handleEditInput(id) {
@@ -604,10 +687,18 @@
             
             let actionButtons = '';
             if (statusText === 'done') {
-              actionButtons = [
-                `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query)}')">Read Report</button>`,
-                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
-              ].join('');
+              if (task.quarantined) {
+                actionButtons = [
+                  `<button class="btn btn-start-now" onclick="restartResearchTask('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}', '${task.scope}')">▶ Restart</button>`,
+                  `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}')">Read Report</button>`,
+                  `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                ].join('');
+              } else {
+                actionButtons = [
+                  `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}')">Read Report</button>`,
+                  `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                ].join('');
+              }
             } else if (statusText === 'queued') {
               actionButtons = [
                 `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
@@ -617,6 +708,12 @@
               actionButtons = [
                 `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
                 `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume</button>`,
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+              ].join('');
+            } else if (statusText === 'needs_guidance') {
+              actionButtons = [
+                `<button class="btn btn-start-now" onclick="openGuidanceModal('${task.task_id}')">▶ Provide Guidance</button>`,
                 `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`,
                 `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
               ].join('');

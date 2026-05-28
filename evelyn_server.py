@@ -111,8 +111,8 @@ def dlog(*args):
 # ---------------------------------------------------------------------------
 
 
-def get_completed_research_context() -> str:
-    """Return a brief context block listing recently completed research reports."""
+def get_research_context() -> str:
+    """Return a brief context block listing recently completed, stalled, or quarantined research tasks."""
     import os
     import json
     import re
@@ -120,6 +120,8 @@ def get_completed_research_context() -> str:
     if not os.path.exists(research_dir):
         return ""
     completed_tasks = []
+    stalled_tasks = []
+    
     for d in os.listdir(research_dir):
         task_dir = os.path.join(research_dir, d)
         if os.path.isdir(task_dir):
@@ -128,42 +130,57 @@ def get_completed_research_context() -> str:
                 try:
                     with open(state_file, "r", encoding="utf-8") as f:
                         state = json.load(f)
-                        if state.get("status") == "done":
+                        if state.get("status") == "done" and not state.get("quarantined"):
                             completed_tasks.append(state)
+                        elif state.get("status") == "needs_guidance" or state.get("quarantined"):
+                            stalled_tasks.append(state)
                 except Exception:
                     pass
-    if not completed_tasks:
-        return ""
-        
-    completed_tasks.sort(key=lambda t: t.get("finished_at") or t.get("created_at", ""), reverse=True)
-    
-    lines = ["\n=== COMPLETED DEEP RESEARCH REPORTS ===",
-             "You have recently completed the following deep research investigations in the background. "
-             "Use this information to answer Ricky's questions if relevant, or reference it to show you remember your research:"]
-    for t in completed_tasks[:5]:
-        query = t.get("query", "Unknown Topic")
-        task_id = t.get("task_id", "")
-        summary_text = ""
-        report_file = os.path.join(research_dir, task_id, "report.md")
-        if os.path.exists(report_file):
-            try:
-                with open(report_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
-                    if summary_match:
-                        summary_text = summary_match.group(1).strip()[:400] + "..."
-                    else:
-                        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-                        for p in paragraphs:
-                            if not p.startswith("#"):
-                                summary_text = p[:400] + "..."
-                                break
-            except Exception:
-                pass
-        if not summary_text:
-            summary_text = "Detailed report saved in Obsidian Vault under 'Deep Research'."
+                    
+    lines = []
+    if stalled_tasks:
+        lines.append("\n=== STALLED / QUARANTINED RESEARCH TASKS ===")
+        lines.append("You have active research tasks that are struggling to find relevant information or have been quarantined due to low confidence.")
+        lines.append("You should mention these to Ricky so he can provide guidance, or you can use the 'guide_research' tool to adjust the search terms yourself.")
+        for t in stalled_tasks:
+            query = t.get("query", "Unknown Topic")
+            task_id = t.get("task_id", "")
+            status = "NEEDS GUIDANCE" if t.get("status") == "needs_guidance" else "QUARANTINED"
+            idx = t.get("current_sq_idx", 0)
+            plan = t.get("plan", {})
+            sqs = plan.get("sub_questions", [])
+            sq_query = sqs[idx].get("query", "") if 0 <= idx < len(sqs) else ""
+            lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Status: {status}\n  Stuck on Sub-Question: {sq_query}\n")
+
+    if completed_tasks:
+        completed_tasks.sort(key=lambda t: t.get("finished_at") or t.get("created_at", ""), reverse=True)
+        lines.append("\n=== COMPLETED DEEP RESEARCH REPORTS ===")
+        lines.append("You have recently completed the following deep research investigations in the background. Use this information to answer Ricky's questions if relevant:")
+        for t in completed_tasks[:5]:
+            query = t.get("query", "Unknown Topic")
+            task_id = t.get("task_id", "")
+            summary_text = ""
+            report_file = os.path.join(research_dir, task_id, "report.md")
+            if os.path.exists(report_file):
+                try:
+                    with open(report_file, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
+                        if summary_match:
+                            summary_text = summary_match.group(1).strip()[:400] + "..."
+                        else:
+                            paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+                            for p in paragraphs:
+                                if not p.startswith("#"):
+                                    summary_text = p[:400] + "..."
+                                    break
+                except Exception:
+                    pass
+            if not summary_text:
+                summary_text = "Detailed report saved in Obsidian Vault under 'Deep Research'."
+                
+            lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}\n")
             
-        lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}\n")
     return "\n".join(lines)
 
 
@@ -188,7 +205,7 @@ def load_system_prompt() -> str:
         if fpath.exists():
             parts.append(fpath.read_text(encoding="utf-8"))
             
-    research_ctx = get_completed_research_context()
+    research_ctx = get_research_context()
     if research_ctx:
         parts.append(research_ctx)
         
@@ -2016,11 +2033,21 @@ async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
     if not os.path.exists(task_dir):
         raise HTTPException(status_code=404, detail="Research task not found")
         
-    # Delete the directory recursively
-    try:
-        shutil.rmtree(task_dir)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete research directory: {e}")
+    # Delete the directory recursively with a retry loop to handle Windows file lock delays
+    import time
+    time.sleep(0.5) # Give the terminated process a moment to release handles
+    delete_success = False
+    for attempt in range(3):
+        try:
+            shutil.rmtree(task_dir)
+            delete_success = True
+            break
+        except Exception:
+            time.sleep(1.0)
+            
+    if not delete_success:
+        # Last ditch effort ignoring errors
+        shutil.rmtree(task_dir, ignore_errors=True)
         
     # 3. Clean up server background task tracking
     if task_id in _background_tasks:
@@ -2058,6 +2085,18 @@ async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
     _demote_running_task_if_any(task_id)
     from evelyn_tools import resume_research_task
     result = resume_research_task(task_id)
+    return {"message": result}
+
+
+class GuideRequest(BaseModel):
+    guidance: str
+
+@app.post("/research/guide/{task_id}")
+async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depends(check_auth)):
+    """Inject guidance into a struggling research task and resume it."""
+    _demote_running_task_if_any(task_id)
+    from evelyn_tools import guide_research
+    result = guide_research(task_id, request.guidance)
     return {"message": result}
 
 
