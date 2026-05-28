@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-05-25 19:50:50
+# date modified: 2026-05-27 17:58:06
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -74,6 +74,25 @@ _MAG = "\033[95m"
 # checks this to decide whether the server is idle enough to run.
 _last_activity_ts: float = time.time()
 _last_self_initiate_ts: float = 0.0
+_active_research_processes = {}
+
+
+def terminate_research_process(task_id: str):
+    """Immediately terminate the active background subprocess for a research task if running."""
+    proc = _active_research_processes.pop(task_id, None)
+    if proc:
+        try:
+            print(f"[RESEARCH TERMINATE] Terminating active subprocess for task {task_id}", flush=True)
+            proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[RESEARCH TERMINATE ERROR] Failed to terminate subprocess {task_id}: {e}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -963,6 +982,7 @@ def pause_all_active_research():
                     state["status"] = "paused"
                     save_state(tid, state)
                     _background_tasks[tid]["status"] = "paused"
+                    terminate_research_process(tid)
                     paused_any = True
             except Exception as e:
                 print(f"[IMMEDIATE RESEARCH PAUSE ERROR] Failed to pause task {tid}: {e}", flush=True)
@@ -1152,63 +1172,83 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print(f"[RESEARCH ERROR] Topic generation failed: {e}", flush=True)
 
-            # 2. Check active running research tasks for interruption or completion
-            active_task_id = None
-            for tid, task in _background_tasks.items():
-                if tid.startswith("task_") and task.get("status") == "running":
-                    active_task_id = tid
-                    break
-                    
-            if active_task_id:
-                from research_engine import load_state, save_state
-                state = load_state(active_task_id)
+            # 2. Build a unified view of unfinished tasks from memory and disk
+            from research_engine import load_state, save_state
+            
+            unfinished_tasks = []
+            active_task = None
+            
+            for tid, task in list(_background_tasks.items()):
+                if tid.startswith("task_"):
+                    # Check disk state as well to stay perfectly in sync
+                    disk_state = load_state(tid)
+                    status = disk_state.get("status") if disk_state else task.get("status")
+                    if status in ("running", "paused", "error", "searching", "synthesizing", "pending"):
+                        task_info = {
+                            "task_id": tid,
+                            "status": status,
+                            "query": disk_state.get("query") if disk_state else task.get("query", ""),
+                            "scope": disk_state.get("scope") if disk_state else task.get("scope", "standard"),
+                            "created_at": disk_state.get("created_at") if disk_state else ""
+                        }
+                        unfinished_tasks.append(task_info)
+                        if status == "running":
+                            active_task = task_info
+                        # Sync memory status back to prevent drift
+                        _background_tasks[tid]["status"] = status
+
+            # 3. Handle active task pausing if user becomes active
+            if active_task:
+                tid = active_task["task_id"]
+                state = load_state(tid)
                 disk_status = state.get("status") if state else None
                 
                 # If finished or changed out-of-band on disk, sync it to memory
                 if disk_status and disk_status != "running":
-                    print(f"[RESEARCH SYNC] Task {active_task_id} completed or changed status on disk to '{disk_status}' — updating server memory.", flush=True)
-                    _background_tasks[active_task_id]["status"] = disk_status
+                    print(f"[RESEARCH SYNC] Task {tid} completed or changed status on disk to '{disk_status}' — updating server memory.", flush=True)
+                    _background_tasks[tid]["status"] = disk_status
                     if disk_status in ("done", "error", "cancelled"):
-                        _background_tasks[active_task_id]["finished_at"] = time.time()
+                        _background_tasks[tid]["finished_at"] = time.time()
                     continue
                     
                 if idle_seconds < 10:  # User active!
-                    print(f"[RESEARCH INTERRUPT] User active (idle={idle_seconds:.1f}s) — pausing deep research task {active_task_id}", flush=True)
+                    print(f"[RESEARCH INTERRUPT] User active (idle={idle_seconds:.1f}s) — pausing deep research task {tid}", flush=True)
                     if state and state["status"] == "running":
                         state["status"] = "paused"
-                        save_state(active_task_id, state)
-                        _background_tasks[active_task_id]["status"] = "paused"
+                        state["error"] = "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
+                        save_state(tid, state)
+                        _background_tasks[tid]["status"] = "paused"
+                        terminate_research_process(tid)
                 continue
 
-            # 3. Resume paused research task if idle again
-            paused_task_id = None
-            for tid, task in list(_background_tasks.items()):
-                if tid.startswith("task_") and task.get("status") == "paused":
-                    paused_task_id = tid
+            # Check if any heavy background task is currently running (e.g. refresh_memory, vault_map, sync)
+            heavy_running = False
+            for k, task in _background_tasks.items():
+                if not k.startswith("task_") and task.get("status") == "running":
+                    heavy_running = True
                     break
-                    
-            if paused_task_id:
-                if idle_seconds >= 60:  # Idle for 1 min
-                    # Ensure no other heavy tasks running
-                    heavy_running = False
-                    for tid, task in _background_tasks.items():
-                        if tid != paused_task_id and task.get("status") == "running":
-                            heavy_running = True
-                            break
-                    if not heavy_running:
-                        print(f"[RESEARCH RESUME] Server idle for {idle_seconds:.1f}s — resuming deep research task {paused_task_id}", flush=True)
-                        from evelyn_tools import resume_research_task
-                        resume_research_task(paused_task_id)
+            
+            if heavy_running:
                 continue
 
-            # 4. Process queued tasks
+            # 4. Auto-resume / Auto-retry unfinished tasks if idle
+            if unfinished_tasks:
+                if idle_seconds >= 300:  # Server idle for 5 min
+                    # Sort unfinished tasks by created_at ascending (oldest gets priority)
+                    unfinished_tasks.sort(key=lambda x: x.get("created_at") or "")
+                    target_task = unfinished_tasks[0]
+                    
+                    print(f"[RESEARCH AUTO-RECOVERY] Server idle for {idle_seconds:.1f}s — auto-resuming unfinished task {target_task['task_id']} (status: {target_task['status']})", flush=True)
+                    from evelyn_tools import resume_research_task
+                    resume_research_task(target_task['task_id'])
+                    # Wait for subprocess thread to spin up and register
+                    await asyncio.sleep(20)
+                continue
+
+            # 5. Process queued tasks
             if idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800):
-                heavy_running = False
-                for task in _background_tasks.values():
-                    if task.get("status") == "running":
-                        heavy_running = True
-                        break
-                if heavy_running:
+                # Double guard
+                if unfinished_tasks:
                     continue
                     
                 queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
@@ -1220,6 +1260,9 @@ async def lifespan(app: FastAPI):
                         queue = []
                         
                     if queue:
+                        # Sort chronologically by created_at date
+                        queue.sort(key=lambda x: x.get("created_at") or x.get("created_time") or "")
+                        
                         next_task = queue.pop(0)
                         try:
                             with open(queue_file, "w", encoding="utf-8") as f:
@@ -1538,7 +1581,7 @@ _background_tasks: dict[str, dict] = {}
 
 
 def _load_existing_research_tasks():
-    """Scan the research data directory and register any paused or interrupted tasks."""
+    """Scan the research data directory and register any paused, errored, or interrupted tasks."""
     try:
         import os
         import json
@@ -1557,20 +1600,22 @@ def _load_existing_research_tasks():
                                 state = json.load(f)
                             status = state.get("status")
                             
-                            if status in ("paused", "running"):
+                            if status in ("paused", "running", "error"):
+                                target_status = status
                                 # If it was running, it is now paused because the server restarted
                                 if status == "running":
+                                    target_status = "paused"
                                     state["status"] = "paused"
                                     with open(state_file, "w", encoding="utf-8") as fw:
                                         json.dump(state, fw, indent=2)
                                         
                                 _background_tasks[d] = {
-                                    "status": "paused",
+                                    "status": target_status,
                                     "query": state.get("query", ""),
                                     "scope": state.get("scope", "standard"),
                                     "started_at": os.path.getmtime(state_file)
                                 }
-                                print(f"[RESEARCH RECOVERY] Registered paused/interrupted task {d} from disk.", flush=True)
+                                print(f"[RESEARCH RECOVERY] Registered {target_status} task {d} from disk.", flush=True)
                         except Exception:
                             pass
     except Exception as e:
@@ -1764,7 +1809,7 @@ class ResearchStartRequest(BaseModel):
 async def api_start_research(req: ResearchStartRequest, _: None = Depends(check_auth)):
     """Trigger a deep research task in the background."""
     from evelyn_tools import start_research
-    result = start_research(req.query, scope=req.scope)
+    result = start_research(req.query, scope=req.scope, bypass_queue=True)
     return {"message": result}
 
 
@@ -1924,12 +1969,85 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
         _background_tasks[task_id]["status"] = "cancelled"
         _background_tasks[task_id]["finished_at"] = time.time()
         
+    terminate_research_process(task_id)
+        
     return {"status": "cancelled", "task_id": task_id}
+
+
+@app.post("/research/delete/{task_id}")
+async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
+    """Permanently delete a research task directory from disk and server memory."""
+    import shutil
+    import os
+    
+    # 1. Handle queued task ID (e.g. queued_N)
+    if task_id.startswith("queued_"):
+        try:
+            idx = int(task_id.split("_")[1])
+            queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
+            if os.path.exists(queue_file):
+                with open(queue_file, "r", encoding="utf-8") as f:
+                    queue = json.load(f)
+                if 0 <= idx < len(queue):
+                    removed = queue.pop(idx)
+                    with open(queue_file, "w", encoding="utf-8") as f:
+                        json.dump(queue, f, indent=2)
+                    print(f"[RESEARCH QUEUE] Deleted queued task: '{removed.get('query')}'", flush=True)
+                    return {"status": "deleted", "task_id": task_id}
+            raise HTTPException(status_code=404, detail="Queue item or file not found")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete queued task: {e}")
+
+    # Terminate process immediately if active
+    terminate_research_process(task_id)
+
+    # 2. Handle actual task directories
+    task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
+    if not os.path.exists(task_dir):
+        raise HTTPException(status_code=404, detail="Research task not found")
+        
+    # Delete the directory recursively
+    try:
+        shutil.rmtree(task_dir)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete research directory: {e}")
+        
+    # 3. Clean up server background task tracking
+    if task_id in _background_tasks:
+        del _background_tasks[task_id]
+        
+    print(f"[RESEARCH DELETE] Permanently deleted task folder and tracking: {task_id}", flush=True)
+    return {"status": "deleted", "task_id": task_id}
+
+
+def _demote_running_task_if_any(promoting_task_id: str):
+    """Automatically pause the currently running research task (if any) and mark it on disk
+    with a contextual explanation that it was demoted due to a dashboard manual override.
+    """
+    running_task = next(
+        (tid for tid, t in list(_background_tasks.items())
+         if tid.startswith("task_") and t.get("status") == "running" and tid != promoting_task_id),
+        None,
+    )
+    if running_task:
+        from research_engine import load_state, save_state
+        state = load_state(running_task)
+        if state and state.get("status") == "running":
+            state["status"] = "paused"
+            state["error"] = f"Demoted: Suspended automatically because you manually promoted another research task ({promoting_task_id}) from the dashboard."
+            save_state(running_task, state)
+            _background_tasks[running_task]["status"] = "paused"
+            _background_tasks[running_task]["finished_at"] = time.time()
+            terminate_research_process(running_task)
+            print(f"[RESEARCH DEMOTION] Auto-paused task {running_task} because task {promoting_task_id} was promoted by the user.", flush=True)
 
 
 @app.post("/research/resume/{task_id}")
 async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
     """Resume a paused, cancelled, or failed research task."""
+    _demote_running_task_if_any(task_id)
     from evelyn_tools import resume_research_task
     result = resume_research_task(task_id)
     return {"message": result}
@@ -1943,23 +2061,10 @@ async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
       - queued_N  : Pops the item at index N from queue.json and starts it right away via
                     start_research(), respecting the same mutual-exclusion guard as the idle loop.
       - <real id> : Delegates to resume_research_task() for paused/cancelled/error tasks.
-
-    Returns 409 Conflict if another research subprocess is already active.
     """
     import os
 
-    # Concurrency check — refuse if any research task is currently running.
-    # Must happen BEFORE we touch queue.json so we don't lose the item on a blocked start.
-    running_task = next(
-        (tid for tid, t in _background_tasks.items()
-         if tid.startswith("task_") and t.get("status") == "running"),
-        None,
-    )
-    if running_task:
-        raise HTTPException(
-            status_code=409,
-            detail=f"A research task is already running ({running_task}). Wait for it to finish or pause it first."
-        )
+    _demote_running_task_if_any(task_id)
 
     if task_id.startswith("queued_"):
         try:
@@ -1983,7 +2088,7 @@ async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
             print(f"[RESEARCH START-NOW] Dequeued and starting: '{query}' (scope={scope})", flush=True)
 
             from evelyn_tools import start_research
-            result = start_research(query, scope=scope)
+            result = start_research(query, scope=scope, bypass_queue=True)
             return {"message": result}
 
         except HTTPException:
