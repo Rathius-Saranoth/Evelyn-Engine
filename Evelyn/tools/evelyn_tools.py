@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-05-25 19:54:06
+# date modified: 2026-05-29 07:23:57
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -239,6 +239,10 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
         # Get bypass_queue flag
         bypass_queue = kwargs.get("bypass_queue", False)
         server = sys.modules.get("evelyn_server")
+        if not server:
+            server = sys.modules.get("__main__")
+            if not hasattr(server, "_background_tasks"):
+                server = None
         import evelyn_config as cfg
 
         # 1. Check for duplicates of ALREADY COMPLETED tasks (Jaccard similarity >= 0.45)
@@ -276,7 +280,7 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                         unfinished_query = disk_state.get("query") if disk_state else tinfo.get("query", "")
                         
                         # If a task is actively running, we cannot start a second subprocess under any circumstances
-                        if status == "running":
+                        if status in ("running", "searching", "synthesizing"):
                             return (
                                 f"Cannot start immediately: another research task ({tid}) is already actively running. "
                                 "Wait for it to complete or pause before starting another."
@@ -393,9 +397,11 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                             active_procs.pop(task_id, None)
                     
                     if server and bg_tasks is not None:
-                        from research_engine import load_state
+                        from research_engine import load_state, save_state
                         disk_state = load_state(task_id)
-                        disk_status = disk_state.get("status") if disk_state else None
+                        if disk_state is None:
+                            disk_state = {"status": "error"}
+                        disk_status = disk_state.get("status")
                         if disk_status in ("paused", "cancelled"):
                             bg_tasks[task_id]["status"] = disk_status
                             bg_tasks[task_id]["finished_at"] = time.time()
@@ -406,6 +412,9 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                             bg_tasks[task_id]["status"] = "error"
                             bg_tasks[task_id]["error"] = f"Exit code {returncode}"
                             bg_tasks[task_id]["finished_at"] = time.time()
+                            disk_state["status"] = "error"
+                            disk_state["error"] = f"Exit code {returncode}"
+                            save_state(task_id, disk_state, ignore_disk_status=True)
             except Exception as e:
                 print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
                 if server and bg_tasks is not None:
@@ -440,11 +449,15 @@ def resume_research_task(task_id: str) -> str:
         # Concurrency check — refuse to resume if another research task is already running.
         # Only one research engine process should run at a time to avoid Ollama contention.
         server = sys.modules.get("evelyn_server")
+        if not server:
+            server = sys.modules.get("__main__")
+            if not hasattr(server, "_background_tasks"):
+                server = None
         if server:
             bg_tasks = getattr(server, "_background_tasks", None)
             if bg_tasks:
                 for tid, tinfo in bg_tasks.items():
-                    if tid.startswith("task_") and tinfo.get("status") == "running":
+                    if tid.startswith("task_") and tinfo.get("status") in ("running", "searching", "synthesizing"):
                         return f"Cannot resume task {task_id}: another research task ({tid}) is already actively running."
             
         # Reset status to running on disk so the engine knows it should proceed
@@ -528,9 +541,11 @@ def resume_research_task(task_id: str) -> str:
                             active_procs.pop(task_id, None)
                     
                     if server and bg_tasks is not None:
-                        from research_engine import load_state
+                        from research_engine import load_state, save_state
                         disk_state = load_state(task_id)
-                        disk_status = disk_state.get("status") if disk_state else None
+                        if disk_state is None:
+                            disk_state = {"status": "error"}
+                        disk_status = disk_state.get("status")
                         if disk_status in ("paused", "cancelled"):
                             bg_tasks[task_id]["status"] = disk_status
                             bg_tasks[task_id]["finished_at"] = time.time()
@@ -541,6 +556,9 @@ def resume_research_task(task_id: str) -> str:
                             bg_tasks[task_id]["status"] = "error"
                             bg_tasks[task_id]["error"] = f"Exit code {returncode}"
                             bg_tasks[task_id]["finished_at"] = time.time()
+                            disk_state["status"] = "error"
+                            disk_state["error"] = f"Exit code {returncode}"
+                            save_state(task_id, disk_state, ignore_disk_status=True)
             except Exception as e:
                 print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
                 if server and bg_tasks is not None:
@@ -569,10 +587,14 @@ def guide_research(task_id: str, guidance: str) -> str:
         if state.get("status") not in ("needs_guidance", "paused", "running", "done", "cancelled", "error"):
             return f"Research task {task_id} is currently '{state.get('status')}'. Cannot inject guidance in this state."
             
-        if state.get("status") == "running":
+        if state.get("status") in ("running", "searching", "synthesizing"):
             import sys
             import time
             server = sys.modules.get("evelyn_server")
+            if not server:
+                server = sys.modules.get("__main__")
+                if not hasattr(server, "terminate_research_process"):
+                    server = None
             if server:
                 term_func = getattr(server, "terminate_research_process", None)
                 if term_func:
@@ -626,6 +648,67 @@ def guide_research(task_id: str, guidance: str) -> str:
             return "Could not determine the active sub-question to guide."
     except Exception as e:
         return f"Failed to guide research task: {e}"
+
+
+def check_new_research(**kwargs) -> str:
+    """Check for newly completed deep research tasks and return their summaries."""
+    import os
+    import json
+    import evelyn_config as cfg
+    _reload()
+    
+    research_dir = cfg.RESEARCH_DATA_DIR
+    if not os.path.exists(research_dir):
+        return "No research data directory found."
+        
+    unnotified_reports = []
+    
+    for d in os.listdir(research_dir):
+        task_dir = os.path.join(research_dir, d)
+        if os.path.isdir(task_dir):
+            state_file = os.path.join(task_dir, "state.json")
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    if state.get("status") == "done" and not state.get("quarantined"):
+                        if not state.get("notified", False):
+                            query = state.get("query", "Unknown Topic")
+                            task_id = state.get("task_id", "")
+                            
+                            summary_text = ""
+                            report_file = os.path.join(task_dir, "report.md")
+                            if os.path.exists(report_file):
+                                import re
+                                with open(report_file, "r", encoding="utf-8") as f:
+                                    content = f.read()
+                                    summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
+                                    if summary_match:
+                                        summary_text = summary_match.group(1).strip()[:800] + "..."
+                                    else:
+                                        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+                                        for p in paragraphs:
+                                            if not p.startswith("#"):
+                                                summary_text = p[:800] + "..."
+                                                break
+                            if not summary_text:
+                                summary_text = "Detailed report saved in Obsidian Vault."
+                                
+                            unnotified_reports.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}")
+                            
+                            state["notified"] = True
+                            with open(state_file, "w", encoding="utf-8") as f:
+                                json.dump(state, f, indent=2)
+                except Exception:
+                    pass
+                    
+    if not unnotified_reports:
+        return "No new completed research reports found."
+        
+    lines = ["Here are the newly completed research reports:\n"]
+    lines.extend(unnotified_reports)
+    lines.append("\nThe full reports have been saved to your Obsidian vault.")
+    return "\n\n".join(lines)
 
 
 # ===========================================================================
@@ -881,6 +964,21 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_new_research",
+            "description": (
+                "Review the findings of newly completed deep research tasks. "
+                "Use this tool when the system notifies you that new research reports are available."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -899,4 +997,5 @@ TOOL_FUNCTIONS = {
     "web_search": web_search,
     "start_research": start_research,
     "guide_research": guide_research,
+    "check_new_research": check_new_research,
 }

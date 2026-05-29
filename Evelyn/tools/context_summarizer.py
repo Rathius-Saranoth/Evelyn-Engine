@@ -273,7 +273,7 @@ async def _do_summary_update():
     payload = {
         "model": model,
         "messages": summary_messages,
-        "stream": False,
+        "stream": True,
         "options": options,
         "think": cfg.THINK,  # Must match main chat config to avoid model swap
     }
@@ -285,19 +285,27 @@ async def _do_summary_update():
     )
 
     start = time.time()
+    content_buffer = ""
 
     try:
         async with httpx.AsyncClient(timeout=180) as client:
-            resp = await client.post(
-                f"{cfg.OLLAMA_URL}/api/chat", json=payload
-            )
-            resp.raise_for_status()
-            result = resp.json()
+            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        import json
+                        chunk = json.loads(line)
+                        msg = chunk.get("message", {})
+                        content_buffer += msg.get("content", "")
+                    except json.JSONDecodeError:
+                        continue
     except Exception as e:
         print(f"[SUMMARIZER ERROR] Ollama call failed: {e}", flush=True)
         return
 
-    content = result.get("message", {}).get("content", "").strip()
+    content = content_buffer.strip()
 
     if not content:
         print("[SUMMARIZER] Warning: empty summary returned", flush=True)

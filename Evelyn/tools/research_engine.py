@@ -232,16 +232,27 @@ async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 
     payload = {
         "model": model,
         "messages": prompt_messages,
-        "stream": False,
+        "stream": True,
         "options": options,
         "think": False # Native reasoning off to fit maximum factual context
     }
     
+    content_buffer = ""
+    
     try:
         async with httpx.AsyncClient(timeout=600.0) as client:
-            resp = await client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
-            resp.raise_for_status()
-            result = resp.json()
+            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        import json
+                        chunk = json.loads(line)
+                        msg = chunk.get("message", {})
+                        content_buffer += msg.get("content", "")
+                    except json.JSONDecodeError:
+                        continue
     except httpx.ConnectError as ce:
         raise RuntimeError(
             f"Ollama server connection failed (is Ollama running? URL: {cfg.OLLAMA_URL}). Error: {ce}"
@@ -255,7 +266,7 @@ async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 
             f"Ollama server returned HTTP error status {hse.response.status_code}. Response: {hse.response.text}"
         ) from hse
         
-    content = result.get("message", {}).get("content", "").strip()
+    content = content_buffer.strip()
     return re.sub(r"^.*?</think>", "", content, flags=re.DOTALL).strip()
 
 
