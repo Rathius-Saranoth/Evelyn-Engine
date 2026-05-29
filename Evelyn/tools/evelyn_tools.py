@@ -320,7 +320,7 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
             )
 
         from research_engine import create_research_task
-        task_id = create_research_task(query, scope=scope, triggered_by="user")
+        task_id = create_research_task(query, scope=scope, triggered_by="user", initial_status="running" if bypass_queue else "pending")
         
         # Access evelyn_server active processes to ensure mutual exclusion
         if server:
@@ -566,8 +566,19 @@ def guide_research(task_id: str, guidance: str) -> str:
         if not state:
             return f"Research task {task_id} not found."
             
-        if state.get("status") not in ("needs_guidance", "paused"):
-            return f"Research task {task_id} is currently '{state.get('status')}'. Guidance can only be injected when a task is stalled ('needs_guidance' or 'paused')."
+        if state.get("status") not in ("needs_guidance", "paused", "running", "done", "cancelled", "error"):
+            return f"Research task {task_id} is currently '{state.get('status')}'. Cannot inject guidance in this state."
+            
+        if state.get("status") == "running":
+            import sys
+            import time
+            server = sys.modules.get("evelyn_server")
+            if server:
+                term_func = getattr(server, "terminate_research_process", None)
+                if term_func:
+                    term_func(task_id)
+            # Give it a moment to cleanly exit before overwriting state
+            time.sleep(0.5)
             
         # Find the currently active sub-question
         idx = state.get("current_sq_idx", 0)
@@ -599,6 +610,12 @@ def guide_research(task_id: str, guidance: str) -> str:
             state["struggling"] = False
             state["status"] = "pending" # So it gets picked up by idle loop or resume
             sq["status"] = "pending"
+            if "termination_reason" in state:
+                state["termination_reason"] = None
+            if "quarantined" in state:
+                state["quarantined"] = False
+            if "error" in state:
+                state["error"] = None
             
             save_state(task_id, state, ignore_disk_status=True)
             
