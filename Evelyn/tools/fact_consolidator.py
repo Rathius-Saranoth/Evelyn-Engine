@@ -278,18 +278,32 @@ async def _call_ollama(
     payload = {
         "model": model,
         "messages": messages,
-        "stream": False,
+        "stream": True,
         "options": options,
         "think": think,
     }
 
+    content_buffer = ""
+    thinking_buffer = ""
+
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
-            resp.raise_for_status()
-            result = resp.json()
-        content = result.get("message", {}).get("content", "").strip()
-        thinking_trace = result.get("message", {}).get("thinking", "")
+            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        import json
+                        chunk = json.loads(line)
+                        msg = chunk.get("message", {})
+                        content_buffer += msg.get("content", "")
+                        thinking_buffer += msg.get("thinking", "")
+                    except json.JSONDecodeError:
+                        continue
+                        
+        content = content_buffer.strip()
+        thinking_trace = thinking_buffer
         if thinking_trace and cfg.DEBUG_LOGGING:
             print(
                 f"[CONSOLIDATOR] Think trace ({len(thinking_trace.split())} words): "
@@ -299,11 +313,8 @@ async def _call_ollama(
         if not content:
             # Diagnostic: surface what Ollama actually returned so we can
             # identify future model-specific quirks without guessing.
-            msg_keys = list(result.get("message", {}).keys())
-            done_reason = result.get("done_reason", "unknown")
             print(
                 f"[CONSOLIDATOR] Warning: empty content from model. "
-                f"done_reason={done_reason!r} message_keys={msg_keys} "
                 f"think={think} num_predict={num_predict}",
                 flush=True,
             )

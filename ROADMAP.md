@@ -118,6 +118,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Proactive Memory Refresh & Idle Maintenance**: Integrated automatic background memory refresh subprocess triggers on successful user-action completions (journal approval, fact extraction approval, or proposal execution) alongside a low-priority deep idle background maintenance loop (running once every 2 hours when idle 45m+) to keep vector stores perfectly synced with out-of-band vault edits. *(Completed 2026-05-26)*
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the `#kw/` and `#ctx/` tags written by the Keyword-to-Tag Pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
+- [ ] **Multi-Node Expansion**: Split processes between machines (Evelyn Core on primary, TTS/Image Gen/idle tasks on secondary) to eliminate resource bottlenecks. See `reference/Multi_Node_Expansion_Plan.md` for feasibility and implementation details.
 
 ## Phase 5: Embodiment & Advanced Senses (Future)
 
