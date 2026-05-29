@@ -171,18 +171,42 @@ def _extracting_elsewhere() -> bool:
 def _heavy_tasks_running() -> bool:
     """Return True if any heavy server background task is running.
 
-    Checks the _background_tasks dict in evelyn_server.py. Any task with
-    status="running" (e.g. "vault_map", "sync", or future tasks) will
-    cause this to return True, preventing Ollama overload.
+    Checks the _background_tasks dict in evelyn_server.py or __main__ module namespaces.
+    Any task with status="running" (excluding consolidator itself) or active deep research
+    task will cause this to return True, preventing Ollama overload.
     """
     import sys
-    server = sys.modules.get("evelyn_server")
-    if server:
-        tasks = getattr(server, "_background_tasks", {})
-        for task in tasks.values():
-            if task.get("status") == "running":
-                return True
+    for mod_name in ("evelyn_server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod:
+            tasks = getattr(mod, "_background_tasks", None)
+            if isinstance(tasks, dict):
+                for k, task in tasks.items():
+                    if k == "consolidator":
+                        continue
+                    if k.startswith("task_"):
+                        if task.get("status") in ("running", "searching", "synthesizing"):
+                            return True
+                    elif task.get("status") == "running":
+                        return True
     return False
+
+
+def _set_status_in_server(status: str | None) -> None:
+    """Register or clear consolidator status in the server's central registry."""
+    import sys
+    for mod_name in ("evelyn_server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod:
+            tasks = getattr(mod, "_background_tasks", None)
+            if isinstance(tasks, dict):
+                if status == "running":
+                    tasks["consolidator"] = {
+                        "status": "running",
+                        "started_at": time.time(),
+                    }
+                else:
+                    tasks.pop("consolidator", None)
 
 
 
@@ -353,6 +377,7 @@ def cancel_pending_consolidation():
     if _consolidation_task and not _consolidation_task.done():
         _consolidation_task.cancel()
         _consolidating = False
+        _set_status_in_server(None)
         print("[CONSOLIDATOR] Cancelled (new chat request).", flush=True)
     _consolidation_task = None
 
@@ -402,6 +427,7 @@ async def run_consolidation():
 
     _consolidating = True
     completed = False
+    _set_status_in_server("running")
     try:
         await _do_consolidation()
         completed = True
@@ -411,6 +437,7 @@ async def run_consolidation():
         print(f"[CONSOLIDATOR ERROR] {type(e).__name__}: {e}", flush=True)
     finally:
         _consolidating = False
+        _set_status_in_server(None)
         # Only lock the cooldown on a successful (non-cancelled) run
         if completed:
             _last_run_ts = time.time()

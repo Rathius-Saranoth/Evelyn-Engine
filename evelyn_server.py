@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-05-29 07:54:34
+# date modified: 2026-05-29 15:25:47
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1054,6 +1054,43 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
 
 
 # ---------------------------------------------------------------------------
+# Background task tracking
+# ---------------------------------------------------------------------------
+# Simple in-memory dict for tracking background process status.
+# The UI polls GET /task_status/{name} to know when a process finishes.
+#
+# IMPORTANT: Idle-time tasks (fact_consolidator, fact_extractor) monitor this
+# dictionary. If ANY task in this dict has "status": "running", idle tasks
+# will yield/defer to prevent overwhelming Ollama. Future heavy background tasks
+# should track their status here to automatically benefit from mutual exclusion.
+_background_tasks: dict[str, dict] = {}
+
+
+def is_any_heavy_task_running(exclude_name: str = None) -> bool:
+    """Check if any heavy background task is currently running in the system.
+
+    Unified checker across all background tasks (sync, vault_map, refresh_memory,
+    consolidator, extractor, and active research tasks) to guarantee complete
+    mutual exclusion and prevent Ollama/CPU resource contention.
+
+    Args:
+        exclude_name: Optional task name to exclude from checking.
+
+    Returns:
+        bool: True if another heavy task is currently running, False otherwise.
+    """
+    for k, task in _background_tasks.items():
+        if exclude_name and k == exclude_name:
+            continue
+        if k.startswith("task_"):
+            if task.get("status") in ("running", "searching", "synthesizing"):
+                return True
+        elif task.get("status") == "running":
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
@@ -1092,6 +1129,8 @@ async def lifespan(app: FastAPI):
                 continue
             idle_seconds = time.time() - _last_activity_ts
             if idle_seconds >= cfg.CONSOLIDATION_IDLE_THRESHOLD:
+                if is_any_heavy_task_running():
+                    continue
                 print(
                     f"{_MAG}[CONSOLIDATOR]{_RST} Idle for "
                     f"{idle_seconds / 60:.1f}m — starting consolidation pass.",
@@ -1118,6 +1157,8 @@ async def lifespan(app: FastAPI):
                 continue
             idle_seconds = time.time() - _last_activity_ts
             if idle_seconds >= cfg.FACT_EXTRACTION_IDLE_THRESHOLD:
+                if is_any_heavy_task_running():
+                    continue
                 print(
                     f"{_CYN}[EXTRACTOR]{_RST} Idle for "
                     f"{idle_seconds / 60:.1f}m — starting extraction pass.",
@@ -1158,12 +1199,7 @@ async def lifespan(app: FastAPI):
             ):
                 try:
                     # Check if any heavy task is active
-                    heavy_running = False
-                    for task in _background_tasks.values():
-                        if task.get("status") in ("running", "searching", "synthesizing"):
-                            heavy_running = True
-                            break
-                    if not heavy_running:
+                    if not is_any_heavy_task_running():
                         _last_self_initiate_ts = time.time()
                         from research_engine import self_initiate_research_topics
                         await self_initiate_research_topics()
@@ -1220,13 +1256,7 @@ async def lifespan(app: FastAPI):
                 continue
 
             # Check if any heavy background task is currently running (e.g. refresh_memory, vault_map, sync)
-            heavy_running = False
-            for k, task in _background_tasks.items():
-                if not k.startswith("task_") and task.get("status") == "running":
-                    heavy_running = True
-                    break
-            
-            if heavy_running:
+            if is_any_heavy_task_running():
                 continue
 
             # 4. Auto-resume / Auto-retry unfinished tasks if idle
@@ -1294,12 +1324,7 @@ async def lifespan(app: FastAPI):
             if idle_seconds >= 2700:
                 # Limit running to once every 2 hours max
                 if time.time() - last_run_time >= 7200:
-                    heavy_running = False
-                    for task in _background_tasks.values():
-                        if task.get("status") == "running":
-                            heavy_running = True
-                            break
-                    if not heavy_running:
+                    if not is_any_heavy_task_running():
                         print(f"{_GRN}[IDLE REFRESH]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background memory refresh.", flush=True)
                         await start_refresh_memory_internal()
                         last_run_time = time.time()
@@ -1573,17 +1598,7 @@ async def new_thread(_: None = Depends(check_auth)):
     return {"status": "new thread started"}
 
 
-# ---------------------------------------------------------------------------
-# Background task tracking
-# ---------------------------------------------------------------------------
-# Simple in-memory dict for tracking background process status.
-# The UI polls GET /task_status/{name} to know when a process finishes.
-#
-# IMPORTANT: Idle-time tasks (fact_consolidator, fact_extractor) monitor this
-# dictionary. If ANY task in this dict has "status": "running", idle tasks
-# will yield/defer to prevent overwhelming Ollama. Future heavy background tasks
-# should track their status here to automatically benefit from mutual exclusion.
-_background_tasks: dict[str, dict] = {}
+# background task tracking variables now located at the top of App setup
 
 
 def _load_existing_research_tasks():

@@ -157,19 +157,43 @@ _extraction_task = None
 
 def _heavy_tasks_running() -> bool:
     """Return True if any heavy server background task is running.
-    
-    Checks the _background_tasks dict in evelyn_server.py. Any task with
-    status="running" (e.g. "vault_map", "sync", or future tasks) will
-    cause this to return True, preventing Ollama overload.
+
+    Checks the _background_tasks dict in evelyn_server.py or __main__ module namespaces.
+    Any task with status="running" (excluding extractor itself) or active deep research
+    task will cause this to return True, preventing Ollama overload.
     """
     import sys
-    server = sys.modules.get("evelyn_server")
-    if server:
-        tasks = getattr(server, "_background_tasks", {})
-        for task in tasks.values():
-            if task.get("status") == "running":
-                return True
+    for mod_name in ("evelyn_server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod:
+            tasks = getattr(mod, "_background_tasks", None)
+            if isinstance(tasks, dict):
+                for k, task in tasks.items():
+                    if k == "extractor":
+                        continue
+                    if k.startswith("task_"):
+                        if task.get("status") in ("running", "searching", "synthesizing"):
+                            return True
+                    elif task.get("status") == "running":
+                        return True
     return False
+
+
+def _set_status_in_server(status: str | None) -> None:
+    """Register or clear extractor status in the server's central registry."""
+    import sys
+    for mod_name in ("evelyn_server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod:
+            tasks = getattr(mod, "_background_tasks", None)
+            if isinstance(tasks, dict):
+                if status == "running":
+                    tasks["extractor"] = {
+                        "status": "running",
+                        "started_at": time.time(),
+                    }
+                else:
+                    tasks.pop("extractor", None)
 
 
 def cancel_pending_extraction():
@@ -183,6 +207,7 @@ def cancel_pending_extraction():
     if _extraction_task and not _extraction_task.done():
         _extraction_task.cancel()
         _extracting = False
+        _set_status_in_server(None)
         print("[EXTRACTOR] Cancelled (new chat request).", flush=True)
     _extraction_task = None
 
@@ -249,6 +274,7 @@ async def run_extraction():
 
     _extracting = True
     success = False
+    _set_status_in_server("running")
     try:
         await _do_extraction(messages)
         success = True
@@ -258,6 +284,7 @@ async def run_extraction():
         print(f"[EXTRACTOR ERROR] {type(e).__name__}: {e}", flush=True)
     finally:
         _extracting = False
+        _set_status_in_server(None)
         if success:
             _last_extracted_id = max_id
             _save_extraction_state(max_id)
