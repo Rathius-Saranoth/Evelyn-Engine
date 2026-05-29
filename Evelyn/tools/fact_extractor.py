@@ -532,7 +532,7 @@ async def _do_extraction(messages: list[dict]):
     payload = {
         "model": model,
         "messages": extraction_messages,
-        "stream": False,
+        "stream": True,
         "options": options,
         "think": False,  # Structured extraction — no reasoning chain needed
     }
@@ -544,18 +544,28 @@ async def _do_extraction(messages: list[dict]):
     start = time.time()
 
     timeout = cfg.FACT_EXTRACTION_TIMEOUT
+    content_buffer = ""
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
-            resp.raise_for_status()
-            result = resp.json()
+            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        import json
+                        chunk = json.loads(line)
+                        msg = chunk.get("message", {})
+                        content_buffer += msg.get("content", "")
+                    except json.JSONDecodeError:
+                        continue
     except asyncio.CancelledError:
         raise  # Let it propagate — caller handles it
     except Exception as e:
         print(f"[EXTRACTOR] Ollama call failed: {e}", flush=True)
         return
 
-    raw = result.get("message", {}).get("content", "").strip()
+    raw = content_buffer.strip()
     elapsed = time.time() - start
 
     if not raw:
