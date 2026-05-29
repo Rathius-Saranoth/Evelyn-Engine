@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-25 20:38:16
+date modified: 2026-05-29 15:27:20
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -116,6 +116,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Engine Architecture Map**: Designed and deployed a Foam-compatible structural map (`[[engine_architecture.md]]`) using Mermaid visual flowcharts to tie all active standalone scripts and database layers into a fully connected Foam visual graph, completely eliminating orphan script nodes. *(Completed 2026-05-25)*
 - [x] **Journal Entry Triage & One-Click Vault Archiver**: Integrated a secure, multi-path draft locator and custom year/month directory parser in the backend (`evelyn_server.py`) and a premium interactive triage banner inside the front-end chat modal. Allows previewing draft reflections from the chat overlay and filing them cleanly into the chronological Obsidian Vault folders with a single tap. Fixed (2026-05-28): `JOURNAL_DIRECT_WRITE=True` caused entries to land in the vault root and be reported as `approved`, suppressing the File Entry button. Resolved by returning `status: unfiled` for root-path entries and expanding `POST /journal/approve` to accept the vault root as a source path (Option B).
 - [x] **Proactive Memory Refresh & Idle Maintenance**: Integrated automatic background memory refresh subprocess triggers on successful user-action completions (journal approval, fact extraction approval, or proposal execution) alongside a low-priority deep idle background maintenance loop (running once every 2 hours when idle 45m+) to keep vector stores perfectly synced with out-of-band vault edits. *(Completed 2026-05-26)*
+- [x] **Unified Background Task Mutual Exclusion**: Eliminated all piecemeal concurrency checks across idle loops and tool scripts. Centralized task registration in `_background_tasks` with an authoritative `is_any_heavy_task_running()` guard in `evelyn_server.py`. Consolidator and extractor now self-register/deregister via namespace-safe `_set_status_in_server()` helpers (resolves `__main__` vs `evelyn_server` module namespace blindspot). All four idle loops (consolidation, extraction, research, memory refresh) gate on the unified check. Codified as a mandatory architectural standard in `reference/engine_architecture.md` §5. *(Completed 2026-05-29)*
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the `#kw/` and `#ctx/` tags written by the Keyword-to-Tag Pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
 - [ ] **Multi-Node Expansion**: Split processes between machines (Evelyn Core on primary, TTS/Image Gen/idle tasks on secondary) to eliminate resource bottlenecks. See `reference/Multi_Node_Expansion_Plan.md` for feasibility and implementation details.

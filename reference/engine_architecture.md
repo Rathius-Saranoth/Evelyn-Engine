@@ -171,3 +171,21 @@ The Evelyn ecosystem operates in tandem with external environments and local sys
 * **Evelyn Tools**: `C:\Projects\LocalAI\Evelyn\tools` (Sub-pipelines and executable runtime actions)
 * **SQLite Data Base**: `C:\Projects\LocalAI\data` (Persistent databases, index hashes, and Chroma vectors)
 * **Ollama Data**: `C:\Users\ricky\AppData\Local\Ollama` (Local model weights and parameters)
+
+---
+
+## 5. Background Task Mutual Exclusion Standard
+
+> [!IMPORTANT]
+> **CRITICAL ARCHITECTURAL DIRECTIVE — UNIFIED MUTUAL EXCLUSION**
+> To avoid Ollama VRAM/GPU thrashing, SQLite database locks, and overall CPU resource contention, **NO TWO HEAVY BACKGROUND TASKS MAY RUN SIMULTANEOUSLY.**
+> 
+> All background operations (syncing, indexing, extracting, consolidating, or research) MUST be coordinated through the unified registry standard:
+> 
+> 1. **Central Source of Truth**: The `_background_tasks` registry dictionary inside `evelyn_server.py` tracks all running tasks.
+> 2. **Authoritative Checker**: The `is_any_heavy_task_running()` function inside `evelyn_server.py` is the single source of truth for checks.
+> 3. **Active Registration**: Any script running a heavy background operation MUST register its status as `"running"` under `_background_tasks` at startup, and cleanly pop/remove itself from the registry in its `finally` block or on cancellation.
+> 4. **Self-Healing Resolution**: Tool processes that run LLM calls (e.g. `fact_consolidator.py` and `fact_extractor.py`) must inspect the central registry using namespace-safe namespace searches (`sys.modules.get("evelyn_server")` or `sys.modules.get("__main__")`) and yield/defer if another heavy task is active.
+> 
+> *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED and must be explicitly approved with written justification prior to implementation.*
+
