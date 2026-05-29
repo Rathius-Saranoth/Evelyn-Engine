@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-05-29 07:27:32
+# date modified: 2026-05-29 07:54:34
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2174,9 +2174,6 @@ if __name__ == "__main__":
     try:
         # We call the definition here
         final_prompt = load_system_prompt()
-        research_prompt = get_research_context()
-        if research_prompt:
-            final_prompt += "\n\n" + research_prompt
 
         print("--- START OF SYSTEM PROMPT ---")
         print(final_prompt)
