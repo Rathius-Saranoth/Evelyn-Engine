@@ -124,13 +124,14 @@ def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = F
         print(f"[RESEARCH_ENGINE ERROR] Failed to save state for {task_id}: {e}", flush=True)
 
 
-def create_research_task(query: str, scope: str = "standard", triggered_by: str = "user") -> str:
+def create_research_task(query: str, scope: str = "standard", triggered_by: str = "user", initial_status: str = "pending") -> str:
     """Initialize a brand-new research task and persist its base state.
 
     Args:
         query: The main search query or research topic.
         scope: Scope of the research ('quick', 'standard', 'deep').
         triggered_by: Identifies the initiator ('user', 'idle', 'evelyn').
+        initial_status: The initial status of the task ('pending' or 'running').
 
     Returns:
         str: Generated unique task_id.
@@ -170,7 +171,7 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
         "task_id": task_id,
         "query": query,
         "scope": scope,
-        "status": "pending",
+        "status": initial_status,
         "created_at": datetime.datetime.now().isoformat(),
         "updated_at": datetime.datetime.now().isoformat(),
         "triggered_by": triggered_by,

@@ -1834,6 +1834,7 @@ class ResearchStartRequest(BaseModel):
 async def api_start_research(req: ResearchStartRequest, _: None = Depends(check_auth)):
     """Trigger a deep research task in the background."""
     from evelyn_tools import start_research
+    _demote_running_task_if_any("new_task")
     result = start_research(req.query, scope=req.scope, bypass_queue=True)
     return {"message": result}
 
