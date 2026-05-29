@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-05-27 17:58:06
+# date modified: 2026-05-29 07:27:32
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -119,8 +119,9 @@ def get_research_context() -> str:
     research_dir = cfg.RESEARCH_DATA_DIR
     if not os.path.exists(research_dir):
         return ""
-    completed_tasks = []
+        
     stalled_tasks = []
+    unnotified_count = 0
     
     for d in os.listdir(research_dir):
         task_dir = os.path.join(research_dir, d)
@@ -130,9 +131,11 @@ def get_research_context() -> str:
                 try:
                     with open(state_file, "r", encoding="utf-8") as f:
                         state = json.load(f)
-                        if state.get("status") == "done" and not state.get("quarantined"):
-                            completed_tasks.append(state)
-                        elif state.get("status") == "needs_guidance" or state.get("quarantined"):
+                        status = state.get("status")
+                        if status == "done" and not state.get("quarantined"):
+                            if not state.get("notified", False):
+                                unnotified_count += 1
+                        elif status == "needs_guidance" or state.get("quarantined"):
                             stalled_tasks.append(state)
                 except Exception:
                     pass
@@ -152,40 +155,17 @@ def get_research_context() -> str:
             sq_query = sqs[idx].get("query", "") if 0 <= idx < len(sqs) else ""
             lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Status: {status}\n  Stuck on Sub-Question: {sq_query}\n")
 
-    if completed_tasks:
-        completed_tasks.sort(key=lambda t: t.get("finished_at") or t.get("created_at", ""), reverse=True)
-        lines.append("\n=== COMPLETED DEEP RESEARCH REPORTS ===")
-        lines.append("You have recently completed the following deep research investigations in the background. Use this information to answer Ricky's questions if relevant:")
-        for t in completed_tasks[:5]:
-            query = t.get("query", "Unknown Topic")
-            task_id = t.get("task_id", "")
-            summary_text = ""
-            report_file = os.path.join(research_dir, task_id, "report.md")
-            if os.path.exists(report_file):
-                try:
-                    with open(report_file, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
-                        if summary_match:
-                            summary_text = summary_match.group(1).strip()[:400] + "..."
-                        else:
-                            paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-                            for p in paragraphs:
-                                if not p.startswith("#"):
-                                    summary_text = p[:400] + "..."
-                                    break
-                except Exception:
-                    pass
-            if not summary_text:
-                summary_text = "Detailed report saved in Obsidian Vault under 'Deep Research'."
-                
-            lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}\n")
+    if unnotified_count > 0:
+        lines.append(f"\nSystem Notification: You have {unnotified_count} newly completed deep research task(s). Use the 'check_new_research' tool to review them.")
             
     return "\n".join(lines)
 
 
 def load_system_prompt() -> str:
     """Assemble system prompt from persona markdown files."""
+    import re
+    # Matches YAML frontmatter with either LF or CRLF line endings (Windows files use CRLF)
+    _FRONTMATTER_RE = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
     parts = []
     date_str = datetime.now().strftime("%A, %B %d, %Y")
     time_str = datetime.now().strftime("%I:%M %p")
@@ -203,12 +183,10 @@ def load_system_prompt() -> str:
     ]:
         fpath = PERSONA_DIR / fname
         if fpath.exists():
-            parts.append(fpath.read_text(encoding="utf-8"))
+            content = fpath.read_text(encoding="utf-8")
+            content = _FRONTMATTER_RE.sub("", content)
+            parts.append(content)
             
-    research_ctx = get_research_context()
-    if research_ctx:
-        parts.append(research_ctx)
-        
     return "\n\n".join(parts)
 
 
@@ -797,11 +775,14 @@ async def _process_chat_background(
         history = load_history()
 
         user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
-        messages = (
-            [{"role": "system", "content": system}]
-            + history
-            + [{"role": "user", "content": user_msg_for_model}]
-        )
+        
+        messages = [{"role": "system", "content": system}] + history
+        
+        research_ctx = get_research_context()
+        if research_ctx:
+            messages.append({"role": "system", "content": research_ctx})
+            
+        messages.append({"role": "user", "content": user_msg_for_model})
 
         await put("status", msg="Querying model...")
 
@@ -990,12 +971,12 @@ def pause_all_active_research():
     global _background_tasks
     paused_any = False
     for tid, task in list(_background_tasks.items()):
-        if tid.startswith("task_") and task.get("status") == "running":
+        if tid.startswith("task_") and task.get("status") in ("running", "searching", "synthesizing"):
             print(f"[IMMEDIATE RESEARCH PAUSE] Pausing active research task {tid} due to incoming user chat activity.", flush=True)
             from research_engine import load_state, save_state
             try:
                 state = load_state(tid)
-                if state and state["status"] == "running":
+                if state and state["status"] in ("running", "searching", "synthesizing"):
                     state["status"] = "paused"
                     save_state(tid, state)
                     _background_tasks[tid]["status"] = "paused"
@@ -1179,7 +1160,7 @@ async def lifespan(app: FastAPI):
                     # Check if any heavy task is active
                     heavy_running = False
                     for task in _background_tasks.values():
-                        if task.get("status") == "running":
+                        if task.get("status") in ("running", "searching", "synthesizing"):
                             heavy_running = True
                             break
                     if not heavy_running:
@@ -1209,7 +1190,7 @@ async def lifespan(app: FastAPI):
                             "created_at": disk_state.get("created_at") if disk_state else ""
                         }
                         unfinished_tasks.append(task_info)
-                        if status == "running":
+                        if status in ("running", "searching", "synthesizing"):
                             active_task = task_info
                         # Sync memory status back to prevent drift
                         _background_tasks[tid]["status"] = status
@@ -1221,7 +1202,7 @@ async def lifespan(app: FastAPI):
                 disk_status = state.get("status") if state else None
                 
                 # If finished or changed out-of-band on disk, sync it to memory
-                if disk_status and disk_status != "running":
+                if disk_status and disk_status not in ("running", "searching", "synthesizing"):
                     print(f"[RESEARCH SYNC] Task {tid} completed or changed status on disk to '{disk_status}' — updating server memory.", flush=True)
                     _background_tasks[tid]["status"] = disk_status
                     if disk_status in ("done", "error", "cancelled"):
@@ -1230,7 +1211,7 @@ async def lifespan(app: FastAPI):
                     
                 if idle_seconds < 10:  # User active!
                     print(f"[RESEARCH INTERRUPT] User active (idle={idle_seconds:.1f}s) — pausing deep research task {tid}", flush=True)
-                    if state and state["status"] == "running":
+                    if state and state["status"] in ("running", "searching", "synthesizing"):
                         state["status"] = "paused"
                         state["error"] = "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
                         save_state(tid, state)
@@ -2193,6 +2174,9 @@ if __name__ == "__main__":
     try:
         # We call the definition here
         final_prompt = load_system_prompt()
+        research_prompt = get_research_context()
+        if research_prompt:
+            final_prompt += "\n\n" + research_prompt
 
         print("--- START OF SYSTEM PROMPT ---")
         print(final_prompt)
