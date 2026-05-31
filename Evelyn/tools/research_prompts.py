@@ -191,3 +191,115 @@ def build_synthesize_prompt(query: str, all_notes: Dict[str, str], sources_regis
         "5. Output the final report with a standard YAML frontmatter containing the keys: `title`, `date`, `confidence`, `sources_count`.\n\n"
         "Output ONLY the final markdown report starting with the YAML frontmatter. Do not write any conversational preamble or meta-commentary."
     )
+
+
+def build_rewrite_prompt(original_question: str, current_notes: str, gaps: List[str]) -> str:
+    """Build the prompt for auto-rewriting a low-confidence sub-question.
+
+    Instructs the model to produce a single, semantically divergent search
+    question that targets the identified gaps. Enforces meaningful deviation
+    from the original phrasing to avoid burning search iterations on the same
+    barren query space.
+
+    Args:
+        original_question: The current sub-question text.
+        current_notes: Compiled notes collected so far for this sub-question.
+        gaps: List of identified knowledge gaps from the evaluate step.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    gaps_text = "\n".join(f"- {g}" for g in gaps) if gaps else "- No specific gaps identified."
+
+    notes_block = (
+        f"### Existing Research Notes:\n{current_notes}\n"
+        if current_notes.strip()
+        else "### Existing Research Notes:\n*(No substantial evidence collected)*\n"
+    )
+
+    return (
+        f"The following research sub-question yielded LOW CONFIDENCE results after searching:\n\n"
+        f"Original Sub-Question: \"{original_question}\"\n\n"
+        f"{notes_block}\n"
+        f"### Identified Knowledge Gaps:\n{gaps_text}\n\n"
+        "TASK:\n"
+        "Rewrite this sub-question into a single, more targeted search question that directly "
+        "addresses the identified gaps.\n\n"
+        "CRITICAL RULES:\n"
+        "1. You MUST NOT repeat the same phrasing as the original sub-question. The original "
+        "query already failed to find adequate results — repeating it will fail again.\n"
+        "2. Perform a SEMANTIC PIVOT: change the angle of approach. Use alternative terminology, "
+        "synonyms, adjacent concepts, or narrow the scope to a specific aspect mentioned in the gaps.\n"
+        "3. If the gaps suggest the search space is barren (no sources found at all), try reframing "
+        "the question using different technical vocabulary or targeting a closely related concept "
+        "that would indirectly answer the original question.\n"
+        "4. The rewritten question must be a single, concise, web-searchable question.\n\n"
+        "Output ONLY the rewritten question on a single line. No explanation, no numbering, "
+        "no meta-commentary, no quotes."
+    )
+
+
+def build_post_synthesis_triage_prompt(
+    gap_analysis_text: str,
+    low_confidence_sqs: List[Dict[str, Any]]
+) -> str:
+    """Build the prompt for post-synthesis sub-question triage.
+
+    Instructs the model to decide, per low-confidence sub-question, whether to
+    REMOVE it (dead end) or SPLIT it into more targeted child sub-questions.
+
+    Args:
+        gap_analysis_text: The limitations/gaps section extracted from the report.
+        low_confidence_sqs: List of dicts with keys 'id', 'question', 'confidence',
+                            and 'notes_summary'.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    sq_entries = ""
+    for sq in low_confidence_sqs:
+        sq_entries += (
+            f"- ID: {sq['id']}\n"
+            f"  Question: \"{sq['question']}\"\n"
+            f"  Confidence: {sq['confidence']}%\n"
+            f"  Notes Summary: {sq.get('notes_summary', '(no notes)')}\n\n"
+        )
+
+    return (
+        "A research report has been synthesized, but some sub-questions still have low confidence. "
+        "The report identifies the following gaps and limitations:\n\n"
+        f"### Report Gap Analysis:\n{gap_analysis_text}\n\n"
+        "### Low-Confidence Sub-Questions:\n"
+        f"{sq_entries}\n"
+        "TASK:\n"
+        "For each low-confidence sub-question, decide ONE of two actions:\n\n"
+        "1. **REMOVE** — The sub-question is a dead end. Use this when:\n"
+        "   - No credible sources exist for the topic\n"
+        "   - The sub-question is unfulfillable (too niche, no public data)\n"
+        "   - The confidence is near zero and further searching would be futile\n"
+        "   - Provide a brief reason explaining why it should be removed.\n\n"
+        "2. **SPLIT** — The sub-question was too broad and needs to be decomposed. Use this when:\n"
+        "   - The gap analysis reveals the question needs OS-specific, language-specific, "
+        "or domain-specific variants\n"
+        "   - A more targeted set of 2-3 child questions would succeed where the broad one failed\n"
+        "   - Provide 2-3 specific, searchable child questions that narrow the scope.\n\n"
+        "Output ONLY a valid JSON array. Do not wrap in markdown code fences. "
+        "Do not include any introductory or concluding text.\n\n"
+        "Expected Format:\n"
+        "[\n"
+        "  {\n"
+        '    "sq_id": "sq_01",\n'
+        '    "action": "remove",\n'
+        '    "reason": "No credible sources exist for this highly niche subtopic."\n'
+        "  },\n"
+        "  {\n"
+        '    "sq_id": "sq_03",\n'
+        '    "action": "split",\n'
+        '    "reason": "Question was too broad.",\n'
+        '    "children": [\n'
+        '      "Specific child question 1",\n'
+        '      "Specific child question 2"\n'
+        "    ]\n"
+        "  }\n"
+        "]"
+    )

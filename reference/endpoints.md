@@ -142,9 +142,18 @@ Endpoints driving the background research engine and the interactive developer d
 * **UI behaviour**: Renders as an amber **▶ Start Now** button on `queued` and `paused` cards, alongside the Cancel button (and Resume for paused). Absent from active, done, error, or cancelled cards.
 
 ### `POST /research/guide/{task_id}`
-* **Purpose**: Inject user-defined guidance into a stalled research task that exhausted its search depth without meeting confidence thresholds.
+* **Purpose**: Inject generic user-defined guidance into a stalled research task that exhausted its search depth without meeting confidence thresholds.
 * **Payload**: `GuideRequest` JSON: `{"guidance": "string"}`
 * **Action**: Injects the guidance string into the task's gaps file, resets the search depth, sets status to `pending`, and immediately resumes the task subprocess so it can retry the active sub-question with the new hints.
+
+### `POST /research/guide/{task_id}/rewrite`
+* **Purpose**: Submit an explicit, manual rewrite for a single low-confidence sub-question.
+* **Payload**: `SQRewriteRequest` JSON: `{"sq_id": "string", "new_question": "string"}`
+* **Action**: Updates the sub-question text in state, clears its gaps, resets its depth to `0`, and sets it to `pending`. Does NOT resume the background process.
+
+### `POST /research/guide/{task_id}/finalize`
+* **Purpose**: Signal that all manual sub-question rewrites are complete.
+* **Action**: Finds the first pending sub-question, sets it as the active index, and resumes the background research subprocess to execute the new queries.
 
 ### `POST /research/delete/{task_id}`
 * **Purpose**: Permanently destroy a research task and all its disk/memory artifacts.
