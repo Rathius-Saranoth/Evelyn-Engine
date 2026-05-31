@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-05-25 20:58:46
+date modified: 2026-05-30 20:37:22
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -112,9 +112,9 @@ Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Va
 
 ### 2.4 Deep Research Subsystem
 Enables fully autonomous, multi-step search and information synthesis in the background when the server is idle.
-* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), and cross-task Chroma querying leveraging a virtual memory cache.
+* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), and cross-task Chroma querying leveraging a virtual memory cache.
 * **[[web_reader.py]]**: Dynamic web scraper. Features Trafilatura integration, SSL bypasses, timeouts, and adaptive chunking for heavy documents.
-* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, extraction, and synthesis.
+* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, extraction, evaluation rewrites, and synthesis.
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.

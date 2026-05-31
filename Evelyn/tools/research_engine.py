@@ -52,6 +52,16 @@ import evelyn_tools # [[evelyn_tools.py]]
 VIRTUAL_SOURCES: Dict[str, str] = {}
 
 
+def parse_json_response(raw_response: str) -> Any:
+    """Parse JSON from an LLM response, stripping markdown code fences if present."""
+    cleaned = raw_response.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("\n", 1)[0]
+    cleaned = cleaned.strip()
+    return json.loads(cleaned)
+
 
 def get_task_dir(task_id: str) -> str:
     """Return the absolute path to a task's workspace directory.
@@ -462,7 +472,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     gaps_file = os.path.join(get_task_dir(task_id), f"{sq['id']}_gaps.json")
     search_query = sq["question"]
     
-    if os.path.exists(gaps_file) and state["search_depth"] > 0:
+    if os.path.exists(gaps_file):
         try:
             with open(gaps_file, "r", encoding="utf-8") as f:
                 gaps_data = json.load(f)
@@ -697,16 +707,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     
     # Parse evaluate output (must be valid JSON)
     try:
-        # Clean potential markdown wrapping out of the JSON response
-        cleaned_json = raw_response.strip()
-        if cleaned_json.startswith("```"):
-            # Strip first line
-            cleaned_json = cleaned_json.split("\n", 1)[1]
-            if cleaned_json.endswith("```"):
-                cleaned_json = cleaned_json.rsplit("\n", 1)[0]
-        cleaned_json = cleaned_json.strip()
-        
-        evaluation = json.loads(cleaned_json)
+        evaluation = parse_json_response(raw_response)
         confidence = int(evaluation.get("confidence", 0))
         gaps = evaluation.get("gaps", [])
     except Exception as e:
@@ -758,6 +759,36 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     else:
         # Loop again!
         print(f"[RESEARCH_ENGINE] SQ {sq['id']} requires further search. Running iteration {state['search_depth'] + 2}.", flush=True)
+        
+        # Auto-Rewrite Logic
+        notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
+        current_notes = ""
+        if os.path.exists(notes_file):
+            with open(notes_file, "r", encoding="utf-8") as f:
+                current_notes = f.read()
+                
+        rewrite_prompt = research_prompts.build_rewrite_prompt(sq["question"], current_notes, gaps)
+        rewrite_messages = [
+            {"role": "system", "content": research_prompts.get_system_prompt()},
+            {"role": "user", "content": rewrite_prompt}
+        ]
+        state["ollama_calls"] += 1
+        print(f"[RESEARCH_ENGINE] Auto-rewriting SQ {sq['id']} due to low confidence ({confidence}%)...", flush=True)
+        rewritten_q = await call_ollama(rewrite_messages, num_predict=512)
+        rewritten_q = rewritten_q.strip()
+        
+        # Semantic divergence check: prevent verbatim echoing
+        if rewritten_q.lower() == sq["question"].lower() or not rewritten_q:
+            print(f"[RESEARCH_ENGINE WARNING] Auto-rewrite returned identical/empty question. Keeping original.", flush=True)
+        else:
+            print(f"[RESEARCH_ENGINE] Rewrote SQ to: '{rewritten_q}'", flush=True)
+            sq["original_question"] = sq.get("original_question", sq["question"])
+            sq["question"] = rewritten_q
+            # Clear gaps file since the rewrite absorbs them
+            if os.path.exists(gaps_file):
+                os.remove(gaps_file)
+                sq["gaps"] = []
+
         state["current_step"] = "search"
         state["search_depth"] += 1
         
@@ -830,6 +861,96 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     state["confidence"] = parsed_confidence
     state["current_step"] = "done"
     state["status"] = "done"
+    
+    # --- Post-Synthesis Triage Logic ---
+    state["synthesis_iterations"] = state.get("synthesis_iterations", 0) + 1
+    max_synthesis_iters = getattr(cfg, "MAX_SYNTHESIS_ITERATIONS", 3)
+    
+    # Identify low-confidence sub-questions that haven't been removed/split
+    low_conf_sqs = []
+    for sq in state["plan"]["sub_questions"]:
+        if sq.get("confidence", 100) < state["confidence_threshold"] and sq.get("status") not in ("removed", "split"):
+            # Provide a short notes summary
+            notes_text = all_notes.get(sq["question"], "")
+            notes_summary = notes_text[:300] + "..." if len(notes_text) > 300 else notes_text
+            sq_copy = dict(sq)
+            sq_copy["notes_summary"] = notes_summary
+            low_conf_sqs.append(sq_copy)
+            
+    if low_conf_sqs and state["synthesis_iterations"] <= max_synthesis_iters:
+        print(f"[RESEARCH_ENGINE] Post-synthesis triage: found {len(low_conf_sqs)} low-confidence SQs. Triage iteration {state['synthesis_iterations']}/{max_synthesis_iters}.", flush=True)
+        
+        # Extract limitations/gaps section from report
+        gap_analysis_text = "No gap analysis found."
+        match = re.search(r"(?i)(###\s*(?:Limitations|Gaps|Remaining Questions|Areas of Uncertainty).*?)(?=^#|\Z)", final_report, re.MULTILINE | re.DOTALL)
+        if match:
+            gap_analysis_text = match.group(1).strip()
+            
+        triage_prompt = research_prompts.build_post_synthesis_triage_prompt(gap_analysis_text, low_conf_sqs)
+        triage_messages = [
+            {"role": "system", "content": research_prompts.get_system_prompt()},
+            {"role": "user", "content": triage_prompt}
+        ]
+        
+        state["ollama_calls"] += 1
+        raw_triage_response = await call_ollama(triage_messages, num_predict=1024)
+        
+        try:
+            triage_decisions = parse_json_response(raw_triage_response)
+            if not isinstance(triage_decisions, list):
+                raise ValueError("Triage response is not a list")
+                
+            new_children_added = False
+            for decision in triage_decisions:
+                sq_id = decision.get("sq_id")
+                action = decision.get("action", "").lower()
+                reason = decision.get("reason", "")
+                
+                target_sq = next((s for s in state["plan"]["sub_questions"] if s["id"] == sq_id), None)
+                if not target_sq:
+                    continue
+                    
+                if action == "remove":
+                    print(f"[RESEARCH_ENGINE] Triage REMOVE: {sq_id}. Reason: {reason}", flush=True)
+                    target_sq["status"] = "removed"
+                    target_sq["removed_reason"] = reason
+                elif action == "split":
+                    children = decision.get("children", [])
+                    print(f"[RESEARCH_ENGINE] Triage SPLIT: {sq_id} into {len(children)} children. Reason: {reason}", flush=True)
+                    target_sq["status"] = "split"
+                    target_sq["split_reason"] = reason
+                    
+                    for i, child_q in enumerate(children):
+                        new_sq = {
+                            "id": f"{sq_id}_c{i+1}",
+                            "parent_sq_id": sq_id,
+                            "question": child_q,
+                            "status": "pending",
+                            "source_count": 0,
+                            "confidence": 0,
+                            "search_depth": 0
+                        }
+                        state["plan"]["sub_questions"].append(new_sq)
+                        new_children_added = True
+                        
+            if new_children_added:
+                for idx, s in enumerate(state["plan"]["sub_questions"]):
+                    if s["status"] == "pending":
+                        state["current_sq_idx"] = idx
+                        break
+                state["current_step"] = "search"
+                state["status"] = "searching"
+                print("[RESEARCH_ENGINE] Triage added new child questions. Resuming search loop.", flush=True)
+                save_state(task_id, state)
+                return  # Exit step_synthesize, task continues!
+                
+        except Exception as e:
+            print(f"[RESEARCH_ENGINE WARNING] Failed to parse triage JSON: {e}. Output was: '{raw_triage_response}'", flush=True)
+            print("[RESEARCH_ENGINE] Falling through to quarantine/done logic.", flush=True)
+
+    elif low_conf_sqs:
+        print(f"[RESEARCH_ENGINE] Max synthesis iterations reached ({state['synthesis_iterations']}). Falling through.", flush=True)
+    # --- End Triage Logic ---
     
     # Copy file to Obsidian Vault (quarantine if confidence < 60%)
     if state["confidence"] >= 60:
