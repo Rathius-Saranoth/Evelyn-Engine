@@ -2088,12 +2088,34 @@ async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
 class GuideRequest(BaseModel):
     guidance: str
 
+class SQRewriteRequest(BaseModel):
+    sq_id: str
+    new_question: str
+
+class FinalizeGuidanceRequest(BaseModel):
+    pass
+
 @app.post("/research/guide/{task_id}")
 async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depends(check_auth)):
     """Inject guidance into a struggling research task and resume it."""
     _demote_running_task_if_any(task_id)
     from evelyn_tools import guide_research
     result = guide_research(task_id, request.guidance)
+    return {"message": result}
+
+@app.post("/research/guide/{task_id}/rewrite")
+async def api_guide_research_rewrite(task_id: str, request: SQRewriteRequest, _: None = Depends(check_auth)):
+    """Submit a single sub-question rewrite (does not resume the task)."""
+    from evelyn_tools import rewrite_sub_question
+    result = rewrite_sub_question(task_id, request.sq_id, request.new_question)
+    return {"message": result}
+
+@app.post("/research/guide/{task_id}/finalize")
+async def api_guide_research_finalize(task_id: str, _: None = Depends(check_auth)):
+    """Finalize manual guidance edits and resume the task."""
+    _demote_running_task_if_any(task_id)
+    from evelyn_tools import finalize_guidance
+    result = finalize_guidance(task_id)
     return {"message": result}
 
 

@@ -650,6 +650,96 @@ def guide_research(task_id: str, guidance: str) -> str:
         return f"Failed to guide research task: {e}"
 
 
+def rewrite_sub_question(task_id: str, sq_id: str, new_question: str) -> str:
+    """Manually rewrite a single sub-question without resuming the task."""
+    import os
+    import evelyn_config as cfg
+    _reload()
+    try:
+        from research_engine import load_state, save_state
+        state = load_state(task_id)
+        if not state:
+            return f"Research task {task_id} not found."
+            
+        sqs = state.get("plan", {}).get("sub_questions", [])
+        target_sq = next((s for s in sqs if s["id"] == sq_id), None)
+        
+        if not target_sq:
+            return f"Sub-question {sq_id} not found in task {task_id}."
+            
+        # Stop task if running
+        if state.get("status") in ("running", "searching", "synthesizing"):
+            import sys
+            import time
+            server = sys.modules.get("evelyn_server")
+            if not server:
+                server = sys.modules.get("__main__")
+                if not hasattr(server, "terminate_research_process"):
+                    server = None
+            if server:
+                term_func = getattr(server, "terminate_research_process", None)
+                if term_func:
+                    term_func(task_id)
+            time.sleep(0.5)
+
+        target_sq["original_question"] = target_sq.get("original_question", target_sq["question"])
+        target_sq["question"] = new_question
+        target_sq["status"] = "pending"
+        target_sq["search_depth"] = 0
+        
+        # Clear gaps
+        task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
+        gaps_file = os.path.join(task_dir, f"{sq_id}_gaps.json")
+        if os.path.exists(gaps_file):
+            os.remove(gaps_file)
+            
+        target_sq["gaps"] = []
+        
+        save_state(task_id, state, ignore_disk_status=True)
+        return f"Successfully rewrote sub-question {sq_id}."
+    except Exception as e:
+        return f"Failed to rewrite sub-question: {e}"
+
+
+def finalize_guidance(task_id: str) -> str:
+    """Signal that all manual edits are complete and resume the task."""
+    _reload()
+    try:
+        from research_engine import load_state, save_state
+        state = load_state(task_id)
+        if not state:
+            return f"Research task {task_id} not found."
+            
+        sqs = state.get("plan", {}).get("sub_questions", [])
+        
+        # Find first pending or struggling SQ
+        idx = 0
+        for i, s in enumerate(sqs):
+            if s["status"] in ("pending", "needs_guidance"):
+                idx = i
+                break
+                
+        state["current_sq_idx"] = idx
+        state["current_step"] = "search"
+        state["struggling"] = False
+        state["status"] = "pending"
+        
+        if "termination_reason" in state:
+            state["termination_reason"] = None
+        if "quarantined" in state:
+            state["quarantined"] = False
+        if "error" in state:
+            state["error"] = None
+            
+        save_state(task_id, state, ignore_disk_status=True)
+        
+        from evelyn_tools import resume_research_task
+        result = resume_research_task(task_id)
+        return f"Guidance finalized. {result}"
+    except Exception as e:
+        return f"Failed to finalize guidance: {e}"
+
+
 def check_new_research(**kwargs) -> str:
     """Check for newly completed deep research tasks and return their summaries."""
     import os

@@ -197,18 +197,17 @@
 
   <!-- Modal for Guidance -->
   <div class="modal" id="guidance-modal">
-    <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-content" style="max-width: 800px;">
       <div class="modal-header">
-        <span class="modal-title">Provide Research Guidance</span>
+        <span class="modal-title">Sub-Question Refinement</span>
         <button class="close-btn" onclick="closeGuidanceModal()">&times;</button>
       </div>
-      <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
-        <p style="color: var(--text-dim); font-size: 14px; margin: 0;">This task is struggling to find relevant information. Provide specific search terms, hints, or instructions to redirect the research.</p>
-        <textarea id="guidance-input" rows="4" style="width: 100%; background: var(--bg-hover); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: inherit; resize: vertical;" placeholder="e.g. Try searching for 'X protocol' instead of 'Y standard', or focus on recent 2024 developments..."></textarea>
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 5px;">
-          <button class="btn btn-reject" onclick="closeGuidanceModal()">Cancel</button>
-          <button class="btn btn-action" id="guidance-submit-btn">Submit Guidance</button>
-        </div>
+      <div class="modal-body" id="guidance-sq-container" style="display: flex; flex-direction: column; gap: 15px;">
+        <!-- SQs dynamically injected here -->
+      </div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-reject" onclick="closeGuidanceModal()">Cancel</button>
+        <button class="btn btn-action" id="guidance-finalize-btn" style="max-width: 250px;">Finalize & Resume Task</button>
       </div>
     </div>
   </div>
@@ -467,37 +466,123 @@
     
     function openGuidanceModal(taskId) {
       currentGuidanceTaskId = taskId;
-      document.getElementById('guidance-input').value = '';
+      const task = researchTasks.find(t => t.task_id === taskId);
+      if (!task || !task.plan || !task.plan.sub_questions) return;
+      
+      const container = document.getElementById('guidance-sq-container');
+      container.innerHTML = '';
+      
+      task.plan.sub_questions.forEach(sq => {
+        let badgeColor = '#6b7280';
+        if (sq.confidence >= 80) badgeColor = 'var(--success)';
+        else if (sq.confidence > 0 || sq.status === 'needs_guidance') badgeColor = 'var(--warning)';
+        else if (sq.status === 'removed') badgeColor = 'var(--danger)';
+        else if (sq.status === 'split') badgeColor = 'var(--accent)';
+        
+        let gapsHtml = '';
+        if (sq.gaps && sq.gaps.length > 0) {
+          gapsHtml = `<div style="font-size: 13px; color: var(--danger); margin-top: 6px;"><strong>Identified Gaps:</strong><ul style="margin: 4px 0 0 20px;">${sq.gaps.map(g => `<li>${escapeHtml(g)}</li>`).join('')}</ul></div>`;
+        }
+        
+        let reasonHtml = '';
+        if (sq.removed_reason) {
+          reasonHtml = `<div style="font-size: 13px; color: var(--danger); margin-top: 6px;"><strong>Removed Reason:</strong> ${escapeHtml(sq.removed_reason)}</div>`;
+        } else if (sq.split_reason) {
+          reasonHtml = `<div style="font-size: 13px; color: var(--accent); margin-top: 6px;"><strong>Split Reason:</strong> ${escapeHtml(sq.split_reason)}</div>`;
+        }
+        
+        container.innerHTML += `
+          <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim);">
+              <span class="badge" style="background: ${badgeColor}; color: #fff;">${escapeHtml((sq.status || 'pending').toUpperCase())} (${sq.confidence || 0}%)</span>
+              <span>Depth: ${sq.search_depth || 0} | Sources: ${sq.source_count || 0}</span>
+            </div>
+            <textarea id="sq-edit-${sq.id}" rows="2" style="width: 100%; background: var(--bg); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: inherit; resize: vertical;" oninput="document.getElementById('sq-save-${sq.id}').disabled = (this.value.trim() === this.dataset.original)">${escapeHtml(sq.question)}</textarea>
+            ${gapsHtml}
+            ${reasonHtml}
+            <div style="display: flex; justify-content: flex-end;">
+              <button id="sq-save-${sq.id}" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; max-width: 120px;" disabled onclick="saveSqRewrite('${taskId}', '${sq.id}')">Save Rewrite</button>
+            </div>
+          </div>
+        `;
+        // set original dataset after injection
+        setTimeout(() => {
+          const ta = document.getElementById(`sq-edit-${sq.id}`);
+          if(ta) ta.dataset.original = sq.question;
+        }, 10);
+      });
+      
       document.getElementById('guidance-modal').style.display = 'flex';
       
-      const submitBtn = document.getElementById('guidance-submit-btn');
-      submitBtn.onclick = async () => {
-        const guidance = document.getElementById('guidance-input').value.trim();
-        if (!guidance) return;
-        
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Submitting...';
-        
+      const finalizeBtn = document.getElementById('guidance-finalize-btn');
+      finalizeBtn.onclick = async () => {
+        finalizeBtn.disabled = true;
+        finalizeBtn.textContent = 'Finalizing...';
         try {
-          const res = await fetch(`${API_BASE}/research/guide/${currentGuidanceTaskId}`, {
-            method: 'POST',
-            headers: headers(),
-            body: JSON.stringify({ guidance })
-          });
-          
+          const res = await fetch(`${API_BASE}/research/guide/${currentGuidanceTaskId}/finalize`, { method: 'POST', headers: headers() });
           if (res.ok) {
             closeGuidanceModal();
             loadData();
           } else {
-            alert('Failed to submit guidance.');
+            alert('Failed to finalize guidance.');
           }
         } catch (e) {
-          alert('Network error submitting guidance.');
+          alert('Network error finalizing guidance.');
         } finally {
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit Guidance';
+          finalizeBtn.disabled = false;
+          finalizeBtn.textContent = 'Finalize & Resume Task';
         }
       };
+    }
+    
+    async function saveSqRewrite(taskId, sqId) {
+      const ta = document.getElementById(`sq-edit-${sqId}`);
+      const btn = document.getElementById(`sq-save-${sqId}`);
+      const newQuestion = ta.value.trim();
+      if (!newQuestion || newQuestion === ta.dataset.original) return;
+      
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      
+      try {
+        const res = await fetch(`${API_BASE}/research/guide/${taskId}/rewrite`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ sq_id: sqId, new_question: newQuestion })
+        });
+        if (res.ok) {
+          ta.dataset.original = newQuestion;
+          btn.textContent = 'Saved!';
+          btn.style.background = 'var(--success)';
+          btn.style.color = '#000';
+          setTimeout(() => {
+            btn.textContent = 'Save Rewrite';
+            btn.style.background = 'var(--surface2)';
+            btn.style.color = 'var(--text)';
+            btn.disabled = true;
+          }, 2000);
+          
+          // Also update the local state to reflect it so refreshing doesn't overwrite immediately
+          const task = researchTasks.find(t => t.task_id === taskId);
+          if (task) {
+             const sq = task.plan.sub_questions.find(s => s.id === sqId);
+             if (sq) {
+                 sq.question = newQuestion;
+                 sq.status = "pending";
+                 sq.search_depth = 0;
+                 sq.gaps = [];
+             }
+          }
+        } else {
+          alert('Failed to save rewrite.');
+          btn.disabled = false;
+          btn.textContent = 'Save Rewrite';
+        }
+      } catch (e) {
+        alert('Network error saving rewrite.');
+        btn.disabled = false;
+        btn.textContent = 'Save Rewrite';
+      }
     }
     
     function closeGuidanceModal() {
