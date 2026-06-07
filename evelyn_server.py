@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-05-29 15:25:47
+# date modified: 2026-06-06 19:36:45
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1364,6 +1364,7 @@ async def status(_: None = Depends(check_auth)):
         "model": cfg.MODEL_NAME,
         "think": cfg.THINK,
         "debug": cfg.DEBUG_LOGGING,
+        "num_ctx": cfg.NUM_CTX,
     }
 
 
@@ -1414,7 +1415,7 @@ async def get_history(
     if before:
         rows = con.execute(
             """
-            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count, mm.eval_count
             FROM messages m
             LEFT JOIN message_metrics mm ON m.id = mm.message_id
             WHERE m.id < ? AND m.content != ''
@@ -1425,7 +1426,7 @@ async def get_history(
     else:
         rows = con.execute(
             """
-            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count, mm.eval_count
             FROM messages m
             LEFT JOIN message_metrics mm ON m.id = mm.message_id
             WHERE m.content != ''
