@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-05-28 16:02:23
+date modified: 2026-06-06 19:37:34
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -15,7 +15,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `GET /status`
 * **Purpose**: Performs a quick health check on the server runtime and connection statuses of downstream local services (Ollama, TTS server, Image server).
-* **Returns**: JSON object showing service statuses.
+* **Returns**: JSON object showing service statuses, active model parameters, and the active context limit (`num_ctx`).
 
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.
@@ -34,7 +34,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `GET /history`
 * **Purpose**: Fetches saved chat logs from `evelyn_chat.db`.
-* **Limits**: Honors `MAX_HISTORY_MESSAGES = 30` config cap for model ingestion, but UI retrieves full scrollable history.
+* **Limits**: Honors `MAX_HISTORY_MESSAGES = 40` config cap for model ingestion, but UI retrieves full scrollable history (including prompt and response evaluation token counts for context telemetry).
 
 ### `DELETE /history`
 * **Purpose**: Wipes all conversation history rows from `evelyn_chat.db`.
