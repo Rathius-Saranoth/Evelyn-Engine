@@ -758,13 +758,21 @@ async function recoverFromConnectionDrop(wrap) {
   return false;
 }
 
-function updateTelemetry(tokens) {
+let maxContextTokens = 32768; // fallback default
+let lastTelemetryTokens = 0;
+let lastTelemetryEvalTokens = 0;
+
+function updateTelemetry(promptTokens, evalTokens = 0) {
+  lastTelemetryTokens = promptTokens;
+  lastTelemetryEvalTokens = evalTokens;
   const el = document.getElementById('telemetry');
   if (!el) return;
-  const max = 16384; // 16k context window
-  el.textContent = `Context: ${(tokens / 1000).toFixed(1)}k / 16k`;
-  if (tokens > max * 0.9) el.style.color = '#e86040'; // Red
-  else if (tokens > max * 0.75) el.style.color = '#e8b040'; // Amber
+  const totalTokens = promptTokens + evalTokens;
+  const max = maxContextTokens;
+  const limitLabel = max >= 1024 ? `${Math.round(max / 1024)}k` : `${max}`;
+  el.textContent = `Context: ${(totalTokens / 1000).toFixed(1)}k / ${limitLabel}`;
+  if (totalTokens > max * 0.9) el.style.color = '#e86040'; // Red
+  else if (totalTokens > max * 0.75) el.style.color = '#e8b040'; // Amber
   else el.style.color = 'var(--text-dim)'; // Normal
 }
 
@@ -919,7 +927,7 @@ async function sendMessage() {
         }
 
         if (evt.type === 'metrics') {
-          updateTelemetry(evt.prompt_eval_count);
+          updateTelemetry(evt.prompt_eval_count, evt.eval_count);
         }
 
         if (evt.type === 'done') {
@@ -1055,14 +1063,16 @@ async function loadHistory() {
     }
     scrollBottom();
     // Hydrate telemetry from the most recent assistant message
-    let latestTokens = 0;
+    let latestPromptTokens = 0;
+    let latestEvalTokens = 0;
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].prompt_eval_count) {
-        latestTokens = msgs[i].prompt_eval_count;
+      if (msgs[i].prompt_eval_count !== undefined && msgs[i].prompt_eval_count !== null) {
+        latestPromptTokens = msgs[i].prompt_eval_count;
+        latestEvalTokens = msgs[i].eval_count || 0;
         break;
       }
     }
-    if (latestTokens > 0) updateTelemetry(latestTokens);
+    if (latestPromptTokens > 0) updateTelemetry(latestPromptTokens, latestEvalTokens);
 
     // Update visibility-recovery cursor from loaded messages
     if (msgs.length > 0) {
@@ -1286,6 +1296,10 @@ async function regenerateResponse(userMsgDiv) {
           bubble.appendChild(cursorEl);
           setStatus('Streaming…');
           scrollBottom();
+        }
+
+        if (evt.type === 'metrics') {
+          updateTelemetry(evt.prompt_eval_count, evt.eval_count);
         }
 
         if (evt.type === 'done') {
@@ -1567,6 +1581,24 @@ if (!API_KEY && window.location.hostname !== 'localhost' && window.location.host
 }
 
 // Init
+async function fetchStatus() {
+  try {
+    const resp = await fetch(`${API_BASE}/status`, { headers: headers() });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.num_ctx) {
+        maxContextTokens = data.num_ctx;
+        if (lastTelemetryTokens > 0) {
+          updateTelemetry(lastTelemetryTokens, lastTelemetryEvalTokens);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Could not fetch status:', e);
+  }
+}
+
+fetchStatus();
 loadHistory();
 
 async function updateDevUIBadge() {
