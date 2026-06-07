@@ -1,5 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
+# date modified: 2026-06-01 21:48:28
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -138,7 +139,7 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
     """Initialize a brand-new research task and persist its base state.
 
     Args:
-        query: The main search query or research topic.
+        query: The main search query or research topic, be specific.
         scope: Scope of the research ('quick', 'standard', 'deep').
         triggered_by: Identifies the initiator ('user', 'idle', 'evelyn').
         initial_status: The initial status of the task ('pending' or 'running').
@@ -1179,15 +1180,15 @@ async def self_initiate_research_topics() -> None:
 {history_text}
 
 Identify 1 to 3 interesting, factual, or technical topics or open questions mentioned or implied in this chat that would be highly beneficial to research in-depth (e.g. detailed benchmarks, technology explanations, historical events, scientific developments, or project concepts).
-Do NOT include extremely broad topics, personal plans, or vague ideas. Focus on concrete, searchable questions.
+Do NOT include extremely broad topics, personal plans, or vague ideas. Focus on concrete, searchable questions. Keep each query to one topic.
 
 Output ONLY a YAML block in this exact format:
 
 ```yaml
 topics:
-  - query: "highly specific research question 1"
+  - query: "research question 1"
     scope: "standard"
-  - query: "highly specific research question 2"
+  - query: "research question 2"
     scope: "deep"
 ```
 If no topics are worth researching, output an empty list. Output nothing else but the YAML block."""
