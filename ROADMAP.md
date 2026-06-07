@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-05-29 15:27:20
+date modified: 2026-06-06 19:18:46
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -77,6 +77,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **NUM_CTX Uplift**: Confirmed GPU is **RTX 4070 (12 GB VRAM)**. Magistral 24B at Q4_K_M ≈ 13.5 GB model weights \u2014 already CPU-offloads some layers. Current `NUM_CTX = 16384` is the correct ceiling for this hardware. Raising it would risk OOM or severe latency. **Resolution: keep 16384.** See `reference/system/system_specs.md` for full analysis.
 - [x] **Model Testing**: Evaluated aia/Dolphin3.0-Mistral-24B and CognitiveComputations/dolphin-mistral-nemo against mistral-small3.1. **Result: mistral-small3.1 retained.** Nemo was too fantastical/non-grounded; Dolphin 24B had no memory anchoring and hallucinated. Small uses vault retrieval correctly and now actively calls the context update tool.
 - [x] **Gemma 4 26B Evaluation** *(started 2026-04-07, 1-week trial)*: Switched active model from `magistral:24b` to `gemma4:26b` (MoE, 26.8B total / 3.8B active). Required Ollama upgrade from 0.18.2 → 0.20.3. Initial findings: 47% GPU / 53% CPU split (slight improvement over Magistral's ~40/60), noticeably faster token streaming due to MoE sparse activation, tool calling confirmed working (journal write on first test). `magistral:24b` kept as commented-out fallback in `evelyn_config.py`. **Promote to permanent if no regressions by ~2026-04-14.**
+- [x] **Gemma 4 12B Migration & Environment Optimization**: Switched primary model from `gemma4:26b` (MoE) to `gemma4:12b` (Dense, QAT). Updated Ollama to `v0.30.6` to support the model manifest, moved model execution to 100% GPU, expanded context window to 32K (`NUM_CTX = 32768`), increased history length to 40 messages, and adjusted RAG bounds to 8 chunks. Verified prompt prefill at **516 tok/sec** (~5.2x speedup) and generation at **49.90 tok/sec** (~2.4x speedup). (Completed 2026-06-06)
 - [x] **Entity Resolution**: Investigate Schyler entity mismatch — model matched `Schyler Sekulich` (vault file) but tried to update `Schyler (persona)` (different entry). Review [[context_manager.py]] entity lookup logic.
 - [x] **Message History Cap**: `load_history()` was sending every message ever stored to Ollama with no limit. Added `MAX_HISTORY_MESSAGES = 30` (15 turns) config cap. Only the most recent messages are sent to the model; all messages remain in the DB and `/history` UI endpoint.
 - [x] **Thread Break System**: Added `[THREAD_BREAK]` marker row and `POST /new_thread` endpoint. "✦ New Thread" button in the UI inserts a boundary — `load_history()` only returns messages after the latest break. Visual `── new thread ──` divider renders in chat history. Gives Evelyn a clean conversational slate without losing any stored messages.

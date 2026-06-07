@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-05-25 20:32:00
+# date modified: 2026-06-06 19:06:25
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -14,8 +14,8 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 # Model
 # =============================================================================
 OLLAMA_URL = "http://localhost:11434"
-MODEL_NAME = "gemma4:26b"
-NUM_CTX = 16384
+MODEL_NAME = "gemma4:12b"
+NUM_CTX = 32768
 THINK = True  # Pass think:true to Ollama for native reasoning tokens
 
 # =============================================================================
@@ -26,7 +26,8 @@ THINK = True  # Pass think:true to Ollama for native reasoning tokens
 
 # Temperature — controls randomness. Lower = more deterministic.
 # Range: 0.0–2.0  |  Ollama default: 0.8 | Tested: 1.1 (too random) | Tested: 0.9 (very cheerleader)
-TEMPERATURE = 0.8
+# Recommended Gemma 4 default: 1.0 (Old value: 0.8)
+TEMPERATURE = 1.0
 
 # Min-P — minimum probability relative to the top token. Trims the long tail
 # of unlikely tokens cheaply, which noticeably speeds up generation.
@@ -34,12 +35,14 @@ TEMPERATURE = 0.8
 MIN_P = 0.05
 
 # Top-K — limits the pool to the K most likely tokens. 0 = disabled.
+# Recommended Gemma 4 default: 64 (Old value: 40)
 # Range: 0–∞      |  Ollama default: 40
-TOP_K = 40
+TOP_K = 64
 
 # Top-P (nucleus sampling) — cumulative probability cutoff.
+# Recommended Gemma 4 default: 0.95 (Old value: 0.9)
 # Range: 0.0–1.0  |  Ollama default: 0.9
-TOP_P = 0.9
+TOP_P = 0.95
 
 # Repeat penalty — discourages repeating tokens that appeared recently.
 # Values > 1.0 penalize repeats; 1.0 = disabled.
@@ -57,7 +60,7 @@ SEED = 0
 
 # Num predict — maximum tokens to generate. -1 = unlimited, -2 = fill context.
 # Range: -2–∞       |  Ollama default: -1
-NUM_PREDICT = -1
+NUM_PREDICT = None
 
 # Stop sequences — generation halts immediately when any of these strings are
 # produced. Primarily added to prevent the model from looping inside its own
@@ -72,7 +75,8 @@ STOP_SEQUENCES = ["(Send).", "(Final).", "(Done).", "*Perfect."]
 # history.  15 turns × 2 = 30 messages.  All messages remain in the DB and
 # are still returned by the /history UI endpoint — this only caps what Ollama
 # sees.  A "thread break" marker further narrows this to the current thread.
-MAX_HISTORY_MESSAGES = 20
+# Expanded to 40 for Gemma 4 12B's 32K context (Old value: 20)
+MAX_HISTORY_MESSAGES = 40
 
 # Maximum agentic tool-dispatch rounds per turn.
 # Each round: model is offered tools; if it calls one, results are fed back and
@@ -159,7 +163,8 @@ CATEGORY_NAMES: dict = {
 # =============================================================================
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full markdown files (journals, context)
 CHROMA_GISTS_COLLECTION = "evelyn_gists"  # LLM-generated gist summaries
-RAG_TOP_K = 5  # Number of chunks to retrieve per query
+# Increased to 8 for Gemma 4 12B's 32K context (Old value: 5)
+RAG_TOP_K = 8  # Number of chunks to retrieve per query
 
 # Cosine distance threshold for RAG injection (0.0 = identical, 1.0 = unrelated).
 # Chunks with distance ABOVE this value are discarded before injection.
@@ -352,7 +357,7 @@ RESEARCH_MODEL_OVERRIDE = "default"
 # Allow Evelyn to self-initiate research during idle time.
 # When True, the idle-time loop can generate research topics from
 # recent conversations or vault gaps and queue them automatically.
-RESEARCH_SELF_INITIATE = True
+RESEARCH_SELF_INITIATE = False
 
 # Maximum queued self-initiated topics. Prevents runaway queue growth.
 RESEARCH_MAX_QUEUE_SIZE = 5

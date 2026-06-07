@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-05-28 15:03:58
+date modified: 2026-06-06 19:06:55
 tags: requirements, dependencies, system, hardware, environment
 ---
 
@@ -81,13 +81,13 @@ These are used extensively but ship with Python:
 | **What**     | Local LLM inference server                                                      |
 | **Version**  | ≥0.20.3 (tested: 0.23.1)                                                        |
 | **Install**  | https://ollama.com/download                                                     |
-| **Model**    | `gemma4:26b` (active), `magistral:24b` (fallback)                               |
+| **Model**    | `gemma4:12b` (active), `gemma4:26b` (supported), `magistral:24b` (fallback)      |
 | **Startup**  | `ollama serve`                                                                  |
 | **Env Vars** | `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0` |
 
 Pull the active model after installation:
 ```
-ollama pull gemma4:26b
+ollama pull gemma4:12b
 ```
 
 ### Tailscale (Optional — Remote Access)
@@ -135,8 +135,8 @@ ollama pull gemma4:26b
 | **CPU**     | 8 cores   | AMD Ryzen 7 7800X3D (8C/16T, 96 MB L3) |
 | **Storage** | SSD       | NVMe SSD for project + model weights   |
 
-The 26B parameter model (Q4_K_M quantization) uses ~13.5 GB and partially offloads to CPU RAM.
-`NUM_CTX=16384` is the confirmed ceiling for the 12 GB VRAM budget.
+The 12B parameter dense model (Q4_0 QAT quantization) uses ~7.6 GB and fits 100% in VRAM.
+`NUM_CTX=32768` is the active window (KV cache quantized to 8-bit using `OLLAMA_KV_CACHE_TYPE=q8_0` uses ~2.6 GB VRAM).
 
 ---
 
