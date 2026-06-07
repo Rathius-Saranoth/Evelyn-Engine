@@ -1,34 +1,25 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-25 21:00:26
+# date modified: 2026-06-07 10:19:00
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
 fact_extractor.py — Idle-time personal-fact extraction for Evelyn's memory system.
 
-Reads directly from the chat database (evelyn_chat.db) using a persistent
-high-water mark (last processed message ID). Only new messages since the last
-successful run are processed, guaranteeing zero duplicate extractions regardless
-of conversation length or server restarts (within a session).
+Reads new messages from evelyn_chat.db (WHERE id > high-water mark) and extracts
+durable personal facts via LLM call. Runs during server idle time to avoid competing
+with the chat loop.
 
-Runs as an idle-time background task (same pattern as fact_consolidator) so it
-never competes with the main chat loop for Ollama.
+Exports:
+  run_extraction()            — Idle-time entry point; called from the server loop.
+  cancel_pending_extraction() — Called on each new chat request to free Ollama.
+  write_extracted_facts()     — Write parsed facts to the SQLite memory DB.
+  load_cat00_index()          — Return the Cat00 category taxonomy (cached 1 h).
 
-Architecture:
-  - run_extraction()              — idle-time entry point (called from server loop)
-  - cancel_pending_extraction()   — cancels in-flight run on new chat request
-  - _fetch_new_messages()         — reads messages WHERE id > _last_extracted_id
-  - _do_extraction()              — calls Ollama, parses YAML, writes staging files
-  - write_extracted_facts()       — writes facts to the SQLite memory DB
-  - load_cat00_index()            — Cat00 taxonomy (cached 1h)
-
-High-water mark:
-  _last_extracted_id tracks the highest DB message ID already processed.
-  It is only advanced after a *successful* extraction so cancelled or failed
-  runs retry the same message window next idle period.
-
-All config is read from evelyn_config.py (single source of truth).
+Key config: evelyn_config.py (FACT_EXTRACTION_*, THINK, NUM_CTX)
+Architecture notes: reference/docstring_content/pipeline_internals.md
 """
+
 
 import asyncio
 import datetime
@@ -112,8 +103,8 @@ _STATE_FILE = os.path.join(
 def _load_extraction_state() -> int:
     """Load the persisted high-water mark from disk.
 
-    Falls back to cfg.FACT_EXTRACTION_START_ID (default 0) if the file
-    doesn't exist yet (first run) or is unreadable.
+    Returns:
+        int: The last processed message ID.
     """
     try:
         with open(_STATE_FILE, "r", encoding="utf-8") as f:
@@ -127,7 +118,11 @@ def _load_extraction_state() -> int:
 
 
 def _save_extraction_state(last_id: int) -> None:
-    """Persist the high-water mark to disk after a successful extraction run."""
+    """Persist the high-water mark to disk after a successful extraction run.
+
+    Args:
+        last_id: The last processed message ID.
+    """
     try:
         with open(_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump({"last_extracted_id": last_id}, f)
@@ -156,11 +151,10 @@ _extraction_task = None
 
 
 def _heavy_tasks_running() -> bool:
-    """Return True if any heavy server background task is running.
+    """Check if any heavy server background task is running.
 
-    Checks the _background_tasks dict in evelyn_server.py or __main__ module namespaces.
-    Any task with status="running" (excluding extractor itself) or active deep research
-    task will cause this to return True, preventing Ollama overload.
+    Returns:
+        bool: True if another heavy background task is active, False otherwise.
     """
     import sys
     for mod_name in ("evelyn_server", "__main__"):
@@ -180,7 +174,11 @@ def _heavy_tasks_running() -> bool:
 
 
 def _set_status_in_server(status: str | None) -> None:
-    """Register or clear extractor status in the server's central registry."""
+    """Register or clear extractor status in the server's central registry.
+
+    Args:
+        status: The status string to register (e.g., 'running'), or None to clear.
+    """
     import sys
     for mod_name in ("evelyn_server", "__main__"):
         mod = sys.modules.get(mod_name)
@@ -199,9 +197,7 @@ def _set_status_in_server(status: str | None) -> None:
 def cancel_pending_extraction():
     """Cancel any in-flight extraction task.
 
-    Called at the top of chat_stream() so Ollama is freed immediately when
-    the user sends a message. The high-water mark is NOT advanced on
-    cancellation, so those messages are retried next idle period.
+    Frees the Ollama instance immediately when a new user chat request is received.
     """
     global _extraction_task, _extracting
     if _extraction_task and not _extraction_task.done():
@@ -213,14 +209,9 @@ def cancel_pending_extraction():
 
 
 async def run_extraction():
-    """Idle-time entry point — called from the server's idle loop.
+    """Run the idle-time extraction process to find new facts in the chat history.
 
-    Reads new messages from the DB (WHERE id > _last_extracted_id), runs
-    the extraction LLM call, and writes staging files to EXTRACTED_DIR.
-    Skips if disabled, already running, within cooldown, or insufficient
-    new messages.
-
-    Only advances _last_extracted_id on successful completion.
+    Coordinates mutual exclusion, cooldowns, and message batching before triggering extraction.
     """
     global _extracting, _last_extracted_id
     importlib.reload(cfg)
@@ -303,6 +294,7 @@ _last_run_ts: float = 0.0
 
 
 def _update_last_run_ts():
+    """Update the global background task last-run timestamp to the current time."""
     global _last_run_ts
     _last_run_ts = time.time()
 
@@ -315,14 +307,9 @@ def _update_last_run_ts():
 def _fetch_new_messages() -> tuple[list[dict], int]:
     """Read unprocessed messages from the chat DB.
 
-    Fetches up to FACT_EXTRACTION_BATCH_SIZE messages with id > _last_extracted_id,
-    ordered oldest-first. Skips tool result rows and messages with no meaningful
-    content to keep the extraction prompt clean.
-
     Returns:
-        Tuple of (message_list, max_id_seen).
-        message_list: list of {role, content, ts} dicts.
-        max_id_seen: the highest DB id in the returned batch (0 if empty).
+        tuple[list[dict], int]: A tuple containing the list of new messages and the
+            highest message ID seen in the batch.
     """
     importlib.reload(cfg)
     batch_size = cfg.FACT_EXTRACTION_BATCH_SIZE
@@ -365,8 +352,11 @@ def _fetch_new_messages() -> tuple[list[dict], int]:
 def _format_messages_for_extraction(messages: list[dict]) -> str:
     """Render messages as a readable transcript for the extraction prompt.
 
-    Includes a [YYYY-MM-DD] date prefix on each line so the LLM can
-    accurately date each extracted fact to when it was discussed.
+    Args:
+        messages: A list of message dictionaries.
+
+    Returns:
+        str: The formatted transcript string.
     """
     import datetime as dt
     lines = []
@@ -389,7 +379,15 @@ def _format_messages_for_extraction(messages: list[dict]) -> str:
 
 
 def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
-    """Assemble the extraction prompt with the Cat00 taxonomy injected."""
+    """Assemble the extraction prompt.
+
+    Args:
+        messages: A list of message dictionaries.
+        cat00: The Cat00 index taxonomy block.
+
+    Returns:
+        str: The assembled prompt text.
+    """
     transcript = _format_messages_for_extraction(messages)
 
     category_block = (
@@ -426,17 +424,12 @@ def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
 def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
     """Parse the YAML facts block from the model's raw response.
 
-    Falls back gracefully on malformed output. If the LLM omits or mangles
-    the date field, `fallback_date` (the latest message date in the batch)
-    is used instead.
-
     Args:
-        raw:           The raw string returned by Ollama.
-        fallback_date: YYYY-MM-DD string to use when the LLM skips the date.
+        raw: The raw response string from Ollama.
+        fallback_date: A fallback date string in YYYY-MM-DD format.
 
     Returns:
-        List of validated fact dicts with keys:
-        subject, category, summary, confidence, date.
+        list[dict]: A list of parsed and validated fact dictionaries.
     """
     match = _YAML_BLOCK_RE.search(raw)
     if match:
@@ -511,7 +504,11 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
 
 
 async def _do_extraction(messages: list[dict]):
-    """Core extraction logic. Calls Ollama and writes staging files."""
+    """Run the core fact extraction LLM call on a batch of messages.
+
+    Args:
+        messages: A list of chat message dictionaries.
+    """
     import datetime as dt
     cat00 = load_cat00_index()
     prompt = _build_extraction_prompt(messages, cat00)
@@ -619,15 +616,11 @@ async def _do_extraction(messages: list[dict]):
 def write_extracted_facts(facts: list[dict]) -> int:
     """Write extracted facts to the SQLite memory database.
 
-    Inserts rows with status='extracted'. Before inserting, queries existing
-    live entries in the same category to check for near-duplicates using
-    keyword overlap.
-
     Args:
-        facts: List of validated fact dicts (must include 'date' key).
+        facts: List of validated fact dictionaries.
 
     Returns:
-        int: Number of facts successfully written.
+        int: The number of facts successfully inserted.
     """
     import memory_db
     import datetime as dt

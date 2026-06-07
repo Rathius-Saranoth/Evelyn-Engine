@@ -29,7 +29,17 @@ VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
 
 
 def get_jaccard_similarity(str1: str, str2: str) -> float:
-    """Calculate Jaccard similarity between two strings using word tokens, excluding common stop words."""
+    """Calculate Jaccard similarity between two strings.
+
+    Tokenizes strings into words and filters out common English stop words.
+
+    Args:
+        str1: The first string to compare.
+        str2: The second string to compare.
+
+    Returns:
+        float: Jaccard similarity score between 0.0 and 1.0.
+    """
     stop_words = {"for", "and", "the", "a", "of", "in", "to", "behind", "on", "with", "by", "an", "at", "about"}
     words1 = set("".join(c for c in str1.lower() if c.isalnum() or c.isspace()).split()) - stop_words
     words2 = set("".join(c for c in str2.lower() if c.isalnum() or c.isspace()).split()) - stop_words
@@ -69,7 +79,18 @@ def _reload():
 def write_journal_entry(
     mood: str, vibe_check: str, narrative: str, message_in_a_bottle: str, tags: str
 ) -> str:
-    """Compose and queue a new journal entry for review."""
+    """Compose and queue a new journal entry for Ricky's review.
+
+    Args:
+        mood: Descriptive keyword representing current emotional state.
+        vibe_check: Brief micro-assessment or immediate feeling.
+        narrative: Main reflective text or journal body.
+        message_in_a_bottle: A lingering question or message meant for future recall.
+        tags: Comma-separated list of tags to associate.
+
+    Returns:
+        str: Outcome confirmation message or path to the pending entry.
+    """
     _reload()
     if (
         not vibe_check.strip()
@@ -84,21 +105,39 @@ def write_journal_entry(
 
 
 def read_journal_entry(date: str = "") -> str:
-    """Read a single journal entry by date (YYYY-MM-DD). Defaults to today."""
+    """Read a single journal entry by its date.
+
+    Args:
+        date: Date in YYYY-MM-DD format. Defaults to today's date.
+
+    Returns:
+        str: Markdown contents of the journal entry, or error message.
+    """
     _reload()
     return journal_manager.read_journal_entry(date if date else None)
 
 
 def read_recent_journal_entries(days: int = 7) -> str:
-    """Read Evelyn's journal entries from the last N days."""
+    """Read a chronological roll-up of journal entries from the last N days.
+
+    Args:
+        days: The number of days back to look. Defaults to 7.
+
+    Returns:
+        str: Concatenated text of all matching journal entries.
+    """
     _reload()
     return journal_manager.read_recent_journal_entries(days)
 
 
 def search_vault(query: str) -> str:
-    """Search the pre-summarised Obsidian Vault gist index.
-    Returns a concise summary (gist) of matching documents and their vault-relative file paths.
-    If the gist result lacks enough detail, follow up with recall_specific_memory using the returned path.
+    """Search the pre-summarized Obsidian Vault gist index.
+
+    Args:
+        query: Search term or phrase.
+
+    Returns:
+        str: A concise summary of matching documents and their vault-relative paths.
     """
     _reload()
     return context_manager.search_vault_map(query)
@@ -106,8 +145,13 @@ def search_vault(query: str) -> str:
 
 def recall_specific_memory(file_path: str) -> str:
     """Read the full markdown content of a specific Obsidian vault file.
-    Use when search_vault returned a path but the gist lacked sufficient detail.
-    Always use the exact file path returned by search_vault — never construct or guess one."""
+
+    Args:
+        file_path: Exact vault-relative path returned by search_vault.
+
+    Returns:
+        str: Full text content of the markdown file, or error message.
+    """
     clean_path = file_path.strip().strip('"').strip("'")
     full_path = os.path.abspath(os.path.join(VAULT_BASE, clean_path))
     if not full_path.startswith(os.path.abspath(VAULT_BASE)):
@@ -122,7 +166,16 @@ def recall_specific_memory(file_path: str) -> str:
 
 
 def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
-    """Write a context fact file to the in-vault Pending folder (system use)."""
+    """Write a context fact file to the in-vault Pending folder.
+
+    Args:
+        category: Primary category/domain.
+        summary: Precise fact summary.
+        secondary_cats: Comma-separated secondary categories.
+
+    Returns:
+        str: Confirmation message.
+    """
     _reload()
     if not summary.strip():
         return "Error: log_context_fact called with blank summary. Aborted."
@@ -133,7 +186,15 @@ def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
 
 
 def update_context_fact(target_filepaths: list, new_summary: str) -> str:
-    """Write an update-request file to Pending for an existing vault context file (system use)."""
+    """Queue an update request for an existing vault context file.
+
+    Args:
+        target_filepaths: List of vault paths targeted for consolidation.
+        new_summary: Revised context summary.
+
+    Returns:
+        str: Confirmation message.
+    """
     _reload()
     if not new_summary.strip():
         return "Error: update_context_fact called with blank new_summary. Aborted."
@@ -146,9 +207,16 @@ def generate_image(
     seed: int | None = None,
     short_title: str | None = None,
 ) -> str:
-    """Generate a high-quality image from a natural language prompt via FLUX.1 [schnell].
-    
-    Accepts preset aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4.
+    """Generate a high-quality image via FLUX.1 Schnell.
+
+    Args:
+        prompt: Descriptive prompt describing the desired image.
+        aspect_ratio: Image format ratio (e.g., "16:9", "1:1", "9:16").
+        seed: Optional random generator seed.
+        short_title: Optional title prefix for the generated file.
+
+    Returns:
+        str: Confirmation path/URL to the generated image, or error description.
     """
     import requests
     from evelyn_config import IMAGE_SERVER_URL
@@ -178,10 +246,18 @@ def generate_image(
 
 
 def sync_context_memory(**kwargs) -> str:
-    """Trigger background sync of vault gists and core memory into the RAG database (system use)."""
+    """Trigger background sync of vault gists and core memory into Chroma.
+
+    Args:
+        **kwargs: Unused parameters.
+
+    Returns:
+        str: Status message indicating start.
+    """
     import threading
 
     def _run():
+        """Run sync_context_memory phases (knowledge and gists ingest) in a daemon thread."""
         _reload()
         try:
             print("Sync: Starting core memory ingest...")
@@ -198,10 +274,13 @@ def sync_context_memory(**kwargs) -> str:
 
 def web_search(query: str, max_results: int = 5) -> str:
     """Search the web via DuckDuckGo and return a brief summary of the top results.
-    Use only when the question requires up-to-date information, real-time data, or
-    facts that are unlikely to be in training data or the vault (e.g. current events,
-    live prices, recent releases). For personal/shared history, always prefer search_vault.
-    Keep queries concise and specific.
+
+    Args:
+        query: Concise, keyword-based web query.
+        max_results: Max result snippets to fetch. Defaults to 5.
+
+    Returns:
+        str: Summarized search results or error details.
     """
     try:
         from ddgs import DDGS
@@ -225,7 +304,16 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 
 def start_research(query: str, scope: str = "standard", **kwargs) -> str:
-    """Launch a deep research task on a topic in the background."""
+    """Launch a deep research task on a topic in the background.
+
+    Args:
+        query: Research query/topic.
+        scope: Depth scope ("quick", "standard", "deep"). Defaults to "standard".
+        **kwargs: Optional overrides like bypass_queue.
+
+    Returns:
+        str: Confirmation message.
+    """
     import time
     import threading
     import subprocess
@@ -346,6 +434,7 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                 }
         
         def _run_subprocess():
+            """Launch research_engine.py as a subprocess, register it, and wait for completion."""
             import sys
             import os
             try:
@@ -433,7 +522,14 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
 
 
 def resume_research_task(task_id: str) -> str:
-    """Re-spawn the background subprocess for a paused, cancelled, or failed research task to resume it."""
+    """Re-spawn the background subprocess for a non-running research task.
+
+    Args:
+        task_id: Unique task identifier.
+
+    Returns:
+        str: Confirmation message.
+    """
     import time
     import threading
     import subprocess
@@ -490,6 +586,7 @@ def resume_research_task(task_id: str) -> str:
             bg_tasks = None
             
         def _run_subprocess():
+            """Launch research_engine.py as a subprocess to resume the task and wait for completion."""
             import sys
             import os
             try:
@@ -573,7 +670,15 @@ def resume_research_task(task_id: str) -> str:
 
 
 def guide_research(task_id: str, guidance: str) -> str:
-    """Inject user guidance into a struggling research task and resume it."""
+    """Inject user guidance into a struggling research task and resume it.
+
+    Args:
+        task_id: Unique task identifier.
+        guidance: Free-form text guidance to redirect the query search.
+
+    Returns:
+        str: Resumption status confirmation.
+    """
     import os
     import json
     import evelyn_config as cfg
@@ -651,7 +756,16 @@ def guide_research(task_id: str, guidance: str) -> str:
 
 
 def rewrite_sub_question(task_id: str, sq_id: str, new_question: str) -> str:
-    """Manually rewrite a single sub-question without resuming the task."""
+    """Manually rewrite a single sub-question without resuming the task.
+
+    Args:
+        task_id: Unique task identifier.
+        sq_id: The identifier of the sub-question to modify.
+        new_question: The updated question string.
+
+    Returns:
+        str: Status confirmation message.
+    """
     import os
     import evelyn_config as cfg
     _reload()
@@ -702,7 +816,14 @@ def rewrite_sub_question(task_id: str, sq_id: str, new_question: str) -> str:
 
 
 def finalize_guidance(task_id: str) -> str:
-    """Signal that all manual edits are complete and resume the task."""
+    """Signal that all manual edits are complete and resume the task.
+
+    Args:
+        task_id: Unique task identifier.
+
+    Returns:
+        str: Confirmation message from the resume call.
+    """
     _reload()
     try:
         from research_engine import load_state, save_state
@@ -741,7 +862,14 @@ def finalize_guidance(task_id: str) -> str:
 
 
 def check_new_research(**kwargs) -> str:
-    """Check for newly completed deep research tasks and return their summaries."""
+    """Check for newly completed deep research tasks and return their summaries.
+
+    Args:
+        **kwargs: Unused parameters.
+
+    Returns:
+        str: Compiled summaries of completed tasks, or notice of none.
+    """
     import os
     import json
     import evelyn_config as cfg

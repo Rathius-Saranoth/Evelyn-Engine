@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-06-07 10:28:42
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -41,7 +41,7 @@ def get_db() -> sqlite3.Connection:
     """Open a connection to evelyn_memory.db with row_factory enabled.
 
     Returns:
-        sqlite3.Connection configured for dict-like row access.
+        sqlite3.Connection: A database connection configured for dict-like row access.
     """
     con = sqlite3.connect(cfg.MEMORY_DB_PATH)
     con.row_factory = sqlite3.Row
@@ -56,8 +56,8 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     """Create tables and indexes if they don't exist (idempotent).
 
-    Safe to call on every server startup. Uses IF NOT EXISTS so existing
-    data is never touched.
+    Returns:
+        None
     """
     con = get_db()
 
@@ -126,18 +126,17 @@ def insert_entry(
     """Insert a new context entry and return its row ID.
 
     Args:
-        category:       Category code, e.g. 'Cat05-R'.
-        subject:        'Ricky' or 'Evelyn'.
-        observation:    The factual observation text.
-        confidence:     'high', 'medium', or 'low'.
-        source:         'manual', 'extracted', or 'consolidated'.
-        status:         'live', 'extracted', or 'pending_review'.
-        date:           YYYY-MM-DD when the fact was discussed/observed.
-        secondary_cats: Comma-separated secondary category codes.
-        original_file:  Original filename (for migration traceability).
+        category: Category code, e.g. 'Cat05-R'.
+        subject: 'Ricky' or 'Evelyn'.
+        observation: The factual observation text.
+        confidence: 'high', 'medium', or 'low'.
+        source: 'manual', 'extracted', or 'consolidated'.
+        status: 'live', 'extracted', or 'pending_review'.
+        date: Optional YYYY-MM-DD date when the fact was discussed.
+        tags: Optional comma-separated keyword tags.
 
     Returns:
-        The auto-generated row ID of the new entry.
+        int: The auto-generated row ID of the new entry.
     """
     con = get_db()
     cur = con.execute(
@@ -157,8 +156,11 @@ def insert_entry(
 def get_entry(entry_id: int) -> Optional[dict]:
     """Fetch a single context entry by ID.
 
+    Args:
+        entry_id: The database ID of the entry.
+
     Returns:
-        Dict of the entry's fields, or None if not found.
+        dict | None: The entry record as a dictionary, or None if not found.
     """
     con = get_db()
     row = con.execute(
@@ -175,10 +177,10 @@ def get_entries_by_category(
 
     Args:
         category: Category code, e.g. 'Cat05-R'.
-        status:   Filter by status. Default 'live'.
+        status: Filter by status. Default 'live'.
 
     Returns:
-        List of entry dicts, sorted oldest-first by date.
+        list[dict]: A list of entry dictionaries, sorted chronologically.
     """
     con = get_db()
     rows = con.execute(
@@ -194,10 +196,10 @@ def get_all_entries(statuses: Optional[list[str]] = None) -> list[dict]:
     """Fetch all context entries, optionally filtered by status list.
 
     Args:
-        statuses: List of status values to include. Default: ['live'].
+        statuses: List of status values to include. Default is ['live'].
 
     Returns:
-        List of entry dicts, sorted by category then date.
+        list[dict]: A list of entry dictionaries, sorted by category and date.
     """
     if statuses is None:
         statuses = ["live"]
@@ -215,15 +217,12 @@ def get_all_entries(statuses: Optional[list[str]] = None) -> list[dict]:
 def update_entry(entry_id: int, **fields) -> bool:
     """Update specific fields on an existing context entry.
 
-    Automatically sets updated_at to the current time.
-
     Args:
         entry_id: Row ID of the entry to update.
-        **fields: Column name → new value pairs. Only valid column names
-                  are accepted; unknown fields are silently ignored.
+        **fields: Key-value pairs of columns and their new values.
 
     Returns:
-        True if the row was found and updated, False otherwise.
+        bool: True if the row was found and updated, False otherwise.
     """
     valid_cols = {
         "category", "subject", "observation", "confidence", "source",
@@ -250,14 +249,11 @@ def update_entry(entry_id: int, **fields) -> bool:
 def delete_entry(entry_id: int) -> bool:
     """Soft delete a context entry by ID.
 
-    Sets status='deleted' instead of removing the row. This allows
-    the Chroma garbage collector to naturally remove it from RAG.
-
     Args:
         entry_id: Row ID of the entry to soft delete.
 
     Returns:
-        True if a row was updated, False if not found.
+        bool: True if updated, False otherwise.
     """
     return update_entry(entry_id, status="deleted")
 
@@ -266,10 +262,10 @@ def count_entries(status: Optional[str] = None) -> int:
     """Count context entries, optionally filtered by status.
 
     Args:
-        status: If provided, count only entries with this status.
+        status: Optional status string to filter by.
 
     Returns:
-        Integer count.
+        int: The count of matching entries.
     """
     con = get_db()
     if status:
@@ -283,10 +279,10 @@ def count_entries(status: Optional[str] = None) -> int:
 
 
 def count_entries_by_category() -> dict[str, int]:
-    """Return a dict of category → count for all live entries.
+    """Return a dict of category -> count for all live entries.
 
     Returns:
-        OrderedDict-like mapping, e.g. {'Cat01-E': 12, 'Cat01-R': 8, ...}.
+        dict[str, int]: Mapping of category codes to their respective entry counts.
     """
     con = get_db()
     rows = con.execute(
@@ -310,17 +306,14 @@ def find_similar_entries(
 ) -> list[dict]:
     """Find entries in the same category with high keyword overlap.
 
-    Uses a simple normalized keyword overlap ratio. No model calls.
-
     Args:
-        category:         Category to search within.
+        category: Category to search within.
         observation_text: The candidate observation to check against.
-        min_overlap:      Minimum keyword overlap ratio (0.0–1.0) to
-                          consider a match. Default 0.5 (50% overlap).
-        status:           Filter by status. Default 'live'.
+        min_overlap: Minimum keyword overlap ratio (0.0–1.0). Default 0.5.
+        status: Filter by status. Default 'live'.
 
     Returns:
-        List of matching entry dicts with an added 'overlap' key.
+        list[dict]: Matching entry dictionaries with an added 'overlap' key.
     """
     candidates = get_entries_by_category(category, status=status)
     if not candidates:
@@ -347,14 +340,11 @@ def find_similar_entries(
 def _extract_keywords(text: str) -> set[str]:
     """Extract meaningful keywords from observation text.
 
-    Strips common stopwords and short tokens to produce a set of
-    normalized content words for overlap comparison.
-
     Args:
         text: Raw observation string.
 
     Returns:
-        Set of lowercase keyword strings (3+ chars).
+        set[str]: Set of lowercase keyword strings.
     """
     _STOPWORDS = {
         "the", "and", "for", "are", "but", "not", "you", "all", "can",
@@ -398,18 +388,18 @@ def insert_proposal(
     """Insert a new proposal and return its row ID.
 
     Args:
-        type:                'merge', 'supersede', 'recategorize', 'keep_both'.
-        source_ids:          List of context_entry IDs involved.
-        verdict:             Proposed action summary.
-        merged_observation:  Proposed merged text (for merge/supersede).
-        merged_tags:         Proposed tags.
-        suggested_category:  New category (for recategorize).
-        reason:              LLM reasoning for the proposal.
-        topic:               LLM-identified topic label.
-        status:              'pending', 'applied', 'rejected', 'auto_applied'.
+        type: 'merge', 'supersede', 'recategorize', 'keep_both'.
+        source_ids: List of context_entry IDs involved.
+        merged_observation: Proposed merged text.
+        merged_tags: Proposed tags.
+        suggested_category: New category code.
+        reason: Reasoning for the proposal.
+        topic: Topic label.
+        confidence: Proposal confidence level.
+        status: Status of the proposal.
 
     Returns:
-        The auto-generated row ID.
+        int: The auto-generated row ID.
     """
     con = get_db()
     cur = con.execute(
@@ -436,10 +426,10 @@ def get_pending_proposals(
     """Fetch all pending proposals, optionally filtered by type.
 
     Args:
-        type: If provided, filter to this proposal type only.
+        type: Optional proposal type to filter by.
 
     Returns:
-        List of proposal dicts with source_ids parsed from JSON.
+        list[dict]: A list of proposal dictionaries.
     """
     con = get_db()
     if type:
@@ -473,7 +463,7 @@ def apply_proposal(proposal_id: int) -> bool:
         proposal_id: Row ID of the proposal.
 
     Returns:
-        True if updated, False if not found.
+        bool: True if updated, False otherwise.
     """
     con = get_db()
     cur = con.execute(
@@ -493,7 +483,7 @@ def reject_proposal(proposal_id: int) -> bool:
         proposal_id: Row ID of the proposal.
 
     Returns:
-        True if updated, False if not found.
+        bool: True if updated, False otherwise.
     """
     con = get_db()
     cur = con.execute(
@@ -509,15 +499,12 @@ def reject_proposal(proposal_id: int) -> bool:
 def has_pending_proposal_for(entry_ids: list[int], type: Optional[str] = None) -> bool:
     """Check if any pending proposal already references the given entry IDs.
 
-    Used by the consolidator to avoid generating duplicate proposals for
-    entries that already have an unreviewed proposal.
-
     Args:
         entry_ids: List of context_entry IDs to check.
-        type:      If provided, restrict check to this proposal type.
+        type: Optional proposal type to restrict checking to.
 
     Returns:
-        True if at least one pending proposal references any of the IDs.
+        bool: True if at least one pending proposal matches, False otherwise.
     """
     con = get_db()
     if type:

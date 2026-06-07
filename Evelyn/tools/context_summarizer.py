@@ -1,6 +1,6 @@
 # context_summarizer.py
 # date created: 2026-04-24 20:17:58
-# date modified: 2026-05-25 19:54:11
+# date modified: 2026-06-07 10:28:29
 # tags: #context, #summarizer, #summarization, #async, #sliding_window
 
 """
@@ -59,14 +59,14 @@ _summary_task = None
 def build_conversation_summary() -> str:
     """Return the cached conversation summary for injection into the system prompt.
 
-    This is called synchronously at the start of each chat turn.
-    Returns an empty string if no summary has been generated yet.
+    Returns:
+        str: The cached summary text, or an empty string if none exists.
     """
     return _cache["summary"]
 
 
 def invalidate_summary_cache():
-    """Clear the cached summary. Called when a new thread is started."""
+    """Clear the cached summary when starting a new thread."""
     global _cache
     _cache = {"summary": "", "msg_hash": "", "last_updated": 0.0}
     cancel_pending_summary()
@@ -74,12 +74,7 @@ def invalidate_summary_cache():
 
 
 def cancel_pending_summary():
-    """Cancel any in-flight summarization task.
-
-    Called at the start of each chat request to ensure the summarizer
-    doesn't block Ollama when the user sends a new message before
-    summarization finishes.
-    """
+    """Cancel any in-flight summarization task to free Ollama."""
     global _summary_task, _summarizing
     if _summary_task and not _summary_task.done():
         _summary_task.cancel()
@@ -91,16 +86,7 @@ def cancel_pending_summary():
 async def trigger_summary_update():
     """Regenerate the conversation summary in the background.
 
-    Queries the DB for messages outside the active history window,
-    checks if they've changed since the last summary, and if so,
-    calls Ollama to produce a fresh summary.
-
-    This function is designed to be called via asyncio.create_task()
-    after the assistant response is saved — it runs during the user's
-    read/think/type cycle with zero user-facing latency.
-
-    The task reference is stored in _summary_task so it can be cancelled
-    by cancel_pending_summary() if a new chat request arrives first.
+    Spawns an asynchronous background task to query the DB and call Ollama.
     """
     global _summarizing, _summary_task
 
@@ -198,7 +184,14 @@ def _get_summary_window() -> tuple[list[dict], str]:
 
 
 def _format_messages_for_prompt(messages: list[dict]) -> str:
-    """Format message list into a readable conversation transcript."""
+    """Format message list into a readable conversation transcript.
+
+    Args:
+        messages: A list of message dictionaries.
+
+    Returns:
+        str: The formatted transcript string.
+    """
     lines = []
     for msg in messages:
         role_label = "Ricky" if msg["role"] == "user" else "Evelyn"
