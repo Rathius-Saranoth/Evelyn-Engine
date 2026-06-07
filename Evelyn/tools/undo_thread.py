@@ -33,6 +33,7 @@ import evelyn_config as cfg
 DB_PATH = cfg.CHAT_DB_PATH
 
 def main():
+    """Identify and optionally delete the most recent [THREAD_BREAK] message in the chat database."""
     parser = argparse.ArgumentParser(description="Undo the last [THREAD_BREAK] in the chat database.")
     parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmation and delete immediately.")
     args = parser.parse_args()
