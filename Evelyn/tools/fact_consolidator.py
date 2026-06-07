@@ -1,78 +1,25 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-06-07 10:18:40
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
-fact_consolidator.py — Idle-time context entry consolidation for Evelyn's memory system.
+fact_consolidator.py — Idle-time deduplication and category correction for Evelyn's memory vault.
 
-Runs during server idle time to scan live context entries for duplicates, contradictions,
-and miscategorized facts. Uses the loaded LLM with thinking tokens for nuanced semantic
-reasoning. Produces human-readable proposal files in the Pending folder — nothing is
-auto-applied to the live vault.
+Scans live context entries for duplicates, contradictions, and miscategorized facts.
+Produces SQLite proposal records — nothing is auto-applied without human review.
 
-Architecture (top-to-bottom execution order):
-  SECTION 0 — Infrastructure
-    _extracting_elsewhere()             — Mutual-exclusion check against fact_extractor
-    _heavy_tasks_running()              — Defer if vault-map / sync tasks are active
-    _load_scan_state()                  — Restore per-category anchor pointers from disk
-    _save_scan_state()                  — Persist anchor pointers after each pass
-    _call_ollama()                      — Shared non-streaming Ollama call primitive
+Exports:
+  run_consolidation()              — Top-level coroutine; called from the server idle loop.
+  cancel_pending_consolidation()   — Called on each new chat request to free Ollama.
+  find_consolidation_candidates()  — Detect duplicate clusters across categories.
+  generate_consolidation_proposal() — LLM-driven merge verdict (think=True).
+  scan_context_entries()           — Fetch all live FactRecords from SQLite.
 
-  SECTION 1 — Public API
-    cancel_pending_consolidation()      — Called on new chat request to free Ollama
-    run_consolidation()                 — Top-level coroutine for idle-time scheduling
-
-  SECTION 2 — Step 1: Scan
-    scan_context_entries()              — Walk all live Cat##/Cat##-{E,R}/*.md files
-    _parse_entry_file()                 — Parse one file into a FactRecord dict
-
-  SECTION 3 — Step 2: Detection (two sequential focused calls per category)
-    Step 2a — Consolidation detection (duplicates/overlaps):
-      _CONSOL_DETECT_SYSTEM_PROMPT      — ⬅ Edit model persona for consol detection
-      _CONSOL_DETECT_PROMPT             — ⬅ Edit duplicate detection rules here
-      _build_consol_prompt()            — Format prompt for one anchor batch
-      _detect_consol_in_group()         — Run one LLM call (think=False)
-      _parse_consol_yaml()              — Decode YAML → Cluster dicts
-
-    Step 2b — Recategorization detection (category audit):
-      _RECAT_DETECT_SYSTEM_PROMPT       — ⬅ Edit model persona for recat detection
-      _RECAT_DETECT_PROMPT              — ⬅ Edit category audit rules here
-      _build_recat_prompt()             — Format prompt for one entry batch
-      _detect_recat_in_group()          — Run one LLM call (think=False)
-      _parse_recat_yaml()               — Decode YAML → recat item dicts
-
-    _detect_in_group()                  — Orchestrate both calls per category
-    find_consolidation_candidates()     — Rotate through categories with cost controls
-
-  SECTION 4 — Step 3: Consolidation Proposals
-    _PROPOSAL_SYSTEM_PROMPT             — ⬅ Edit model persona for proposals here
-    _PROPOSAL_PROMPT                    — ⬅ Edit merge/supersede verdict rules here
-    generate_consolidation_proposal()   — LLM-driven merge verdict (think=True)
-    _parse_proposal_yaml()              — Decode proposal YAML → verdict dict
-    _write_proposal()                   — Write CONSOLIDATION_*.md to Pending/
-
-  SECTION 5 — Step 3b: Recategorization Proposals
-    _write_recategorization_proposal()  — Write RECATEGORIZE_*.md (no LLM call)
-
-  SECTION 6 — Step 4: Orchestration
-    _build_pending_index()              — Index existing proposals to prevent re-runs
-    _do_consolidation()                 — Core pipeline; called by run_consolidation()
-
-Output (written to SQLite memory DB):
-  CONSOLIDATION proposals   — Merge/supersede proposal for 2+ overlapping entries.
-  RECATEGORIZE proposals    — Single-entry category move proposal. No LLM call needed.
-
-Key behaviors:
-  - CONSOLIDATION_KEEP_HISTORY (True)  — Preserve fact evolution in merged summaries
-  - CONSOLIDATION_KEEP_HISTORY (False) — Overwrite with the most recent fact only
-  - Detection uses think=False          — Fast classification; YAML schema only
-  - Proposal uses think=True            — Careful reasoning before merge verdict
-  - Cancellation                        — A new chat request immediately cancels any
-    in-flight consolidation pass so Ollama is freed for the user's message.
-
-All config is read from evelyn_config.py (single source of truth).
+Key config: evelyn_config.py (CONSOLIDATION_*, THINK, NUM_CTX)
+Full function index and behavioral notes: reference/docstring_content/pipeline_internals.md
 """
+
 
 import asyncio
 import datetime
@@ -161,7 +108,11 @@ _consolidation_task = None
 
 
 def _extracting_elsewhere() -> bool:
-    """Return True if fact_extractor is currently running an LLM call."""
+    """Check if fact_extractor is currently running an LLM call.
+
+    Returns:
+        bool: True if fact_extractor is actively processing, False otherwise.
+    """
     try:
         return bool(fact_extractor._extracting)
     except AttributeError:
@@ -169,11 +120,10 @@ def _extracting_elsewhere() -> bool:
 
 
 def _heavy_tasks_running() -> bool:
-    """Return True if any heavy server background task is running.
+    """Check if any heavy server background task is running.
 
-    Checks the _background_tasks dict in evelyn_server.py or __main__ module namespaces.
-    Any task with status="running" (excluding consolidator itself) or active deep research
-    task will cause this to return True, preventing Ollama overload.
+    Returns:
+        bool: True if another heavy background task is active, False otherwise.
     """
     import sys
     for mod_name in ("evelyn_server", "__main__"):
@@ -193,7 +143,11 @@ def _heavy_tasks_running() -> bool:
 
 
 def _set_status_in_server(status: str | None) -> None:
-    """Register or clear consolidator status in the server's central registry."""
+    """Register or clear consolidator status in the server's central registry.
+
+    Args:
+        status: The status string to set (e.g. 'running'), or None to clear.
+    """
     import sys
     for mod_name in ("evelyn_server", "__main__"):
         mod = sys.modules.get(mod_name)
@@ -215,9 +169,8 @@ def _set_status_in_server(status: str | None) -> None:
 def _load_scan_state() -> None:
     """Load per-category anchor scan state from disk into _category_scan_state.
 
-    Called once at module import so progress survives server restarts.
-    Falls back to an empty dict (all categories start fresh) on first run
-    or if the file is unreadable.
+    Returns:
+        None
     """
     global _category_scan_state
     try:
@@ -237,7 +190,11 @@ def _load_scan_state() -> None:
 
 
 def _save_scan_state() -> None:
-    """Persist _category_scan_state to disk after each consolidation pass."""
+    """Persist _category_scan_state to disk after each consolidation pass.
+
+    Returns:
+        None
+    """
     try:
         with open(_SCAN_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(_category_scan_state, f, indent=2)
@@ -368,10 +325,7 @@ _load_scan_state()
 def cancel_pending_consolidation():
     """Cancel any in-flight consolidation task.
 
-    Called at the top of chat_stream() so Ollama is freed immediately when
-    the user sends a message, even if consolidation is mid-run.
-    The cancelled run does NOT count against the cooldown — it will be
-    eligible to retry after the next idle window.
+    Frees the Ollama instance immediately when a new user chat request is received.
     """
     global _consolidation_task, _consolidating
     if _consolidation_task and not _consolidation_task.done():
@@ -383,11 +337,9 @@ def cancel_pending_consolidation():
 
 
 async def run_consolidation():
-    """Top-level coroutine — called from the server's idle-time loop.
+    """Run the top-level consolidation routine from the server's idle loop.
 
-    Skips silently if consolidation is disabled, already running, or within
-    the cooldown window. Only updates _last_run_ts on *successful* completion
-    so a cancelled run doesn't lock out the next idle window.
+    Coordinates mutual exclusion and cooldowns before triggering the consolidation.
     """
     global _consolidating, _last_run_ts
     importlib.reload(cfg)
@@ -453,7 +405,7 @@ def scan_context_entries() -> list[dict]:
     """Fetch all live context entries from SQLite and format as FactRecords.
 
     Returns:
-        List of FactRecord dicts, sorted oldest-first within each category.
+        list[dict]: A list of FactRecord dictionaries, sorted chronologically.
     """
     import memory_db
     import datetime
@@ -615,9 +567,11 @@ If no recategorizations are needed, output an empty list.\
 def _group_by_category(records: list[dict]) -> dict[str, list[dict]]:
     """Group FactRecords by category code, sorted oldest-first within each group.
 
-    The filename is used as a tiebreaker so the sort is fully deterministic.
-    Stable ordering is required for anchor-based scanning: the same index must
-    refer to the same entry across successive passes.
+    Args:
+        records: A list of FactRecord dictionaries.
+
+    Returns:
+        dict[str, list[dict]]: Mapping of category codes to their sorted lists of records.
     """
     groups: dict[str, list[dict]] = {}
     for r in records:
@@ -1021,24 +975,15 @@ async def _detect_in_group(
 async def find_consolidation_candidates(
     records: list[dict], cat00: str
 ) -> tuple[list[dict], list[dict]]:
-    """Identify groups of entries that address the same topic within a category.
-
-    Uses a rotating start index (_group_start_index) so successive runs scan
-    different slices of the category list. With 30 categories and a scan limit
-    of 8, the full vault cycles in ~4 runs.
-
-    Cost bounds (both checked per iteration):
-      CONSOLIDATION_GROUP_SCAN_LIMIT  — max LLM detection calls per run
-      CONSOLIDATION_BATCH_SIZE        — max proposal clusters returned
+    """Identify groups of context entries addressing the same topic within a category.
 
     Args:
-        records: All scanned FactRecords.
-        cat00:   Cat00 taxonomy text for category reference.
+        records: List of all scanned FactRecord dictionaries.
+        cat00: The Cat00 taxonomy index text.
 
     Returns:
-        Tuple of (clusters, recat_items):
-          - clusters:    Cluster dicts ready for proposal generation.
-          - recat_items: Standalone recategorization dicts for direct file output.
+        tuple[list[dict], list[dict]]: A tuple of candidate clusters and
+            recategorization proposals.
     """
     global _group_start_index
 
@@ -1165,17 +1110,13 @@ reasoning: "Brief explanation of the verdict."
 
 
 async def generate_consolidation_proposal(cluster: dict) -> str | None:
-    """Ask the LLM to produce a merged summary and verdict for a cluster.
-
-    Uses think=True so the model can reason carefully about conflicting facts
-    and date ordering before committing to a merge/supersede/keep_both verdict.
-    Category corrections are handled separately via _write_recategorization_proposal.
+    """Generate a consolidation proposal for a cluster using Ollama.
 
     Args:
-        cluster: A Cluster dict from find_consolidation_candidates().
+        cluster: Dictionary representing the cluster of related facts.
 
     Returns:
-        str: Absolute path to the written proposal file, or None on failure.
+        str | None: The proposal database ID string, or None if skipped/failed.
     """
     importlib.reload(cfg)
     cat00 = load_cat00_index()
@@ -1228,7 +1169,15 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
 
 
 def _parse_proposal_yaml(raw: str, category: str) -> dict | None:
-    """Parse the consolidation verdict YAML from the model response."""
+    """Parse the consolidation verdict YAML from the model response.
+
+    Args:
+        raw: The raw response string from the model.
+        category: The category code.
+
+    Returns:
+        dict | None: The parsed proposal verdict dictionary, or None if parsing failed.
+    """
     match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
     block = match.group(1) if match else raw
 
@@ -1348,12 +1297,11 @@ def _write_recategorization_proposal(
     """Auto-apply recategorization and record an audit trail in SQLite.
 
     Args:
-        recat_item:            Dict with keys 'record', 'suggested_category',
-                               'topic', and 'reason'.
-        pending_recat_sources: Ignored. Used in legacy signature.
+        recat_item: Dict containing the record details and suggestion.
+        pending_recat_sources: Unused legacy parameter.
 
     Returns:
-        Proposal ID string, or None on failure.
+        str | None: The proposal database ID string, or None if it fails.
     """
     import memory_db
 
@@ -1387,15 +1335,7 @@ def _write_recategorization_proposal(
 
 
 async def _do_consolidation():
-    """Core consolidation pipeline. Called by run_consolidation().
-
-    Execution order:
-      1. Scan all live context entries into FactRecord dicts.
-      2. Detect duplicate clusters and recategorization candidates.
-      3. Auto-apply recategorization candidates.
-      4. Write consolidation proposals via LLM proposal calls (think=True).
-      5. Persist anchor scan state to disk.
-    """
+    """Execute the core consolidation pipeline steps sequentially."""
     importlib.reload(cfg)
     import memory_db
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)

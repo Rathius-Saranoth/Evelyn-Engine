@@ -227,6 +227,7 @@ def run_review():
 
 
 def main():
+    """Print the count of pending proposals and prompt the user to start the interactive review loop."""
     _clr()
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Evelyn — Pending Proposal Reviewer{RESET}")

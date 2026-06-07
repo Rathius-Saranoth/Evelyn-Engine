@@ -47,6 +47,14 @@ EXCLUDE_DIRS = {
 SUMMARY_MAX_CHARS = 500
 
 def clean_gist(text: str) -> str:
+    """Strip thinking tags, LaTeX markup, and leading 'summary:' prefixes from LLM output.
+
+    Args:
+        text: The raw summary text string.
+
+    Returns:
+        str: The cleaned summary text.
+    """
     text = re.sub(r"^.*?</think>", "", text, flags=re.DOTALL)
     text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
     text = re.sub(r"\\boxed\{.*?\}", "", text, flags=re.DOTALL)
@@ -54,10 +62,26 @@ def clean_gist(text: str) -> str:
     text = re.sub(r"\n{2,}", "\n", text)
     return text.strip()
 
-def normalize_path(path):
+def normalize_path(path: str) -> str:
+    """Return a normalized lower-case path string for safe comparison.
+
+    Args:
+        path: The filesystem path string.
+
+    Returns:
+        str: The normalized path string.
+    """
     return os.path.normpath(path).lower()
 
 def is_excluded(dir_path):
+    """Determine if a directory path is in the exclusion list.
+
+    Args:
+        dir_path: Absolute or relative directory path.
+
+    Returns:
+        True if the directory is excluded, False otherwise.
+    """
     rel_path = os.path.relpath(dir_path, OBSIDIAN_ROOT)
     norm_rel = normalize_path(rel_path)
     for exclude in EXCLUDE_DIRS:
@@ -71,6 +95,15 @@ def is_excluded(dir_path):
     return False
 
 def extract_metadata(file_path, timeout=300):
+    """Read a markdown file and extract metadata fields plus an LLM-generated summary.
+
+    Args:
+        file_path: Absolute path to the markdown document.
+        timeout:   Timeout in seconds for the Ollama API request.
+
+    Returns:
+        Dict of metadata fields, or None if the file could not be read.
+    """
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
@@ -138,6 +171,7 @@ def extract_metadata(file_path, timeout=300):
     text_body = re.sub(r"(?m)^[-*+]\s+", "", text_body)
 
     def replace_link(match):
+        """Regex helper to extract link text from Obsidian wikilinks (supports piping)."""
         c = match.group(1)
         if "|" in c: return c.split("|")[1]
         return c
@@ -212,6 +246,10 @@ def extract_metadata(file_path, timeout=300):
     }
 
 def scan_vault():
+    """Scan the Obsidian root folder incrementally, updating the SQLite database.
+
+    Compares mtimes to skip unchanged files and deletes records of missing files.
+    """
     vault_db.init_db()
     current_files = set()
     processed = 0
@@ -265,6 +303,13 @@ def scan_vault():
     print(f"Scan complete: {processed} files processed")
 
 def retry_failed_gists():
+    """Re-run metadata extraction for files that previously failed to get an LLM summary.
+
+    Sequentially increases request timeouts on each retry round.
+
+    Returns:
+        The number of files that are still failing after all retries.
+    """
     RETRY_TIMEOUTS = [450, 600, 900]
     
     failed_docs = vault_db.get_failed_gists()
@@ -306,6 +351,7 @@ def retry_failed_gists():
     return len(still_failed)
 
 def main():
+    """Execute the full vault scan pipeline, retrying any failed gists afterward."""
     scan_vault()
     still_failing = retry_failed_gists()
     
