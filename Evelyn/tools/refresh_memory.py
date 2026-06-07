@@ -1,6 +1,6 @@
 # refresh_memory.py
 # date created: 2026-05-21 20:34:11
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-06-07 10:28:48
 # tags: #refresh, #memory, #master_runner, #synchronization, #pipeline
 
 """
@@ -68,7 +68,11 @@ def run_phase_subprocess(name: str, args: list[str]) -> None:
 
 
 def main() -> None:
-    """Execute all three memory refresh phases in sequence."""
+    """Execute all three memory refresh phases in sequence.
+
+    Returns:
+        None
+    """
     print("[START] Unified Memory Refresh Pipeline", flush=True)
 
     # Phase 1 — Vault Map (heavy: reads every vault file, calls Ollama for gists)

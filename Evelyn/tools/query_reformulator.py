@@ -1,31 +1,22 @@
 # query_reformulator.py
 # date created: 2026-04-26 13:03:48
-# date modified: 2026-05-25 19:55:09
+# date modified: 2026-06-07 10:19:27
 # tags: #query, #reformulation, #search, #keywords, #prompts
 
 """
-query_reformulator.py — Extracts search-relevant keywords from conversational messages.
+query_reformulator.py — Converts conversational messages into embedding-optimized search queries.
 
-The raw user message is a poor embedding query for semantic search. Casual messages
-like "I talked to my mom today" produce weak vector matches against knowledge chunks.
-This module uses the already-loaded LLM (same model, same options — no VRAM eviction)
-to extract concise search keywords before the message is passed to the embedding model.
+Raw user messages produce poor vector matches (e.g. "I talked to my mom today" → weak hit).
+Uses the already-loaded LLM to extract concise search keywords with zero VRAM eviction
+(same model/options as the chat loop). Falls back to the original message on timeout/error.
 
-Architecture:
-  - reformulate_query(user_message) — Main entry point, returns reformulated query string
-  - Skip heuristic: messages ≤ RAG_REFORMULATE_MIN_WORDS bypass the LLM call
-  - Fallback: on timeout or error, returns the original message (degraded but not broken)
+Exports:
+  reformulate_query(user_message) — Main entry point; returns reformulated query string.
 
-The Ollama call uses identical model/options as the main chat loop and context_summarizer
-to ensure Ollama reuses the already-loaded model with zero swap overhead. Thinking
-is disabled for this call since keyword extraction doesn't need a reasoning chain
-and the thinking budget would waste the tight timeout.
-
-Config (from evelyn_config.py):
-  RAG_REFORMULATE_ENABLED     — Master switch (default: True)
-  RAG_REFORMULATE_MIN_WORDS   — Skip threshold (default: 4)
-  RAG_REFORMULATE_TIMEOUT     — Seconds before fallback (default: 5)
+Key config: evelyn_config.py (RAG_REFORMULATE_ENABLED, RAG_REFORMULATE_MIN_WORDS, RAG_REFORMULATE_TIMEOUT)
+Design rationale: reference/docstring_content/pipeline_internals.md
 """
+
 
 import re
 import time

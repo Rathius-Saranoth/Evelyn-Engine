@@ -146,11 +146,14 @@ tags: [{", ".join(clean_tags)}]
         return f"Error writing journal entry — is Google Drive available? Details: {e}"
 
 
-def read_journal_entry(date_str: str = None):
-    """
-    Reads a single journal entry by date.
-    Tries the Obsidian CLI first; falls back to direct filesystem read if
-    the CLI returns no output (Electron app doesn't write to stdout).
+def read_journal_entry(date_str: str = None) -> str:
+    """Read a single journal entry by date.
+
+    Args:
+        date_str: Optional date string in YYYY-MM-DD format. Defaults to today.
+
+    Returns:
+        str: The content of the journal entry, or a message if not found.
     """
     ensure_obsidian_running()
     if not date_str:
@@ -179,9 +182,13 @@ def read_journal_entry(date_str: str = None):
 
 
 def read_recent_journal_entries(days: int = 7) -> str:
-    """
-    Reads journal entries from the last N days.
-    Tries Obsidian CLI first; falls back to direct filesystem read per entry.
+    """Read journal entries from the last N days.
+
+    Args:
+        days: The number of recent days to read.
+
+    Returns:
+        str: The concatenated journal entries text.
     """
     ensure_obsidian_running()
     entries = []

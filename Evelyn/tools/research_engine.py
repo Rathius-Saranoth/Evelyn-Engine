@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-06-01 21:48:28
+# date modified: 2026-06-07 10:28:53
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -54,7 +54,14 @@ VIRTUAL_SOURCES: Dict[str, str] = {}
 
 
 def parse_json_response(raw_response: str) -> Any:
-    """Parse JSON from an LLM response, stripping markdown code fences if present."""
+    """Parse JSON from an LLM response, stripping markdown code fences if present.
+
+    Args:
+        raw_response: The raw string response from the LLM.
+
+    Returns:
+        Any: The parsed JSON data (dict, list, etc.).
+    """
     cleaned = raw_response.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[1]
@@ -1129,7 +1136,14 @@ async def run_full_research(task_id: str) -> None:
 
 
 def get_recent_chat_history(limit: int = 20) -> List[Dict[str, str]]:
-    """Fetch the most recent messages from the SQLite database."""
+    """Fetch the most recent messages from the SQLite database.
+
+    Args:
+        limit: The maximum number of messages to fetch. Default is 20.
+
+    Returns:
+        List[Dict[str, str]]: A list of message dictionaries.
+    """
     import sqlite3
     try:
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
@@ -1146,7 +1160,11 @@ def get_recent_chat_history(limit: int = 20) -> List[Dict[str, str]]:
 
 
 async def self_initiate_research_topics() -> None:
-    """Analyze recent conversations to self-initiate research topics and queue them."""
+    """Analyze recent conversations to self-initiate research topics and queue them.
+
+    Returns:
+        None
+    """
     import yaml
     importlib.reload(cfg)
     if not cfg.RESEARCH_SELF_INITIATE:
@@ -1242,6 +1260,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     async def main():
+        """Run the research engine from the command line.
+
+        Resolves the query argument to either resume an existing task or create a new
+        task before starting the asynchronous execution loop.
+        """
         if args.query.startswith("task_") and os.path.exists(os.path.join(cfg.RESEARCH_DATA_DIR, args.query)):
             task_id = args.query
             print(f"[RESEARCH_ENGINE] Resuming existing task: {task_id}", flush=True)

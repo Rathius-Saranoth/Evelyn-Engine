@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-06 19:36:45
+# date modified: 2026-06-07 10:29:01
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -112,7 +112,12 @@ def dlog(*args):
 
 
 def get_research_context() -> str:
-    """Return a brief context block listing recently completed, stalled, or quarantined research tasks."""
+    """Assemble a context block of recently completed, stalled, or quarantined research tasks.
+
+    Returns:
+        str: A formatted context block of task notifications and warnings,
+            or an empty string if no tasks exist.
+    """
     import os
     import json
     import re
@@ -162,7 +167,11 @@ def get_research_context() -> str:
 
 
 def load_system_prompt() -> str:
-    """Assemble system prompt from persona markdown files."""
+    """Assemble the system prompt from narrative persona files and direct instructions.
+
+    Returns:
+        str: The combined and formatted system prompt.
+    """
     import re
     # Matches YAML frontmatter with either LF or CRLF line endings (Windows files use CRLF)
     _FRONTMATTER_RE = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
@@ -196,8 +205,12 @@ def load_system_prompt() -> str:
 
 
 def get_time_gap_context() -> str | None:
-    """Return a bracketed time-gap annotation if enough time has passed
-    since the last user message, or None for continuous conversation."""
+    """Return a time-gap annotation if enough time has passed since the last message.
+
+    Returns:
+        str | None: A bracketed explanation of elapsed time if exceeding
+            5 minutes, otherwise None.
+    """
     con = get_db()
     row = con.execute(
         "SELECT ts FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
@@ -242,12 +255,14 @@ def get_time_gap_context() -> str | None:
 
 
 def get_db():
+    """Return a new SQLite connection to the chat history DB with row_factory set."""
     con = sqlite3.connect(cfg.CHAT_DB_PATH)
     con.row_factory = sqlite3.Row
     return con
 
 
 def init_db():
+    """Create the messages and message_metrics tables if they do not exist; migrate existing DBs."""
     con = get_db()
     con.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -298,11 +313,13 @@ _LEAKED_MODEL_TOKENS = [
 
 
 def load_history() -> list[dict]:
-    """Load recent chat history for the model, bounded by:
-    1. The most recent thread-break marker (if any), AND
-    2. cfg.MAX_HISTORY_MESSAGES (default 30).
+    """Load recent chat history for the model, bounded by thread breaks and caps.
 
-    All messages remain in the DB — this only limits what Ollama sees.
+    Filters out empty, placeholder, and thread-break messages, and ensures
+    no orphaned trailing user messages confuse the model.
+
+    Returns:
+        list[dict]: A list of message dictionaries with "role" and "content".
     """
     con = get_db()
     # Find the latest thread-break marker (if any)
@@ -348,7 +365,15 @@ def load_history() -> list[dict]:
     return messages
 
 
-def save_message(role: str, content: str, thinking: str = None, tools_used: str = None):
+def save_message(role: str, content: str, thinking: str = None, tools_used: str = None) -> None:
+    """Insert a message row into the chat history DB (fire and forget — no return value).
+
+    Args:
+        role: The role of the sender (e.g., "user", "assistant").
+        content: The text content of the message.
+        thinking: Optional thinking/reasoning process text.
+        tools_used: Optional comma-separated list of tool names invoked.
+    """
     con = get_db()
     con.execute(
         "INSERT INTO messages (role, content, thinking, tools_used, ts) VALUES (?, ?, ?, ?, ?)",
@@ -359,7 +384,17 @@ def save_message(role: str, content: str, thinking: str = None, tools_used: str 
 
 
 def save_message_get_id(role: str, content: str, thinking: str = None, tools_used: str = None) -> int:
-    """Insert a message and return its row ID (used for later updates)."""
+    """Insert a message row into the chat history database and return its row ID.
+
+    Args:
+        role: The role of the sender (e.g., "user", "assistant").
+        content: The text content of the message.
+        thinking: Optional thinking/reasoning process text.
+        tools_used: Optional comma-separated list of tool names invoked.
+
+    Returns:
+        int: The auto-incremented database row ID of the inserted message.
+    """
     con = get_db()
     cur = con.execute(
         "INSERT INTO messages (role, content, thinking, tools_used, ts) VALUES (?, ?, ?, ?, ?)",
@@ -372,7 +407,15 @@ def save_message_get_id(role: str, content: str, thinking: str = None, tools_use
 
 
 def update_message(row_id: int, content: str, thinking: str = None, tools_used: str = None, tool_metadata: str = None):
-    """Update an existing message row's content, thinking, tools_used, and tool_metadata."""
+    """Update an existing message row in the chat history database.
+
+    Args:
+        row_id: The database row ID of the message to update.
+        content: The new text content.
+        thinking: Optional thinking/reasoning process text to save.
+        tools_used: Optional comma-separated list of tools used.
+        tool_metadata: Optional JSON-serialized metadata for tools.
+    """
     con = get_db()
     con.execute(
         "UPDATE messages SET content = ?, thinking = ?, tools_used = ?, tool_metadata = ? WHERE id = ?",
@@ -383,7 +426,13 @@ def update_message(row_id: int, content: str, thinking: str = None, tools_used: 
 
 
 def save_message_metrics(message_id: int, metrics: dict):
-    """Insert metrics for a given message."""
+    """Insert API call metrics for a given message into the database.
+
+    Args:
+        message_id: The ID of the message associated with these metrics.
+        metrics: A dictionary containing metrics like prompt_eval_count,
+            eval_count, total_duration, etc.
+    """
     if not metrics:
         return
     con = get_db()
@@ -406,6 +455,7 @@ def save_message_metrics(message_id: int, metrics: dict):
 
 
 def clear_history():
+    """Delete all rows from the messages table (full conversation reset)."""
     con = get_db()
     con.execute("DELETE FROM messages")
     con.commit()
@@ -413,8 +463,11 @@ def clear_history():
 
 
 def delete_last_assistant_message() -> str | None:
-    """Delete the last assistant message and return the last user message text.
-    Returns None if no user message is found."""
+    """Delete the last assistant message and retrieve the prior user query.
+
+    Returns:
+        str | None: The content of the last user message, or None if none exists.
+    """
     con = get_db()
     # Find and delete the last assistant row
     last_asst = con.execute(
@@ -437,6 +490,10 @@ def delete_last_assistant_message() -> str | None:
 
 
 def check_auth(request: Request):
+    """Raise HTTP 401 if the request is missing or has a wrong X-Evelyn-Key header.
+
+    No-ops when cfg.API_KEY is unset (local-only mode).
+    """
     if not cfg.API_KEY:
         return  # No key configured = open (local-only use)
     key = request.headers.get("X-Evelyn-Key", "")
@@ -450,12 +507,17 @@ def check_auth(request: Request):
 
 
 async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
-    """Stream a chat request to Ollama (content-only / follow-up pass, no tools).
-    Yields raw JSON lines.
+    """Stream a chat request to Ollama.
 
-    NOTE: streaming + think=True silently swallows tool_call tokens in Ollama.
-    Tool detection uses call_ollama_full (non-streaming) instead.
-    This function is only used for the content follow-up pass (no tools).
+    Note that streaming combined with think=True silently swallows tool_call
+    tokens in Ollama. Thus, this is only used for follow-up content passes.
+
+    Args:
+        messages: A list of message objects mapping to conversation history.
+        tools: Optional list of tool definitions.
+
+    Yields:
+        str: Raw JSON response lines from the Ollama server.
     """
     use_think = cfg.THINK
     options = {"num_ctx": cfg.NUM_CTX}
@@ -501,11 +563,14 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
 
 
 async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> dict:
-    """Non-streaming Ollama call for tool detection (Pass 1).
+    """Perform a non-streaming Ollama call, primarily used for tool detection.
 
-    Streaming + think=True silently swallows tool_call tokens in Ollama --
-    the model generates ~20 tokens for the tool call JSON but emits a single
-    done chunk with empty message. Non-streaming correctly surfaces tool_calls.
+    Args:
+        messages: A list of message objects representing the prompt history.
+        tools: Optional list of tool definitions available to the model.
+
+    Returns:
+        dict: The full parsed JSON response dictionary from the Ollama API.
     """
     options = {"num_ctx": cfg.NUM_CTX}
     for key, val in {
@@ -542,7 +607,15 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
 
 
 def dispatch_tool(name: str, args: dict) -> str:
-    """Execute a tool by name with the given arguments."""
+    """Execute a registered tool by name with the provided arguments.
+
+    Args:
+        name: The name of the tool function to run.
+        args: A dictionary of keyword arguments passed to the tool.
+
+    Returns:
+        str: The text output or result of the tool execution, or an error message.
+    """
     fn = TOOL_FUNCTIONS.get(name)
     if not fn:
         return f"Error: unknown tool '{name}'"
@@ -585,6 +658,7 @@ async def _stream_content(msgs: list[dict]):
     queue: asyncio.Queue = asyncio.Queue()
 
     async def _feed():
+        """Feed Ollama stream lines into the queue for the outer consumer."""
         try:
             async for line in call_ollama_stream(msgs, tools=None):
                 await queue.put(("line", line))
@@ -707,6 +781,7 @@ async def _stream_content(msgs: list[dict]):
 
 
 class ChatRequest(BaseModel):
+    """Pydantic model representing an incoming chat request from the user."""
     message: str
 
 
@@ -717,12 +792,17 @@ async def _process_chat_background(
     assistant_row_id: int,
     queue: asyncio.Queue,
 ):
-    """Background chat worker — runs independently of the SSE connection.
+    """Run the background chat processing worker.
 
-    Spawned via asyncio.create_task() so a client disconnect cannot cancel it.
-    Puts SSE-formatted event strings into `queue` for the thin SSE pipe to
-    forward to the client when connected.  Always commits the final response
-    to the DB via the finally block regardless of client state.
+    Executes independently of the client's SSE connection state to guarantee
+    the model's response is fully generated and committed to the database.
+
+    Args:
+        user_message: The text of the user's incoming chat message.
+        is_regenerate: True if regenerating the last assistant response.
+        time_ctx: Optional time-gap context string to prefix to user message.
+        assistant_row_id: The database message ID reserved for the response.
+        queue: The queue used to forward SSE stream event dictionaries.
     """
     content_buf = ""
     thinking_buf = ""
@@ -731,6 +811,12 @@ async def _process_chat_background(
     tool_metadata_list = []
 
     async def put(type_: str, **kw):
+        """Enqueue a serialized SSE event dictionary.
+
+        Args:
+            type_: The event type string.
+            **kw: Additional fields to serialize into the event payload.
+        """
         await queue.put("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
 
     async def drain_stream(stream):
@@ -988,12 +1074,14 @@ def pause_all_active_research():
 
 
 async def chat_stream(user_message: str, is_regenerate: bool = False):
-    """SSE pipe — thin wrapper around _process_chat_background.
+    """Open an SSE connection to stream the generated chat response.
 
-    All Ollama calls and DB writes run in a detached asyncio task so client
-    disconnect cannot cancel them.  This generator only forwards queued events
-    to the connected client.  If the client disconnects mid-stream the
-    background task keeps running and saves the response to the DB.
+    Args:
+        user_message: The text of the user's incoming chat message.
+        is_regenerate: True if regenerating the last assistant response.
+
+    Yields:
+        str: Server-Sent Events formatted data blocks.
     """
     global _last_activity_ts
     _last_activity_ts = time.time()
@@ -1097,10 +1185,21 @@ def is_any_heavy_task_running(exclude_name: str = None) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """FastAPI lifespan context: initialise DB, install error handler, start background tasks.
+
+    Args:
+        app: The FastAPI application instance.
+    """
     # Suppress noisy Windows ProactorEventLoop ConnectionResetError tracebacks.
     # These fire when browser clients (polling /task_status) disconnect mid-response.
     # WinError 10054 is harmless — the background task continues regardless.
     def _suppress_connection_reset(loop, context):
+        """Swallow WinError 10054 (client disconnect) from the ProactorEventLoop exception handler.
+
+        Args:
+            loop: The event loop.
+            context: The exception context.
+        """
         exc = context.get("exception")
         if isinstance(exc, ConnectionResetError):
             return  # Swallow silently — expected on Windows with polling clients
@@ -1359,6 +1458,7 @@ app.mount("/images", StaticFiles(directory=cfg.IMAGE_OUTPUT_DIR), name="images")
 
 @app.get("/status")
 async def status(_: None = Depends(check_auth)):
+    """Return server health and active config (model, context size, think mode)."""
     return {
         "status": "ok",
         "model": cfg.MODEL_NAME,
@@ -1370,6 +1470,15 @@ async def status(_: None = Depends(check_auth)):
 
 @app.post("/chat")
 async def chat(req: ChatRequest, _: None = Depends(check_auth)):
+    """Accept a user message and return a Server-Sent Events stream of the response.
+
+    Args:
+        req: The chat request object containing the user message.
+        _: Authentication dependency placeholder.
+
+    Returns:
+        StreamingResponse: An SSE stream of the assistant's response.
+    """
     return StreamingResponse(
         chat_stream(req.message),
         media_type="text/event-stream",
@@ -1405,11 +1514,15 @@ async def get_history(
     limit: int = 50,
     before: int | None = None,
 ):
-    """Return chat messages, newest last.
+    """Retrieve the chat message history, ordered chronologically.
 
-    Query params:
-      limit  – max messages to return (default 50)
-      before – return messages with id < this value (cursor pagination)
+    Args:
+        _: Authorization dependency.
+        limit: The maximum number of messages to return.
+        before: Optional message ID to filter results (for cursor pagination).
+
+    Returns:
+        list[dict]: A list of message dictionaries.
     """
     con = get_db()
     if before:
@@ -1442,12 +1555,22 @@ async def get_history(
 
 @app.delete("/history")
 async def delete_history(_: None = Depends(check_auth)):
+    """Clear all chat history and return a confirmation."""
     clear_history()
     return {"status": "cleared"}
 
 
 @app.get("/artifact")
 async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
+    """Fetch raw markdown content for a named artifact (journal or research report).
+
+    Args:
+        type: Artifact kind — "journal" or "research".
+        id:   Filename stem (journal) or task_id (research).
+
+    Returns:
+        Dict with "content" (markdown text) and "status" (approved/unfiled/pending/unknown).
+    """
     if type == "journal":
         import os
         import re
@@ -1530,11 +1653,21 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
 
 
 class ApproveJournalRequest(BaseModel):
+    """Pydantic model representing a request to approve a pending journal entry."""
     id: str
 
 
 @app.post("/journal/approve")
 async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_auth)):
+    """Move a pending journal entry into the structured vault folder hierarchy.
+
+    Args:
+        req: Request containing the journal entry ID/filename.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Confirmation of approval status and final destination path.
+    """
     import os
     import re
     import shutil
@@ -1649,7 +1782,15 @@ _load_existing_research_tasks()
 
 @app.get("/task_status/{task_name}")
 async def task_status(task_name: str, _: None = Depends(check_auth)):
-    """Return the current status of a background task."""
+    """Retrieve the current status of a named background task.
+
+    Args:
+        task_name: The identifier of the background task.
+        _: Authorization dependency.
+
+    Returns:
+        dict: The task status information.
+    """
     task = _background_tasks.get(task_name)
     if not task:
         return {"status": "unknown", "task": task_name}
@@ -1674,6 +1815,7 @@ async def trigger_sync(_: None = Depends(check_auth)):
     _background_tasks["sync"] = {"status": "running", "started_at": time.time()}
 
     def _run():
+        """Run sync_context_memory in a daemon thread and update the task registry."""
         try:
             print(f"{_GRN}[SYNC]{_RST} Manual sync triggered via /sync endpoint", flush=True)
             TOOL_FUNCTIONS["sync_context_memory"]()
@@ -1706,6 +1848,7 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     _background_tasks["vault_map"] = {"status": "running", "started_at": time.time()}
 
     def _run():
+        """Run vault_indexer.py as a subprocess and update the task registry on completion."""
         try:
             script = str(BASE_DIR / "Evelyn" / "tools" / "vault_indexer.py")
             print(f"{_GRN}[VAULT MAP]{_RST} Regeneration triggered via /vault_map endpoint", flush=True)
@@ -1756,6 +1899,7 @@ async def start_refresh_memory_internal():
     }
 
     async def _run_subprocess():
+        """Run refresh_memory.py as an async subprocess, streaming phase updates to the registry."""
         try:
             import sys
             script_path = str(BASE_DIR / "Evelyn" / "tools" / "refresh_memory.py")
@@ -1823,13 +1967,22 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
 
 
 class ResearchStartRequest(BaseModel):
+    """Pydantic model representing a request to start a new research task."""
     query: str
     scope: str = "standard"
 
 
 @app.post("/research/start")
 async def api_start_research(req: ResearchStartRequest, _: None = Depends(check_auth)):
-    """Trigger a deep research task in the background."""
+    """Trigger a deep research task in the background.
+
+    Args:
+        req: Start request containing the query and scope.
+        _: Authorization dependency.
+
+    Returns:
+        dict: A success message and metadata.
+    """
     from evelyn_tools import start_research
     _demote_running_task_if_any("new_task")
     result = start_research(req.query, scope=req.scope, bypass_queue=True)
@@ -1838,7 +1991,15 @@ async def api_start_research(req: ResearchStartRequest, _: None = Depends(check_
 
 @app.get("/research/status/{task_id}")
 async def api_research_status(task_id: str, _: None = Depends(check_auth)):
-    """Return the real-time status of a research task."""
+    """Return the real-time status of a research task.
+
+    Args:
+        task_id: The ID of the research task.
+        _: Authorization dependency.
+
+    Returns:
+        dict: The state dictionary of the task.
+    """
     from research_engine import load_state
     state = load_state(task_id)
     if not state:
@@ -1848,7 +2009,15 @@ async def api_research_status(task_id: str, _: None = Depends(check_auth)):
 
 @app.get("/research/report/{task_id}")
 async def api_research_report(task_id: str, _: None = Depends(check_auth)):
-    """Return the synthesized report of a research task."""
+    """Return the synthesized report of a research task.
+
+    Args:
+        task_id: The ID of the research task.
+        _: Authorization dependency.
+
+    Returns:
+        dict: A dictionary containing the markdown report content.
+    """
     import os
     from research_engine import get_task_dir
     task_dir = get_task_dir(task_id)
@@ -1885,6 +2054,15 @@ async def api_research_list(_: None = Depends(check_auth)):
 
     # Helper to clean/check duplicates
     def queries_are_duplicates(q1: str, q2: str) -> bool:
+        """Check if two research queries are semantic duplicates.
+
+        Args:
+            q1: The first query string to compare.
+            q2: The second query string to compare.
+
+        Returns:
+            bool: True if the queries exceed the duplication similarity thresholds.
+        """
         import re
         if not q1 or not q2:
             return False
@@ -1959,7 +2137,15 @@ async def api_research_list(_: None = Depends(check_auth)):
 
 @app.post("/research/cancel/{task_id}")
 async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
-    """Cancel an in-flight or queued research task."""
+    """Cancel an in-flight or queued research task.
+
+    Args:
+        task_id: The ID of the task to cancel.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Cancellation status indicator.
+    """
     import os
     if task_id.startswith("queued_"):
         try:
@@ -1999,7 +2185,15 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
 
 @app.post("/research/delete/{task_id}")
 async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
-    """Permanently delete a research task directory from disk and server memory."""
+    """Permanently delete a research task directory from disk and server memory.
+
+    Args:
+        task_id: The ID of the task to delete.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Deletion status indicator.
+    """
     import shutil
     import os
     
@@ -2079,7 +2273,15 @@ def _demote_running_task_if_any(promoting_task_id: str):
 
 @app.post("/research/resume/{task_id}")
 async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
-    """Resume a paused, cancelled, or failed research task."""
+    """Resume a paused, cancelled, or failed research task.
+
+    Args:
+        task_id: The ID of the task to resume.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming execution start.
+    """
     _demote_running_task_if_any(task_id)
     from evelyn_tools import resume_research_task
     result = resume_research_task(task_id)
@@ -2087,18 +2289,30 @@ async def api_resume_research(task_id: str, _: None = Depends(check_auth)):
 
 
 class GuideRequest(BaseModel):
+    """Pydantic model representing a request to inject guidance into a research task."""
     guidance: str
 
 class SQRewriteRequest(BaseModel):
+    """Pydantic model representing a request to rewrite a sub-question."""
     sq_id: str
     new_question: str
 
 class FinalizeGuidanceRequest(BaseModel):
+    """Pydantic model representing a request to finalize guidance on a research task."""
     pass
 
 @app.post("/research/guide/{task_id}")
 async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depends(check_auth)):
-    """Inject guidance into a struggling research task and resume it."""
+    """Inject guidance into a struggling research task and resume it.
+
+    Args:
+        task_id: The ID of the task.
+        request: Request containing the guidance text.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming guidance injection.
+    """
     _demote_running_task_if_any(task_id)
     from evelyn_tools import guide_research
     result = guide_research(task_id, request.guidance)
@@ -2106,14 +2320,31 @@ async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depe
 
 @app.post("/research/guide/{task_id}/rewrite")
 async def api_guide_research_rewrite(task_id: str, request: SQRewriteRequest, _: None = Depends(check_auth)):
-    """Submit a single sub-question rewrite (does not resume the task)."""
+    """Submit a single sub-question rewrite (does not resume the task).
+
+    Args:
+        task_id: The ID of the task.
+        request: Request containing the sub-question ID and new text.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming the rewrite.
+    """
     from evelyn_tools import rewrite_sub_question
     result = rewrite_sub_question(task_id, request.sq_id, request.new_question)
     return {"message": result}
 
 @app.post("/research/guide/{task_id}/finalize")
 async def api_guide_research_finalize(task_id: str, _: None = Depends(check_auth)):
-    """Finalize manual guidance edits and resume the task."""
+    """Finalize manual guidance edits and resume the task.
+
+    Args:
+        task_id: The ID of the task.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming finalization and resumption.
+    """
     _demote_running_task_if_any(task_id)
     from evelyn_tools import finalize_guidance
     result = finalize_guidance(task_id)
@@ -2122,12 +2353,14 @@ async def api_guide_research_finalize(task_id: str, _: None = Depends(check_auth
 
 @app.post("/research/start-now/{task_id}")
 async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
-    """Force-start a queued or paused research task immediately, bypassing idle-time scheduling.
+    """Force-start a queued or paused research task immediately.
 
-    Handles two cases:
-      - queued_N  : Pops the item at index N from queue.json and starts it right away via
-                    start_research(), respecting the same mutual-exclusion guard as the idle loop.
-      - <real id> : Delegates to resume_research_task() for paused/cancelled/error tasks.
+    Args:
+        task_id: The ID of the task (or queued index) to start.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming execution start.
     """
     import os
 
@@ -2198,6 +2431,7 @@ async def tts_proxy(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
+    """Serve the Evelyn UI index.html, or a fallback page if the UI files are missing."""
     index = UI_DIR / "index.html"
     if index.exists():
         return HTMLResponse(index.read_text(encoding="utf-8"))
@@ -2231,15 +2465,24 @@ if __name__ == "__main__":
 # Developer Web UI Endpoints
 # ---------------------------------------------------------------------------
 class EditEntryRequest(BaseModel):
+    """Pydantic model representing a request to edit a memory entry."""
     observation: str = None
 
 @app.get("/api/review/extractions")
 async def get_extractions(_: None = Depends(check_auth)):
+    """Return all extracted (pending review) memory entries."""
     import Evelyn.tools.memory_db as memory_db
     return memory_db.get_all_entries(statuses=["extracted"])
 
 @app.post("/api/review/extractions/{id}/{action}")
 async def action_extraction(id: int, action: str, req: EditEntryRequest = None, _: None = Depends(check_auth)):
+    """Approve, delete, or edit an extracted memory entry.
+
+    Args:
+        id:     SQLite row ID of the entry.
+        action: "approve" | "delete" | "edit".
+        req:    Required for "edit" — carries the updated observation text.
+    """
     import Evelyn.tools.memory_db as memory_db
     if action == "approve":
         memory_db.update_entry(id, status="live")
@@ -2255,6 +2498,7 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
 
 @app.get("/api/review/proposals")
 async def get_proposals(_: None = Depends(check_auth)):
+    """Return all pending consolidation/recategorization proposals with their source entries."""
     import Evelyn.tools.memory_db as memory_db
     proposals = memory_db.get_pending_proposals()
     for p in proposals:
@@ -2268,6 +2512,12 @@ async def get_proposals(_: None = Depends(check_auth)):
 
 @app.post("/api/review/proposals/{id}/{action}")
 async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
+    """Approve or deny a consolidation/recategorization proposal.
+
+    Args:
+        id:     Proposal row ID.
+        action: "approve" | "deny".
+    """
     import Evelyn.tools.memory_db as memory_db
     if action == "deny":
         memory_db.reject_proposal(id)

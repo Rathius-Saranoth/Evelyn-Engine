@@ -1,6 +1,6 @@
 # context_reviewer.py
 # date created: 2026-05-04 17:28:42
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-06-07 10:28:24
 # tags: #context, #reviewer, #queue, #ui, #interface
 
 """
@@ -48,12 +48,20 @@ CYAN   = "\033[96m"
 
 
 def _clr() -> None:
-    """Clear the terminal screen (cross-platform)."""
+    """Clear the terminal screen (cross-platform).
+
+    Returns:
+        None
+    """
     os.system("cls" if os.name == "nt" else "clear")
 
 
 def _getch() -> str:
-    """Read a single keypress without requiring Enter (cross-platform)."""
+    """Read a single keypress without requiring Enter.
+
+    Returns:
+        str: The lowercase decoded character of the pressed key.
+    """
     try:
         import msvcrt  # Windows
         ch = msvcrt.getch()
@@ -78,7 +86,13 @@ _DIV = "─" * 68
 
 
 def _display_entry(entry: dict, idx: int, total: int) -> None:
-    """Render the current entry review screen."""
+    """Render the current entry review screen.
+
+    Args:
+        entry: The context entry dictionary to display.
+        idx: The 0-based index of the entry.
+        total: The total count of entries.
+    """
     _clr()
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Evelyn — Context Entry Reviewer  {DIM}Phase 1: Extracted Facts{RESET}")
@@ -106,12 +120,20 @@ def _display_entry(entry: dict, idx: int, total: int) -> None:
 
 
 def _collect_extracted() -> list[dict]:
-    """Return list of extracted entries from SQLite."""
+    """Retrieve the list of extracted entries from SQLite.
+
+    Returns:
+        list[dict]: A list of message entries with 'extracted' status.
+    """
     return memory_db.get_all_entries(statuses=["extracted"])
 
 
 def run_phase1() -> None:
-    """Interactive review loop for extracted entries in SQLite."""
+    """Execute the interactive review loop for extracted entries in SQLite.
+
+    Returns:
+        None
+    """
     entries = _collect_extracted()
     if not entries:
         print(f"\n  {YELLOW}No extracted entries found in DB — nothing to review.{RESET}\n")
@@ -180,7 +202,11 @@ def run_phase1() -> None:
 
 
 def main() -> None:
-    """Main entry point."""
+    """Run the main entry point for the reviewer CLI.
+
+    Returns:
+        None
+    """
     _clr()
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Evelyn — Context Entry Reviewer{RESET}")

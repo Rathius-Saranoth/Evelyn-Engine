@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-06-07 10:28:38
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
@@ -52,8 +52,15 @@ RICKY_CORE_FILES = [
 # State helpers
 # ---------------------------------------------------------------------------
 
-def load_state(state_file):
-    """Load sync state, auto-migrating old {path: float} format."""
+def load_state(state_file: str) -> dict:
+    """Load sync state, auto-migrating old {path: float} format.
+
+    Args:
+        state_file: The path to the JSON state file.
+
+    Returns:
+        dict: The loaded and migrated state dictionary.
+    """
     if not os.path.exists(state_file):
         return {}
     try:
@@ -71,23 +78,37 @@ def load_state(state_file):
         return {}
 
 
-def save_state(state, state_file):
-    """Persist state to disk."""
+def save_state(state: dict, state_file: str) -> None:
+    """Persist sync state to disk.
+
+    Args:
+        state: The state dictionary to save.
+        state_file: The destination file path.
+    """
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=4)
 
 
-def get_markdown_files(directory):
-    """Return all *.md files under directory (recursive)."""
+def get_markdown_files(directory: str) -> list[str]:
+    """Return all *.md files under a directory (recursive).
+
+    Args:
+        directory: The source directory path.
+
+    Returns:
+        list[str]: A list of absolute file paths matching *.md.
+    """
     return glob(os.path.join(directory, "**", "*.md"), recursive=True)
 
 
 def parse_rag_frontmatter(content: str) -> dict:
-    """
-    Extract rag_priority, rag_pinned, and aliases from YAML frontmatter.
+    """Extract RAG settings from a YAML frontmatter block.
 
-    Returns a dict with defaults if frontmatter is absent or fields are missing:
-        {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
+    Args:
+        content: The raw markdown content string.
+
+    Returns:
+        dict: A dictionary containing 'rag_priority', 'rag_pinned', and 'aliases'.
     """
     defaults = {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
     fm_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
@@ -119,16 +140,11 @@ def parse_rag_frontmatter(content: str) -> dict:
 # Main sync
 # ---------------------------------------------------------------------------
 
-def main():
-    """
-    Full incremental sync of Evelyn's core memory files into Chroma.
+def main() -> None:
+    """Perform a full incremental sync of Evelyn's core memory files into Chroma.
 
-    Pipeline:
-      1. Load state from vault_sync_state.json.
-      2. Collect active markdown files (excluding Archived, Extracted, Pending, Pending_Approvals).
-      3. GC: remove Chroma records for files no longer present/active.
-      4. For each active file: skip if mtime unchanged, else upsert into Chroma.
-      5. Save updated state to disk.
+    Returns:
+        None
     """
     if not os.path.exists(EVELYN_DIR):
         print(f"Could not find Vault directory: {EVELYN_DIR}")

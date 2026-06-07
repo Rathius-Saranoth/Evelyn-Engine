@@ -1,6 +1,6 @@
 # ingest_gists.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-06-07 10:28:33
 # tags: #gists, #ingest, #indexing, #memory, #pipeline
 
 """
@@ -44,8 +44,15 @@ PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Desc
 # State helpers
 # ---------------------------------------------------------------------------
 
-def load_state(state_file):
-    """Load sync state, auto-migrating old {path: float} format."""
+def load_state(state_file: str) -> dict:
+    """Load sync state, auto-migrating old {path: float} format.
+
+    Args:
+        state_file: The path to the JSON state file.
+
+    Returns:
+        dict: The loaded and migrated state dictionary.
+    """
     if not os.path.exists(state_file):
         return {}
     try:
@@ -63,14 +70,31 @@ def load_state(state_file):
         return {}
 
 
-def save_state(state, state_file):
-    """Persist state to disk."""
+def save_state(state: dict, state_file: str) -> None:
+    """Persist sync state to disk.
+
+    Args:
+        state: The state dictionary to save.
+        state_file: The destination file path.
+    """
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=4)
 
 
-def format_gist_document(file_path, gist_text, tags, title=None):
-    """Format a gist into a plain-text document for Chroma storage."""
+def format_gist_document(
+    file_path: str, gist_text: str, tags: list[str], title: str | None = None
+) -> str:
+    """Format a gist into a plain-text document for Chroma storage.
+
+    Args:
+        file_path: The file path of the source note.
+        gist_text: The gist content text.
+        tags: A list of tags.
+        title: Optional custom title override.
+
+    Returns:
+        str: The formatted plain-text document.
+    """
     safe_title = title if title else os.path.basename(file_path).replace(".md", "")
     parts = [f"Topic: {safe_title}", f"File Path: {file_path}"]
     if tags:
@@ -84,17 +108,11 @@ def format_gist_document(file_path, gist_text, tags, title=None):
 # Main sync
 # ---------------------------------------------------------------------------
 
-def main():
-    """
-    Full incremental sync of vault gists into Chroma.
+def main() -> None:
+    """Perform a full incremental sync of vault gists into Chroma.
 
-    Pipeline:
-      1. Load all documents from evelyn_vault.db.
-      2. Load state from gist_sync_state.json.
-      3. GC: remove Chroma records for files no longer in the vault map.
-      4. For each vault file with a gist (non-excluded, mtime changed):
-           upsert into Chroma.
-      5. Save final state to disk.
+    Returns:
+        None
     """
     import vault_db
     try:
