@@ -1,4 +1,4 @@
-﻿{
+{
     "version": "2.0.0",
     "tasks": [
         {
@@ -201,7 +201,7 @@
         {
             "label": "Unload Evelyn Model",
             "type": "shell",
-            "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"gemma4:26b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
+            "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"gemma4:12b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared",

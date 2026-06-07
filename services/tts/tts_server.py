@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-05-25 19:50:52
+# date modified: 2026-06-06 19:51:27
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -32,7 +32,13 @@ import warnings
 
 # Suppress noisy terminal warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+import sys
 from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+try:
+    import evelyn_config as cfg
+except ImportError:
+    cfg = None
 
 import torch
 import soundfile as sf
@@ -128,6 +134,59 @@ def _schedule_unload():
     _unload_timer.start()
 
 
+def _unload_model_force():
+    """Unload model and free VRAM immediately."""
+    global _model, _unload_timer
+    with _model_lock:
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
+        if _model is None:
+            return
+        print("[TTS] Unloading Chatterbox model immediately to free VRAM for Ollama", flush=True)
+        del _model
+        _model = None
+        torch.cuda.empty_cache()
+        vram_mb = torch.cuda.memory_allocated() / 1024**2
+        print(f"[TTS] Model unloaded ({vram_mb:.0f} MB VRAM remaining)", flush=True)
+
+
+def _unload_ollama():
+    """Instruct Ollama to unload the current model from VRAM."""
+    if not cfg:
+        return
+    import urllib.request
+    import json
+    url = f"{cfg.OLLAMA_URL}/api/generate"
+    payload = json.dumps({"model": cfg.MODEL_NAME, "keep_alive": 0}).encode()
+    try:
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
+        print(f"[TTS] Sent unload signal for {cfg.MODEL_NAME} to Ollama", flush=True)
+    except Exception as e:
+        print(f"[TTS] Failed to unload Ollama: {e}", flush=True)
+
+
+def _prefetch_ollama():
+    """Trigger Ollama to reload the model into VRAM in the background."""
+    if not cfg:
+        return
+    import urllib.request
+    import json
+    # Wait 0.5s to ensure the OS/GPU has fully registered the Chatterbox release
+    time.sleep(0.5)
+    url = f"{cfg.OLLAMA_URL}/api/generate"
+    payload = json.dumps({"model": cfg.MODEL_NAME, "prompt": "", "keep_alive": -1}).encode()
+    try:
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+        print(f"[TTS] Reloaded {cfg.MODEL_NAME} into Ollama VRAM", flush=True)
+    except Exception as e:
+        print(f"[TTS] Failed to prefetch Ollama: {e}", flush=True)
+
+
 def get_model():
     """Get the loaded model, loading it if necessary. Thread-safe."""
     global _last_used
@@ -218,6 +277,9 @@ async def generate_speech(data: SpeechRequest, background_tasks: BackgroundTasks
     if not text:
         raise HTTPException(status_code=400, detail="Missing or empty 'input' field after cleaning")
 
+    # Unload Ollama to clear VRAM
+    _unload_ollama()
+
     # Load model (lazy, thread-safe)
     model = get_model()
 
@@ -233,22 +295,28 @@ async def generate_speech(data: SpeechRequest, background_tasks: BackgroundTasks
     silence = np.zeros(int(SAMPLE_RATE * 0.15), dtype=np.float32)
 
     try:
-        for chunk in chunks:
-            wav = model.generate(
-                text=chunk,
-                audio_prompt_path=REF_AUDIO,
-            )
-            wav_np = wav.squeeze().cpu().numpy()
-            all_wavs.append(wav_np)
-            all_wavs.append(silence)
-            
-        if all_wavs:
-            all_wavs.pop() # Remove trailing silence
-            
-        final_wav = np.concatenate(all_wavs) if all_wavs else np.zeros(0, dtype=np.float32)
-    except Exception as e:
-        print(f"[TTS] Generation error: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
+        try:
+            for chunk in chunks:
+                wav = model.generate(
+                    text=chunk,
+                    audio_prompt_path=REF_AUDIO,
+                )
+                wav_np = wav.squeeze().cpu().numpy()
+                all_wavs.append(wav_np)
+                all_wavs.append(silence)
+                
+            if all_wavs:
+                all_wavs.pop() # Remove trailing silence
+                
+            final_wav = np.concatenate(all_wavs) if all_wavs else np.zeros(0, dtype=np.float32)
+        except Exception as e:
+            print(f"[TTS] Generation error: {e}", flush=True)
+            raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
+    finally:
+        # Unload TTS model immediately to free VRAM
+        _unload_model_force()
+        # Prefetch Ollama in the background
+        threading.Thread(target=_prefetch_ollama, daemon=True).start()
 
     # Save to temp file
     filename = f"tts_{int(time.time() * 1000)}.wav"
