@@ -218,6 +218,16 @@
                 "panel": "shared"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Renew SSL Certificate",
+            "type": "shell",
+            "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' cert --cert-file image-host.internal.net.crt --key-file image-host.internal.net.key image-host.internal.net",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
         }
     ]
 }
