@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-06-06 19:18:46
+date modified: 2026-06-10 18:25:34
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -105,6 +105,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Idle-Time Fact Extraction**: `fact_extractor.py` reads directly from `evelyn_chat.db` using a persistent high-water mark (`evelyn_extraction_state.json`). Only new messages since the last successful run are processed — zero duplicate extractions across restarts. Runs during server idle time (5 min threshold) as a standalone background task, completely decoupled from the summarizer. Message timestamps injected into the transcript so the LLM dates each extracted fact to when it was actually discussed. Structural markers (`[THREAD_BREAK]`, `[Response interrupted]`) filtered before the LLM call. Mutual exclusion guard prevents overlap with the consolidator. Config: `FACT_EXTRACTION_*` keys in `evelyn_config.py`. *(Completed 2026-05-04)*
 - [x] **Idle-Time Fact Consolidation & Pending Reviewer**: Developed a robust background system to detect duplicate/superseded memory context entries during server idle time. Includes anchor-based all-pairs scanning, an interactive terminal reviewer (`pending_reviewer.py`), duplicate suppression, and strict category taxonomy enforcement. *(Completed 2026-05-19)*
 - [x] **Tool Schema Refactor**: Removed `log_context_fact`, `update_context_fact`, and `sync_context_memory` from the Ollama model-facing tool schema. Saves ~653 tokens per request (~4% of the 16k context window). Functions remain in `TOOL_FUNCTIONS` for system dispatch. `TOOL_DEFINITIONS` renamed to `MODEL_TOOL_DEFINITIONS` to make the distinction explicit. *(Completed 2026-05-04)*
+- [x] **Category Naming Standards & Self-Healing**: Implemented strict validation and normalization for the `CAT##-$` category naming convention in `fact_consolidator.py`, and added an automatic database self-healing routine to remediate all malformed legacy entries (`Ca16`, `Kat08`, etc.) in `evelyn_memory.db`. *(Completed 2026-06-10)*
+
 
 ## Phase 4: Data Architecture & Ecosystem (Planned)
 
