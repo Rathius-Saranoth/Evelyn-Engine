@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-06-07 10:18:40
+# date modified: 2026-06-10 18:20:58
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -200,6 +200,126 @@ def _save_scan_state() -> None:
             json.dump(_category_scan_state, f, indent=2)
     except OSError as e:
         print(f"[CONSOLIDATOR] Warning: could not save scan state: {e}", flush=True)
+
+
+def validate_and_normalize_category(
+    cat_str: str, subject: str | None = None
+) -> str | None:
+    """Validate and normalize a category string to the format Cat##-[ER].
+
+    Attempts to parse noisy category names (e.g. Ca16, Kat08, Ka11, cad09)
+    and normalize them to the canonical Cat##-E or Cat##-R.
+
+    Args:
+        cat_str: The category string to validate.
+        subject: Optional subject ("Ricky" or "Evelyn") to resolve missing or
+                 ambiguous suffixes.
+
+    Returns:
+        str | None: The normalized category string (e.g., 'Cat08-E'), or None
+                    if it cannot be resolved to a valid category.
+    """
+    # If category is completely empty, default to Cat01-R or Cat01-E
+    if not cat_str or not cat_str.strip():
+        suffix = "E" if subject and "evelyn" in subject.lower() else "R"
+        return f"Cat01-{suffix}"
+
+    cat_str = cat_str.strip()
+
+    # Match the base category number: look for c/k/cat/kat/cad/kad followed by digits
+    # Examples: Ca16 -> 16, Kat08 -> 8, cad09 -> 9, Ka11 -> 11, Cat05-R -> 5
+    num_match = re.search(r"(?i)(?:cat|kat|cad|kad|ca|ka|c|k)\s*(\d{1,2})", cat_str)
+    if not num_match:
+        # If no number matched, default to Cat01-R or Cat01-E
+        suffix = "E" if subject and "evelyn" in subject.lower() else "R"
+        return f"Cat01-{suffix}"
+
+    num = int(num_match.group(1))
+    if num == 0:
+        num = 1
+    if not (1 <= num <= 16):
+        return None
+
+    cat_base = f"Cat{num:02d}"
+
+    # Determine suffix: E or R
+    suffix = None
+    suffix_match = re.search(r"(?i)(?:-|/|\s)?([er])$", cat_str)
+    if suffix_match:
+        suffix = suffix_match.group(1).upper()
+    else:
+        after_num = cat_str[num_match.end():].upper()
+        if "E" in after_num and "R" in after_num:
+            suffix = None
+        elif "E" in after_num:
+            suffix = "E"
+        elif "R" in after_num:
+            suffix = "R"
+
+    # Fall back to subject context if suffix is ambiguous or missing
+    if not suffix and subject:
+        subj_lower = subject.lower()
+        if "ricky" in subj_lower:
+            suffix = "R"
+        elif "evelyn" in subj_lower:
+            suffix = "E"
+
+    # Final fallback for suffix if still undetermined
+    if not suffix:
+        suffix = "R"
+
+    return f"{cat_base}-{suffix}"
+
+
+def remediate_database_categories() -> None:
+    """Scan the SQLite database for invalid categories and normalize them.
+
+    Ensures that any existing invalid category strings (e.g. Ca16, cad09) are
+    corrected in place in context_entries and proposals.
+    """
+    import memory_db
+    try:
+        con = memory_db.get_db()
+        
+        # 1. Remediate context_entries
+        rows = con.execute("SELECT id, category, subject FROM context_entries").fetchall()
+        corrected_entries = 0
+        for row in rows:
+            entry_id = row["id"]
+            cat = row["category"]
+            subject = row["subject"]
+            
+            normalized = validate_and_normalize_category(cat, subject)
+            if normalized and normalized != cat:
+                con.execute(
+                    "UPDATE context_entries SET category = ?, updated_at = ? WHERE id = ?",
+                    (normalized, time.time(), entry_id)
+                )
+                corrected_entries += 1
+                print(f"[REMEDIATION] Corrected context entry {entry_id} category: '{cat}' -> '{normalized}'", flush=True)
+                
+        # 2. Remediate proposals
+        rows = con.execute("SELECT id, suggested_category FROM proposals WHERE suggested_category IS NOT NULL").fetchall()
+        corrected_proposals = 0
+        for row in rows:
+            prop_id = row["id"]
+            cat = row["suggested_category"]
+            
+            normalized = validate_and_normalize_category(cat)
+            if normalized and normalized != cat:
+                con.execute(
+                    "UPDATE proposals SET suggested_category = ? WHERE id = ?",
+                    (normalized, prop_id)
+                )
+                corrected_proposals += 1
+                print(f"[REMEDIATION] Corrected proposal {prop_id} suggested_category: '{cat}' -> '{normalized}'", flush=True)
+                
+        if corrected_entries > 0 or corrected_proposals > 0:
+            con.commit()
+            print(f"[REMEDIATION] Committed: {corrected_entries} entries, {corrected_proposals} proposals corrected.", flush=True)
+        con.close()
+    except Exception as e:
+        print(f"[REMEDIATION ERROR] Failed to remediate database categories: {e}", flush=True)
 
 
 async def _call_ollama(
@@ -907,10 +1027,22 @@ def _parse_recat_yaml(raw: str, records: list[dict]) -> list[dict]:
         idx = rc.get("entry_index")
         if not isinstance(idx, int) or not (1 <= idx <= len(records)):
             continue
+        suggested = str(rc.get("suggested_category", "")).strip()
+        record = records[idx - 1]
+        
+        normalized = validate_and_normalize_category(suggested, record.get("subject"))
+        if not normalized:
+            print(f"[CONSOLIDATOR] Skipping recat proposal for entry {record['id']} — invalid suggested category: '{suggested}'", flush=True)
+            continue
+            
+        if normalized == record.get("category"):
+            # Already in this category, skip recat suggestion
+            continue
+
         recat_items.append(
             {
-                "record": records[idx - 1],
-                "suggested_category": str(rc.get("suggested_category", "")).strip(),
+                "record": record,
+                "suggested_category": normalized,
                 "topic": str(rc.get("topic", "")).strip(),
                 "reason": str(rc.get("reason", "")).strip(),
             }
@@ -1161,19 +1293,22 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
     if not raw:
         return None
 
-    proposal_data = _parse_proposal_yaml(raw, category)
+    proposal_data = _parse_proposal_yaml(raw, category, records)
     if not proposal_data:
         return None
 
     return _write_proposal(cluster, proposal_data)
 
 
-def _parse_proposal_yaml(raw: str, category: str) -> dict | None:
+def _parse_proposal_yaml(
+    raw: str, category: str, records: list[dict] = None
+) -> dict | None:
     """Parse the consolidation verdict YAML from the model response.
 
     Args:
         raw: The raw response string from the model.
         category: The category code.
+        records: Optional list of FactRecords in the cluster.
 
     Returns:
         dict | None: The parsed proposal verdict dictionary, or None if parsing failed.
@@ -1194,12 +1329,23 @@ def _parse_proposal_yaml(raw: str, category: str) -> dict | None:
     if verdict not in ("supersede", "merge", "keep_both"):
         verdict = "keep_both"
 
+    target_cat = str(data.get("target_category", category)).strip()
+    subject = records[0].get("subject") if records else None
+    normalized = validate_and_normalize_category(target_cat, subject)
+    if not normalized:
+        print(
+            f"[CONSOLIDATOR] Warning: invalid target_category '{target_cat}' in proposal. "
+            f"Falling back to current category '{category}'.",
+            flush=True,
+        )
+        normalized = category
+
     return {
         "verdict": verdict,
         "merged_summary": str(data.get("merged_summary", "")).strip(),
         "merged_tags": str(data.get("merged_tags", "")).strip(),
         "confidence": str(data.get("confidence", "medium")).strip().lower(),
-        "target_category": str(data.get("target_category", category)).strip(),
+        "target_category": normalized,
         "reasoning": str(data.get("reasoning", "")).strip(),
     }
 
@@ -1340,6 +1486,9 @@ async def _do_consolidation():
     import memory_db
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)
     start = time.time()
+
+    # Remediate any malformed categories in the database
+    remediate_database_categories()
 
     # Step 1 — Scan vault
     cat00 = load_cat00_index()
