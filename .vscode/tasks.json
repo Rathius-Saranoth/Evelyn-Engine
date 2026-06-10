@@ -218,6 +218,16 @@
                 "panel": "shared"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Renew SSL Certificate",
+            "type": "shell",
+            "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' cert --cert-file ricky-pc.tail0e161b.ts.net.crt --key-file ricky-pc.tail0e161b.ts.net.key ricky-pc.tail0e161b.ts.net",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
         }
     ]
 }
