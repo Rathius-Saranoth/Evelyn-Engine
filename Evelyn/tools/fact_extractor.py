@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-06-07 10:19:00
+# date modified: 2026-06-14 16:16:52
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -15,6 +15,10 @@ Exports:
   cancel_pending_extraction() — Called on each new chat request to free Ollama.
   write_extracted_facts()     — Write parsed facts to the SQLite memory DB.
   load_cat00_index()          — Return the Cat00 category taxonomy (cached 1 h).
+
+Internal security:
+  _sanitize_entry()           — Strips invisible Unicode and rejects prompt-injection
+                                patterns before any text reaches the memory DB.
 
 Key config: evelyn_config.py (FACT_EXTRACTION_*, THINK, NUM_CTX)
 Architecture notes: reference/docstring_content/pipeline_internals.md
@@ -42,6 +46,69 @@ import evelyn_config as cfg # [[evelyn_config.py]]
 _YAML_BLOCK_RE = re.compile(r"```(?:facts|yaml)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _FACTS_KEY_RE  = re.compile(r"^\s*facts\s*:", re.MULTILINE)
 _DATE_RE       = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# ---------------------------------------------------------------------------
+# Security: prompt-injection detection and invisible-character sanitization
+# ---------------------------------------------------------------------------
+
+# Patterns that signal an adversarial attempt to hijack the extraction pipeline.
+_INJECTION_RE = re.compile(
+    r"(?:ignore|disregard)\s+(?:previous|above|prior|all|the\s+above)"
+    r"|new\s+instruction"
+    r"|system\s*:"
+    r"|\[INST\]"
+    r"|forget\s+(?:the\s+)?(?:instruction|context|memory)",
+    re.IGNORECASE,
+)
+
+# Invisible Unicode codepoints used for steganographic text hiding.
+_INVISIBLE_CHARS = "\u200b\u200c\u200d\ufeff\u00ad"
+
+
+def _sanitize_entry(text: str) -> str | None:
+    """Sanitize a candidate memory entry against injection and invisible characters.
+
+    Runs three ordered checks:
+      1. Strip invisible Unicode (zero-width spaces, BOM, soft-hyphens) that
+         may be used to conceal injected text from human review.
+      2. Reject entries matching prompt-injection patterns (e.g.
+         'ignore previous instructions', 'new instruction', '[INST]').
+      3. Reject entries where a category code (Cat##) is embedded in the
+         summary text itself — a known model quirk the extraction prompt
+         already guards against, caught here as a second layer.
+
+    This is defence-in-depth: the extraction prompt is already hardened, but
+    this gate catches adversarial inputs and model hallucinations that slip
+    through the prompt layer.
+
+    Args:
+        text: The raw summary or observation string to validate.
+
+    Returns:
+        str | None: The cleaned text if all checks pass, or None if the
+            entry must be silently dropped.
+    """
+    # Pass 1 — strip invisible/steganographic Unicode
+    cleaned = text.translate(str.maketrans("", "", _INVISIBLE_CHARS))
+
+    # Pass 2 — reject prompt-injection patterns
+    if _INJECTION_RE.search(cleaned):
+        print(
+            "[EXTRACTOR] Sanitization: prompt injection pattern detected — dropping entry.",
+            flush=True,
+        )
+        return None
+
+    # Pass 3 — reject embedded category codes in summary body
+    if re.search(r"\bCat\d{2}\b", cleaned):
+        print(
+            "[EXTRACTOR] Sanitization: category code embedded in summary — dropping entry.",
+            flush=True,
+        )
+        return None
+
+    return cleaned if cleaned.strip() else None
+
 
 # ---------------------------------------------------------------------------
 # Category taxonomy cache - [[Cat00 - Index.md]]
@@ -466,6 +533,12 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         cat = str(item.get("category", "")).strip()
         tags = str(item.get("tags", "")).strip()
         summ = str(item.get("summary", "")).strip()
+        # Sanitize before any further processing — drop if injection or
+        # invisible-char abuse detected.
+        summ = _sanitize_entry(summ)
+        if summ is None:
+            print("[EXTRACTOR] Skipping fact — failed sanitization check.", flush=True)
+            continue
         conf = str(item.get("confidence", "medium")).strip().lower()
         raw_date = str(item.get("date", "")).strip()
 
@@ -630,8 +703,18 @@ def write_extracted_facts(facts: list[dict]) -> int:
 
     for fact in facts:
         category = fact["category"]
-        subject = fact["subject"]
-        summary = fact["summary"]
+        subject  = fact["subject"]
+        raw_summary = fact["summary"]
+        # Final sanitization gate — defence-in-depth for any caller that
+        # bypasses _parse_facts_yaml (e.g. direct API calls or future tooling).
+        summary = _sanitize_entry(raw_summary)
+        if summary is None:
+            print(
+                f"[EXTRACTOR] Skipping write — failed sanitization gate: "
+                f"{raw_summary[:80]}",
+                flush=True,
+            )
+            continue
         confidence = fact["confidence"]
         fact_date = fact.get("date") or today_str
 
