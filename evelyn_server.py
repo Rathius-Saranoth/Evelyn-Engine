@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-07 10:29:01
+# date modified: 2026-06-14 16:30:11
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -312,11 +312,37 @@ _LEAKED_MODEL_TOKENS = [
 ]
 
 
+def _time_of_day_label(ts: float | None) -> str:
+    """Convert a unix timestamp to a 'Day Mon DD \u00b7 period' label.
+
+    Returns a bracketed label like '[Mon Jun 09 \u00b7 afternoon] ' for use as a
+    transcript prefix. Returns an empty string if ts is absent or invalid.
+    """
+    if not ts:
+        return ""
+    try:
+        d = datetime.fromtimestamp(ts)
+        hour = d.hour
+        if 5 <= hour < 12:
+            period = "morning"
+        elif 12 <= hour < 17:
+            period = "afternoon"
+        elif 17 <= hour < 21:
+            period = "evening"
+        else:
+            period = "night"
+        return f"[{d.strftime('%a %b %d')} \u00b7 {period}] "
+    except (OSError, OverflowError, ValueError):
+        return ""
+
+
 def load_history() -> list[dict]:
     """Load recent chat history for the model, bounded by thread breaks and caps.
 
     Filters out empty, placeholder, and thread-break messages, and ensures
-    no orphaned trailing user messages confuse the model.
+    no orphaned trailing user messages confuse the model. Prepends a temporal
+    time-of-day label to each message content string to give the model historical
+    ordering and chronological context.
 
     Returns:
         list[dict]: A list of message dictionaries with "role" and "content".
@@ -331,7 +357,7 @@ def load_history() -> list[dict]:
 
     limit = cfg.MAX_HISTORY_MESSAGES
     rows = con.execute(
-        "SELECT role, content FROM messages WHERE id > ? ORDER BY id DESC LIMIT ?",
+        "SELECT role, content, ts FROM messages WHERE id > ? ORDER BY id DESC LIMIT ?",
         (after_id, limit),
     ).fetchall()
     con.close()
@@ -343,7 +369,7 @@ def load_history() -> list[dict]:
     # Placeholders must NOT be sent to the model -- they confuse magistral
     # and cause it to produce empty responses on every subsequent request.
     messages = [
-        {"role": r["role"], "content": r["content"]}
+        {"role": r["role"], "content": f"{_time_of_day_label(r.get('ts'))}{r['content']}"}
         for r in rows
         if r["content"].strip()
         and not r["content"].startswith(PLACEHOLDER_MARKER)

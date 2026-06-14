@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-06-10 18:20:58
+# date modified: 2026-06-14 16:22:21
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -15,6 +15,10 @@ Exports:
   find_consolidation_candidates()  — Detect duplicate clusters across categories.
   generate_consolidation_proposal() — LLM-driven merge verdict (think=True).
   scan_context_entries()           — Fetch all live FactRecords from SQLite.
+
+Internal safety:
+  _backup_memory_db()              — Rolling hot-copy of evelyn_memory.db written
+                                     before every consolidation pass via sqlite3.backup().
 
 Key config: evelyn_config.py (CONSOLIDATION_*, THINK, NUM_CTX)
 Full function index and behavioral notes: reference/docstring_content/pipeline_internals.md
@@ -1480,12 +1484,43 @@ def _write_recategorization_proposal(
 # ============================================================================
 
 
+def _backup_memory_db() -> None:
+    """Create a rolling hot-copy of evelyn_memory.db before any consolidation mutations.
+
+    Uses the sqlite3.backup() API (Python 3.7+), which safely copies the live
+    database while it is open by other connections — no locking or downtime
+    required. The .bak file is overwritten on every consolidation cycle.
+    At the default 1-hour interval this always reflects the last known-good
+    state before the current run's mutations begin.
+
+    Failures are caught and logged but never propagated — a backup error must
+    not block the consolidation pass.
+    """
+    import sqlite3 as _sqlite3
+
+    src_path = cfg.MEMORY_DB_PATH
+    bak_path = src_path + ".bak"
+    try:
+        src_con = _sqlite3.connect(src_path)
+        bak_con = _sqlite3.connect(bak_path)
+        src_con.backup(bak_con)
+        bak_con.close()
+        src_con.close()
+        print(f"[CONSOLIDATOR] DB backup written \u2192 {bak_path}", flush=True)
+    except Exception as e:
+        print(f"[CONSOLIDATOR] DB backup failed (non-fatal): {e}", flush=True)
+
+
 async def _do_consolidation():
     """Execute the core consolidation pipeline steps sequentially."""
     importlib.reload(cfg)
     import memory_db
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)
     start = time.time()
+
+    # Pre-flight: create a rolling .bak before any DB mutations.
+    # Uses sqlite3.backup() — safe for hot copies, no locking needed.
+    _backup_memory_db()
 
     # Remediate any malformed categories in the database
     remediate_database_categories()
