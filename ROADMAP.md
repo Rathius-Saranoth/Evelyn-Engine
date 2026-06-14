@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-06-10 18:25:34
+date modified: 2026-06-14 16:30:19
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -106,6 +106,12 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Idle-Time Fact Consolidation & Pending Reviewer**: Developed a robust background system to detect duplicate/superseded memory context entries during server idle time. Includes anchor-based all-pairs scanning, an interactive terminal reviewer (`pending_reviewer.py`), duplicate suppression, and strict category taxonomy enforcement. *(Completed 2026-05-19)*
 - [x] **Tool Schema Refactor**: Removed `log_context_fact`, `update_context_fact`, and `sync_context_memory` from the Ollama model-facing tool schema. Saves ~653 tokens per request (~4% of the 16k context window). Functions remain in `TOOL_FUNCTIONS` for system dispatch. `TOOL_DEFINITIONS` renamed to `MODEL_TOOL_DEFINITIONS` to make the distinction explicit. *(Completed 2026-05-04)*
 - [x] **Category Naming Standards & Self-Healing**: Implemented strict validation and normalization for the `CAT##-$` category naming convention in `fact_consolidator.py`, and added an automatic database self-healing routine to remediate all malformed legacy entries (`Ca16`, `Kat08`, etc.) in `evelyn_memory.db`. *(Completed 2026-06-10)*
+- [x] **Structured Context Summary Template**: Replaced the free-form paragraph summarization prompt in `context_summarizer.py` with a structured 5-section template (Topic / Decisions Made / Action Items / Important Details / Emotional Context). Produces predictable, actionable summaries the model can parse rather than dense prose. *(Hermes Tier 1 #1 — Completed 2026-06-14)*
+- [x] **Summarizer Tool Output Pruning Pre-Pass**: Added `_prune_tool_outputs()` to `context_summarizer.py`. Before the LLM summarization call, assistant messages containing tool outputs (image embeds, research links, research markers) are replaced with `[Tool output cleared]` — saving context tokens at zero LLM cost. *(Hermes Tier 1 #2 — Completed 2026-06-14)*
+- [x] **Memory Entry Sanitization**: Added `_sanitize_entry()` to `fact_extractor.py` as a defence-in-depth security gate before any LLM output reaches the memory DB. Three ordered passes: strip invisible Unicode (zero-width spaces, BOM, soft-hyphens), reject prompt-injection patterns (`ignore previous`, `new instruction`, `[INST]`, etc.), reject embedded category codes (`Cat##` in summary body). Applied at both the YAML parse boundary and the final DB write boundary for two-layer protection. *(Hermes Tier 1 #3 — Completed 2026-06-14)*
+- [x] **Pre-Consolidation DB Backup**: Added `_backup_memory_db()` to `fact_consolidator.py`. Uses `sqlite3.backup()` (hot-copy API — works while the DB is open, no locking) to write `evelyn_memory.db.bak` before every consolidation pass. Rolling single-file backup; at the default 1-hour cycle it always represents the last known-good state before mutations begin. Failures are caught and logged but never block the pipeline. *(Hermes Tier 1 #4 — Completed 2026-06-14)*
+- [x] **Memory Health/Usage Tracking**: Integrated `last_retrieved_at` and `retrieval_count` columns in the `context_entries` table in `memory_db.py`. Added database schema migration step in `init_db()` to auto-migrate existing databases. Implemented `touch_entry_retrieved()` function in `memory_db.py` and wired it into `build_rag_context()` in `chroma_rag.py` to transparently track when entries are retrieved for RAG context. *(Hermes Tier 1 #5 — Completed 2026-06-14)*
+- [x] **Temporal Message Annotations**: Implemented `_time_of_day_label()` in `evelyn_server.py` and integrated it with `load_history()` to dynamically prefix chronological details (e.g. `[Mon Jun 09 \u00b7 afternoon]`) to all history messages before passing them to the model. Gives Evelyn implicit time progression awareness (improving journaling order and temporal memory coherence) without polluting stored database records. *(Hermes Tier 1 #6 — Completed 2026-06-14)*
 
 
 ## Phase 4: Data Architecture & Ecosystem (Planned)

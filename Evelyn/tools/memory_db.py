@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-06-07 10:28:42
+# date modified: 2026-06-14 16:28:04
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -13,14 +13,17 @@ in evelyn_memory.db. Keeps context/memory data separate from chat history
 Schema:
   context_entries — Stores all context facts (live, extracted, pending_review).
                     Replaces the Cat##/Cat##-{E,R}/*.md flat-file layout.
+                    Columns include last_retrieved_at and retrieval_count for
+                    memory health analysis (added 2026-06-14).
   proposals       — Stores consolidation and recategorization proposals.
                     Replaces CONSOLIDATION_*.md and RECATEGORIZE_*.md files.
 
 Usage:
   import memory_db
-  memory_db.init_db()           # Idempotent — safe to call on every startup
+  memory_db.init_db()                      # Idempotent — safe to call on every startup
   entry_id = memory_db.insert_entry(category='Cat05-R', subject='Ricky', ...)
   entries  = memory_db.get_entries_by_category('Cat05-R')
+  memory_db.touch_entry_retrieved(entry_id) # Fire-and-forget retrieval tracking
 
 All functions use short-lived connections (no module-level state).
 """
@@ -63,19 +66,33 @@ def init_db() -> None:
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS context_entries (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            category        TEXT NOT NULL,
-            subject         TEXT NOT NULL,
-            observation     TEXT NOT NULL,
-            confidence      TEXT NOT NULL DEFAULT 'medium',
-            source          TEXT NOT NULL DEFAULT 'manual',
-            status          TEXT NOT NULL DEFAULT 'live',
-            date            TEXT,
-            tags            TEXT,
-            created_at      REAL NOT NULL,
-            updated_at      REAL
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            category          TEXT NOT NULL,
+            subject           TEXT NOT NULL,
+            observation       TEXT NOT NULL,
+            confidence        TEXT NOT NULL DEFAULT 'medium',
+            source            TEXT NOT NULL DEFAULT 'manual',
+            status            TEXT NOT NULL DEFAULT 'live',
+            date              TEXT,
+            tags              TEXT,
+            created_at        REAL NOT NULL,
+            updated_at        REAL,
+            last_retrieved_at REAL,
+            retrieval_count   INTEGER NOT NULL DEFAULT 0
         )
     """)
+
+    # Migrate: add usage-tracking columns if missing on existing databases.
+    # sqlite3.backup() runs before this on every consolidation cycle, so the
+    # schema change is always protected by a recent hot-copy.
+    for _migration in [
+        "ALTER TABLE context_entries ADD COLUMN last_retrieved_at REAL",
+        "ALTER TABLE context_entries ADD COLUMN retrieval_count INTEGER NOT NULL DEFAULT 0",
+    ]:
+        try:
+            con.execute(_migration)
+        except Exception:
+            pass  # Column already exists — expected on all existing DBs
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS proposals (
@@ -226,7 +243,7 @@ def update_entry(entry_id: int, **fields) -> bool:
     """
     valid_cols = {
         "category", "subject", "observation", "confidence", "source",
-        "status", "date", "tags",
+        "status", "date", "tags", "last_retrieved_at", "retrieval_count",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -244,6 +261,36 @@ def update_entry(entry_id: int, **fields) -> bool:
     affected = cur.rowcount
     con.close()
     return affected > 0
+
+
+def touch_entry_retrieved(entry_id: int) -> None:
+    """Increment retrieval_count and update last_retrieved_at for a context entry.
+
+    Called whenever a context entry is served to the model via RAG retrieval.
+    Provides data for future memory health analysis: entries with retrieval_count
+    of zero are candidates for pruning, consolidation, or quality review.
+
+    This function is fire-and-forget: all exceptions are silently suppressed so
+    that a tracking write failure never affects the caller or RAG delivery.
+
+    Args:
+        entry_id: Row ID of the context entry that was retrieved.
+    """
+    try:
+        con = get_db()
+        con.execute(
+            """
+            UPDATE context_entries
+            SET retrieval_count   = retrieval_count + 1,
+                last_retrieved_at = ?
+            WHERE id = ?
+            """,
+            (time.time(), entry_id),
+        )
+        con.commit()
+        con.close()
+    except Exception:
+        pass  # Tracking failure must never propagate to the caller
 
 
 def delete_entry(entry_id: int) -> bool:

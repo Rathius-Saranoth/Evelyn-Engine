@@ -1,6 +1,6 @@
 # context_summarizer.py
 # date created: 2026-04-24 20:17:58
-# date modified: 2026-06-07 10:28:29
+# date modified: 2026-06-14 16:07:59
 # tags: #context, #summarizer, #summarization, #async, #sliding_window
 
 """
@@ -15,6 +15,8 @@ Architecture:
                                     summary by calling Ollama (same model, same
                                     process, no model swap)
   - invalidate_summary_cache()    — clears the cache (called on thread break)
+  - _prune_tool_outputs()         — strips bulky tool outputs from older messages
+                                    before summarization (zero LLM cost)
 
 The summarizer uses the same call_ollama_full() path as the main chat loop,
 so Ollama reuses the already-loaded model with zero swap overhead.
@@ -136,7 +138,7 @@ def _get_summary_window() -> tuple[list[dict], str]:
 
     # Get ALL messages in the current thread (newest first)
     all_rows = con.execute(
-        "SELECT id, role, content FROM messages WHERE id > ? ORDER BY id DESC",
+        "SELECT id, role, content, ts FROM messages WHERE id > ? ORDER BY id DESC",
         (after_id,),
     ).fetchall()
     con.close()
@@ -174,7 +176,10 @@ def _get_summary_window() -> tuple[list[dict], str]:
     if not summary_rows:
         return [], ""
 
-    messages = [{"role": r["role"], "content": r["content"]} for r in summary_rows]
+    messages = [
+        {"role": r["role"], "content": r["content"], "ts": r["ts"]}
+        for r in summary_rows
+    ]
 
     # Hash the message IDs for change detection
     id_string = ",".join(str(r["id"]) for r in summary_rows)
@@ -183,11 +188,89 @@ def _get_summary_window() -> tuple[list[dict], str]:
     return messages, msg_hash
 
 
+def _prune_tool_outputs(messages: list[dict]) -> list[dict]:
+    """Replace verbose tool outputs in older messages with a placeholder.
+
+    Runs before LLM summarization. Tool outputs (image generation results,
+    research reports, Obsidian links) can be hundreds of tokens but contribute
+    nothing useful to a conversation summary. Stripping them here saves tokens
+    at zero LLM cost.
+
+    Only assistant messages exceeding the threshold AND containing a known
+    tool-output marker are pruned — ordinary long assistant replies are left
+    intact.
+
+    Args:
+        messages: Chronologically ordered list of {role, content} dicts.
+
+    Returns:
+        list[dict]: Copy of the list with bulky tool outputs replaced by
+            '[Tool output cleared]'.
+    """
+    # Patterns that identify a message as primarily tool output.
+    _TOOL_MARKERS = (
+        "![",            # Markdown image embed (generated images)
+        "[[Research/",   # Obsidian research link
+        "[RESEARCH",     # Research task marker
+        "[Tool output",  # Already-pruned placeholder (idempotent)
+    )
+    # Messages below this length are cheap enough to keep as-is.
+    _PRUNE_THRESHOLD = 400
+
+    pruned = []
+    for msg in messages:
+        if (
+            msg["role"] == "assistant"
+            and len(msg["content"]) > _PRUNE_THRESHOLD
+            and any(marker in msg["content"] for marker in _TOOL_MARKERS)
+        ):
+            pruned.append({"role": "assistant", "content": "[Tool output cleared]"})
+        else:
+            pruned.append(msg)
+    return pruned
+
+
+def _time_of_day_label(ts) -> str:
+    """Convert a unix timestamp to a 'Day Mon DD · period' label.
+
+    Returns a bracketed label like '[Mon Jun 09 · afternoon]' for use as a
+    transcript prefix. Returns an empty string if ts is absent or invalid.
+
+    Args:
+        ts: Unix timestamp (float or int), or None.
+
+    Returns:
+        str: Formatted label string, or '' on failure.
+    """
+    if not ts:
+        return ""
+    import datetime as dt
+    try:
+        d = dt.datetime.fromtimestamp(ts)
+        hour = d.hour
+        if 5 <= hour < 12:
+            period = "morning"
+        elif 12 <= hour < 17:
+            period = "afternoon"
+        elif 17 <= hour < 21:
+            period = "evening"
+        else:
+            period = "night"
+        return f"[{d.strftime('%a %b %d')} \u00b7 {period}] "
+    except (OSError, OverflowError, ValueError):
+        return ""
+
+
 def _format_messages_for_prompt(messages: list[dict]) -> str:
     """Format message list into a readable conversation transcript.
 
+    Each line is prefixed with a date + time-of-day label derived from the
+    message's stored timestamp, giving the summarizer temporal context for
+    multi-day windows.
+
     Args:
-        messages: A list of message dictionaries.
+        messages: A list of message dictionaries with 'role', 'content', and
+            optional 'ts' keys.
 
     Returns:
         str: The formatted transcript string.
@@ -200,7 +283,8 @@ def _format_messages_for_prompt(messages: list[dict]) -> str:
         content = msg["content"]
         if len(content) > 500:
             content = content[:497] + "..."
-        lines.append(f"{role_label}: {content}")
+        time_label = _time_of_day_label(msg.get("ts"))
+        lines.append(f"{time_label}{role_label}: {content}")
     return "\n\n".join(lines)
 
 
@@ -221,22 +305,44 @@ async def _do_summary_update():
         # Messages haven't changed since last summary — skip
         return
 
-    # Build the summarization prompt
+    # Pre-pass: replace bulky tool outputs before the LLM call.
+    # This saves tokens at zero cost — the summarizer has nothing useful
+    # to extract from a raw image embed or research report block.
+    messages = _prune_tool_outputs(messages)
+
+    # Build the structured summarization prompt
     max_words = cfg.SUMMARY_MAX_WORDS
     conversation_text = _format_messages_for_prompt(messages)
 
     summary_prompt = (
-        "Summarize the following conversation between a user (Ricky) and an AI assistant (Evelyn). "
-        f"Extract ONLY the key facts, decisions, topics discussed, and emotional tone. "
-        "Do NOT include greetings, filler, or meta-commentary about the summarization. "
-        f"Keep your summary under {max_words} words. "
-        "Use present tense for ongoing topics and past tense for concluded ones. "
-        "Format as a concise paragraph, not bullet points."
-        f"\n\nCONVERSATION:\n{conversation_text}"
+        "Summarize the following conversation segment between Ricky (user) and Evelyn (AI).\n"
+        "Output ONLY the structured template below — no preamble, no closing remarks.\n"
+        f"Keep the entire summary under {max_words} words total.\n\n"
+        "## Conversation State\n"
+        "### Chronology\n"
+        "[Date range and general time flow, e.g. 'Jun 9 morning \u2192 Jun 10 evening']\n\n"
+        "### Topics\n"
+        "[What was being discussed — one bullet per distinct topic if multiple]\n\n"
+        "### Decisions Made\n"
+        "[Key conclusions or agreements reached, or 'None']\n\n"
+        "### Action Items\n"
+        "[What needs to happen next, or 'None']\n\n"
+        "### Important Details\n"
+        "[Specific values, names, file paths, configurations, dates, or facts mentioned]\n\n"
+        "### Emotional Context\n"
+        "[Ricky's mood or emotionally significant moments, or 'None']\n\n"
+        f"CONVERSATION:\n{conversation_text}"
     )
 
     summary_messages = [
-        {"role": "system", "content": "You are a precise summarizer. Output only the summary, nothing else."},
+        {
+            "role": "system",
+            "content": (
+                "You are a precise conversation archivist. "
+                "Fill in the structured template exactly as specified. "
+                "Output only the completed template, nothing else."
+            ),
+        },
         {"role": "user", "content": summary_prompt},
     ]
 

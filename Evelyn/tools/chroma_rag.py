@@ -16,6 +16,8 @@ Exports:
   get_or_create_collection() — Idempotently get a named Chroma collection.
   build_rag_context()        — Query both collections, apply priority boosting and
                                pinned doc injection; return formatted context block.
+                               Also fires touch_entry_retrieved() for SQLite context
+                               entries served to the model (retrieval tracking).
 
 Collections: evelyn_memory (full markdown files), evelyn_gists (LLM-generated gist summaries)
 
@@ -430,6 +432,22 @@ def build_rag_context(query: str) -> str:
     all_context = pinned_chunks + relevant
     if not all_context:
         return ""
+
+    # Touch retrieval counters for any SQLite context entries in the result set.
+    # These have synthetic source paths: "sqlite::context_entry::{id}".
+    # Fire-and-forget — a tracking failure must never affect context delivery.
+    try:
+        import memory_db as _memory_db
+        for _chunk in all_context:
+            _src = _chunk.get("source", "")
+            if _src.startswith("sqlite::context_entry::"):
+                try:
+                    _entry_id = int(_src.rsplit("::", 1)[-1])
+                    _memory_db.touch_entry_retrieved(_entry_id)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     parts = ["--- Retrieved Context ---"]
     for chunk in all_context:
