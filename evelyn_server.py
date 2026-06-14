@@ -369,7 +369,14 @@ def load_history() -> list[dict]:
     # Placeholders must NOT be sent to the model -- they confuse magistral
     # and cause it to produce empty responses on every subsequent request.
     messages = [
-        {"role": r["role"], "content": f"{_time_of_day_label(r['ts'])}{r['content']}"}
+        {
+            "role": r["role"],
+            "content": (
+                f"{_time_of_day_label(r['ts'])}{r['content']}"
+                if r["role"] == "user"
+                else r["content"]
+            ),
+        }
         for r in rows
         if r["content"].strip()
         and not r["content"].startswith(PLACEHOLDER_MARKER)
