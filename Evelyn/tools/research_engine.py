@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-06-07 10:28:53
+# date modified: 2026-06-18 20:12:27
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -406,37 +406,50 @@ def query_previous_deep_research(search_query: str, current_task_id: str, limit:
 async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
     """Execute the PLAN step of a research task.
 
+    Classifies the query into a task type (factual/comparison/troubleshooting/opinion)
+    using zero-cost keyword heuristics, then generates sub-questions via the LLM.
+    The task_type is persisted in state so subsequent steps can inject the matching
+    skill template without re-classifying.
+
     Args:
         task_id: Unique task identifier.
         state: State dictionary to modify.
     """
     print(f"[RESEARCH_ENGINE] Planning sub-questions for task {task_id}...", flush=True)
-    
+
+    # Classify query type and domain level once at plan time — zero LLM cost (Hermes Tier 2 #8b)
+    task_type = research_prompts.classify_research_query(state["query"])
+    domain_level = research_prompts.classify_domain_level(state["query"])
+    state["task_type"] = task_type
+    state["domain_level"] = domain_level
+    print(f"[RESEARCH_ENGINE] Classified query: task_type='{task_type}', domain_level='{domain_level}'", flush=True)
+
     prompt = research_prompts.build_plan_prompt(
         state["query"],
         state["scope"],
-        state["sub_questions_limit"]
+        state["sub_questions_limit"],
+        domain_level=domain_level,
     )
-    
+
     messages = [
-        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "system", "content": research_prompts.get_system_prompt(domain_level=domain_level)},
         {"role": "user", "content": prompt}
     ]
-    
+
     state["ollama_calls"] += 1
     raw_response = await call_ollama(messages, num_predict=1024)
-    
+
     # Save raw plan file for audit trail
     task_dir = get_task_dir(task_id)
     with open(os.path.join(task_dir, "plan.md"), "w", encoding="utf-8") as f:
         f.write(raw_response)
-        
+
     sub_questions = parse_plan_markdown(raw_response)
-    
+
     if not sub_questions:
         print("[RESEARCH_ENGINE WARNING] Failed to parse sub-questions. Defaulting to main query.", flush=True)
         sub_questions = [state["query"]]
-        
+
     state["plan"]["sub_questions"] = [
         {
             "id": f"sq_{i:02d}",
@@ -448,12 +461,12 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
         }
         for i, q in enumerate(sub_questions, 1)
     ]
-    
+
     state["current_step"] = "search"
     state["current_sq_idx"] = 0
     state["search_depth"] = 0
     state["status"] = "searching"
-    
+
     save_state(task_id, state)
     print(f"[RESEARCH_ENGINE] Formulated {len(sub_questions)} sub-questions successfully.", flush=True)
 
@@ -636,7 +649,11 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 print(f"[RESEARCH_ENGINE WARNING] Failed to ingest into custom Chroma collection: {ce}", flush=True)
         
         print(f"[RESEARCH_ENGINE] Extracting facts from: '{title}' [{src_id}]", flush=True)
-        
+
+        # Retrieve the skill template for this task's classified type (Hermes Tier 2 #8b)
+        task_type = state.get("task_type", "factual")
+        skill_template = research_prompts.get_skill_template(task_type)
+
         # We extract chunk by chunk if the page has multiple chunks
         chunks = scrape_result["chunks"]
         for idx, chunk in enumerate(chunks):
@@ -646,7 +663,8 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 title,
                 url,
                 chunk,
-                current_notes
+                current_notes,
+                skill_template=skill_template,
             )
             
             messages = [
@@ -838,14 +856,15 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     prompt = research_prompts.build_synthesize_prompt(
         state["query"],
         all_notes,
-        state["sources_registry"]
+        state["sources_registry"],
+        domain_level=state.get("domain_level", "specialist"),
     )
-    
+
     messages = [
-        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
         {"role": "user", "content": prompt}
     ]
-    
+
     state["ollama_calls"] += 1
     final_report = await call_ollama(messages, num_predict=4096)
     

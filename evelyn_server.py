@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-14 16:30:11
+# date modified: 2026-06-18 20:00:39
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -166,6 +166,57 @@ def get_research_context() -> str:
     return "\n".join(lines)
 
 
+def get_upcoming_agenda_prompt_context() -> str:
+    """Fetch a high-level summary notification of upcoming agenda items to inject into the system prompt.
+
+    Avoids token bloat by notifying about counts and only listing urgent pending reminders.
+    """
+    try:
+        import sys
+        TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+        if TOOLS_DIR not in sys.path:
+            sys.path.append(TOOLS_DIR)
+        import reminders
+        
+        # 1. Fetch upcoming agenda items for the next 24 hours
+        items = reminders.get_unified_agenda(days=1)
+        gcal_count = sum(1 for x in items if x["type"] == "calendar_event")
+        
+        # 2. Fetch all pending reminders
+        pending_reminders = reminders.list_reminders(status="pending")
+        
+        lines = []
+        if gcal_count > 0:
+            lines.append(f"System Notification: You have {gcal_count} upcoming calendar event(s) in the next 24 hours. Use the 'get_agenda' tool to view them.")
+        
+        if pending_reminders:
+            reminder_lines = []
+            import datetime
+            now = datetime.datetime.now()
+            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+            # We check relative to local timezone if possible, or UTC. Simple string comparison:
+            soon_threshold = (now + datetime.timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
+            
+            for r in pending_reminders:
+                due_dt = r["due_at"]
+                # Highlight if due/past due or due soon (within 12 hours)
+                if due_dt <= soon_threshold:
+                    status_lbl = "PAST DUE" if due_dt < now_str else "DUE SOON"
+                    reminder_lines.append(f"  - [{status_lbl}] ID {r['id']}: \"{r['title']}\" (due {r['due_at']})")
+            
+            if reminder_lines:
+                lines.append("System Notification: Pending reminders requiring attention:")
+                lines.extend(reminder_lines)
+                lines.append("Use the 'complete_reminder' tool to mark them completed when done.")
+        
+        if lines:
+            return "\n" + "\n".join(lines)
+        return ""
+    except Exception as e:
+        return f"\n[Agenda Error] Failed to load agenda notification: {e}"
+
+
+
 def load_system_prompt() -> str:
     """Assemble the system prompt from narrative persona files and direct instructions.
 
@@ -196,7 +247,13 @@ def load_system_prompt() -> str:
             content = _FRONTMATTER_RE.sub("", content)
             parts.append(content)
             
+    # Inject agenda if present (Hermes Tier 2 #7)
+    agenda_context = get_upcoming_agenda_prompt_context()
+    if agenda_context:
+        parts.append(agenda_context)
+
     return "\n\n".join(parts)
+
 
 
 # ---------------------------------------------------------------------------
@@ -261,8 +318,64 @@ def get_db():
     return con
 
 
+def _init_fts5_index(con: sqlite3.Connection) -> None:
+    """Create the FTS5 full-text search index and sync triggers for chat history.
+
+    Uses a content-table FTS5 virtual table mirroring the messages.content column.
+    Content tables store no data — the FTS5 index is a pure pointer layer. Three
+    triggers keep the index in sync with the messages table at zero extra overhead
+    per INSERT/UPDATE/DELETE. A one-time rebuild populates the index from any
+    existing rows. Subsequent runs are no-ops because CREATE VIRTUAL TABLE uses
+    IF NOT EXISTS.
+
+    Args:
+        con: An open SQLite connection to evelyn_chat.db.
+    """
+    # FTS5 virtual table — content= points at the actual data table
+    con.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
+        USING fts5(content, role UNINDEXED, content='messages', content_rowid='id')
+    """)
+    # INSERT trigger: index new messages as they arrive
+    con.execute("""
+        CREATE TRIGGER IF NOT EXISTS messages_fts_insert
+        AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content, role)
+            VALUES (new.id, new.content, new.role);
+        END
+    """)
+    # DELETE trigger: remove from FTS index when message is deleted
+    con.execute("""
+        CREATE TRIGGER IF NOT EXISTS messages_fts_delete
+        AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content, role)
+            VALUES ('delete', old.id, old.content, old.role);
+        END
+    """)
+    # UPDATE trigger: remove old entry, insert new entry
+    con.execute("""
+        CREATE TRIGGER IF NOT EXISTS messages_fts_update
+        AFTER UPDATE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content, role)
+            VALUES ('delete', old.id, old.content, old.role);
+            INSERT INTO messages_fts(rowid, content, role)
+            VALUES (new.id, new.content, new.role);
+        END
+    """)
+    # Rebuild index from any rows that existed before the FTS table was created.
+    # This is idempotent — FTS5 rebuild is a full replace, safe to call once.
+    try:
+        fts_count = con.execute("SELECT COUNT(*) FROM messages_fts").fetchone()[0]
+        msg_count = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        if fts_count == 0 and msg_count > 0:
+            con.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+            print(f"[FTS5] Rebuilt search index for {msg_count} existing messages.", flush=True)
+    except Exception as e:
+        print(f"[FTS5] Index rebuild skipped: {e}", flush=True)
+
+
 def init_db():
-    """Create the messages and message_metrics tables if they do not exist; migrate existing DBs."""
+    """Create all chat DB tables if they do not exist; migrate existing DBs; build FTS5 index."""
     con = get_db()
     con.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -279,7 +392,7 @@ def init_db():
         con.execute("ALTER TABLE messages ADD COLUMN tools_used TEXT")
     except Exception:
         pass  # Column already exists
-        
+
     con.execute("""
         CREATE TABLE IF NOT EXISTS message_metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -293,8 +406,39 @@ def init_db():
             FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
         )
     """)
+
+    # Reminders and Calendar cache tables (Hermes Tier 2 #7)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT NOT NULL,
+            description TEXT,
+            due_at      TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            created_at  TEXT NOT NULL,
+            notified    INTEGER DEFAULT 0
+        )
+    """)
+
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS calendar_events (
+            id          TEXT PRIMARY KEY,
+            summary     TEXT NOT NULL,
+            description TEXT,
+            start_at    TEXT NOT NULL,
+            end_at      TEXT NOT NULL,
+            location    TEXT,
+            source      TEXT NOT NULL DEFAULT 'google',
+            last_sync   TEXT NOT NULL
+        )
+    """)
+
+    # FTS5 full-text search index (Hermes Tier 2 #6)
+    _init_fts5_index(con)
+
     con.commit()
     con.close()
+
 
 
 PLACEHOLDER_MARKER = "[Response interrupted"
@@ -1464,7 +1608,33 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_idle_memory_refresh_loop())
     print(f"  {_GRN}Mem Refresher:{_RST} idle loop started (threshold=45m, limit=2h)")
 
+    # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)
+    async def _gcal_sync_loop():
+        """Periodic background task that pulls events from Google Calendar and caches them.
+        Runs on startup and then every 30 minutes.
+        """
+        await asyncio.sleep(10)  # Brief warm-up delay on startup
+        while True:
+            try:
+                import gcal_sync
+                result = gcal_sync.sync_gcal_events()
+                if result.get("status") == "success":
+                    print(f"{_GRN}[GCAL SYNC]{_RST} Auto-sync successful: {result['message']}", flush=True)
+                elif result.get("status") == "offline":
+                    # Only print if debug logging is enabled or on config change
+                    if cfg.DEBUG_LOGGING:
+                        print(f"{_GRN}[GCAL SYNC]{_RST} Auto-sync fallback to cache: {result['message']}", flush=True)
+            except Exception as e:
+                print(f"{_RED}[GCAL SYNC ERROR]{_RST} {e}", flush=True)
+            
+            # Run every 30 minutes
+            await asyncio.sleep(1800)
+
+    asyncio.create_task(_gcal_sync_loop())
+    print(f"  {_GRN}GCal Syncer:{_RST} periodic loop started (interval=30m)")
+
     yield
+
 
 
 app = FastAPI(title="Evelyn", lifespan=lifespan)
