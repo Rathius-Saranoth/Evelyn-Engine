@@ -1,5 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
+# date modified: 2026-06-18 20:11:43
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -8,21 +9,236 @@ Defines the system and user prompts used across all research phases (Plan,
 Extract, Evaluate, and Synthesize). Designed for structured, high-accuracy,
 stateless execution using Ollama. Prompts explicitly enforce clean output formats
 (Markdown and JSON) to facilitate downstream parsing by the orchestrator.
+
+Exports:
+  classify_research_query() — Keyword-heuristic task type classification (zero LLM cost).
+  get_skill_template()      — Returns structured guidance block for a given task type.
+  get_system_prompt()       — Base system prompt for all research phases.
+  build_plan_prompt()       — PLAN phase prompt.
+  build_extract_prompt()    — EXTRACT phase prompt (accepts optional skill template).
+  build_evaluate_prompt()   — EVALUATE phase prompt.
+  build_synthesize_prompt() — SYNTHESIZE phase prompt.
+  build_rewrite_prompt()    — Sub-question auto-rewrite prompt.
+  build_post_synthesis_triage_prompt() — Post-synthesis triage prompt.
 """
 
 from typing import List, Dict, Any
 
 
-def get_system_prompt() -> str:
-    """Return the base system prompt for research execution.
+# ---------------------------------------------------------------------------
+# Task-type classification + skill templates (Hermes Tier 2 #8b)
+# ---------------------------------------------------------------------------
 
-    Directs the model to act as a precise, objective research assistant. Strips
-    Evelyn's conversational persona to save context tokens and focus resources
-    on raw data extraction and synthesis.
+# Keyword sets for zero-cost heuristic classification. Order matters: more
+# specific patterns come first so they shadow broader ones.
+_TASK_TYPE_KEYWORDS: Dict[str, List[str]] = {
+    "troubleshooting": [
+        "fix", "error", "bug", "broken", "not working", "crash", "fail",
+        "problem", "issue", "debug", "troubleshoot", "resolve", "stuck",
+        "exception", "traceback", "why is", "why does",
+    ],
+    "comparison": [
+        "vs", "versus", "compare", "comparison", "difference between",
+        "better", "best", "pros and cons", "trade-off", "tradeoff",
+        "which is", "which should", "alternatives to",
+    ],
+    "opinion": [
+        "opinion", "recommend", "recommendation", "review", "worth it",
+        "worth learning", "worth using", "worth buying", "worth switching",
+        "should i", "is it good", "thoughts on", "experience with",
+        "community", "reddit", "forum", "people say",
+        "what do people think", "what does everyone think",
+        "what do users think", "what do people say",
+    ],
+    # Factual is the default catch-all — no keywords needed.
+}
+
+# Structured guidance blocks injected into extract prompts per task type.
+# Each block sets: Research Goal, Key Procedures, Common Pitfalls, Verification.
+RESEARCH_SKILL_TEMPLATES: Dict[str, str] = {
+    "factual": (
+        "## Research Task Type: Factual Lookup\n"
+        "**Research Goal**: Establish precise, verifiable facts (dates, figures, names, "
+        "specifications, definitions). Every claim must cite a source.\n"
+        "**Key Procedures**:\n"
+        "- Prioritize primary sources: official documentation, academic papers, manufacturer specs.\n"
+        "- Record exact numbers and dates — never round or approximate without noting it.\n"
+        "- Cross-reference between at least two independent sources before treating a fact as confirmed.\n"
+        "**Common Pitfalls**:\n"
+        "- Do not infer facts from analogies or comparisons — only cite stated data.\n"
+        "- Distinguish between official claims and third-party reports.\n"
+        "**Verification Criteria**: Answer is complete when exact figures, dates, and sources "
+        "are recorded with ≥2 corroborating citations.\n"
+    ),
+    "comparison": (
+        "## Research Task Type: Comparison Analysis\n"
+        "**Research Goal**: Produce a balanced, multi-dimensional comparison. Identify key "
+        "dimensions, collect data on each option per dimension, then evaluate trade-offs.\n"
+        "**Key Procedures**:\n"
+        "- Identify 3–6 comparison dimensions relevant to the query (performance, cost, ease-of-use, etc.).\n"
+        "- Collect data for each option on each dimension from independent sources.\n"
+        "- Note version/date of data — comparisons rot quickly.\n"
+        "- Prefer benchmarks and quantitative data over subjective claims.\n"
+        "**Common Pitfalls**:\n"
+        "- Avoid letting one strongly opinionated source skew the analysis.\n"
+        "- Flag when a dimension lacks comparable data rather than leaving it blank.\n"
+        "**Verification Criteria**: Answer is complete when ≥3 dimensions are covered with "
+        "data for each option and trade-offs are explicitly stated.\n"
+    ),
+    "troubleshooting": (
+        "## Research Task Type: Troubleshooting\n"
+        "**Research Goal**: Identify the root cause and verified solution(s) for a specific "
+        "technical problem. Prioritize confirmed fixes over speculative suggestions.\n"
+        "**Key Procedures**:\n"
+        "- Note the exact error message, version numbers, and environment details when available.\n"
+        "- Collect multiple candidate causes — do not stop at the first plausible explanation.\n"
+        "- Prioritize solutions confirmed by official maintainers or reproducible by multiple users.\n"
+        "- Record the exact steps/commands for each fix — no hand-waving.\n"
+        "**Common Pitfalls**:\n"
+        "- 'Try reinstalling' is not a root cause analysis — document WHY it fixes it.\n"
+        "- Distinguish between workarounds (symptom relief) and root-cause fixes.\n"
+        "- Flag solutions that are version-specific or environment-specific.\n"
+        "**Verification Criteria**: Answer is complete when at least one confirmed fix with "
+        "exact steps is documented, with the root cause explained.\n"
+    ),
+    "opinion": (
+        "## Research Task Type: Opinion Synthesis\n"
+        "**Research Goal**: Aggregate community experience and expert sentiment, then synthesize "
+        "a representative consensus with its distribution (majority vs. minority views).\n"
+        "**Key Procedures**:\n"
+        "- Sample from diverse sources: official reviews, forum threads, academic critiques.\n"
+        "- Quantify sentiment where possible (e.g., '80% of reviewers note X').\n"
+        "- Explicitly represent dissenting or minority views — do not flatten to a single opinion.\n"
+        "- Note recency of sources — community opinion shifts with product versions.\n"
+        "**Common Pitfalls**:\n"
+        "- Do not present a single review as representative consensus.\n"
+        "- Distinguish promotional content from genuine user experience.\n"
+        "- Flag when sources are affiliated with the subject being reviewed.\n"
+        "**Verification Criteria**: Answer is complete when majority and minority views are both "
+        "documented with citations and a synthesis statement is provided.\n"
+    ),
+}
+
+
+def classify_research_query(query: str) -> str:
+    """Classify a research query into one of four task types using keyword heuristics.
+
+    Uses a zero-LLM-cost keyword scan. Falls back to 'factual' when no specific
+    pattern is matched. Order of the keyword dict defines precedence — more
+    specific types (troubleshooting, comparison) shadow the generic catch-all.
+
+    Args:
+        query: The raw research query string.
 
     Returns:
-        str: Base system prompt.
+        str: One of 'factual', 'comparison', 'troubleshooting', 'opinion'.
     """
+    q_lower = query.lower()
+    for task_type, keywords in _TASK_TYPE_KEYWORDS.items():
+        if any(kw in q_lower for kw in keywords):
+            return task_type
+    return "factual"
+
+
+def get_skill_template(task_type: str) -> str:
+    """Return the structured guidance block for a given task type.
+
+    Args:
+        task_type: One of 'factual', 'comparison', 'troubleshooting', 'opinion'.
+                   Defaults to 'factual' for unknown types.
+
+    Returns:
+        str: Multiline structured guidance block to prepend to extract prompts.
+    """
+    return RESEARCH_SKILL_TEMPLATES.get(task_type, RESEARCH_SKILL_TEMPLATES["factual"])
+
+
+# ---------------------------------------------------------------------------
+# Domain-level classification (Hermes Tier 2 #8b register extension)
+# ---------------------------------------------------------------------------
+
+# Keywords that strongly suggest a topic belongs to the "everyday" domain:
+# tasks that a non-specialist person regularly encounters and for which
+# plain, step-oriented language is more useful than academic prose.
+_EVERYDAY_KEYWORDS: List[str] = [
+    # Home improvement & DIY
+    "fix", "repair", "install", "replace", "patch", "paint", "hang",
+    "mount", "assemble", "wire", "plumb", "tile", "caulk", "grout",
+    "insulate", "drywall", "refinish", "unclog", "drain", "faucet",
+    "toilet", "shower", "sink", "gutter", "roof", "fence", "deck",
+    "diy", "home improvement", "home repair", "hardware",
+    # Cooking & food
+    "cook", "bake", "recipe", "ingredient", "grill", "roast", "simmer",
+    "marinate", "season", "meal prep", "kitchen",
+    # Gardening & outdoors
+    "plant", "grow", "garden", "prune", "fertilize", "weed", "compost",
+    "lawn", "mow", "mulch", "water",
+    # Crafts & making
+    "sew", "knit", "crochet", "craft", "woodworking", "upholster",
+    # Everyday life & organisation
+    "organize", "declutter", "clean", "laundry", "budget", "meal plan",
+    # Basic automotive
+    "change oil", "flat tire", "car wash", "wiper blade", "headlight",
+    "brake pad", "air filter",
+    # General how-to phrasing
+    "how to", "step by step", "beginner", "for beginners", "easy way",
+    "at home", "without a",
+]
+
+
+def classify_domain_level(query: str) -> str:
+    """Classify a query's inherent domain expertise level.
+
+    Determines how much specialist knowledge the topic requires, independent
+    of who is asking. This controls prompt formality and report style:
+
+    - 'everyday': Topics anyone might research without a professional background
+      (home repair, cooking, gardening, basic how-tos). Use plain, step-oriented
+      language that matches how people actually search and think about these tasks.
+    - 'specialist': Topics that inherently require domain expertise to interpret
+      correctly (engineering, medicine, law, advanced programming, science).
+      Use precise vocabulary and a structured analytical format.
+
+    Uses zero-LLM-cost keyword detection on the query. Defaults to 'specialist'
+    when no everyday keywords are matched, preserving the current behavior for
+    all technical and ambiguous queries.
+
+    Args:
+        query: The raw research query string.
+
+    Returns:
+        str: One of 'everyday' or 'specialist'.
+    """
+    q_lower = query.lower()
+    if any(kw in q_lower for kw in _EVERYDAY_KEYWORDS):
+        return "everyday"
+    return "specialist"
+
+
+def get_system_prompt(domain_level: str = "specialist") -> str:
+    """Return the base system prompt for research execution.
+
+    Adjusts persona and tone based on the inherent expertise level of the topic.
+    Specialist topics get a formal, evidence-focused research analyst persona.
+    Everyday topics get a knowledgeable-friend persona that prioritizes clarity
+    and practical actionability over academic structure.
+
+    Args:
+        domain_level: One of 'everyday' or 'specialist'. Defaults to 'specialist'.
+
+    Returns:
+        str: Base system prompt calibrated to the domain level.
+    """
+    if domain_level == "everyday":
+        return (
+            "You are a knowledgeable, practical research assistant. Your job is to find "
+            "clear, actionable information and present it in plain, accessible language "
+            "that anyone can follow. Prioritize step-by-step instructions, real-world "
+            "tips, and common pitfalls over academic precision. Write the way a "
+            "knowledgeable friend would explain something — not the way a textbook would. "
+            "Base all claims on the provided context and cite sources where they add "
+            "useful detail. Skip jargon unless it is necessary and explained."
+        )
     return (
         "You are an expert, objective AI Research Assistant. Your task is to perform "
         "thorough, evidence-based investigation, extract precise factual data, evaluate "
@@ -34,43 +250,70 @@ def get_system_prompt() -> str:
     )
 
 
-def build_plan_prompt(query: str, scope: str, max_sub_questions: int) -> str:
+def build_plan_prompt(query: str, scope: str, max_sub_questions: int, domain_level: str = "specialist") -> str:
     """Build the prompt for the PLAN phase.
 
     Asks the model to decompose the original query into a numbered list of
-    mutually exclusive, searchable sub-questions.
+    searchable sub-questions. The phrasing style of those sub-questions is
+    calibrated to the domain level: everyday topics use plain, natural-language
+    questions; specialist topics use precise, technical decomposition.
 
     Args:
         query: The main research question.
         scope: Research scope ('quick', 'standard', 'deep').
         max_sub_questions: Maximum number of sub-questions allowed.
+        domain_level: One of 'everyday' or 'specialist'. Controls sub-question
+            phrasing style. Defaults to 'specialist'.
 
     Returns:
         str: Formatted prompt.
     """
+    if domain_level == "everyday":
+        style_instruction = (
+            "Write the sub-questions in plain, natural language — the way someone "
+            "would actually type them into a search engine or ask a knowledgeable friend. "
+            "Focus on practical steps, what to buy or gather, common mistakes to avoid, "
+            "and how to know when the job is done right. Avoid academic or overly technical phrasing."
+        )
+    else:
+        style_instruction = (
+            "Each sub-question should be highly specific, independently searchable, and "
+            "target a distinct technical or analytical aspect of the main query so that "
+            "answering all of them thoroughly will fully resolve the original research goal."
+        )
+
     return (
         f"You are formulating a research strategy for the query: \"{query}\"\n"
         f"Research Scope: {scope.upper()}\n"
         f"Maximum allowed sub-questions: {max_sub_questions}\n\n"
-        "Your task is to decompose this query into a logical sequence of highly specific, "
-        "independent, and searchable sub-questions. Each sub-question should target a "
-        "distinct aspect of the main query so that answering all of them thoroughly "
-        "will fully resolve the original research goal.\n\n"
+        f"Your task is to decompose this query into a logical sequence of sub-questions. "
+        f"{style_instruction}\n\n"
         "Output ONLY a markdown block in the following format, containing a numbered list "
         "of sub-questions. Do not write any introduction, explanation, or concluding remarks.\n\n"
         "```markdown\n"
-        "1. [Sub-question 1 - specific, searchable question]\n"
+        "1. [Sub-question 1]\n"
         "2. [Sub-question 2]\n"
         "...\n"
         "```"
     )
 
 
-def build_extract_prompt(sub_question: str, source_id: str, source_title: str, source_url: str, page_content: str, current_notes: str) -> str:
+def build_extract_prompt(
+    sub_question: str,
+    source_id: str,
+    source_title: str,
+    source_url: str,
+    page_content: str,
+    current_notes: str,
+    skill_template: str = "",
+) -> str:
     """Build the prompt for the EXTRACT phase.
 
     Asks the model to extract all facts relevant to the sub-question from a raw web page
     and merge them into the existing working notes, maintaining citation tags.
+    An optional skill_template block (from get_skill_template()) is prepended to
+    give the model structured guidance on what quality of answer is expected for
+    this research task type.
 
     Args:
         sub_question: The current sub-question.
@@ -79,6 +322,8 @@ def build_extract_prompt(sub_question: str, source_id: str, source_title: str, s
         source_url: URL of the source web page.
         page_content: Clean extracted text from the page.
         current_notes: Existing compiled notes for this sub-question (can be empty).
+        skill_template: Optional structured guidance block from get_skill_template().
+                        Prepended to the prompt header when provided.
 
     Returns:
         str: Formatted prompt.
@@ -89,7 +334,10 @@ def build_extract_prompt(sub_question: str, source_id: str, source_title: str, s
         else "### Current Working Notes:\n*(No notes recorded yet — start fresh)*\n"
     )
 
+    template_header = f"{skill_template}\n\n" if skill_template.strip() else ""
+
     return (
+        f"{template_header}"
         f"Sub-question under investigation: \"{sub_question}\"\n\n"
         f"We are reading a new source:\n"
         f"Source ID: {source_id}\n"
@@ -146,16 +394,29 @@ def build_evaluate_prompt(sub_question: str, current_notes: str, confidence_thre
     )
 
 
-def build_synthesize_prompt(query: str, all_notes: Dict[str, str], sources_registry: List[Dict[str, Any]]) -> str:
+def build_synthesize_prompt(
+    query: str,
+    all_notes: Dict[str, str],
+    sources_registry: List[Dict[str, Any]],
+    domain_level: str = "specialist",
+) -> str:
     """Build the prompt for the SYNTHESIZE phase.
 
-    Compiles all sub-question notes into a comprehensive, final markdown report
-    with frontmatter, inline citations, and an overall confidence score.
+    Compiles all sub-question notes into a final written output. The format and
+    tone are calibrated to the domain level:
+
+    - 'specialist': A formal, structured research report with frontmatter, inline
+      citations, and a confidence score. Appropriate for technical, scientific, or
+      complex analytical topics.
+    - 'everyday': A clear, practical guide written in plain language. Step-oriented,
+      conversational, focused on actionability. Still cites sources but without
+      academic formality.
 
     Args:
         query: The original research query.
         all_notes: A dictionary mapping sub-question strings to their notes.
         sources_registry: List of sources used, each containing id, url, and title.
+        domain_level: One of 'everyday' or 'specialist'. Defaults to 'specialist'.
 
     Returns:
         str: Formatted prompt.
@@ -170,6 +431,52 @@ def build_synthesize_prompt(query: str, all_notes: Dict[str, str], sources_regis
             continue
         sources_text += f"- [{src['id']}] {src['title']} ({src['url']})\n"
 
+    if domain_level == "everyday":
+        task_instruction = (
+            "Synthesize these research notes into a clear, practical guide that directly "
+            "answers the original query. Write for someone who wants to get the job done, "
+            "not for an academic audience."
+        )
+        requirements = (
+            "1. Use plain, conversational language throughout. Avoid jargon; if a technical "
+            "term is necessary, explain it in plain English immediately after.\n"
+            "2. Organise the content as a practical guide: lead with what matters most "
+            "(materials needed, key steps, safety notes), then walk through the process "
+            "in logical order. Use numbered steps, bullet lists, and short paragraphs.\n"
+            "3. Include concrete, actionable tips sourced from the notes. Where it adds "
+            "real value, reference a source naturally in-text (e.g. 'according to [src_001]') "
+            "rather than tagging every sentence.\n"
+            "4. Close with a brief 'Things to watch out for' or 'Common mistakes' section "
+            "if the notes contain relevant warnings.\n"
+            "5. End with a short 'Sources' list. No need for a formal confidence score.\n\n"
+            "Output ONLY the final markdown guide starting with a YAML frontmatter block "
+            "containing: `title`, `date`, `sources_count`. "
+            "Do not write any preamble or meta-commentary."
+        )
+    else:
+        task_instruction = (
+            "Synthesize these working notes into a definitive, highly professional "
+            "research report resolving the original query."
+        )
+        requirements = (
+            "1. Write a structured, detailed report. Use markdown formatting with clear "
+            "headings, sub-headings, lists, and tables where appropriate. "
+            "Do not write a short summary — be comprehensive and capture all numbers, "
+            "dates, statistics, and concrete details.\n"
+            "2. Ensure all statements are strictly backed by the evidence in the notes. "
+            "Maintain absolute citation integrity. Add inline citation tags like [src_001] "
+            "or [src_002] to every factual assertion in the body of your report.\n"
+            "3. Dedicate a final section of your report to 'Sources' listing the full "
+            "citation registry.\n"
+            "4. Assign an overall subjective confidence score from 0 to 100 on how "
+            "thoroughly the research resolved the original query. Explain any limitations, "
+            "weak evidence, or remaining areas of uncertainty in your analysis.\n"
+            "5. Output the final report with a standard YAML frontmatter containing the "
+            "keys: `title`, `date`, `confidence`, `sources_count`.\n\n"
+            "Output ONLY the final markdown report starting with the YAML frontmatter. "
+            "Do not write any conversational preamble or meta-commentary."
+        )
+
     return (
         f"Original Research Query: \"{query}\"\n\n"
         "Here are the compiled working notes for each sub-question researched by our agent:\n"
@@ -178,18 +485,8 @@ def build_synthesize_prompt(query: str, all_notes: Dict[str, str], sources_regis
         "==================================================\n\n"
         "Here is the registry of sources consulted during the research:\n"
         f"{sources_text}\n\n"
-        "TASK:\n"
-        "Synthesize these working notes into a definitive, highly professional research report resolving the original query.\n\n"
-        "REQUIREMENTS:\n"
-        "1. Write a structured, detailed report. Use markdown formatting with clear headings, sub-headings, lists, and tables where appropriate. "
-        "Do not write a short summary — be comprehensive and capture all numbers, dates, statistics, and concrete details.\n"
-        "2. Ensure all statements are strictly backed by the evidence in the notes. Maintain absolute citation integrity. "
-        "Add inline citation tags like [src_001] or [src_002] to every factual assertion in the body of your report.\n"
-        "3. Dedicate a final section of your report to 'Sources' listing the full citation registry.\n"
-        "4. Assign an overall subjective confidence score from 0 to 100 on how thoroughly the research resolved the original query. "
-        "Explain any limitations, weak evidence, or remaining areas of uncertainty in your analysis.\n"
-        "5. Output the final report with a standard YAML frontmatter containing the keys: `title`, `date`, `confidence`, `sources_count`.\n\n"
-        "Output ONLY the final markdown report starting with the YAML frontmatter. Do not write any conversational preamble or meta-commentary."
+        f"TASK:\n{task_instruction}\n\n"
+        f"REQUIREMENTS:\n{requirements}"
     )
 
 

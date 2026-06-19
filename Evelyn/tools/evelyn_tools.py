@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-05-29 07:23:57
+# date modified: 2026-06-18 20:02:02
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -57,6 +57,8 @@ import journal_manager # [[journal_manager.py]]
 import context_manager # [[context_manager.py]]
 import ingest_gists # [[ingest_gists.py]]
 import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
+import reminders
+import gcal_sync
 
 
 def _reload():
@@ -66,9 +68,12 @@ def _reload():
         "context_manager",
         "ingest_gists",
         "ingest_obsidian_knowledge",
+        "reminders",
+        "gcal_sync",
     ):
         if mod in sys.modules:
             importlib.reload(sys.modules[mod])
+
 
 
 # ===========================================================================
@@ -929,6 +934,153 @@ def check_new_research(**kwargs) -> str:
     return "\n\n".join(lines)
 
 
+def search_history(query: str, max_results: int = 8) -> str:
+    """Search the full chat history using FTS5 full-text search.
+
+    Queries the messages_fts virtual table (which mirrors messages.content) using
+    SQLite FTS5 MATCH syntax. Returns matching messages with timestamps and roles
+    so the model can answer questions about past conversations.
+
+    Args:
+        query: The search terms or phrase to look for in past messages.
+               Supports FTS5 MATCH syntax (e.g. 'python AND error' or '"exact phrase"').
+        max_results: Maximum number of matching messages to return. Defaults to 8.
+
+    Returns:
+        str: Formatted list of matching message snippets with metadata,
+             or a message indicating no results were found.
+    """
+    import sqlite3
+    import evelyn_config as cfg
+    from datetime import datetime
+
+    try:
+        con = sqlite3.connect(cfg.CHAT_DB_PATH)
+        con.row_factory = sqlite3.Row
+        # FTS5 snippet() highlights matched terms. bm25() ranks by relevance.
+        rows = con.execute(
+            """
+            SELECT
+                m.id,
+                m.role,
+                m.ts,
+                snippet(messages_fts, 0, '[', ']', '...', 32) AS snippet
+            FROM messages_fts
+            JOIN messages m ON m.id = messages_fts.rowid
+            WHERE messages_fts MATCH ?
+              AND m.content NOT IN ('[THREAD_BREAK]')
+            ORDER BY bm25(messages_fts)
+            LIMIT ?
+            """,
+            (query, max_results),
+        ).fetchall()
+        con.close()
+    except Exception as e:
+        return f"History search failed: {e}"
+
+    if not rows:
+        return f"No messages found in chat history matching: {query!r}"
+
+    lines = [f"Chat history search results for: {query!r}\n"]
+    for row in rows:
+        ts_str = (
+            datetime.fromtimestamp(row["ts"]).strftime("%a %b %d %Y, %I:%M %p")
+            if row["ts"]
+            else "unknown time"
+        )
+        role_label = "Ricky" if row["role"] == "user" else "Evelyn"
+        lines.append(f"[{ts_str}] {role_label}: {row['snippet']}")
+
+    return "\n".join(lines)
+
+
+def schedule_reminder(title: str, due_at: str, description: str = None) -> str:
+    """Schedule a local reminder/task for Ricky.
+
+    Args:
+        title: Short summary or name of the reminder.
+        due_at: Due timestamp (ISO-8601 string, 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS').
+                Calculate absolute datetime using current time from system prompt.
+        description: Optional additional notes/details.
+
+    Returns:
+        str: Success/error message with reminder details.
+    """
+    try:
+        reminder = reminders.create_reminder(title, due_at, description)
+        return (
+            f"Successfully scheduled reminder:\n"
+            f"- ID: {reminder['id']}\n"
+            f"- Title: {reminder['title']}\n"
+            f"- Due: {reminder['due_at']}\n"
+            f"- Status: {reminder['status']}"
+        )
+    except Exception as e:
+        return f"Error scheduling reminder: {e}"
+
+
+def complete_reminder(reminder_id: int) -> str:
+    """Mark a local reminder as completed by ID.
+
+    Args:
+        reminder_id: Database row ID.
+
+    Returns:
+        str: Success or failure message.
+    """
+    try:
+        if reminders.complete_reminder(reminder_id):
+            return f"Successfully marked reminder ID {reminder_id} as completed."
+        return f"Reminder ID {reminder_id} not found or already completed."
+    except Exception as e:
+        return f"Error completing reminder: {e}"
+
+
+def sync_google_calendar() -> str:
+    """Manually trigger a pull from Google Calendar to update the local cached events.
+
+    Returns:
+        str: Outcome details of the sync run.
+    """
+    try:
+        result = gcal_sync.sync_gcal_events()
+        if result["status"] == "success":
+            return f"Google Calendar sync successful: {result['message']}"
+        else:
+            return f"Google Calendar sync notice: {result['message']}"
+    except Exception as e:
+        return f"Error syncing Google Calendar: {e}"
+
+
+def get_agenda(days: int = 7) -> str:
+    """Retrieve the unified agenda (reminders & Google Calendar events) for the next N days.
+
+    Args:
+        days: Number of days forward to include. Defaults to 7.
+
+    Returns:
+        str: Formatted agenda schedule list.
+    """
+    try:
+        items = reminders.get_unified_agenda(days)
+        if not items:
+            return f"Your agenda is clear for the next {days} days."
+        
+        lines = [f"Upcoming Agenda (next {days} days):\n"]
+        for item in items:
+            time_str = item["time"]
+            desc_part = f" - {item['description']}" if item.get("description") else ""
+            if item["type"] == "reminder":
+                lines.append(f"- [{time_str}] [REMINDER] (ID: {item['id']}) {item['title']} ({item['status']}){desc_part}")
+            else:
+                loc_str = f" @ {item['location']}" if item.get("location") else ""
+                lines.append(f"- [{time_str}] [CALENDAR] {item['title']}{loc_str}{desc_part}")
+                
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching agenda: {e}"
+
+
 # ===========================================================================
 # Tool registries
 # ===========================================================================
@@ -1197,6 +1349,105 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_history",
+            "description": (
+                "Search Evelyn's full chat history using full-text search (FTS5). "
+                "Use when Ricky asks 'did we talk about X?', 'what did I say about Y last week?', "
+                "or 'do you remember when we discussed Z?'. "
+                "Do NOT use for vault knowledge, journal entries, or context facts — use search_vault for those. "
+                "Returns matching message snippets with timestamps and speaker labels. "
+                "Supports phrase search (e.g. \"exact phrase\") and AND/OR operators."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search term or phrase to look for in past chat messages.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of matching snippets to return. Defaults to 8.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_reminder",
+            "description": "Schedule a local reminder or task for Ricky. The due_at parameter MUST be in 'YYYY-MM-DD HH:MM:SS' format. Use the current time provided in your system prompt to calculate absolute dates/times.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Brief title of the reminder.",
+                    },
+                    "due_at": {
+                        "type": "string",
+                        "description": "Due timestamp in 'YYYY-MM-DD HH:MM:SS' format.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional notes or details about the task.",
+                    },
+                },
+                "required": ["title", "due_at"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_reminder",
+            "description": "Mark an existing local reminder/task as completed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {
+                        "type": "integer",
+                        "description": "The unique database ID of the reminder to complete.",
+                    },
+                },
+                "required": ["reminder_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_google_calendar",
+            "description": "Trigger an on-demand background sync from Ricky's Google Calendar to update the local cached events database.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_agenda",
+            "description": "Retrieve Ricky's upcoming schedule (unified view of local reminders and cached Google Calendar events) for the next N days.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days forward to view. Defaults to 7.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -1216,4 +1467,9 @@ TOOL_FUNCTIONS = {
     "start_research": start_research,
     "guide_research": guide_research,
     "check_new_research": check_new_research,
+    "search_history": search_history,
+    "schedule_reminder": schedule_reminder,
+    "complete_reminder": complete_reminder,
+    "sync_google_calendar": sync_google_calendar,
+    "get_agenda": get_agenda,
 }

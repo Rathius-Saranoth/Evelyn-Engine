@@ -368,6 +368,50 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
     return pinned
 
 
+def get_vault_relative_path(path: str) -> str:
+    """Convert an absolute or already relative path to a vault-relative path.
+
+    Args:
+        path: Absolute or relative file path.
+
+    Returns:
+        str: Vault-relative path using backslashes.
+    """
+    if path.startswith("sqlite::"):
+        return path
+    vault_base = r"G:\My Drive\Obsidian_Vault"
+    try:
+        norm_path = os.path.normpath(path)
+        norm_base = os.path.normpath(vault_base)
+        if os.path.isabs(norm_path):
+            return os.path.relpath(norm_path, norm_base)
+        else:
+            return norm_path
+    except Exception:
+        pass
+    return path
+
+
+def get_document_gist(path: str) -> str | None:
+    """Retrieve the gist summary of a document from vault_db SQLite.
+
+    Args:
+        path: File path (absolute or relative).
+
+    Returns:
+        str | None: The gist summary, or None if not found/error.
+    """
+    import vault_db
+    rel_path = get_vault_relative_path(path)
+    try:
+        doc = vault_db.get_document(rel_path)
+        if doc and doc.get("gist"):
+            return doc["gist"]
+    except Exception:
+        pass
+    return None
+
+
 def build_rag_context(query: str) -> str:
     """Query both collections and return a formatted context block.
 
@@ -428,7 +472,7 @@ def build_rag_context(query: str) -> str:
             flush=True,
         )
 
-    # Step 6: Assemble
+    # Step 6: Assemble with Progressive Vault Disclosure
     all_context = pinned_chunks + relevant
     if not all_context:
         return ""
@@ -449,17 +493,73 @@ def build_rag_context(query: str) -> str:
     except Exception:
         pass
 
-    parts = ["--- Retrieved Context ---"]
+    # Separate context types to structure the final block and apply progressive disclosure
+    pinned_by_source = {}
+    sqlite_entries = []
+    normal_files_by_source = {}
+
     for chunk in all_context:
-        src = os.path.basename(chunk["source"])
-        pin_marker = " [primary source]" if chunk.get("pinned") else ""
-        
-        # Intercept gist-based documents to strip out tags and search bloat
-        if "gist" in chunk.get("metadata", {}):
-            clean_content = chunk["metadata"]["gist"]
+        src = chunk.get("source", "")
+        if chunk.get("pinned"):
+            if src not in pinned_by_source:
+                pinned_by_source[src] = []
+            pinned_by_source[src].append(chunk)
+        elif src.startswith("sqlite::context_entry::"):
+            # Ensure SQLite entries are unique in our output
+            if chunk not in sqlite_entries:
+                sqlite_entries.append(chunk)
         else:
-            clean_content = chunk["content"]
+            # Standard file-based chunk: keep the first matched chunk to fetch the gist
+            if src not in normal_files_by_source:
+                normal_files_by_source[src] = chunk
+
+    parts = ["--- Retrieved Context ---"]
+
+    # 1. Pinned (Primary Source) Documents: Show full content of matching chunks in order
+    for src, chunks in pinned_by_source.items():
+        chunks.sort(key=lambda x: x.get("metadata", {}).get("chunk", 0))
+        rel_path = get_vault_relative_path(src)
+        content_parts = [c["content"] for c in chunks]
+        full_content = "\n...\n".join(content_parts)
+        parts.append(f"[Primary Source Document: {rel_path}]\n{full_content}")
+
+    # 2. SQLite Context Entries: Show observation text
+    for chunk in sqlite_entries:
+        src = chunk["source"]
+        entry_id = src.rsplit("::", 1)[-1]
+        parts.append(f"[Context Entry (ID: {entry_id})]\n{chunk['content']}")
+
+    # 3. Normal Vault/Memory Documents: Show Gist Summary
+    for src, chunk in normal_files_by_source.items():
+        rel_path = get_vault_relative_path(src)
+        
+        # Get gist summary
+        gist = None
+        if "gist" in chunk.get("metadata", {}):
+            gist = chunk["metadata"]["gist"]
+        
+        if not gist:
+            gist = get_document_gist(src)
             
-        parts.append(f"[{src}{pin_marker}]\n{clean_content}")
+        if not gist:
+            # Fallback snippet
+            gist = chunk["content"][:300] + "..." if len(chunk["content"]) > 300 else chunk["content"]
+
+        title = chunk.get("metadata", {}).get("title", "")
+        if not title:
+            title = os.path.splitext(os.path.basename(src))[0]
+
+        tags_raw = chunk.get("metadata", {}).get("tags", "")
+        tags_str = f"Tags: {tags_raw}\n" if tags_raw else ""
+
+        parts.append(
+            f"[Vault Document: {rel_path}]\n"
+            f"Title: {title}\n"
+            f"{tags_str}"
+            f"Gist Summary: {gist}\n"
+            f"(Note: To read the full content of this document, call recall_specific_memory(file_path=\"{rel_path}\"))"
+        )
+
     parts.append("--- End Context ---")
     return "\n\n".join(parts)
+
