@@ -118,6 +118,9 @@ CHROMA_DB_PATH = r"C:\Projects\LocalAI\data\chroma_db" # [[chroma_db]]
 CHAT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_chat.db" # [[evelyn_chat.db]]
 MEMORY_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_memory.db" # [[evelyn_memory.db]]
 PERSONA_DIR = r"C:\Projects\LocalAI\Evelyn\persona" # [[persona]]
+GCAL_CREDENTIALS_PATH = r"C:\Projects\LocalAI\data\gcal_credentials.json"
+GCAL_TOKEN_PATH = r"C:\Projects\LocalAI\data\gcal_token.json"
+
 
 
 # Official category names — single source of truth for the consolidator and reviewer.

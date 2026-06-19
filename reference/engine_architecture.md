@@ -24,7 +24,7 @@ graph TD
     
     %% Storage Layer
     subgraph Storage [Persistent Storage Layer]
-        ChatDB[("evelyn_chat.db<br>(SQLite Chat History)")]
+        ChatDB[("evelyn_chat.db<br>(SQLite History, Reminders, GCal Cache)")]
         MemoryDB[("evelyn_memory.db<br>(SQLite Context Entries)")]
         VaultDB[("evelyn_vault.db<br>(SQLite Obsidian File Index)")]
         ChromaDB[("chroma_db/<br>(Persistent RAG Vector Index)")]
@@ -118,13 +118,16 @@ Enables fully autonomous, multi-step search and information synthesis in the bac
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, and background task recovery `resume_research_task`).
+* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and reminders/calendar tool definitions).
+* **[[gcal_sync.py]]**: Google Calendar synchronizer. Pulls calendar events and caches them in the SQLite `calendar_events` table, supporting offline-first operations.
+* **[[reminders.py]]**: Local task manager. Handles scheduling, retrieval, and updates for local reminders (`reminders` table) and merges them with Google Calendar events.
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions and stages them to memory.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
 * **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
 * **[[undo_thread.py]]**: Interactive debugging script to safely rollback transactions in memory files.
+
 
 ### 2.6 Standalone Inference Services
 FastAPI services running locally to isolate heavy GPU model weights and guarantee zero VRAM resource leakage when idle.
