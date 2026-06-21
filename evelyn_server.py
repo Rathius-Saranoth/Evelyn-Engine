@@ -1630,7 +1630,7 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 import gcal_sync
-                result = gcal_sync.sync_gcal_events()
+                result = await asyncio.to_thread(gcal_sync.sync_gcal_events)
                 if result.get("status") == "success":
                     print(f"{_GRN}[GCAL SYNC]{_RST} Auto-sync successful: {result['message']}", flush=True)
                 elif result.get("status") == "offline":
