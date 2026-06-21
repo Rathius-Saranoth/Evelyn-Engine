@@ -335,14 +335,18 @@ RESEARCH_MAX_PAGE_CHARS = 100000
 RESEARCH_CONFIDENCE_THRESHOLD = 80
 
 # --- Safety Nets (emergency brakes — should rarely trigger) ---
+# NOTE: These are fallback defaults for tasks created before the 2026-06-21
+# scope-budget refactor. New tasks carry their own per-scope budgets in
+# state.json (max_orchestrator_turns and wall_clock_timeout) set at creation
+# time, so changing these values here does NOT affect in-flight tasks.
 
 # Maximum total high-level orchestrator turns per task. Catch infinite state loops.
-# Standard tasks use 10-15 turns. This is the "something went wrong" cap.
-RESEARCH_MAX_ORCHESTRATOR_TURNS = 50
+# Per-scope budgets in state.json now govern this: quick=30, standard=80, deep=200.
+RESEARCH_MAX_ORCHESTRATOR_TURNS = 80  # Fallback only
 
 # Wall-clock timeout (seconds). Task is force-synthesized after this duration.
-# Default: 2 hours. This is the ultimate safety net for deep overnight research.
-RESEARCH_WALL_CLOCK_TIMEOUT = 7200  # 2 hours
+# Per-scope budgets: quick=1800s, standard=7200s, deep=28800s (8 hours).
+RESEARCH_WALL_CLOCK_TIMEOUT = 7200  # Fallback only (standard scope equivalent)
 
 # --- Operational ---
 
@@ -350,9 +354,11 @@ RESEARCH_WALL_CLOCK_TIMEOUT = 7200  # 2 hours
 # Gives Ollama breathing room between calls.
 RESEARCH_STEP_COOLDOWN = 5
 
-# Idle-time trigger: seconds of inactivity before research can run.
+# Idle-time trigger: seconds of inactivity before research can start a new queued task.
 # Must be LONGER than consolidation threshold to avoid conflicts.
-RESEARCH_IDLE_THRESHOLD = 1800  # 30 minutes
+# Reduced from 1800s (30m) to 900s (15m) — 2026-06-21 budget review.
+# Note: auto-RESUME of a paused task requires only 300s (5m) idle — see evelyn_server.py.
+RESEARCH_IDLE_THRESHOLD = 900  # 15 minutes
 
 # Model override for research calls. "default" = use MODEL_NAME.
 RESEARCH_MODEL_OVERRIDE = "default"
