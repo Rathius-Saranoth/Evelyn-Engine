@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-06-18 20:12:27
+# date modified: 2026-06-21 07:49:05
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -159,25 +159,37 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
     # Generate unique task_id based on timestamp
     task_id = f"task_{int(time.time())}_{os.urandom(4).hex()}"
     
-    # Establish scope presets
+    # Establish scope presets.
+    # Each preset is fully self-contained so tasks carry their own budgets in
+    # state.json rather than relying on config at runtime. This means changing
+    # evelyn_config.py does not retroactively affect tasks already in flight.
     presets = {
         "quick": {
             "sub_questions_limit": 3,
             "threshold": 70,
             "max_depth": 2,
             "max_sources": 5,
+            "max_orchestrator_turns": 30,
+            "wall_clock_timeout": 1800,    # 30 min
+            "min_sources_per_sq": 1,
         },
         "standard": {
             "sub_questions_limit": 5,
             "threshold": 80,
             "max_depth": 3,
             "max_sources": 8,
+            "max_orchestrator_turns": 80,
+            "wall_clock_timeout": 7200,    # 2 hours
+            "min_sources_per_sq": 2,
         },
         "deep": {
-            "sub_questions_limit": 6,
+            "sub_questions_limit": 8,
             "threshold": 85,
-            "max_depth": 5,
-            "max_sources": 10,
+            "max_depth": 8,
+            "max_sources": 15,
+            "max_orchestrator_turns": 200,
+            "wall_clock_timeout": 28800,   # 8 hours
+            "min_sources_per_sq": 3,
         }
     }
     
@@ -209,11 +221,14 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
         "termination_reason": None,
         "error": None,
         
-        # Scoped thresholds
+        # Scoped thresholds and budgets — self-contained per task
         "confidence_threshold": scope_cfg["threshold"],
         "max_search_depth": scope_cfg["max_depth"],
         "max_sources_per_sq": scope_cfg["max_sources"],
-        "sub_questions_limit": scope_cfg["sub_questions_limit"]
+        "sub_questions_limit": scope_cfg["sub_questions_limit"],
+        "max_orchestrator_turns": scope_cfg["max_orchestrator_turns"],
+        "wall_clock_timeout": scope_cfg["wall_clock_timeout"],
+        "min_sources_per_sq": scope_cfg["min_sources_per_sq"],
     }
     
     save_state(task_id, state)
@@ -762,6 +777,22 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     with open(gaps_file, "w", encoding="utf-8") as f:
         json.dump({"gaps": gaps}, f, indent=2)
         
+    # Minimum-sources floor: guarantee at least N sources are consulted before
+    # confidence is evaluated. Prevents trivial SQs from closing too early and
+    # hard SQs from being abandoned before enough evidence is gathered.
+    min_sources = state.get("min_sources_per_sq", 0)
+    depth_remaining = state["search_depth"] < state["max_search_depth"] - 1
+    if sq["source_count"] < min_sources and depth_remaining:
+        print(
+            f"[RESEARCH_ENGINE] SQ {sq['id']} below min source floor "
+            f"({sq['source_count']}/{min_sources}). Forcing another search round.",
+            flush=True,
+        )
+        state["current_step"] = "search"
+        state["search_depth"] += 1
+        save_state(task_id, state)
+        return
+
     # Evaluate termination decisions
     is_sufficient = confidence >= state["confidence_threshold"]
     depth_exhausted = state["search_depth"] >= state["max_search_depth"] - 1
@@ -866,7 +897,9 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     ]
 
     state["ollama_calls"] += 1
-    final_report = await call_ollama(messages, num_predict=4096)
+    # 6144 tokens gives ~4500 words — enough for dense 8-SQ deep reports.
+    # Raised from 4096 as part of the deep-scope budget review (2026-06-21).
+    final_report = await call_ollama(messages, num_predict=6144)
     
     # Save report locally
     report_file = os.path.join(task_dir, "report.md")
@@ -1064,20 +1097,38 @@ async def execute_task_step(task_id: str) -> bool:
         state["orchestrator_turns"] = 0
     state["orchestrator_turns"] += 1
     
-    # Verify safety net limits (Emergency Brakes on State Loop)
-    turn_limit = getattr(cfg, "RESEARCH_MAX_ORCHESTRATOR_TURNS", 50)
+    # Verify safety net limits (Emergency Brakes on State Loop).
+    # Read from state first (set at task creation from scope preset) so each
+    # task uses its own budget. Fall back to config for tasks created before
+    # this change was deployed.
+    turn_limit = state.get(
+        "max_orchestrator_turns",
+        getattr(cfg, "RESEARCH_MAX_ORCHESTRATOR_TURNS", 50)
+    )
     if state["orchestrator_turns"] >= turn_limit:
-        print(f"[RESEARCH_ENGINE WARNING] Safety cap reached ({turn_limit} orchestrator turns). Forcing Synthesis.", flush=True)
+        print(
+            f"[RESEARCH_ENGINE WARNING] Safety cap reached ({turn_limit} orchestrator turns "
+            f"for scope='{state.get('scope', 'unknown')}'). Forcing Synthesis.",
+            flush=True,
+        )
         state["termination_reason"] = "turn_cap"
         state["current_step"] = "synthesize"
         save_state(task_id, state)
-        
-    # Check wall-clock timeout safety limit
-    timeout_limit = getattr(cfg, "RESEARCH_WALL_CLOCK_TIMEOUT", 7200)
+
+    # Check wall-clock timeout safety limit.
+    timeout_limit = state.get(
+        "wall_clock_timeout",
+        getattr(cfg, "RESEARCH_WALL_CLOCK_TIMEOUT", 7200)
+    )
     created_ts = datetime.datetime.fromisoformat(state["created_at"])
     elapsed_seconds = (datetime.datetime.now() - created_ts).total_seconds()
     if elapsed_seconds >= timeout_limit:
-        print(f"[RESEARCH_ENGINE WARNING] Task hit wall-clock timeout ({timeout_limit}s). Forcing Synthesis.", flush=True)
+        print(
+            f"[RESEARCH_ENGINE WARNING] Task hit wall-clock timeout "
+            f"({timeout_limit}s / {timeout_limit // 3600}h for scope='{state.get('scope', 'unknown')}'). "
+            f"Forcing Synthesis.",
+            flush=True,
+        )
         state["termination_reason"] = "timeout"
         state["current_step"] = "synthesize"
         save_state(task_id, state)
