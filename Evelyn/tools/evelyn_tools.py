@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-06-18 20:02:02
+# date modified: 2026-06-21
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -934,17 +934,27 @@ def check_new_research(**kwargs) -> str:
     return "\n\n".join(lines)
 
 
-def search_history(query: str, max_results: int = 8) -> str:
+def search_history(
+    query: str,
+    max_results: int = 8,
+    date_from: str = None,
+    date_to: str = None,
+) -> str:
     """Search the full chat history using FTS5 full-text search.
 
-    Queries the messages_fts virtual table (which mirrors messages.content) using
-    SQLite FTS5 MATCH syntax. Returns matching messages with timestamps and roles
-    so the model can answer questions about past conversations.
+    Applies a query-reformulation pre-pass to handle fuzzy, conversational queries
+    (e.g. 'when we were tired') before executing the FTS5 keyword match. An optional
+    date range constrains results to messages within a specific window.
 
     Args:
         query: The search terms or phrase to look for in past messages.
                Supports FTS5 MATCH syntax (e.g. 'python AND error' or '"exact phrase"').
+               Conversational phrasing is also accepted — it will be reformulated.
         max_results: Maximum number of matching messages to return. Defaults to 8.
+        date_from: Optional ISO date string 'YYYY-MM-DD'. Only messages on or after
+                   this date are returned.
+        date_to: Optional ISO date string 'YYYY-MM-DD'. Only messages on or before
+                 this date are returned.
 
     Returns:
         str: Formatted list of matching message snippets with metadata,
@@ -954,12 +964,42 @@ def search_history(query: str, max_results: int = 8) -> str:
     import evelyn_config as cfg
     from datetime import datetime
 
+    # --- Tweak 3: Lossy search — reformulate the query into FTS5-friendly keywords ---
+    try:
+        from query_reformulator import reformulate_query
+        fts_query = reformulate_query(query)
+    except Exception:
+        fts_query = query  # Graceful degradation — FTS5 still runs on the raw query
+
+    # --- Tweak 1: Date-range filtering — convert YYYY-MM-DD strings to Unix timestamps ---
+    ts_from: float | None = None
+    ts_to: float | None = None
+    try:
+        if date_from:
+            ts_from = datetime.strptime(date_from, "%Y-%m-%d").timestamp()
+        if date_to:
+            # Include the full end day by advancing to the start of the next day
+            from datetime import timedelta
+            ts_to = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)).timestamp()
+    except ValueError as e:
+        return f"History search failed: invalid date format ({e}). Use YYYY-MM-DD."
+
+    # Build the SQL predicate for date filtering (appended only when dates are provided)
+    date_clause = ""
+    date_params: list = []
+    if ts_from is not None:
+        date_clause += " AND m.ts >= ?"
+        date_params.append(ts_from)
+    if ts_to is not None:
+        date_clause += " AND m.ts < ?"
+        date_params.append(ts_to)
+
     try:
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         con.row_factory = sqlite3.Row
         # FTS5 snippet() highlights matched terms. bm25() ranks by relevance.
         rows = con.execute(
-            """
+            f"""
             SELECT
                 m.id,
                 m.role,
@@ -969,19 +1009,25 @@ def search_history(query: str, max_results: int = 8) -> str:
             JOIN messages m ON m.id = messages_fts.rowid
             WHERE messages_fts MATCH ?
               AND m.content NOT IN ('[THREAD_BREAK]')
+              {date_clause}
             ORDER BY bm25(messages_fts)
             LIMIT ?
             """,
-            (query, max_results),
+            (fts_query, *date_params, max_results),
         ).fetchall()
         con.close()
     except Exception as e:
         return f"History search failed: {e}"
 
     if not rows:
-        return f"No messages found in chat history matching: {query!r}"
+        # If reformulation changed the query and found nothing, surface both for debugging
+        note = f" (reformulated to: {fts_query!r})" if fts_query != query else ""
+        return f"No messages found in chat history matching: {query!r}{note}"
 
-    lines = [f"Chat history search results for: {query!r}\n"]
+    date_range_label = ""
+    if date_from or date_to:
+        date_range_label = f" [{date_from or '...'} → {date_to or '...'}]"
+    lines = [f"Chat history search results for: {query!r}{date_range_label}\n"]
     for row in rows:
         ts_str = (
             datetime.fromtimestamp(row["ts"]).strftime("%a %b %d %Y, %I:%M %p")
@@ -994,7 +1040,12 @@ def search_history(query: str, max_results: int = 8) -> str:
     return "\n".join(lines)
 
 
-def schedule_reminder(title: str, due_at: str, description: str = None) -> str:
+def schedule_reminder(
+    title: str,
+    due_at: str,
+    description: str = None,
+    recurrence_rule: str = None,
+) -> str:
     """Schedule a local reminder/task for Ricky.
 
     Args:
@@ -1002,17 +1053,25 @@ def schedule_reminder(title: str, due_at: str, description: str = None) -> str:
         due_at: Due timestamp (ISO-8601 string, 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS').
                 Calculate absolute datetime using current time from system prompt.
         description: Optional additional notes/details.
+        recurrence_rule: Optional recurrence pattern. Supported values:
+                         'daily'         — repeats every day at the same time.
+                         'weekly:MON'    — repeats weekly on a named weekday
+                                           (MON/TUE/WED/THU/FRI/SAT/SUN).
+                         'monthly:15'    — repeats monthly on a specific day number
+                                           (1–28; use 28 to avoid month-length edge cases).
+                         Omit or pass None for a one-shot reminder.
 
     Returns:
         str: Success/error message with reminder details.
     """
     try:
-        reminder = reminders.create_reminder(title, due_at, description)
+        reminder = reminders.create_reminder(title, due_at, description, recurrence_rule)
+        recur_label = f"\n- Recurrence: {reminder.get('recurrence_rule')}" if reminder.get("recurrence_rule") else ""
         return (
             f"Successfully scheduled reminder:\n"
             f"- ID: {reminder['id']}\n"
             f"- Title: {reminder['title']}\n"
-            f"- Due: {reminder['due_at']}\n"
+            f"- Due: {reminder['due_at']}{recur_label}\n"
             f"- Status: {reminder['status']}"
         )
     except Exception as e:
@@ -1020,18 +1079,28 @@ def schedule_reminder(title: str, due_at: str, description: str = None) -> str:
 
 
 def complete_reminder(reminder_id: int) -> str:
-    """Mark a local reminder as completed by ID.
+    """Mark a local reminder as completed (or advance its next due date if recurring).
+
+    For one-shot reminders, sets status to 'completed'. For recurring reminders,
+    calculates the next due date and resets status to 'pending' so the reminder
+    reappears automatically on schedule.
 
     Args:
         reminder_id: Database row ID.
 
     Returns:
-        str: Success or failure message.
+        str: Success or failure message including next due date for recurring reminders.
     """
     try:
-        if reminders.complete_reminder(reminder_id):
-            return f"Successfully marked reminder ID {reminder_id} as completed."
-        return f"Reminder ID {reminder_id} not found or already completed."
+        result = reminders.complete_reminder(reminder_id)
+        if result is None:
+            return f"Reminder ID {reminder_id} not found or already completed."
+        if isinstance(result, dict) and result.get("recurred"):
+            return (
+                f"Reminder ID {reminder_id} marked done. "
+                f"Next occurrence scheduled for: {result['next_due']}"
+            )
+        return f"Successfully marked reminder ID {reminder_id} as completed."
     except Exception as e:
         return f"Error completing reminder: {e}"
 
@@ -1357,20 +1426,30 @@ MODEL_TOOL_DEFINITIONS = [
                 "Search Evelyn's full chat history using full-text search (FTS5). "
                 "Use when Ricky asks 'did we talk about X?', 'what did I say about Y last week?', "
                 "or 'do you remember when we discussed Z?'. "
+                "Conversational phrasing is fine — the query is automatically reformulated into keywords. "
                 "Do NOT use for vault knowledge, journal entries, or context facts — use search_vault for those. "
                 "Returns matching message snippets with timestamps and speaker labels. "
-                "Supports phrase search (e.g. \"exact phrase\") and AND/OR operators."
+                "Supports phrase search (e.g. \"exact phrase\") and AND/OR operators. "
+                "Use date_from/date_to (YYYY-MM-DD) to constrain results to a specific time window."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search term or phrase to look for in past chat messages.",
+                        "description": "The search term, phrase, or conversational description to look for in past chat messages.",
                     },
                     "max_results": {
                         "type": "integer",
                         "description": "Maximum number of matching snippets to return. Defaults to 8.",
+                    },
+                    "date_from": {
+                        "type": "string",
+                        "description": "Optional start date filter in 'YYYY-MM-DD' format. Calculate from the current date in the system prompt.",
+                    },
+                    "date_to": {
+                        "type": "string",
+                        "description": "Optional end date filter in 'YYYY-MM-DD' format. Calculate from the current date in the system prompt.",
                     },
                 },
                 "required": ["query"],
@@ -1381,7 +1460,13 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "schedule_reminder",
-            "description": "Schedule a local reminder or task for Ricky. The due_at parameter MUST be in 'YYYY-MM-DD HH:MM:SS' format. Use the current time provided in your system prompt to calculate absolute dates/times.",
+            "description": (
+                "Schedule a local reminder or task for Ricky. "
+                "The due_at parameter MUST be in 'YYYY-MM-DD HH:MM:SS' format — calculate from the current date/time in the system prompt. "
+                "For repeating reminders, pass a recurrence_rule: 'daily', 'weekly:MON' (or TUE/WED/THU/FRI/SAT/SUN), "
+                "or 'monthly:15' (replace 15 with the target day number, 1–28). "
+                "Recurring reminders automatically reschedule after being completed."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1396,6 +1481,10 @@ MODEL_TOOL_DEFINITIONS = [
                     "description": {
                         "type": "string",
                         "description": "Optional notes or details about the task.",
+                    },
+                    "recurrence_rule": {
+                        "type": "string",
+                        "description": "Optional recurrence: 'daily', 'weekly:MON', or 'monthly:15'. Omit for one-shot reminders.",
                     },
                 },
                 "required": ["title", "due_at"],

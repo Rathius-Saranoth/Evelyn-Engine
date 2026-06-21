@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-18 20:00:39
+# date modified: 2026-06-21 07:25:33
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -247,10 +247,9 @@ def load_system_prompt() -> str:
             content = _FRONTMATTER_RE.sub("", content)
             parts.append(content)
             
-    # Inject agenda if present (Hermes Tier 2 #7)
-    agenda_context = get_upcoming_agenda_prompt_context()
-    if agenda_context:
-        parts.append(agenda_context)
+    # Inject research context if present (dynamic per-request, not cacheable)
+    # Agenda context is injected as a user-turn prefix in _process_chat_background()
+    # to avoid KV-cache staleness (see Tweak 2 — 2026-06-21).
 
     return "\n\n".join(parts)
 
@@ -416,9 +415,15 @@ def init_db():
             due_at      TEXT NOT NULL,
             status      TEXT NOT NULL DEFAULT 'pending',
             created_at  TEXT NOT NULL,
-            notified    INTEGER DEFAULT 0
+            notified    INTEGER DEFAULT 0,
+            recurrence_rule TEXT
         )
     """)
+    # Migrate: add recurrence_rule column if missing (existing DBs)
+    try:
+        con.execute("ALTER TABLE reminders ADD COLUMN recurrence_rule TEXT")
+    except Exception:
+        pass  # Column already exists
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS calendar_events (
@@ -1037,7 +1042,15 @@ async def _process_chat_background(
 
         history = load_history()
 
+        # --- Tweak 2: Agenda as dynamic user-turn prefix (2026-06-21) ---
+        # Injected here rather than in load_system_prompt() so it is not
+        # frozen into the Gemma 4 KV-cache prefill. This refreshes on every
+        # request and costs tokens only when there is something to report.
+        agenda_prefix = get_upcoming_agenda_prompt_context()
+
         user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
+        if agenda_prefix:
+            user_msg_for_model = f"{agenda_prefix}\n\n{user_msg_for_model}"
         
         messages = [{"role": "system", "content": system}] + history
         
