@@ -394,6 +394,73 @@ def build_evaluate_prompt(sub_question: str, current_notes: str, confidence_thre
     )
 
 
+def build_notes_summary_prompt(sub_question: str, notes: str, task_type: str = "factual") -> str:
+    """Build a prompt for compressing oversized SQ notes before synthesis.
+
+    Called when a single sub-question's notes exceed RESEARCH_NOTES_SUMMARY_THRESHOLD
+    characters. Produces a condensed version that preserves everything the synthesizer
+    needs (key facts, source IDs, confidence signals, gaps) while stripping redundant
+    narrative and repetition.
+
+    The prompt is task-type aware so the model knows which signal to prioritise:
+    - factual/troubleshooting: preserve numbers, dates, source citations.
+    - comparison: preserve structured contrasts and attribute tables.
+    - opinion: preserve distinct viewpoints and named sources.
+
+    Args:
+        sub_question: The sub-question whose notes are being compressed.
+        notes: Full raw notes text for this sub-question.
+        task_type: Classified task type ('factual', 'comparison', 'troubleshooting',
+                   'opinion'). Determines preservation emphasis.
+
+    Returns:
+        str: Prompt instructing the model to produce compressed notes.
+    """
+    type_guidance = {
+        "factual": (
+            "Preserve all numbers, dates, statistics, named entities, and inline source "
+            "citation tags (e.g. [src_001]). These are the core evidence units."
+        ),
+        "comparison": (
+            "Preserve all named items being compared, their key differentiating attributes, "
+            "and quantitative values. Retain table or list structures where they appear. "
+            "Keep inline source citation tags (e.g. [src_001])."
+        ),
+        "troubleshooting": (
+            "Preserve all identified causes, symptoms, and fix procedures. Keep step-by-step "
+            "sequences intact. Retain inline source citation tags (e.g. [src_001])."
+        ),
+        "opinion": (
+            "Preserve distinct viewpoints, the names or affiliations of their holders, and "
+            "any supporting arguments. Retain inline source citation tags (e.g. [src_001])."
+        ),
+    }.get(task_type, (
+        "Preserve all factual claims, numbers, and inline source citation tags (e.g. [src_001])."
+    ))
+
+    return (
+        f"You are a research notes compressor. The following notes were collected to answer "
+        f"the sub-question: \"{sub_question}\"\n\n"
+        "These notes are too long to fit efficiently into the final synthesis prompt. "
+        "Your task is to compress them into a dense, information-rich summary that retains "
+        "ALL evidence needed for a final research report writer to produce accurate, "
+        "well-cited output.\n\n"
+        f"PRESERVATION RULE for this task type ({task_type}):\n{type_guidance}\n\n"
+        "COMPRESSION RULES:\n"
+        "1. Remove all meta-commentary, filler phrases, and repetition "
+        "(e.g. 'Based on the source above...', 'As mentioned earlier...').\n"
+        "2. Do NOT introduce any new information not present in the original notes.\n"
+        "3. Do NOT remove inline source citation tags — they are mandatory for the report.\n"
+        "4. Keep identified knowledge gaps if any are listed at the end of the notes.\n"
+        "5. Target length: roughly one-third of the original. Shorter is better if "
+        "all key evidence is retained.\n\n"
+        "Output ONLY the compressed notes. No preamble, no explanation.\n\n"
+        "=== NOTES TO COMPRESS ===\n"
+        f"{notes}\n"
+        "=== END NOTES ==="
+    )
+
+
 def build_synthesize_prompt(
     query: str,
     all_notes: Dict[str, str],
