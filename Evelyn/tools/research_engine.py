@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-06-21 07:49:05
+# date modified: 2026-06-21 08:12:25
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -862,6 +862,91 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     save_state(task_id, state)
 
 
+async def _summarize_sq_notes(
+    sq_question: str,
+    notes: str,
+    sq_id: str,
+    task_type: str,
+    task_id: str,
+    task_dir: str,
+) -> str:
+    """Compress SQ notes that exceed the token-budget threshold before synthesis.
+
+    Reads RESEARCH_NOTES_SUMMARY_THRESHOLD from config (default 12000 chars,
+    roughly 3000 tokens). Notes under the threshold are returned unchanged.
+    On any error the original notes are returned so synthesis is never blocked.
+
+    The compressed text is saved alongside the raw notes as
+    `{sq_id}_notes_summary.md` for audit purposes — the raw notes file is
+    never modified.
+
+    Args:
+        sq_question: The sub-question text (used in the compression prompt).
+        notes: Raw notes text for this SQ.
+        sq_id: SQ identifier (e.g. 'sq_01'), used for the summary filename.
+        task_type: Classified task type passed to the prompt builder for
+                   type-aware preservation rules.
+        task_id: Parent task identifier, used for log messages only.
+        task_dir: Absolute path to the task workspace directory.
+
+    Returns:
+        str: Compressed notes if over threshold, original notes otherwise.
+    """
+    threshold = getattr(cfg, "RESEARCH_NOTES_SUMMARY_THRESHOLD", 12000)
+    if len(notes) <= threshold:
+        return notes
+
+    original_chars = len(notes)
+    print(
+        f"[RESEARCH_ENGINE] SQ {sq_id} notes exceed threshold "
+        f"({original_chars} chars > {threshold}). Compressing before synthesis...",
+        flush=True,
+    )
+
+    prompt = research_prompts.build_notes_summary_prompt(sq_question, notes, task_type)
+    messages = [
+        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "user", "content": prompt},
+    ]
+
+    try:
+        # num_predict capped at 2048 — a compressed SQ summary should never
+        # need more than ~1500 tokens; this prevents runaway generation.
+        compressed = await call_ollama(messages, num_predict=2048)
+        compressed = compressed.strip()
+
+        if not compressed:
+            print(
+                f"[RESEARCH_ENGINE WARNING] Notes compression for {sq_id} returned empty. "
+                "Using original notes.",
+                flush=True,
+            )
+            return notes
+
+        compressed_chars = len(compressed)
+        ratio = compressed_chars / original_chars
+        print(
+            f"[RESEARCH_ENGINE] Notes compressed: {original_chars} → {compressed_chars} chars "
+            f"({ratio:.0%} of original) for {sq_id}.",
+            flush=True,
+        )
+
+        # Persist summary alongside raw notes for audit trail
+        summary_file = os.path.join(task_dir, f"{sq_id}_notes_summary.md")
+        with open(summary_file, "w", encoding="utf-8") as f:
+            f.write(compressed)
+
+        return compressed
+
+    except Exception as e:
+        print(
+            f"[RESEARCH_ENGINE WARNING] Notes compression failed for {sq_id}: {e}. "
+            "Falling back to original notes.",
+            flush=True,
+        )
+        return notes
+
+
 async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     """Execute the final SYNTHESIZE step of a research task.
 
@@ -873,14 +958,27 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     """
     print(f"[RESEARCH_ENGINE] Synthesizing final report for task {task_id}...", flush=True)
     task_dir = get_task_dir(task_id)
-    
-    # Load all sub-question notes
+    task_type = state.get("task_type", "factual")
+
+    # Load all sub-question notes, compressing any that exceed the token budget
+    # threshold before handing them to the synthesizer. Raw notes files are
+    # preserved on disk; only the in-memory dict carries compressed text.
     all_notes = {}
     for sq in state["plan"]["sub_questions"]:
         notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
         if os.path.exists(notes_file):
             with open(notes_file, "r", encoding="utf-8") as f:
-                all_notes[sq["question"]] = f.read()
+                raw_notes = f.read()
+            compressed = await _summarize_sq_notes(
+                sq_question=sq["question"],
+                notes=raw_notes,
+                sq_id=sq["id"],
+                task_type=task_type,
+                task_id=task_id,
+                task_dir=task_dir,
+            )
+            state["ollama_calls"] += 1  # Count compression call if it ran
+            all_notes[sq["question"]] = compressed
         else:
             all_notes[sq["question"]] = "*(No evidence collected)*"
             
