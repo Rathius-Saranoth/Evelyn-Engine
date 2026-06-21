@@ -1,6 +1,6 @@
 # context_summarizer.py
 # date created: 2026-04-24 20:17:58
-# date modified: 2026-06-14 16:07:59
+# date modified: 2026-06-21 09:05:02
 # tags: #context, #summarizer, #summarization, #async, #sliding_window
 
 """
@@ -29,21 +29,45 @@ import hashlib
 import importlib
 import sqlite3
 import time
+import os
+import json
 
 import evelyn_config as cfg
 
 # ---------------------------------------------------------------------------
-# In-memory cache
+# Cache Persistence and Structure
 # ---------------------------------------------------------------------------
-# The summary only matters for the current thread. Thread breaks and server
-# restarts naturally invalidate it. A stale/missing summary is harmless —
-# the model just doesn't have extended recall for that one turn.
+# Persisted to disk to avoid hammering Ollama on server restart.
+
+CACHE_FILE = os.path.join("data", "summary_cache.json")
 
 _cache = {
     "summary": "",          # The generated summary text
     "msg_hash": "",         # Hash of message IDs used to generate it
     "last_updated": 0.0,    # Timestamp of last successful summarization
 }
+
+def _save_cache_to_disk():
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_cache, f, indent=2)
+    except Exception as e:
+        print(f"[SUMMARIZER ERROR] Failed to save cache: {e}", flush=True)
+
+def _load_cache_from_disk():
+    global _cache
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "summary" in data and "msg_hash" in data:
+                    _cache.update(data)
+                    print(f"[SUMMARIZER] Loaded cached summary from disk (hash: {_cache['msg_hash'][:8]}...)", flush=True)
+        except Exception as e:
+            print(f"[SUMMARIZER ERROR] Failed to load cache: {e}", flush=True)
+
+_load_cache_from_disk()
 
 # Guard against concurrent summarization tasks
 _summarizing = False
@@ -71,6 +95,7 @@ def invalidate_summary_cache():
     """Clear the cached summary when starting a new thread."""
     global _cache
     _cache = {"summary": "", "msg_hash": "", "last_updated": 0.0}
+    _save_cache_to_disk()
     cancel_pending_summary()
     print("[SUMMARIZER] Cache invalidated (new thread)", flush=True)
 
@@ -416,6 +441,7 @@ async def _do_summary_update():
     _cache["summary"] = content
     _cache["msg_hash"] = msg_hash
     _cache["last_updated"] = time.time()
+    _save_cache_to_disk()
 
     print(
         f"[SUMMARIZER] Summary cached ({len(content)} chars, "
