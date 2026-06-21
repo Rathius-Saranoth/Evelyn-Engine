@@ -354,6 +354,14 @@ RESEARCH_WALL_CLOCK_TIMEOUT = 7200  # Fallback only (standard scope equivalent)
 # Gives Ollama breathing room between calls.
 RESEARCH_STEP_COOLDOWN = 5
 
+# Synthesis notes compression threshold (characters).
+# Before synthesis, each sub-question's notes are checked against this limit.
+# Notes exceeding it are summarized by the LLM before being injected into the
+# synthesis prompt, preventing context-window saturation on deep 8-SQ runs.
+# 12000 chars ≈ ~3000 tokens — roughly a full article of dense evidence.
+# Set to 0 to disable compression (always pass raw notes).
+RESEARCH_NOTES_SUMMARY_THRESHOLD = 12000
+
 # Idle-time trigger: seconds of inactivity before research can start a new queued task.
 # Must be LONGER than consolidation threshold to avoid conflicts.
 # Reduced from 1800s (30m) to 900s (15m) — 2026-06-21 budget review.
