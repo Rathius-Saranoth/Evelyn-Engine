@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-21 07:25:33
+# date modified: 2026-06-21 08:56:20
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1027,7 +1027,7 @@ async def _process_chat_background(
         await put("status", msg="Processing...")
 
         # RAG + system prompt + history (fast synchronous work)
-        rag_context = build_rag_context(user_message)
+        rag_context = await asyncio.to_thread(build_rag_context, user_message)
         system = load_system_prompt()
         if rag_context:
             system += f"\n\n{rag_context}"
