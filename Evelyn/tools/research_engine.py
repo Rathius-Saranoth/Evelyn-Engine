@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-06-21 08:12:25
+# date modified: 2026-06-21 08:48:56
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -1021,19 +1021,26 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     state["status"] = "done"
     
     # --- Post-Synthesis Triage Logic ---
-    state["synthesis_iterations"] = state.get("synthesis_iterations", 0) + 1
-    max_synthesis_iters = getattr(cfg, "MAX_SYNTHESIS_ITERATIONS", 3)
-    
-    # Identify low-confidence sub-questions that haven't been removed/split
     low_conf_sqs = []
-    for sq in state["plan"]["sub_questions"]:
-        if sq.get("confidence", 100) < state["confidence_threshold"] and sq.get("status") not in ("removed", "split"):
-            # Provide a short notes summary
-            notes_text = all_notes.get(sq["question"], "")
-            notes_summary = notes_text[:300] + "..." if len(notes_text) > 300 else notes_text
-            sq_copy = dict(sq)
-            sq_copy["notes_summary"] = notes_summary
-            low_conf_sqs.append(sq_copy)
+    if state.get("termination_reason") in ("timeout", "turn_cap"):
+        print(
+            f"[RESEARCH_ENGINE] Safety cap was triggered ('{state['termination_reason']}'). "
+            "Skipping post-synthesis triage to prevent infinite loop.",
+            flush=True,
+        )
+    else:
+        state["synthesis_iterations"] = state.get("synthesis_iterations", 0) + 1
+        max_synthesis_iters = getattr(cfg, "MAX_SYNTHESIS_ITERATIONS", 3)
+        
+        # Identify low-confidence sub-questions that haven't been removed/split
+        for sq in state["plan"]["sub_questions"]:
+            if sq.get("confidence", 100) < state["confidence_threshold"] and sq.get("status") not in ("removed", "split"):
+                # Provide a short notes summary
+                notes_text = all_notes.get(sq["question"], "")
+                notes_summary = notes_text[:300] + "..." if len(notes_text) > 300 else notes_text
+                sq_copy = dict(sq)
+                sq_copy["notes_summary"] = notes_summary
+                low_conf_sqs.append(sq_copy)
             
     if low_conf_sqs and state["synthesis_iterations"] <= max_synthesis_iters:
         print(f"[RESEARCH_ENGINE] Post-synthesis triage: found {len(low_conf_sqs)} low-confidence SQs. Triage iteration {state['synthesis_iterations']}/{max_synthesis_iters}.", flush=True)
