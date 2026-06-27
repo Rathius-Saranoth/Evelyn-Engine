@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-06-06 19:37:34
+date modified: 2026-06-27 08:47:54
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -91,12 +91,20 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 * **Purpose**: Action triage on a staged memory.
 * **Actions**: `approve` (commits fact), `reject` (drops fact).
 
+### `GET /api/persona/{filename}`
+* **Purpose**: Fetches the current content of a core persona file (`Evelyn_Narrative_Persona.md`, `Ricky_Narrative_Profile.md`, or `System_Directives.md`) to display side-by-side or line-by-line diffs.
+* **Returns**: Plain text markdown file content.
+
 ### `GET /api/review/proposals`
-* **Purpose**: Retrieves active context consolidation proposals staged by [[fact_consolidator.py]].
+* **Purpose**: Retrieves active context consolidation and profile update proposals staged by [[fact_consolidator.py]] and [[profile_evolver.py]].
 
 ### `POST /api/review/proposals/{id}/{action}`
-* **Purpose**: Action triage on duplication proposals.
-* **Actions**: `approve` (merges facts), `reject` (retains staging), `keep_both` (preserves both without deletion).
+* **Purpose**: Action triage on proposals.
+* **Actions**:
+  * `approve`: Merges facts (for consolidations) or writes the approved markdown changes back to disk and runs `update_frontmatter.py` (for profile updates).
+  * `reject` / `deny`: Rejects the proposal and deletes it.
+  * `keep_both`: (For consolidations) preserves both context entries without deleting.
+
 
 ---
 

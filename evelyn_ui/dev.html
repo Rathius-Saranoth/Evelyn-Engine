@@ -177,6 +177,7 @@
   <div class="tabs">
     <button class="tab-btn active" id="tab-extractions" onclick="switchTab('extractions')">Extractions (<span id="count-ext">0</span>)</button>
     <button class="tab-btn" id="tab-proposals" onclick="switchTab('proposals')">Proposals (<span id="count-prop">0</span>)</button>
+    <button class="tab-btn" id="tab-profile-updates" onclick="switchTab('profile_updates')">Profile Updates (<span id="count-prof-up">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
   </div>
   
@@ -274,8 +275,12 @@
         if (resProp.ok) proposals = await resProp.json();
         if (resRes.ok) researchTasks = await resRes.json();
         
+        const normalProposals = proposals.filter(p => p.type !== 'profile_update');
+        const profileUpdates = proposals.filter(p => p.type === 'profile_update');
+
         document.getElementById('count-ext').textContent = extractions.length;
-        document.getElementById('count-prop').textContent = proposals.length;
+        document.getElementById('count-prop').textContent = normalProposals.length;
+        document.getElementById('count-prof-up').textContent = profileUpdates.length;
         document.getElementById('count-res').textContent = researchTasks.length;
         
         render();
@@ -288,11 +293,13 @@
       currentTab = tab;
       document.getElementById('tab-extractions').classList.toggle('active', tab === 'extractions');
       document.getElementById('tab-proposals').classList.toggle('active', tab === 'proposals');
+      document.getElementById('tab-profile-updates').classList.toggle('active', tab === 'profile_updates');
       document.getElementById('tab-research').classList.toggle('active', tab === 'research');
       
       const title = document.getElementById('header-title');
       if (tab === 'extractions') title.textContent = 'Review Queue';
       else if (tab === 'proposals') title.textContent = 'Proposals Queue';
+      else if (tab === 'profile_updates') title.textContent = 'Profile & Persona Updates';
       else title.textContent = 'Deep Research Dashboard';
       
       // Clear or set polling (relaxed to 20s to prevent API/DB polling overhead)
@@ -607,6 +614,61 @@
       handleEditInput(id);
     }
 
+    function renderDiff(original, proposed) {
+      if (!original) return `<pre style="white-space: pre-wrap; word-break: break-all; color: var(--success);">${escapeHtml(proposed)}</pre>`;
+      
+      const origLines = original.split('\n');
+      const propLines = proposed.split('\n');
+      
+      let html = '<div class="diff-container" style="font-family: monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; line-height: 1.6;">';
+      
+      let i = 0, j = 0;
+      while (i < origLines.length || j < propLines.length) {
+        const oLine = origLines[i];
+        const pLine = propLines[j];
+        
+        if (oLine === pLine) {
+          html += `<div class="diff-line" style="color: var(--text-dim); white-space: pre-wrap;">  ${escapeHtml(oLine)}</div>`;
+          i++;
+          j++;
+        } else {
+          // Find matches down the line
+          let foundMatch = false;
+          let lookAhead = 10;
+          for (let k = 1; k < lookAhead; k++) {
+            if (i + k < origLines.length && origLines[i+k] === pLine) {
+              for (let m = 0; m < k; m++) {
+                html += `<div class="diff-line" style="background: rgba(248,113,113,0.15); color: #fca5a5; white-space: pre-wrap;">- ${escapeHtml(origLines[i+m])}</div>`;
+              }
+              i += k;
+              foundMatch = true;
+              break;
+            }
+            if (j + k < propLines.length && propLines[j+k] === oLine) {
+              for (let m = 0; m < k; m++) {
+                html += `<div class="diff-line" style="background: rgba(52,211,153,0.15); color: #a7f3d0; white-space: pre-wrap;">+ ${escapeHtml(propLines[j+m])}</div>`;
+              }
+              j += k;
+              foundMatch = true;
+              break;
+            }
+          }
+          if (!foundMatch) {
+            if (i < origLines.length) {
+              html += `<div class="diff-line" style="background: rgba(248,113,113,0.15); color: #fca5a5; white-space: pre-wrap;">- ${escapeHtml(oLine)}</div>`;
+              i++;
+            }
+            if (j < propLines.length) {
+              html += `<div class="diff-line" style="background: rgba(52,211,153,0.15); color: #a7f3d0; white-space: pre-wrap;">+ ${escapeHtml(pLine)}</div>`;
+              j++;
+            }
+          }
+        }
+      }
+      html += '</div>';
+      return html;
+    }
+
     function render() {
       const container = document.getElementById('container');
       
@@ -634,11 +696,12 @@
         `).join('');
         
       } else if (currentTab === 'proposals') {
-        if (proposals.length === 0) {
+        const normalProposals = proposals.filter(p => p.type !== 'profile_update');
+        if (normalProposals.length === 0) {
           container.innerHTML = `<div class="empty-state">All caught up! No proposals to review.</div>`;
           return;
         }
-        container.innerHTML = proposals.map(item => {
+        container.innerHTML = normalProposals.map(item => {
           const sourcesHTML = item.source_entries.map(s => `
             <div class="source-item"><strong>[${s.category}]</strong> ${escapeHtml(s.observation)}</div>
           `).join('');
@@ -665,6 +728,40 @@
           `;
         }).join('');
         
+      } else if (currentTab === 'profile_updates') {
+        const profileUpdates = proposals.filter(p => p.type === 'profile_update');
+        if (profileUpdates.length === 0) {
+          container.innerHTML = `<div class="empty-state">All caught up! No profile updates to review.</div>`;
+          return;
+        }
+        container.innerHTML = profileUpdates.map(item => {
+          const sourcesHTML = item.source_entries.map(s => `
+            <div class="source-item"><strong>[${s.category}]</strong> ${escapeHtml(s.observation)}</div>
+          `).join('');
+          
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span class="badge" style="background: var(--accent); color: #fff;">PROFILE UPDATE: ${item.suggested_category}</span>
+                <span>ID: ${item.id}</span>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="color: var(--text-dim); font-size: 13px;"><strong>Reason / Explanation:</strong><br>${escapeHtml(item.reason)}</div>
+                <div style="font-size: 14px; font-weight: 500; margin-top: 6px; color: #fff;">Diff comparison:</div>
+                ${renderDiff(item.merged_tags, item.merged_observation)}
+                <div style="font-size: 13px; color: var(--text-dim); margin-top: 8px;">
+                  <strong>Supporting Context Entries:</strong>
+                </div>
+                <div class="source-list">${sourcesHTML}</div>
+              </div>
+              <div class="card-actions">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Update</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject Update</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
       } else if (currentTab === 'research') {
         const hasForm = !!document.getElementById('research-query');
         
@@ -855,14 +952,20 @@
     document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
       
-      const items = currentTab === 'extractions' ? extractions : (currentTab === 'proposals' ? proposals : []);
+      const items = currentTab === 'extractions' 
+        ? extractions 
+        : (currentTab === 'proposals' 
+           ? proposals.filter(p => p.type !== 'profile_update') 
+           : (currentTab === 'profile_updates' 
+              ? proposals.filter(p => p.type === 'profile_update') 
+              : []));
       if (items.length === 0) return;
       
       const firstId = items[0].id;
       if (e.key.toLowerCase() === 'a') {
-        handleAction(currentTab, firstId, 'approve');
+        handleAction('proposals', firstId, 'approve');
       } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'd') {
-        handleAction(currentTab, firstId, currentTab === 'extractions' ? 'delete' : 'deny');
+        handleAction('proposals', firstId, 'deny');
       }
     });
 
@@ -874,7 +977,7 @@
     // Init
     const params = new URLSearchParams(window.location.search);
     const initialTab = params.get('tab');
-    if (initialTab && ['extractions', 'proposals', 'research'].includes(initialTab)) {
+    if (initialTab && ['extractions', 'proposals', 'profile_updates', 'research'].includes(initialTab)) {
       switchTab(initialTab);
     } else {
       loadData();

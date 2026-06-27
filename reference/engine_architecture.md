@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-05-30 20:37:22
+date modified: 2026-06-27 08:47:46
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -80,6 +80,21 @@ graph TD
     Obsidian["Obsidian Vault<br>(G:\My Drive\Obsidian_Vault)"] <-->|Read / Sync| IngestVault
     Obsidian <-->|Vector Base| IngestGist
     ResearchEngine -->|Save Report| Obsidian
+
+    %% Idle Background Agents
+    subgraph IdleAgents [Idle Background Services]
+        Extractor["[[fact_extractor.py]] (Fact Ingest)"]
+        Consolidator["[[fact_consolidator.py]] (Memory Cleanup)"]
+        Evolver["[[profile_evolver.py]] (Persona Evolution)"]
+    end
+
+    Server --->|Trigger Idle Run| IdleAgents
+    Extractor <-->|Extract Facts| ChatDB
+    Extractor --->|Write Entry| MemoryDB
+    Consolidator <-->|Merge / Cleanup| MemoryDB
+    Evolver <-->|Scan Context| MemoryDB
+    Evolver --->|Propose Update| MemoryDB
+    Ollama <-->|LLM Prompts| IdleAgents
 ```
 
 ---
@@ -123,10 +138,12 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[reminders.py]]**: Local task manager. Handles scheduling, retrieval, and updates for local reminders (`reminders` table) and merges them with Google Calendar events.
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions and stages them to memory.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
+* **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files.
 * **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
 * **[[undo_thread.py]]**: Interactive debugging script to safely rollback transactions in memory files.
+
 
 
 ### 2.6 Standalone Inference Services

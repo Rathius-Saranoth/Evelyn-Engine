@@ -423,3 +423,26 @@ DEBUG_LOGGING = True
 # Reads per-request — no restart needed to toggle.
 # Useful when inspecting search_vault, web_search, recall_specific_memory, etc.
 DEBUG_TOOL_FULL = False
+
+# =============================================================================
+# Profile Auto-Evolution (Hermes Tier 3 #12)
+# =============================================================================
+# Background task that proposes updates to persona files based on accumulated
+# context entries. All proposals go through human review in dev.html.
+
+PROFILE_EVOLUTION_ENABLED = True
+
+# Minimum seconds between evolution runs (per document).
+# Default: 24 hours. The evolver checks all three documents per run.
+PROFILE_EVOLUTION_COOLDOWN = 86400  # 24 hours
+
+# Minimum number of NEW context entries (since last run) before evolution
+# is triggered for a given document. Prevents churning on sparse data.
+PROFILE_EVOLUTION_MIN_ENTRIES = 5
+
+# Idle threshold — same as deep memory refresh (45 minutes).
+PROFILE_EVOLUTION_IDLE_THRESHOLD = 2700  # 45 minutes
+
+# Model override. "default" = use MODEL_NAME.
+PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
+
