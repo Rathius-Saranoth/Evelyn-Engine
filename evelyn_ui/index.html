@@ -526,9 +526,29 @@ const WRITE_TOOLS = {
   log_context_fact:     { icon: '📌', label: 'Context fact logged' },
   update_context_fact:  { icon: '📝', label: 'Context fact updated' },
   generate_image:       { icon: '🎨', label: 'Image generated' },
+  run_command:          { icon: '💻', label: 'Command executed' },
+  write_file:           { icon: '💾', label: 'File written' },
 };
 
-function addWriteBadges(wrap, usedTools, contentText = '') {
+let pendingApprovals = [];
+
+async function fetchPendingApprovals() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/terminal/pending`, { headers: headers() });
+    if (resp.ok) {
+      pendingApprovals = await resp.json();
+    }
+  } catch (e) {
+    console.warn('Could not fetch pending approvals:', e);
+  }
+}
+
+async function addWriteBadges(wrap, usedTools, contentText = '') {
+  const hasTerminalTools = usedTools.some(tstr => tstr.startsWith('run_command') || tstr.startsWith('write_file'));
+  if (hasTerminalTools) {
+    await fetchPendingApprovals();
+  }
+
   const writesUsed = usedTools.map(tstr => {
     const match = tstr.match(/^([^\[]+)(?:\[(.*?)\])?$/);
     return match ? { name: match[1], data: match[2] } : { name: tstr, data: null };
@@ -548,6 +568,8 @@ function addWriteBadges(wrap, usedTools, contentText = '') {
       } else {
         badge = document.createElement('span');
       }
+      badge.className = 'write-badge';
+      badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
     } else if (t.name === 'write_journal_entry') {
       let docId = t.data;
       if (docId) {
@@ -557,11 +579,85 @@ function addWriteBadges(wrap, usedTools, contentText = '') {
       } else {
         badge = document.createElement('span');
       }
+      badge.className = 'write-badge';
+      badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
+    } else if (t.name === 'run_command' || t.name === 'write_file') {
+      const pendingItem = pendingApprovals ? pendingApprovals.find(item => item.id === t.data) : null;
+      if (pendingItem) {
+        badge = document.createElement('div');
+        badge.id = `approval-card-${t.data}`;
+        badge.className = 'approval-card';
+        badge.style.border = '1px solid var(--border)';
+        badge.style.padding = '12px';
+        badge.style.borderRadius = 'var(--radius)';
+        badge.style.background = 'var(--surface2)';
+        badge.style.marginTop = '8px';
+        badge.style.display = 'flex';
+        badge.style.flexDirection = 'column';
+        badge.style.gap = '8px';
+        badge.style.width = '100%';
+        badge.style.maxWidth = '500px';
+
+        const titleDiv = document.createElement('div');
+        titleDiv.style.fontWeight = '600';
+        titleDiv.style.color = '#fbbf24';
+        titleDiv.style.fontSize = '13px';
+        titleDiv.textContent = pendingItem.type === 'write' ? '💾 File Write Approval Required' : '💻 Command Approval Required';
+        badge.appendChild(titleDiv);
+
+        if (pendingItem.type === 'write') {
+          const pathDiv = document.createElement('div');
+          pathDiv.style.fontSize = '12px';
+          pathDiv.style.color = 'var(--text-dim)';
+          pathDiv.innerHTML = `<strong>Path:</strong> <code>${pendingItem.file_path}</code> (Mode: ${pendingItem.mode})`;
+          badge.appendChild(pathDiv);
+        } else {
+          const cmdDiv = document.createElement('div');
+          cmdDiv.style.fontSize = '12px';
+          cmdDiv.style.fontFamily = 'JetBrains Mono, monospace';
+          cmdDiv.style.background = 'rgba(0,0,0,0.3)';
+          cmdDiv.style.padding = '6px';
+          cmdDiv.style.borderRadius = '4px';
+          cmdDiv.style.whiteSpace = 'pre-wrap';
+          cmdDiv.textContent = pendingItem.command;
+          badge.appendChild(cmdDiv);
+
+          const cwdDiv = document.createElement('div');
+          cwdDiv.style.fontSize = '11px';
+          cwdDiv.style.color = 'var(--text-dim)';
+          cwdDiv.innerHTML = `<strong>Directory:</strong> <code>${pendingItem.cwd}</code>`;
+          badge.appendChild(cwdDiv);
+        }
+
+        const btnsDiv = document.createElement('div');
+        btnsDiv.style.display = 'flex';
+        btnsDiv.style.gap = '8px';
+        
+        const approveBtn = document.createElement('button');
+        approveBtn.className = 'btn-ghost';
+        approveBtn.style.borderColor = 'var(--tool-border)';
+        approveBtn.style.color = 'var(--tool-text)';
+        approveBtn.textContent = 'Approve';
+        approveBtn.onclick = () => handleApproval(t.data, true);
+
+        const denyBtn = document.createElement('button');
+        denyBtn.className = 'btn-ghost danger';
+        denyBtn.textContent = 'Deny';
+        denyBtn.onclick = () => handleApproval(t.data, false);
+
+        btnsDiv.appendChild(approveBtn);
+        btnsDiv.appendChild(denyBtn);
+        badge.appendChild(btnsDiv);
+      } else {
+        badge = document.createElement('span');
+        badge.className = 'write-badge';
+        badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
+      }
     } else {
       badge = document.createElement('span');
+      badge.className = 'write-badge';
+      badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
     }
-    badge.className = 'write-badge';
-    badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
     container.appendChild(badge);
   }
   // Insert before msg-actions (TTS/regen) if present, otherwise append
@@ -569,6 +665,7 @@ function addWriteBadges(wrap, usedTools, contentText = '') {
   if (actions) wrap.insertBefore(container, actions);
   else wrap.appendChild(container);
 }
+
 
 // ---------------------------------------------------------------------------
 // Modals
@@ -781,12 +878,70 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text || isStreaming) return;
 
+  input.value = '';
+  input.style.height = 'auto';
+  await executeChatTurn(text);
+}
+
+async function sendSystemMessage(text) {
+  if (isStreaming) return;
+  await executeChatTurn(text);
+}
+
+async function handleApproval(approvalId, approve) {
+  const card = document.getElementById(`approval-card-${approvalId}`);
+  if (!card) return;
+
+  card.querySelectorAll('button').forEach(btn => btn.disabled = true);
+
+  const action = approve ? 'approve' : 'deny';
+  try {
+    const resp = await fetch(`${API_BASE}/api/terminal/${action}/${approvalId}`, {
+      method: 'POST',
+      headers: headers()
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (approve) {
+        card.style.borderColor = 'var(--tool-border)';
+        card.style.background = 'rgba(102,187,119,0.05)';
+        card.innerHTML = `
+          <div style="font-size: 13px; font-weight: 600; color: var(--tool-text);">
+            ✓ Approved and Executed
+          </div>
+        `;
+        const resultText = data.result || '[Success]';
+        sendSystemMessage(`[System: Command output:\n${resultText}]`);
+      } else {
+        card.style.borderColor = 'var(--border)';
+        card.style.background = 'transparent';
+        card.innerHTML = `
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-dim);">
+            ✗ Denied
+          </div>
+        `;
+      }
+      if (pendingApprovals) {
+        pendingApprovals = pendingApprovals.filter(item => item.id !== approvalId);
+      }
+    } else {
+      const err = await resp.text();
+      alert(`Failed to ${action}: ${err}`);
+      card.querySelectorAll('button').forEach(btn => btn.disabled = false);
+    }
+  } catch (err) {
+    alert(`Error: ${err.message}`);
+    card.querySelectorAll('button').forEach(btn => btn.disabled = false);
+  }
+}
+
+async function executeChatTurn(text) {
+  const input = document.getElementById('input');
   isStreaming = true;
   stopResponsePoll(); // cancel any poll from a previous connection drop
   document.getElementById('send-btn').disabled = true;
   document.querySelector('.avatar').classList.add('active');
-  input.value = '';
-  input.style.height = 'auto';
   setStatus('Thinking…');
 
   const sentAt = Date.now() / 1000;
@@ -883,6 +1038,9 @@ async function sendMessage() {
             update_context_fact: 'Updating context fact',
             generate_image: 'Generating image',
             sync_context_memory: 'Syncing memory',
+            run_command: 'Running command',
+            read_file: 'Reading file',
+            write_file: 'Writing file',
           };
           addActivity('⚙️', toolLabels[evt.name] || evt.name.replace(/_/g, ' '));
           setStatus((toolLabels[evt.name] || evt.name) + '…');
@@ -972,6 +1130,7 @@ async function sendMessage() {
     input.focus();
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // History load (paginated — last 50 messages initially)
