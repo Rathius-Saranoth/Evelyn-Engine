@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-06-27 08:47:26
+date modified: 2026-06-27 09:17:50
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -48,6 +48,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Deep Research Mode - Phase 8: Hardened Refinement Mechanics**: Shifted the engine from a run-to-completion model to an iterative, guided process. Added automated semantic-divergence LLM rewrites for low-confidence searches, a granular dashboard modal for per-sub-question editing, and a post-synthesis triage loop that evaluates final reports to selectively `REMOVE` dead-end threads or `SPLIT` broad questions into targeted children. (Completed 2026-05-30)
 - [ ] **Code & Terminal Agency**: Equip Evelyn with safe, scoped tools to read files, write scripts, and execute commands within the LocalAI workspace environment, enabling true pair-programming and self-modification.
 - [x] **Profile Auto-Evolution**: Implemented an idle-time background pipeline that scans context entries in the memory database to propose updates to narrative persona, profile, and directive documents, with an interactive visual diff reviewer tab in the developer Web UI. (Hermes Tier 3 #12 — Completed 2026-06-27)
+- [x] **Procedural Knowledge Capture**: Implemented an idle-time background pipeline that scans chat history for procedural rules (workflows, trigger patterns, pitfalls, and verification criteria), stores them in the SQLite `procedures` table, and dynamically injects keyword-matched procedures into the active RAG context. Added a dedicated interactive Procedures review tab in the Developer Web UI. (Hermes Tier 3 #10 — Completed 2026-06-27)
 - [ ] Explore Google Drive File Integration.
 - [ ] Implement scheduling and reminders.
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).

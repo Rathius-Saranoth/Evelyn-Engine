@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-06-14 16:28:04
+# date modified: 2026-06-27 09:15:14
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -111,6 +111,23 @@ def init_db() -> None:
         )
     """)
 
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS procedures (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            trigger_pattern   TEXT NOT NULL,
+            steps             TEXT NOT NULL,
+            pitfalls          TEXT,
+            verification      TEXT,
+            source            TEXT NOT NULL DEFAULT 'extracted',
+            status            TEXT NOT NULL DEFAULT 'live',
+            tags              TEXT,
+            created_at        REAL NOT NULL,
+            updated_at        REAL,
+            last_retrieved_at REAL,
+            retrieval_count   INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
     # Indexes — IF NOT EXISTS prevents errors on re-init
     for stmt in [
         "CREATE INDEX IF NOT EXISTS idx_ce_category ON context_entries(category)",
@@ -118,6 +135,8 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_ce_date ON context_entries(date)",
         "CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status)",
         "CREATE INDEX IF NOT EXISTS idx_proposals_type ON proposals(type)",
+        "CREATE INDEX IF NOT EXISTS idx_proc_status ON procedures(status)",
+        "CREATE INDEX IF NOT EXISTS idx_proc_trigger ON procedures(trigger_pattern)",
     ]:
         con.execute(stmt)
 
@@ -125,7 +144,13 @@ def init_db() -> None:
     con.close()
 
 
-# ===========================================================================
+
+
+
+
+
+
+
 # Context Entries — CRUD
 # ===========================================================================
 
@@ -574,3 +599,173 @@ def has_pending_proposal_for(entry_ids: list[int], type: Optional[str] = None) -
         except (json.JSONDecodeError, TypeError):
             continue
     return False
+
+
+# ===========================================================================
+# Procedures — CRUD
+# ===========================================================================
+
+def insert_procedure(
+    trigger_pattern: str,
+    steps: str,
+    pitfalls: Optional[str] = None,
+    verification: Optional[str] = None,
+    source: str = "extracted",
+    status: str = "live",
+    tags: Optional[str] = None,
+) -> int:
+    """Insert a new procedure and return its row ID.
+
+    Args:
+        trigger_pattern: Description of the situation or trigger.
+        steps: Markdown list of instructions to carry out.
+        pitfalls: Mistakes or warnings.
+        verification: Success confirmation.
+        source: 'extracted', 'manual', or 'model'.
+        status: 'live', 'extracted', or 'archived'.
+        tags: Semantic tags.
+
+    Returns:
+        int: The database row ID of the new procedure.
+    """
+    con = get_db()
+    cur = con.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status,
+            tags, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (trigger_pattern, steps, pitfalls, verification, source, status,
+         tags, time.time()),
+    )
+    row_id = cur.lastrowid
+    con.commit()
+    con.close()
+    return row_id
+
+
+def get_procedure(proc_id: int) -> Optional[dict]:
+    """Fetch a single procedure by ID.
+
+    Args:
+        proc_id: Row ID of the procedure.
+
+    Returns:
+        dict | None: The procedure record as a dict, or None if not found.
+    """
+    con = get_db()
+    row = con.execute(
+        "SELECT * FROM procedures WHERE id = ?", (proc_id,)
+    ).fetchone()
+    con.close()
+    return dict(row) if row else None
+
+
+def get_all_procedures(status: str = "live") -> list[dict]:
+    """Fetch all procedures matching a given status.
+
+    Args:
+        status: Status filter, e.g. 'live' or 'extracted'.
+
+    Returns:
+        list[dict]: A list of procedure dictionaries.
+    """
+    con = get_db()
+    rows = con.execute(
+        "SELECT * FROM procedures WHERE status = ? ORDER BY created_at DESC",
+        (status,),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]:
+    """Find procedures whose trigger pattern matches keywords in the query text.
+
+    Args:
+        query: User message query string.
+        status: Filter status, default 'live'.
+
+    Returns:
+        list[dict]: List of matching procedure dictionaries.
+    """
+    # Simple word tokenization to build a search pattern
+    words = [w.strip(".,;:!?") for w in query.lower().split() if len(w) > 3]
+    if not words:
+        return []
+
+    con = get_db()
+    # We do a direct LIKE check for the first few main keywords or direct match
+    clauses = []
+    params = [status]
+    for w in words[:4]:
+        clauses.append("trigger_pattern LIKE ?")
+        params.append(f"%{w}%")
+
+    query_str = f"SELECT * FROM procedures WHERE status = ? AND ({' OR '.join(clauses)}) ORDER BY retrieval_count DESC"
+    rows = con.execute(query_str, params).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def touch_procedure_retrieved(proc_id: int) -> None:
+    """Increment retrieval count and update last retrieval timestamp of a procedure.
+
+    Args:
+        proc_id: Database ID of the procedure.
+    """
+    try:
+        con = get_db()
+        con.execute(
+            """UPDATE procedures
+               SET retrieval_count = retrieval_count + 1,
+                   last_retrieved_at = ?
+               WHERE id = ?""",
+            (time.time(), proc_id),
+        )
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+
+
+def update_procedure(proc_id: int, **fields) -> bool:
+    """Update specific fields of a procedure.
+
+    Args:
+        proc_id: Database ID of the procedure.
+        **fields: Keyword arguments of column names and values to update.
+
+    Returns:
+        bool: True if updated, False otherwise.
+    """
+    valid_cols = {
+        "trigger_pattern", "steps", "pitfalls", "verification",
+        "source", "status", "tags", "last_retrieved_at", "retrieval_count",
+    }
+    updates = {k: v for k, v in fields.items() if k in valid_cols}
+    if not updates:
+        return False
+    updates["updated_at"] = time.time()
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [proc_id]
+
+    con = get_db()
+    cur = con.execute(
+        f"UPDATE procedures SET {set_clause} WHERE id = ?", values
+    )
+    con.commit()
+    affected = cur.rowcount
+    con.close()
+    return affected > 0
+
+
+def delete_procedure(proc_id: int) -> bool:
+    """Soft delete a procedure by changing status to 'archived'.
+
+    Args:
+        proc_id: Database ID of the procedure.
+
+    Returns:
+        bool: True if archived, False otherwise.
+    """
+    return update_procedure(proc_id, status="archived")

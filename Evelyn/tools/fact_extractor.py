@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-06-14 16:16:52
+# date modified: 2026-06-27 09:15:52
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -45,6 +45,8 @@ import evelyn_config as cfg # [[evelyn_config.py]]
 
 _YAML_BLOCK_RE = re.compile(r"```(?:facts|yaml)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _FACTS_KEY_RE  = re.compile(r"^\s*facts\s*:", re.MULTILINE)
+_PROC_YAML_BLOCK_RE = re.compile(r"```(?:procedures|yaml)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+_PROC_KEY_RE = re.compile(r"^\s*procedures\s*:", re.MULTILINE)
 _DATE_RE       = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # ---------------------------------------------------------------------------
@@ -576,6 +578,105 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
     return validated
 
 
+def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
+    """Assemble the prompt to extract procedural instructions (how-to rules) from conversation.
+
+    Args:
+        messages: A list of message dictionaries.
+
+    Returns:
+        str: The assembled prompt text.
+    """
+    transcript = _format_messages_for_extraction(messages)
+
+    return (
+        "You are a precise procedure extractor for a personal memory system. "
+        "Analyze the following conversation and extract ONLY concrete, repeatable procedural knowledge, "
+        "instructions, workflows, rules, or guidelines that Ricky (the user) asks Evelyn (the AI) to follow. "
+        "Specifically look for patterns like: 'When X happens, do Y, watch out for Z' or 'If I ask for A, do B'. "
+        "Ignore standard factual statements, preferences, small talk, and general chat. \n\n"
+        "Output ONLY a fenced YAML block in this exact format. "
+        "If no procedural rules are found, output an empty list.\n\n"
+        "```procedures\n"
+        "procedures:\n"
+        "  - trigger_pattern: \"When the user asks to X\" # clear description of when this rule applies\n"
+        "    steps: |\n"
+        "      1. First step to take.\n"
+        "      2. Second step to take.\n"
+        "    pitfalls: \"Common mistakes or things to watch out for/avoid.\" # optional\n"
+        "    verification: \"How to verify the action succeeded.\" # optional\n"
+        "    tags: \"skill/x, procedure/y\" # comma-separated semantic tags starting with skill/ or procedure/\n"
+        "```\n\n"
+        f"CONVERSATION:\n{transcript}"
+    )
+
+
+def _parse_procedures_yaml(raw: str) -> list[dict]:
+    """Parse the YAML procedures block from the model's raw response.
+
+    Args:
+        raw: The raw response string from Ollama.
+
+    Returns:
+        list[dict]: A list of parsed and validated procedure dictionaries.
+    """
+    match = _PROC_YAML_BLOCK_RE.search(raw)
+    if match:
+        block = match.group(1)
+    elif _PROC_KEY_RE.search(raw):
+        block = raw
+    else:
+        return []
+
+    if not block.strip().startswith("procedures:"):
+        block = "procedures:\n" + block
+
+    try:
+        data = yaml.safe_load(block)
+    except yaml.YAMLError as e:
+        print(f"[EXTRACTOR] Procedures YAML parse error: {e}", flush=True)
+        return []
+
+    if not isinstance(data, dict) or "procedures" not in data:
+        return []
+
+    procedures = data["procedures"]
+    if not isinstance(procedures, list):
+        return []
+
+    validated = []
+    for item in procedures:
+        if not isinstance(item, dict):
+            continue
+        trigger = str(item.get("trigger_pattern", "")).strip()
+        steps = str(item.get("steps", "")).strip()
+        pitfalls = item.get("pitfalls")
+        verification = item.get("verification")
+        tags = str(item.get("tags", "")).strip()
+
+        # Sanitize trigger and steps against injection
+        trigger = _sanitize_entry(trigger)
+        steps = _sanitize_entry(steps)
+
+        if not trigger or not steps:
+            continue
+
+        if pitfalls:
+            pitfalls = _sanitize_entry(str(pitfalls).strip())
+        if verification:
+            verification = _sanitize_entry(str(verification).strip())
+
+        validated.append({
+            "trigger_pattern": trigger,
+            "steps": steps,
+            "pitfalls": pitfalls,
+            "verification": verification,
+            "tags": tags
+        })
+
+    return validated
+
+
 async def _do_extraction(messages: list[dict]):
     """Run the core fact extraction LLM call on a batch of messages.
 
@@ -667,18 +768,71 @@ async def _do_extraction(messages: list[dict]):
 
     if not raw:
         print("[EXTRACTOR] Warning: empty response from model.", flush=True)
+    else:
+        print(f"[EXTRACTOR] Response received in {elapsed:.1f}s.", flush=True)
+        facts = _parse_facts_yaml(raw, fallback_date)
+        if facts:
+            print(f"[EXTRACTOR] {len(facts)} fact(s) extracted. Writing to memory DB...", flush=True)
+            written = write_extracted_facts(facts)
+            print(f"[EXTRACTOR] Wrote {written} fact(s) to SQLite DB.", flush=True)
+        else:
+            print("[EXTRACTOR] No valid facts extracted.", flush=True)
+
+    # Pass 2: Procedural Knowledge Capture
+    proc_prompt = _build_procedure_extraction_prompt(messages)
+    proc_messages = [
+        {
+            "role": "system",
+            "content": "You are a precise procedure extractor. You record pure, repeatable actions and rules. "
+                       "Output only the YAML block, nothing else.",
+        },
+        {"role": "user", "content": proc_prompt},
+    ]
+
+    payload["messages"] = proc_messages
+    payload["options"]["num_predict"] = 384
+
+    print(
+        f"[EXTRACTOR] Extracting procedures from {len(messages)} new message(s)...",
+        flush=True,
+    )
+    start_proc = time.time()
+    proc_content_buffer = ""
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        import json
+                        chunk = json.loads(line)
+                        msg = chunk.get("message", {})
+                        proc_content_buffer += msg.get("content", "")
+                    except json.JSONDecodeError:
+                        continue
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        print(f"[EXTRACTOR] Ollama procedure call failed: {e}", flush=True)
         return
 
-    print(f"[EXTRACTOR] Response received in {elapsed:.1f}s.", flush=True)
+    proc_raw = proc_content_buffer.strip()
+    elapsed_proc = time.time() - start_proc
 
-    facts = _parse_facts_yaml(raw, fallback_date)
-    if not facts:
-        print("[EXTRACTOR] No valid facts extracted.", flush=True)
-        return
-
-    print(f"[EXTRACTOR] {len(facts)} fact(s) extracted. Writing to memory DB...", flush=True)
-    written = write_extracted_facts(facts)
-    print(f"[EXTRACTOR] Wrote {written} fact(s) to SQLite DB.", flush=True)
+    if proc_raw:
+        print(f"[EXTRACTOR] Procedure response received in {elapsed_proc:.1f}s.", flush=True)
+        procedures = _parse_procedures_yaml(proc_raw)
+        if procedures:
+            print(f"[EXTRACTOR] {len(procedures)} procedure(s) extracted. Writing to memory DB...", flush=True)
+            written_proc = write_extracted_procedures(procedures)
+            print(f"[EXTRACTOR] Wrote {written_proc} procedure(s) to SQLite DB.", flush=True)
+        else:
+            print("[EXTRACTOR] No valid procedures extracted.", flush=True)
+    else:
+        print("[EXTRACTOR] Warning: empty procedure response from model.", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -747,5 +901,48 @@ def write_extracted_facts(facts: list[dict]) -> int:
             written += 1
         except Exception as e:
             print(f"[EXTRACTOR] Failed to insert fact: {e}", flush=True)
+
+    return written
+
+
+def write_extracted_procedures(procedures: list[dict]) -> int:
+    """Write extracted procedures to the SQLite memory database.
+
+    Args:
+        procedures: List of validated procedure dictionaries.
+
+    Returns:
+        int: The number of procedures successfully inserted.
+    """
+    import memory_db
+    written = 0
+
+    for proc in procedures:
+        # Check for duplication. We look up existing procedures and compare
+        # their triggers and steps to avoid exact duplicates.
+        existing = memory_db.get_all_procedures(status="live") + memory_db.get_all_procedures(status="extracted")
+        duplicate = False
+        for ext in existing:
+            if ext["trigger_pattern"].lower() == proc["trigger_pattern"].lower():
+                duplicate = True
+                break
+
+        if duplicate:
+            print(f"[EXTRACTOR] Skipping duplicate procedure trigger: {proc['trigger_pattern'][:80]}...", flush=True)
+            continue
+
+        try:
+            memory_db.insert_procedure(
+                trigger_pattern=proc["trigger_pattern"],
+                steps=proc["steps"],
+                pitfalls=proc.get("pitfalls"),
+                verification=proc.get("verification"),
+                source="extracted",
+                status="extracted", # Always start as extracted (pending review)
+                tags=proc.get("tags")
+            )
+            written += 1
+        except Exception as e:
+            print(f"[EXTRACTOR] Failed to insert procedure: {e}", flush=True)
 
     return written

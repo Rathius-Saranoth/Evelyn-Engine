@@ -178,6 +178,7 @@
     <button class="tab-btn active" id="tab-extractions" onclick="switchTab('extractions')">Extractions (<span id="count-ext">0</span>)</button>
     <button class="tab-btn" id="tab-proposals" onclick="switchTab('proposals')">Proposals (<span id="count-prop">0</span>)</button>
     <button class="tab-btn" id="tab-profile-updates" onclick="switchTab('profile_updates')">Profile Updates (<span id="count-prof-up">0</span>)</button>
+    <button class="tab-btn" id="tab-procedures" onclick="switchTab('procedures')">Procedures (<span id="count-proc">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
   </div>
   
@@ -220,6 +221,7 @@
     let extractions = [];
     let proposals = [];
     let researchTasks = [];
+    let procedures = [];
     let pollInterval = null;
 
     function headers() {
@@ -266,14 +268,16 @@
 
     async function loadData() {
       try {
-        const [resExt, resProp, resRes] = await Promise.all([
+        const [resExt, resProp, resRes, resProc] = await Promise.all([
           fetch(`${API_BASE}/api/review/extractions`, { headers: headers() }),
           fetch(`${API_BASE}/api/review/proposals`, { headers: headers() }),
-          fetch(`${API_BASE}/research/list`, { headers: headers() })
+          fetch(`${API_BASE}/research/list`, { headers: headers() }),
+          fetch(`${API_BASE}/api/review/procedures`, { headers: headers() })
         ]);
         if (resExt.ok) extractions = await resExt.json();
         if (resProp.ok) proposals = await resProp.json();
         if (resRes.ok) researchTasks = await resRes.json();
+        if (resProc.ok) procedures = await resProc.json();
         
         const normalProposals = proposals.filter(p => p.type !== 'profile_update');
         const profileUpdates = proposals.filter(p => p.type === 'profile_update');
@@ -281,6 +285,7 @@
         document.getElementById('count-ext').textContent = extractions.length;
         document.getElementById('count-prop').textContent = normalProposals.length;
         document.getElementById('count-prof-up').textContent = profileUpdates.length;
+        document.getElementById('count-proc').textContent = procedures.length;
         document.getElementById('count-res').textContent = researchTasks.length;
         
         render();
@@ -294,12 +299,14 @@
       document.getElementById('tab-extractions').classList.toggle('active', tab === 'extractions');
       document.getElementById('tab-proposals').classList.toggle('active', tab === 'proposals');
       document.getElementById('tab-profile-updates').classList.toggle('active', tab === 'profile_updates');
+      document.getElementById('tab-procedures').classList.toggle('active', tab === 'procedures');
       document.getElementById('tab-research').classList.toggle('active', tab === 'research');
       
       const title = document.getElementById('header-title');
       if (tab === 'extractions') title.textContent = 'Review Queue';
       else if (tab === 'proposals') title.textContent = 'Proposals Queue';
       else if (tab === 'profile_updates') title.textContent = 'Profile & Persona Updates';
+      else if (tab === 'procedures') title.textContent = 'Procedures Review';
       else title.textContent = 'Deep Research Dashboard';
       
       // Clear or set polling (relaxed to 20s to prevent API/DB polling overhead)
@@ -336,6 +343,44 @@
             proposals = proposals.filter(x => x.id !== id);
             document.getElementById('count-prop').textContent = proposals.length;
           }
+          render();
+        } else {
+          alert('Action failed.');
+        }
+      } catch (e) {
+        alert('Network error.');
+      }
+    }
+
+    async function handleProcedureAction(id, action) {
+      const endpoint = `${API_BASE}/api/review/procedures/${id}/${action}`;
+      let body = null;
+      
+      if (action === 'approve') {
+        const trigger = document.getElementById(`proc-trigger-${id}`).value.trim();
+        const steps = document.getElementById(`proc-steps-${id}`).value.trim();
+        const pitfalls = document.getElementById(`proc-pitfalls-${id}`).value.trim();
+        const verification = document.getElementById(`proc-verification-${id}`).value.trim();
+        const tags = document.getElementById(`proc-tags-${id}`).value.trim();
+        
+        body = JSON.stringify({
+          trigger_pattern: trigger,
+          steps: steps,
+          pitfalls: pitfalls || null,
+          verification: verification || null,
+          tags: tags || null
+        });
+      }
+      
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: headers(),
+          body: body
+        });
+        if (res.ok) {
+          procedures = procedures.filter(p => p.id !== id);
+          document.getElementById('count-proc').textContent = procedures.length;
           render();
         } else {
           alert('Action failed.');
@@ -761,6 +806,46 @@
             </div>
           `;
         }).join('');
+
+      } else if (currentTab === 'procedures') {
+        if (procedures.length === 0) {
+          container.innerHTML = `<div class="empty-state">All caught up! No procedures to review.</div>`;
+          return;
+        }
+        container.innerHTML = procedures.map(item => `
+          <div class="card">
+            <div class="card-header">
+              <span class="badge extraction" style="background: var(--accent); color: #fff;">PROCEDURE</span>
+              <span>ID: ${item.id}</span>
+            </div>
+            <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TRIGGER PATTERN (Conversational query keyword)</label>
+                <input type="text" id="proc-trigger-${item.id}" value="${escapeHtml(item.trigger_pattern)}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">STEPS (Markdown list of operations)</label>
+                <textarea id="proc-steps-${item.id}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 100px;">${escapeHtml(item.steps)}</textarea>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">PITFALLS / WHAT TO AVOID (Optional)</label>
+                <input type="text" id="proc-pitfalls-${item.id}" value="${escapeHtml(item.pitfalls || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">VERIFICATION CHECKS (Optional)</label>
+                <input type="text" id="proc-verification-${item.id}" value="${escapeHtml(item.verification || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TAGS (Comma separated)</label>
+                <input type="text" id="proc-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve')">Approve Procedure</button>
+              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'deny')">Reject / Archive</button>
+            </div>
+          </div>
+        `).join('');
 
       } else if (currentTab === 'research') {
         const hasForm = !!document.getElementById('research-query');
