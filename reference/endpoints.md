@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-06-27 09:17:47
+date modified: 2026-06-27 09:39:34
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -176,3 +176,17 @@ Endpoints driving the background research engine and the interactive developer d
 ### `POST /research/delete/{task_id}`
 * **Purpose**: Permanently destroy a research task and all its disk/memory artifacts.
 * **Action**: If active, forcefully terminates the subprocess, implements a file-lock retry loop, recursively deletes the task folder from `cfg.RESEARCH_DATA_DIR`, and evicts it from the server's tracking dictionary. Used by the "Remove" button in the dashboard.
+
+## Terminal Agency (Hermes Tier 3 #9)
+
+### `GET /api/terminal/pending`
+* **Purpose**: Retrieve all staged terminal commands and file writes awaiting user approval.
+* **Response**: A JSON array of pending actions with their metadata (id, type, command/file_path, cwd, etc.), excluding raw file contents for list-view performance.
+
+### `POST /api/terminal/approve/{approval_id}`
+* **Purpose**: Approve and execute a pending command or write operation.
+* **Response**: `{"status": "ok", "result": "output_string"}`. The command output or file write result is returned and sent back to the agentic loop.
+
+### `POST /api/terminal/deny/{approval_id}`
+* **Purpose**: Deny and discard a pending command or write operation.
+* **Response**: `{"status": "ok"}`.
