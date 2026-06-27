@@ -53,6 +53,8 @@ from context_summarizer import (
 )
 from fact_consolidator import run_consolidation, cancel_pending_consolidation
 from fact_extractor import run_extraction, cancel_pending_extraction
+from profile_evolver import run_profile_evolution, cancel_pending_evolution
+
 
 # ---------------------------------------------------------------------------
 # Console colors (ANSI — native on Windows Terminal, VS Code, etc.)
@@ -1283,6 +1285,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     cancel_pending_summary()
     cancel_pending_consolidation()
     cancel_pending_extraction()
+    cancel_pending_evolution()
 
     if not is_regenerate:
         time_ctx = get_time_gap_context()
@@ -1620,6 +1623,26 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_idle_memory_refresh_loop())
     print(f"  {_GRN}Mem Refresher:{_RST} idle loop started (threshold=45m, limit=2h)")
+
+    # Idle-time profile evolution loop (Hermes Tier 3 #12)
+    # Wakes every 10 minutes to check idle state. The per-document 24-hour
+    # cooldown is enforced inside run_profile_evolution(), not here.
+    async def _idle_profile_evolution_loop():
+        """Background loop that proposes persona file updates during deep idle."""
+        while True:
+            await asyncio.sleep(600)  # Check every 10 minutes
+            importlib.reload(cfg)
+            if not getattr(cfg, "PROFILE_EVOLUTION_ENABLED", False):
+                continue
+            idle_seconds = time.time() - _last_activity_ts
+            threshold = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 2700)
+            if idle_seconds >= threshold:
+                if not is_any_heavy_task_running():
+                    print(f"{_GRN}[PROFILE EVOLVER]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background profile evolution check.", flush=True)
+                    asyncio.create_task(run_profile_evolution())
+
+    asyncio.create_task(_idle_profile_evolution_loop())
+    print(f"  {_GRN}Profile Evolver:{_RST} idle loop started (threshold=45m, cooldown=24h/doc)")
 
     # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)
     async def _gcal_sync_loop():
@@ -2027,6 +2050,7 @@ async def trigger_sync(_: None = Depends(check_auth)):
     # Free Ollama before a heavy background operation starts
     cancel_pending_consolidation()
     cancel_pending_extraction()
+    cancel_pending_evolution()
 
     _background_tasks["sync"] = {"status": "running", "started_at": time.time()}
 
@@ -2060,6 +2084,7 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     # Free Ollama before a heavy background operation starts
     cancel_pending_consolidation()
     cancel_pending_extraction()
+    cancel_pending_evolution()
 
     _background_tasks["vault_map"] = {"status": "running", "started_at": time.time()}
 
@@ -2107,6 +2132,7 @@ async def start_refresh_memory_internal():
     # Free VRAM before a heavy multi-phase Ollama operation starts.
     cancel_pending_consolidation()
     cancel_pending_extraction()
+    cancel_pending_evolution()
 
     _background_tasks["refresh_memory"] = {
         "status": "running",
@@ -2712,6 +2738,18 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
         raise HTTPException(status_code=400, detail="Invalid action")
     return {"status": "ok"}
 
+@app.get("/api/persona/{filename}")
+async def get_persona_file(filename: str, _: None = Depends(check_auth)):
+    """Read a persona file's current content for diff display."""
+    safe_names = {"Evelyn_Narrative_Persona.md", "Ricky_Narrative_Profile.md", "System_Directives.md"}
+    if filename not in safe_names:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    fpath = PERSONA_DIR / filename
+    if not fpath.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"filename": filename, "content": fpath.read_text(encoding="utf-8")}
+
+
 @app.get("/api/review/proposals")
 async def get_proposals(_: None = Depends(check_auth)):
     """Return all pending consolidation/recategorization proposals with their source entries."""
@@ -2754,6 +2792,19 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
             for entry in source_entries:
                 memory_db.update_entry(entry["id"], category=prop["suggested_category"])
             memory_db.apply_proposal(id)
+        elif prop["type"] == "profile_update":
+            # Repurposed suggested_category contains the target filename (e.g. Evelyn_Narrative_Persona.md)
+            target_file = PERSONA_DIR / prop["suggested_category"]
+            if not target_file.exists():
+                raise HTTPException(status_code=404, detail=f"Target file not found: {prop['suggested_category']}")
+            target_file.write_text(prop["merged_observation"], encoding="utf-8")
+            memory_db.apply_proposal(id)
+            # Run update_frontmatter script to update date modified/tags
+            import subprocess
+            subprocess.run(
+                [sys.executable, "scripts/update_frontmatter.py", str(target_file)],
+                cwd=str(BASE_DIR), capture_output=True
+            )
         elif prop["type"] in ("merge", "supersede"):
             for entry in source_entries:
                 memory_db.delete_entry(entry["id"])
