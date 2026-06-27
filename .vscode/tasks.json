@@ -121,7 +121,7 @@
         {
             "label": "Run Evelyn Server",
             "type": "shell",
-            "command": "python evelyn_server.py",
+            "command": "$ErrorActionPreference = 'Continue'; python evelyn_server.py",
             "options": {
                 "cwd": "C:\\Projects\\LocalAI",
                 "env": {
