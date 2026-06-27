@@ -59,6 +59,7 @@ import ingest_gists # [[ingest_gists.py]]
 import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
 import reminders
 import gcal_sync
+import terminal_agent
 
 
 def _reload():
@@ -70,9 +71,11 @@ def _reload():
         "ingest_obsidian_knowledge",
         "reminders",
         "gcal_sync",
+        "terminal_agent",
     ):
         if mod in sys.modules:
             importlib.reload(sys.modules[mod])
+
 
 
 
@@ -1150,7 +1153,53 @@ def get_agenda(days: int = 7) -> str:
         return f"Error fetching agenda: {e}"
 
 
+
+def run_command(command: str, cwd: str = r"C:\Projects\LocalAI", timeout: int = 30) -> str:
+    """Execute a shell command in the LocalAI workspace.
+
+    Args:
+        command: The PowerShell command string to execute.
+        cwd: Working directory (default: C:\\Projects\\LocalAI).
+        timeout: Maximum seconds to wait (default: 30, max: 300).
+
+    Returns:
+        str: Output from the command, or warning if approval is required.
+    """
+    _reload()
+    return terminal_agent.run_command(command, cwd, timeout)
+
+
+def read_file(file_path: str, max_lines: int = 200) -> str:
+    """Read the contents of a file in the workspace.
+
+    Args:
+        file_path: Absolute path or path relative to C:\\Projects\\LocalAI.
+        max_lines: Maximum lines to return (default: 200).
+
+    Returns:
+        str: File content with line numbers, or error message.
+    """
+    _reload()
+    return terminal_agent.read_file(file_path, max_lines)
+
+
+def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
+    """Write or append content to a file in the workspace.
+
+    Args:
+        file_path: Absolute path or path relative to C:\\Projects\\LocalAI.
+        content: The text content to write.
+        mode: Write mode ('overwrite' or 'append').
+
+    Returns:
+        str: Warning message with approval ID.
+    """
+    _reload()
+    return terminal_agent.write_file(file_path, content, mode)
+
+
 # ===========================================================================
+
 # Tool registries
 # ===========================================================================
 #
@@ -1537,6 +1586,94 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": (
+                "Execute a shell command in the LocalAI workspace. "
+                "Use for checking service status, running scripts, git operations, "
+                "or any task that requires terminal access. "
+                "Commands run in PowerShell on Windows. "
+                "Dangerous commands require Ricky's approval before execution. "
+                "Always prefer read-only commands when possible."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The PowerShell command to execute"
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Working directory (default: C:\\Projects\\LocalAI)"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Max seconds to wait (default: 30, max: 300)"
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": (
+                "Read the contents of a file in the workspace. "
+                "Use to inspect code, configuration, or log files. "
+                "Returns content with line numbers. "
+                "Limited to 200 lines by default — request more with max_lines."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI"
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "description": "Maximum lines to return (default: 200)"
+                    },
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": (
+                "Write content to a file in the workspace. "
+                "ALWAYS requires Ricky's approval before writing. "
+                "Use for creating scripts, updating configurations, or saving outputs. "
+                "Mode can be 'overwrite' (replace) or 'append'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The text content to write"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "'overwrite' (default) or 'append'"
+                    },
+                },
+                "required": ["file_path", "content"],
+            },
+        },
+    },
 ]
 
 
@@ -1561,4 +1698,8 @@ TOOL_FUNCTIONS = {
     "complete_reminder": complete_reminder,
     "sync_google_calendar": sync_google_calendar,
     "get_agenda": get_agenda,
+    "run_command": run_command,
+    "read_file": read_file,
+    "write_file": write_file,
 }
+

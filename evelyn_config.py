@@ -446,3 +446,21 @@ PROFILE_EVOLUTION_IDLE_THRESHOLD = 2700  # 45 minutes
 # Model override. "default" = use MODEL_NAME.
 PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
 
+
+# =============================================================================
+# Code & Terminal Agency (Hermes Tier 3 #9)
+# =============================================================================
+# Gives Evelyn scoped terminal access within allowed directories.
+TERMINAL_ENABLED = True
+
+TERMINAL_ALLOWED_PATHS = [
+    r"C:\Projects\LocalAI",
+    r"C:\Temp",
+    r"G:\My Drive\Obsidian_Vault",
+]
+
+TERMINAL_DEFAULT_TIMEOUT = 30      # seconds
+TERMINAL_MAX_TIMEOUT = 300         # 5 minutes max
+TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
+
+
