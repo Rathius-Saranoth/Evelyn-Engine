@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-27 09:16:28
+# date modified: 2026-06-27 09:38:07
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1154,8 +1154,17 @@ async def _process_chat_background(
                             tool_entry = f"{fn_name}[{m.group(1)}]"
                             meta_entry["data"] = {"id": m.group(1)}
                             await put("tool_data", name=fn_name, data=m.group(1))
+                    elif fn_name in ("run_command", "write_file"):
+                        import re
+                        m = re.search(r'Approval ID:\s*(cmd_\w+|write_\w+)', result)
+                        if m:
+                            approval_id = m.group(1)
+                            tool_entry = f"{fn_name}[{approval_id}]"
+                            meta_entry["data"] = {"id": approval_id, "type": "approval_required"}
+                            await put("tool_data", name=fn_name, data=approval_id)
                             
                     tools_used_list.append(tool_entry)
+
                     tool_metadata_list.append(meta_entry)
                     if cfg.DEBUG_TOOL_FULL:
                         print(
@@ -2893,7 +2902,39 @@ async def action_procedure(
         raise HTTPException(status_code=400, detail="Invalid action")
 
 
+# ---------------------------------------------------------------------------
+# Terminal Agency Endpoints (Hermes Tier 3 #9)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/terminal/pending")
+async def get_pending_commands(_: None = Depends(check_auth)):
+    """Return all commands/writes awaiting user approval."""
+    import Evelyn.tools.terminal_agent as terminal_agent
+    terminal_agent.cleanup_stale_approvals()
+    return [
+        {"id": k, **{kk: vv for kk, vv in v.items() if kk != "content"}}
+        for k, v in terminal_agent._pending_approvals.items()
+    ]
+
+
+@app.post("/api/terminal/approve/{approval_id}")
+async def approve_terminal_command(approval_id: str, _: None = Depends(check_auth)):
+    """Approve and execute a pending command or file write."""
+    import Evelyn.tools.terminal_agent as terminal_agent
+    result = terminal_agent.approve_command(approval_id)
+    return {"status": "ok", "result": result}
+
+
+@app.post("/api/terminal/deny/{approval_id}")
+async def deny_terminal_command(approval_id: str, _: None = Depends(check_auth)):
+    """Deny and delete a pending command or file write."""
+    import Evelyn.tools.terminal_agent as terminal_agent
+    terminal_agent.deny_command(approval_id)
+    return {"status": "ok"}
+
+
 if __name__ == "__main__":
+
     import uvicorn
     import os
 
