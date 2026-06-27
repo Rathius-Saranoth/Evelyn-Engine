@@ -1,7 +1,7 @@
 
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-06-07 10:27:50
+# date modified: 2026-06-27 09:16:06
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 # Chroma Rag.py
@@ -474,7 +474,18 @@ def build_rag_context(query: str) -> str:
 
     # Step 6: Assemble with Progressive Vault Disclosure
     all_context = pinned_chunks + relevant
-    if not all_context:
+
+    # Retrieve procedures (matches user conversational trigger keywords)
+    matching_procedures = []
+    try:
+        import memory_db as _memory_db
+        matching_procedures = _memory_db.search_procedures_by_trigger(query, status="live")[:3]
+        for proc in matching_procedures:
+            _memory_db.touch_procedure_retrieved(proc["id"])
+    except Exception as e:
+        print(f"[RAG] Warning: procedure search failed: {e}", flush=True)
+
+    if not all_context and not matching_procedures:
         return ""
 
     # Touch retrieval counters for any SQLite context entries in the result set.
@@ -514,6 +525,20 @@ def build_rag_context(query: str) -> str:
                 normal_files_by_source[src] = chunk
 
     parts = ["--- Retrieved Context ---"]
+
+    # 0. Procedures: Show active repeatable instructions if matched
+    if matching_procedures:
+        proc_blocks = []
+        for proc in matching_procedures:
+            pitfalls_str = f"\nPitfalls to Avoid: {proc['pitfalls']}" if proc.get("pitfalls") else ""
+            verif_str = f"\nVerification: {proc['verification']}" if proc.get("verification") else ""
+            proc_blocks.append(
+                f"[Procedure: {proc['trigger_pattern']}]\n"
+                f"Steps:\n{proc['steps']}"
+                f"{pitfalls_str}"
+                f"{verif_str}"
+            )
+        parts.append("--- Relevant Procedures ---\n" + "\n\n".join(proc_blocks))
 
     # 1. Pinned (Primary Source) Documents: Show full content of matching chunks in order
     for src, chunks in pinned_by_source.items():

@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-21 08:56:20
+# date modified: 2026-06-27 09:16:28
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2832,6 +2832,62 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
             )
             memory_db.apply_proposal(id)
         await start_refresh_memory_internal()
+        return {"status": "ok"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+
+
+class ProcedureReviewBody(BaseModel):
+    trigger_pattern: str | None = None
+    steps: str | None = None
+    pitfalls: str | None = None
+    verification: str | None = None
+    tags: str | None = None
+
+
+@app.get("/api/review/procedures")
+async def get_procedures_review(_: None = Depends(check_auth)):
+    """Return all pending extracted procedures for review."""
+    import Evelyn.tools.memory_db as memory_db
+    return memory_db.get_all_procedures(status="extracted")
+
+
+@app.post("/api/review/procedures/{id}/{action}")
+async def action_procedure(
+    id: int,
+    action: str,
+    body: ProcedureReviewBody | None = None,
+    _: None = Depends(check_auth)
+):
+    """Approve, edit and approve, or deny/archive an extracted procedure.
+
+    Args:
+        id:     Procedure row ID.
+        action: "approve" | "deny".
+        body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags.
+    """
+    import Evelyn.tools.memory_db as memory_db
+    if action == "deny":
+        memory_db.update_procedure(id, status="archived")
+        return {"status": "ok"}
+    elif action == "approve":
+        update_fields = {}
+        if body:
+            if body.trigger_pattern is not None:
+                update_fields["trigger_pattern"] = body.trigger_pattern
+            if body.steps is not None:
+                update_fields["steps"] = body.steps
+            if body.pitfalls is not None:
+                update_fields["pitfalls"] = body.pitfalls
+            if body.verification is not None:
+                update_fields["verification"] = body.verification
+            if body.tags is not None:
+                update_fields["tags"] = body.tags
+
+        update_fields["status"] = "live"
+        success = memory_db.update_procedure(id, **update_fields)
+        if not success:
+            raise HTTPException(status_code=404, detail="Procedure not found or not updated")
         return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")

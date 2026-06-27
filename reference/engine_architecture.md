@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-06-27 08:47:46
+date modified: 2026-06-27 09:17:42
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -25,7 +25,7 @@ graph TD
     %% Storage Layer
     subgraph Storage [Persistent Storage Layer]
         ChatDB[("evelyn_chat.db<br>(SQLite History, Reminders, GCal Cache)")]
-        MemoryDB[("evelyn_memory.db<br>(SQLite Context Entries)")]
+        MemoryDB[("evelyn_memory.db<br>(SQLite Context Entries & Procedures)")]
         VaultDB[("evelyn_vault.db<br>(SQLite Obsidian File Index)")]
         ChromaDB[("chroma_db/<br>(Persistent RAG Vector Index)")]
     end
@@ -89,8 +89,8 @@ graph TD
     end
 
     Server --->|Trigger Idle Run| IdleAgents
-    Extractor <-->|Extract Facts| ChatDB
-    Extractor --->|Write Entry| MemoryDB
+    Extractor <-->|Extract Facts & Procedures| ChatDB
+    Extractor --->|Write Entry & Procedure| MemoryDB
     Consolidator <-->|Merge / Cleanup| MemoryDB
     Evolver <-->|Scan Context| MemoryDB
     Evolver --->|Propose Update| MemoryDB
@@ -108,9 +108,9 @@ The runtime core that manages user connections, model prompts, memory assembly, 
 
 ### 2.2 Memory & RAG Retrieval Engine
 Responsible for semantic vector indexing, context fact assemblies, and exact entity resolutions.
-* **[[memory_db.py]]**: SQLite database connector for `evelyn_memory.db`. Manages transactions for context entries.
+* **[[memory_db.py]]**: SQLite database connector for `evelyn_memory.db`. Manages transactions for context entries and procedural rules.
 * **[[vault_db.py]]**: SQLite database connector for `evelyn_vault.db`. Handles super-fast incremental metadata writes for mapped files.
-* **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Performs vector assembly and distance scoring.
+* **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Performs vector assembly, distance scoring, and dynamic keyword-triggered procedure injection.
 * **[[context_manager.py]]**: Mismatch resolver and active context injector. Assembles dense facts, resolves entities, and strips search bloat.
 * **[[context_summarizer.py]]**: Sliding-window context compressor. Summarizes older context/messages and updates the rolling history boundary to keep LLM prompts thin.
 * **[[query_reformulator.py]]**: Sub-pipeline LLM trigger that optimizes conversational keywords before vector lookup, boosting hit rates by 23%.
@@ -136,7 +136,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and reminders/calendar tool definitions).
 * **[[gcal_sync.py]]**: Google Calendar synchronizer. Pulls calendar events and caches them in the SQLite `calendar_events` table, supporting offline-first operations.
 * **[[reminders.py]]**: Local task manager. Handles scheduling, retrieval, and updates for local reminders (`reminders` table) and merges them with Google Calendar events.
-* **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions and stages them to memory.
+* **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions (declarative memory) and procedural rules (imperative workflows) and stages them for review.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files.
 * **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.

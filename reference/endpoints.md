@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-06-27 08:47:54
+date modified: 2026-06-27 09:17:47
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -104,6 +104,16 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
   * `approve`: Merges facts (for consolidations) or writes the approved markdown changes back to disk and runs `update_frontmatter.py` (for profile updates).
   * `reject` / `deny`: Rejects the proposal and deletes it.
   * `keep_both`: (For consolidations) preserves both context entries without deleting.
+
+### `GET /api/review/procedures`
+* **Purpose**: Retrieves all extracted procedures staged in `evelyn_memory.db` by [[fact_extractor.py]] that are pending review (`status='extracted'`).
+
+### `POST /api/review/procedures/{id}/{action}`
+* **Purpose**: Action triage on a staged procedure.
+* **Payload**: Optional JSON body (`ProcedureReviewBody`) carrying edits to trigger pattern, steps, pitfalls, verification, or tags.
+* **Actions**:
+  * `approve`: Commits the procedure (optionally with edits) and marks it `status='live'` so it is active in the RAG retrieval pipeline.
+  * `deny`: Soft-deletes the procedure by updating its status to `archived`.
 
 
 ---
