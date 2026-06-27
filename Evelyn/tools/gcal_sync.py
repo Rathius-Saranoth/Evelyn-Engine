@@ -1,6 +1,6 @@
 # gcal_sync.py
 # date created: 2026-06-19
-# date modified: 2026-06-19
+# date modified: 2026-06-27
 # tags: #gcal, #sync, #google-calendar, #offline-first, #caching
 
 """gcal_sync.py — Google Calendar Synchronizer and Local Event Cache.
@@ -12,6 +12,7 @@ authentication token refreshes and network errors gracefully to support offline-
 import os
 import sqlite3
 import datetime
+import time
 import evelyn_config as cfg
 
 from google.oauth2.credentials import Credentials
@@ -37,7 +38,25 @@ def get_gcal_service():
                 token_file.write(creds.to_json())
         return build("calendar", "v3", credentials=creds, cache_discovery=False)
     except Exception as e:
-        print(f"[GCal Sync] Error loading credentials: {e}", flush=True)
+        # Check token file age to see if it likely hit the 7-day GCloud Testing limit
+        file_age_days = 0.0
+        try:
+            mtime = os.path.getmtime(token_path)
+            ctime = os.path.getctime(token_path)
+            file_age_days = (time.time() - min(ctime, mtime)) / 86400.0
+        except Exception:
+            try:
+                file_age_days = (time.time() - os.path.getmtime(token_path)) / 86400.0
+            except Exception:
+                pass
+
+        if file_age_days > 7.0:
+            print(f"[GCal Sync] Error loading credentials: {e}\n"
+                  f"[GCal Sync] Notice: Token file is {file_age_days:.1f} days old. "
+                  f"Since your Google Cloud App is in 'Testing' mode, tokens expire every 7 days.\n"
+                  f"[GCal Sync] Please run 'python scripts/setup_gcal.py' to re-authenticate.", flush=True)
+        else:
+            print(f"[GCal Sync] Error loading credentials: {e}", flush=True)
         return None
 
 def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
