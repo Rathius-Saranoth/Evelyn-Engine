@@ -823,6 +823,53 @@ def rewrite_sub_question(task_id: str, sq_id: str, new_question: str) -> str:
         return f"Failed to rewrite sub-question: {e}"
 
 
+def remove_sub_question(task_id: str, sq_id: str) -> str:
+    """Remove a sub-question entirely from the research plan and delete any partial notes.
+
+    Args:
+        task_id: Unique task identifier.
+        sq_id: The identifier of the sub-question to remove.
+
+    Returns:
+        str: Status confirmation message.
+    """
+    import os
+    import glob
+    import evelyn_config as cfg
+    _reload()
+    try:
+        from research_engine import load_state, save_state
+        state = load_state(task_id)
+        if not state:
+            return f"Research task {task_id} not found."
+
+        sqs = state.get("plan", {}).get("sub_questions", [])
+        target_sq = next((s for s in sqs if s["id"] == sq_id), None)
+
+        if not target_sq:
+            return f"Sub-question {sq_id} not found in task {task_id}."
+
+        # Remove associated files (notes + gaps)
+        task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
+        for pattern in [f"{sq_id}_notes.md", f"{sq_id}_gaps.json"]:
+            path = os.path.join(task_dir, pattern)
+            if os.path.exists(path):
+                os.remove(path)
+
+        # Remove from plan
+        state["plan"]["sub_questions"] = [s for s in sqs if s["id"] != sq_id]
+
+        # If the current index now points past the end, clamp it
+        total = len(state["plan"]["sub_questions"])
+        if state.get("current_sq_idx", 0) >= total and total > 0:
+            state["current_sq_idx"] = total - 1
+
+        save_state(task_id, state, ignore_disk_status=True)
+        return f"Successfully removed sub-question {sq_id}."
+    except Exception as e:
+        return f"Failed to remove sub-question: {e}"
+
+
 def finalize_guidance(task_id: str) -> str:
     """Signal that all manual edits are complete and resume the task.
 

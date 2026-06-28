@@ -218,6 +218,7 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
         "total_sources": 0,
         "ollama_calls": 0,
         "orchestrator_turns": 0,
+        "accumulated_runtime": 0.0,
         "termination_reason": None,
         "error": None,
         
@@ -504,7 +505,11 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     sq = sq_list[sq_idx]
     print(f"[RESEARCH_ENGINE] Processing SQ ({sq['id']}): '{sq['question']}' (Search Round {state['search_depth'] + 1})", flush=True)
     
-    # Load any existing gaps or notes to customize the search query
+    # Load any existing gaps or notes to customize the search query.
+    # When gaps exist, use the gap text directly as the search query rather
+    # than appending it to the original question. The original question may
+    # already be verbose; concatenating it with a gap string produces a search
+    # query that is too long and unfocused for DuckDuckGo to handle well.
     gaps_file = os.path.join(get_task_dir(task_id), f"{sq['id']}_gaps.json")
     search_query = sq["question"]
     
@@ -514,11 +519,14 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 gaps_data = json.load(f)
                 gaps = gaps_data.get("gaps", [])
                 if gaps:
-                    # Incorporate the highest priority gap into query reformulation
-                    search_query = f"{sq['question']} {gaps[0]}"
-                    print(f"[RESEARCH_ENGINE] Reformulated query based on gaps: '{search_query}'", flush=True)
+                    # Use the highest-priority gap as the search query directly.
+                    # The gap string is already a targeted phrase produced by the
+                    # evaluator — it is a better search term on its own.
+                    search_query = gaps[0]
+                    print(f"[RESEARCH_ENGINE] Using gap as search query: '{search_query}'", flush=True)
         except Exception:
             pass
+
             
     # Execute search
     print(f"[RESEARCH_ENGINE] Searching DuckDuckGo: '{search_query}'", flush=True)
@@ -1007,7 +1015,8 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     # Parse actual overall confidence score out of report YAML frontmatter if present
     parsed_confidence = state["confidence"]
     try:
-        fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", final_report, re.DOTALL)
+        # Match either standard YAML frontmatter '---' or markdown code block ```yaml/```
+        fm_match = re.match(r"^(?:---|```yaml|```)\s*\n(.*?)\n(?:---|```)\s*\n", final_report, re.DOTALL)
         if fm_match:
             frontmatter_text = fm_match.group(1)
             conf_match = re.search(r"confidence:\s*(\d+)", frontmatter_text, re.IGNORECASE)
@@ -1220,17 +1229,16 @@ async def execute_task_step(task_id: str) -> bool:
         state["current_step"] = "synthesize"
         save_state(task_id, state)
 
-    # Check wall-clock timeout safety limit.
+    # Check wall-clock timeout safety limit using accumulated active run time.
     timeout_limit = state.get(
         "wall_clock_timeout",
         getattr(cfg, "RESEARCH_WALL_CLOCK_TIMEOUT", 7200)
     )
-    created_ts = datetime.datetime.fromisoformat(state["created_at"])
-    elapsed_seconds = (datetime.datetime.now() - created_ts).total_seconds()
-    if elapsed_seconds >= timeout_limit:
+    accumulated_runtime = state.get("accumulated_runtime", 0.0)
+    if accumulated_runtime >= timeout_limit:
         print(
             f"[RESEARCH_ENGINE WARNING] Task hit wall-clock timeout "
-            f"({timeout_limit}s / {timeout_limit // 3600}h for scope='{state.get('scope', 'unknown')}'). "
+            f"({timeout_limit}s / {timeout_limit // 3600}h active runtime for scope='{state.get('scope', 'unknown')}'). "
             f"Forcing Synthesis.",
             flush=True,
         )
@@ -1239,6 +1247,7 @@ async def execute_task_step(task_id: str) -> bool:
         save_state(task_id, state)
         
     step = state["current_step"]
+    start_time = time.time()
     try:
         if step == "plan":
             await step_plan(task_id, state)
@@ -1288,6 +1297,13 @@ async def execute_task_step(task_id: str) -> bool:
         state["error"] = enriched
         save_state(task_id, state)
         return True
+    finally:
+        # Accumulate run time for this turn
+        step_duration = time.time() - start_time
+        current_state = load_state(task_id)
+        if current_state:
+            current_state["accumulated_runtime"] = current_state.get("accumulated_runtime", 0.0) + step_duration
+            save_state(task_id, current_state)
 
 
 async def run_full_research(task_id: str) -> None:

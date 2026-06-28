@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-06-06 19:06:25
+# date modified: 2026-06-28 08:37:12
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -374,10 +374,20 @@ RESEARCH_MODEL_OVERRIDE = "default"
 # Allow Evelyn to self-initiate research during idle time.
 # When True, the idle-time loop can generate research topics from
 # recent conversations or vault gaps and queue them automatically.
-RESEARCH_SELF_INITIATE = False
+RESEARCH_SELF_INITIATE = True
 
 # Maximum queued self-initiated topics. Prevents runaway queue growth.
 RESEARCH_MAX_QUEUE_SIZE = 5
+
+# Active-hours window for research task execution (local time, 24-hour clock).
+# Research tasks will only START or RESUME within this window.
+# Any task already mid-step at window close will finish that step cleanly, then
+# pause at the step boundary — no hard kills. Set both to 0 to disable windowing
+# (research runs any hour).
+# Intention: reserve overnight hours for evolution/consolidation tasks, mimicking
+# a human sleep/dream cycle where memory consolidation happens during rest.
+RESEARCH_ACTIVE_HOURS_START = 6   # 06:00 local time
+RESEARCH_ACTIVE_HOURS_END   = 21  # 21:00 local time
 
 # =============================================================================
 # Services
@@ -433,8 +443,8 @@ DEBUG_TOOL_FULL = False
 PROFILE_EVOLUTION_ENABLED = True
 
 # Minimum seconds between evolution runs (per document).
-# Default: 24 hours. The evolver checks all three documents per run.
-PROFILE_EVOLUTION_COOLDOWN = 86400  # 24 hours
+# Default: 12 hours. The evolver checks all three documents per run.
+PROFILE_EVOLUTION_COOLDOWN = 43200  # 12 hours
 
 # Minimum number of NEW context entries (since last run) before evolution
 # is triggered for a given document. Prevents churning on sparse data.
