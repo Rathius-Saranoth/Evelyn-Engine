@@ -277,9 +277,18 @@ def build_plan_prompt(query: str, scope: str, max_sub_questions: int, domain_lev
         )
     else:
         style_instruction = (
-            "Each sub-question should be highly specific, independently searchable, and "
-            "target a distinct technical or analytical aspect of the main query so that "
-            "answering all of them thoroughly will fully resolve the original research goal."
+            "Each sub-question must be a SHORT, single-concept search term or question "
+            "— the kind of thing a person would type directly into a search engine. "
+            "One question = one topic. Do NOT combine multiple concepts, comparisons, or "
+            "qualifiers into a single question using 'and', 'versus', or long prepositional "
+            "clauses. If a topic has multiple angles, give each angle its own separate question.\n\n"
+            "EXAMPLE — Bad (compound, verbose, unsearchable):\n"
+            "  'What vector databases and embedding models offer the best performance and "
+            "local deployment options for embedding source code repositories at scale?'\n\n"
+            "EXAMPLE — Good (atomic, plain, searchable):\n"
+            "  'best local vector databases for code embeddings'\n"
+            "  'embedding models for source code similarity search'\n\n"
+            "Write every sub-question at this level of brevity and focus."
         )
 
     return (
