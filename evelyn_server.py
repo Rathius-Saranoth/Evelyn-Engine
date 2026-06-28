@@ -76,7 +76,25 @@ _MAG = "\033[95m"
 # checks this to decide whether the server is idle enough to run.
 _last_activity_ts: float = time.time()
 _last_self_initiate_ts: float = 0.0
+_last_window_warn_ts: float = 0.0
 _active_research_processes = {}
+
+
+def _in_research_window() -> bool:
+    """Return True if the current local hour is within the configured research window.
+
+    If both RESEARCH_ACTIVE_HOURS_START and RESEARCH_ACTIVE_HOURS_END are 0, the
+    window check is disabled and research can run at any hour.
+
+    Returns:
+        bool: True if research is permitted to start or resume right now.
+    """
+    start = getattr(cfg, "RESEARCH_ACTIVE_HOURS_START", 6)
+    end   = getattr(cfg, "RESEARCH_ACTIVE_HOURS_END",   21)
+    if start == 0 and end == 0:
+        return True  # Windowing disabled
+    current_hour = time.localtime().tm_hour
+    return start <= current_hour < end
 
 
 def terminate_research_process(task_id: str):
@@ -1491,10 +1509,17 @@ async def lifespan(app: FastAPI):
                 
             idle_seconds = time.time() - _last_activity_ts
             
+            # Check research active-hours window. Topic generation, auto-resume,
+            # and queue starts are all gated here. An already-executing step is
+            # never hard-killed by the window — it runs to its natural step
+            # boundary, after which the loop simply will not start the next one.
+            research_window_open = _in_research_window()
+            
             # 1. Topic generation
             global _last_self_initiate_ts
             if (
-                getattr(cfg, "RESEARCH_SELF_INITIATE", True)
+                research_window_open
+                and getattr(cfg, "RESEARCH_SELF_INITIATE", True)
                 and idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
                 and time.time() - _last_self_initiate_ts >= 3600
             ):
@@ -1562,6 +1587,20 @@ async def lifespan(app: FastAPI):
 
             # 4. Auto-resume / Auto-retry unfinished tasks if idle
             if unfinished_tasks:
+                if not research_window_open:
+                    # Outside active hours — log at most once per hour to avoid spamming
+                    global _last_window_warn_ts
+                    if time.time() - _last_window_warn_ts >= 3600:
+                        start_h = getattr(cfg, "RESEARCH_ACTIVE_HOURS_START", 6)
+                        end_h   = getattr(cfg, "RESEARCH_ACTIVE_HOURS_END", 21)
+                        print(
+                            f"[RESEARCH WINDOW] Outside active hours ({start_h:02d}:00–{end_h:02d}:00) "
+                            f"— {len(unfinished_tasks)} task(s) waiting, will resume at {start_h:02d}:00.",
+                            flush=True,
+                        )
+                        _last_window_warn_ts = time.time()
+                    await asyncio.sleep(300)  # Check again in 5 min
+                    continue
                 if idle_seconds >= 300:  # Server idle for 5 min
                     # Sort unfinished tasks by created_at ascending (oldest gets priority)
                     unfinished_tasks.sort(key=lambda x: x.get("created_at") or "")
@@ -1575,7 +1614,7 @@ async def lifespan(app: FastAPI):
                 continue
 
             # 5. Process queued tasks
-            if idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800):
+            if research_window_open and idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800):
                 # Double guard
                 if unfinished_tasks:
                     continue
@@ -2548,6 +2587,10 @@ class SQRewriteRequest(BaseModel):
     sq_id: str
     new_question: str
 
+class SQRemoveRequest(BaseModel):
+    """Pydantic model representing a request to remove a sub-question from a research task."""
+    sq_id: str
+
 class FinalizeGuidanceRequest(BaseModel):
     """Pydantic model representing a request to finalize guidance on a research task."""
     pass
@@ -2567,6 +2610,24 @@ async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depe
     _demote_running_task_if_any(task_id)
     from evelyn_tools import guide_research
     result = guide_research(task_id, request.guidance)
+    return {"message": result}
+
+@app.post("/research/guide/{task_id}/remove")
+async def api_remove_sub_question(task_id: str, request: SQRemoveRequest, _: None = Depends(check_auth)):
+    """Remove a sub-question from the research plan and delete any partial notes for it.
+
+    Args:
+        task_id: The ID of the task.
+        request: Request containing the sub-question ID to remove.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming removal.
+    """
+    from evelyn_tools import remove_sub_question
+    result = remove_sub_question(task_id, request.sq_id)
+    if result.startswith("Failed") or "not found" in result:
+        raise HTTPException(status_code=400, detail=result)
     return {"message": result}
 
 @app.post("/research/guide/{task_id}/rewrite")
