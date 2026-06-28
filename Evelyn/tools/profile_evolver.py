@@ -204,23 +204,28 @@ async def run_profile_evolution():
             if now - last_run < cooldown:
                 continue
 
-            # Fetch context entries since last run
-            new_entries = []
+            # Fetch context entries active since last run.
+            # An entry qualifies if it was CREATED or UPDATED after the last
+            # evolution run. This ensures that entries refined/corrected by the
+            # fact consolidator (which bumps updated_at without changing
+            # created_at) are counted as fresh signal for evolution.
+            changed_entries = []
             for cat in categories:
-                # Query entries for this category
                 entries = memory_db.get_entries_by_category(cat, status="live")
                 for entry in entries:
-                    created_at = entry.get("created_at", 0.0)
-                    if created_at > last_run:
-                        new_entries.append(entry)
+                    created_at  = entry.get("created_at", 0.0) or 0.0
+                    updated_at  = entry.get("updated_at", 0.0)  or 0.0
+                    last_touched = max(created_at, updated_at)
+                    if last_touched > last_run:
+                        changed_entries.append(entry)
 
             min_entries = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
-            if len(new_entries) < min_entries:
-                print(f"[PROFILE EVOLVER] {filename}: Only {len(new_entries)} new entries (need {min_entries}). Skipping.", flush=True)
+            if len(changed_entries) < min_entries:
+                print(f"[PROFILE EVOLVER] {filename}: Only {len(changed_entries)} new/updated entries (need {min_entries}). Skipping.", flush=True)
                 continue
 
-            print(f"[PROFILE EVOLVER] Evolving {filename} with {len(new_entries)} new entries...", flush=True)
-            success = await _evolve_document(filename, new_entries)
+            print(f"[PROFILE EVOLVER] Evolving {filename} with {len(changed_entries)} new/updated entries...", flush=True)
+            success = await _evolve_document(filename, changed_entries)
             if success:
                 # Only update state on successful proposal creation
                 state["last_run_per_doc"][filename] = now

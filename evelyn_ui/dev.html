@@ -552,7 +552,8 @@
             <textarea id="sq-edit-${sq.id}" rows="2" style="width: 100%; background: var(--bg); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: inherit; resize: vertical;" oninput="document.getElementById('sq-save-${sq.id}').disabled = (this.value.trim() === this.dataset.original)">${escapeHtml(sq.question)}</textarea>
             ${gapsHtml}
             ${reasonHtml}
-            <div style="display: flex; justify-content: flex-end;">
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+              <button id="sq-remove-${sq.id}" class="btn" style="padding: 6px 12px; font-size: 13px; max-width: 130px; background: #e06c75; color: #fff; border: none; border-radius: 6px; cursor: pointer;" onclick="removeSubQuestion('${taskId}', '${sq.id}')">Remove Question</button>
               <button id="sq-save-${sq.id}" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; max-width: 120px;" disabled onclick="saveSqRewrite('${taskId}', '${sq.id}')">Save Rewrite</button>
             </div>
           </div>
@@ -634,6 +635,56 @@
         alert('Network error saving rewrite.');
         btn.disabled = false;
         btn.textContent = 'Save Rewrite';
+      }
+    }
+
+    async function removeSubQuestion(taskId, sqId) {
+      if (!confirm("Are you sure you want to remove this sub-question? This will discard it entirely from the research plan and delete any partial notes collected for it.")) return;
+      
+      const btn = document.getElementById(`sq-remove-${sqId}`);
+      btn.disabled = true;
+      btn.textContent = 'Removing...';
+      
+      try {
+        const res = await fetch(`${API_BASE}/research/guide/${taskId}/remove`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ sq_id: sqId })
+        });
+        if (res.ok) {
+          // Find container and remove it nicely
+          const ta = document.getElementById(`sq-edit-${sqId}`);
+          if (ta) {
+             const container = ta.closest('div[style*="margin-bottom"]');
+             if (container) {
+                container.style.transition = 'all 0.3s ease';
+                container.style.opacity = '0';
+                setTimeout(() => container.remove(), 300);
+             } else {
+                // fallback to parent element with background
+                const pContainer = ta.parentElement;
+                if (pContainer) {
+                   pContainer.style.transition = 'all 0.3s ease';
+                   pContainer.style.opacity = '0';
+                   setTimeout(() => pContainer.remove(), 300);
+                }
+             }
+          }
+          
+          // Update the local state
+          const task = researchTasks.find(t => t.task_id === taskId);
+          if (task) {
+             task.plan.sub_questions = task.plan.sub_questions.filter(s => s.id !== sqId);
+          }
+        } else {
+          alert('Failed to remove sub-question.');
+          btn.disabled = false;
+          btn.textContent = 'Remove Question';
+        }
+      } catch (e) {
+        alert('Network error removing sub-question.');
+        btn.disabled = false;
+        btn.textContent = 'Remove Question';
       }
     }
     
@@ -1009,6 +1060,10 @@
                 </div>
                 <div class="card-body">
                   <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(task.query)}</h3>
+                  <div style="font-size: 12px; color: var(--text-dim); font-family: monospace; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <span style="opacity: 0.5;">ID:</span>
+                    <span title="Click to copy task ID" onclick="navigator.clipboard.writeText('${task.task_id}').then(() => { this.textContent='Copied!'; setTimeout(() => this.textContent='${task.task_id}', 1500); })" style="cursor: pointer; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; user-select: all;" >${task.task_id}</span>
+                  </div>
                   <div style="font-size: 13px; color: var(--text-dim); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 6px;">
                     <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
                     <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
