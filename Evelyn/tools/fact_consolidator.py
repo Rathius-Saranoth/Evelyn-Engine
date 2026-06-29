@@ -302,8 +302,8 @@ def remediate_database_categories() -> None:
                 corrected_entries += 1
                 print(f"[REMEDIATION] Corrected context entry {entry_id} category: '{cat}' -> '{normalized}'", flush=True)
                 
-        # 2. Remediate proposals
-        rows = con.execute("SELECT id, suggested_category FROM proposals WHERE suggested_category IS NOT NULL").fetchall()
+        # 2. Remediate proposals (excluding profile updates which store target filenames in suggested_category)
+        rows = con.execute("SELECT id, suggested_category FROM proposals WHERE suggested_category IS NOT NULL AND type != 'profile_update'").fetchall()
         corrected_proposals = 0
         for row in rows:
             prop_id = row["id"]
