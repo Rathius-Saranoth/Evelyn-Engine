@@ -127,7 +127,7 @@ Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Va
 
 ### 2.4 Deep Research Subsystem
 Enables fully autonomous, multi-step search and information synthesis in the background when the server is idle.
-* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), and cross-task Chroma querying leveraging a virtual memory cache.
+* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), cross-task Chroma querying leveraging a virtual memory cache, and a **circadian mid-loop window check** that pauses tasks at step boundaries when outside the configured active hours (06:00–21:00).
 * **[[web_reader.py]]**: Dynamic web scraper. Features Trafilatura integration, SSL bypasses, timeouts, and adaptive chunking for heavy documents.
 * **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, extraction, evaluation rewrites, and synthesis.
 
@@ -138,7 +138,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[reminders.py]]**: Local task manager. Handles scheduling, retrieval, and updates for local reminders (`reminders` table) and merges them with Google Calendar events.
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions (declarative memory) and procedural rules (imperative workflows) and stages them for review.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
-* **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files.
+* **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. **Draft persistence**: accumulated working document and cursor are saved to disk after each successful pass so interrupted runs resume from the last completed batch rather than restarting.
 * **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
@@ -176,6 +176,7 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **[[update_frontmatter.py]]**: Structural metadata utility running automatically on document edits.
 * **[[add_titles.py]]**: Retroactive title block scanner.
 * **[[benchmark_rag.py]]**: Diagnostic pipeline query testing framework.
+* **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
 
 ---
 

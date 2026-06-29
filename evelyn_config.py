@@ -456,6 +456,14 @@ PROFILE_EVOLUTION_IDLE_THRESHOLD = 2700  # 45 minutes
 # Model override. "default" = use MODEL_NAME.
 PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
 
+# Maximum context entries fed to the model per evolution pass.
+# When the qualifying entry count exceeds this, _evolve_document() processes
+# them in successive batches, each pass refining the previous output.
+# This prevents context-window saturation on the first run (which sees all
+# accumulated history). Entries are sorted oldest-first so later passes
+# layer on top of earlier refinements. 40 entries ≈ ~6000 chars of evidence.
+PROFILE_EVOLUTION_BATCH_SIZE = 40
+
 
 # =============================================================================
 # Code & Terminal Agency (Hermes Tier 3 #9)
