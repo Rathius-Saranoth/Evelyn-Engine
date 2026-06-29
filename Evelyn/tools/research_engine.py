@@ -53,6 +53,27 @@ import evelyn_tools # [[evelyn_tools.py]]
 VIRTUAL_SOURCES: Dict[str, str] = {}
 
 
+def _in_research_window() -> bool:
+    """Return True if the current local hour is within the configured active-hours window.
+
+    Mirrors the same logic in evelyn_server._in_research_window() so the engine
+    can enforce the circadian boundary even when running as a subprocess (where
+    the server module is not importable).
+
+    If RESEARCH_ACTIVE_HOURS_START and RESEARCH_ACTIVE_HOURS_END are both 0 the
+    window check is disabled and research is permitted at any hour.
+
+    Returns:
+        bool: True if research steps are permitted to execute right now.
+    """
+    importlib.reload(cfg)
+    start = getattr(cfg, "RESEARCH_ACTIVE_HOURS_START", 6)
+    end   = getattr(cfg, "RESEARCH_ACTIVE_HOURS_END",   21)
+    if start == 0 and end == 0:
+        return True  # Windowing disabled
+    return start <= time.localtime().tm_hour < end
+
+
 def parse_json_response(raw_response: str) -> Any:
     """Parse JSON from an LLM response, stripping markdown code fences if present.
 
@@ -1245,8 +1266,23 @@ async def execute_task_step(task_id: str) -> bool:
         state["termination_reason"] = "timeout"
         state["current_step"] = "synthesize"
         save_state(task_id, state)
-        
+
+    # Circadian window check — enforce between steps so overnight tasks pause
+    # cleanly instead of running until their wall-clock timeout expires.
+    # Synthesis is always allowed to complete regardless of the window: a task
+    # that already collected all its evidence should not be left half-finished.
     step = state["current_step"]
+    if step != "synthesize" and not _in_research_window():
+        start_h = getattr(cfg, "RESEARCH_ACTIVE_HOURS_START", 6)
+        end_h   = getattr(cfg, "RESEARCH_ACTIVE_HOURS_END",   21)
+        print(
+            f"[RESEARCH_ENGINE] Task {task_id} outside active hours "
+            f"({start_h:02d}:00–{end_h:02d}:00). Pausing until window reopens.",
+            flush=True,
+        )
+        state["status"] = "paused"
+        save_state(task_id, state, ignore_disk_status=True)
+        return True
     start_time = time.time()
     try:
         if step == "plan":
