@@ -140,6 +140,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. **Draft persistence**: accumulated working document and cursor are saved to disk after each successful pass so interrupted runs resume from the last completed batch rather than restarting.
 * **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.
+* **[[terminal_agent.py]]**: Manages shell command execution and file write safety checks, staging operations for user approval and persisting approvals to disk to survive server restarts.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
 * **[[undo_thread.py]]**: Interactive debugging script to safely rollback transactions in memory files.
@@ -191,7 +192,7 @@ The Evelyn ecosystem operates in tandem with external environments and local sys
 ### 4.2 Resource & Data Directories
 * **Obsidian Vault Base**: `G:\My Drive\Obsidian_Vault` (Core vault hosting personal knowledge bases, prompts, and notes)
 * **Evelyn Tools**: `C:\Projects\LocalAI\Evelyn\tools` (Sub-pipelines and executable runtime actions)
-* **SQLite Data Base**: `C:\Projects\LocalAI\data` (Persistent databases, index hashes, and Chroma vectors)
+* **SQLite Data Base & Approvals**: `C:\Projects\LocalAI\data` (Persistent databases, index hashes, Chroma vectors, and staged terminal approvals JSON)
 * **Ollama Data**: `C:\Users\ricky\AppData\Local\Ollama` (Local model weights and parameters)
 
 ---

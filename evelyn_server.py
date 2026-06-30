@@ -2971,11 +2971,21 @@ async def action_procedure(
 async def get_pending_commands(_: None = Depends(check_auth)):
     """Return all commands/writes awaiting user approval."""
     import Evelyn.tools.terminal_agent as terminal_agent
-    terminal_agent.cleanup_stale_approvals()
-    return [
-        {"id": k, **{kk: vv for kk, vv in v.items() if kk != "content"}}
-        for k, v in terminal_agent._pending_approvals.items()
-    ]
+    return terminal_agent.get_pending_approvals()
+
+
+class ApprovalStatusRequest(BaseModel):
+    ids: list[str]
+
+
+@app.post("/api/terminal/status")
+async def get_multiple_approvals_status(body: ApprovalStatusRequest, _: None = Depends(check_auth)):
+    """Get the status of multiple approval IDs in bulk."""
+    import Evelyn.tools.terminal_agent as terminal_agent
+    return {
+        approval_id: terminal_agent.get_approval_status(approval_id)
+        for approval_id in body.ids
+    }
 
 
 @app.post("/api/terminal/approve/{approval_id}")
