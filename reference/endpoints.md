@@ -190,3 +190,9 @@ Endpoints driving the background research engine and the interactive developer d
 ### `POST /api/terminal/deny/{approval_id}`
 * **Purpose**: Deny and discard a pending command or write operation.
 * **Response**: `{"status": "ok"}`.
+
+### `POST /api/terminal/status`
+* **Purpose**: Query the execution/approval status of multiple approval IDs in bulk.
+* **Payload**: `{"ids": ["id1", "id2", ...]}`
+* **Response**: A JSON object mapping each requested approval ID to its current status details (status, type, metadata), excluding the raw file content payloads.
+
