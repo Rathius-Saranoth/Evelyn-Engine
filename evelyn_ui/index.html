@@ -98,6 +98,7 @@
     .msg { display: flex; flex-direction: column; max-width: 85%; gap: 2px; }
     .msg.user { align-self: flex-end; align-items: flex-end; }
     .msg.assistant { align-self: flex-start; align-items: flex-start; }
+    .msg.system { align-self: center; align-items: center; max-width: 90%; margin: 6px 0; }
 
     /* Sender + timestamp label */
     .msg-meta {
@@ -106,6 +107,7 @@
     }
     .msg.user .msg-meta { text-align: right; }
     .msg.assistant .msg-meta { text-align: left; }
+    .msg.system .msg-meta { text-align: center; color: var(--accent); font-weight: 500; }
 
     .bubble {
       padding: 12px 16px; border-radius: var(--radius); line-height: 1.6;
@@ -113,6 +115,16 @@
     }
     .msg.user .bubble { background: var(--user-bg); border: 1px solid var(--border); }
     .msg.assistant .bubble { background: var(--surface); border: 1px solid var(--border); }
+    .msg.system .bubble {
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      width: 100%;
+    }
 
     /* Thinking block */
     .think-block {
@@ -216,6 +228,9 @@
       background: var(--tool-bg); border: 1px solid var(--tool-border);
       border-radius: 4px; padding: 2px 8px;
     }
+    .write-badge.success { color: var(--tool-text); background: var(--tool-bg); border-color: var(--tool-border); }
+    .write-badge.danger { color: #fca5a5; background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.25); }
+    .write-badge.warning { color: #fde047; background: rgba(253,224,71,0.1); border-color: rgba(253,224,71,0.25); }
 
     /* Markdown-ish: inline code */
     .bubble code {
@@ -468,11 +483,12 @@ function createToolIndicator(name) {
 // Message rendering
 // ---------------------------------------------------------------------------
 function appendUserMessage(text, ts) {
+  const isSystem = text.startsWith('[System:');
   const div = document.createElement('div');
-  div.className = 'msg user';
+  div.className = isSystem ? 'msg system' : 'msg user';
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
-  meta.textContent = `You · ${formatTime(ts)}`;
+  meta.textContent = isSystem ? `System · ${formatTime(ts)}` : `You · ${formatTime(ts)}`;
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.innerHTML = renderMarkdown(text);
@@ -531,22 +547,51 @@ const WRITE_TOOLS = {
 };
 
 let pendingApprovals = [];
+let approvalStatuses = {};
 
 async function fetchPendingApprovals() {
   try {
     const resp = await fetch(`${API_BASE}/api/terminal/pending`, { headers: headers() });
     if (resp.ok) {
       pendingApprovals = await resp.json();
+      for (const item of pendingApprovals) {
+        approvalStatuses[item.id] = { ...item, status: 'pending' };
+      }
     }
   } catch (e) {
     console.warn('Could not fetch pending approvals:', e);
   }
 }
 
+async function fetchApprovalStatuses(ids) {
+  if (!ids || ids.length === 0) return;
+  try {
+    const resp = await fetch(`${API_BASE}/api/terminal/status`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ ids })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      Object.assign(approvalStatuses, data);
+    }
+  } catch (e) {
+    console.warn('Could not fetch approval statuses:', e);
+  }
+}
+
 async function addWriteBadges(wrap, usedTools, contentText = '') {
-  const hasTerminalTools = usedTools.some(tstr => tstr.startsWith('run_command') || tstr.startsWith('write_file'));
-  if (hasTerminalTools) {
-    await fetchPendingApprovals();
+  // Extract approval IDs for terminal tools
+  const terminalToolIds = usedTools.map(tstr => {
+    const match = tstr.match(/^([^\[]+)(?:\[(.*?)\])?$/);
+    return match ? { name: match[1], id: match[2] } : null;
+  }).filter(t => t && (t.name === 'run_command' || t.name === 'write_file') && t.id);
+
+  if (terminalToolIds.length > 0) {
+    const fetchIds = terminalToolIds.map(t => t.id).filter(id => !approvalStatuses[id]);
+    if (fetchIds.length > 0) {
+      await fetchApprovalStatuses(fetchIds);
+    }
   }
 
   const writesUsed = usedTools.map(tstr => {
@@ -582,8 +627,11 @@ async function addWriteBadges(wrap, usedTools, contentText = '') {
       badge.className = 'write-badge';
       badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
     } else if (t.name === 'run_command' || t.name === 'write_file') {
-      const pendingItem = pendingApprovals ? pendingApprovals.find(item => item.id === t.data) : null;
-      if (pendingItem) {
+      if (!t.data) continue;
+      const statusItem = approvalStatuses[t.data];
+      const status = statusItem ? statusItem.status : 'unknown';
+
+      if (status === 'pending') {
         badge = document.createElement('div');
         badge.id = `approval-card-${t.data}`;
         badge.className = 'approval-card';
@@ -602,14 +650,14 @@ async function addWriteBadges(wrap, usedTools, contentText = '') {
         titleDiv.style.fontWeight = '600';
         titleDiv.style.color = '#fbbf24';
         titleDiv.style.fontSize = '13px';
-        titleDiv.textContent = pendingItem.type === 'write' ? '💾 File Write Approval Required' : '💻 Command Approval Required';
+        titleDiv.textContent = statusItem.type === 'write' ? '💾 File Write Approval Required' : '💻 Command Approval Required';
         badge.appendChild(titleDiv);
 
-        if (pendingItem.type === 'write') {
+        if (statusItem.type === 'write') {
           const pathDiv = document.createElement('div');
           pathDiv.style.fontSize = '12px';
           pathDiv.style.color = 'var(--text-dim)';
-          pathDiv.innerHTML = `<strong>Path:</strong> <code>${pendingItem.file_path}</code> (Mode: ${pendingItem.mode})`;
+          pathDiv.innerHTML = `<strong>Path:</strong> <code>${statusItem.file_path}</code> (Mode: ${statusItem.mode})`;
           badge.appendChild(pathDiv);
         } else {
           const cmdDiv = document.createElement('div');
@@ -619,20 +667,20 @@ async function addWriteBadges(wrap, usedTools, contentText = '') {
           cmdDiv.style.padding = '6px';
           cmdDiv.style.borderRadius = '4px';
           cmdDiv.style.whiteSpace = 'pre-wrap';
-          cmdDiv.textContent = pendingItem.command;
+          cmdDiv.textContent = statusItem.command;
           badge.appendChild(cmdDiv);
 
           const cwdDiv = document.createElement('div');
           cwdDiv.style.fontSize = '11px';
           cwdDiv.style.color = 'var(--text-dim)';
-          cwdDiv.innerHTML = `<strong>Directory:</strong> <code>${pendingItem.cwd}</code>`;
+          cwdDiv.innerHTML = `<strong>Directory:</strong> <code>${statusItem.cwd}</code>`;
           badge.appendChild(cwdDiv);
         }
 
         const btnsDiv = document.createElement('div');
         btnsDiv.style.display = 'flex';
         btnsDiv.style.gap = '8px';
-        
+
         const approveBtn = document.createElement('button');
         approveBtn.className = 'btn-ghost';
         approveBtn.style.borderColor = 'var(--tool-border)';
@@ -648,10 +696,26 @@ async function addWriteBadges(wrap, usedTools, contentText = '') {
         btnsDiv.appendChild(approveBtn);
         btnsDiv.appendChild(denyBtn);
         badge.appendChild(btnsDiv);
-      } else {
+      } else if (status === 'approved') {
         badge = document.createElement('span');
-        badge.className = 'write-badge';
-        badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
+        badge.className = 'write-badge success';
+        badge.textContent = `✓ ${WRITE_TOOLS[t.name].label}`;
+      } else if (status === 'denied') {
+        badge = document.createElement('span');
+        badge.className = 'write-badge danger';
+        badge.textContent = `✗ ${t.name === 'write_file' ? 'File write' : 'Command'} denied`;
+      } else if (status === 'failed') {
+        badge = document.createElement('span');
+        badge.className = 'write-badge danger';
+        badge.textContent = `❌ ${t.name === 'write_file' ? 'File write' : 'Command'} failed`;
+      } else if (status === 'expired') {
+        badge = document.createElement('span');
+        badge.className = 'write-badge warning';
+        badge.textContent = `⚠️ Approval expired`;
+      } else { // 'unknown'
+        badge = document.createElement('span');
+        badge.className = 'write-badge warning';
+        badge.textContent = `⚠️ Approval expired/lost`;
       }
     } else {
       badge = document.createElement('span');
@@ -903,6 +967,12 @@ async function handleApproval(approvalId, approve) {
 
     if (resp.ok) {
       const data = await resp.json();
+      if (approvalStatuses[approvalId]) {
+        approvalStatuses[approvalId].status = approve ? 'approved' : 'denied';
+      } else {
+        approvalStatuses[approvalId] = { id: approvalId, status: approve ? 'approved' : 'denied' };
+      }
+
       if (approve) {
         card.style.borderColor = 'var(--tool-border)';
         card.style.background = 'rgba(102,187,119,0.05)';
@@ -1424,15 +1494,30 @@ async function regenerateResponse(userMsgDiv) {
 
         if (evt.type === 'tool') {
           const toolLabels = {
-            search_vault: 'Searching vault', recall_specific_memory: 'Reading memory',
-            read_journal_entry: 'Reading journal', read_recent_journal_entries: 'Reviewing recent journal',
-            write_journal_entry: 'Writing journal entry', log_context_fact: 'Logging context fact',
-            update_context_fact: 'Updating context fact', generate_image: 'Generating image',
+            search_vault: 'Searching vault',
+            recall_specific_memory: 'Reading memory',
+            read_journal_entry: 'Reading journal',
+            read_recent_journal_entries: 'Reviewing recent journal',
+            write_journal_entry: 'Writing journal entry',
+            log_context_fact: 'Logging context fact',
+            update_context_fact: 'Updating context fact',
+            generate_image: 'Generating image',
             sync_context_memory: 'Syncing memory',
+            run_command: 'Running command',
+            read_file: 'Reading file',
+            write_file: 'Writing file',
           };
           addActivity('⚙️', toolLabels[evt.name] || evt.name.replace(/_/g, ' '));
           setStatus((toolLabels[evt.name] || evt.name) + '…');
           usedTools.push(evt.name);
+          scrollBottom();
+        }
+
+        if (evt.type === 'tool_data') {
+          const idx = usedTools.indexOf(evt.name);
+          if (idx !== -1) {
+            usedTools[idx] = `${evt.name}[${evt.data}]`;
+          }
         }
 
         if (evt.type === 'text') {

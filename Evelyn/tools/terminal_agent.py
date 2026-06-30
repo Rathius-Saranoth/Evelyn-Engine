@@ -15,6 +15,7 @@ files in allowed workspace paths with a multi-layered safety check and user appr
 """
 
 import os
+import json
 import re
 import subprocess
 import time
@@ -62,20 +63,105 @@ TERMINAL_SAFE_PATTERNS = [
     r"(?i)^pip\s+(list|show|freeze)",   # pip info
 ]
 
-# Pending approvals storage
-# Format: {approval_id: {"type": "command"|"write", "command"|"file_path": str, ...}}
+# Pending approvals storage (maintained as an empty dict for backward compatibility,
+# though get_pending_approvals() and disk-based lookups are now preferred)
 _pending_approvals: dict[str, dict] = {}
+
+APPROVALS_FILE = r"C:\Projects\LocalAI\data\terminal_approvals.json"
+
+
+def _load_approvals() -> dict:
+    """Load approvals from persistent JSON storage.
+
+    Returns:
+        dict: A dictionary of approval records.
+    """
+    if not os.path.exists(APPROVALS_FILE):
+        return {}
+    try:
+        with open(APPROVALS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[Terminal Agent] Error loading approvals: {e}")
+        return {}
+
+
+def _save_approvals(data: dict):
+    """Save approvals to persistent JSON storage.
+
+    Args:
+        data: The dictionary of approval records to serialize.
+    """
+    try:
+        os.makedirs(os.path.dirname(APPROVALS_FILE), exist_ok=True)
+        with open(APPROVALS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[Terminal Agent] Error saving approvals: {e}")
 
 
 def cleanup_stale_approvals():
-    """Remove pending approvals older than 10 minutes (600 seconds)."""
+    """Update pending approvals older than 10 minutes (600s) to expired status,
+
+    and purge records older than 7 days.
+    """
+    approvals = _load_approvals()
     now = time.time()
-    stale_keys = [
-        k for k, v in _pending_approvals.items()
-        if now - v.get("created_at", 0) > 600
+    changed = False
+
+    # 1. Update pending approvals older than 10 minutes to 'expired'
+    for k, v in approvals.items():
+        if v.get("status") == "pending" and now - v.get("created_at", 0) > 600:
+            v["status"] = "expired"
+            changed = True
+
+    # 2. Purge records older than 7 days
+    to_delete = [
+        k for k, v in approvals.items()
+        if now - v.get("created_at", 0) > 7 * 86400
     ]
-    for k in stale_keys:
-        _pending_approvals.pop(k, None)
+    for k in to_delete:
+        approvals.pop(k, None)
+        changed = True
+
+    if changed:
+        _save_approvals(approvals)
+
+
+def get_pending_approvals() -> list[dict]:
+    """Fetch all active pending approvals.
+
+    Returns:
+        list[dict]: A list of pending approval dicts with 'id' injected.
+    """
+    cleanup_stale_approvals()
+    approvals = _load_approvals()
+    return [
+        {"id": k, **{kk: vv for kk, vv in v.items() if kk != "content" and kk != "result"}}
+        for k, v in approvals.items()
+        if v.get("status") == "pending"
+    ]
+
+
+def get_approval_status(approval_id: str) -> dict:
+    """Retrieve the persistent status and metadata for a specific approval ID.
+
+    Args:
+        approval_id: The unique approval identifier.
+
+    Returns:
+        dict: A status dictionary containing 'id', 'status', and metadata.
+    """
+    cleanup_stale_approvals()
+    approvals = _load_approvals()
+    item = approvals.get(approval_id)
+    if not item:
+        return {"id": approval_id, "status": "unknown"}
+    # Return all fields except the raw 'content' block to save bandwidth
+    return {
+        "id": approval_id,
+        **{k: v for k, v in item.items() if k != "content"}
+    }
 
 
 def is_path_allowed(path: str) -> bool:
@@ -100,7 +186,6 @@ def is_path_allowed(path: str) -> bool:
         return False
     except Exception:
         return False
-
 
 
 def run_command(command: str, cwd: str = r"C:\Projects\LocalAI", timeout: int = 30) -> str:
@@ -145,13 +230,17 @@ def run_command(command: str, cwd: str = r"C:\Projects\LocalAI", timeout: int = 
     if needs_approval:
         approval_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:8]}"
         limit_timeout = min(timeout, getattr(cfg, "TERMINAL_MAX_TIMEOUT", 300))
-        _pending_approvals[approval_id] = {
+        approvals = _load_approvals()
+        approvals[approval_id] = {
             "type": "command",
             "command": command,
             "cwd": cwd_abs,
             "timeout": limit_timeout,
             "created_at": time.time(),
+            "status": "pending",
+            "result": None,
         }
+        _save_approvals(approvals)
         return (
             f"⚠️ This command requires approval before execution:\n"
             f"```\n{command}\n```\n"
@@ -272,13 +361,17 @@ def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
         return f"Error: Path '{file_path}' is outside allowed paths."
 
     approval_id = f"write_{int(time.time())}_{uuid.uuid4().hex[:8]}"
-    _pending_approvals[approval_id] = {
+    approvals = _load_approvals()
+    approvals[approval_id] = {
         "type": "write",
         "file_path": abs_path,
         "content": content,
         "mode": mode,
         "created_at": time.time(),
+        "status": "pending",
+        "result": None,
     }
+    _save_approvals(approvals)
 
     preview = content[:500] + ("..." if len(content) > 500 else "")
     return (
@@ -301,9 +394,12 @@ def approve_command(approval_id: str) -> str:
         str: Execution results or error message.
     """
     cleanup_stale_approvals()
-    pending = _pending_approvals.pop(approval_id, None)
+    approvals = _load_approvals()
+    pending = approvals.get(approval_id)
     if not pending:
         return "Error: Approval ID not found or expired."
+    if pending.get("status") != "pending":
+        return f"Error: Command is already {pending.get('status')}."
 
     if pending.get("type") == "write":
         try:
@@ -312,15 +408,27 @@ def approve_command(approval_id: str) -> str:
             os.makedirs(os.path.dirname(pending["file_path"]), exist_ok=True)
             with open(pending["file_path"], mode_flag, encoding="utf-8") as f:
                 f.write(pending["content"])
-            return f"[Success] File written to {pending['file_path']}"
+            result = f"[Success] File written to {pending['file_path']}"
+            pending["status"] = "approved"
+            pending["result"] = result
+            _save_approvals(approvals)
+            return result
         except Exception as e:
-            return f"Error writing file: {e}"
+            result = f"Error writing file: {e}"
+            pending["status"] = "failed"
+            pending["result"] = result
+            _save_approvals(approvals)
+            return result
     else:
-        return _execute_command(pending["command"], pending["cwd"], pending["timeout"])
+        result = _execute_command(pending["command"], pending["cwd"], pending["timeout"])
+        pending["status"] = "approved" if not result.startswith("Error") else "failed"
+        pending["result"] = result
+        _save_approvals(approvals)
+        return result
 
 
 def deny_command(approval_id: str) -> str:
-    """Deny and delete a pending command.
+    """Deny and mark a pending command as denied.
 
     Args:
         approval_id: Staged approval ID.
@@ -329,7 +437,12 @@ def deny_command(approval_id: str) -> str:
         str: Rejection status message.
     """
     cleanup_stale_approvals()
-    pending = _pending_approvals.pop(approval_id, None)
+    approvals = _load_approvals()
+    pending = approvals.get(approval_id)
     if pending:
+        if pending.get("status") != "pending":
+            return f"Error: Command is already {pending.get('status')}."
+        pending["status"] = "denied"
+        _save_approvals(approvals)
         return "Command denied."
     return "Error: Approval ID not found."
