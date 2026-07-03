@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-06-27 09:17:42
+date modified: 2026-07-03 18:33:47
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -24,7 +24,7 @@ graph TD
     
     %% Storage Layer
     subgraph Storage [Persistent Storage Layer]
-        ChatDB[("evelyn_chat.db<br>(SQLite History, Reminders, GCal Cache)")]
+        ChatDB[("evelyn_chat.db<br>(SQLite History & GCal Cache)")]
         MemoryDB[("evelyn_memory.db<br>(SQLite Context Entries & Procedures)")]
         VaultDB[("evelyn_vault.db<br>(SQLite Obsidian File Index)")]
         ChromaDB[("chroma_db/<br>(Persistent RAG Vector Index)")]
@@ -37,7 +37,7 @@ graph TD
 
     %% Local Inference Services
     subgraph LocalAI [Local Inference Servers]
-        Ollama["Ollama API<br>(gemma4:26b thinking LLM)"]
+        Ollama["Ollama API<br>(gemma4:12b thinking LLM)"]
         TTS["[[tts_server.py]] (FastAPI)<br>(Chatterbox F5-TTS Engine)"]
         Image["[[image_server.py]] (FastAPI)<br>(Flux.1 Schnell Image Gen)"]
     end
@@ -133,9 +133,8 @@ Enables fully autonomous, multi-step search and information synthesis in the bac
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and reminders/calendar tool definitions).
+* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and calendar tool definitions).
 * **[[gcal_sync.py]]**: Google Calendar synchronizer. Pulls calendar events and caches them in the SQLite `calendar_events` table, supporting offline-first operations.
-* **[[reminders.py]]**: Local task manager. Handles scheduling, retrieval, and updates for local reminders (`reminders` table) and merges them with Google Calendar events.
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions (declarative memory) and procedural rules (imperative workflows) and stages them for review.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. **Draft persistence**: accumulated working document and cursor are saved to disk after each successful pass so interrupted runs resume from the last completed batch rather than restarting.
