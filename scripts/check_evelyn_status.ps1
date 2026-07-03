@@ -1,6 +1,6 @@
 # check_evelyn_status.ps1
 # date created: 2026-02-12 20:07:43
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-07-03 18:33:00
 # tags: #status, #monitor, #processes, #windows, #diagnostics
 
 # Evelyn Startup Status Checker
@@ -29,12 +29,12 @@ if (Get-Process -Name "tailscaled" -ErrorAction SilentlyContinue) {
     $AllClear = $false
 }
 
-# 3. Check Qwen3 TTS Server
-$QwenPort = 5050
-if (Get-NetTCPConnection -LocalPort $QwenPort -State Listen -ErrorAction SilentlyContinue) {
-    Write-Host "✅ [Qwen3 TTS] Server is running on port $QwenPort." -ForegroundColor Green
+# 3. Check Chatterbox TTS Server
+$TTSPort = 5050
+if (Get-NetTCPConnection -LocalPort $TTSPort -State Listen -ErrorAction SilentlyContinue) {
+    Write-Host "✅ [Chatterbox TTS] Server is running on port $TTSPort." -ForegroundColor Green
 } else {
-    Write-Host "❌ [Qwen3 TTS] Server is NOT running." -ForegroundColor Red
+    Write-Host "❌ [Chatterbox TTS] Server is NOT running." -ForegroundColor Red
     $AllClear = $false
 }
 
@@ -47,12 +47,12 @@ if (Get-NetTCPConnection -LocalPort $EvelynPort -State Listen -ErrorAction Silen
     $AllClear = $false
 }
 
-# 5. Check ComfyUI
-$ComfyUIPort = 8188
-if (Get-NetTCPConnection -LocalPort $ComfyUIPort -State Listen -ErrorAction SilentlyContinue) {
-    Write-Host "✅ [ComfyUI] is running on port $ComfyUIPort." -ForegroundColor Green
+# 5. Check Image Server
+$ImagePort = 5055
+if (Get-NetTCPConnection -LocalPort $ImagePort -State Listen -ErrorAction SilentlyContinue) {
+    Write-Host "✅ [Image Server] is running on port $ImagePort." -ForegroundColor Green
 } else {
-    Write-Host "❌ [ComfyUI] is NOT running." -ForegroundColor Red
+    Write-Host "❌ [Image Server] is NOT running." -ForegroundColor Red
     $AllClear = $false
 }
 

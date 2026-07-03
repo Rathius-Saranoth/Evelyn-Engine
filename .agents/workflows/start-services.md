@@ -2,7 +2,7 @@
 description: How to check and start the core services for the Evelyn ecosystem
 title: start-services.md
 date created: 2026-03-14 22:28:48
-date modified: 2026-04-07 19:54:54
+date modified: 2026-07-03 18:34:02
 tags: services, startup, launch, ecosystem, guide
 ---
 
@@ -16,9 +16,9 @@ This workflow describes how to initialize the required backends for Evelyn's fun
 Check if the following processes are running:
 
 - `ollama.exe` (Port 11434)
-- `python.exe` running `qwen_tts_server.py` (Port 5050)
+- `python.exe` running `tts_server.py` (Chatterbox TTS, Port 5050)
 - `python.exe` running `evelyn_server.py` (Port 7860)
-- `python.exe` (ComfyUI, Port 8188)
+- `python.exe` running `image_server.py` (Image Server, Port 5055)
 - `obsidian.exe`
 
 ## 2. Manual Startup (via VS Code Tasks)
@@ -27,9 +27,9 @@ If a service is missing, trigger the corresponding task from `.vscode/tasks.json
 
 1. **Run Ollama**
 2. **Run Tailscale**
-3. **Run Qwen3 TTS**
+3. **Run Chatterbox TTS** (starts the Chatterbox voice server)
 4. **Run Evelyn Server** (`python evelyn_server.py` in `C:\Projects\LocalAI`)
-5. **Run ComfyUI** (starts with `--lowvram` to release GPU memory when idle)
+5. **Run Image Server** (starts the FLUX.1 image server)
 6. **Run Obsidian**
 
 ## 3. All-in-One Startup
@@ -42,7 +42,7 @@ Run the consolidated task: **"Start Evelyn Services"**.
 2. **Wait for Ollama** — polls `http://localhost:11434` until Ollama responds (uses `wait_for_ollama.ps1`). All other services are blocked until this completes.
 3. **Start Remaining Services** — all others launch in parallel once Ollama is confirmed ready.
 
-This ensures Ollama claims its GPU layers before ComfyUI starts, which maximises the number of model layers that can be offloaded to VRAM.
+This ensures Ollama claims its GPU layers and fully loads its weights in VRAM before the other services start, avoiding resource contention.
 
 ## 4. Access
 
