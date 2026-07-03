@@ -1,5 +1,6 @@
 # trigger_profile_evolution.py
 # date created: 2026-06-29
+# date modified: 2026-07-03 10:26:36
 # tags: #persona, #evolution, #manual, #utility
 
 """Standalone manual trigger for Evelyn's profile evolution pipeline.
@@ -20,15 +21,15 @@ import os
 import sys
 import time
 
-# Avoid CP1252 character mapping crashes on Windows console
+# Avoid CP1252 character mapping crashes on Windows console by forcing UTF-8 output
 if hasattr(sys.stdout, 'reconfigure'):
     try:
-        sys.stdout.reconfigure(errors='replace')
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
         pass
 if hasattr(sys.stderr, 'reconfigure'):
     try:
-        sys.stderr.reconfigure(errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
         pass
 
