@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-06-18 20:11:43
+# date modified: 2026-07-03 10:48:16
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -475,6 +475,7 @@ def build_synthesize_prompt(
     all_notes: Dict[str, str],
     sources_registry: List[Dict[str, Any]],
     domain_level: str = "specialist",
+    scope: str = "standard",
 ) -> str:
     """Build the prompt for the SYNTHESIZE phase.
 
@@ -493,6 +494,7 @@ def build_synthesize_prompt(
         all_notes: A dictionary mapping sub-question strings to their notes.
         sources_registry: List of sources used, each containing id, url, and title.
         domain_level: One of 'everyday' or 'specialist'. Defaults to 'specialist'.
+        scope: Research scope determining depth and tag count. Defaults to 'standard'.
 
     Returns:
         str: Formatted prompt.
@@ -506,6 +508,13 @@ def build_synthesize_prompt(
         if src.get("failed"):
             continue
         sources_text += f"- [{src['id']}] {src['title']} ({src['url']})\n"
+
+    if scope == "quick":
+        tag_count_instruction = "1-3"
+    elif scope == "deep":
+        tag_count_instruction = "6-9"
+    else:
+        tag_count_instruction = "3-6"
 
     if domain_level == "everyday":
         task_instruction = (
@@ -525,9 +534,10 @@ def build_synthesize_prompt(
             "4. Close with a brief 'Things to watch out for' or 'Common mistakes' section "
             "if the notes contain relevant warnings.\n"
             "5. End with a short 'Sources' list. No need for a formal confidence score.\n\n"
-            "Output ONLY the final markdown guide starting with a YAML frontmatter block "
-            "containing: `title`, `date`, `sources_count`. "
-            "Do not write any preamble or meta-commentary."
+            f"Output ONLY the final markdown guide starting with a YAML frontmatter block containing the keys: "
+            f"`title`, `short_title` (a concise 2-5 word alternative title), `date`, `sources_count`, "
+            f"and `topic_tags` (a YAML list of {tag_count_instruction} specific, lowercase, hyphenated topic tags representing the subject matter).\n\n"
+            "Do not write any conversational preamble or meta-commentary."
         )
     else:
         task_instruction = (
@@ -547,8 +557,9 @@ def build_synthesize_prompt(
             "4. Assign an overall subjective confidence score from 0 to 100 on how "
             "thoroughly the research resolved the original query. Explain any limitations, "
             "weak evidence, or remaining areas of uncertainty in your analysis.\n"
-            "5. Output the final report with a standard YAML frontmatter containing the "
-            "keys: `title`, `date`, `confidence`, `sources_count`.\n\n"
+            f"5. Output the final report with a standard YAML frontmatter containing the keys: "
+            f"`title`, `short_title` (a concise 2-5 word alternative title), `date`, `confidence`, `sources_count`, "
+            f"and `topic_tags` (a YAML list of {tag_count_instruction} specific, lowercase, hyphenated topic tags representing the subject matter).\n\n"
             "Output ONLY the final markdown report starting with the YAML frontmatter. "
             "Do not write any conversational preamble or meta-commentary."
         )
