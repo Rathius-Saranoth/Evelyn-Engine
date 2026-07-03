@@ -19,7 +19,7 @@ import evelyn_config as cfg
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def main():
     print("=" * 60)
@@ -34,7 +34,7 @@ def main():
     
     if not os.path.exists(cred_path):
         print(f"Error: Credentials file not found at: {cred_path}\n")
-        print("To configure Google Calendar read access:")
+        print("To configure Google Calendar access:")
         print("1. Go to Google Cloud Console: https://console.cloud.google.com/")
         print("2. Create a project and enable the 'Google Calendar API'.")
         print("3. Configure the OAuth Consent Screen (type 'External', publish status 'Testing').")
@@ -50,7 +50,7 @@ def main():
 
     print(f"Found credentials at: {cred_path}")
     print("Starting authentication flow...")
-    print("Please follow the instructions in your browser to authorize read-only access.")
+    print("Please follow the instructions in your browser to authorize calendar access.")
     
     try:
         flow = InstalledAppFlow.from_client_secrets_file(cred_path, SCOPES)
