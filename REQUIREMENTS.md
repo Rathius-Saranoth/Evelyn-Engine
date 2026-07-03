@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-06-06 19:06:55
+date modified: 2026-07-03 18:33:54
 tags: requirements, dependencies, system, hardware, environment
 ---
 
@@ -151,8 +151,7 @@ C:\Projects\LocalAI\             # Project root
 ├── chroma_db\                   # ChromaDB persistent storage
 ├── Evelyn\
 │   ├── persona\                 # System prompt, directives
-│   ├── tools\                   # All Python tools
-│   └── workflows\               # ComfyUI workflow JSONs
+│   └── tools\                   # All Python tools
 ├── data\                        # SQLite databases (chat, context, vault)
 ├── evelyn_ui\                   # Chat web UI (HTML + favicon)
 └── reference\                   # System specs, benchmarks
