@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-06-29
+# date modified: 2026-07-03 10:25:11
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -78,6 +78,98 @@ def _draft_path(filename: str) -> str:
     """
     safe = filename.replace(" ", "_").replace(".md", "")
     return os.path.join(_DATA_DIR, f"evelyn_evolution_draft_{safe}.md")
+
+
+def split_frontmatter(content: str) -> tuple[str, str]:
+    """Split YAML frontmatter from the markdown body.
+
+    Returns:
+        tuple[str, str]: (frontmatter, body). frontmatter includes the '---' bounds.
+                         If no frontmatter is found, returns ("", content).
+    """
+    content_stripped = content.strip()
+    if content_stripped.startswith("---"):
+        parts = content_stripped.split("---", 2)
+        if len(parts) >= 3:
+            frontmatter = "---" + parts[1] + "---"
+            body = parts[2].strip()
+            return frontmatter, body
+    return "", content
+
+
+def update_frontmatter_modified_date(frontmatter: str, new_date: str) -> str:
+    """Replace the date modified value in the YAML frontmatter string.
+
+    Args:
+        frontmatter: The YAML frontmatter block.
+        new_date: String representation of the date.
+
+    Returns:
+        str: Updated frontmatter string.
+    """
+    if not frontmatter:
+        return ""
+    pattern = r"^(date modified:\s*).*$"
+    updated, count = re.subn(pattern, f"\\g<1>{new_date}", frontmatter, flags=re.MULTILINE)
+    if count == 0:
+        lines = frontmatter.strip().splitlines()
+        if len(lines) >= 2 and lines[-1] == "---":
+            lines.insert(-1, f"date modified: {new_date}")
+            updated = "\n".join(lines)
+    return updated
+
+
+def extract_markdown_content(text: str) -> str:
+    """Robustly extract the core markdown content from an LLM response.
+
+    If the response is wrapped in code fences, extracts the content inside.
+    Otherwise, returns the text with leading/trailing whitespace cleaned.
+
+    Args:
+        text: Raw response string from the model.
+
+    Returns:
+        str: Cleaned markdown content.
+    """
+    text = text.strip()
+    match = re.search(r"```(?:markdown|md|yaml)?\n(.*?)\n```", text, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return text
+
+
+def normalize_document_text(text: str) -> str:
+    """Normalize and clean common LLM formatting errors and typos.
+
+    Args:
+        text: The raw markdown text to clean.
+
+    Returns:
+        str: The normalized and cleaned text.
+    """
+    # 1. Fix header spacing typos like '##_Directives' or '###_Section'
+    text = re.sub(r"^(#+)_([A-Za-z0-9])", r"\1 \2", text, flags=re.MULTILINE)
+
+    # 2. Fix the specific 'human-10AI' category leak typo
+    text = re.sub(r"\bhuman-\d*AI\b", "human-AI", text)
+    text = re.sub(r"\bhuman-\d*[-]?AI\b", "human-AI", text)
+
+    # 3. Fix typical quote mangling typos like "Nourishmen"t -> "Nourishment"
+    text = text.replace('"Nourishmen"t', '"Nourishment"')
+    text = text.replace('"Nourishment"t', '"Nourishment"')
+    text = text.replace('Nourishmen"t', '"Nourishment"')
+
+    # 4. Strip trailing whitespace from lines
+    lines = [line.rstrip() for line in text.splitlines()]
+
+    return "\n".join(lines).strip()
 
 
 def _load_evolution_state() -> dict:
@@ -302,12 +394,12 @@ async def run_profile_evolution():
 # Evolution core
 # ---------------------------------------------------------------------------
 
-async def _call_ollama(messages: list[dict], num_predict: int = 1500) -> str:
+async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
     """Async helper to call Ollama.
 
     Args:
         messages: List of message dictionaries.
-        num_predict: Maximum prediction tokens.
+        num_predict: Maximum prediction tokens (-1 for unlimited).
 
     Returns:
         str: Response content from the model.
@@ -399,6 +491,9 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     with open(fpath, "r", encoding="utf-8") as f:
         current_content = f.read()
 
+    # Extract original frontmatter and markdown body
+    frontmatter, current_body = split_frontmatter(current_content)
+
     # ---------------------------------------------------------------------------
     # Resume detection — load draft if a prior run was interrupted mid-pass
     # ---------------------------------------------------------------------------
@@ -408,6 +503,9 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     if os.path.exists(draft_file) and draft_cursor > 0.0:
         with open(draft_file, "r", encoding="utf-8") as f:
             accumulated = f.read()
+        # Ensure we are using the body content only
+        _, accumulated_body = split_frontmatter(accumulated)
+        accumulated = accumulated_body
         print(
             f"[PROFILE EVOLVER] {filename}: Loaded draft from disk "
             f"(cursor={datetime.datetime.fromtimestamp(draft_cursor).strftime('%Y-%m-%d %H:%M')}). "
@@ -415,7 +513,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             flush=True,
         )
     else:
-        accumulated = current_content
+        accumulated = current_body
         draft_cursor = 0.0
 
     # ---------------------------------------------------------------------------
@@ -472,20 +570,20 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 pass_note = (
                     f"\nNOTE: This is the final evidence batch "
                     f"(pass {global_pass}/{global_total_passes}). "
-                    "Produce the complete, finalized document — this output will be used as the proposal."
+                    "Produce the complete, finalized document body — this output will be used as the proposal."
                 )
             else:
                 pass_note = (
                     f"\nNOTE: This is evidence batch {global_pass} of {global_total_passes}. "
-                    "Incorporate this batch into the working document. More evidence follows — "
-                    "keep the document complete and coherent, but you will have further "
+                    "Incorporate this batch into the working document body. More evidence follows — "
+                    "keep the body complete and coherent, but you will have further "
                     "opportunities to refine it."
                 )
 
             prompt = (
-                f"You are refining a living persona/directives document based on accumulated "
-                f"evidence from recent conversations.\n\n"
-                f"CURRENT DOCUMENT ({filename}):\n"
+                f"You are refining the content body of a living persona/directives document based on "
+                f"accumulated evidence from recent conversations.\n\n"
+                f"CURRENT DOCUMENT BODY ({filename}):\n"
                 f"---\n"
                 f"{accumulated}\n"
                 f"---\n\n"
@@ -494,16 +592,17 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"INSTRUCTIONS:\n"
                 f"- This is a LIVING document. You are encouraged to evolve it authentically.\n"
                 f"- Add new insights that are well-supported by the evidence.\n"
-                f"- Refine existing points if evidence shows they have evolved.\n"
-                f"- Tone, personality, and style changes ARE welcome if the evidence supports them.\n"
-                f"  Evelyn is a growing identity — not a frozen snapshot.\n"
+                f"- If new evidence modifies, refines, or contradicts a section, update that section accordingly.\n"
+                f"- If a section does not have any new evidence or modifications, preserve it exactly as it is "
+                f"in the CURRENT DOCUMENT BODY. Do NOT remove, truncate, or summarize any sections unless "
+                f"the new evidence explicitly contradicts them or renders them obsolete.\n"
+                f"- Do NOT use placeholders like '[Content remains unchanged]' or '[...]'. You must output "
+                f"the complete content of the document in full.\n"
                 f"- Do NOT add speculative or single-source observations.\n"
-                f"- Do NOT remove existing content unless the evidence clearly contradicts it.\n"
                 f"- Keep the document concise — it is injected into every system prompt.\n"
-                f"- Output the COMPLETE updated document (including YAML frontmatter and markdown headers).\n"
-                f"- Output ONLY the markdown document content, no explanation, no markdown code "
-                f"blocks wrapping it.\n"
-                f"- If no changes are warranted, output the document exactly as it is."
+                f"- Do NOT include any YAML frontmatter or title blocks. Start directly with the first markdown header.\n"
+                f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
+                f"- If no changes are warranted, output the document body exactly as it is."
                 f"{pass_note}"
             )
 
@@ -552,14 +651,30 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     return False
                 return False  # Resume next time from last saved cursor
 
-            # Strip markdown code fences if the model wrapped the output
-            if result.startswith("```"):
-                lines = result.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                result = "\n".join(lines).strip()
+            # Robustly extract markdown from response
+            result = extract_markdown_content(result)
+
+            # Normalize and clean text to remove LLM quirks/typos
+            result = normalize_document_text(result)
+
+            # Safeguard validation checks to prevent catastrophic data loss or laziness
+            if len(result) < len(accumulated) * 0.3:
+                print(
+                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response is suspiciously short on pass {global_pass} "
+                    f"({len(result)} chars vs original {len(accumulated)} chars). "
+                    f"Discarding to prevent data deletion.",
+                    flush=True,
+                )
+                return False
+
+            placeholders = ["remains unchanged", "remains the same", "same as original", "no changes"]
+            if any(p in result.lower() for p in placeholders) and len(result) < len(accumulated) * 0.9:
+                print(
+                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response contains lazy placeholders on pass {global_pass}. "
+                    f"Discarding to prevent data loss.",
+                    flush=True,
+                )
+                return False
 
             accumulated = result
 
@@ -590,19 +705,19 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     # ---------------------------------------------------------------------------
     # Proposal creation
     # ---------------------------------------------------------------------------
-    proposed_content = accumulated
+    proposed_body = accumulated
 
-    if proposed_content == current_content.strip() or not proposed_content:
+    if proposed_body == current_body.strip() or not proposed_body:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
         _clear_draft(filename, state)
         return False
 
     # Generate a concise reason summary
     reason_prompt = (
-        f"Compare the current document and the proposed update. Summarize what changed and why, "
+        f"Compare the current document body and the proposed update body. Summarize what changed and why, "
         f"citing the context entries that supported this evolution.\n\n"
-        f"CURRENT:\n{current_content}\n\n"
-        f"PROPOSED:\n{proposed_content}\n\n"
+        f"CURRENT BODY:\n{current_body}\n\n"
+        f"PROPOSED BODY:\n{proposed_body}\n\n"
         f"Output a brief, one-to-two sentence explanation only."
     )
     reason_messages = [
@@ -612,6 +727,16 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     reason = await _call_ollama(reason_messages, num_predict=150)
     if not reason:
         reason = "Evolving profile based on recent context entries."
+
+    # Update modified date in original YAML frontmatter block
+    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    updated_frontmatter = update_frontmatter_modified_date(frontmatter, current_time_str)
+
+    # Reconstruct complete proposed document
+    if updated_frontmatter:
+        proposed_content = updated_frontmatter + "\n\n" + proposed_body
+    else:
+        proposed_content = proposed_body
 
     source_ids = [int(entry["id"]) for entry in new_entries if entry.get("id")]
 

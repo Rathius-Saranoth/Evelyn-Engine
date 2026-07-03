@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-06-21 08:48:56
+# date modified: 2026-07-03 10:26:38
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -24,15 +24,15 @@ from typing import List, Dict, Any, Tuple, Optional
 
 import httpx
 
-# Reconfigure stdout/stderr to avoid Windows CP1252 character mapping crashes on international titles
+# Reconfigure stdout/stderr to force UTF-8 output to avoid Windows CP1252 character mapping crashes on international titles
 if hasattr(sys.stdout, 'reconfigure'):
     try:
-        sys.stdout.reconfigure(errors='replace')
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
         pass
 if hasattr(sys.stderr, 'reconfigure'):
     try:
-        sys.stderr.reconfigure(errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
         pass
 
