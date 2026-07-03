@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-07-03 10:26:38
+# date modified: 2026-07-03 10:49:04
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -1016,6 +1016,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
         all_notes,
         state["sources_registry"],
         domain_level=state.get("domain_level", "specialist"),
+        scope=state.get("scope", "standard"),
     )
 
     messages = [
@@ -1028,27 +1029,119 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     # Raised from 4096 as part of the deep-scope budget review (2026-06-21).
     final_report = await call_ollama(messages, num_predict=6144)
     
+    # Parse actual overall confidence score, short_title, and topic_tags out of report YAML frontmatter if present
+    parsed_confidence = state["confidence"]
+    short_title = None
+    topic_tags = []
+    
+    try:
+        # Match either standard YAML frontmatter '---' or markdown code block ```yaml/```
+        fm_match = re.match(r"^(?:---|```yaml|```)\s*\n(.*?)\n(?:---|```)(?:\s*\n|\Z)", final_report, re.DOTALL)
+        if fm_match:
+            frontmatter_text = fm_match.group(1)
+            import yaml
+            try:
+                fm_data = yaml.safe_load(frontmatter_text)
+                if isinstance(fm_data, dict):
+                    # extract confidence
+                    if "confidence" in fm_data:
+                        try:
+                            conf_val = str(fm_data["confidence"]).replace("%", "").strip()
+                            parsed_confidence = int(conf_val)
+                        except Exception:
+                            pass
+                    
+                    # extract short_title
+                    if "short_title" in fm_data:
+                        short_title = str(fm_data["short_title"]).strip()
+                    elif "title" in fm_data and not short_title:
+                        title_val = str(fm_data["title"]).strip()
+                        if len(title_val.split()) > 5:
+                            short_title = " ".join(title_val.split()[:5])
+                        else:
+                            short_title = title_val
+                            
+                    # extract topic_tags
+                    if "topic_tags" in fm_data:
+                        raw_tags = fm_data["topic_tags"]
+                        if isinstance(raw_tags, list):
+                            topic_tags = [str(t).strip() for t in raw_tags if t]
+                        elif isinstance(raw_tags, str):
+                            topic_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+            except Exception as e:
+                # Fallback to regex if PyYAML fails
+                print(f"[RESEARCH_ENGINE WARNING] PyYAML failed to parse frontmatter: {e}. Falling back to regex.", flush=True)
+                conf_match = re.search(r"confidence:\s*(\d+)", frontmatter_text, re.IGNORECASE)
+                if conf_match:
+                    parsed_confidence = int(conf_match.group(1))
+                
+                short_title_match = re.search(r"short_title:\s*[\"']?(.*?)[\"']?$", frontmatter_text, re.MULTILINE)
+                if short_title_match:
+                    short_title = short_title_match.group(1).strip()
+                    
+                tags_match = re.search(r"topic_tags:\s*\[(.*?)\]", frontmatter_text, re.MULTILINE)
+                if tags_match:
+                    topic_tags = [t.strip().strip("\"'") for t in tags_match.group(1).split(",") if t.strip()]
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE WARNING] Failed to extract frontmatter: {e}", flush=True)
+
+    if not short_title:
+        # Fallback to query
+        query_words = state["query"].split()
+        if len(query_words) > 5:
+            short_title = " ".join(query_words[:5]) + "..."
+        else:
+            short_title = state["query"]
+
+    state["confidence"] = parsed_confidence
+    state["short_title"] = short_title
+    state["topic_tags"] = topic_tags
+    state["current_step"] = "done"
+    state["status"] = "done"
+    
+    # Strip LLM's own frontmatter to write a unified, structured one
+    clean_report_body = final_report
+    if final_report.startswith("---"):
+        clean_report_body = re.sub(r"^---.*?---\s*\n", "", final_report, count=1, flags=re.DOTALL)
+    elif final_report.startswith("```yaml"):
+        clean_report_body = re.sub(r"^```yaml.*?```\s*\n", "", final_report, count=1, flags=re.DOTALL)
+        
+    tags_list = ["research/done"]
+    if state["confidence"] >= 80:
+        tags_list.append("research/high-quality")
+    else:
+        tags_list.append("research/partial")
+        
+    # Clean and append topic tags from state
+    for tag in state.get("topic_tags", []):
+        cleaned_tag = re.sub(r"[^\w\s-]", "", tag.lower())
+        cleaned_tag = re.sub(r"[-\s]+", "-", cleaned_tag).strip("-_")
+        if cleaned_tag and cleaned_tag not in tags_list:
+            tags_list.append(cleaned_tag)
+            
+    tags_str = ", ".join(tags_list)
+    clean_short_title = state["short_title"].replace('"', '\\"')
+    
+    frontmatter = (
+        "---\n"
+        f"title: \"{state['query']}\"\n"
+        f"aliases: [\"{clean_short_title}\"]\n"
+        f"date created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"research_task_id: {task_id}\n"
+        f"scope: {state['scope']}\n"
+        f"source_count: {state['total_sources']}\n"
+        f"confidence: {state['confidence']}%\n"
+        f"triggered_by: {state['triggered_by']}\n"
+        f"tags: [{tags_str}]\n"
+        "---\n\n"
+    )
+    
+    full_report_content = frontmatter + clean_report_body
+    
     # Save report locally
     report_file = os.path.join(task_dir, "report.md")
     with open(report_file, "w", encoding="utf-8") as f:
-        f.write(final_report)
-        
-    # Parse actual overall confidence score out of report YAML frontmatter if present
-    parsed_confidence = state["confidence"]
-    try:
-        # Match either standard YAML frontmatter '---' or markdown code block ```yaml/```
-        fm_match = re.match(r"^(?:---|```yaml|```)\s*\n(.*?)\n(?:---|```)\s*\n", final_report, re.DOTALL)
-        if fm_match:
-            frontmatter_text = fm_match.group(1)
-            conf_match = re.search(r"confidence:\s*(\d+)", frontmatter_text, re.IGNORECASE)
-            if conf_match:
-                parsed_confidence = int(conf_match.group(1))
-    except Exception:
-        pass
-        
-    state["confidence"] = parsed_confidence
-    state["current_step"] = "done"
-    state["status"] = "done"
+        f.write(full_report_content)
     
     # --- Post-Synthesis Triage Logic ---
     low_conf_sqs = []
@@ -1159,36 +1252,8 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             os.makedirs(vault_dir, exist_ok=True)
             vault_file_path = os.path.join(vault_dir, vault_filename)
             
-            # Build YAML frontmatter to match requirements
-            clean_report_body = final_report
-            # If the report already has frontmatter, strip it to write a unified, structured one
-            if final_report.startswith("---"):
-                clean_report_body = re.sub(r"^---.*?---\s*\n", "", final_report, count=1, flags=re.DOTALL)
-                
-            # Build tags array based on quality
-            tags_list = ["research/done"]
-            if state["confidence"] >= 80:
-                tags_list.append("research/high-quality")
-            else:
-                tags_list.append("research/partial")
-            
-            tags_str = ", ".join(tags_list)
-            
-            frontmatter = (
-                "---\n"
-                f"title: \"{state['query']}\"\n"
-                f"date created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"research_task_id: {task_id}\n"
-                f"scope: {state['scope']}\n"
-                f"source_count: {state['total_sources']}\n"
-                f"confidence: {state['confidence']}%\n"
-                f"triggered_by: {state['triggered_by']}\n"
-                f"tags: [{tags_str}]\n"
-                "---\n\n"
-            )
-            
             with open(vault_file_path, "w", encoding="utf-8") as f:
-                f.write(frontmatter + clean_report_body)
+                f.write(full_report_content)
                 
             state["vault_path"] = vault_file_path
             state["quarantined"] = False
