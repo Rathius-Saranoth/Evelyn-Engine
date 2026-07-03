@@ -182,3 +182,178 @@ def get_cached_gcal_events(days_back: int = 7, days_forward: int = 30) -> list:
     except Exception as e:
         print(f"[GCal Sync] Error reading cache: {e}", flush=True)
         return []
+
+
+def parse_local_datetime(dt_str: str) -> datetime.datetime:
+    """Parse a datetime string in local time, adding the local timezone information.
+
+    Args:
+        dt_str: String in format 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' or ISO-8601 format.
+
+    Returns:
+        datetime.datetime: Timezone-aware datetime object.
+    """
+    dt_str = dt_str.strip().replace("T", " ")
+    
+    # Try parsing date-only first (normalize to midnight)
+    if len(dt_str) <= 10:
+        dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d")
+    else:
+        # Try 'YYYY-MM-DD HH:MM:SS'
+        try:
+            dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            # Fall back to standard ISO parsing if offset/etc is already present
+            dt = datetime.datetime.fromisoformat(dt_str)
+            
+    if dt.tzinfo is None:
+        # Make it aware using local timezone
+        dt = dt.astimezone()
+    return dt
+
+
+def create_gcal_event(
+    summary: str,
+    start_at: str,
+    end_at: str = None,
+    description: str = None,
+    location: str = None,
+    recurrence: list = None
+) -> dict:
+    """Create a new event on Google Calendar, then cache it locally.
+
+    Args:
+        summary: Title of the event.
+        start_at: Start time of the event (local time 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' or ISO-8601).
+        end_at: End time of the event. If None, defaults to 1 hour after start_at (or next day if all-day).
+        description: Optional notes/description.
+        location: Optional location.
+        recurrence: Optional list of recurrence rules (e.g. ['RRULE:FREQ=DAILY']).
+
+    Returns:
+        dict: Sync outcome summary with 'status' and 'message' (and 'event_id' on success).
+    """
+    service = get_gcal_service()
+    if not service:
+        return {
+            "status": "unconfigured",
+            "message": "Google Calendar token not found or expired. Run scripts/setup_gcal.py."
+        }
+
+    try:
+        # Parse start time
+        start_dt = parse_local_datetime(start_at)
+        is_all_day = (len(start_at.strip()) <= 10)
+
+        # Calculate or parse end time
+        if end_at:
+            end_dt = parse_local_datetime(end_at)
+        else:
+            if is_all_day:
+                end_dt = start_dt + datetime.timedelta(days=1)
+            else:
+                end_dt = start_dt + datetime.timedelta(hours=1)
+
+        # Build request body
+        event_body = {
+            "summary": summary,
+            "description": description or "",
+            "location": location or ""
+        }
+
+        if is_all_day:
+            event_body["start"] = {"date": start_dt.strftime("%Y-%m-%d")}
+            event_body["end"] = {"date": end_dt.strftime("%Y-%m-%d")}
+        else:
+            event_body["start"] = {"dateTime": start_dt.isoformat()}
+            event_body["end"] = {"dateTime": end_dt.isoformat()}
+
+        if recurrence:
+            event_body["recurrence"] = recurrence
+
+        print(f"[GCal Sync] Creating event: {summary} at {start_at}...", flush=True)
+        created_event = service.events().insert(
+            calendarId="primary",
+            body=event_body
+        ).execute()
+
+        event_id = created_event.get("id")
+        print(f"[GCal Sync] Event created successfully on Google Calendar. ID: {event_id}", flush=True)
+
+        # Immediately update the local cache so the event is visible without a full sync
+        con = sqlite3.connect(cfg.CHAT_DB_PATH)
+        sync_time = datetime.datetime.utcnow().isoformat()
+        
+        # Save event to local sqlite cache
+        con.execute(
+            """
+            INSERT OR REPLACE INTO calendar_events (id, summary, description, start_at, end_at, location, source, last_sync)
+            VALUES (?, ?, ?, ?, ?, ?, 'google', ?)
+            """,
+            (
+                event_id,
+                created_event.get("summary", "No Title"),
+                created_event.get("description", ""),
+                start_dt.isoformat() if not is_all_day else start_dt.strftime("%Y-%m-%d"),
+                end_dt.isoformat() if not is_all_day else end_dt.strftime("%Y-%m-%d"),
+                created_event.get("location", ""),
+                sync_time
+            )
+        )
+        con.commit()
+        con.close()
+
+        return {
+            "status": "success",
+            "message": f"Successfully created calendar event: '{summary}' on Google Calendar.",
+            "event_id": event_id
+        }
+
+    except Exception as e:
+        print(f"[GCal Sync] Failed to create event: {e}", flush=True)
+        return {
+            "status": "error",
+            "message": f"API error: {e}"
+        }
+
+
+def delete_gcal_event(event_id: str) -> dict:
+    """Delete an event from Google Calendar and the local cache.
+
+    Args:
+        event_id: The ID of the calendar event to delete.
+
+    Returns:
+        dict: Sync outcome summary with 'status' and 'message'.
+    """
+    service = get_gcal_service()
+    if not service:
+        return {
+            "status": "unconfigured",
+            "message": "Google Calendar token not found or expired. Run scripts/setup_gcal.py."
+        }
+
+    try:
+        print(f"[GCal Sync] Deleting event {event_id} from Google Calendar...", flush=True)
+        service.events().delete(
+            calendarId="primary",
+            eventId=event_id
+        ).execute()
+
+        # Immediately update the local cache
+        con = sqlite3.connect(cfg.CHAT_DB_PATH)
+        con.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+        con.commit()
+        con.close()
+
+        return {
+            "status": "success",
+            "message": f"Successfully deleted calendar event ID {event_id}."
+        }
+    except Exception as e:
+        print(f"[GCal Sync] Failed to delete event {event_id}: {e}", flush=True)
+        return {
+            "status": "error",
+            "message": f"API error: {e}"
+        }
+

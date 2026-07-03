@@ -57,7 +57,6 @@ import journal_manager # [[journal_manager.py]]
 import context_manager # [[context_manager.py]]
 import ingest_gists # [[ingest_gists.py]]
 import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
-import reminders
 import gcal_sync
 import terminal_agent
 
@@ -69,7 +68,6 @@ def _reload():
         "context_manager",
         "ingest_gists",
         "ingest_obsidian_knowledge",
-        "reminders",
         "gcal_sync",
         "terminal_agent",
     ):
@@ -1090,69 +1088,86 @@ def search_history(
     return "\n".join(lines)
 
 
-def schedule_reminder(
+def create_calendar_event(
     title: str,
-    due_at: str,
+    start_at: str,
+    end_at: str = None,
     description: str = None,
+    location: str = None,
     recurrence_rule: str = None,
 ) -> str:
-    """Schedule a local reminder/task for Ricky.
+    """Create a new event on Ricky's Google Calendar.
 
     Args:
-        title: Short summary or name of the reminder.
-        due_at: Due timestamp (ISO-8601 string, 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS').
-                Calculate absolute datetime using current time from system prompt.
-        description: Optional additional notes/details.
-        recurrence_rule: Optional recurrence pattern. Supported values:
-                         'daily'         — repeats every day at the same time.
-                         'weekly:MON'    — repeats weekly on a named weekday
-                                           (MON/TUE/WED/THU/FRI/SAT/SUN).
-                         'monthly:15'    — repeats monthly on a specific day number
-                                           (1–28; use 28 to avoid month-length edge cases).
-                         Omit or pass None for a one-shot reminder.
+        title: Title or summary of the calendar event.
+        start_at: Start time of the event (ISO-8601 string or 'YYYY-MM-DD HH:MM:SS').
+                  Calculate absolute datetime using current time from system prompt.
+        end_at: Optional end time of the event (ISO-8601 string or 'YYYY-MM-DD HH:MM:SS').
+                If not provided, defaults to 1 hour after start_at (or next day if all-day).
+        description: Optional notes or description.
+        location: Optional location.
+        recurrence_rule: Optional recurrence pattern (e.g. 'daily', 'weekly:MON', 'monthly:15').
+                         Will be converted to standard Google Calendar RRULEs.
 
     Returns:
-        str: Success/error message with reminder details.
+        str: Success or error message with event details.
     """
     try:
-        reminder = reminders.create_reminder(title, due_at, description, recurrence_rule)
-        recur_label = f"\n- Recurrence: {reminder.get('recurrence_rule')}" if reminder.get("recurrence_rule") else ""
-        return (
-            f"Successfully scheduled reminder:\n"
-            f"- ID: {reminder['id']}\n"
-            f"- Title: {reminder['title']}\n"
-            f"- Due: {reminder['due_at']}{recur_label}\n"
-            f"- Status: {reminder['status']}"
+        recurrence = None
+        if recurrence_rule:
+            rule = recurrence_rule.strip().lower()
+            if rule == "daily":
+                recurrence = ["RRULE:FREQ=DAILY"]
+            elif rule.startswith("weekly:"):
+                day_str = rule.split(":", 1)[1].upper()[:3]
+                recurrence = [f"RRULE:FREQ=WEEKLY;BYDAY={day_str}"]
+            elif rule.startswith("monthly:"):
+                try:
+                    day_num = int(rule.split(":", 1)[1])
+                    day_num = max(1, min(day_num, 28))
+                    recurrence = [f"RRULE:FREQ=MONTHLY;BYMONTHDAY={day_num}"]
+                except ValueError:
+                    pass
+
+        result = gcal_sync.create_gcal_event(
+            summary=title,
+            start_at=start_at,
+            end_at=end_at,
+            description=description,
+            location=location,
+            recurrence=recurrence
         )
+        if result["status"] == "success":
+            recur_lbl = f"\n- Recurrence: {recurrence_rule}" if recurrence_rule else ""
+            return (
+                f"Successfully created calendar event:\n"
+                f"- ID: {result['event_id']}\n"
+                f"- Title: {title}\n"
+                f"- Start: {start_at}{recur_lbl}"
+            )
+        else:
+            return f"Failed to create calendar event: {result['message']}"
     except Exception as e:
-        return f"Error scheduling reminder: {e}"
+        return f"Error creating calendar event: {e}"
 
 
-def complete_reminder(reminder_id: int) -> str:
-    """Mark a local reminder as completed (or advance its next due date if recurring).
-
-    For one-shot reminders, sets status to 'completed'. For recurring reminders,
-    calculates the next due date and resets status to 'pending' so the reminder
-    reappears automatically on schedule.
+def delete_calendar_event(event_id: str) -> str:
+    """Delete an event from Ricky's Google Calendar using its unique event ID.
 
     Args:
-        reminder_id: Database row ID.
+        event_id: The unique ID of the Google Calendar event.
 
     Returns:
-        str: Success or failure message including next due date for recurring reminders.
+        str: Success or error message.
     """
     try:
-        result = reminders.complete_reminder(reminder_id)
-        if result is None:
-            return f"Reminder ID {reminder_id} not found or already completed."
-        if isinstance(result, dict) and result.get("recurred"):
-            return (
-                f"Reminder ID {reminder_id} marked done. "
-                f"Next occurrence scheduled for: {result['next_due']}"
-            )
-        return f"Successfully marked reminder ID {reminder_id} as completed."
+        result = gcal_sync.delete_gcal_event(event_id)
+        if result["status"] == "success":
+            return f"Successfully deleted event from Google Calendar: {result['message']}"
+        else:
+            return f"Failed to delete event: {result['message']}"
     except Exception as e:
-        return f"Error completing reminder: {e}"
+        return f"Error deleting calendar event: {e}"
 
 
 def sync_google_calendar() -> str:
@@ -1172,7 +1187,7 @@ def sync_google_calendar() -> str:
 
 
 def get_agenda(days: int = 7) -> str:
-    """Retrieve the unified agenda (reminders & Google Calendar events) for the next N days.
+    """Retrieve Ricky's Google Calendar agenda/schedule for the next N days.
 
     Args:
         days: Number of days forward to include. Defaults to 7.
@@ -1181,19 +1196,16 @@ def get_agenda(days: int = 7) -> str:
         str: Formatted agenda schedule list.
     """
     try:
-        items = reminders.get_unified_agenda(days)
-        if not items:
+        events = gcal_sync.get_cached_gcal_events(days_back=1, days_forward=days)
+        if not events:
             return f"Your agenda is clear for the next {days} days."
         
-        lines = [f"Upcoming Agenda (next {days} days):\n"]
-        for item in items:
-            time_str = item["time"]
-            desc_part = f" - {item['description']}" if item.get("description") else ""
-            if item["type"] == "reminder":
-                lines.append(f"- [{time_str}] [REMINDER] (ID: {item['id']}) {item['title']} ({item['status']}){desc_part}")
-            else:
-                loc_str = f" @ {item['location']}" if item.get("location") else ""
-                lines.append(f"- [{time_str}] [CALENDAR] {item['title']}{loc_str}{desc_part}")
+        lines = [f"Upcoming Calendar Agenda (next {days} days):\n"]
+        for event in events:
+            time_str = event["start_at"].replace("T", " ").split("+")[0].split("Z")[0]
+            desc_part = f" - {event['description']}" if event.get("description") else ""
+            loc_str = f" @ {event['location']}" if event.get("location") else ""
+            lines.append(f"- [{time_str}] [CALENDAR] (ID: {event['id']}) {event['summary']}{loc_str}{desc_part}")
                 
         return "\n".join(lines)
     except Exception as e:
@@ -1555,52 +1567,59 @@ MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "schedule_reminder",
+            "name": "create_calendar_event",
             "description": (
-                "Schedule a local reminder or task for Ricky. "
-                "The due_at parameter MUST be in 'YYYY-MM-DD HH:MM:SS' format — calculate from the current date/time in the system prompt. "
-                "For repeating reminders, pass a recurrence_rule: 'daily', 'weekly:MON' (or TUE/WED/THU/FRI/SAT/SUN), "
-                "or 'monthly:15' (replace 15 with the target day number, 1–28). "
-                "Recurring reminders automatically reschedule after being completed."
+                "Create a new event on Ricky's Google Calendar. "
+                "The start_at parameter MUST be in 'YYYY-MM-DD HH:MM:SS' format (or 'YYYY-MM-DD' for all-day events) — calculate from the current date/time in the system prompt. "
+                "For repeating events, optionally pass a recurrence_rule: 'daily', 'weekly:MON' (or TUE/WED/THU/FRI/SAT/SUN), "
+                "or 'monthly:15' (replace 15 with the target day number, 1–28)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Brief title of the reminder.",
+                        "description": "Brief title/summary of the calendar event.",
                     },
-                    "due_at": {
+                    "start_at": {
                         "type": "string",
-                        "description": "Due timestamp in 'YYYY-MM-DD HH:MM:SS' format.",
+                        "description": "Start date/time in 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' format.",
+                    },
+                    "end_at": {
+                        "type": "string",
+                        "description": "Optional end date/time in 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' format. Defaults to 1 hour after start_at (or 1 day after if all-day).",
                     },
                     "description": {
                         "type": "string",
-                        "description": "Optional notes or details about the task.",
+                        "description": "Optional detailed notes or description of the event.",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Optional physical location/address for the event.",
                     },
                     "recurrence_rule": {
                         "type": "string",
-                        "description": "Optional recurrence: 'daily', 'weekly:MON', or 'monthly:15'. Omit for one-shot reminders.",
+                        "description": "Optional recurrence rule: 'daily', 'weekly:MON', or 'monthly:15'. Omit for one-shot events.",
                     },
                 },
-                "required": ["title", "due_at"],
+                "required": ["title", "start_at"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "complete_reminder",
-            "description": "Mark an existing local reminder/task as completed.",
+            "name": "delete_calendar_event",
+            "description": "Delete an event from Ricky's Google Calendar using its unique Google Calendar event ID.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "reminder_id": {
-                        "type": "integer",
-                        "description": "The unique database ID of the reminder to complete.",
+                    "event_id": {
+                        "type": "string",
+                        "description": "The unique Google Calendar event ID.",
                     },
                 },
-                "required": ["reminder_id"],
+                "required": ["event_id"],
             },
         },
     },
@@ -1620,7 +1639,7 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_agenda",
-            "description": "Retrieve Ricky's upcoming schedule (unified view of local reminders and cached Google Calendar events) for the next N days.",
+            "description": "Retrieve Ricky's upcoming Google Calendar schedule/events for the next N days.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1741,8 +1760,8 @@ TOOL_FUNCTIONS = {
     "guide_research": guide_research,
     "check_new_research": check_new_research,
     "search_history": search_history,
-    "schedule_reminder": schedule_reminder,
-    "complete_reminder": complete_reminder,
+    "create_calendar_event": create_calendar_event,
+    "delete_calendar_event": delete_calendar_event,
     "sync_google_calendar": sync_google_calendar,
     "get_agenda": get_agenda,
     "run_command": run_command,

@@ -187,47 +187,23 @@ def get_research_context() -> str:
 
 
 def get_upcoming_agenda_prompt_context() -> str:
-    """Fetch a high-level summary notification of upcoming agenda items to inject into the system prompt.
+    """Fetch a high-level summary notification of upcoming Google Calendar events to inject into the system prompt.
 
-    Avoids token bloat by notifying about counts and only listing urgent pending reminders.
+    Avoids token bloat by notifying about counts and only listing urgent pending events.
     """
     try:
         import sys
         TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
         if TOOLS_DIR not in sys.path:
             sys.path.append(TOOLS_DIR)
-        import reminders
+        import gcal_sync
         
-        # 1. Fetch upcoming agenda items for the next 24 hours
-        items = reminders.get_unified_agenda(days=1)
-        gcal_count = sum(1 for x in items if x["type"] == "calendar_event")
-        
-        # 2. Fetch all pending reminders
-        pending_reminders = reminders.list_reminders(status="pending")
+        # 1. Fetch upcoming calendar events for the next 24 hours (days_back=0, days_forward=1)
+        events = gcal_sync.get_cached_gcal_events(days_back=0, days_forward=1)
         
         lines = []
-        if gcal_count > 0:
-            lines.append(f"System Notification: You have {gcal_count} upcoming calendar event(s) in the next 24 hours. Use the 'get_agenda' tool to view them.")
-        
-        if pending_reminders:
-            reminder_lines = []
-            import datetime
-            now = datetime.datetime.now()
-            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-            # We check relative to local timezone if possible, or UTC. Simple string comparison:
-            soon_threshold = (now + datetime.timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
-            
-            for r in pending_reminders:
-                due_dt = r["due_at"]
-                # Highlight if due/past due or due soon (within 12 hours)
-                if due_dt <= soon_threshold:
-                    status_lbl = "PAST DUE" if due_dt < now_str else "DUE SOON"
-                    reminder_lines.append(f"  - [{status_lbl}] ID {r['id']}: \"{r['title']}\" (due {r['due_at']})")
-            
-            if reminder_lines:
-                lines.append("System Notification: Pending reminders requiring attention:")
-                lines.extend(reminder_lines)
-                lines.append("Use the 'complete_reminder' tool to mark them completed when done.")
+        if events:
+            lines.append(f"System Notification: You have {len(events)} upcoming calendar event(s) in the next 24 hours. Use the 'get_agenda' tool to view them.")
         
         if lines:
             return "\n" + "\n".join(lines)
@@ -426,24 +402,8 @@ def init_db():
         )
     """)
 
-    # Reminders and Calendar cache tables (Hermes Tier 2 #7)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS reminders (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            title       TEXT NOT NULL,
-            description TEXT,
-            due_at      TEXT NOT NULL,
-            status      TEXT NOT NULL DEFAULT 'pending',
-            created_at  TEXT NOT NULL,
-            notified    INTEGER DEFAULT 0,
-            recurrence_rule TEXT
-        )
-    """)
-    # Migrate: add recurrence_rule column if missing (existing DBs)
-    try:
-        con.execute("ALTER TABLE reminders ADD COLUMN recurrence_rule TEXT")
-    except Exception:
-        pass  # Column already exists
+    # Drop reminders table if it exists to cleanly remove local reminders data
+    con.execute("DROP TABLE IF EXISTS reminders")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS calendar_events (

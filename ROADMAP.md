@@ -50,7 +50,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Profile Auto-Evolution**: Implemented an idle-time background pipeline that scans context entries in the memory database to propose updates to narrative persona, profile, and directive documents, with an interactive visual diff reviewer tab in the developer Web UI. (Hermes Tier 3 #12 — Completed 2026-06-27)
 - [x] **Procedural Knowledge Capture**: Implemented an idle-time background pipeline that scans chat history for procedural rules (workflows, trigger patterns, pitfalls, and verification criteria), stores them in the SQLite `procedures` table, and dynamically injects keyword-matched procedures into the active RAG context. Added a dedicated interactive Procedures review tab in the Developer Web UI. (Hermes Tier 3 #10 — Completed 2026-06-27)
 - [ ] Explore Google Drive File Integration.
-- [ ] Implement scheduling and reminders.
+- [x] **Google Calendar write scheduling**: Scrapped local reminders module/table and integrated read/write calendar tools directly to Google Calendar. *(Completed 2026-07-02)*
 - [ ] **System-Event Prompting Flow**: Expand the transient system message / badge workflow to inject notifications into active conversation turns when background events occur (e.g., calendar/reminder due alerts, finished background research, or tasks needing manual search guidance).
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).
 
