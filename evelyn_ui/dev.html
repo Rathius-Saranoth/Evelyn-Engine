@@ -732,7 +732,7 @@
           let foundMatch = false;
           let lookAhead = 10;
           for (let k = 1; k < lookAhead; k++) {
-            if (i + k < origLines.length && origLines[i+k] === pLine) {
+            if (i + k < origLines.length && origLines[i+k] === pLine && pLine.trim() !== "") {
               for (let m = 0; m < k; m++) {
                 html += `<div class="diff-line" style="background: rgba(248,113,113,0.15); color: #fca5a5; white-space: pre-wrap;">- ${escapeHtml(origLines[i+m])}</div>`;
               }
@@ -740,7 +740,7 @@
               foundMatch = true;
               break;
             }
-            if (j + k < propLines.length && propLines[j+k] === oLine) {
+            if (j + k < propLines.length && propLines[j+k] === oLine && oLine.trim() !== "") {
               for (let m = 0; m < k; m++) {
                 html += `<div class="diff-line" style="background: rgba(52,211,153,0.15); color: #a7f3d0; white-space: pre-wrap;">+ ${escapeHtml(propLines[j+m])}</div>`;
               }
