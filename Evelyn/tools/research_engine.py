@@ -104,6 +104,70 @@ def get_task_dir(task_id: str) -> str:
     return os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
 
 
+def recalculate_total_sources(task_id: str, state: Dict[str, Any]) -> int:
+    """Recalculate the true source count based on actual citations in active notes files."""
+    task_dir = get_task_dir(task_id)
+    active_src_ids = set()
+    for sq in state.get("plan", {}).get("sub_questions", []):
+        if sq.get("status") not in ("removed", "split"):
+            notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
+            sq_sources = set()
+            if os.path.exists(notes_file):
+                try:
+                    with open(notes_file, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    matches = re.findall(r"\[src_(\d+)\]", content)
+                    for m in matches:
+                        src_name = f"src_{m}"
+                        active_src_ids.add(src_name)
+                        sq_sources.add(src_name)
+                except Exception:
+                    pass
+            sq["source_count"] = len(sq_sources)
+            
+    return len(active_src_ids)
+
+
+def update_limit_warnings(task_id: str, state: Dict[str, Any]) -> None:
+    """Check task and subquestion state against limits and populate warning flags."""
+    limit_warnings = set()
+    
+    max_total_sources = state.get("max_total_sources", 100)
+    if state.get("total_sources", 0) >= max_total_sources:
+        limit_warnings.add("total_sources_cap_reached")
+        
+    turn_limit = state.get(
+        "max_orchestrator_turns",
+        getattr(cfg, "RESEARCH_MAX_ORCHESTRATOR_TURNS", 50)
+    )
+    if state.get("orchestrator_turns", 0) >= turn_limit:
+        limit_warnings.add("orchestrator_turns_cap_reached")
+        
+    timeout_limit = state.get(
+        "wall_clock_timeout",
+        getattr(cfg, "RESEARCH_WALL_CLOCK_TIMEOUT", 7200)
+    )
+    if state.get("accumulated_runtime", 0.0) >= timeout_limit:
+        limit_warnings.add("timeout_reached")
+        
+    state["limit_warnings"] = list(limit_warnings)
+    
+    max_sources_per_sq = state.get("max_sources_per_sq", 15)
+    max_search_depth = state.get("max_search_depth", 8)
+    
+    for sq in state.get("plan", {}).get("sub_questions", []):
+        sq_warnings = set()
+        
+        if sq.get("source_count", 0) >= max_sources_per_sq:
+            sq_warnings.add("source_cap_reached")
+            
+        if sq.get("status") not in ("done", "removed", "split"):
+            if sq.get("search_depth", 0) >= max_search_depth - 1:
+                sq_warnings.add("depth_cap_reached")
+                
+        sq["limit_warnings"] = list(sq_warnings)
+
+
 def load_state(task_id: str) -> Optional[Dict[str, Any]]:
     """Load the persisted state of a research task from disk.
 
@@ -118,7 +182,11 @@ def load_state(task_id: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         with open(state_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+            state = json.load(f)
+        if state:
+            state["total_sources"] = recalculate_total_sources(task_id, state)
+            update_limit_warnings(task_id, state)
+        return state
     except Exception as e:
         print(f"[RESEARCH_ENGINE ERROR] Failed to load state for {task_id}: {e}", flush=True)
         return None
@@ -138,7 +206,6 @@ def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = F
     os.makedirs(task_dir, exist_ok=True)
     state_file = os.path.join(task_dir, "state.json")
     
-    # Merge status from disk if updated out-of-band (e.g. paused/cancelled by server chat interrupt)
     if not ignore_disk_status and os.path.exists(state_file):
         try:
             with open(state_file, "r", encoding="utf-8") as f:
@@ -153,8 +220,8 @@ def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = F
         except Exception:
             pass
             
-    # Update timestamps
     state["updated_at"] = datetime.datetime.now().isoformat()
+    update_limit_warnings(task_id, state)
     
     try:
         with open(state_file, "w", encoding="utf-8") as f:
