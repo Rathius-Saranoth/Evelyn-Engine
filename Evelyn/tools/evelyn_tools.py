@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-06-21
+# date modified: 2026-07-03 19:28:33
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -869,13 +869,13 @@ def remove_sub_question(task_id: str, sq_id: str) -> str:
 
 
 def finalize_guidance(task_id: str) -> str:
-    """Signal that all manual edits are complete and resume the task.
+    """Signal that all manual edits are complete and place the task in the waiting queue.
 
     Args:
         task_id: Unique task identifier.
 
     Returns:
-        str: Confirmation message from the resume call.
+        str: Confirmation message.
     """
     _reload()
     try:
@@ -896,7 +896,7 @@ def finalize_guidance(task_id: str) -> str:
         state["current_sq_idx"] = idx
         state["current_step"] = "search"
         state["struggling"] = False
-        state["status"] = "pending"
+        state["status"] = "paused"
         
         if "termination_reason" in state:
             state["termination_reason"] = None
@@ -907,9 +907,23 @@ def finalize_guidance(task_id: str) -> str:
             
         save_state(task_id, state, ignore_disk_status=True)
         
-        from evelyn_tools import resume_research_task
-        result = resume_research_task(task_id)
-        return f"Guidance finalized. {result}"
+        # Register in the server's _background_tasks memory dictionary so it's picked up by the idle loop
+        import sys
+        import time
+        server = sys.modules.get("evelyn_server")
+        if not server:
+            server = sys.modules.get("__main__")
+        if server:
+            bg_tasks = getattr(server, "_background_tasks", None)
+            if bg_tasks is not None:
+                bg_tasks[task_id] = {
+                    "status": "paused",
+                    "query": state.get("query", ""),
+                    "scope": state.get("scope", "standard"),
+                    "started_at": time.time()
+                }
+        
+        return f"Guidance finalized. Task {task_id} has been placed in the waiting queue."
     except Exception as e:
         return f"Failed to finalize guidance: {e}"
 
