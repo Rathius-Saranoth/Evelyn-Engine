@@ -524,6 +524,14 @@
       const container = document.getElementById('guidance-sq-container');
       container.innerHTML = '';
       
+      if ((task.limit_warnings || []).includes('total_sources_cap_reached')) {
+        container.innerHTML = `
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 12px; color: #f87171; font-size: 13.5px; line-height: 1.4;">
+            <strong>⚠️ Scraper Cap Hit (100 Sources):</strong> The overall task limit has been reached. Evelyn cannot extract from new sources. Removing unnecessary sub-questions will automatically recalculate and free up source budget.
+          </div>
+        `;
+      }
+      
       task.plan.sub_questions.forEach(sq => {
         let badgeColor = '#6b7280';
         if (sq.confidence >= 80) badgeColor = 'var(--success)';
@@ -543,6 +551,16 @@
           reasonHtml = `<div style="font-size: 13px; color: var(--accent); margin-top: 6px;"><strong>Split Reason:</strong> ${escapeHtml(sq.split_reason)}</div>`;
         }
         
+        let warningsHtml = '';
+        if (sq.limit_warnings && sq.limit_warnings.length > 0) {
+          warningsHtml = sq.limit_warnings.map(w => {
+            let txt = w;
+            if (w === 'depth_cap_reached') txt = 'Search depth exhausted without meeting confidence threshold.';
+            else if (w === 'source_cap_reached') txt = 'Maximum source limit per sub-question reached.';
+            return `<div style="font-size: 13px; color: #f87171; margin-top: 4px; font-weight: 500;">⚠️ ${escapeHtml(txt)}</div>`;
+          }).join('');
+        }
+        
         container.innerHTML += `
           <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
             <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim);">
@@ -552,6 +570,7 @@
             <textarea id="sq-edit-${sq.id}" rows="2" style="width: 100%; background: var(--bg); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: inherit; resize: vertical;" oninput="document.getElementById('sq-save-${sq.id}').disabled = (this.value.trim() === this.dataset.original)">${escapeHtml(sq.question)}</textarea>
             ${gapsHtml}
             ${reasonHtml}
+            ${warningsHtml}
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
               <button id="sq-remove-${sq.id}" class="btn" style="padding: 6px 12px; font-size: 13px; max-width: 130px; background: #e06c75; color: #fff; border: none; border-radius: 6px; cursor: pointer;" onclick="removeSubQuestion('${taskId}', '${sq.id}')">Remove Question</button>
               <button id="sq-save-${sq.id}" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; max-width: 120px;" disabled onclick="saveSqRewrite('${taskId}', '${sq.id}')">Save Rewrite</button>
@@ -1056,6 +1075,13 @@
                   <span class="badge ${badgeClass}">${badgeLabel}</span>
                   ${task.struggling ? `<span class="badge" style="background: #eab308; color: #000; font-weight: 600;">⚠️ Struggling</span>` : ''}
                   ${task.quarantined ? `<span class="badge" style="background: #dc2626; color: #fff; font-weight: 600;">🔒 Quarantined</span>` : ''}
+                  ${(task.limit_warnings || []).map(w => {
+                    let lbl = w;
+                    if (w === 'total_sources_cap_reached') lbl = '⚠️ Sources Cap Hit';
+                    else if (w === 'orchestrator_turns_cap_reached') lbl = '⚠️ Turn Limit Hit';
+                    else if (w === 'timeout_reached') lbl = '⚠️ Timeout Hit';
+                    return `<span class="badge" style="background: #ef4444; color: #fff; font-weight: 600;">${escapeHtml(lbl)}</span>`;
+                  }).join('')}
                   <span style="margin-left: auto;">Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
                 </div>
                 <div class="card-body">
@@ -1077,6 +1103,11 @@
                     </div>
                   ` : ''}
                   ${task.error ? `<div style="color: var(--danger); font-size: 13px; margin-top: 6px; background: rgba(248,113,113,0.05); padding: 8px; border-radius: 6px; border: 1px solid rgba(248,113,113,0.15);">${escapeHtml(task.error)}</div>` : ''}
+                  ${(task.limit_warnings || []).includes('total_sources_cap_reached') ? `
+                    <div style="color: #f87171; font-size: 13px; margin-top: 6px; background: rgba(239,68,68,0.04); padding: 8px; border-radius: 6px; border: 1px solid rgba(239,68,68,0.15); line-height: 1.4;">
+                      <strong>⚠️ Scraper Budget Exhausted:</strong> Overall task limit of 100 sources reached. Remove unnecessary sub-questions (which will instantly recalculate and free up source budget) or increase limit in config.
+                    </div>
+                  ` : ''}
                 </div>
                 <div class="card-actions">
                   ${actionButtons}

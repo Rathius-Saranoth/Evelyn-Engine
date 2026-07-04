@@ -862,6 +862,10 @@ def remove_sub_question(task_id: str, sq_id: str) -> str:
         if state.get("current_sq_idx", 0) >= total and total > 0:
             state["current_sq_idx"] = total - 1
 
+        # Recalculate true sources count after removal
+        from research_engine import recalculate_total_sources
+        state["total_sources"] = recalculate_total_sources(task_id, state)
+
         save_state(task_id, state, ignore_disk_status=True)
         return f"Successfully removed sub-question {sq_id}."
     except Exception as e:
