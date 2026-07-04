@@ -209,7 +209,7 @@
       </div>
       <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end; gap: 10px;">
         <button class="btn btn-reject" onclick="closeGuidanceModal()">Cancel</button>
-        <button class="btn btn-action" id="guidance-finalize-btn" style="max-width: 250px;">Finalize & Resume Task</button>
+        <button class="btn btn-action" id="guidance-finalize-btn" style="max-width: 250px;">Finalize & Queue Task</button>
       </div>
     </div>
   </div>
@@ -583,7 +583,7 @@
           alert('Network error finalizing guidance.');
         } finally {
           finalizeBtn.disabled = false;
-          finalizeBtn.textContent = 'Finalize & Resume Task';
+          finalizeBtn.textContent = 'Finalize & Queue Task';
         }
       };
     }
