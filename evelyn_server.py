@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-06-27 09:38:07
+# date modified: 2026-07-03 19:28:27
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2565,11 +2565,26 @@ async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depe
         _: Authorization dependency.
 
     Returns:
-        dict: Status message confirming guidance injection.
+        dict: Status message confirming guidance injection and resumption.
     """
     _demote_running_task_if_any(task_id)
     from evelyn_tools import guide_research
     result = guide_research(task_id, request.guidance)
+    return {"message": result}
+
+@app.post("/research/guide/{task_id}/finalize")
+async def api_guide_research_finalize(task_id: str, _: None = Depends(check_auth)):
+    """Finalize manual guidance edits and queue the task in waiting state.
+
+    Args:
+        task_id: The ID of the task.
+        _: Authorization dependency.
+
+    Returns:
+        dict: Status message confirming finalization and queuing.
+    """
+    from evelyn_tools import finalize_guidance
+    result = finalize_guidance(task_id)
     return {"message": result}
 
 @app.post("/research/guide/{task_id}/remove")
@@ -2606,21 +2621,7 @@ async def api_guide_research_rewrite(task_id: str, request: SQRewriteRequest, _:
     result = rewrite_sub_question(task_id, request.sq_id, request.new_question)
     return {"message": result}
 
-@app.post("/research/guide/{task_id}/finalize")
-async def api_guide_research_finalize(task_id: str, _: None = Depends(check_auth)):
-    """Finalize manual guidance edits and resume the task.
 
-    Args:
-        task_id: The ID of the task.
-        _: Authorization dependency.
-
-    Returns:
-        dict: Status message confirming finalization and resumption.
-    """
-    _demote_running_task_if_any(task_id)
-    from evelyn_tools import finalize_guidance
-    result = finalize_guidance(task_id)
-    return {"message": result}
 
 
 @app.post("/research/start-now/{task_id}")
