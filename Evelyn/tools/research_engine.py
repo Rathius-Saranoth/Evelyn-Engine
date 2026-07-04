@@ -1188,11 +1188,12 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             
     tags_str = ", ".join(tags_list)
     clean_short_title = state["short_title"].replace('"', '\\"')
+    clean_query = state['query'].replace('"', '\\"')
     
     frontmatter = (
         "---\n"
-        f"title: \"{state['query']}\"\n"
-        f"aliases: [\"{clean_short_title}\"]\n"
+        f"title: \"{clean_short_title}\"\n"
+        f"research_query: \"{clean_query}\"\n"
         f"date created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"research_task_id: {task_id}\n"
         f"scope: {state['scope']}\n"
@@ -1311,7 +1312,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     if state["confidence"] >= 60:
         try:
             # Create safe Obsidian title slug
-            slug = re.sub(r"[^\w\s-]", "", state["query"].lower())
+            slug = re.sub(r"[^\w\s-]", "", state["short_title"].lower())
             slug = re.sub(r"[-\s]+", "-", slug).strip("-_")
             vault_filename = f"{slug}.md"
             
