@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-07-03 10:49:04
+# date modified: 2026-07-04 20:32:47
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -458,6 +458,159 @@ def parse_vault_search_results(vault_res: str) -> List[Tuple[str, str]]:
     return results
 
 
+async def formulate_search_query(question_text: str, task_type: str, state: Dict[str, Any]) -> str:
+    """Formulate a short, atomic web-search query from a sub-question or gap string.
+
+    Always runs an LLM formulation pass — research tasks execute during idle time,
+    so the extra ~1-3s call per search round is immaterial to responsiveness, and
+    it catches thesis-style phrasing that a cheap heuristic alone would miss (e.g.
+    a short, grammatically clean clause like "regulatory mechanisms underlying X"
+    passes a word-count/conjunction check but is still not how a person searches).
+
+    The formulated output is validated with the deterministic is_atomic_query()
+    heuristic. On failure, formulation is retried once with the specific failure
+    reason fed back to the model. If the retry also fails validation, falls back
+    to a code-only truncation of the original text so a stalled formulation never
+    blocks a search round.
+
+    Args:
+        question_text: The sub-question or gap string driving this search round.
+        task_type: Classified task type, passed through to the prompt builder.
+        state: Task state dict — mutated to increment ollama_calls for each
+               formulation attempt made.
+
+    Returns:
+        str: A short, search-engine-ready query string.
+    """
+    retry_reason = None
+
+    for attempt in range(2):
+        prompt = research_prompts.build_search_query_prompt(
+            question_text, task_type=task_type, retry_reason=retry_reason
+        )
+        messages = [
+            {"role": "system", "content": research_prompts.get_system_prompt()},
+            {"role": "user", "content": prompt},
+        ]
+
+        state["ollama_calls"] += 1
+        raw = await call_ollama(messages, num_predict=100)
+        candidate = raw.strip().strip('"\'').split("\n")[0].strip()
+
+        is_ok, reason = research_prompts.is_atomic_query(candidate)
+        if is_ok and candidate:
+            return candidate
+
+        print(
+            f"[RESEARCH_ENGINE] Search query formulation attempt {attempt + 1} rejected "
+            f"({reason}). Candidate was: '{candidate}'",
+            flush=True,
+        )
+        retry_reason = reason
+
+    fallback = _truncate_query_fallback(question_text)
+    print(
+        f"[RESEARCH_ENGINE WARNING] Search query formulation failed validation twice. "
+        f"Falling back to truncated original: '{fallback}'",
+        flush=True,
+    )
+    return fallback
+
+
+def _truncate_query_fallback(question_text: str, max_words: int = 8) -> str:
+    """Deterministic, code-only fallback query used when LLM formulation fails twice.
+
+    Strips question marks/quotes and a common leading question stem, then
+    truncates to max_words. This is a last resort only — it does not attempt
+    to be smart about atomicity, it just guarantees the pipeline never stalls
+    waiting on a formulation call that keeps failing validation.
+
+    Args:
+        question_text: The original sub-question or gap string.
+        max_words: Maximum words to retain.
+
+    Returns:
+        str: A short, deterministic query string.
+    """
+    text = re.sub(r"[?\"']", "", question_text).strip()
+    text_lower = text.lower()
+    leading_stopwords = (
+        "what is", "what are", "how does", "how do", "why is",
+        "why does", "who is", "which",
+    )
+    for sw in leading_stopwords:
+        if text_lower.startswith(sw):
+            text = text[len(sw):].strip()
+            break
+    words = text.split()
+    return " ".join(words[:max_words])
+
+
+async def _rewrite_subquestion(
+    task_id: str,
+    state: Dict[str, Any],
+    sq: Dict[str, Any],
+    gaps: List[str],
+) -> None:
+    """Attempt to rewrite a sub-question's phrasing to escape a barren search space.
+
+    Shared by step_evaluate() (low-confidence retry) and the zero-result branch
+    of step_search_and_extract() (a search round that returned no sources at all).
+    Performs the same semantic-divergence check both call sites previously did
+    inline: the rewrite is only applied if it actually differs from the current
+    phrasing, so a repeated/empty response doesn't burn the search budget for
+    nothing.
+
+    Mutates sq in place (question, original_question, gaps) and state
+    (ollama_calls). Does not touch state["current_step"] or state["search_depth"]
+    — callers remain responsible for advancing those, since the two call sites
+    advance them slightly differently.
+
+    Args:
+        task_id: Unique task identifier.
+        state: Task state dict — mutated to increment ollama_calls.
+        sq: The sub-question dict to potentially rewrite, mutated in place.
+        gaps: List of gap strings/reasons driving the rewrite. May be empty
+              (e.g. the zero-result path, where no evaluate step has run yet).
+    """
+    task_dir = get_task_dir(task_id)
+    notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
+    current_notes = ""
+    if os.path.exists(notes_file):
+        with open(notes_file, "r", encoding="utf-8") as f:
+            current_notes = f.read()
+
+    rewrite_prompt = research_prompts.build_rewrite_prompt(sq["question"], current_notes, gaps)
+    rewrite_messages = [
+        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "user", "content": rewrite_prompt},
+    ]
+    state["ollama_calls"] += 1
+    print(f"[RESEARCH_ENGINE] Auto-rewriting SQ {sq['id']}...", flush=True)
+    rewritten_q = await call_ollama(rewrite_messages, num_predict=512)
+    rewritten_q = rewritten_q.strip()
+
+    gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
+
+    # Semantic divergence check: prevent verbatim echoing
+    if rewritten_q.lower() == sq["question"].lower() or not rewritten_q:
+        print(
+            "[RESEARCH_ENGINE WARNING] Auto-rewrite returned identical/empty question. "
+            "Keeping original.",
+            flush=True,
+        )
+        return
+
+    print(f"[RESEARCH_ENGINE] Rewrote SQ to: '{rewritten_q}'", flush=True)
+    sq["original_question"] = sq.get("original_question", sq["question"])
+    sq["question"] = rewritten_q
+    sq["gaps"] = []
+
+    # Clear gaps file since the rewrite absorbs them
+    if os.path.exists(gaps_file):
+        os.remove(gaps_file)
+
+
 def query_previous_deep_research(search_query: str, current_task_id: str, limit: int = 3) -> List[Dict[str, Any]]:
     """Query completed deep-scope research task collections for relevant chunks.
 
@@ -593,13 +746,15 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     sq = sq_list[sq_idx]
     print(f"[RESEARCH_ENGINE] Processing SQ ({sq['id']}): '{sq['question']}' (Search Round {state['search_depth'] + 1})", flush=True)
     
-    # Load any existing gaps or notes to customize the search query.
-    # When gaps exist, use the gap text directly as the search query rather
-    # than appending it to the original question. The original question may
-    # already be verbose; concatenating it with a gap string produces a search
-    # query that is too long and unfocused for DuckDuckGo to handle well.
+    # Load any existing gaps or notes to determine the search basis text.
+    # When gaps exist, use the gap text as the basis rather than the original
+    # sub-question — the gap is already a targeted phrase produced by the
+    # evaluator. Either way, this raw text is NOT sent directly to the search
+    # engine: it is passed through formulate_search_query() below, since both
+    # sub-questions and gaps are authored for reasoning/notes and are prone to
+    # compound or thesis-style phrasing that search engines rank poorly.
     gaps_file = os.path.join(get_task_dir(task_id), f"{sq['id']}_gaps.json")
-    search_query = sq["question"]
+    search_basis = sq["question"]
     
     if os.path.exists(gaps_file):
         try:
@@ -607,15 +762,17 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 gaps_data = json.load(f)
                 gaps = gaps_data.get("gaps", [])
                 if gaps:
-                    # Use the highest-priority gap as the search query directly.
-                    # The gap string is already a targeted phrase produced by the
-                    # evaluator — it is a better search term on its own.
-                    search_query = gaps[0]
-                    print(f"[RESEARCH_ENGINE] Using gap as search query: '{search_query}'", flush=True)
+                    search_basis = gaps[0]
+                    print(f"[RESEARCH_ENGINE] Using gap as search basis: '{search_basis}'", flush=True)
         except Exception:
             pass
 
-            
+    # Formulate a short, atomic search-engine query from the basis text.
+    # Always runs — research tasks execute during idle time, so the extra
+    # ~1-3s LLM call is immaterial — and is validated/retried internally.
+    task_type = state.get("task_type", "factual")
+    search_query = await formulate_search_query(search_basis, task_type, state)
+
     # Execute search
     print(f"[RESEARCH_ENGINE] Searching DuckDuckGo: '{search_query}'", flush=True)
     search_results_str = evelyn_tools.web_search(search_query, max_results=5)
@@ -647,13 +804,29 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         print(f"[RESEARCH_ENGINE WARNING] Cross-task search failed: {pe}", flush=True)
     
     if not parsed_sources:
-        print("[RESEARCH_ENGINE] No web search, vault, or cross-task results found. Skipping extraction.", flush=True)
-        # Advance state to prevent infinite retry
-        sq["status"] = "done"
-        state["current_sq_idx"] += 1
-        state["search_depth"] = 0
-        save_state(task_id, state)
-        return
+        depth_remaining = state["search_depth"] < state["max_search_depth"] - 1
+        if depth_remaining:
+            print(
+                "[RESEARCH_ENGINE] No web search, vault, or cross-task results found. "
+                "Budget remains — rewriting sub-question and retrying.",
+                flush=True,
+            )
+            gaps_for_rewrite = sq.get("gaps", [])
+            await _rewrite_subquestion(task_id, state, sq, gaps_for_rewrite)
+            state["search_depth"] += 1
+            save_state(task_id, state)
+            return
+        else:
+            print(
+                f"[RESEARCH_ENGINE] SQ {sq['id']} exhausted search depth with zero results. "
+                "Pausing for guidance.",
+                flush=True,
+            )
+            sq["status"] = "needs_guidance"
+            state["status"] = "needs_guidance"
+            state["struggling"] = True
+            save_state(task_id, state)
+            return
         
     task_dir = get_task_dir(task_id)
     notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
@@ -913,34 +1086,10 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
         # Loop again!
         print(f"[RESEARCH_ENGINE] SQ {sq['id']} requires further search. Running iteration {state['search_depth'] + 2}.", flush=True)
         
-        # Auto-Rewrite Logic
-        notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
-        current_notes = ""
-        if os.path.exists(notes_file):
-            with open(notes_file, "r", encoding="utf-8") as f:
-                current_notes = f.read()
-                
-        rewrite_prompt = research_prompts.build_rewrite_prompt(sq["question"], current_notes, gaps)
-        rewrite_messages = [
-            {"role": "system", "content": research_prompts.get_system_prompt()},
-            {"role": "user", "content": rewrite_prompt}
-        ]
-        state["ollama_calls"] += 1
-        print(f"[RESEARCH_ENGINE] Auto-rewriting SQ {sq['id']} due to low confidence ({confidence}%)...", flush=True)
-        rewritten_q = await call_ollama(rewrite_messages, num_predict=512)
-        rewritten_q = rewritten_q.strip()
-        
-        # Semantic divergence check: prevent verbatim echoing
-        if rewritten_q.lower() == sq["question"].lower() or not rewritten_q:
-            print(f"[RESEARCH_ENGINE WARNING] Auto-rewrite returned identical/empty question. Keeping original.", flush=True)
-        else:
-            print(f"[RESEARCH_ENGINE] Rewrote SQ to: '{rewritten_q}'", flush=True)
-            sq["original_question"] = sq.get("original_question", sq["question"])
-            sq["question"] = rewritten_q
-            # Clear gaps file since the rewrite absorbs them
-            if os.path.exists(gaps_file):
-                os.remove(gaps_file)
-                sq["gaps"] = []
+        # Auto-Rewrite Logic (shared helper — also used by step_search_and_extract's
+        # zero-result branch)
+        print(f"[RESEARCH_ENGINE] Low confidence ({confidence}%) for SQ {sq['id']}. Attempting rewrite.", flush=True)
+        await _rewrite_subquestion(task_id, state, sq, gaps)
 
         state["current_step"] = "search"
         state["search_depth"] += 1
