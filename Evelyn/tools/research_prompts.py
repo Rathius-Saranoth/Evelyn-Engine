@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-07-03 10:48:16
+# date modified: 2026-07-04 20:32:50
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -16,13 +16,15 @@ Exports:
   get_system_prompt()       — Base system prompt for all research phases.
   build_plan_prompt()       — PLAN phase prompt.
   build_extract_prompt()    — EXTRACT phase prompt (accepts optional skill template).
+  build_search_query_prompt() — Formulates a short, atomic search-engine query from a sub-question/gap.
+  is_atomic_query()          — Zero-LLM-cost validator for formulated search queries.
   build_evaluate_prompt()   — EVALUATE phase prompt.
   build_synthesize_prompt() — SYNTHESIZE phase prompt.
   build_rewrite_prompt()    — Sub-question auto-rewrite prompt.
   build_post_synthesis_triage_prompt() — Post-synthesis triage prompt.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +217,83 @@ def classify_domain_level(query: str) -> str:
     return "specialist"
 
 
+# ---------------------------------------------------------------------------
+# Query atomicity constraint (shared across plan/evaluate/rewrite/triage/search)
+# ---------------------------------------------------------------------------
+
+ATOMIC_QUERY_CONSTRAINT = (
+    "## Query Atomicity Rules (mandatory)\n"
+    "- Deconstruct, don't correlate: never force a single query to cross-reference "
+    "multiple mechanisms, conditions, entities, or systems at once.\n"
+    "- Target the core variable: if several specific items apply (e.g. three named "
+    "proteins, three named libraries), collapse them into the single most relevant "
+    "one or their shared parent category — do not list them all in one query.\n"
+    "- Search the step, not the thesis: pick the single most useful next fact to "
+    "look up, not the final synthesized answer to the whole sub-question.\n"
+    "- One concrete marker per query: name one specific thing (a term, a product, "
+    "a mechanism, an error code) — never a vague category standing in for several things.\n"
+    "- Write it like a person typing into a search box, not like an academic paper "
+    "title. No \"An Analysis of...\", no \"Regulatory Mechanisms Underlying...\".\n"
+    "- Stay anchored to the parent topic's scope — do not wander into an adjacent "
+    "general topic.\n\n"
+    "BAD (compound / thesis-style): \"regulatory mechanisms linking cortisol, "
+    "adrenaline, and BDNF to mental fatigue\"\n"
+    "GOOD (atomic, searchable): \"cortisol mental fatigue\"\n"
+)
+
+# Deterministic heuristics used to validate that a formulated query is actually
+# atomic before it is spent on a search engine call. Cheap, code-only checks —
+# no LLM cost — per the "push control-flow into code" architecture principle.
+_COMPOUND_MARKERS: List[str] = [" and ", " vs ", " versus ", " as well as ", " along with "]
+_THESIS_PHRASE_MARKERS: List[str] = [
+    "regulatory mechanisms", "underlying mechanisms", "an analysis of",
+    "an overview of", "an examination of", "the relationship between",
+    "the role of", "a comparison of", "a study of", "a review of",
+    "mechanisms linking", "interplay between", "interaction between",
+]
+_MAX_QUERY_WORDS = 10
+
+
+def is_atomic_query(query: str) -> Tuple[bool, Optional[str]]:
+    """Validate that a formulated search query is atomic (one concept, search-shaped).
+
+    Zero-LLM-cost deterministic check run against LLM-formulated search strings
+    before they are spent on a real search engine call. Catches the two dominant
+    failure patterns observed in practice: compound/multi-concept queries (joined
+    by "and"/"vs"/lists) and thesis-style academic phrasing that search engines
+    rank poorly. This is a validator, not a generator — it never rewrites the
+    query itself, it only reports whether the caller should retry formulation.
+
+    Args:
+        query: The candidate search query string to validate.
+
+    Returns:
+        Tuple[bool, Optional[str]]: (True, None) if the query passes all checks,
+        otherwise (False, reason) where reason names the specific failed check.
+    """
+    q = query.strip()
+    if not q:
+        return False, "empty query"
+
+    q_lower = q.lower()
+    word_count = len(q.split())
+    if word_count > _MAX_QUERY_WORDS:
+        return False, f"too long/compound ({word_count} words, max {_MAX_QUERY_WORDS})"
+
+    for marker in _COMPOUND_MARKERS:
+        if marker in q_lower:
+            return False, f"contains compound conjunction ('{marker.strip()}')"
+
+    if q_lower.count(",") >= 2:
+        return False, "contains a list of 3+ items (2+ commas)"
+
+    for phrase in _THESIS_PHRASE_MARKERS:
+        if phrase in q_lower:
+            return False, f"thesis-style phrasing ('{phrase}')"
+
+    return True, None
+
+
 def get_system_prompt(domain_level: str = "specialist") -> str:
     """Return the base system prompt for research execution.
 
@@ -279,16 +358,8 @@ def build_plan_prompt(query: str, scope: str, max_sub_questions: int, domain_lev
         style_instruction = (
             "Each sub-question must be a SHORT, single-concept search term or question "
             "— the kind of thing a person would type directly into a search engine. "
-            "One question = one topic. Do NOT combine multiple concepts, comparisons, or "
-            "qualifiers into a single question using 'and', 'versus', or long prepositional "
-            "clauses. If a topic has multiple angles, give each angle its own separate question.\n\n"
-            "EXAMPLE — Bad (compound, verbose, unsearchable):\n"
-            "  'What vector databases and embedding models offer the best performance and "
-            "local deployment options for embedding source code repositories at scale?'\n\n"
-            "EXAMPLE — Good (atomic, plain, searchable):\n"
-            "  'best local vector databases for code embeddings'\n"
-            "  'embedding models for source code similarity search'\n\n"
-            "Write every sub-question at this level of brevity and focus."
+            "One question = one topic. If a topic has multiple angles, give each angle "
+            "its own separate question rather than combining them."
         )
 
     return (
@@ -297,6 +368,7 @@ def build_plan_prompt(query: str, scope: str, max_sub_questions: int, domain_lev
         f"Maximum allowed sub-questions: {max_sub_questions}\n\n"
         f"Your task is to decompose this query into a logical sequence of sub-questions. "
         f"{style_instruction}\n\n"
+        f"{ATOMIC_QUERY_CONSTRAINT}\n"
         "Output ONLY a markdown block in the following format, containing a numbered list "
         "of sub-questions. Do not write any introduction, explanation, or concluding remarks.\n\n"
         "```markdown\n"
@@ -304,6 +376,54 @@ def build_plan_prompt(query: str, scope: str, max_sub_questions: int, domain_lev
         "2. [Sub-question 2]\n"
         "...\n"
         "```"
+    )
+
+
+def build_search_query_prompt(
+    question_text: str,
+    task_type: str = "factual",
+    retry_reason: Optional[str] = None,
+) -> str:
+    """Build the prompt for formulating a single search-engine-ready query.
+
+    Takes a sub-question or gap string (which may itself be thesis-style or
+    multi-concept, since it was authored for reasoning/notes, not for a search
+    box) and asks the model to produce ONE short, atomic query suitable for an
+    actual search engine call. The sub-question itself is left unchanged for
+    notes, citations, and evaluation — only this formulated string is sent to
+    the search engine.
+
+    Args:
+        question_text: The sub-question or gap string driving this search round.
+        task_type: Classified task type ('factual', 'comparison', 'troubleshooting',
+                   'opinion'). Currently informational only; reserved for future
+                   type-specific query phrasing.
+        retry_reason: If this is a retry after is_atomic_query() rejected a prior
+                      formulation attempt, the specific failure reason to correct.
+                      None on the first attempt.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    retry_block = ""
+    if retry_reason:
+        retry_block = (
+            f"\nYour previous attempt was rejected for this reason: {retry_reason}\n"
+            "Produce a different query that specifically fixes this problem — do not "
+            "repeat the same structure.\n"
+        )
+
+    return (
+        f"Research sub-question or gap under investigation: \"{question_text}\"\n\n"
+        "TASK:\n"
+        "Formulate ONE short, concrete search-engine query that will surface useful "
+        "sources for this. This is NOT the sub-question restated — it is the exact "
+        "string a person would type into a search box to find this specific piece "
+        "of information.\n\n"
+        f"{ATOMIC_QUERY_CONSTRAINT}"
+        f"{retry_block}\n"
+        "Output ONLY the search query text on a single line. No quotes, no "
+        "explanation, no numbering, no markdown formatting."
     )
 
 
@@ -390,15 +510,17 @@ def build_evaluate_prompt(sub_question: str, current_notes: str, confidence_thre
         "Evaluate the adequacy of these notes to fully, accurately, and comprehensively answer the sub-question.\n"
         "1. Assign a subjective confidence score from 0 to 100 on how thoroughly the notes resolve the sub-question. "
         "Be self-critical. If key details are missing, contradictory, or unverified, score it lower.\n"
-        f"2. If your confidence is below the target threshold of {confidence_threshold}%, list the specific gaps, "
-        "questions, or missing details that need to be searched for next.\n\n"
+        f"2. If your confidence is below the target threshold of {confidence_threshold}%, list the specific gaps "
+        "that need to be searched for next. Each gap must be phrased as a single, atomic, search-ready fragment "
+        "— NOT a restatement of the whole sub-question, and not a compound clause combining multiple gaps.\n\n"
+        f"{ATOMIC_QUERY_CONSTRAINT}\n"
         "Output ONLY a valid, single JSON block containing exactly the keys 'confidence' and 'gaps'. "
         "Do not include markdown code fence formatting blocks inside or outside the JSON. "
         "Do not output any introductory or concluding text.\n\n"
         "Expected Format:\n"
         "{\n"
         "  \"confidence\": 85,  // an integer from 0 to 100\n"
-        "  \"gaps\": [\"List of specific search queries or questions to address remaining gaps\"]  // array of strings, empty if confidence is high\n"
+        "  \"gaps\": [\"List of specific, atomic search fragments to address remaining gaps\"]  // array of strings, empty if confidence is high\n"
         "}"
     )
 
@@ -617,7 +739,9 @@ def build_rewrite_prompt(original_question: str, current_notes: str, gaps: List[
         "3. If the gaps suggest the search space is barren (no sources found at all), try reframing "
         "the question using different technical vocabulary or targeting a closely related concept "
         "that would indirectly answer the original question.\n"
-        "4. The rewritten question must be a single, concise, web-searchable question.\n\n"
+        "4. The rewritten question must stay atomic — narrow the scope, do not broaden it into a "
+        "compound question covering multiple gaps at once.\n\n"
+        f"{ATOMIC_QUERY_CONSTRAINT}\n"
         "Output ONLY the rewritten question on a single line. No explanation, no numbering, "
         "no meta-commentary, no quotes."
     )
@@ -666,7 +790,9 @@ def build_post_synthesis_triage_prompt(
         "   - The gap analysis reveals the question needs OS-specific, language-specific, "
         "or domain-specific variants\n"
         "   - A more targeted set of 2-3 child questions would succeed where the broad one failed\n"
-        "   - Provide 2-3 specific, searchable child questions that narrow the scope.\n\n"
+        "   - Provide 2-3 specific, searchable child questions that narrow the scope. Each child "
+        "must be atomic — one concept per question, not a compound restatement of the parent.\n\n"
+        f"{ATOMIC_QUERY_CONSTRAINT}\n"
         "Output ONLY a valid JSON array. Do not wrap in markdown code fences. "
         "Do not include any introductory or concluding text.\n\n"
         "Expected Format:\n"
