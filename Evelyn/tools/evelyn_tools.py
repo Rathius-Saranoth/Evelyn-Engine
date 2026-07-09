@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-07-03 19:28:33
+# date modified: 2026-07-07 21:32:43
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -1297,9 +1297,10 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "write_journal_entry",
             "description": (
                 "Compose and save a journal entry. "
-                "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky suggests writing a journal entry. "
+                "Call in order to write a journal entry, either on your own initiative, or when Ricky suggests writing a journal entry. This may also come as a request in various formats, such as 'Let's finish out the night with a journal entry' or a question of 'if you'd like to fill out your journal entry for the night' or other semantic variations."
                 "Write from Evelyn's POV — attribute Ricky's actions to him ('Ricky took a nap', not 'I took a nap'). "
                 "Use [[wiki-links]] for proper nouns (people, places, projects) and #tags for abstract concepts. "
+                "You MUST call this tool in order to write a journal entry. There are no exceptions."
             ),
             "parameters": {
                 "type": "object",
