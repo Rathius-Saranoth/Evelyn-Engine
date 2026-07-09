@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-06-27 09:39:34
+date modified: 2026-07-08 21:03:58
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -118,7 +118,7 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ---
 
-## 6. Deep Research APIs (Background Search & Synthesis)
+## 6. Deep Research APIs
 
 Endpoints driving the background research engine and the interactive developer dashboard:
 
@@ -196,3 +196,15 @@ Endpoints driving the background research engine and the interactive developer d
 * **Payload**: `{"ids": ["id1", "id2", ...]}`
 * **Response**: A JSON object mapping each requested approval ID to its current status details (status, type, metadata), excluding the raw file content payloads.
 
+
+[evelyn_server.py]: ../evelyn_server.py "evelyn_server.py"
+[query_reformulator.py]: ../Evelyn/tools/query_reformulator.py "query_reformulator.py"
+[chroma_rag.py]: ../Evelyn/tools/chroma_rag.py "chroma_rag.py"
+[context_manager.py]: ../Evelyn/tools/context_manager.py "context_manager.py"
+[refresh_memory.py]: ../Evelyn/tools/refresh_memory.py "refresh_memory.py"
+[ingest_obsidian_knowledge.py]: ../Evelyn/tools/ingest_obsidian_knowledge.py "ingest_obsidian_knowledge.py"
+[vault_indexer.py]: ../Evelyn/tools/vault_indexer.py "vault_indexer.py"
+[tts_server.py]: ../services/tts/tts_server.py "tts_server.py"
+[fact_extractor.py]: ../Evelyn/tools/fact_extractor.py "fact_extractor.py"
+[fact_consolidator.py]: ../Evelyn/tools/fact_consolidator.py "fact_consolidator.py"
+[profile_evolver.py]: ../Evelyn/tools/profile_evolver.py "profile_evolver.py"
