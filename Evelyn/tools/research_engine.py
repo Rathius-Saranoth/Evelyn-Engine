@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-07-04 20:32:47
+# date modified: 2026-07-09 18:18:29
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -17,6 +17,7 @@ import importlib
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import traceback
@@ -392,30 +393,6 @@ async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 
     return re.sub(r"^.*?</think>", "", content, flags=re.DOTALL).strip()
 
 
-def parse_plan_markdown(markdown_content: str) -> List[str]:
-    """Parse planning sub-questions out of LLM markdown output.
-
-    Looks for standard numbered list matches.
-
-    Args:
-        markdown_content: Raw LLM response string.
-
-    Returns:
-        List[str]: Parsed sub-question strings.
-    """
-    questions = []
-    # Match lines like "1. What is X?" or " - 2. How does Y work?"
-    pattern = re.compile(r"^\s*\d+\.\s*(.+)$", re.MULTILINE)
-    
-    for match in pattern.finditer(markdown_content):
-        # Strip trailing punctuation, clean whitespace, strip quotes
-        q = match.group(1).strip().strip('"\'*')
-        if q:
-            questions.append(q)
-            
-    return questions
-
-
 def parse_web_search_results(web_results: str) -> List[Tuple[str, str]]:
     """Parse URLs and titles from DuckDuckGo search string format.
 
@@ -489,7 +466,7 @@ async def formulate_search_query(question_text: str, task_type: str, state: Dict
             question_text, task_type=task_type, retry_reason=retry_reason
         )
         messages = [
-            {"role": "system", "content": research_prompts.get_system_prompt()},
+            {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
             {"role": "user", "content": prompt},
         ]
 
@@ -582,7 +559,7 @@ async def _rewrite_subquestion(
 
     rewrite_prompt = research_prompts.build_rewrite_prompt(sq["question"], current_notes, gaps)
     rewrite_messages = [
-        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
         {"role": "user", "content": rewrite_prompt},
     ]
     state["ollama_calls"] += 1
@@ -660,19 +637,152 @@ def query_previous_deep_research(search_query: str, current_task_id: str, limit:
     return results[:limit]
 
 
-async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
+async def try_resolve_directly(task_id: str, state: Dict[str, Any]) -> bool:
+    """Check whether a research query can be resolved without launching research at all.
+
+    Runs as the first action of step_plan(). Checks the query against a
+    deterministic time-sensitivity gate, then (if it passes) against recent
+    chat history and existing live memory facts via one conservative LLM
+    self-assessment call. If the query is judged already resolved with high
+    confidence, the entire task directory is deleted -- no state.json, no
+    report, no vault write ever remains on disk. No answer text is stored
+    anywhere; the person can simply ask again and get a live response.
+
+    Args:
+        task_id: The unique task identifier (about to be deleted on success).
+        state: The task's in-memory state dict. Used only for query text and
+               ollama_calls bookkeeping before deletion; never saved back to
+               disk on the success path.
+
+    Returns:
+        bool: True if the task was resolved and its directory deleted (the
+              caller must stop immediately and not touch state.json again).
+              False if research should proceed normally.
+    """
+    importlib.reload(cfg)
+    if not getattr(cfg, "RESEARCH_NECESSITY_PREFILTER_ENABLED", True):
+        return False
+
+    query = state["query"]
+
+    if research_prompts.is_time_sensitive_query(query):
+        print(
+            f"[RESEARCH_ENGINE] Necessity check skipped for '{query}' -- "
+            "time-sensitive query, proceeding with full research.",
+            flush=True,
+        )
+        return False
+
+    # Gather evidence: recent chat history + keyword-overlapping live memory facts.
+    # Both are cheap, already-existing lookups -- no new infrastructure needed.
+    evidence_parts = []
+
+    history = get_recent_chat_history(20)
+    if history:
+        history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history)
+        evidence_parts.append(f"### Recent Conversation History:\n{history_text}")
+
+    matched_entries = []
+    try:
+        import memory_db
+        all_entries = memory_db.get_all_entries(statuses=["live"])
+        for entry in all_entries:
+            overlap = evelyn_tools.get_jaccard_similarity(query, entry.get("observation", ""))
+            if overlap >= 0.2:
+                matched_entries.append((overlap, entry))
+        matched_entries.sort(key=lambda x: x[0], reverse=True)
+        matched_entries = matched_entries[:5]
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE WARNING] Failed to query memory_db for necessity check: {e}", flush=True)
+
+    if matched_entries:
+        memory_text = "\n".join(
+            f"- [{entry['category']}] {entry['observation']}" for _, entry in matched_entries
+        )
+        evidence_parts.append(f"### Recorded Memory Facts:\n{memory_text}")
+
+    evidence_text = "\n\n".join(evidence_parts)
+
+    prompt = research_prompts.build_necessity_check_prompt(query, evidence_text)
+    messages = [
+        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "user", "content": prompt},
+    ]
+
+    state["ollama_calls"] += 1
+    raw_response = await call_ollama(messages, num_predict=200)
+
+    try:
+        result = parse_json_response(raw_response)
+        needs_research = bool(result.get("needs_research", True))
+        confidence = int(result.get("confidence", 0))
+    except Exception as e:
+        print(
+            f"[RESEARCH_ENGINE WARNING] Failed to parse necessity check JSON: {e}. "
+            "Proceeding with full research.",
+            flush=True,
+        )
+        return False
+
+    threshold = getattr(cfg, "RESEARCH_NECESSITY_CONFIDENCE_THRESHOLD", 90)
+
+    if needs_research or confidence < threshold:
+        print(
+            f"[RESEARCH_ENGINE] Necessity check: research still needed for '{query}' "
+            f"(needs_research={needs_research}, confidence={confidence}%).",
+            flush=True,
+        )
+        return False
+
+    # Resolved directly -- record that the evidence was used, then delete the
+    # task directory entirely. No report, no vault write, no trace on disk.
+    for _, entry in matched_entries:
+        try:
+            memory_db.touch_entry_retrieved(entry["id"])
+        except Exception:
+            pass
+
+    print(
+        f"[RESEARCH_ENGINE] Query '{query}' resolved directly without research "
+        f"(confidence={confidence}%). Deleting task directory -- no trace retained.",
+        flush=True,
+    )
+
+    task_dir = get_task_dir(task_id)
+    try:
+        shutil.rmtree(task_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE WARNING] Failed to clean up resolved task directory: {e}", flush=True)
+
+    return True
+
+
+async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
     """Execute the PLAN step of a research task.
 
-    Classifies the query into a task type (factual/comparison/troubleshooting/opinion)
-    using zero-cost keyword heuristics, then generates sub-questions via the LLM.
-    The task_type is persisted in state so subsequent steps can inject the matching
-    skill template without re-classifying.
+    First checks whether the query can be resolved without research at all
+    (necessity pre-filter). If not, classifies the query's task_type and
+    domain_level (zero LLM cost), then generates a single seed sub-question --
+    the first, most foundational thing to investigate. Further sub-questions,
+    if any, are generated lazily by step_evaluate()'s coverage check one at a
+    time, based on actual gaps found, rather than planned in a batch upfront.
 
     Args:
         task_id: Unique task identifier.
         state: State dictionary to modify.
+
+    Returns:
+        Optional[bool]: True if the task was resolved directly and its
+        directory deleted -- the caller must stop immediately without
+        touching state.json again. None otherwise, with state saved normally
+        and the caller expected to continue the loop.
     """
-    print(f"[RESEARCH_ENGINE] Planning sub-questions for task {task_id}...", flush=True)
+    print(f"[RESEARCH_ENGINE] Planning task {task_id}...", flush=True)
+
+    if getattr(cfg, "RESEARCH_NECESSITY_PREFILTER_ENABLED", True):
+        resolved = await try_resolve_directly(task_id, state)
+        if resolved:
+            return True
 
     # Classify query type and domain level once at plan time — zero LLM cost (Hermes Tier 2 #8b)
     task_type = research_prompts.classify_research_query(state["query"])
@@ -681,12 +791,7 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
     state["domain_level"] = domain_level
     print(f"[RESEARCH_ENGINE] Classified query: task_type='{task_type}', domain_level='{domain_level}'", flush=True)
 
-    prompt = research_prompts.build_plan_prompt(
-        state["query"],
-        state["scope"],
-        state["sub_questions_limit"],
-        domain_level=domain_level,
-    )
+    prompt = research_prompts.build_seed_subquestion_prompt(state["query"], domain_level=domain_level)
 
     messages = [
         {"role": "system", "content": research_prompts.get_system_prompt(domain_level=domain_level)},
@@ -694,30 +799,21 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
     ]
 
     state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=1024)
+    raw_response = await call_ollama(messages, num_predict=150)
+    seed_question = raw_response.strip().strip('"\'').split("\n")[0].strip()
 
-    # Save raw plan file for audit trail
-    task_dir = get_task_dir(task_id)
-    with open(os.path.join(task_dir, "plan.md"), "w", encoding="utf-8") as f:
-        f.write(raw_response)
+    if not seed_question:
+        print("[RESEARCH_ENGINE WARNING] Seed sub-question generation returned empty. Defaulting to main query.", flush=True)
+        seed_question = state["query"]
 
-    sub_questions = parse_plan_markdown(raw_response)
-
-    if not sub_questions:
-        print("[RESEARCH_ENGINE WARNING] Failed to parse sub-questions. Defaulting to main query.", flush=True)
-        sub_questions = [state["query"]]
-
-    state["plan"]["sub_questions"] = [
-        {
-            "id": f"sq_{i:02d}",
-            "question": q,
-            "status": "pending",
-            "source_count": 0,
-            "confidence": 0,
-            "search_depth": 0
-        }
-        for i, q in enumerate(sub_questions, 1)
-    ]
+    state["plan"]["sub_questions"] = [{
+        "id": "sq_01",
+        "question": seed_question,
+        "status": "pending",
+        "source_count": 0,
+        "confidence": 0,
+        "search_depth": 0
+    }]
 
     state["current_step"] = "search"
     state["current_sq_idx"] = 0
@@ -725,7 +821,7 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> None:
     state["status"] = "searching"
 
     save_state(task_id, state)
-    print(f"[RESEARCH_ENGINE] Formulated {len(sub_questions)} sub-questions successfully.", flush=True)
+    print(f"[RESEARCH_ENGINE] Seed sub-question: '{seed_question}'", flush=True)
 
 
 async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
@@ -952,7 +1048,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             )
             
             messages = [
-                {"role": "system", "content": research_prompts.get_system_prompt()},
+                {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
                 {"role": "user", "content": prompt}
             ]
             
@@ -972,6 +1068,40 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     save_state(task_id, state)
 
 
+def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Assemble a lightweight summary of all resolved sub-questions for the coverage check.
+
+    Reuses the same truncate-to-300-chars pattern already used by the
+    post-synthesis triage prompt, keeping the coverage-check call cheap even
+    on tasks with several completed sub-questions.
+
+    Args:
+        task_id: Unique task identifier.
+        state: Task state dict.
+
+    Returns:
+        List[Dict[str, Any]]: List of dicts with 'question', 'confidence', and
+        'notes_summary' keys, one per sub-question with status 'done'.
+    """
+    task_dir = get_task_dir(task_id)
+    summaries = []
+    for s in state["plan"]["sub_questions"]:
+        if s.get("status") != "done":
+            continue
+        notes_file = os.path.join(task_dir, f"{s['id']}_notes.md")
+        notes_text = ""
+        if os.path.exists(notes_file):
+            with open(notes_file, "r", encoding="utf-8") as f:
+                notes_text = f.read()
+        notes_summary = notes_text[:300] + "..." if len(notes_text) > 300 else notes_text
+        summaries.append({
+            "question": s["question"],
+            "confidence": s.get("confidence", 0),
+            "notes_summary": notes_summary or "(no notes)",
+        })
+    return summaries
+
+
 async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     """Execute the EVALUATE step of the current sub-question.
 
@@ -985,14 +1115,32 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     task_dir = get_task_dir(task_id)
     notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
     
-    # If notes don't exist, we can't evaluate
+    # If notes don't exist (e.g. every found source failed to scrape/extract),
+    # treat this as a failed round rather than blindly marking done -- there
+    # is no pre-planned "next SQ" to advance to under the lazy generation
+    # model, so this must go through the same depth-budget-gated retry/pause
+    # logic as every other failure path (zero-result search, min-source floor).
     if not os.path.exists(notes_file):
-        print(f"[RESEARCH_ENGINE] No notes file found for {sq['id']}. Skipping evaluation.", flush=True)
-        sq["status"] = "done"
-        sq["confidence"] = 0
-        state["current_sq_idx"] += 1
-        state["current_step"] = "search"
-        state["search_depth"] = 0
+        depth_remaining = state["search_depth"] < state["max_search_depth"] - 1
+        if depth_remaining:
+            print(
+                f"[RESEARCH_ENGINE] No notes file found for {sq['id']} (extraction "
+                "failed for all sources). Budget remains -- rewriting and retrying.",
+                flush=True,
+            )
+            await _rewrite_subquestion(task_id, state, sq, sq.get("gaps", []))
+            state["search_depth"] += 1
+            state["current_step"] = "search"
+        else:
+            print(
+                f"[RESEARCH_ENGINE] SQ {sq['id']} exhausted search depth with no "
+                "extractable notes. Pausing for guidance.",
+                flush=True,
+            )
+            sq["status"] = "needs_guidance"
+            sq["confidence"] = 0
+            state["status"] = "needs_guidance"
+            state["struggling"] = True
         save_state(task_id, state)
         return
         
@@ -1008,7 +1156,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     )
     
     messages = [
-        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
         {"role": "user", "content": prompt}
     ]
     
@@ -1070,11 +1218,82 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
             # Sub-question complete!
             sq["status"] = "done"
             print(f"[RESEARCH_ENGINE] SQ {sq['id']} fully resolved (Threshold met).", flush=True)
-            state["current_sq_idx"] += 1
-            state["current_step"] = "search"
-            state["search_depth"] = 0
             if os.path.exists(gaps_file):
                 os.remove(gaps_file)
+
+            # Reactive seam: decide whether the ORIGINAL query is now
+            # adequately covered, or whether one more targeted sub-question
+            # is needed. Sub-questions are generated lazily, one at a time,
+            # rather than planned in a batch upfront. sub_questions_limit is
+            # enforced here in code -- never exposed to the model -- so it
+            # never has a quota to anchor toward.
+            active_sq_count = len([
+                s for s in state["plan"]["sub_questions"]
+                if s.get("status") not in ("removed", "split")
+            ])
+            sq_limit = state.get("sub_questions_limit", 5)
+
+            if active_sq_count >= sq_limit:
+                print(
+                    f"[RESEARCH_ENGINE] Sub-question ceiling reached ({active_sq_count}/{sq_limit}). "
+                    "Proceeding to synthesis.",
+                    flush=True,
+                )
+                state["current_step"] = "synthesize"
+            else:
+                completed_summaries = _build_completed_sq_summaries(task_id, state)
+                coverage_prompt = research_prompts.build_coverage_check_prompt(
+                    state["query"],
+                    completed_summaries,
+                    domain_level=state.get("domain_level", "specialist"),
+                )
+                coverage_messages = [
+                    {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
+                    {"role": "user", "content": coverage_prompt},
+                ]
+                state["ollama_calls"] += 1
+                raw_coverage = await call_ollama(coverage_messages, num_predict=300)
+
+                try:
+                    coverage_result = parse_json_response(raw_coverage)
+                    sufficient = bool(coverage_result.get("sufficient", True))
+                    next_question = coverage_result.get("next_question")
+                except Exception as e:
+                    print(
+                        f"[RESEARCH_ENGINE WARNING] Failed to parse coverage check JSON: {e}. "
+                        "Defaulting to synthesis.",
+                        flush=True,
+                    )
+                    sufficient = True
+                    next_question = None
+
+                if sufficient or not next_question or not str(next_question).strip():
+                    print(
+                        "[RESEARCH_ENGINE] Coverage check: original query adequately "
+                        "covered. Proceeding to synthesis.",
+                        flush=True,
+                    )
+                    state["current_step"] = "synthesize"
+                else:
+                    next_question = str(next_question).strip()
+                    new_idx = len(state["plan"]["sub_questions"])
+                    new_sq = {
+                        "id": f"sq_{new_idx + 1:02d}",
+                        "question": next_question,
+                        "status": "pending",
+                        "source_count": 0,
+                        "confidence": 0,
+                        "search_depth": 0,
+                    }
+                    state["plan"]["sub_questions"].append(new_sq)
+                    state["current_sq_idx"] = new_idx
+                    state["current_step"] = "search"
+                    state["search_depth"] = 0
+                    print(
+                        f"[RESEARCH_ENGINE] Coverage check: gap found. Generated next "
+                        f"sub-question: '{next_question}'",
+                        flush=True,
+                    )
         else:
             print(f"[RESEARCH_ENGINE] SQ {sq['id']} exhausted search depth with low confidence. Pausing for guidance.", flush=True)
             sq["status"] = "needs_guidance"
@@ -1114,6 +1333,7 @@ async def _summarize_sq_notes(
     task_type: str,
     task_id: str,
     task_dir: str,
+    domain_level: str = "specialist",
 ) -> str:
     """Compress SQ notes that exceed the token-budget threshold before synthesis.
 
@@ -1133,6 +1353,9 @@ async def _summarize_sq_notes(
                    type-aware preservation rules.
         task_id: Parent task identifier, used for log messages only.
         task_dir: Absolute path to the task workspace directory.
+        domain_level: One of 'everyday' or 'specialist'. Keeps the compression
+                      call's persona consistent with the rest of the task
+                      instead of silently reverting to the specialist default.
 
     Returns:
         str: Compressed notes if over threshold, original notes otherwise.
@@ -1150,7 +1373,7 @@ async def _summarize_sq_notes(
 
     prompt = research_prompts.build_notes_summary_prompt(sq_question, notes, task_type)
     messages = [
-        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "system", "content": research_prompts.get_system_prompt(domain_level=domain_level)},
         {"role": "user", "content": prompt},
     ]
 
@@ -1221,6 +1444,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                 task_type=task_type,
                 task_id=task_id,
                 task_dir=task_dir,
+                domain_level=state.get("domain_level", "specialist"),
             )
             state["ollama_calls"] += 1  # Count compression call if it ran
             all_notes[sq["question"]] = compressed
@@ -1393,7 +1617,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             
         triage_prompt = research_prompts.build_post_synthesis_triage_prompt(gap_analysis_text, low_conf_sqs)
         triage_messages = [
-            {"role": "system", "content": research_prompts.get_system_prompt()},
+            {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
             {"role": "user", "content": triage_prompt}
         ]
         
@@ -1568,7 +1792,15 @@ async def execute_task_step(task_id: str) -> bool:
     start_time = time.time()
     try:
         if step == "plan":
-            await step_plan(task_id, state)
+            plan_resolved = await step_plan(task_id, state)
+            if plan_resolved:
+                # Task was resolved directly by the necessity pre-filter and
+                # its directory was already deleted -- stop immediately.
+                # Do NOT call load_state() again below; state.json no longer
+                # exists, and re-checking it here would misleadingly log a
+                # "state file not found" error for what is actually a
+                # successful, deliberate cleanup.
+                return True
         elif step == "search":
             await step_search_and_extract(task_id, state)
         elif step == "evaluate":
@@ -1707,7 +1939,7 @@ async def self_initiate_research_topics() -> None:
 {history_text}
 
 Identify 1 to 3 interesting, factual, or technical topics or open questions mentioned or implied in this chat that would be highly beneficial to research in-depth (e.g. detailed benchmarks, technology explanations, historical events, scientific developments, or project concepts).
-Do NOT include extremely broad topics, personal plans, or vague ideas. Focus on concrete, searchable questions. Keep each query to one topic.
+Do NOT include extremely broad topics, personal plans, or vague ideas. Do NOT include anything that was already directly and fully answered earlier in this same conversation -- if Ricky asked a question and got a complete answer, that topic is resolved and does not need a research task. Do NOT include simple, casual, or everyday questions that a short conversational answer already covers well (e.g. basic food storage/safety facts, common definitions, simple how-tos) -- these do not warrant a multi-source cited report. Focus on concrete, searchable questions that genuinely benefit from deeper investigation. Keep each query to one topic.
 
 Output ONLY a YAML block in this exact format:
 
