@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-07-03 19:28:27
+# date modified: 2026-07-11 07:18:41
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1015,10 +1015,23 @@ async def _process_chat_background(
             pinned_count = rag_context.count("[primary source]")
             dlog(f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}")
 
-        conv_summary = build_conversation_summary()
+        conv_summary, summary_date_span = build_conversation_summary()
         if conv_summary:
-            system += f"\n\n--- Conversation Summary (older messages) ---\n{conv_summary}\n--- End Summary ---"
+            span_note = (
+                f" It covers {summary_date_span}."
+                if summary_date_span
+                else ""
+            )
+            system += (
+                f"\n\n--- Prior Conversation Summary ---"
+                f"\n(This is a summary of OLDER messages that have scrolled out of the active window.{span_note}"
+                f" IMPORTANT: Any relative time words in this summary — 'today', 'tomorrow', 'yesterday',"
+                f" 'tonight', 'this week', etc. — refer to the time period of THOSE messages,"
+                f" NOT the current moment. Treat this as historical context only.)\n"
+                f"{conv_summary}\n--- End Prior Conversation Summary ---"
+            )
             dlog("Summary injected:", conv_summary[:200])
+
 
         history = load_history()
 
