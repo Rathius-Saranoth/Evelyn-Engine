@@ -1,6 +1,6 @@
 # context_summarizer.py
 # date created: 2026-04-24 20:17:58
-# date modified: 2026-06-21 09:05:02
+# date modified: 2026-07-11 07:18:28
 # tags: #context, #summarizer, #summarization, #async, #sliding_window
 
 """
@@ -45,6 +45,7 @@ _cache = {
     "summary": "",          # The generated summary text
     "msg_hash": "",         # Hash of message IDs used to generate it
     "last_updated": 0.0,    # Timestamp of last successful summarization
+    "date_span": "",        # Human-readable date range of summarized messages
 }
 
 def _save_cache_to_disk():
@@ -82,19 +83,21 @@ _summary_task = None
 # ---------------------------------------------------------------------------
 
 
-def build_conversation_summary() -> str:
-    """Return the cached conversation summary for injection into the system prompt.
+def build_conversation_summary() -> tuple[str, str]:
+    """Return the cached conversation summary and its date span for injection.
 
     Returns:
-        str: The cached summary text, or an empty string if none exists.
+        tuple[str, str]: (summary_text, date_span) where date_span is a
+            human-readable range like 'Fri Jul 10 morning → Fri Jul 10 evening'.
+            Both are empty strings if no summary exists.
     """
-    return _cache["summary"]
+    return _cache["summary"], _cache.get("date_span", "")
 
 
 def invalidate_summary_cache():
     """Clear the cached summary when starting a new thread."""
     global _cache
-    _cache = {"summary": "", "msg_hash": "", "last_updated": 0.0}
+    _cache = {"summary": "", "msg_hash": "", "last_updated": 0.0, "date_span": ""}
     _save_cache_to_disk()
     cancel_pending_summary()
     print("[SUMMARIZER] Cache invalidated (new thread)", flush=True)
@@ -144,12 +147,14 @@ def _get_db():
     return con
 
 
-def _get_summary_window() -> tuple[list[dict], str]:
+def _get_summary_window() -> tuple[list[dict], str, str]:
     """Fetch the messages that should be summarized and compute their hash.
 
     Returns:
-        (messages, msg_hash) where messages is a list of {role, content} dicts
-        and msg_hash is a hex digest of the message IDs for change detection.
+        (messages, msg_hash, date_span) where messages is a list of
+        {role, content, ts} dicts, msg_hash is a hex digest of message IDs
+        for change detection, and date_span is a human-readable range string
+        built from the first and last message timestamps.
     """
     importlib.reload(cfg)
 
@@ -199,7 +204,7 @@ def _get_summary_window() -> tuple[list[dict], str]:
     summary_rows = list(reversed(summary_rows))
 
     if not summary_rows:
-        return [], ""
+        return [], "", ""
 
     messages = [
         {"role": r["role"], "content": r["content"], "ts": r["ts"]}
@@ -210,7 +215,12 @@ def _get_summary_window() -> tuple[list[dict], str]:
     id_string = ",".join(str(r["id"]) for r in summary_rows)
     msg_hash = hashlib.md5(id_string.encode()).hexdigest()
 
-    return messages, msg_hash
+    # Build a human-readable date span from first and last message timestamps
+    date_span = _build_date_span(
+        summary_rows[0]["ts"], summary_rows[-1]["ts"]
+    )
+
+    return messages, msg_hash, date_span
 
 
 def _prune_tool_outputs(messages: list[dict]) -> list[dict]:
@@ -286,6 +296,47 @@ def _time_of_day_label(ts) -> str:
         return ""
 
 
+def _build_date_span(first_ts, last_ts) -> str:
+    """Build a human-readable date range string from two unix timestamps.
+
+    Used to label the summary window so Evelyn can interpret relative time
+    words (today, tomorrow, yesterday) against the correct calendar anchor.
+
+    Args:
+        first_ts: Unix timestamp of the earliest message in the window.
+        last_ts: Unix timestamp of the latest message in the window.
+
+    Returns:
+        str: A range string like 'Fri Jul 10 morning → Fri Jul 10 evening',
+            or an empty string if timestamps are absent or invalid.
+    """
+    import datetime as dt
+
+    def _label(ts) -> str:
+        try:
+            d = dt.datetime.fromtimestamp(ts)
+            hour = d.hour
+            if 5 <= hour < 12:
+                period = "morning"
+            elif 12 <= hour < 17:
+                period = "afternoon"
+            elif 17 <= hour < 21:
+                period = "evening"
+            else:
+                period = "night"
+            return f"{d.strftime('%a %b %d')} {period}"
+        except (OSError, OverflowError, ValueError, TypeError):
+            return ""
+
+    start = _label(first_ts)
+    end = _label(last_ts)
+    if not start and not end:
+        return ""
+    if start == end:
+        return start
+    return f"{start} \u2192 {end}"
+
+
 def _format_messages_for_prompt(messages: list[dict]) -> str:
     """Format message list into a readable conversation transcript.
 
@@ -315,7 +366,7 @@ def _format_messages_for_prompt(messages: list[dict]) -> str:
 
 async def _do_summary_update():
     """Core summarization logic. Called by trigger_summary_update()."""
-    messages, msg_hash = _get_summary_window()
+    messages, msg_hash, date_span = _get_summary_window()
 
     if not messages:
         # Nothing to summarize (conversation too short)
@@ -324,6 +375,7 @@ async def _do_summary_update():
             # happened but invalidate wasn't called). Clear it.
             _cache["summary"] = ""
             _cache["msg_hash"] = ""
+            _cache["date_span"] = ""
         return
 
     if msg_hash == _cache["msg_hash"]:
@@ -339,13 +391,25 @@ async def _do_summary_update():
     max_words = cfg.SUMMARY_MAX_WORDS
     conversation_text = _format_messages_for_prompt(messages)
 
+    # Build a date-span preamble for the prompt so the archivist model has
+    # calendar context before it reads the transcript.
+    date_span_note = (
+        f"IMPORTANT: This conversation segment covers {date_span}. "
+        if date_span
+        else ""
+    )
+
     summary_prompt = (
         "Summarize the following conversation segment between Ricky (user) and Evelyn (AI).\n"
         "Output ONLY the structured template below — no preamble, no closing remarks.\n"
-        f"Keep the entire summary under {max_words} words total.\n\n"
+        f"Keep the entire summary under {max_words} words total.\n"
+        f"{date_span_note}"
+        "When any message uses relative time words (today, tomorrow, yesterday, this week, "
+        "next week, tonight, etc.), replace them in your summary with the actual calendar "
+        "date or day so the summary is unambiguous when read later.\n\n"
         "## Conversation State\n"
         "### Chronology\n"
-        "[Date range and general time flow, e.g. 'Jun 9 morning \u2192 Jun 10 evening']\n\n"
+        "[Date range and general time flow, e.g. 'Jul 10 morning \u2192 Jul 10 evening']\n\n"
         "### Topics\n"
         "[What was being discussed — one bullet per distinct topic if multiple]\n\n"
         "### Decisions Made\n"
@@ -353,7 +417,8 @@ async def _do_summary_update():
         "### Action Items\n"
         "[What needs to happen next, or 'None']\n\n"
         "### Important Details\n"
-        "[Specific values, names, file paths, configurations, dates, or facts mentioned]\n\n"
+        "[Specific values, names, file paths, configurations, dates, or facts mentioned. "
+        "Resolve any relative time references to absolute dates.]\n\n"
         "### Emotional Context\n"
         "[Ricky's mood or emotionally significant moments, or 'None']\n\n"
         f"CONVERSATION:\n{conversation_text}"
@@ -441,6 +506,7 @@ async def _do_summary_update():
     _cache["summary"] = content
     _cache["msg_hash"] = msg_hash
     _cache["last_updated"] = time.time()
+    _cache["date_span"] = date_span
     _save_cache_to_disk()
 
     print(
