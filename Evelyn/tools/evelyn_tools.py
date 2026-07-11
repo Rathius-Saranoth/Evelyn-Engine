@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-07-07 21:32:43
+# date modified: 2026-07-09 18:18:26
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -1297,10 +1297,9 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "write_journal_entry",
             "description": (
                 "Compose and save a journal entry. "
-                "Call in order to write a journal entry, either on your own initiative, or when Ricky suggests writing a journal entry. This may also come as a request in various formats, such as 'Let's finish out the night with a journal entry' or a question of 'if you'd like to fill out your journal entry for the night' or other semantic variations."
+                "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky suggests writing a journal entry. "
                 "Write from Evelyn's POV — attribute Ricky's actions to him ('Ricky took a nap', not 'I took a nap'). "
                 "Use [[wiki-links]] for proper nouns (people, places, projects) and #tags for abstract concepts. "
-                "You MUST call this tool in order to write a journal entry. There are no exceptions."
             ),
             "parameters": {
                 "type": "object",
@@ -1481,7 +1480,11 @@ MODEL_TOOL_DEFINITIONS = [
                 "research something in depth, or when you encounter a topic that "
                 "requires more than a simple web search to understand. The research "
                 "runs in the background and produces a structured report. "
-                "Returns a task ID for tracking progress."
+                "Returns a task ID for tracking progress. "
+                "Do NOT use for anything you can already answer directly from your "
+                "own knowledge, from search_vault/recall_specific_memory, or from "
+                "earlier in this same conversation -- a casual factual question that "
+                "was already answered does not need a research task launched for it."
             ),
             "parameters": {
                 "type": "object",

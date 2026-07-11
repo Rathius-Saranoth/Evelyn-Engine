@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-06-28 08:37:12
+# date modified: 2026-07-09 18:18:37
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -333,6 +333,24 @@ RESEARCH_MAX_PAGE_CHARS = 100000
 # sub-question until this threshold is met or per-SQ depth is exhausted.
 # Scope presets override this: quick=70, standard=80, deep=85.
 RESEARCH_CONFIDENCE_THRESHOLD = 80
+
+# --- Necessity Pre-Filter ---
+# Before planning any sub-questions, checks whether the query can already be
+# answered from recent conversation history or existing live memory facts,
+# without launching a full research task. Gated behind a deterministic
+# time-sensitivity keyword check (never skips research for anything that
+# could have changed recently, e.g. "current president", "latest version").
+# On success the task directory is deleted entirely -- no trace, no report,
+# no vault write ever exists on disk.
+
+# Master switch. Set False to always plan and run full research.
+RESEARCH_NECESSITY_PREFILTER_ENABLED = True
+
+# Minimum confidence (0-100) required to skip research entirely. Deliberately
+# higher than RESEARCH_CONFIDENCE_THRESHOLD (and the per-scope 70/80/85
+# presets) since being wrong here discards the ENTIRE task with zero
+# external corroboration, not just one sub-question.
+RESEARCH_NECESSITY_CONFIDENCE_THRESHOLD = 90
 
 # --- Safety Nets (emergency brakes — should rarely trigger) ---
 # NOTE: These are fallback defaults for tasks created before the 2026-06-21

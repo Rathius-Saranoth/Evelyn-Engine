@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-07-04 20:32:50
+# date modified: 2026-07-09 18:18:33
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -13,12 +13,16 @@ stateless execution using Ollama. Prompts explicitly enforce clean output format
 Exports:
   classify_research_query() — Keyword-heuristic task type classification (zero LLM cost).
   get_skill_template()      — Returns structured guidance block for a given task type.
+  classify_domain_level()   — Keyword-heuristic domain-level classification (zero LLM cost).
+  is_time_sensitive_query() — Zero-LLM-cost gate forcing full research on time-sensitive queries.
   get_system_prompt()       — Base system prompt for all research phases.
-  build_plan_prompt()       — PLAN phase prompt.
-  build_extract_prompt()    — EXTRACT phase prompt (accepts optional skill template).
+  build_necessity_check_prompt() — Necessity pre-filter: is research even needed?
+  build_seed_subquestion_prompt() — Generates the single starting sub-question (no batch plan).
   build_search_query_prompt() — Formulates a short, atomic search-engine query from a sub-question/gap.
   is_atomic_query()          — Zero-LLM-cost validator for formulated search queries.
+  build_extract_prompt()    — EXTRACT phase prompt (accepts optional skill template).
   build_evaluate_prompt()   — EVALUATE phase prompt.
+  build_coverage_check_prompt() — Post-SQ check: is the original query covered, or is one more SQ needed?
   build_synthesize_prompt() — SYNTHESIZE phase prompt.
   build_rewrite_prompt()    — Sub-question auto-rewrite prompt.
   build_post_synthesis_triage_prompt() — Post-synthesis triage prompt.
@@ -172,6 +176,11 @@ _EVERYDAY_KEYWORDS: List[str] = [
     # Cooking & food
     "cook", "bake", "recipe", "ingredient", "grill", "roast", "simmer",
     "marinate", "season", "meal prep", "kitchen",
+    # Food storage & shelf life
+    "fridge", "refrigerator", "refrigerate", "spoil", "spoiled", "expire",
+    "expiration", "shelf life", "go bad", "gone bad", "how long does",
+    "how long will", "leftovers", "food storage", "keep fresh", "freezer",
+    "freeze", "pantry", "best by", "use by",
     # Gardening & outdoors
     "plant", "grow", "garden", "prune", "fertilize", "weed", "compost",
     "lawn", "mow", "mulch", "water",
@@ -215,6 +224,43 @@ def classify_domain_level(query: str) -> str:
     if any(kw in q_lower for kw in _EVERYDAY_KEYWORDS):
         return "everyday"
     return "specialist"
+
+
+# ---------------------------------------------------------------------------
+# Time-sensitivity gate (necessity pre-filter safety net)
+# ---------------------------------------------------------------------------
+
+# Keywords that signal a query could have a stale or currently-changing answer.
+# Any match forces full research regardless of what the necessity-check LLM
+# call claims -- a confidently-wrong "I already know this" is far more
+# dangerous for time-sensitive facts than for stable ones.
+_TIME_SENSITIVE_KEYWORDS: List[str] = [
+    "current", "currently", "latest", "newest", "recent", "recently",
+    "as of", "right now", "these days", "nowadays", "today", "this year",
+    "this week", "this month", "who is the president", "who is the ceo",
+    "who is the current", "price of", "cost of", "stock price",
+    "exchange rate", "release date", "when will", "upcoming", "still",
+    "still airing", "still exist", "still around", "is there a new",
+    "version of", "latest version",
+]
+
+
+def is_time_sensitive_query(query: str) -> bool:
+    """Detect whether a query concerns something that could have changed recently.
+
+    Zero-LLM-cost deterministic gate. Any match forces full research regardless
+    of the necessity-check LLM's self-assessment -- a stable-knowledge claim
+    from the model is far riskier to trust for time-sensitive topics (current
+    office holders, prices, versions, ongoing status) than for settled facts.
+
+    Args:
+        query: The raw research query string.
+
+    Returns:
+        bool: True if the query matches any time-sensitive pattern.
+    """
+    q_lower = query.lower()
+    return any(kw in q_lower for kw in _TIME_SENSITIVE_KEYWORDS)
 
 
 # ---------------------------------------------------------------------------
@@ -329,53 +375,111 @@ def get_system_prompt(domain_level: str = "specialist") -> str:
     )
 
 
-def build_plan_prompt(query: str, scope: str, max_sub_questions: int, domain_level: str = "specialist") -> str:
-    """Build the prompt for the PLAN phase.
+def build_necessity_check_prompt(query: str, evidence_text: str) -> str:
+    """Build the prompt for the necessity pre-filter's LLM self-assessment.
 
-    Asks the model to decompose the original query into a numbered list of
-    searchable sub-questions. The phrasing style of those sub-questions is
-    calibrated to the domain level: everyday topics use plain, natural-language
-    questions; specialist topics use precise, technical decomposition.
+    Asks whether a research query can be considered already resolved --
+    either because it was already answered in the reviewed conversation
+    history, already recorded as a settled fact in memory, or is simple/
+    stable enough that a multi-source cited report would be needless
+    overhead. Deliberately biased toward "needs_research: true" on any doubt,
+    since a false "already resolved" silently discards the entire task with
+    zero external corroboration.
+
+    Args:
+        query: The research query or topic under consideration.
+        evidence_text: Formatted block of recent chat history and/or matching
+                       live memory entries to check the query against. May be
+                       empty if no relevant evidence was found.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    evidence_block = (
+        evidence_text.strip()
+        if evidence_text.strip()
+        else "(No related conversation history or memory entries found.)"
+    )
+
+    return (
+        f"Proposed research topic: \"{query}\"\n\n"
+        "Here is potentially relevant prior context (recent conversation history "
+        "and/or recorded memory facts):\n"
+        "-----------------------------------------\n"
+        f"{evidence_block}\n"
+        "-----------------------------------------\n\n"
+        "TASK:\n"
+        "Decide whether launching a full research task for this topic is actually "
+        "necessary, or whether it can be considered already resolved.\n\n"
+        "It counts as already resolved if EITHER is true:\n"
+        "1. The evidence above already contains a complete, direct answer to this "
+        "exact question -- not a related tangent, a partial answer, or something "
+        "that merely mentions the topic in passing.\n"
+        "2. The topic is simple, casual, or well-established enough (a basic "
+        "how-to, a common food-safety/storage fact, an everyday definition) that "
+        "a multi-source cited research report would be pointless overhead -- the "
+        "kind of thing that gets a short direct answer in conversation, not a report.\n\n"
+        "Be conservative. If you have ANY real doubt, answer needs_research: true -- "
+        "it is always safe to say true, since nothing bad happens if research proceeds "
+        "on a topic that turns out to be simple. The failure mode being guarded "
+        "against is the opposite: confidently discarding a task that actually needed "
+        "real investigation.\n\n"
+        "Output ONLY a valid JSON object with exactly the keys 'needs_research' and "
+        "'confidence'. Do not include markdown code fences. Do not output any "
+        "introductory or concluding text.\n\n"
+        "Expected Format:\n"
+        "{\n"
+        "  \"needs_research\": false,  // true if real research is needed, false if already resolved\n"
+        "  \"confidence\": 92  // integer 0-100, confidence in this needs_research judgment\n"
+        "}"
+    )
+
+
+def build_seed_subquestion_prompt(query: str, domain_level: str = "specialist") -> str:
+    """Build the prompt for generating the single starting sub-question.
+
+    Replaces the old batch planner: rather than decomposing the full query
+    into a fixed list up front, this generates only the most foundational
+    first sub-question needed to begin investigating. Later sub-questions
+    (if any) are generated one at a time by build_coverage_check_prompt()
+    based on actual gaps found, not planned in advance. No count or ceiling
+    is mentioned here -- the model is never told how many sub-questions
+    "should" exist, so it has no quota to anchor toward.
 
     Args:
         query: The main research question.
-        scope: Research scope ('quick', 'standard', 'deep').
-        max_sub_questions: Maximum number of sub-questions allowed.
-        domain_level: One of 'everyday' or 'specialist'. Controls sub-question
-            phrasing style. Defaults to 'specialist'.
+        domain_level: One of 'everyday' or 'specialist'. Controls phrasing
+            style. Defaults to 'specialist'.
 
     Returns:
         str: Formatted prompt.
     """
     if domain_level == "everyday":
         style_instruction = (
-            "Write the sub-questions in plain, natural language — the way someone "
-            "would actually type them into a search engine or ask a knowledgeable friend. "
-            "Focus on practical steps, what to buy or gather, common mistakes to avoid, "
-            "and how to know when the job is done right. Avoid academic or overly technical phrasing."
+            "Phrase it in plain, natural language — the way someone would "
+            "actually type it into a search engine or ask a knowledgeable "
+            "friend. Avoid academic or overly technical phrasing."
         )
     else:
         style_instruction = (
-            "Each sub-question must be a SHORT, single-concept search term or question "
-            "— the kind of thing a person would type directly into a search engine. "
-            "One question = one topic. If a topic has multiple angles, give each angle "
-            "its own separate question rather than combining them."
+            "Phrase it as a SHORT, single-concept search term or question "
+            "— the kind of thing a person would type directly into a search "
+            "engine, not an academic paper title."
         )
 
     return (
-        f"You are formulating a research strategy for the query: \"{query}\"\n"
-        f"Research Scope: {scope.upper()}\n"
-        f"Maximum allowed sub-questions: {max_sub_questions}\n\n"
-        f"Your task is to decompose this query into a logical sequence of sub-questions. "
-        f"{style_instruction}\n\n"
+        f"You are beginning research on the query: \"{query}\"\n\n"
+        "TASK:\n"
+        "Identify the single most foundational sub-question needed to start "
+        "investigating this topic — the first, most immediately useful thing "
+        f"to look up. {style_instruction}\n\n"
+        "Do not attempt to enumerate a full research plan or cover every angle "
+        "of the topic up front. Additional sub-questions will be generated "
+        "later, one at a time, only if a genuine gap remains once this one is "
+        "answered.\n\n"
         f"{ATOMIC_QUERY_CONSTRAINT}\n"
-        "Output ONLY a markdown block in the following format, containing a numbered list "
-        "of sub-questions. Do not write any introduction, explanation, or concluding remarks.\n\n"
-        "```markdown\n"
-        "1. [Sub-question 1]\n"
-        "2. [Sub-question 2]\n"
-        "...\n"
-        "```"
+        "Output ONLY the sub-question text on a single line. No numbering, no "
+        "markdown, no explanation, no quotes."
     )
 
 
@@ -521,6 +625,76 @@ def build_evaluate_prompt(sub_question: str, current_notes: str, confidence_thre
         "{\n"
         "  \"confidence\": 85,  // an integer from 0 to 100\n"
         "  \"gaps\": [\"List of specific, atomic search fragments to address remaining gaps\"]  // array of strings, empty if confidence is high\n"
+        "}"
+    )
+
+
+def build_coverage_check_prompt(
+    query: str,
+    completed_sqs: List[Dict[str, Any]],
+    domain_level: str = "specialist",
+) -> str:
+    """Build the prompt for the post-sub-question coverage check.
+
+    Called every time a sub-question resolves successfully. Asks whether the
+    original query is now adequately covered by everything resolved so far,
+    or whether one more targeted sub-question is needed. No sub-question
+    count or ceiling is ever mentioned — the caller enforces the hard
+    sub_questions_limit in code, independent of this judgment, so the model
+    is never anchored toward a target number of questions.
+
+    Args:
+        query: The original research query.
+        completed_sqs: List of dicts with keys 'question', 'confidence', and
+                       'notes_summary' for each sub-question resolved so far.
+        domain_level: One of 'everyday' or 'specialist'. Controls phrasing
+            style for any generated next_question. Defaults to 'specialist'.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    if domain_level == "everyday":
+        style_instruction = (
+            "If another sub-question is needed, phrase it in plain, natural "
+            "language — the way someone would actually type it into a search "
+            "engine, not an academic paper title."
+        )
+    else:
+        style_instruction = (
+            "If another sub-question is needed, phrase it as a SHORT, "
+            "single-concept search term or question, not an academic paper title."
+        )
+
+    covered_text = ""
+    for sq in completed_sqs:
+        covered_text += (
+            f"- Sub-question: \"{sq['question']}\"\n"
+            f"  Confidence: {sq.get('confidence', 0)}%\n"
+            f"  Findings: {sq.get('notes_summary', '(no notes)')}\n\n"
+        )
+
+    return (
+        f"Original research query: \"{query}\"\n\n"
+        "Here is what has been investigated so far:\n"
+        f"{covered_text}\n"
+        "TASK:\n"
+        "Decide whether the original query is now adequately answered by "
+        "everything above, or whether one more sub-question is genuinely needed.\n\n"
+        "Favor stopping. Only request another sub-question if there is a "
+        "specific, concrete gap that would leave the original query meaningfully "
+        "unanswered without it — not to add thoroughness for its own sake, cover "
+        "a tangential angle, or reach a particular depth. Most queries need only "
+        "a small number of sub-questions; needing several more is the exception, "
+        "not the norm.\n\n"
+        f"{style_instruction}\n\n"
+        f"{ATOMIC_QUERY_CONSTRAINT}\n"
+        "Output ONLY a valid JSON object with exactly the keys 'sufficient' and "
+        "'next_question'. Do not include markdown code fences. Do not output "
+        "any introductory or concluding text.\n\n"
+        "Expected Format:\n"
+        "{\n"
+        "  \"sufficient\": false,  // true if the original query is adequately answered now\n"
+        "  \"next_question\": \"...\"  // the single next sub-question if sufficient is false, else null\n"
         "}"
     )
 
