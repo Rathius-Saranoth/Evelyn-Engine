@@ -70,7 +70,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `POST /tts/stream`
 * **Purpose**: Initiates chunked TTS generation via [[tts_server.py]]. Accepts an OpenAI-format body (`{"model": "...", "input": "<text>"}`).
-* **Returns**: Server-Sent Events stream. One `data: {"chunk": "<filename.wav>"}` event per sentence as it is synthesized, followed by a terminal `data: {"done": true}` event. Errors yield `data: {"error": "<message>"}`.
+* **Returns**: Server-Sent Events stream. Emits a `data: {"chunk": "<filename.wav>"}` event per sentence group (split by paragraph boundaries first, then capped at `CHUNK_SENTENCES` sentences, default 3), followed by a terminal `data: {"done": true}` event. Errors yield `data: {"error": "<message>"}`.
 * **Behaviour**: Ollama is evicted from VRAM once at the start of the request; Chatterbox loads and stays resident for the full synthesis run, then unloads and prefetches Ollama in the background. Progressive playback begins on the client as soon as the first chunk event arrives.
 
 ### `GET /tts-audio/{filename}`

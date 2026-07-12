@@ -74,9 +74,14 @@ UNLOAD_TIMEOUT_S = 120  # 2 minutes
 # sentences × 10s each = 150s of audio) needs all files to survive until then.
 FILE_CLEANUP_DELAY_S = 600  # 10 minutes
 
-# Silence appended to the tail of each sentence chunk (seconds).
+# Silence appended to the tail of each chunk (seconds).
 # Set to 0.0 for seamless playback; increase (e.g. 0.15) for a natural breath pause.
 SENTENCE_SILENCE_S = 0.0
+
+# Number of sentences to group into a single synthesized audio chunk.
+# Higher values = fewer Audio→Audio transitions = smoother playback, but longer
+# wait for the first chunk to appear. 3 is a good default for conversational responses.
+CHUNK_SENTENCES = 3
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -243,14 +248,18 @@ async def _delete_after_delay(filepath: str, delay: int = FILE_CLEANUP_DELAY_S):
 
 @app.post("/v1/audio/speech/stream")
 async def generate_speech_stream(data: SpeechRequest):
-    """Generate speech chunk-by-chunk, emitting one SSE event per sentence.
+    """Generate speech chunk-by-chunk, emitting one SSE event per sentence group.
 
     Accepts the same OpenAI-format TTS body as the old endpoint.
     Supports paralinguistic tags: [laugh], [sigh], [chuckle], [cough], [gasp],
     [groan], [sniff], [shush], [clear throat].
 
+    Sentences are grouped into chunks of CHUNK_SENTENCES (default 3) so TTS
+    synthesizes natural multi-sentence audio segments rather than one sentence
+    at a time, reducing the number of Audio→Audio transitions on the client.
+
     SSE event format:
-        data: {"chunk": "<filename.wav>"}  — one per sentence, available at /tts-audio/<filename>
+        data: {"chunk": "<filename.wav>"}  — one per group, available at /tts-audio/<filename>
         data: {"done": true}               — terminal event after all chunks
         data: {"error": "<message>"}       — emitted if generation fails
 
@@ -276,13 +285,34 @@ async def generate_speech_stream(data: SpeechRequest):
     text = re.sub(r'[^\w\s,.!?;:\'"-\[\]]', '', text)      # strict whitelist
     text = text.replace('_', ' ')
     text = re.sub(r'([!?.]){2,}', r'\1', text)             # collapse repeated punctuation
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'[ \t]+', ' ', text)           # collapse horizontal whitespace only
+    text = re.sub(r'\n{3,}', '\n\n', text).strip() # cap blank lines at two
 
     if not text:
         raise HTTPException(status_code=400, detail="Missing or empty 'input' field after cleaning")
 
-    # Split into sentence chunks
-    chunks = [c.strip() for c in re.split(r'(?<=[.!?])\s+', text) if c.strip()]
+    # Chunk strategy: paragraph breaks are the primary boundary; CHUNK_SENTENCES
+    # is a secondary cap within a long paragraph. Whichever comes first wins.
+    # e.g. a 2-sentence paragraph → 1 chunk; a 5-sentence paragraph → [3, 2].
+    paragraphs = [p.strip() for p in re.split(r'\n+', text) if p.strip()]
+    if not paragraphs:
+        paragraphs = [text]
+
+    chunks = []
+    for para in paragraphs:
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', para) if s.strip()]
+        if not sentences:
+            if para:
+                chunks.append(para)
+            continue
+        if len(sentences) <= CHUNK_SENTENCES:
+            chunks.append(' '.join(sentences))
+        else:
+            for i in range(0, len(sentences), CHUNK_SENTENCES):
+                group = ' '.join(sentences[i:i + CHUNK_SENTENCES])
+                if group:
+                    chunks.append(group)
+
     if not chunks:
         chunks = [text]
 
