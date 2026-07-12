@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-07-08 21:03:58
+date modified: 2026-07-12 11:20:00
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -68,8 +68,14 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ## 3. Local Inference Bridges
 
-### `POST /tts`
-* **Purpose**: Sends text to [[tts_server.py]] to generate expressive natural speech audio streams.
+### `POST /tts/stream`
+* **Purpose**: Initiates chunked TTS generation via [[tts_server.py]]. Accepts an OpenAI-format body (`{"model": "...", "input": "<text>"}`).
+* **Returns**: Server-Sent Events stream. One `data: {"chunk": "<filename.wav>"}` event per sentence as it is synthesized, followed by a terminal `data: {"done": true}` event. Errors yield `data: {"error": "<message>"}`.
+* **Behaviour**: Ollama is evicted from VRAM once at the start of the request; Chatterbox loads and stays resident for the full synthesis run, then unloads and prefetches Ollama in the background. Progressive playback begins on the client as soon as the first chunk event arrives.
+
+### `GET /tts-audio/{filename}`
+* **Purpose**: Proxies individual sentence WAV chunks from [[tts_server.py]]'s output directory to the client.
+* **Behaviour**: Allows Tailscale/mobile clients to fetch chunk files through `evelyn_server` (already on `0.0.0.0`) without direct access to the TTS server's `localhost:5050` port. Files are cleaned up automatically after `FILE_CLEANUP_DELAY_S` (600 s).
 
 ---
 
