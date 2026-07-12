@@ -25,7 +25,9 @@ Run:
 """
 
 import os
+import re
 import time
+import uuid
 import asyncio
 import threading
 import warnings
@@ -40,12 +42,14 @@ try:
 except ImportError:
     cfg = None
 
+import numpy as np
 import torch
 import soundfile as sf
 import uvicorn
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -64,8 +68,15 @@ SAMPLE_RATE = 24000
 # Chatterbox Turbo uses ~4.2 GB — too much to leave resident alongside Ollama.
 UNLOAD_TIMEOUT_S = 120  # 2 minutes
 
-# Cleanup generated audio files after delivery
-FILE_CLEANUP_DELAY_S = 60
+# Cleanup generated audio chunk files after delivery.
+# Must be longer than the maximum expected total playback duration — later chunks
+# are not fetched until earlier ones finish playing, so a long response (e.g. 15
+# sentences × 10s each = 150s of audio) needs all files to survive until then.
+FILE_CLEANUP_DELAY_S = 600  # 10 minutes
+
+# Silence appended to the tail of each sentence chunk (seconds).
+# Set to 0.0 for seamless playback; increase (e.g. 0.15) for a natural breath pause.
+SENTENCE_SILENCE_S = 0.0
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -79,6 +90,10 @@ app.add_middleware(
     allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Ensure output directory exists and serve generated WAV chunks by URL.
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/tts-audio", StaticFiles(directory=str(OUTPUT_DIR)), name="tts-audio")
 
 # ---------------------------------------------------------------------------
 # Model lifecycle — lazy load, auto-unload
@@ -225,108 +240,98 @@ async def _delete_after_delay(filepath: str, delay: int = FILE_CLEANUP_DELAY_S):
 # Routes
 # ---------------------------------------------------------------------------
 
-@app.post("/v1/audio/speech")
-async def generate_speech(data: SpeechRequest, background_tasks: BackgroundTasks):
-    """Generate speech from text using Chatterbox Turbo with voice cloning.
 
-    Accepts OpenAI-format TTS body. Supports paralinguistic tags in the input
-    text: [laugh], [sigh], [chuckle], [cough], [gasp], [groan], [sniff],
-    [shush], [clear throat]. Tags are context-aware — the same [laugh] will
-    sound different depending on surrounding sentence emotion.
+@app.post("/v1/audio/speech/stream")
+async def generate_speech_stream(data: SpeechRequest):
+    """Generate speech chunk-by-chunk, emitting one SSE event per sentence.
+
+    Accepts the same OpenAI-format TTS body as the old endpoint.
+    Supports paralinguistic tags: [laugh], [sigh], [chuckle], [cough], [gasp],
+    [groan], [sniff], [shush], [clear throat].
+
+    SSE event format:
+        data: {"chunk": "<filename.wav>"}  — one per sentence, available at /tts-audio/<filename>
+        data: {"done": true}               — terminal event after all chunks
+        data: {"error": "<message>"}       — emitted if generation fails
+
+    Ollama is unloaded once before synthesis and reloaded once after. There is
+    no per-chunk VRAM swap — the model stays resident for the full generation.
 
     Args:
         data: SpeechRequest with at minimum a non-empty ``input`` field.
-        background_tasks: Used to schedule audio file cleanup.
 
     Returns:
-        FileResponse: Generated WAV audio.
+        StreamingResponse: SSE stream of chunk events.
     """
-    import re
     text = data.input.strip()
-    
-    # Clean up text for TTS (remove markdown artifacts that cause it to speak 'in tongues')
-    # Remove image markdown
-    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-    # Remove standard markdown links but keep text
-    text = re.sub(r'(?<!\!)\[(.*?)\]\(.*?\)', r'\1', text)
-    # Remove wiki links but keep text
-    text = re.sub(r'\[\[(.*?)\]\]', r'\1', text)
-    # Remove markdown bold/italics
-    text = text.replace('**', '').replace('*', '').replace('__', '').replace('_', '')
-    # Remove hashes
-    text = text.replace('#', '')
-    
-    # --- Punctuation normalization to prevent auto-regressive garbling ---
-    # Replace em-dash and en-dash with a comma for a natural pause
-    text = text.replace('—', ', ').replace('–', ', ')
-    # Replace ellipsis (and spaced ellipsis) with a comma instead of a period
-    # This prevents the sentence from being split into two chunks and preserves the trailing inflection
-    text = re.sub(r'\.\s*\.\s*\.', ',', text)
-    
-    # Strict Whitelist: Keep only alphanumeric, spaces, standard punctuation, and tags
-    # \w includes letters and numbers. We manually strip underscores next.
-    text = re.sub(r'[^\w\s,.!?;:\'"\-\[\]]', '', text)
-    text = text.replace('_', ' ')
-    
-    # Reduce multiple punctuation marks (e.g. !!! -> !)
-    text = re.sub(r'([!?.]){2,}', r'\1', text)
 
-    # Normalize whitespace
+    # --- Text cleaning (remove markdown artifacts that cause garbled speech) ---
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)           # image markdown
+    text = re.sub(r'(?<!\!)\[(.*?)\]\(.*?\)', r'\1', text) # links → keep text
+    text = re.sub(r'\[\[(.*?)\]\]', r'\1', text)           # wiki links
+    text = text.replace('**', '').replace('*', '').replace('__', '').replace('_', '')
+    text = text.replace('#', '')
+    text = text.replace('—', ', ').replace('–', ', ')       # dashes → natural pause
+    text = re.sub(r'\.\s*\.\s*\.', ',', text)             # ellipsis → comma
+    text = re.sub(r'[^\w\s,.!?;:\'"-\[\]]', '', text)      # strict whitelist
+    text = text.replace('_', ' ')
+    text = re.sub(r'([!?.]){2,}', r'\1', text)             # collapse repeated punctuation
     text = re.sub(r'\s+', ' ', text).strip()
 
     if not text:
         raise HTTPException(status_code=400, detail="Missing or empty 'input' field after cleaning")
 
-    # Unload Ollama to clear VRAM
-    _unload_ollama()
-
-    # Load model (lazy, thread-safe)
-    model = get_model()
-
-    # Generate audio in chunks (sentence by sentence) to prevent sequence degradation
-    import numpy as np
-    # Split on whitespace preceded by sentence-ending punctuation
+    # Split into sentence chunks
     chunks = [c.strip() for c in re.split(r'(?<=[.!?])\s+', text) if c.strip()]
     if not chunks:
         chunks = [text]
 
-    all_wavs = []
-    # 0.15s silence gap between sentences
-    silence = np.zeros(int(SAMPLE_RATE * 0.15), dtype=np.float32)
+    async def _stream():
+        loop = asyncio.get_event_loop()
+        job_id = uuid.uuid4().hex[:8]
 
-    try:
+        # Unload Ollama and load Chatterbox once for the entire job.
+        _unload_ollama()
+        model = get_model()
+
         try:
-            for chunk in chunks:
-                wav = model.generate(
-                    text=chunk,
-                    audio_prompt_path=REF_AUDIO,
+            for i, chunk in enumerate(chunks):
+                wav = await loop.run_in_executor(
+                    None,
+                    lambda c=chunk: model.generate(
+                        text=c,
+                        audio_prompt_path=REF_AUDIO,
+                    )
                 )
                 wav_np = wav.squeeze().cpu().numpy()
-                all_wavs.append(wav_np)
-                all_wavs.append(silence)
-                
-            if all_wavs:
-                all_wavs.pop() # Remove trailing silence
-                
-            final_wav = np.concatenate(all_wavs) if all_wavs else np.zeros(0, dtype=np.float32)
+
+                if SENTENCE_SILENCE_S > 0:
+                    silence = np.zeros(int(SAMPLE_RATE * SENTENCE_SILENCE_S), dtype=np.float32)
+                    wav_np = np.concatenate([wav_np, silence])
+
+                filename = f"tts_{job_id}_{i:03d}.wav"
+                filepath = str(OUTPUT_DIR / filename)
+                sf.write(filepath, wav_np, SAMPLE_RATE)
+
+                # Schedule file cleanup independently of the stream lifecycle.
+                asyncio.get_event_loop().create_task(_delete_after_delay(filepath))
+
+                yield f'data: {{"chunk": "{filename}"}}\n\n'
+
         except Exception as e:
-            print(f"[TTS] Generation error: {e}", flush=True)
-            raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
-    finally:
-        # Unload TTS model immediately to free VRAM
-        _unload_model_force()
-        # Prefetch Ollama in the background
-        threading.Thread(target=_prefetch_ollama, daemon=True).start()
+            print(f"[TTS] Stream generation error: {e}", flush=True)
+            yield f'data: {{"error": "{str(e)}"}}\n\n'
+        finally:
+            _unload_model_force()
+            threading.Thread(target=_prefetch_ollama, daemon=True).start()
 
-    # Save to temp file
-    filename = f"tts_{int(time.time() * 1000)}.wav"
-    filepath = str(OUTPUT_DIR / filename)
-    sf.write(filepath, final_wav, SAMPLE_RATE)
+        yield 'data: {"done": true}\n\n'
 
-    # Schedule cleanup
-    background_tasks.add_task(_delete_after_delay, filepath)
-
-    return FileResponse(filepath, media_type="audio/wav")
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/health")
