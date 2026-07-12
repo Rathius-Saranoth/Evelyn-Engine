@@ -754,7 +754,7 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
         "messages": messages,
         "stream": False,
         "options": options,
-        "think": cfg.THINK,
+        "think": False,  # Tool detection only — thinking tokens are discarded here; save budget for Pass 2
         "tools": tools or [],
     }
     async with httpx.AsyncClient(timeout=600) as client:
@@ -2688,31 +2688,59 @@ async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
     return {"message": result}
 
 
-@app.post("/tts")
-async def tts_proxy(request: Request):
-    """Proxy TTS requests to the local qwen_tts_server.
+@app.post("/tts/stream")
+async def tts_stream_proxy(request: Request):
+    """Proxy streaming TTS SSE from the TTS server to the client.
+
+    Forwards sentence-chunk events emitted by tts_server as they are produced,
+    allowing the client to begin playback before the full response is synthesized.
     Keeps the TTS server local-only while allowing Tailscale/mobile clients
     to reach it through evelyn_server (which is already on 0.0.0.0).
     """
     body = await request.body()
-    async with httpx.AsyncClient(timeout=300) as client:
+
+    async def _forward():
         try:
-            resp = await client.post(
-                f"{cfg.TTS_SERVER_URL}/v1/audio/speech",
-                content=body,
-                headers={"Content-Type": "application/json"},
-            )
+            async with httpx.AsyncClient(timeout=300) as client:
+                async with client.stream(
+                    "POST",
+                    f"{cfg.TTS_SERVER_URL}/v1/audio/speech/stream",
+                    content=body,
+                    headers={"Content-Type": "application/json"},
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if line.strip():
+                            yield line + "\n\n"
+        except httpx.ConnectError:
+            yield 'data: {"error": "TTS server is not running"}\n\n'
+        except Exception as e:
+            yield f'data: {{"error": "{e}"}}\n\n'
+
+    return StreamingResponse(
+        _forward(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/tts-audio/{filename}")
+async def tts_audio_proxy(filename: str):
+    """Proxy individual TTS chunk WAV files from the TTS server.
+
+    Allows Tailscale/mobile clients to fetch chunk files through evelyn_server
+    without direct access to the TTS server's localhost port.
+    """
+    from fastapi.responses import Response
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.get(f"{cfg.TTS_SERVER_URL}/tts-audio/{filename}")
             resp.raise_for_status()
         except httpx.ConnectError:
             raise HTTPException(status_code=503, detail="TTS server is not running")
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=str(e))
-    from fastapi.responses import Response
-
-    return Response(
-        content=resp.content,
-        media_type=resp.headers.get("content-type", "audio/flac"),
-    )
+    return Response(content=resp.content, media_type="audio/wav")
 
 
 @app.get("/", response_class=HTMLResponse)

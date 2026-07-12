@@ -62,6 +62,7 @@
     }
     .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
     .btn-ghost.danger:hover { border-color: #e86040; color: #e86040; }
+    .btn-ghost.active { border-color: var(--accent); color: var(--accent); background: rgba(139,92,246,0.1); }
 
     /* Thread divider */
     .thread-divider {
@@ -333,7 +334,7 @@
     <span id="status-text">Ready</span>
   </div>
   <div class="header-actions">
-    <button class="btn-ghost" id="new-thread-btn" title="Start a new conversation thread" onclick="newThread()">✦ New Thread</button>
+    <button class="btn-ghost" id="auto-speech-btn" title="Toggle auto-speech on received messages" onclick="toggleAutoSpeech()">🔇 Auto-Speech</button>
     <button class="btn-ghost" id="refresh-memory-btn" title="Rebuild Vault Map then re-ingest all knowledge into Chroma" onclick="refreshMemory()">✦ Refresh Memory</button>
   </div>
 </header>
@@ -511,25 +512,88 @@ function createAssistantMessage(ts) {
   return wrap;
 }
 
-// TTS button
-let ttsAudio = null;
-function playTTS(text, btn) {
-  if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; btn.textContent = '🔊'; return; }
+// TTS — Progressive chunked playback.
+// Sentence WAVs arrive via SSE as they are synthesized and are queued for
+// sequential play, so the first sentence starts before the last is ready.
+let _ttsAudio = null;
+let _ttsQueue = [];
+let _ttsStreamDone = false;
+let _ttsPlaying = false;
+let _ttsActiveBtn = null;
+let _ttsAbort = null;
+
+function _stopTTS() {
+  if (_ttsAbort) { _ttsAbort.abort(); _ttsAbort = null; }
+  if (_ttsAudio) { _ttsAudio.pause(); _ttsAudio.src = ''; _ttsAudio = null; }
+  _ttsQueue = [];
+  _ttsStreamDone = false;
+  _ttsPlaying = false;
+  if (_ttsActiveBtn) { _ttsActiveBtn.textContent = '🔊'; _ttsActiveBtn = null; }
+}
+
+function _playNextChunk() {
+  if (_ttsQueue.length === 0) {
+    _ttsPlaying = false;
+    if (_ttsStreamDone) _stopTTS();
+    return;
+  }
+  const url = _ttsQueue.shift();
+  _ttsAudio = new Audio(url);
+  _ttsPlaying = true;
+  _ttsAudio.play().catch(() => { _ttsAudio = null; _playNextChunk(); });
+  _ttsAudio.onended = () => { _ttsAudio = null; _playNextChunk(); };
+  _ttsAudio.onerror = () => { _ttsAudio = null; _playNextChunk(); };
+}
+
+async function playTTS(text, btn) {
+  if (_ttsPlaying || _ttsAudio) { _stopTTS(); return; }
+  _ttsActiveBtn = btn;
   btn.textContent = '⏳';
-  fetch(`${API_BASE}/tts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'tts', input: text }),
-  })
-  .then(r => r.blob())
-  .then(blob => {
-    const url = URL.createObjectURL(blob);
-    ttsAudio = new Audio(url);
-    ttsAudio.play();
-    btn.textContent = '⏹';
-    ttsAudio.onended = () => { ttsAudio = null; btn.textContent = '🔊'; };
-  })
-  .catch(() => { btn.textContent = '🔊'; });
+  _ttsQueue = [];
+  _ttsStreamDone = false;
+  _ttsPlaying = false;
+  _ttsAbort = new AbortController();
+
+  try {
+    const resp = await fetch(`${API_BASE}/tts/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'tts', input: text }),
+      signal: _ttsAbort.signal,
+    });
+    if (!resp.ok) throw new Error(`TTS error: ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop(); // Hold incomplete line
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.chunk) {
+            _ttsQueue.push(`${API_BASE}/tts-audio/${ev.chunk}`);
+            if (!_ttsPlaying) { btn.textContent = '⏹'; _playNextChunk(); }
+          } else if (ev.done) {
+            _ttsStreamDone = true;
+            if (!_ttsPlaying && _ttsQueue.length === 0) _stopTTS();
+          } else if (ev.error) {
+            console.error('[TTS]', ev.error);
+            _stopTTS();
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.error('[TTS] stream error:', e);
+    _stopTTS();
+  }
 }
 
 
@@ -1177,6 +1241,7 @@ async function executeChatTurn(text) {
           addRegenToUserMsg(userMsgDiv);
           setStatus('Ready');
           scrollBottom();
+          if (_autoSpeech) playTTS(captured, ttsBtn);
         }
       }
     }
@@ -1563,6 +1628,7 @@ async function regenerateResponse(userMsgDiv) {
           addRegenToUserMsg(userMsgDiv);
           setStatus('Ready');
           scrollBottom();
+          if (_autoSpeech) playTTS(captured, ttsBtn);
         }
       }
     }
@@ -1737,38 +1803,33 @@ async function refreshMemory() {
   }
 }
 
-async function newThread() {
-  const btn = document.getElementById('new-thread-btn');
-  if (btn.disabled || isStreaming) return;
-  btn.disabled = true;
-  btn.textContent = '✦ Starting…';
-  btn.style.borderColor = 'var(--accent)';
-  btn.style.color = 'var(--accent)';
-  try {
-    const resp = await fetch(`${API_BASE}/new_thread`, { method: 'POST', headers: headers() });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    // Insert a visual divider in the current chat
-    const divider = document.createElement('div');
-    divider.className = 'thread-divider';
-    divider.textContent = 'new thread';
-    document.getElementById('messages').appendChild(divider);
-    scrollBottom();
-    btn.textContent = '✓ Thread started';
-    btn.style.borderColor = 'var(--tool-text)';
-    btn.style.color = 'var(--tool-text)';
-  } catch (e) {
-    btn.textContent = '✗ Failed';
-    btn.style.borderColor = '#ff6666';
-    btn.style.color = '#ff6666';
-  } finally {
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.textContent = '✦ New Thread';
-      btn.style.borderColor = '';
-      btn.style.color = '';
-    }, 3000);
+// ---------------------------------------------------------------------------
+// Auto-Speech toggle
+// ---------------------------------------------------------------------------
+let _autoSpeech = localStorage.getItem('autoSpeech') === 'true';
+
+function _applyAutoSpeechUI() {
+  const btn = document.getElementById('auto-speech-btn');
+  if (!btn) return;
+  if (_autoSpeech) {
+    btn.textContent = '🔊 Auto-Speech';
+    btn.classList.add('active');
+    btn.title = 'Auto-speech ON — click to disable';
+  } else {
+    btn.textContent = '🔇 Auto-Speech';
+    btn.classList.remove('active');
+    btn.title = 'Auto-speech OFF — click to enable';
   }
 }
+
+function toggleAutoSpeech() {
+  _autoSpeech = !_autoSpeech;
+  localStorage.setItem('autoSpeech', _autoSpeech);
+  _applyAutoSpeechUI();
+}
+
+// Apply saved state on load
+_applyAutoSpeechUI();
 
 document.getElementById('input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
