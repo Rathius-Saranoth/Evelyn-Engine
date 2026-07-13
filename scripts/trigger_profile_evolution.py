@@ -15,6 +15,7 @@ Usage:
     python scripts/trigger_profile_evolution.py
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -71,12 +72,28 @@ MIN_ENTRIES = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
 
 async def main() -> None:
     """Run profile evolution for all documents that have enough new entries."""
+    parser = argparse.ArgumentParser(description="Manual trigger for Evelyn's profile evolution.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force evolution even if there is a pending profile update proposal."
+    )
+    args = parser.parse_args()
+
     state = _load_evolution_state()
     now   = time.time()
+
+    # Check for pending profile updates
+    pending_props = memory_db.get_pending_proposals("profile_update")
+    pending_files = {p["suggested_category"] for p in pending_props}
 
     print(f"[TRIGGER] Starting manual profile evolution — {len(DOCUMENT_CATEGORIES)} document(s) to check.\n")
 
     for filename, categories in DOCUMENT_CATEGORIES.items():
+        if filename in pending_files and not args.force:
+            print(f"[TRIGGER] {filename}: Has a pending profile update. Skipping (use --force to bypass).\n")
+            continue
+
         last_run     = state["last_run_per_doc"].get(filename, 0.0)
         draft_exists = os.path.exists(_draft_path(filename))
 

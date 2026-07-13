@@ -851,13 +851,20 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     # compound or thesis-style phrasing that search engines rank poorly.
     gaps_file = os.path.join(get_task_dir(task_id), f"{sq['id']}_gaps.json")
     search_basis = sq["question"]
+    is_user_guidance = False
     
     if os.path.exists(gaps_file):
         try:
             with open(gaps_file, "r", encoding="utf-8") as f:
                 gaps_data = json.load(f)
                 gaps = gaps_data.get("gaps", [])
-                if gaps:
+                # Prioritize user guidance if present anywhere in the gaps list
+                user_gap = next((g for g in gaps if g.startswith("USER GUIDANCE:")), None)
+                if user_gap:
+                    search_basis = user_gap[len("USER GUIDANCE:"):].strip()
+                    is_user_guidance = True
+                    print(f"[RESEARCH_ENGINE] Using user guidance as search basis: '{search_basis}'", flush=True)
+                elif gaps:
                     search_basis = gaps[0]
                     print(f"[RESEARCH_ENGINE] Using gap as search basis: '{search_basis}'", flush=True)
         except Exception:
@@ -866,8 +873,22 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     # Formulate a short, atomic search-engine query from the basis text.
     # Always runs — research tasks execute during idle time, so the extra
     # ~1-3s LLM call is immaterial — and is validated/retried internally.
-    task_type = state.get("task_type", "factual")
-    search_query = await formulate_search_query(search_basis, task_type, state)
+    # We bypass formulation if the basis was explicitly provided as user guidance,
+    # starts with a URL, or contains explicit search operators (e.g. site:, filetype:).
+    bypass_formulation = is_user_guidance
+    if not bypass_formulation:
+        lower_basis = search_basis.lower()
+        operators = ["site:", "filetype:", "intitle:", "inurl:", "ext:", "cache:"]
+        if any(op in lower_basis for op in operators) or lower_basis.startswith("http://") or lower_basis.startswith("https://"):
+            bypass_formulation = True
+            print(f"[RESEARCH_ENGINE] Detected search operators or URL in search basis. Bypassing formulation.", flush=True)
+
+    if bypass_formulation:
+        search_query = search_basis
+        print(f"[RESEARCH_ENGINE] Using search basis directly (bypassing formulation): '{search_query}'", flush=True)
+    else:
+        task_type = state.get("task_type", "factual")
+        search_query = await formulate_search_query(search_basis, task_type, state)
 
     # Execute search
     print(f"[RESEARCH_ENGINE] Searching DuckDuckGo: '{search_query}'", flush=True)

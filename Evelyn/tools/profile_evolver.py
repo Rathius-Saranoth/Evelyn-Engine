@@ -51,6 +51,43 @@ DOCUMENT_CATEGORIES = {
 }
 
 # ---------------------------------------------------------------------------
+# Grammatical perspective rules per document to prevent viewpoint drift
+# ---------------------------------------------------------------------------
+DOCUMENT_RULES = {
+    "Evelyn_Narrative_Persona.md": {
+        "description": "Evelyn's own identity, narrative, archetype, and values.",
+        "perspective": "First-person singular (using 'I', 'me', 'my', 'myself'). Never refer to Evelyn as 'she', 'her', or 'Evelyn' in this document.",
+        "guidelines": (
+            "- Write about Evelyn in the first person.\n"
+            "- Write about Ricky or others in the third person. Do NOT convert facts about Ricky into 'I' statements.\n"
+            "- Example 1 (Evelyn fact): 'Evelyn prefers quiet mornings' -> 'I value quiet mornings.'\n"
+            "- Example 2 (Ricky/Relationship fact): 'Ricky prefers small gifts' -> 'I know Ricky prefers small gifts.' or 'Ricky prefers small gifts.' (Do NOT write 'I prefer small gifts')"
+        ),
+    },
+    "Ricky_Narrative_Profile.md": {
+        "description": "Ricky's preferences, history, and traits.",
+        "perspective": "Third-person singular (using 'Ricky', 'he', 'him', 'his'). Never refer to Ricky in the first person ('I', 'me', 'my').",
+        "guidelines": (
+            "- Write about Ricky in the third person.\n"
+            "- Write about Evelyn in the third person (using 'Evelyn', 'she', 'her').\n"
+            "- Never use 'I', 'me', 'my', or 'you' in this document.\n"
+            "- Example 1 (Ricky fact): 'Ricky likes small gifts' -> 'He prefers small gifts.'\n"
+            "- Example 2 (Relationship/Evelyn fact): 'Evelyn values my feedback' -> 'Evelyn values his feedback.' (Translate 'my' to 'his')"
+        ),
+    },
+    "System_Directives.md": {
+        "description": "Behavioral constraints, routines, and instructions for the AI.",
+        "perspective": "Second-person (using 'You', 'your', 'yours') addressing the AI.",
+        "guidelines": (
+            "- Direct the AI's behavior in the second person.\n"
+            "- Refer to Ricky in the third person.\n"
+            "- Example 1 (AI instruction): 'Evelyn should respond casually' -> 'You respond in natural conversational form.'\n"
+            "- Example 2 (Ricky's habit): 'Ricky Sunday routine is laundry' -> 'You recognize Ricky's Sunday routine of laundry.'"
+        ),
+    },
+}
+
+# ---------------------------------------------------------------------------
 # State tracking
 # ---------------------------------------------------------------------------
 _evolving = False
@@ -331,7 +368,18 @@ async def run_profile_evolution():
         state = _load_evolution_state()
         now = time.time()
 
+        # Check for pending profile updates
+        pending_props = memory_db.get_pending_proposals("profile_update")
+        pending_files = {p["suggested_category"] for p in pending_props}
+
         for filename, categories in DOCUMENT_CATEGORIES.items():
+            if filename in pending_files:
+                print(
+                    f"[PROFILE EVOLVER] {filename} has a pending profile update. Skipping.",
+                    flush=True,
+                )
+                continue
+
             last_run    = state["last_run_per_doc"].get(filename, 0.0)
             draft_cursor = state["draft_cursor_per_doc"].get(filename, 0.0)
             cooldown    = getattr(cfg, "PROFILE_EVOLUTION_COOLDOWN", 86400)
@@ -477,6 +525,11 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         bool: True if a proposal was successfully created, False otherwise.
     """
     importlib.reload(cfg)
+    rules = DOCUMENT_RULES.get(filename, {})
+    description = rules.get("description", "document body")
+    perspective = rules.get("perspective", "appropriate perspective")
+    guidelines = rules.get("guidelines", "")
+
     persona_dir = getattr(cfg, "PERSONA_DIR", None)
     if not persona_dir:
         persona_dir = os.path.join(
@@ -583,16 +636,20 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             prompt = (
                 f"You are refining the content body of a living persona/directives document based on "
                 f"accumulated evidence from recent conversations.\n\n"
-                f"CURRENT DOCUMENT BODY ({filename}):\n"
+                f"DOCUMENT: {filename}\n"
+                f"DESCRIPTION: {description}\n"
+                f"TARGET PERSPECTIVE: {perspective}\n\n"
+                f"PERSPECTIVE RULES:\n"
+                f"{guidelines}\n\n"
+                f"CURRENT DOCUMENT BODY:\n"
                 f"---\n"
                 f"{accumulated}\n"
                 f"---\n\n"
                 f"ACCUMULATED EVIDENCE (recent memory updates):\n"
                 f"{evidence_block}\n\n"
                 f"INSTRUCTIONS:\n"
-                f"- This is a LIVING document. You are encouraged to evolve it authentically.\n"
-                f"- Add new insights that are well-supported by the evidence.\n"
-                f"- If new evidence modifies, refines, or contradicts a section, update that section accordingly.\n"
+                f"- Evolve the document body authentically based on the accumulated evidence.\n"
+                f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
                 f"- If a section does not have any new evidence or modifications, preserve it exactly as it is "
                 f"in the CURRENT DOCUMENT BODY. Do NOT remove, truncate, or summarize any sections unless "
                 f"the new evidence explicitly contradicts them or renders them obsolete.\n"
