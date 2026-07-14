@@ -530,11 +530,34 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     perspective = rules.get("perspective", "appropriate perspective")
     guidelines = rules.get("guidelines", "")
 
+    # Load target word limit
+    limits = getattr(cfg, "PROFILE_EVOLUTION_LIMITS", {})
+    target_limit = limits.get(filename, 600)
+
     persona_dir = getattr(cfg, "PERSONA_DIR", None)
     if not persona_dir:
         persona_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "persona"
         )
+
+    # Load other documents for Cross-Document Reviewer context (redundancy check)
+    other_docs_context = []
+    for other_name in DOCUMENT_CATEGORIES.keys():
+        if other_name == filename:
+            continue
+        # Load draft if exists, else live document
+        other_path = _draft_path(other_name)
+        if not os.path.exists(other_path):
+            other_path = os.path.join(persona_dir, other_name)
+        if os.path.exists(other_path):
+            try:
+                with open(other_path, "r", encoding="utf-8") as f_other:
+                    other_content = f_other.read()
+                _, other_body = split_frontmatter(other_content)
+                other_docs_context.append(f"DOCUMENT: {other_name}\nCONTENT:\n{other_body.strip()}")
+            except Exception as e_other:
+                print(f"[PROFILE EVOLVER] Warning: could not load other doc {other_name}: {e_other}", flush=True)
+    other_docs_str = "\n\n".join(other_docs_context) if other_docs_context else "None"
 
     fpath = os.path.join(persona_dir, filename)
     if not os.path.exists(fpath):
@@ -641,6 +664,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"TARGET PERSPECTIVE: {perspective}\n\n"
                 f"PERSPECTIVE RULES:\n"
                 f"{guidelines}\n\n"
+                f"OTHER ACTIVE SYSTEM PROMPT DOCUMENTS (Do NOT duplicate any information or topics covered here):\n"
+                f"--- \n"
+                f"{other_docs_str}\n"
+                f"--- \n\n"
                 f"CURRENT DOCUMENT BODY:\n"
                 f"---\n"
                 f"{accumulated}\n"
@@ -650,13 +677,15 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"INSTRUCTIONS:\n"
                 f"- Evolve the document body authentically based on the accumulated evidence.\n"
                 f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
+                f"- PRIORITIZE BEHAVIORAL DIRECTIVES: Focus on personality traits, voice/cadence guidelines, relationship rules/boundaries, routines, and interaction preferences.\n"
+                f"- EXCLUDE EPISODIC/FACTUAL MEMORIES: Do not add or retain specific historical events, physical locations, dates, or lists of minor personal facts. These belong in episodic RAG memory, not this prompt file. Remove any such facts from the document if they are not behavioral guides.\n"
+                f"- PREVENT REDUNDANCY: Do not repeat any details that are already documented in the OTHER ACTIVE SYSTEM PROMPT DOCUMENTS shown above.\n"
+                f"- TARGET WORD COUNT: Ensure the updated document is concise and stays under {target_limit} words.\n"
                 f"- If a section does not have any new evidence or modifications, preserve it exactly as it is "
-                f"in the CURRENT DOCUMENT BODY. Do NOT remove, truncate, or summarize any sections unless "
-                f"the new evidence explicitly contradicts them or renders them obsolete.\n"
+                f"in the CURRENT DOCUMENT BODY, but prune any parts that violate the word count budget, represent redundant facts, or are covered in other files.\n"
                 f"- Do NOT use placeholders like '[Content remains unchanged]' or '[...]'. You must output "
                 f"the complete content of the document in full.\n"
                 f"- Do NOT add speculative or single-source observations.\n"
-                f"- Keep the document concise — it is injected into every system prompt.\n"
                 f"- Do NOT include any YAML frontmatter or title blocks. Start directly with the first markdown header.\n"
                 f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
                 f"- If no changes are warranted, output the document body exactly as it is."
@@ -760,9 +789,78 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 )
 
     # ---------------------------------------------------------------------------
-    # Proposal creation
+    # Word Count Validation & Compaction Pass (Reviewer Stage)
     # ---------------------------------------------------------------------------
     proposed_body = accumulated
+    word_count = len(proposed_body.split())
+    word_buffer = int(target_limit * 1.05)  # 5% buffer
+
+    if word_count > word_buffer:
+        print(
+            f"[PROFILE EVOLVER] {filename}: Proposed body is {word_count} words (limit {target_limit}). "
+            f"Invoking Compaction Pass...",
+            flush=True,
+        )
+        compaction_prompt = (
+            f"You are a strict editor refining a persona/directives document for an AI. "
+            f"The document is currently {word_count} words, which exceeds the limit of {target_limit} words.\n\n"
+            f"DOCUMENT: {filename}\n"
+            f"TARGET PERSPECTIVE: {perspective}\n\n"
+            f"PERSPECTIVE RULES:\n"
+            f"{guidelines}\n\n"
+            f"OTHER ACTIVE SYSTEM PROMPT DOCUMENTS (Do NOT duplicate any information here):\n"
+            f"--- \n"
+            f"{other_docs_str}\n"
+            f"--- \n\n"
+            f"OVER-LENGTH DOCUMENT BODY:\n"
+            f"---\n"
+            f"{proposed_body}\n"
+            f"---\n\n"
+            f"INSTRUCTIONS:\n"
+            f"- Condense and prune the document body so it is strictly under {target_limit} words.\n"
+            f"- Focus 100% on high-level behavioral directives, tone guidelines, communication rules, and operational routines.\n"
+            f"- Completely remove specific episodic/factual memories, historical anecdotes, dates, physical locations, or lists of symptoms (e.g. Navy details, family relocation events). These are handled by RAG and are redundant here.\n"
+            f"- Ensure there is zero duplicate info with the OTHER ACTIVE SYSTEM PROMPT DOCUMENTS listed above.\n"
+            f"- Maintain the correct TARGET PERSPECTIVE and PERSPECTIVE RULES strictly.\n"
+            f"- Do NOT use placeholders or summary statements. Output the entire document in full.\n"
+            f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it."
+        )
+
+        compaction_messages = [
+            {
+                "role": "system",
+                "content": "You are a precise editor. Output the fully pruned and complete markdown document body under the word limit.",
+            },
+            {"role": "user", "content": compaction_prompt},
+        ]
+
+        try:
+            compacted_result = await _call_ollama(compaction_messages)
+            if compacted_result:
+                compacted_result = extract_markdown_content(compacted_result)
+                compacted_result = normalize_document_text(compacted_result)
+
+                compacted_word_count = len(compacted_result.split())
+                if compacted_word_count < word_count:
+                    proposed_body = compacted_result
+                    print(
+                        f"[PROFILE EVOLVER] {filename}: Compaction pass successful. "
+                        f"Reduced from {word_count} to {compacted_word_count} words.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[PROFILE EVOLVER WARNING] {filename}: Compaction pass did not reduce word count "
+                        f"({compacted_word_count} vs {word_count}). Keeping original.",
+                        flush=True,
+                    )
+        except Exception as e:
+            print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass failed: {e}", flush=True)
+
+    # ---------------------------------------------------------------------------
+    # Proposal creation
+    # ---------------------------------------------------------------------------
+    proposed_body = proposed_body
 
     if proposed_body == current_body.strip() or not proposed_body:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
