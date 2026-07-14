@@ -482,6 +482,14 @@ PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
 # layer on top of earlier refinements. 40 entries ≈ ~6000 chars of evidence.
 PROFILE_EVOLUTION_BATCH_SIZE = 40
 
+# Target word limits for persona/profile evolution documents.
+# Keeping these compact prevents prompt dilution and attention decay in long chats.
+PROFILE_EVOLUTION_LIMITS = {
+    "Evelyn_Narrative_Persona.md": 600,
+    "Ricky_Narrative_Profile.md": 600,
+    "System_Directives.md": 450,
+}
+
 
 # =============================================================================
 # Code & Terminal Agency (Hermes Tier 3 #9)
