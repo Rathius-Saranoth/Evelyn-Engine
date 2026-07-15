@@ -17,6 +17,7 @@ Exports:
   is_time_sensitive_query() — Zero-LLM-cost gate forcing full research on time-sensitive queries.
   get_system_prompt()       — Base system prompt for all research phases.
   build_necessity_check_prompt() — Necessity pre-filter: is research even needed?
+  build_intent_frame_prompt() — Generates the research intent frame (why + what kind of answer).
   build_seed_subquestion_prompt() — Generates the single starting sub-question (no batch plan).
   build_search_query_prompt() — Formulates a short, atomic search-engine query from a sub-question/gap.
   is_atomic_query()          — Zero-LLM-cost validator for formulated search queries.
@@ -375,6 +376,51 @@ def get_system_prompt(domain_level: str = "specialist") -> str:
     )
 
 
+def build_intent_frame_prompt(query: str, recent_history: str) -> str:
+    """Build the prompt for generating a 2-3 sentence research intent frame.
+
+    The intent frame answers two questions that ground the entire research
+    pipeline at the correct practical depth: *why* this topic matters right
+    now, and *what kind of answer* would actually help. It is generated once
+    at plan time and threaded into search-query formulation, coverage checks,
+    and synthesis to prevent the engine from drifting into academic depths that
+    do not serve the person's actual need.
+
+    Args:
+        query: The raw research query string.
+        recent_history: Formatted block of recent conversation messages
+            (role: content) that provides practical context for the frame.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    history_block = (
+        recent_history.strip()
+        if recent_history.strip()
+        else "(No recent conversation history available.)"
+    )
+    return (
+        f"Research query: \"{query}\"\n\n"
+        "Recent conversation context:\n"
+        "-----------------------------------------\n"
+        f"{history_block}\n"
+        "-----------------------------------------\n\n"
+        "TASK:\n"
+        "Write a 2-3 sentence Research Intent Frame that answers:\n"
+        "1. WHY does this topic matter right now, given the context above?"
+        " (practical situation, not academic motivation)\n"
+        "2. WHAT KIND of answer would actually help?"
+        " (e.g. practical self-care steps, a buying decision, a technical fix —"
+        " NOT 'a comprehensive academic analysis')\n\n"
+        "The frame must:\n"
+        "- Be grounded in the conversation context, not generic.\n"
+        "- Name the practical goal explicitly (what the person will DO with the information).\n"
+        "- Set a realistic scope ceiling (e.g. 'consumer-level', 'first-aid level', "
+        "'beginner developer', NOT 'doctoral' or 'clinical research').\n\n"
+        "Output ONLY the 2-3 sentence intent frame. No labels, no preamble, no quotes."
+    )
+
+
 def build_necessity_check_prompt(query: str, evidence_text: str) -> str:
     """Build the prompt for the necessity pre-filter's LLM self-assessment.
 
@@ -435,7 +481,11 @@ def build_necessity_check_prompt(query: str, evidence_text: str) -> str:
     )
 
 
-def build_seed_subquestion_prompt(query: str, domain_level: str = "specialist") -> str:
+def build_seed_subquestion_prompt(
+    query: str,
+    domain_level: str = "specialist",
+    intent_frame: str = "",
+) -> str:
     """Build the prompt for generating the single starting sub-question.
 
     Replaces the old batch planner: rather than decomposing the full query
@@ -450,6 +500,10 @@ def build_seed_subquestion_prompt(query: str, domain_level: str = "specialist") 
         query: The main research question.
         domain_level: One of 'everyday' or 'specialist'. Controls phrasing
             style. Defaults to 'specialist'.
+        intent_frame: Optional 2-3 sentence block describing why this topic
+            matters and what kind of answer is needed. When provided, it is
+            injected before the TASK instruction to anchor the sub-question
+            at the correct practical depth. Defaults to empty string (omitted).
 
     Returns:
         str: Formatted prompt.
@@ -467,7 +521,14 @@ def build_seed_subquestion_prompt(query: str, domain_level: str = "specialist") 
             "engine, not an academic paper title."
         )
 
+    intent_block = (
+        f"## Research Intent\n{intent_frame.strip()}\n\n"
+        if intent_frame and intent_frame.strip()
+        else ""
+    )
+
     return (
+        f"{intent_block}"
         f"You are beginning research on the query: \"{query}\"\n\n"
         "TASK:\n"
         "Identify the single most foundational sub-question needed to start "
@@ -487,6 +548,7 @@ def build_search_query_prompt(
     question_text: str,
     task_type: str = "factual",
     retry_reason: Optional[str] = None,
+    intent_frame: str = "",
 ) -> str:
     """Build the prompt for formulating a single search-engine-ready query.
 
@@ -505,6 +567,11 @@ def build_search_query_prompt(
         retry_reason: If this is a retry after is_atomic_query() rejected a prior
                       formulation attempt, the specific failure reason to correct.
                       None on the first attempt.
+        intent_frame: Optional 2-3 sentence block describing why this topic
+            matters and what kind of answer is needed. When provided, injected
+            as a 'Research Goal' constraint so the formulated query stays at
+            the correct practical depth rather than drifting toward academic
+            phrasing. Defaults to empty string (omitted).
 
     Returns:
         str: Formatted prompt.
@@ -517,8 +584,18 @@ def build_search_query_prompt(
             "repeat the same structure.\n"
         )
 
+    intent_block = (
+        f"## Research Goal\n{intent_frame.strip()}\n"
+        "The search query MUST serve this goal — stay at the practical depth described "
+        "above. Do NOT drift toward clinical, doctoral, or academic phrasing if the goal "
+        "is practical.\n\n"
+        if intent_frame and intent_frame.strip()
+        else ""
+    )
+
     return (
         f"Research sub-question or gap under investigation: \"{question_text}\"\n\n"
+        f"{intent_block}"
         "TASK:\n"
         "Formulate ONE short, concrete search-engine query that will surface useful "
         "sources for this. This is NOT the sub-question restated — it is the exact "
@@ -633,6 +710,7 @@ def build_coverage_check_prompt(
     query: str,
     completed_sqs: List[Dict[str, Any]],
     domain_level: str = "specialist",
+    intent_frame: str = "",
 ) -> str:
     """Build the prompt for the post-sub-question coverage check.
 
@@ -649,6 +727,10 @@ def build_coverage_check_prompt(
                        'notes_summary' for each sub-question resolved so far.
         domain_level: One of 'everyday' or 'specialist'. Controls phrasing
             style for any generated next_question. Defaults to 'specialist'.
+        intent_frame: Optional 2-3 sentence block describing why this topic
+            matters and what kind of answer is needed. When provided, grounds
+            the coverage judgment in the practical goal rather than theoretical
+            completeness. Defaults to empty string (omitted).
 
     Returns:
         str: Formatted prompt.
@@ -673,8 +755,17 @@ def build_coverage_check_prompt(
             f"  Findings: {sq.get('notes_summary', '(no notes)')}\n\n"
         )
 
+    intent_block = (
+        f"## Research Intent\n{intent_frame.strip()}\n"
+        "Coverage is SUFFICIENT when the practical goal described above is met — "
+        "even if every theoretical angle of the topic has not been explored.\n\n"
+        if intent_frame and intent_frame.strip()
+        else ""
+    )
+
     return (
         f"Original research query: \"{query}\"\n\n"
+        f"{intent_block}"
         "Here is what has been investigated so far:\n"
         f"{covered_text}\n"
         "TASK:\n"
@@ -772,6 +863,7 @@ def build_synthesize_prompt(
     sources_registry: List[Dict[str, Any]],
     domain_level: str = "specialist",
     scope: str = "standard",
+    intent_frame: str = "",
 ) -> str:
     """Build the prompt for the SYNTHESIZE phase.
 
@@ -791,6 +883,10 @@ def build_synthesize_prompt(
         sources_registry: List of sources used, each containing id, url, and title.
         domain_level: One of 'everyday' or 'specialist'. Defaults to 'specialist'.
         scope: Research scope determining depth and tag count. Defaults to 'standard'.
+        intent_frame: Optional 2-3 sentence block describing why this topic matters
+            and what kind of answer is needed. When provided, injected into the task
+            instruction to calibrate the report's depth and audience. Defaults to
+            empty string (omitted).
 
     Returns:
         str: Formatted prompt.
@@ -811,6 +907,15 @@ def build_synthesize_prompt(
         tag_count_instruction = "6-9"
     else:
         tag_count_instruction = "3-6"
+
+    intent_block = (
+        f"## Research Intent\n{intent_frame.strip()}\n"
+        "The report MUST be calibrated to serve this intent — match the depth, "
+        "vocabulary, and format to what the person actually needs, not to what "
+        "would be exhaustive from an academic perspective.\n\n"
+        if intent_frame and intent_frame.strip()
+        else ""
+    )
 
     if domain_level == "everyday":
         task_instruction = (
@@ -862,6 +967,7 @@ def build_synthesize_prompt(
 
     return (
         f"Original Research Query: \"{query}\"\n\n"
+        f"{intent_block}"
         "Here are the compiled working notes for each sub-question researched by our agent:\n"
         "==================================================\n"
         f"{notes_text}"

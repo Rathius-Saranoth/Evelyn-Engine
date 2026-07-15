@@ -19,6 +19,7 @@ All tool logic uses standard function signatures for Ollama's function-calling A
 import sys
 import os
 import importlib
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -309,12 +310,24 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"Web search error: {e}"
 
 
-def start_research(query: str, scope: str = "standard", **kwargs) -> str:
+def start_research(
+    query: str,
+    scope: str = "standard",
+    triggered_by: str = "user",
+    intent_frame: Optional[str] = None,
+    **kwargs,
+) -> str:
     """Launch a deep research task on a topic in the background.
 
     Args:
         query: Research query/topic.
         scope: Depth scope ("quick", "standard", "deep"). Defaults to "standard".
+        triggered_by: Identifies the initiator ('user', 'idle', 'evelyn').
+            Defaults to 'user'.
+        intent_frame: Optional 2-3 sentence string describing why this topic
+            matters and what kind of answer is needed. Forwarded to
+            create_research_task() so step_plan() can skip LLM frame generation.
+            Defaults to None.
         **kwargs: Optional overrides like bypass_queue.
 
     Returns:
@@ -400,7 +413,8 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
                     "query": query,
                     "scope": scope,
                     "priority": 1,
-                    "source": "user",
+                    "source": triggered_by,
+                    "intent_frame": intent_frame,
                     "created_at": datetime.datetime.now().isoformat()
                 })
                 try:
@@ -418,7 +432,13 @@ def start_research(query: str, scope: str = "standard", **kwargs) -> str:
             )
 
         from research_engine import create_research_task
-        task_id = create_research_task(query, scope=scope, triggered_by="user", initial_status="running" if bypass_queue else "pending")
+        task_id = create_research_task(
+            query,
+            scope=scope,
+            triggered_by=triggered_by,
+            initial_status="running" if bypass_queue else "pending",
+            intent_frame=intent_frame,
+        )
         
         # Access evelyn_server active processes to ensure mutual exclusion
         if server:
