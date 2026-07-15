@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -1613,7 +1614,12 @@ async def lifespan(app: FastAPI):
                             
                         print(f"[RESEARCH IDLE START] Starting queued task: '{next_task['query']}'", flush=True)
                         from evelyn_tools import start_research
-                        start_research(next_task["query"], scope=next_task.get("scope", "standard"))
+                        start_research(
+                            next_task["query"],
+                            scope=next_task.get("scope", "standard"),
+                            triggered_by=next_task.get("source", "evelyn"),
+                            intent_frame=next_task.get("intent_frame"),
+                        )
                         # Sleep long enough for the subprocess thread to register in
                         # _background_tasks before the next iteration's active-task check.
                         await asyncio.sleep(30)
@@ -2233,6 +2239,7 @@ class ResearchStartRequest(BaseModel):
     """Pydantic model representing a request to start a new research task."""
     query: str
     scope: str = "standard"
+    intent_frame: Optional[str] = None
 
 
 @app.post("/research/start")
@@ -2248,7 +2255,13 @@ async def api_start_research(req: ResearchStartRequest, _: None = Depends(check_
     """
     from evelyn_tools import start_research
     _demote_running_task_if_any("new_task")
-    result = start_research(req.query, scope=req.scope, bypass_queue=True)
+    result = start_research(
+        req.query,
+        scope=req.scope,
+        triggered_by="user",
+        intent_frame=req.intent_frame or None,
+        bypass_queue=True,
+    )
     return {"message": result}
 
 
