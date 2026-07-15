@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-07-09 18:18:29
+# date modified: 2026-07-14 21:08:55
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -231,7 +231,13 @@ def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = F
         print(f"[RESEARCH_ENGINE ERROR] Failed to save state for {task_id}: {e}", flush=True)
 
 
-def create_research_task(query: str, scope: str = "standard", triggered_by: str = "user", initial_status: str = "pending") -> str:
+def create_research_task(
+    query: str,
+    scope: str = "standard",
+    triggered_by: str = "user",
+    initial_status: str = "pending",
+    intent_frame: Optional[str] = None,
+) -> str:
     """Initialize a brand-new research task and persist its base state.
 
     Args:
@@ -239,6 +245,9 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
         scope: Scope of the research ('quick', 'standard', 'deep').
         triggered_by: Identifies the initiator ('user', 'idle', 'evelyn').
         initial_status: The initial status of the task ('pending' or 'running').
+        intent_frame: Optional 2-3 sentence string describing why this topic
+            matters and what kind of answer is needed. When provided, it skips
+            LLM-based frame generation in step_plan(). Defaults to None.
 
     Returns:
         str: Generated unique task_id.
@@ -297,6 +306,7 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
         "notified": False,
         "vault_path": None,
         "confidence": 0,
+        "intent_frame": intent_frame,  # None triggers LLM generation in step_plan()
         "plan": {
             "sub_questions": []
         },
@@ -324,6 +334,8 @@ def create_research_task(query: str, scope: str = "standard", triggered_by: str 
     save_state(task_id, state)
     print(f"[RESEARCH_ENGINE] Created task {task_id} (Scope: {scope}) for query: '{query}'", flush=True)
     return task_id
+
+
 
 
 async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 2048) -> str:
@@ -433,9 +445,12 @@ def parse_vault_search_results(vault_res: str) -> List[Tuple[str, str]]:
         path = match.group(2).strip()
         results.append((title, path))
     return results
-
-
-async def formulate_search_query(question_text: str, task_type: str, state: Dict[str, Any]) -> str:
+async def formulate_search_query(
+    question_text: str,
+    task_type: str,
+    state: Dict[str, Any],
+    intent_frame: str = "",
+) -> str:
     """Formulate a short, atomic web-search query from a sub-question or gap string.
 
     Always runs an LLM formulation pass — research tasks execute during idle time,
@@ -455,6 +470,9 @@ async def formulate_search_query(question_text: str, task_type: str, state: Dict
         task_type: Classified task type, passed through to the prompt builder.
         state: Task state dict — mutated to increment ollama_calls for each
                formulation attempt made.
+        intent_frame: Optional 2-3 sentence research intent block. Passed through
+            to build_search_query_prompt() to keep formulated queries at the
+            correct practical depth. Defaults to empty string (omitted).
 
     Returns:
         str: A short, search-engine-ready query string.
@@ -463,7 +481,10 @@ async def formulate_search_query(question_text: str, task_type: str, state: Dict
 
     for attempt in range(2):
         prompt = research_prompts.build_search_query_prompt(
-            question_text, task_type=task_type, retry_reason=retry_reason
+            question_text,
+            task_type=task_type,
+            retry_reason=retry_reason,
+            intent_frame=intent_frame,
         )
         messages = [
             {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
@@ -472,7 +493,7 @@ async def formulate_search_query(question_text: str, task_type: str, state: Dict
 
         state["ollama_calls"] += 1
         raw = await call_ollama(messages, num_predict=100)
-        candidate = raw.strip().strip('"\'').split("\n")[0].strip()
+        candidate = raw.strip().strip('"\'\'').split("\n")[0].strip()
 
         is_ok, reason = research_prompts.is_atomic_query(candidate)
         if is_ok and candidate:
@@ -757,7 +778,52 @@ async def try_resolve_directly(task_id: str, state: Dict[str, Any]) -> bool:
     return True
 
 
+async def _generate_intent_frame(state: Dict[str, Any]) -> str:
+    """Generate a 2-3 sentence research intent frame for a user-triggered task.
+
+    Called once in step_plan() when state['intent_frame'] is None (i.e. the
+    task was user-triggered and no intent was provided at creation time).
+    Uses recent conversation history as context so the frame reflects the
+    person's actual situation rather than being a generic restatement of the
+    query. Evelyn-triggered tasks already carry a frame from
+    self_initiate_research_topics() and skip this call entirely.
+
+    Args:
+        state: Task state dict — mutated to increment ollama_calls.
+
+    Returns:
+        str: The generated 2-3 sentence intent frame, or empty string on
+        failure (graceful degradation — the pipeline continues without focus
+        anchoring rather than blocking).
+    """
+    history = get_recent_chat_history(20)
+    history_text = "\n".join(
+        f"{m['role'].upper()}: {m['content']}" for m in history
+    ) if history else ""
+
+    prompt = research_prompts.build_intent_frame_prompt(state["query"], history_text)
+    messages = [
+        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "user", "content": prompt},
+    ]
+    state["ollama_calls"] += 1
+    try:
+        frame = await call_ollama(messages, num_predict=150)
+        frame = frame.strip()
+        if frame:
+            print(f"[RESEARCH_ENGINE] Generated intent frame: '{frame}'", flush=True)
+        return frame
+    except Exception as e:
+        print(
+            f"[RESEARCH_ENGINE WARNING] Intent frame generation failed: {e}. "
+            "Proceeding without frame.",
+            flush=True,
+        )
+        return ""
+
+
 async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
+
     """Execute the PLAN step of a research task.
 
     First checks whether the query can be resolved without research at all
@@ -791,12 +857,22 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
     state["domain_level"] = domain_level
     print(f"[RESEARCH_ENGINE] Classified query: task_type='{task_type}', domain_level='{domain_level}'", flush=True)
 
-    prompt = research_prompts.build_seed_subquestion_prompt(state["query"], domain_level=domain_level)
+    # Generate intent frame if not already set (user-triggered tasks with no explicit intent;
+    # Evelyn-triggered tasks carry a pre-generated frame from self_initiate_research_topics()).
+    if not state.get("intent_frame"):
+        state["intent_frame"] = await _generate_intent_frame(state)
+
+    prompt = research_prompts.build_seed_subquestion_prompt(
+        state["query"],
+        domain_level=domain_level,
+        intent_frame=state.get("intent_frame", ""),
+    )
 
     messages = [
         {"role": "system", "content": research_prompts.get_system_prompt(domain_level=domain_level)},
         {"role": "user", "content": prompt}
     ]
+
 
     state["ollama_calls"] += 1
     raw_response = await call_ollama(messages, num_predict=150)
@@ -888,7 +964,12 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         print(f"[RESEARCH_ENGINE] Using search basis directly (bypassing formulation): '{search_query}'", flush=True)
     else:
         task_type = state.get("task_type", "factual")
-        search_query = await formulate_search_query(search_basis, task_type, state)
+        search_query = await formulate_search_query(
+            search_basis,
+            task_type,
+            state,
+            intent_frame=state.get("intent_frame", ""),
+        )
 
     # Execute search
     print(f"[RESEARCH_ENGINE] Searching DuckDuckGo: '{search_query}'", flush=True)
@@ -1267,6 +1348,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                     state["query"],
                     completed_summaries,
                     domain_level=state.get("domain_level", "specialist"),
+                    intent_frame=state.get("intent_frame", ""),
                 )
                 coverage_messages = [
                     {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
@@ -1478,6 +1560,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
         state["sources_registry"],
         domain_level=state.get("domain_level", "specialist"),
         scope=state.get("scope", "standard"),
+        intent_frame=state.get("intent_frame", ""),
     )
 
     messages = [
@@ -1962,14 +2045,18 @@ async def self_initiate_research_topics() -> None:
 Identify 1 to 3 interesting, factual, or technical topics or open questions mentioned or implied in this chat that would be highly beneficial to research in-depth (e.g. detailed benchmarks, technology explanations, historical events, scientific developments, or project concepts).
 Do NOT include extremely broad topics, personal plans, or vague ideas. Do NOT include anything that was already directly and fully answered earlier in this same conversation -- if Ricky asked a question and got a complete answer, that topic is resolved and does not need a research task. Do NOT include simple, casual, or everyday questions that a short conversational answer already covers well (e.g. basic food storage/safety facts, common definitions, simple how-tos) -- these do not warrant a multi-source cited report. Focus on concrete, searchable questions that genuinely benefit from deeper investigation. Keep each query to one topic.
 
+For each topic, also write a 2-3 sentence intent_frame: why this topic matters right now given the conversation context, and what kind of practical answer would help (not academic depth, but the actual use case and what will be done with the information).
+
 Output ONLY a YAML block in this exact format:
 
 ```yaml
 topics:
   - query: "research question 1"
     scope: "standard"
+    intent_frame: "2-3 sentence intent frame for question 1"
   - query: "research question 2"
     scope: "deep"
+    intent_frame: "2-3 sentence intent frame for question 2"
 ```
 If no topics are worth researching, output an empty list. Output nothing else but the YAML block."""
 
@@ -1990,6 +2077,7 @@ If no topics are worth researching, output an empty list. Output nothing else bu
             for t in new_topics:
                 query = t.get("query", "").strip()
                 scope = t.get("scope", "standard").strip()
+                intent_frame = t.get("intent_frame", "").strip() or None
                 if query and len(queue) < cfg.RESEARCH_MAX_QUEUE_SIZE:
                     # Check if already researched or queued
                     already_exists = any(q["query"].lower() == query.lower() for q in queue)
@@ -1999,6 +2087,7 @@ If no topics are worth researching, output an empty list. Output nothing else bu
                             "scope": scope,
                             "priority": 1,
                             "source": "evelyn",
+                            "intent_frame": intent_frame,
                             "created_at": datetime.datetime.now().isoformat()
                         })
                         added += 1

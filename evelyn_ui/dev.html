@@ -100,15 +100,25 @@
     .btn-start-now { background: #d97706; color: #fff; }
     
     .research-form {
-      display: flex; gap: 10px; margin-bottom: 20px; background: var(--surface);
-      border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;
-      align-items: center; flex-wrap: wrap;
+      display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+    }
+    .research-form .research-form-row {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
     }
     .research-form input {
       flex: 2; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
       padding: 10px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;
       min-width: 250px;
     }
+    .research-form textarea {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;
+      resize: vertical; min-height: 52px; max-height: 120px; width: 100%;
+      color: var(--text-muted, #888); line-height: 1.4;
+    }
+    .research-form textarea::placeholder { color: var(--text-muted, #888); }
     .research-form select {
       flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
       padding: 10px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;
@@ -394,19 +404,24 @@
     async function startResearchTask() {
       const query = document.getElementById('research-query').value.trim();
       const scope = document.getElementById('research-scope').value;
+      const intentEl = document.getElementById('research-intent');
+      const intentFrame = intentEl ? intentEl.value.trim() : '';
       if (!query) {
         alert('Please enter a research query.');
         return;
       }
       
       try {
+        const body = { query, scope };
+        if (intentFrame) body.intent_frame = intentFrame;
         const res = await fetch(`${API_BASE}/research/start`, {
           method: 'POST',
           headers: headers(),
-          body: JSON.stringify({ query, scope })
+          body: JSON.stringify(body)
         });
         if (res.ok) {
           document.getElementById('research-query').value = '';
+          if (intentEl) intentEl.value = '';
           loadData();
         } else {
           alert('Failed to start research.');
@@ -922,13 +937,16 @@
         
         let formHTML = `
           <div class="research-form">
-            <input type="text" id="research-query" placeholder="Enter deep research topic or question..." />
-            <select id="research-scope">
-              <option value="standard">Standard (~15 min, 10-15 sources)</option>
-              <option value="quick">Quick (~5 min, 3-5 sources)</option>
-              <option value="deep">Deep (~30 min, 20+ sources)</option>
-            </select>
-            <button onclick="startResearchTask()">Launch Research</button>
+            <div class="research-form-row">
+              <input type="text" id="research-query" placeholder="Enter deep research topic or question..." />
+              <select id="research-scope">
+                <option value="standard">Standard (~15 min, 10-15 sources)</option>
+                <option value="quick">Quick (~5 min, 3-5 sources)</option>
+                <option value="deep">Deep (~30 min, 20+ sources)</option>
+              </select>
+              <button onclick="startResearchTask()">Launch Research</button>
+            </div>
+            <textarea id="research-intent" placeholder="Why are we researching this? (optional — leave blank and Evelyn will auto-detect intent from context)"></textarea>
           </div>
           <div class="research-filters" style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
             <input type="text" id="research-search" placeholder="🔍 Filter research by topic..." style="flex: 1; min-width: 150px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
