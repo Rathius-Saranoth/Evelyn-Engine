@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-07-16 20:16:11
+date modified: 2026-07-16 20:28:26
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -142,7 +142,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Auto-Speech Toggle**: Replaced the "New Thread" header button in `index.html` with a persistent **Auto-Speech** toggle. When active (🔊, accent highlight), TTS fires automatically at the end of every assistant response (both send and regenerate paths). State persists in `localStorage` across reloads. The manual 🔊 per-message button remains available for ad-hoc use. *(Completed 2026-07-12)*
 - [x] **Profile Evolver Pending Guard (Option 2)**: Added a safety gate to `profile_evolver.py` and `scripts/trigger_profile_evolution.py` that skips documents with pending `profile_update` proposals. Prevents cascading hallucinations and ensures a verified human-approved baseline. Added a `--force` flag to the manual trigger script to override this skip when desired. *(Completed 2026-07-12)*
 - [x] **Profile Evolver Perspective Hardening**: Added `DOCUMENT_RULES` with explicit subject, target grammatical perspective, guidelines, and concrete translation examples for each document in `profile_evolver.py` to prevent viewpoint drift (e.g. first-person singular for Evelyn, third-person singular for Ricky, second-person for directives). Created a one-time repair script to normalize existing documents, fixing first-person and third-person leaks without modifying factual content. *(Completed 2026-07-12)*
-- [ ] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. Deferred until Evelyn has code-generation capabilities.
+- [x] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. *(Completed 2026-07-16)*
 
 ---
 

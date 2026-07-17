@@ -487,7 +487,7 @@ PROFILE_EVOLUTION_BATCH_SIZE = 40
 PROFILE_EVOLUTION_LIMITS = {
     "Evelyn_Narrative_Persona.md": 600,
     "Ricky_Narrative_Profile.md": 600,
-    "System_Directives.md": 450,
+    "System_Directives.md": 500,
 }
 
 
