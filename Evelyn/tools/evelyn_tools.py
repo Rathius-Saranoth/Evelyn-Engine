@@ -352,22 +352,37 @@ def start_research(
                 server = None
         import evelyn_config as cfg
 
-        # 1. Check for duplicates of ALREADY COMPLETED tasks (Jaccard similarity >= 0.45)
-        # We do this to prevent wasting computation on topics that are already done.
-        # Only check on chat-triggered runs (when bypass_queue is False).
-        if not bypass_queue and os.path.exists(cfg.RESEARCH_DATA_DIR):
+        # 1. Disk-level dedup: check all task folders for any task (completed or
+        # in-flight) that is too similar to the incoming query. This guard runs
+        # regardless of bypass_queue so that tasks dequeued by the idle loop
+        # cannot re-launch a topic that is already running or already done.
+        if os.path.exists(cfg.RESEARCH_DATA_DIR):
+            from research_engine import load_state
             for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
                 if folder.startswith("task_"):
-                    from research_engine import load_state
                     disk_state = load_state(folder)
-                    if disk_state and disk_state.get("status") == "done":
-                        done_query = disk_state.get("query", "")
-                        if get_jaccard_similarity(query, done_query) >= 0.45:
-                            return (
+                    if not disk_state:
+                        continue
+                    disk_status = disk_state.get("status", "")
+                    disk_query = disk_state.get("query", "")
+                    if not disk_query:
+                        continue
+                    similarity = get_jaccard_similarity(query, disk_query)
+                    if similarity >= 0.45:
+                        if disk_status == "done":
+                            msg = (
                                 f"I have already completed deep research on a very similar topic: "
-                                f"'{done_query}' (Task ID: {folder}). Ricky can read the synthesized report "
+                                f"'{disk_query}' (Task ID: {folder}). Ricky can read the synthesized report "
                                 "directly in the Deep Research Dashboard, so I will not launch a new task for this."
                             )
+                        else:
+                            msg = (
+                                f"Research on a very similar topic is already in progress: "
+                                f"'{disk_query}' (Task ID: {folder}, status: {disk_status}). "
+                                "I will not start a duplicate task."
+                            )
+                        print(f"[RESEARCH DEDUP] {msg}", flush=True)
+                        return msg
 
         # 2. Concurrency & queue check: check for any unfinished research tasks (running, paused, errored, searching, synthesizing, pending)
         unfinished_task_id = None
