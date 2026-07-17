@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-07-14 21:08:55
+# date modified: 2026-07-16 19:36:00
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -2028,7 +2028,29 @@ async def self_initiate_research_topics() -> None:
             
     if len(queue) >= cfg.RESEARCH_MAX_QUEUE_SIZE:
         return
-        
+
+    # Build a snapshot of all known queries: queued + any task on disk
+    # (running, pending, done, error — everything). This is the authoritative
+    # dedup corpus and is checked with Jaccard similarity to catch rephrased
+    # duplicates, not just exact matches.
+    known_queries: list[str] = [q.get("query", "") for q in queue if q.get("query")]
+    if os.path.exists(cfg.RESEARCH_DATA_DIR):
+        for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
+            if folder.startswith("task_"):
+                disk_state = load_state(folder)
+                if disk_state:
+                    dq = disk_state.get("query", "")
+                    if dq:
+                        known_queries.append(dq)
+
+    def _is_duplicate(candidate: str) -> tuple[bool, str]:
+        """Return (True, matched_query) if candidate is too similar to any known query."""
+        from evelyn_tools import get_jaccard_similarity
+        for kq in known_queries:
+            if get_jaccard_similarity(candidate, kq) >= 0.45:
+                return True, kq
+        return False, ""
+
     history = get_recent_chat_history(20)
     if not history:
         return
@@ -2078,19 +2100,33 @@ If no topics are worth researching, output an empty list. Output nothing else bu
                 query = t.get("query", "").strip()
                 scope = t.get("scope", "standard").strip()
                 intent_frame = t.get("intent_frame", "").strip() or None
-                if query and len(queue) < cfg.RESEARCH_MAX_QUEUE_SIZE:
-                    # Check if already researched or queued
-                    already_exists = any(q["query"].lower() == query.lower() for q in queue)
-                    if not already_exists:
-                        queue.append({
-                            "query": query,
-                            "scope": scope,
-                            "priority": 1,
-                            "source": "evelyn",
-                            "intent_frame": intent_frame,
-                            "created_at": datetime.datetime.now().isoformat()
-                        })
-                        added += 1
+                if not query:
+                    continue
+                if len(queue) >= cfg.RESEARCH_MAX_QUEUE_SIZE:
+                    break
+
+                # Jaccard dedup: reject if too similar to anything already queued
+                # or already present as a task on disk (running, pending, or done).
+                is_dup, matched = _is_duplicate(query)
+                if is_dup:
+                    print(
+                        f"[RESEARCH_ENGINE] Skipping duplicate self-initiated topic "
+                        f"'{query}' — too similar to existing: '{matched}'",
+                        flush=True,
+                    )
+                    continue
+
+                queue.append({
+                    "query": query,
+                    "scope": scope,
+                    "priority": 1,
+                    "source": "evelyn",
+                    "intent_frame": intent_frame,
+                    "created_at": datetime.datetime.now().isoformat()
+                })
+                known_queries.append(query)  # prevent intra-batch duplicates
+                added += 1
+
             if added > 0:
                 os.makedirs(cfg.RESEARCH_DATA_DIR, exist_ok=True)
                 with open(queue_file, "w", encoding="utf-8") as f:
@@ -2098,6 +2134,7 @@ If no topics are worth researching, output an empty list. Output nothing else bu
                 print(f"[RESEARCH_ENGINE] Successfully queued {added} self-initiated research topics.", flush=True)
     except Exception as e:
         print(f"[RESEARCH_ENGINE ERROR] Failed self-initiated topic generation: {e}", flush=True)
+
 
 
 if __name__ == "__main__":
