@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-07-12 11:20:00
+date modified: 2026-07-16 20:03:51
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -61,6 +61,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 
 *Ongoing technical improvements and AI guardrails.*
 
+- [x] **Reading Comfort Width**: Restructured the frontend Chat UI and Developer Dashboard to restrict text line lengths to a typography-optimal 50-75 characters (`72ch` max-width constraint) and centered elements on wide viewports for a highly premium reading experience. *(Completed 2026-07-17)*
 - [x] **AI Instructions**: Formalize `.ai-instructions.md` for assistant continuity (strengthened ROADMAP authority rule).
 - [x] **Service Management**: Implement `.agents/workflows/start-services.md`.
 - [x] **Coding Standards**: Enforce Google-style Docstrings across core scripts.
