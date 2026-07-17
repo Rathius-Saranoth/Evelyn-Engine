@@ -74,6 +74,9 @@
     .badge.queued { color: #38bdf8; }
     
     .card-body { font-size: 15px; }
+    .card-body p, .card-body li, .card-body textarea, .card-body input[type="text"], .card-body div, .source-item {
+      max-width: 72ch;
+    }
     .card-body textarea {
       width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text);
       padding: 12px; border-radius: 8px; font-family: inherit; font-size: 14px; resize: vertical; min-height: 80px;
@@ -155,15 +158,15 @@
       padding: 20px; overflow-y: auto; flex: 1; font-size: 15px; line-height: 1.6;
       color: var(--text); font-family: inherit;
     }
-    .modal-body h1, .modal-body h2, .modal-body h3 { margin-top: 16px; margin-bottom: 8px; font-weight: 600; color: #fff; }
+    .modal-body h1, .modal-body h2, .modal-body h3 { margin-top: 16px; margin-bottom: 8px; font-weight: 600; color: #fff; max-width: 72ch; }
     .modal-body h1 { font-size: 22px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
     .modal-body h2 { font-size: 18px; }
     .modal-body h3 { font-size: 15px; }
-    .modal-body p { margin-bottom: 12px; }
+    .modal-body p { margin-bottom: 12px; max-width: 72ch; }
     .modal-body ul, .modal-body ol { padding-left: 20px; margin-bottom: 12px; }
-    .modal-body li { margin-bottom: 4px; }
+    .modal-body li { margin-bottom: 4px; max-width: 72ch; }
+    .modal-body pre { background: var(--surface2); padding: 12px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; border: 1px solid var(--border); max-width: 72ch; }
     .modal-body code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px; color: var(--warning); }
-    .modal-body pre { background: var(--surface2); padding: 12px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; border: 1px solid var(--border); }
     .modal-body pre code { background: none; padding: 0; color: inherit; }
     
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
@@ -232,7 +235,6 @@
     let proposals = [];
     let researchTasks = [];
     let procedures = [];
-    let pollInterval = null;
 
     function headers() {
       return { 'Content-Type': 'application/json', 'X-Evelyn-Key': API_KEY };
@@ -318,18 +320,6 @@
       else if (tab === 'profile_updates') title.textContent = 'Profile & Persona Updates';
       else if (tab === 'procedures') title.textContent = 'Procedures Review';
       else title.textContent = 'Deep Research Dashboard';
-      
-      // Clear or set polling (relaxed to 20s to prevent API/DB polling overhead)
-      if (tab === 'research') {
-        if (!pollInterval) {
-          pollInterval = setInterval(loadData, 20000);
-        }
-      } else {
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
-      }
 
       render();
     }
@@ -1168,9 +1158,8 @@
     const initialTab = params.get('tab');
     if (initialTab && ['extractions', 'proposals', 'profile_updates', 'research'].includes(initialTab)) {
       switchTab(initialTab);
-    } else {
-      loadData();
     }
+    loadData();
   </script>
 </body>
 </html>
