@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-07-09 18:18:33
+# date modified: 2026-07-16 19:31:00
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -415,8 +415,12 @@ def build_intent_frame_prompt(query: str, recent_history: str) -> str:
         "The frame must:\n"
         "- Be grounded in the conversation context, not generic.\n"
         "- Name the practical goal explicitly (what the person will DO with the information).\n"
-        "- Set a realistic scope ceiling (e.g. 'consumer-level', 'first-aid level', "
-        "'beginner developer', NOT 'doctoral' or 'clinical research').\n\n"
+        "- Include an explicit depth-ceiling label such as:\n"
+        "  'hobbyist-level comparison', 'first-aid level', 'consumer buying decision',\n"
+        "  'beginner developer', 'home management', 'general wellness' — whatever\n"
+        "  fits. This label tells the research engine when to STOP digging deeper.\n"
+        "- NEVER use vague depth descriptors like 'technical trade-offs', "
+        "'in-depth understanding', or 'comprehensive analysis'. Those do not set a ceiling.\n\n"
         "Output ONLY the 2-3 sentence intent frame. No labels, no preamble, no quotes."
     )
 
@@ -756,9 +760,15 @@ def build_coverage_check_prompt(
         )
 
     intent_block = (
-        f"## Research Intent\n{intent_frame.strip()}\n"
-        "Coverage is SUFFICIENT when the practical goal described above is met — "
-        "even if every theoretical angle of the topic has not been explored.\n\n"
+        f"## Research Intent\n{intent_frame.strip()}\n\n"
+        "STOP EARLY RULE: If the sub-questions resolved so far give the person "
+        "enough information to take the action or make the decision described "
+        "in the Research Intent above — call sufficient=true RIGHT NOW. "
+        "Do NOT escalate to another sub-question simply to close academic gaps, "
+        "improve theoretical completeness, or find quantitative benchmarks that "
+        "go beyond the practical depth ceiling stated in the intent. The person "
+        "does not need a dissertation; they need a usable answer at the level "
+        "described above.\n\n"
         if intent_frame and intent_frame.strip()
         else ""
     )
