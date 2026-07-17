@@ -1667,6 +1667,10 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     clean_short_title = state["short_title"].replace('"', '\\"')
     clean_query = state['query'].replace('"', '\\"')
     
+    triggered_by_val = state.get("triggered_by", "user")
+    if isinstance(triggered_by_val, str) and triggered_by_val.lower() == "evelyn":
+        triggered_by_val = "Evelyn"
+        
     frontmatter = (
         "---\n"
         f"title: \"{clean_short_title}\"\n"
@@ -1676,7 +1680,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
         f"scope: {state['scope']}\n"
         f"source_count: {state['total_sources']}\n"
         f"confidence: {state['confidence']}%\n"
-        f"triggered_by: {state['triggered_by']}\n"
+        f"triggered_by: {triggered_by_val}\n"
         f"tags: [{tags_str}]\n"
         "---\n\n"
     )
