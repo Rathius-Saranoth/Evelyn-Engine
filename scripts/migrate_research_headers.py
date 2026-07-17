@@ -192,6 +192,10 @@ async def migrate_file(filepath: str) -> bool:
     if not date_created:
         date_created = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    triggered_by_val = metadata.get('triggered_by', 'user')
+    if isinstance(triggered_by_val, str) and triggered_by_val.lower() == "evelyn":
+        triggered_by_val = "Evelyn"
+
     frontmatter = (
         "---\n"
         f"title: \"{query}\"\n"
@@ -201,7 +205,7 @@ async def migrate_file(filepath: str) -> bool:
         f"scope: {scope}\n"
         f"source_count: {metadata.get('source_count', 0)}\n"
         f"confidence: {confidence}%\n"
-        f"triggered_by: {metadata.get('triggered_by', 'user')}\n"
+        f"triggered_by: {triggered_by_val}\n"
         f"tags: [{tags_str}]\n"
         "---\n\n"
     )

@@ -110,6 +110,8 @@ def migrate_file(filepath: str, dry_run: bool = False) -> Tuple[bool, str]:
     for k in standard_keys:
         if k in new_meta:
             val = new_meta[k]
+            if k == "triggered_by" and isinstance(val, str) and val.lower() == "evelyn":
+                val = "Evelyn"
             if isinstance(val, str):
                 val_escaped = val.replace('"', '\\"')
                 fm_lines.append(f"{k}: \"{val_escaped}\"")
