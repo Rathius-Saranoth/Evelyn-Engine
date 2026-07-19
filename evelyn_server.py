@@ -53,6 +53,7 @@ from context_summarizer import (
     cancel_pending_summary,
 )
 from fact_consolidator import run_consolidation, cancel_pending_consolidation
+from procedure_consolidator import run_procedure_consolidation, cancel_pending_procedure_consolidation
 from fact_extractor import run_extraction, cancel_pending_extraction
 from profile_evolver import run_profile_evolution, cancel_pending_evolution
 
@@ -1285,6 +1286,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
 
     cancel_pending_summary()
     cancel_pending_consolidation()
+    cancel_pending_procedure_consolidation()
     cancel_pending_extraction()
     cancel_pending_evolution()
 
@@ -1431,6 +1433,8 @@ async def lifespan(app: FastAPI):
                 )
                 import fact_consolidator
                 fact_consolidator._consolidation_task = asyncio.create_task(run_consolidation())
+                import procedure_consolidator
+                procedure_consolidator._procedure_task = asyncio.create_task(run_procedure_consolidation())
 
     asyncio.create_task(_idle_consolidation_loop())
     print(
@@ -2843,9 +2847,17 @@ async def get_proposals(_: None = Depends(check_auth)):
     for p in proposals:
         source_entries = []
         for eid in p.get("source_ids", []):
-            entry = memory_db.get_entry(eid)
-            if entry:
-                source_entries.append(entry)
+            if p.get("type") == "procedure_merge":
+                proc = memory_db.get_procedure(eid)
+                if proc:
+                    source_entries.append({
+                        "category": "procedure",
+                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}..."
+                    })
+            else:
+                entry = memory_db.get_entry(eid)
+                if entry:
+                    source_entries.append(entry)
         p["source_entries"] = source_entries
     return proposals
 
@@ -2890,6 +2902,26 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
                 [sys.executable, "scripts/update_frontmatter.py", str(target_file)],
                 cwd=str(BASE_DIR), capture_output=True
             )
+        elif prop["type"] == "procedure_merge":
+            import yaml
+            source_ids = prop.get("source_ids", [])
+            for eid in source_ids:
+                memory_db.delete_procedure(eid)
+            try:
+                parsed_proc = yaml.safe_load(prop["merged_observation"])
+            except Exception:
+                parsed_proc = {}
+            if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
+                memory_db.insert_procedure(
+                    trigger_pattern=parsed_proc["trigger_pattern"],
+                    steps=parsed_proc.get("steps", ""),
+                    pitfalls=parsed_proc.get("pitfalls"),
+                    verification=parsed_proc.get("verification"),
+                    source="consolidated",
+                    status="live",
+                    tags=parsed_proc.get("tags")
+                )
+            memory_db.apply_proposal(id)
         elif prop["type"] in ("merge", "supersede"):
             for entry in source_entries:
                 memory_db.delete_entry(entry["id"])
