@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-07-16 20:28:26
+date modified: 2026-07-16 20:55:21
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -143,6 +143,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Profile Evolver Pending Guard (Option 2)**: Added a safety gate to `profile_evolver.py` and `scripts/trigger_profile_evolution.py` that skips documents with pending `profile_update` proposals. Prevents cascading hallucinations and ensures a verified human-approved baseline. Added a `--force` flag to the manual trigger script to override this skip when desired. *(Completed 2026-07-12)*
 - [x] **Profile Evolver Perspective Hardening**: Added `DOCUMENT_RULES` with explicit subject, target grammatical perspective, guidelines, and concrete translation examples for each document in `profile_evolver.py` to prevent viewpoint drift (e.g. first-person singular for Evelyn, third-person singular for Ricky, second-person for directives). Created a one-time repair script to normalize existing documents, fixing first-person and third-person leaks without modifying factual content. *(Completed 2026-07-12)*
 - [x] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. *(Completed 2026-07-16)*
+- [ ] **Message Editing in Chat UI**: Add an edit button (✏️) next to the regenerate button on the last user message, allowing in-place editing and submission of corrected messages (useful for Voice to Text errors).
+- [ ] **Temporal Summary Calibration**: Adjust the context summarizer parameters (either stopping at the beginning of the current day or clearly marking items with their respective relative/absolute dates) to prevent Evelyn from attributing past days' events to the current day.
 
 ---
 
@@ -160,6 +162,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Proactive Memory Refresh & Idle Maintenance**: Integrated automatic background memory refresh subprocess triggers on successful user-action completions (journal approval, fact extraction approval, or proposal execution) alongside a low-priority deep idle background maintenance loop (running once every 2 hours when idle 45m+) to keep vector stores perfectly synced with out-of-band vault edits. *(Completed 2026-05-26)*
 - [x] **Unified Background Task Mutual Exclusion**: Eliminated all piecemeal concurrency checks across idle loops and tool scripts. Centralized task registration in `_background_tasks` with an authoritative `is_any_heavy_task_running()` guard in `evelyn_server.py`. Consolidator and extractor now self-register/deregister via namespace-safe `_set_status_in_server()` helpers (resolves `__main__` vs `evelyn_server` module namespace blindspot). All four idle loops (consolidation, extraction, research, memory refresh) gate on the unified check. Codified as a mandatory architectural standard in `reference/engine_architecture.md` §5. *(Completed 2026-05-29)*
 - [x] **Profile Size Limiting & Behavior-Focused Filtering**: Revised the profile auto-evolution pipeline to restrict the size of persona/profile documents, prioritizing high-level behavioral-directing directives over factual memories (which are already retained in the RAG & Memory system). Implemented programmatic target word limits (600/600/450 words) with a secondary compaction pass, built a Cross-Document Reviewer stage to eliminate redundancy, and pruned existing documents to reduce system prompt overhead by ~50%. *(Completed 2026-07-13)*
+- [ ] **Robust Profile Diff & Sectional Proposal Review**: Upgrade the Profile Evolution reviewer in the Developer Web UI (`dev.html`) with a robust diff comparison view (e.g., side-by-side split view with syntax/word highlights) and implement section-by-section / paragraph-level approve and reject controls, enabling granular triage of profile updates without accepting or discarding the entire document at once.
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the `#kw/` and `#ctx/` tags written by the Keyword-to-Tag Pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
 - [ ] **Multi-Node Expansion**: Split processes between machines (Evelyn Core on primary, TTS/Image Gen/idle tasks on secondary) to eliminate resource bottlenecks. See `reference/Multi_Node_Expansion_Plan.md` for feasibility and implementation details.
