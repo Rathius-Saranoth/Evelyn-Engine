@@ -22,6 +22,11 @@
       --radius: 12px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    .diff-line { white-space: pre-wrap; word-break: break-word; }
+    .diff-line-del { background: rgba(248, 113, 113, 0.12); color: #fca5a5; }
+    .diff-line-ins { background: rgba(52, 211, 153, 0.12); color: #a7f3d0; }
+    .diff-word-del { background: rgba(239, 68, 68, 0.45); color: #ffffff; padding: 1px 3px; border-radius: 3px; font-weight: 500; }
+    .diff-word-ins { background: rgba(16, 185, 129, 0.45); color: #ffffff; padding: 1px 3px; border-radius: 3px; font-weight: 500; }
     body {
       background: var(--bg); color: var(--text);
       font-family: 'Inter', sans-serif; font-size: 15px;
@@ -734,6 +739,68 @@
       handleEditInput(id);
     }
 
+    function formatDiffTokens(tokens, lcsMask, className) {
+      let html = '';
+      for (let k = 0; k < tokens.length; k++) {
+        const token = tokens[k];
+        if (lcsMask[k]) {
+          html += escapeHtml(token);
+        } else {
+          const parts = token.split('\n');
+          for (let p = 0; p < parts.length; p++) {
+            if (p > 0) html += '\n';
+            if (parts[p].length > 0) {
+              html += `<span class="${className}">${escapeHtml(parts[p])}</span>`;
+            }
+          }
+        }
+      }
+      return html;
+    }
+
+    function computeWordDiff(oldText, newText) {
+      const tokensOld = oldText.match(/(\s+|[^\s\w]+|\w+)/g) || [];
+      const tokensNew = newText.match(/(\s+|[^\s\w]+|\w+)/g) || [];
+
+      const m = tokensOld.length;
+      const n = tokensNew.length;
+
+      if (m === 0 && n === 0) return { delHtml: '', insHtml: '' };
+
+      const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+      for (let i = 0; i < m; i++) {
+        for (let j = 0; j < n; j++) {
+          if (tokensOld[i] === tokensNew[j]) {
+            dp[i + 1][j + 1] = dp[i][j] + 1;
+          } else {
+            dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+          }
+        }
+      }
+
+      const lcsMaskOld = new Uint8Array(m);
+      const lcsMaskNew = new Uint8Array(n);
+
+      let i = m, j = n;
+      while (i > 0 && j > 0) {
+        if (tokensOld[i - 1] === tokensNew[j - 1]) {
+          lcsMaskOld[i - 1] = 1;
+          lcsMaskNew[j - 1] = 1;
+          i--;
+          j--;
+        } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+          i--;
+        } else {
+          j--;
+        }
+      }
+
+      const delHtml = formatDiffTokens(tokensOld, lcsMaskOld, 'diff-word-del');
+      const insHtml = formatDiffTokens(tokensNew, lcsMaskNew, 'diff-word-ins');
+
+      return { delHtml, insHtml };
+    }
+
     function renderDiff(original, proposed) {
       if (!original) return `<pre style="white-space: pre-wrap; word-break: break-all; color: var(--success);">${escapeHtml(proposed)}</pre>`;
       
@@ -744,43 +811,61 @@
       
       let i = 0, j = 0;
       while (i < origLines.length || j < propLines.length) {
-        const oLine = origLines[i];
-        const pLine = propLines[j];
-        
-        if (oLine === pLine) {
-          html += `<div class="diff-line" style="color: var(--text-dim); white-space: pre-wrap;">  ${escapeHtml(oLine)}</div>`;
+        if (i < origLines.length && j < propLines.length && origLines[i] === propLines[j]) {
+          html += `<div class="diff-line" style="color: var(--text-dim);">  ${escapeHtml(origLines[i])}</div>`;
           i++;
           j++;
         } else {
-          // Find matches down the line
-          let foundMatch = false;
-          let lookAhead = 10;
-          for (let k = 1; k < lookAhead; k++) {
-            if (i + k < origLines.length && origLines[i+k] === pLine && pLine.trim() !== "") {
-              for (let m = 0; m < k; m++) {
-                html += `<div class="diff-line" style="background: rgba(248,113,113,0.15); color: #fca5a5; white-space: pre-wrap;">- ${escapeHtml(origLines[i+m])}</div>`;
-              }
-              i += k;
-              foundMatch = true;
+          let delCount = 0;
+          let insCount = 0;
+          let matched = false;
+          
+          for (let look = 1; look <= 40; look++) {
+            if (j + look < propLines.length && origLines[i] === propLines[j + look] && origLines[i].trim() !== '') {
+              insCount = look;
+              matched = true;
               break;
             }
-            if (j + k < propLines.length && propLines[j+k] === oLine && oLine.trim() !== "") {
-              for (let m = 0; m < k; m++) {
-                html += `<div class="diff-line" style="background: rgba(52,211,153,0.15); color: #a7f3d0; white-space: pre-wrap;">+ ${escapeHtml(propLines[j+m])}</div>`;
-              }
-              j += k;
-              foundMatch = true;
+            if (i + look < origLines.length && origLines[i + look] === propLines[j] && propLines[j].trim() !== '') {
+              delCount = look;
+              matched = true;
               break;
             }
+            for (let d = 1; d <= look; d++) {
+              if (i + d < origLines.length && j + (look - d) < propLines.length && origLines[i + d] === propLines[j + (look - d)] && origLines[i + d].trim() !== '') {
+                delCount = d;
+                insCount = look - d;
+                matched = true;
+                break;
+              }
+            }
+            if (matched) break;
           }
-          if (!foundMatch) {
-            if (i < origLines.length) {
-              html += `<div class="diff-line" style="background: rgba(248,113,113,0.15); color: #fca5a5; white-space: pre-wrap;">- ${escapeHtml(oLine)}</div>`;
-              i++;
-            }
-            if (j < propLines.length) {
-              html += `<div class="diff-line" style="background: rgba(52,211,153,0.15); color: #a7f3d0; white-space: pre-wrap;">+ ${escapeHtml(pLine)}</div>`;
-              j++;
+          
+          if (!matched) {
+            delCount = origLines.length - i;
+            insCount = propLines.length - j;
+          }
+          
+          const oldBlock = origLines.slice(i, i + delCount);
+          const newBlock = propLines.slice(j, j + insCount);
+          
+          i += delCount;
+          j += insCount;
+          
+          const maxLen = Math.max(oldBlock.length, newBlock.length);
+          for (let k = 0; k < maxLen; k++) {
+            const hasOld = k < oldBlock.length;
+            const hasNew = k < newBlock.length;
+            
+            if (hasOld && hasNew) {
+              const { delHtml, insHtml } = computeWordDiff(oldBlock[k], newBlock[k]);
+              html += `<div class="diff-line diff-line-del">- ${delHtml}</div>`;
+              html += `<div class="diff-line diff-line-ins">+ ${insHtml}</div>`;
+            } else if (hasOld) {
+              html += `<div class="diff-line diff-line-del">- ${escapeHtml(oldBlock[k])}</div>`;
+            } else if (hasNew) {
+              html += `<div class="diff-line diff-line-ins">+ ${escapeHtml(newBlock[k])}</div>`;
             }
           }
         }
