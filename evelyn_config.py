@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-07-09 18:18:37
+# date modified: 2026-07-19 08:01:30
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -60,7 +60,7 @@ SEED = 0
 
 # Num predict — maximum tokens to generate. -1 = unlimited, -2 = fill context.
 # Range: -2–∞       |  Ollama default: -1
-NUM_PREDICT = None
+NUM_PREDICT = 4096
 
 # Stop sequences — generation halts immediately when any of these strings are
 # produced. Primarily added to prevent the model from looping inside its own
@@ -91,7 +91,7 @@ MAX_TOOL_ROUNDS = 5
 
 # Number of messages (beyond the active window) to include in summarization.
 # These are the messages that just fell out of MAX_HISTORY_MESSAGES.
-SUMMARY_WINDOW_SIZE = 50
+SUMMARY_WINDOW_SIZE = 20
 
 # Maximum word count for the generated summary. Controls token budget.
 # ~200 words ≈ ~270 tokens. Keep under 600 tokens to preserve response headroom.
@@ -445,7 +445,7 @@ ALLOWED_ORIGINS = [
 # =============================================================================
 # Set to True to log full prompts, RAG chunks, tool calls, and thinking content.
 # Reads per-request — no restart needed to toggle.
-DEBUG_LOGGING = True
+DEBUG_LOGGING = False
 
 # Set to True to print the full text of each tool result to the console.
 # Reads per-request — no restart needed to toggle.

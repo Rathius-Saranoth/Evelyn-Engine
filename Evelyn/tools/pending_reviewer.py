@@ -100,10 +100,10 @@ def _display_proposal(prop: dict, source_entries: list[dict], idx: int, total: i
         print(f"    {DIM}[{cat}]{RESET} {obs}")
     print()
 
-    if prop["type"] in ("merge", "supersede"):
+    if prop["type"] in ("merge", "supersede", "procedure_merge"):
         print(f"  {BOLD}Proposed Action: {p_type}{RESET}")
         print(f"  {DIM}Target Category:{RESET} {prop.get('suggested_category')}")
-        print(f"  {DIM}Merged Summary:{RESET}")
+        print(f"  {DIM}Merged Summary / Procedure:{RESET}")
         print(f"  {GREEN}> {prop.get('merged_observation')}{RESET}\n")
     elif prop["type"] == "recategorize":
         print(f"  {BOLD}Proposed Action: RECATEGORIZE{RESET}")
@@ -131,9 +131,14 @@ def run_review():
         
         source_entries = []
         for eid in source_ids:
-            entry = memory_db.get_entry(eid)
-            if entry:
-                source_entries.append(entry)
+            if prop["type"] == "procedure_merge":
+                p_item = memory_db.get_procedure(eid)
+                if p_item:
+                    source_entries.append({"category": "procedures", "observation": f"[{p_item['trigger_pattern']}] {p_item['steps'][:100]}..."})
+            else:
+                entry = memory_db.get_entry(eid)
+                if entry:
+                    source_entries.append(entry)
 
         _display_proposal(prop, source_entries, idx, len(proposals))
 
@@ -158,6 +163,29 @@ def run_review():
                     # Apply recategorization
                     for entry in source_entries:
                         memory_db.update_entry(entry["id"], category=prop["suggested_category"])
+                    memory_db.apply_proposal(prop["id"])
+                    
+                elif prop["type"] == "procedure_merge":
+                    # Apply procedure_merge
+                    import yaml
+                    # Archive source procedures
+                    for eid in source_ids:
+                        memory_db.delete_procedure(eid)
+                    # Insert merged procedure
+                    try:
+                        parsed_proc = yaml.safe_load(prop["merged_observation"])
+                    except Exception:
+                        parsed_proc = {}
+                    if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
+                        memory_db.insert_procedure(
+                            trigger_pattern=parsed_proc["trigger_pattern"],
+                            steps=parsed_proc.get("steps", ""),
+                            pitfalls=parsed_proc.get("pitfalls"),
+                            verification=parsed_proc.get("verification"),
+                            source="consolidated",
+                            status="live",
+                            tags=parsed_proc.get("tags")
+                        )
                     memory_db.apply_proposal(prop["id"])
                     
                 elif prop["type"] in ("merge", "supersede"):
