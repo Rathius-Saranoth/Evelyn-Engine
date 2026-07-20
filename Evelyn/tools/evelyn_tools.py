@@ -51,6 +51,27 @@ def get_jaccard_similarity(str1: str, str2: str) -> float:
     return len(intersection) / len(union)
 
 
+def _prune_log_file(log_path: str, max_lines: int = 2000, keep_lines: int = 1000) -> None:
+    """Prune a log file down to the last keep_lines if it exceeds max_lines.
+
+    Args:
+        log_path: Absolute or relative path to the log file.
+        max_lines: Maximum number of lines permitted before pruning is triggered.
+        keep_lines: Number of most recent lines to retain when pruning.
+    """
+    try:
+        if not os.path.exists(log_path):
+            return
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        if len(lines) > max_lines:
+            with open(log_path, "w", encoding="utf-8", errors="replace") as f:
+                f.writelines(lines[-keep_lines:])
+    except Exception:
+        pass
+
+
+
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
 
@@ -486,6 +507,7 @@ def start_research(
                 script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
                 log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                _prune_log_file(log_path)
                 
                 log_file = None
                 proc = None
@@ -638,6 +660,7 @@ def resume_research_task(task_id: str) -> str:
                 script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
                 log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                _prune_log_file(log_path)
                 
                 log_file = None
                 proc = None

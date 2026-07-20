@@ -37,6 +37,24 @@ if hasattr(sys.stderr, 'reconfigure'):
     except Exception:
         pass
 
+# Local ISO timestamped print wrapper for subprocess log output
+_original_print = print
+
+def _timestamped_print(*args, **kwargs):
+    """Print with a local ISO timestamp prefix [YYYY-MM-DD HH:MM:SS]."""
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if args and isinstance(args[0], str):
+        if not (args[0].startswith("[20") and len(args[0]) > 20 and args[0][20] == "]"):
+            args = (f"[{ts}] {args[0]}",) + args[1:]
+    elif not args:
+        args = (f"[{ts}]",)
+    else:
+        args = (f"[{ts}]",) + args
+    _original_print(*args, **kwargs)
+
+print = _timestamped_print
+
+
 # Ensure Tools and root directories are in system path
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(TOOLS_DIR, "..", ".."))
