@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-07-16 20:55:21
+date modified: 2026-07-19 21:24:12
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -62,6 +62,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 *Ongoing technical improvements and AI guardrails.*
 
 - [x] **Reading Comfort Width**: Restructured the frontend Chat UI and Developer Dashboard to restrict text line lengths to a typography-optimal 50-75 characters (`72ch` max-width constraint) and centered elements on wide viewports for a highly premium reading experience. *(Completed 2026-07-17)*
+- [x] **Subprocess Log Size Limitation & Local Timestamping**: Added automatic line-count log pruning (`_prune_log_file()`) to `evelyn_tools.py` for `research_subprocess.log` (pruning 40k+ lines down to 1,000 when exceeding 2,000 lines on launch/resume). Wrapped `print()` in `research_engine.py` and `web_reader.py` with `[YYYY-MM-DD HH:MM:SS]` local ISO timestamp prefixes for full diagnostic visibility. *(Completed 2026-07-20)*
 - [x] **AI Instructions**: Formalize `.ai-instructions.md` for assistant continuity (strengthened ROADMAP authority rule).
 - [x] **Service Management**: Implement `.agents/workflows/start-services.md`.
 - [x] **Coding Standards**: Enforce Google-style Docstrings across core scripts.
@@ -145,6 +146,8 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Evelyn Axiom Injection**: Embed a standing engineering axiom (e.g., "Every line of code has mass") into Evelyn's system directives. *(Completed 2026-07-16)*
 - [ ] **Message Editing in Chat UI**: Add an edit button (✏️) next to the regenerate button on the last user message, allowing in-place editing and submission of corrected messages (useful for Voice to Text errors).
 - [ ] **Temporal Summary Calibration**: Adjust the context summarizer parameters (either stopping at the beginning of the current day or clearly marking items with their respective relative/absolute dates) to prevent Evelyn from attributing past days' events to the current day.
+- [ ] **[HIGH PRIORITY] Reasoning-Gated Tool Calling**: Re-enable `think: True` during Pass 1 tool detection in `evelyn_server.py` (or implement unified reasoning-first streaming) so Evelyn can reason inside `<think>` tags before deciding whether to invoke tools, resolving the architectural bottleneck on proactive tool execution.
+
 
 ---
 

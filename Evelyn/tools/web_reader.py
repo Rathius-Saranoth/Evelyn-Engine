@@ -11,12 +11,30 @@ async fetching via `httpx` and a semantic chunking pipeline to keep contents
 within the model's 16k context window constraint.
 """
 
+import datetime
 import re
 from typing import List, Dict, Any, Optional
 import httpx
 import trafilatura
 
 import evelyn_config as cfg # [[evelyn_config.py]]
+
+_original_print = print
+
+def _timestamped_print(*args, **kwargs):
+    """Print with a local ISO timestamp prefix [YYYY-MM-DD HH:MM:SS]."""
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if args and isinstance(args[0], str):
+        if not (args[0].startswith("[20") and len(args[0]) > 20 and args[0][20] == "]"):
+            args = (f"[{ts}] {args[0]}",) + args[1:]
+    elif not args:
+        args = (f"[{ts}]",)
+    else:
+        args = (f"[{ts}]",) + args
+    _original_print(*args, **kwargs)
+
+print = _timestamped_print
+
 
 
 async def fetch_url(url: str, timeout: int = 15) -> Optional[str]:
