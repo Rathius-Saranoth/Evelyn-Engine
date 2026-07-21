@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-07-19 08:01:30
+# date modified: 2026-07-20 19:10:42
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -83,6 +83,25 @@ MAX_HISTORY_MESSAGES = 40
 # it gets another turn. Loop exits when the model produces no tool calls or this
 # cap is hit, then the streaming response pass runs.
 MAX_TOOL_ROUNDS = 5
+
+# Whether to enable native reasoning (think=True) for tool-loop rounds.
+# When True, the model reasons at each decision point — evaluating tool results
+# and deciding whether the task is complete before calling the next tool.
+# Costs additional latency per round (~30-60s) but enables proactive, multi-step
+# agentic behavior. Set to False to revert to fast no-think routing.
+THINK_TOOL_LOOP = True
+
+# Token budget for each tool-loop reasoning round. Intentionally smaller than
+# NUM_PREDICT — mid-loop reasoning only needs to evaluate results and decide
+# next steps, not generate a full response. Adjust up if Evelyn truncates her
+# reasoning before reaching a conclusion.
+TOOL_LOOP_NUM_PREDICT = 1024
+
+# When True, intermediate thinking from each tool-loop round is forwarded to
+# the client as thinking SSE events. Useful for seeing Evelyn's decision chain
+# in the UI. When False (default), reasoning is internal only and only the
+# final response's thinking block is shown.
+SHOW_TOOL_LOOP_THINKING = True
 
 # --- Context Summarizer ---
 # Compresses older messages that have fallen out of the active history window

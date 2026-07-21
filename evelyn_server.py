@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-07-11 07:18:41
+# date modified: 2026-07-20 18:35:56
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -726,12 +726,24 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
                     yield line
 
 
-async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> dict:
-    """Perform a non-streaming Ollama call, primarily used for tool detection.
+async def call_ollama_full(
+    messages: list[dict],
+    tools: list[dict] = None,
+    num_predict_override: int | None = None,
+) -> dict:
+    """Perform a non-streaming Ollama call for tool detection and agentic reasoning.
+
+    Used for every round of the tool loop. With THINK_TOOL_LOOP=True, the model
+    reasons at each decision point — evaluating tool results and deciding whether
+    to call another tool or exit the loop.
 
     Args:
         messages: A list of message objects representing the prompt history.
         tools: Optional list of tool definitions available to the model.
+        num_predict_override: If set, overrides cfg.NUM_PREDICT for this call.
+            Tool-loop rounds pass cfg.TOOL_LOOP_NUM_PREDICT (a smaller budget)
+            since mid-loop reasoning only needs to evaluate results and route,
+            not generate a full response.
 
     Returns:
         dict: The full parsed JSON response dictionary from the Ollama API.
@@ -745,7 +757,7 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
         "repeat_penalty": cfg.REPEAT_PENALTY,
         "repeat_last_n": cfg.REPEAT_LAST_N,
         "seed": cfg.SEED,
-        "num_predict": cfg.NUM_PREDICT,
+        "num_predict": num_predict_override if num_predict_override is not None else cfg.NUM_PREDICT,
     }.items():
         if val is not None:
             options[key] = val
@@ -756,7 +768,7 @@ async def call_ollama_full(messages: list[dict], tools: list[dict] = None) -> di
         "messages": messages,
         "stream": False,
         "options": options,
-        "think": False,  # Tool detection only — thinking tokens are discarded here; save budget for Pass 2
+        "think": cfg.THINK_TOOL_LOOP,  # Enables reasoning at each tool decision point
         "tools": tools or [],
     }
     async with httpx.AsyncClient(timeout=600) as client:
@@ -1058,16 +1070,20 @@ async def _process_chat_background(
         await put("status", msg="Querying model...")
 
         # ------------------------------------------------------------------
-        # Pass 1: Non-streaming tool detection
+        # Tool Round 0: Non-streaming reasoning + tool detection
         # ------------------------------------------------------------------
         print(
-            f"{_CYN}[PASS1]{_RST} Non-streaming tool-detection. Roles:",
+            f"{_CYN}[TOOL_ROUND_0]{_RST} Reasoning + tool detection. think={cfg.THINK_TOOL_LOOP}. Roles:",
             [m["role"] for m in messages],
             flush=True,
         )
 
         pass1_task = asyncio.ensure_future(
-            call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
+            call_ollama_full(
+                messages,
+                tools=MODEL_TOOL_DEFINITIONS,
+                num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
+            )
         )
         while not pass1_task.done():
             await queue.put('data: {"type":"heartbeat"}\n\n')
@@ -1076,7 +1092,7 @@ async def _process_chat_background(
         try:
             pass1_resp = pass1_task.result()
         except Exception as exc:
-            print(f"{_RED}[PASS1 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
+            print(f"{_RED}[TOOL_ROUND_0 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
             # finally block will log the empty response and update DB
             return
 
@@ -1085,9 +1101,12 @@ async def _process_chat_background(
         pass1_content = pass1_msg.get("content") or ""
         pass1_thinking = pass1_msg.get("thinking") or ""
         dlog(
-            f"Pass1 -- content: {len(pass1_content)} chars, "
+            f"Tool round 0 — content: {len(pass1_content)} chars, "
             f"thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}"
         )
+
+        if cfg.SHOW_TOOL_LOOP_THINKING and pass1_thinking:
+            await put("thinking", delta=f"[Tool round 0]\n{pass1_thinking}")
 
         if not tool_calls:
             await drain_stream(_stream_content(messages))
@@ -1185,7 +1204,11 @@ async def _process_chat_background(
                 )
 
                 followup_task = asyncio.ensure_future(
-                    call_ollama_full(messages, tools=MODEL_TOOL_DEFINITIONS)
+                    call_ollama_full(
+                        messages,
+                        tools=MODEL_TOOL_DEFINITIONS,
+                        num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
+                    )
                 )
                 while not followup_task.done():
                     await queue.put('data: {"type":"heartbeat"}\n\n')
@@ -1195,11 +1218,15 @@ async def _process_chat_background(
                 followup_msg = followup_resp.get("message", {})
                 current_tool_calls = followup_msg.get("tool_calls") or []
                 current_content = followup_msg.get("content") or ""
+                followup_thinking = followup_msg.get("thinking") or ""
 
                 dlog(
-                    f"Round {tool_round} follow-up: content={len(current_content)} chars, "
-                    f"tools={len(current_tool_calls)}"
+                    f"Tool round {tool_round} — content={len(current_content)} chars, "
+                    f"thinking={len(followup_thinking)} chars, tools={len(current_tool_calls)}"
                 )
+
+                if cfg.SHOW_TOOL_LOOP_THINKING and followup_thinking:
+                    await put("thinking", delta=f"[Tool round {tool_round}]\n{followup_thinking}")
 
                 if not current_tool_calls:
                     dlog("Model produced no more tool calls. Exiting tool loop.")
