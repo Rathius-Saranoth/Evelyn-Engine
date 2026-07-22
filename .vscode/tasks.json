@@ -27,8 +27,7 @@
                 "Run Tailscale",
                 "Run Chatterbox TTS",
                 "Run Evelyn Server",
-                "Run Image Server",
-                "Run Obsidian"
+                "Run Image Server"
             ],
             "dependsOrder": "parallel",
             "problemMatcher": []
@@ -179,15 +178,6 @@
                     }
                 }
             ]
-        },
-        {
-            "label": "Run Obsidian",
-            "type": "shell",
-            "command": "Start-Process 'obsidian://open'",
-            "presentation": {
-                "reveal": "never"
-            },
-            "problemMatcher": []
         },
         {
             "label": "Update Ollama",
