@@ -22,7 +22,6 @@ This module is imported and hot-reloaded by ``evelyn_tools.py``.
 
 import os
 import datetime
-import subprocess
 import importlib
 import evelyn_config as cfg # [[evelyn_config.py]]
 
@@ -30,32 +29,44 @@ JOURNAL_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Journal"
 PENDING_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Pending_Approvals\Journal"
 
 
-def ensure_obsidian_running():
-    """
-    Checks whether Obsidian is running and launches it if it is not.
+def _resolve_journal_filepath(date_str: str) -> str | None:
+    """Find the filepath of a journal entry by date.
 
-    Obsidian must be open to resolve ``obsidian://`` URIs used when reading
-    journal entries via the CLI. This function is a best-effort guard —
-    if the check or launch fails, the error is printed but not re-raised so
-    that the calling function can still attempt its operation.
+    Searches across:
+      1. Live vault root: JOURNAL_DIR/Journal Entry YYYY-MM-DD.md
+      2. Structured archive: JOURNAL_DIR/Journal Entries/YYYY/MM-ShortMonth/Journal Entry YYYY-MM-DD.md
+      3. Pending quarantine: PENDING_DIR/Journal Entry YYYY-MM-DD.md
 
-    Side effects:
-        May spawn an Obsidian process. Sleeps for 3 seconds after launch to
-        give the app time to initialise.
+    Args:
+        date_str: Date string formatted as YYYY-MM-DD.
+
+    Returns:
+        str | None: Absolute path to the journal entry markdown file if found, else None.
     """
+    filename = f"Journal Entry {date_str}.md"
+
+    # 1. Live vault root
+    root_path = os.path.join(JOURNAL_DIR, filename)
+    if os.path.exists(root_path):
+        return root_path
+
+    # 2. Structured archive folder
     try:
-        # Quick check if it's running
-        output = subprocess.check_output(
-            'tasklist /FI "IMAGENAME eq Obsidian.exe"', shell=True
-        ).decode()
-        if "Obsidian.exe" not in output:
-            # Launch obsidian
-            os.system("start obsidian://open")
-            import time
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        year = dt.strftime("%Y")
+        month_str = f"{dt.strftime('%m')}-{dt.strftime('%b')}"
+        struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", year, month_str, filename)
+        if os.path.exists(struct_path):
+            return struct_path
+    except ValueError:
+        pass
 
-            time.sleep(3)
-    except Exception as e:
-        print(f"Error checking/starting Obsidian: {e}")
+    # 3. Pending quarantine folder
+    pending_path = os.path.join(PENDING_DIR, filename)
+    if os.path.exists(pending_path):
+        return pending_path
+
+    return None
 
 
 def create_journal_entry(
@@ -155,28 +166,16 @@ def read_journal_entry(date_str: str = None) -> str:
     Returns:
         str: The content of the journal entry, or a message if not found.
     """
-    ensure_obsidian_running()
     if not date_str:
         date_str = datetime.date.today().strftime("%Y-%m-%d")
 
-    filename = f"Journal Entry {date_str}.md"
-
-    # Try Obsidian CLI
-    res = subprocess.run(
-        ["obsidian", "read", f"file={filename}"], capture_output=True, text=True
-    )
-    if (
-        res.returncode == 0
-        and res.stdout.strip()
-        and not res.stdout.strip().startswith("Error:")
-    ):
-        return res.stdout
-
-    # Fallback: read directly from vault
-    filepath = os.path.join(JOURNAL_DIR, filename)
-    if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            return f.read()
+    filepath = _resolve_journal_filepath(date_str)
+    if filepath and os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return f.read()
+        except OSError as e:
+            return f"Error reading journal entry file: {e}"
 
     return f"No entry found for {date_str}."
 
@@ -190,29 +189,19 @@ def read_recent_journal_entries(days: int = 7) -> str:
     Returns:
         str: The concatenated journal entries text.
     """
-    ensure_obsidian_running()
     entries = []
     today = datetime.date.today()
     for i in range(days):
         date_obj = today - datetime.timedelta(days=i)
         date_str = date_obj.strftime("%Y-%m-%d")
-        filename = f"Journal Entry {date_str}.md"
 
-        res = subprocess.run(
-            ["obsidian", "read", f"file={filename}"], capture_output=True, text=True
-        )
-        if (
-            res.returncode == 0
-            and res.stdout.strip()
-            and not res.stdout.strip().startswith("Error:")
-        ):
-            entries.append(f"--- Entry for {date_str} ---\n{res.stdout}\n")
-        else:
-            # Fallback to direct read
-            filepath = os.path.join(JOURNAL_DIR, filename)
-            if os.path.exists(filepath):
+        filepath = _resolve_journal_filepath(date_str)
+        if filepath and os.path.exists(filepath):
+            try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     entries.append(f"--- Entry for {date_str} ---\n{f.read()}\n")
+            except OSError:
+                pass
 
     if not entries:
         return f"No journal entries found in the last {days} days."
