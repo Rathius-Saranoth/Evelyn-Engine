@@ -36,6 +36,20 @@ class TestEvelynTools(unittest.TestCase):
         self.assertIn("mood: Happy", written_content)
         self.assertIn("CY-", written_content)
 
+    @patch("journal_manager._resolve_journal_filepath")
+    @patch("builtins.open", new_callable=mock_open, read_data="## Vibe Check\nFeeling thoughtful")
+    @patch("os.path.exists", return_value=True)
+    def test_journal_reading(self, mock_exists, mock_file, mock_resolve):
+        mock_resolve.return_value = r"G:\My Drive\Obsidian_Vault\Evelyn\Evelyn's Journal\Journal Entry 2026-07-22.md"
+        entry = journal_manager.read_journal_entry("2026-07-22")
+        self.assertIn("Feeling thoughtful", entry)
+        mock_resolve.assert_called_with("2026-07-22")
+
+    @patch("journal_manager._resolve_journal_filepath", return_value=None)
+    def test_journal_reading_not_found(self, mock_resolve):
+        entry = journal_manager.read_journal_entry("2026-01-01")
+        self.assertEqual(entry, "No entry found for 2026-01-01.")
+
     @patch("memory_db.insert_entry")
     def test_context_log(self, mock_insert):
         mock_insert.return_value = 123
