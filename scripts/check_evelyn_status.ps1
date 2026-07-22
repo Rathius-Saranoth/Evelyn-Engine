@@ -56,13 +56,6 @@ if (Get-NetTCPConnection -LocalPort $ImagePort -State Listen -ErrorAction Silent
     $AllClear = $false
 }
 
-# 6. Check Obsidian
-if (Get-Process -Name "Obsidian" -ErrorAction SilentlyContinue) {
-    Write-Host "✅ [Obsidian] is running." -ForegroundColor Green
-} else {
-    Write-Host "❌ [Obsidian] is NOT running." -ForegroundColor Red
-    $AllClear = $false
-}
 
 Write-Host "-----------------------------" -ForegroundColor Cyan
 if ($AllClear) {

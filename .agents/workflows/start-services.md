@@ -19,7 +19,6 @@ Check if the following processes are running:
 - `python.exe` running `tts_server.py` (Chatterbox TTS, Port 5050)
 - `python.exe` running `evelyn_server.py` (Port 7860)
 - `python.exe` running `image_server.py` (Image Server, Port 5055)
-- `obsidian.exe`
 
 ## 2. Manual Startup (via VS Code Tasks)
 
@@ -30,7 +29,6 @@ If a service is missing, trigger the corresponding task from `.vscode/tasks.json
 3. **Run Chatterbox TTS** (starts the Chatterbox voice server)
 4. **Run Evelyn Server** (`python evelyn_server.py` in `C:\Projects\LocalAI`)
 5. **Run Image Server** (starts the FLUX.1 image server)
-6. **Run Obsidian**
 
 ## 3. All-in-One Startup
 
