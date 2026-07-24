@@ -127,9 +127,9 @@ Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Va
 
 ### 2.4 Deep Research Subsystem
 Enables fully autonomous, multi-step search and information synthesis in the background when the server is idle.
-* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), cross-task Chroma querying leveraging a virtual memory cache, and a **circadian mid-loop window check** that pauses tasks at step boundaries when outside the configured active hours (06:00–21:00).
+* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), cross-task Chroma querying leveraging a virtual memory cache, **additive source note extraction** (`### Source [src_00X]`) ensuring zero evidence loss, **mid-pipeline native reasoning** (`think=True`) with stage-tailored token budgets, **Research Intent Frame anchoring**, **dynamic technical alias/synonym expansion** (`topic_aliases`), and a **circadian mid-loop window check** that pauses tasks at step boundaries when outside active hours (06:00–21:00).
 * **[[web_reader.py]]**: Dynamic web scraper. Features Trafilatura integration, SSL bypasses, timeouts, and adaptive chunking for heavy documents.
-* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, extraction, evaluation rewrites, and synthesis.
+* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, **web-native query formulation** (2–5 keywords, atomic constraints, academic stop-word heuristics), single-source extraction with discovered technical synonyms, alias-aware search rewrites, and 5-part scannable reference guide synthesis with frontmatter `aliases`.
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
