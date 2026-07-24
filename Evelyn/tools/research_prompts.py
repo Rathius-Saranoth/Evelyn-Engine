@@ -269,47 +269,40 @@ def is_time_sensitive_query(query: str) -> bool:
 # ---------------------------------------------------------------------------
 
 ATOMIC_QUERY_CONSTRAINT = (
-    "## Query Atomicity Rules (mandatory)\n"
-    "- Deconstruct, don't correlate: never force a single query to cross-reference "
-    "multiple mechanisms, conditions, entities, or systems at once.\n"
-    "- Target the core variable: if several specific items apply (e.g. three named "
-    "proteins, three named libraries), collapse them into the single most relevant "
-    "one or their shared parent category — do not list them all in one query.\n"
-    "- Search the step, not the thesis: pick the single most useful next fact to "
-    "look up, not the final synthesized answer to the whole sub-question.\n"
-    "- One concrete marker per query: name one specific thing (a term, a product, "
-    "a mechanism, an error code) — never a vague category standing in for several things.\n"
-    "- Write it like a person typing into a search box, not like an academic paper "
-    "title. No \"An Analysis of...\", no \"Regulatory Mechanisms Underlying...\".\n"
-    "- Stay anchored to the parent topic's scope — do not wander into an adjacent "
-    "general topic.\n\n"
-    "BAD (compound / thesis-style): \"regulatory mechanisms linking cortisol, "
-    "adrenaline, and BDNF to mental fatigue\"\n"
-    "GOOD (atomic, searchable): \"cortisol mental fatigue\"\n"
+    "## Web Search Query Rules (STRICT)\n"
+    "- Write queries EXACTLY as a person types into a Google/DuckDuckGo search box.\n"
+    "- NEVER use paper titles or academic phrasing (NO 'Analysis of', 'Impact of', 'Mechanisms of').\n"
+    "- Keep queries strictly between 2 to 5 keywords.\n"
+    "- Focus on concrete nouns, product names, error codes, or specific terms.\n"
+    "- Strip out all stop words, prepositions, and logical connectors ('and', 'underlying', 'between').\n\n"
+    "FEW-SHOT EXAMPLES:\n"
+    "❌ BAD (Academic/Thesis): 'Comparative analysis of local LLM inference engine latency under heavy load'\n"
+    "✔ GOOD (Web-Native): 'vllm benchmark latency'\n\n"
+    "❌ BAD (Academic/Thesis): 'Mechanisms underlying PETG filament stringing and bed adhesion solutions'\n"
+    "✔ GOOD (Web-Native): 'fix PETG stringing print settings'\n\n"
+    "❌ BAD (Academic/Thesis): 'Architectural paradigms for state management in agentic workflows'\n"
+    "✔ GOOD (Web-Native): 'langgraph state management architecture'\n"
 )
 
 # Deterministic heuristics used to validate that a formulated query is actually
 # atomic before it is spent on a search engine call. Cheap, code-only checks —
 # no LLM cost — per the "push control-flow into code" architecture principle.
-_COMPOUND_MARKERS: List[str] = [" and ", " vs ", " versus ", " as well as ", " along with "]
-_THESIS_PHRASE_MARKERS: List[str] = [
-    "regulatory mechanisms", "underlying mechanisms", "an analysis of",
-    "an overview of", "an examination of", "the relationship between",
-    "the role of", "a comparison of", "a study of", "a review of",
-    "mechanisms linking", "interplay between", "interaction between",
+_ACADEMIC_STOP_WORDS: List[str] = [
+    "analysis", "comparative", "mechanisms", "underlying", "investigation",
+    "examination", "implications", "methodologies", "paradigms", "evaluation of",
+    "impact of", "role of", "perspectives on", "towards understanding"
 ]
-_MAX_QUERY_WORDS = 10
+_COMPOUND_MARKERS: List[str] = [" and ", " versus ", " as well as ", " along with ", " between "]
+_MAX_QUERY_WORDS = 6
 
 
 def is_atomic_query(query: str) -> Tuple[bool, Optional[str]]:
-    """Validate that a formulated search query is atomic (one concept, search-shaped).
+    """Validate that a formulated search query is atomic (one concept, web search-shaped).
 
     Zero-LLM-cost deterministic check run against LLM-formulated search strings
-    before they are spent on a real search engine call. Catches the two dominant
-    failure patterns observed in practice: compound/multi-concept queries (joined
-    by "and"/"vs"/lists) and thesis-style academic phrasing that search engines
-    rank poorly. This is a validator, not a generator — it never rewrites the
-    query itself, it only reports whether the caller should retry formulation.
+    before they are spent on a real search engine call. Catches the dominant
+    failure patterns: compound/multi-concept queries (joined by "and"/"between"),
+    excessive word length (>6 words), and thesis-style academic filler terms.
 
     Args:
         query: The candidate search query string to validate.
@@ -322,21 +315,21 @@ def is_atomic_query(query: str) -> Tuple[bool, Optional[str]]:
     if not q:
         return False, "empty query"
 
+    words = q.split()
+    if len(words) > _MAX_QUERY_WORDS:
+        return False, f"too long ({len(words)} words; max {_MAX_QUERY_WORDS} for web search)"
+
     q_lower = q.lower()
-    word_count = len(q.split())
-    if word_count > _MAX_QUERY_WORDS:
-        return False, f"too long/compound ({word_count} words, max {_MAX_QUERY_WORDS})"
+    for word in _ACADEMIC_STOP_WORDS:
+        if word in q_lower:
+            return False, f"contains academic filler term ('{word}')"
 
     for marker in _COMPOUND_MARKERS:
         if marker in q_lower:
-            return False, f"contains compound conjunction ('{marker.strip()}')"
+            return False, f"contains compound connector ('{marker.strip()}')"
 
     if q_lower.count(",") >= 2:
         return False, "contains a list of 3+ items (2+ commas)"
-
-    for phrase in _THESIS_PHRASE_MARKERS:
-        if phrase in q_lower:
-            return False, f"thesis-style phrasing ('{phrase}')"
 
     return True, None
 
@@ -598,17 +591,14 @@ def build_search_query_prompt(
     )
 
     return (
-        f"Research sub-question or gap under investigation: \"{question_text}\"\n\n"
+        f"Sub-question under investigation: \"{question_text}\"\n\n"
         f"{intent_block}"
         "TASK:\n"
-        "Formulate ONE short, concrete search-engine query that will surface useful "
-        "sources for this. This is NOT the sub-question restated — it is the exact "
-        "string a person would type into a search box to find this specific piece "
-        "of information.\n\n"
+        "Convert the sub-question above into ONE short, 2 to 4 word search query for DuckDuckGo.\n"
+        "Strip away all conversational words, prepositions, and academic jargon. Leave ONLY essential keywords.\n\n"
         f"{ATOMIC_QUERY_CONSTRAINT}"
         f"{retry_block}\n"
-        "Output ONLY the search query text on a single line. No quotes, no "
-        "explanation, no numbering, no markdown formatting."
+        "Output ONLY the search query text on a single line. No quotes, no explanation."
     )
 
 
@@ -618,58 +608,45 @@ def build_extract_prompt(
     source_title: str,
     source_url: str,
     page_content: str,
-    current_notes: str,
     skill_template: str = "",
 ) -> str:
     """Build the prompt for the EXTRACT phase.
 
-    Asks the model to extract all facts relevant to the sub-question from a raw web page
-    and merge them into the existing working notes, maintaining citation tags.
-    An optional skill_template block (from get_skill_template()) is prepended to
-    give the model structured guidance on what quality of answer is expected for
-    this research task type.
+    Asks the model to extract all relevant facts, figures, and key claims from a single
+    source web page chunk. Output is designed to be additively appended to the sub-question
+    notes file, preserving all prior source findings without risk of LLM truncation.
 
     Args:
-        sub_question: The current sub-question.
+        sub_question: The current sub-question under investigation.
         source_id: Unique string identifier for the source (e.g. "src_001").
         source_title: Title of the source web page.
         source_url: URL of the source web page.
-        page_content: Clean extracted text from the page.
-        current_notes: Existing compiled notes for this sub-question (can be empty).
+        page_content: Clean extracted text from the page chunk.
         skill_template: Optional structured guidance block from get_skill_template().
-                        Prepended to the prompt header when provided.
 
     Returns:
         str: Formatted prompt.
     """
-    notes_block = (
-        f"### Current Working Notes:\n{current_notes}\n"
-        if current_notes.strip()
-        else "### Current Working Notes:\n*(No notes recorded yet — start fresh)*\n"
-    )
-
     template_header = f"{skill_template}\n\n" if skill_template.strip() else ""
 
     return (
         f"{template_header}"
         f"Sub-question under investigation: \"{sub_question}\"\n\n"
-        f"We are reading a new source:\n"
-        f"Source ID: {source_id}\n"
-        f"Source Title: {source_title}\n"
-        f"Source URL: {source_url}\n\n"
-        f"{notes_block}\n"
+        f"Reading Source [{source_id}]:\n"
+        f"Title: {source_title}\n"
+        f"URL: {source_url}\n\n"
         "-----------------------------------------\n"
-        f"NEW SOURCE CONTENT:\n{page_content}\n"
+        f"SOURCE CONTENT:\n{page_content}\n"
         "-----------------------------------------\n\n"
         "TASK:\n"
-        "1. Extract all facts, figures, statistics, names, dates, and key claims from the NEW SOURCE CONTENT "
-        "that are directly relevant to answering the sub-question.\n"
-        f"2. Integrate these new facts seamlessly into the 'Current Working Notes'. Add new findings under logical "
-        "sub-headings. Meticulously tag every extracted fact with its citation label [{source_id}] at the end of the sentence.\n"
-        "3. Preserve all facts and citations that were already present in 'Current Working Notes' — do NOT delete or summarize away "
-        "prior findings from other sources. Only add, refine, or update them with the new source data.\n"
-        "4. Keep observations highly factual, objective, and dense with details. Use bullet points under headings.\n\n"
-        "Output ONLY the complete, updated markdown notes. Do not include any introductory chat or conversational meta-commentary."
+        "1. Extract all concrete facts, figures, statistics, code snippets, step-by-step instructions, "
+        "and key claims from the SOURCE CONTENT that directly answer or inform the sub-question above.\n"
+        f"2. Organize extracted findings into clear bullet points under relevant topic sub-headings.\n"
+        f"3. Meticulously tag every extracted fact with its citation label [{source_id}] at the end of the sentence.\n"
+        "4. Keep observations highly objective, dense with concrete details, and free of conversational meta-commentary.\n"
+        "5. Identify any technical synonyms, alternative names, industry jargon, or acronyms discovered in the text "
+        "(e.g. 'GBNF', 'JSON schema sampling', 'O(N^2)'). List them under an '### Discovered Aliases' heading at the end.\n\n"
+        "Output ONLY the extracted markdown bullet points, headings, and discovered aliases with citation tags."
     )
 
 
@@ -929,49 +906,43 @@ def build_synthesize_prompt(
 
     if domain_level == "everyday":
         task_instruction = (
-            "Synthesize these research notes into a clear, practical guide that directly "
-            "answers the original query. Write for someone who wants to get the job done, "
-            "not for an academic audience."
+            "Synthesize these research notes into an actionable, highly readable reference guide that directly "
+            "answers the original query. Write cleanly and concisely for a practical audience, avoiding academic fluff."
         )
         requirements = (
-            "1. Use plain, conversational language throughout. Avoid jargon; if a technical "
-            "term is necessary, explain it in plain English immediately after.\n"
-            "2. Organise the content as a practical guide: lead with what matters most "
-            "(materials needed, key steps, safety notes), then walk through the process "
-            "in logical order. Use numbered steps, bullet lists, and short paragraphs.\n"
-            "3. Include concrete, actionable tips sourced from the notes. Where it adds "
-            "real value, reference a source naturally in-text (e.g. 'according to [src_001]') "
-            "rather than tagging every sentence.\n"
-            "4. Close with a brief 'Things to watch out for' or 'Common mistakes' section "
-            "if the notes contain relevant warnings.\n"
-            "5. End with a short 'Sources' list. No need for a formal confidence score.\n\n"
-            f"Output ONLY the final markdown guide starting with a YAML frontmatter block containing the keys: "
-            f"`title`, `short_title` (a concise 2-5 word alternative title), `date`, `sources_count`, "
+            "REQUIRED REPORT STRUCTURE:\n"
+            "1. Executive Summary & Direct Answer (Lead with 2-3 key takeaways).\n"
+            "2. Core Concepts & Findings (Use plain language, numbered steps, comparison tables, and bullet lists).\n"
+            "3. Practical Implementation / Actionable Steps (Clear steps, code snippets, or configuration rules).\n"
+            "4. Pitfalls & Common Errors (What to watch out for, edge cases).\n"
+            "5. Sources (Clean list of cited sources).\n\n"
+            "STYLE & CITATION RULES:\n"
+            "- Write cleanly and concisely. Avoid passive voice and repetitive introductions.\n"
+            "- Use bolding, bullet points, and tables to maximize visual scannability.\n"
+            "- Maintain natural inline citation tags (e.g. [src_001]) for factual claims.\n\n"
+            f"Output MUST begin with standard YAML frontmatter containing: `title`, `short_title` (a concise 2-5 word alternative title), `date`, `sources_count`, "
             f"and `topic_tags` (a YAML list of {tag_count_instruction} specific, lowercase, hyphenated topic tags representing the subject matter).\n\n"
             "Do not write any conversational preamble or meta-commentary."
         )
     else:
         task_instruction = (
-            "Synthesize these working notes into a definitive, highly professional "
-            "research report resolving the original query."
+            "Synthesize these working notes into an actionable, highly readable reference guide resolving the original query."
         )
         requirements = (
-            "1. Write a structured, detailed report. Use markdown formatting with clear "
-            "headings, sub-headings, lists, and tables where appropriate. "
-            "Do not write a short summary — be comprehensive and capture all numbers, "
-            "dates, statistics, and concrete details.\n"
-            "2. Ensure all statements are strictly backed by the evidence in the notes. "
-            "Maintain absolute citation integrity. Add inline citation tags like [src_001] "
-            "or [src_002] to every factual assertion in the body of your report.\n"
-            "3. Dedicate a final section of your report to 'Sources' listing the full "
-            "citation registry.\n"
-            "4. Assign an overall subjective confidence score from 0 to 100 on how "
-            "thoroughly the research resolved the original query. Explain any limitations, "
-            "weak evidence, or remaining areas of uncertainty in your analysis.\n"
-            f"5. Output the final report with a standard YAML frontmatter containing the keys: "
-            f"`title`, `short_title` (a concise 2-5 word alternative title), `date`, `confidence`, `sources_count`, "
+            "REQUIRED REPORT STRUCTURE:\n"
+            "1. Executive Summary & Direct Answer (Lead with 2-3 key takeaways).\n"
+            "2. Core Concepts & Technical Findings (Use sub-headings, comparison tables, and scannable lists).\n"
+            "3. Practical Implementation / Actionable Steps (Clear steps, code snippets, or configuration rules).\n"
+            "4. Pitfalls & Common Errors (What to watch out for, edge cases, limitations).\n"
+            "5. Sources (Clean list of cited sources).\n\n"
+            "STYLE & CITATION RULES:\n"
+            "- Write cleanly and concisely. Avoid academic fluff, passive voice, and repetitive introductions.\n"
+            "- Use bolding, bullet points, and tables to maximize visual scannability.\n"
+            "- Maintain inline citation tags (e.g. [src_001]) for every factual claim.\n"
+            "- Include overall confidence score (0-100) in frontmatter.\n\n"
+            f"Output MUST begin with standard YAML frontmatter containing: `title`, `short_title` (a concise 2-5 word alternative title), `date`, `confidence`, `sources_count`, "
+            f"`aliases` (a YAML list of 3-6 alternate technical terms, acronyms, or conversational slang terms for the subject), "
             f"and `topic_tags` (a YAML list of {tag_count_instruction} specific, lowercase, hyphenated topic tags representing the subject matter).\n\n"
-            "Output ONLY the final markdown report starting with the YAML frontmatter. "
             "Do not write any conversational preamble or meta-commentary."
         )
 
@@ -989,18 +960,23 @@ def build_synthesize_prompt(
     )
 
 
-def build_rewrite_prompt(original_question: str, current_notes: str, gaps: List[str]) -> str:
+def build_rewrite_prompt(
+    original_question: str,
+    current_notes: str,
+    gaps: List[str],
+    topic_aliases: Optional[List[str]] = None,
+) -> str:
     """Build the prompt for auto-rewriting a low-confidence sub-question.
 
-    Instructs the model to produce a single, semantically divergent search
-    question that targets the identified gaps. Enforces meaningful deviation
-    from the original phrasing to avoid burning search iterations on the same
-    barren query space.
+    Instructs the model to perform a semantic pivot — changing the terminology,
+    angle of approach, or specific variable — to escape a barren search space.
+    Leverages topic_aliases discovered in earlier sources when available.
 
     Args:
-        original_question: The current sub-question text.
-        current_notes: Compiled notes collected so far for this sub-question.
-        gaps: List of identified knowledge gaps from the evaluate step.
+        original_question: The sub-question being rewritten.
+        current_notes: Compiled notes collected so far (can be empty).
+        gaps: Specific gaps or weaknesses identified during evaluate step.
+        topic_aliases: Optional list of technical synonyms/aliases discovered across sources.
 
     Returns:
         str: Formatted prompt.
@@ -1013,10 +989,16 @@ def build_rewrite_prompt(original_question: str, current_notes: str, gaps: List[
         else "### Existing Research Notes:\n*(No substantial evidence collected)*\n"
     )
 
+    aliases_block = ""
+    if topic_aliases and len(topic_aliases) > 0:
+        aliases_text = ", ".join(f"'{a}'" for a in topic_aliases[:8])
+        aliases_block = f"### Discovered Technical Aliases & Synonyms:\n{aliases_text}\n\n"
+
     return (
         f"The following research sub-question yielded LOW CONFIDENCE results after searching:\n\n"
         f"Original Sub-Question: \"{original_question}\"\n\n"
         f"{notes_block}\n"
+        f"{aliases_block}"
         f"### Identified Knowledge Gaps:\n{gaps_text}\n\n"
         "TASK:\n"
         "Rewrite this sub-question into a single, more targeted search question that directly "
@@ -1024,8 +1006,9 @@ def build_rewrite_prompt(original_question: str, current_notes: str, gaps: List[
         "CRITICAL RULES:\n"
         "1. You MUST NOT repeat the same phrasing as the original sub-question. The original "
         "query already failed to find adequate results — repeating it will fail again.\n"
-        "2. Perform a SEMANTIC PIVOT: change the angle of approach. Use alternative terminology, "
-        "synonyms, adjacent concepts, or narrow the scope to a specific aspect mentioned in the gaps.\n"
+        "2. Perform a SEMANTIC PIVOT: change the angle of approach. Use the Discovered Technical Aliases "
+        "above (e.g. pivoting from 'tool calling' to 'GBNF grammar' or 'JSON schema sampling') to escape "
+        "barren search terminology.\n"
         "3. If the gaps suggest the search space is barren (no sources found at all), try reframing "
         "the question using different technical vocabulary or targeting a closely related concept "
         "that would indirectly answer the original question.\n"

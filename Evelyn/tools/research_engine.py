@@ -325,6 +325,7 @@ def create_research_task(
         "vault_path": None,
         "confidence": 0,
         "intent_frame": intent_frame,  # None triggers LLM generation in step_plan()
+        "topic_aliases": [],
         "plan": {
             "sub_questions": []
         },
@@ -356,17 +357,23 @@ def create_research_task(
 
 
 
-async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 2048) -> str:
+async def call_ollama(
+    prompt_messages: List[Dict[str, str]], 
+    num_predict: int = 2048,
+    think: bool = True
+) -> str:
     """Helper to communicate with Ollama synchronously or asynchronously.
 
     Bypasses deep conversational states/history to maximize text context.
+    Supports dynamic thinking/reasoning flags per research phase.
 
     Args:
         prompt_messages: Format-compliant list of prompt message dicts.
         num_predict: Maximum prediction tokens.
+        think: Whether to enable Ollama native thinking/reasoning.
 
     Returns:
-        str: Raw response text from the model.
+        str: Raw response text from the model (with <think> tags stripped).
     """
     importlib.reload(cfg)
     
@@ -387,7 +394,7 @@ async def call_ollama(prompt_messages: List[Dict[str, str]], num_predict: int = 
         "messages": prompt_messages,
         "stream": True,
         "options": options,
-        "think": False # Native reasoning off to fit maximum factual context
+        "think": think
     }
     
     content_buffer = ""
@@ -510,7 +517,7 @@ async def formulate_search_query(
         ]
 
         state["ollama_calls"] += 1
-        raw = await call_ollama(messages, num_predict=100)
+        raw = await call_ollama(messages, num_predict=512, think=True)
         candidate = raw.strip().strip('"\'\'').split("\n")[0].strip()
 
         is_ok, reason = research_prompts.is_atomic_query(candidate)
@@ -533,32 +540,17 @@ async def formulate_search_query(
     return fallback
 
 
-def _truncate_query_fallback(question_text: str, max_words: int = 8) -> str:
-    """Deterministic, code-only fallback query used when LLM formulation fails twice.
+def _truncate_query_fallback(question_text: str, max_words: int = 5) -> str:
+    """Deterministic fallback that strips academic prefixes and extracts raw keywords."""
+    text = re.sub(r"(?i)^(an?|the)\s+(analysis|overview|study|investigation|evaluation)\s+(of|on)\s+", "", question_text)
+    text = re.sub(r"(?i)^(comparative\s+)?(analysis|comparison)\s+between\s+", "", text)
+    text = re.sub(r"[?\"'!,]", "", text)
 
-    Strips question marks/quotes and a common leading question stem, then
-    truncates to max_words. This is a last resort only — it does not attempt
-    to be smart about atomicity, it just guarantees the pipeline never stalls
-    waiting on a formulation call that keeps failing validation.
-
-    Args:
-        question_text: The original sub-question or gap string.
-        max_words: Maximum words to retain.
-
-    Returns:
-        str: A short, deterministic query string.
-    """
-    text = re.sub(r"[?\"']", "", question_text).strip()
-    text_lower = text.lower()
-    leading_stopwords = (
-        "what is", "what are", "how does", "how do", "why is",
-        "why does", "who is", "which",
-    )
-    for sw in leading_stopwords:
-        if text_lower.startswith(sw):
-            text = text[len(sw):].strip()
-            break
-    words = text.split()
+    ignore_words = {
+        "underlying", "mechanisms", "linking", "impact", "effects", "role",
+        "towards", "using", "via", "what", "how", "why", "does", "is", "are"
+    }
+    words = [w for w in text.split() if w.lower() not in ignore_words]
     return " ".join(words[:max_words])
 
 
@@ -596,7 +588,12 @@ async def _rewrite_subquestion(
         with open(notes_file, "r", encoding="utf-8") as f:
             current_notes = f.read()
 
-    rewrite_prompt = research_prompts.build_rewrite_prompt(sq["question"], current_notes, gaps)
+    rewrite_prompt = research_prompts.build_rewrite_prompt(
+        sq["question"],
+        current_notes,
+        gaps,
+        topic_aliases=state.get("topic_aliases", []),
+    )
     rewrite_messages = [
         {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
         {"role": "user", "content": rewrite_prompt},
@@ -826,7 +823,7 @@ async def _generate_intent_frame(state: Dict[str, Any]) -> str:
     ]
     state["ollama_calls"] += 1
     try:
-        frame = await call_ollama(messages, num_predict=150)
+        frame = await call_ollama(messages, num_predict=1024, think=True)
         frame = frame.strip()
         if frame:
             print(f"[RESEARCH_ENGINE] Generated intent frame: '{frame}'", flush=True)
@@ -893,7 +890,7 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
 
 
     state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=150)
+    raw_response = await call_ollama(messages, num_predict=1024, think=True)
     seed_question = raw_response.strip().strip('"\'').split("\n")[0].strip()
 
     if not seed_question:
@@ -1163,7 +1160,6 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 title,
                 url,
                 chunk,
-                current_notes,
                 skill_template=skill_template,
             )
             
@@ -1173,12 +1169,33 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             ]
             
             state["ollama_calls"] += 1
-            current_notes = await call_ollama(messages, num_predict=2048)
-            extracted_any = True
+            extracted_chunk_notes = await call_ollama(messages, num_predict=2048, think=True)
+            extracted_chunk_notes = extracted_chunk_notes.strip()
             
-            # Save notes incrementally
-            with open(notes_file, "w", encoding="utf-8") as f:
-                f.write(current_notes)
+            if extracted_chunk_notes:
+                extracted_any = True
+                section_header = f"### Source [{src_id}]: {title}\n"
+                formatted_entry = f"{section_header}{extracted_chunk_notes}\n\n"
+                
+                # Append notes additively to disk so prior source findings are permanently preserved
+                with open(notes_file, "a", encoding="utf-8") as f:
+                    f.write(formatted_entry)
+
+                # Parse discovered technical aliases / synonyms for Phase 11 Alias Expansion
+                if "Discovered Aliases" in extracted_chunk_notes:
+                    alias_part = extracted_chunk_notes.split("Discovered Aliases", 1)[1]
+                    matches = re.findall(r"[-*]\s*['\"]?(.*?)['\"]?$", alias_part, re.MULTILINE)
+                    current_aliases = set(state.get("topic_aliases", []))
+                    new_found = False
+                    for m in matches:
+                        clean_a = m.strip().strip("'\"`")
+                        if clean_a and len(clean_a) > 1 and clean_a not in current_aliases:
+                            current_aliases.add(clean_a)
+                            new_found = True
+                            print(f"[RESEARCH_ENGINE] Discovered topic alias: '{clean_a}'", flush=True)
+                    if new_found:
+                        state["topic_aliases"] = list(current_aliases)
+                        save_state(task_id, state)
                 
             # Respect step cooldown
             await asyncio.sleep(cfg.RESEARCH_STEP_COOLDOWN)
@@ -1281,7 +1298,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     ]
     
     state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=512)
+    raw_response = await call_ollama(messages, num_predict=1024, think=True)
     
     # Parse evaluate output (must be valid JSON)
     try:
@@ -1373,7 +1390,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                     {"role": "user", "content": coverage_prompt},
                 ]
                 state["ollama_calls"] += 1
-                raw_coverage = await call_ollama(coverage_messages, num_predict=300)
+                raw_coverage = await call_ollama(coverage_messages, num_predict=512, think=True)
 
                 try:
                     coverage_result = parse_json_response(raw_coverage)
@@ -1630,6 +1647,22 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                             topic_tags = [str(t).strip() for t in raw_tags if t]
                         elif isinstance(raw_tags, str):
                             topic_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+
+                    # extract aliases
+                    if "aliases" in fm_data:
+                        raw_aliases = fm_data["aliases"]
+                        current_aliases = set(state.get("topic_aliases", []))
+                        if isinstance(raw_aliases, list):
+                            for a in raw_aliases:
+                                clean_a = str(a).strip().strip("'\"`")
+                                if clean_a:
+                                    current_aliases.add(clean_a)
+                        elif isinstance(raw_aliases, str):
+                            for a in raw_aliases.split(","):
+                                clean_a = a.strip().strip("'\"`")
+                                if clean_a:
+                                    current_aliases.add(clean_a)
+                        state["topic_aliases"] = list(current_aliases)
             except Exception as e:
                 # Fallback to regex if PyYAML fails
                 print(f"[RESEARCH_ENGINE WARNING] PyYAML failed to parse frontmatter: {e}. Falling back to regex.", flush=True)
