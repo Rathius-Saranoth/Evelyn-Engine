@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-07-20 18:35:56
+# date modified: 2026-07-25 08:02:00
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -8,6 +8,8 @@ evelyn_server.py — Custom Evelyn backend server.
 
 FastAPI app providing:
   - POST /chat       — Streaming chat with tool loop, RAG injection, inline think-tag parsing
+  - POST /regenerate — Delete last assistant response and re-generate
+  - POST /edit       — Update last user message in DB and stream new response
   - GET  /history    — Chat history
   - DELETE /history  — Clear chat history
   - GET  /status     — Health check
@@ -648,6 +650,42 @@ def delete_last_assistant_message() -> str | None:
     return last_user["content"] if last_user else None
 
 
+def edit_last_user_message(new_text: str) -> str | None:
+    """Delete the last assistant message and update the last user message content.
+
+    Args:
+        new_text: The updated content for the last user message.
+
+    Returns:
+        str | None: The new message content, or None if no user message exists.
+    """
+    con = get_db()
+    # Delete the last assistant row
+    last_asst = con.execute(
+        "SELECT id FROM messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if last_asst:
+        con.execute("DELETE FROM messages WHERE id = ?", (last_asst["id"],))
+        con.commit()
+
+    # Find and update the last user message
+    last_user = con.execute(
+        "SELECT id FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not last_user:
+        con.close()
+        return None
+
+    con.execute(
+        "UPDATE messages SET content = ?, ts = ? WHERE id = ?",
+        (new_text, time.time(), last_user["id"]),
+    )
+    con.commit()
+    con.close()
+    return new_text
+
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -959,6 +997,12 @@ async def _stream_content(msgs: list[dict]):
 class ChatRequest(BaseModel):
     """Pydantic model representing an incoming chat request from the user."""
     message: str
+
+
+class EditRequest(BaseModel):
+    """Pydantic model representing an incoming edit message request from the user."""
+    message: str
+
 
 
 async def _process_chat_background(
@@ -1796,6 +1840,22 @@ async def regenerate(_: None = Depends(check_auth)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/edit")
+async def edit_message(req: EditRequest, _: None = Depends(check_auth)):
+    """Update the content of the last user message and re-generate a response."""
+    user_message = edit_last_user_message(req.message)
+    if not user_message:
+        raise HTTPException(
+            status_code=400, detail="No user message to edit."
+        )
+    return StreamingResponse(
+        chat_stream(user_message, is_regenerate=True),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 @app.get("/latest_message_id")
 async def get_latest_message_id(_: None = Depends(check_auth)):
     """Return the ID of the latest committed message."""

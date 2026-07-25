@@ -407,7 +407,8 @@
       .btn-tts:hover {
         color: var(--accent);
       }
-      .btn-regen {
+      .btn-regen,
+      .btn-edit {
         background: none;
         border: none;
         cursor: pointer;
@@ -417,9 +418,75 @@
         border-radius: 4px;
         transition: color 0.15s;
       }
-      .btn-regen:hover {
+      .btn-regen:hover,
+      .btn-edit:hover {
         color: var(--accent);
       }
+
+      /* In-place message edit box */
+      .msg.user.editing {
+        width: 100%;
+        max-width: 100%;
+        align-items: stretch;
+      }
+      .msg-edit-box {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 4px;
+        width: 100%;
+      }
+      .msg-edit-textarea {
+        width: 100%;
+        min-height: 90px;
+        max-height: 400px;
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--accent);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        font-family: inherit;
+        font-size: 14px;
+        line-height: 1.6;
+        resize: vertical;
+        box-sizing: border-box;
+        outline: none;
+        box-shadow: 0 0 12px rgba(187, 134, 252, 0.15);
+      }
+      .msg-edit-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      .btn-edit-save {
+        background: var(--accent);
+        color: var(--bg-dark);
+        border: none;
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn-edit-save:hover {
+        opacity: 0.9;
+      }
+      .btn-edit-cancel {
+        background: transparent;
+        color: var(--text-dim);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .btn-edit-cancel:hover {
+        color: var(--text);
+        border-color: var(--text-dim);
+      }
+
 
       /* Write-tool badges */
       .write-badges {
@@ -1032,6 +1099,7 @@
         const isSystem = text.startsWith("[System:");
         const div = document.createElement("div");
         div.className = isSystem ? "msg system" : "msg user";
+        div.dataset.rawText = text;
         const meta = document.createElement("div");
         meta.className = "msg-meta";
         meta.textContent = isSystem ? `System · ${formatTime(ts)}` : `You · ${formatTime(ts)}`;
@@ -2063,15 +2131,23 @@
       // History clear removed from UI — use DELETE /history API directly if needed.
 
       function addRegenToUserMsg(userMsgDiv) {
-        // Remove any existing regen button from other user messages
-        document.querySelectorAll(".msg.user .btn-regen").forEach((b) => b.remove());
-        // Add regen actions to this user message
+        // Remove any existing regen/edit buttons from other user messages
+        document.querySelectorAll(".msg.user .btn-regen, .msg.user .btn-edit").forEach((b) => b.remove());
+        // Add action buttons to this user message
         let actions = userMsgDiv.querySelector(".msg-actions");
         if (!actions) {
           actions = document.createElement("div");
           actions.className = "msg-actions";
           userMsgDiv.appendChild(actions);
         }
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "btn-edit";
+        editBtn.textContent = "✏️";
+        editBtn.title = "Edit message";
+        editBtn.onclick = () => editUserMessage(userMsgDiv);
+        actions.appendChild(editBtn);
+
         const regenBtn = document.createElement("button");
         regenBtn.className = "btn-regen";
         regenBtn.textContent = "🔄";
@@ -2079,6 +2155,299 @@
         regenBtn.onclick = () => regenerateResponse(userMsgDiv);
         actions.appendChild(regenBtn);
       }
+
+      function editUserMessage(userMsgDiv) {
+        if (isStreaming) return;
+        const bubble = userMsgDiv.querySelector(".bubble");
+        if (!bubble) return;
+
+        // Don't open duplicate edit box
+        if (userMsgDiv.querySelector(".msg-edit-box")) return;
+
+        const currentText = userMsgDiv.dataset.rawText || bubble.innerText.trim();
+
+        // Add editing class to expand container width
+        userMsgDiv.classList.add("editing");
+
+        // Hide bubble and action buttons while editing
+        bubble.style.display = "none";
+        const actions = userMsgDiv.querySelector(".msg-actions");
+        if (actions) actions.style.display = "none";
+
+        // Create edit container
+        const editBox = document.createElement("div");
+        editBox.className = "msg-edit-box";
+
+        const textarea = document.createElement("textarea");
+        textarea.className = "msg-edit-textarea";
+        textarea.value = currentText;
+
+        const adjustHeight = () => {
+          textarea.style.height = "auto";
+          textarea.style.height = Math.max(90, textarea.scrollHeight) + "px";
+        };
+        textarea.addEventListener("input", adjustHeight);
+
+        const editActions = document.createElement("div");
+        editActions.className = "msg-edit-actions";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "btn-edit-cancel";
+        cancelBtn.textContent = "Cancel";
+
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "btn-edit-save";
+        saveBtn.textContent = "Save & Submit";
+
+        const closeEditBox = () => {
+          editBox.remove();
+          userMsgDiv.classList.remove("editing");
+          bubble.style.display = "";
+          if (actions) actions.style.display = "";
+        };
+
+        cancelBtn.onclick = closeEditBox;
+
+        saveBtn.onclick = () => {
+          const newText = textarea.value.trim();
+          closeEditBox();
+          if (newText && newText !== currentText) {
+            submitEditedMessage(userMsgDiv, newText);
+          }
+        };
+
+        textarea.onkeydown = (e) => {
+          if (e.key === "Escape") {
+            closeEditBox();
+          } else if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            saveBtn.click();
+          }
+        };
+
+        editActions.appendChild(cancelBtn);
+        editActions.appendChild(saveBtn);
+        editBox.appendChild(textarea);
+        editBox.appendChild(editActions);
+
+        userMsgDiv.appendChild(editBox);
+        adjustHeight();
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+
+      async function submitEditedMessage(userMsgDiv, newText) {
+        if (isStreaming) return;
+        userMsgDiv.dataset.rawText = newText;
+        const bubble = userMsgDiv.querySelector(".bubble");
+        if (bubble) bubble.innerHTML = renderMarkdown(newText);
+
+        // Remove the assistant message(s) following this user message
+        let next = userMsgDiv.nextElementSibling;
+        while (next && next.classList.contains("msg") && next.classList.contains("assistant")) {
+          const toRemove = next;
+          next = next.nextElementSibling;
+          toRemove.remove();
+        }
+
+        const oldActions = userMsgDiv.querySelector(".msg-actions");
+        if (oldActions) oldActions.remove();
+
+        isStreaming = true;
+        document.getElementById("send-btn").disabled = true;
+        document.querySelector(".avatar").classList.add("active");
+        setStatus("Editing message…");
+
+        const wrap = createAssistantMessage();
+        const actLog = document.createElement("div");
+        actLog.className = "activity-log";
+        wrap.appendChild(actLog);
+        let actRemoved = false;
+
+        function addActivity(icon, text, isDone = false) {
+          const prev = actLog.querySelector(".activity-step:last-child");
+          if (prev) prev.classList.add("done");
+          const step = document.createElement("div");
+          step.className = "activity-step";
+          step.innerHTML = icon
+            ? `<span class="step-icon">${icon}</span><span>${text}</span>`
+            : `<div class="step-dot"></div><span>${text}</span>`;
+          if (isDone) step.classList.add("done");
+          actLog.appendChild(step);
+          scrollBottom();
+        }
+
+        function removeActivity() {
+          if (!actRemoved) {
+            actLog.remove();
+            actRemoved = true;
+          }
+        }
+
+        addActivity("✏️", "Resubmitting edited message…");
+        let thinkBlock = null;
+        let thinkContent = null;
+        let assistantBubble = null;
+        let contentText = "";
+        let cursorEl = null;
+        const usedTools = [];
+
+        try {
+          const resp = await fetch(`${API_BASE}/edit`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ message: newText }),
+          });
+
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+
+            const lines = buf.split("\n\n");
+            buf = lines.pop();
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              let evt;
+              try {
+                evt = JSON.parse(line.slice(6));
+              } catch {
+                continue;
+              }
+
+              if (evt.type === "status") {
+                addActivity(null, evt.msg);
+              }
+
+              if (evt.type === "thinking") {
+                if (!thinkBlock) {
+                  addActivity("🧠", "Model thinking…");
+                  thinkBlock = createThinkBlock();
+                  thinkContent = thinkBlock.querySelector(".think-content");
+                  if (assistantBubble) {
+                    wrap.insertBefore(thinkBlock, assistantBubble);
+                  } else {
+                    wrap.appendChild(thinkBlock);
+                  }
+                }
+                thinkContent.textContent += evt.delta;
+                thinkContent.scrollTop = thinkContent.scrollHeight;
+                scrollBottom();
+              }
+
+              if (evt.type === "tool") {
+                const toolLabels = {
+                  search_vault: "Searching vault",
+                  recall_specific_memory: "Reading memory",
+                  read_journal_entry: "Reading journal",
+                  read_recent_journal_entries: "Reviewing recent journal",
+                  write_journal_entry: "Writing journal entry",
+                  log_context_fact: "Logging context fact",
+                  update_context_fact: "Updating context fact",
+                  delete_context_fact: "Deleting context fact",
+                  add_reflection: "Adding reflection",
+                  gcal_search_events: "Searching Google Calendar",
+                  gcal_create_event: "Creating Google Calendar event",
+                  gcal_update_event: "Updating Google Calendar event",
+                  gcal_delete_event: "Deleting Google Calendar event",
+                  gcal_list_upcoming: "Fetching upcoming events",
+                  schedule_reminder: "Scheduling reminder",
+                  complete_reminder: "Completing reminder",
+                  list_reminders: "Checking reminders",
+                  system_shell: "Running command",
+                  start_deep_research: "Starting Deep Research",
+                  get_research_status: "Checking research status",
+                  get_research_report: "Reading research report",
+                  list_research_tasks: "Listing research tasks",
+                  cancel_research_task: "Canceling research task",
+                  delete_research_task: "Deleting research task",
+                  trigger_research_now: "Starting research immediately",
+                  resume_research_task: "Resuming research task",
+                  guide_research_task: "Guiding research task",
+                  trigger_profile_evolution: "Triggering profile evolution",
+                };
+                const label = toolLabels[evt.name] || evt.name;
+                addActivity("⚙️", `${label} (${evt.arg || ""})`);
+                usedTools.push(evt.name);
+              }
+
+              if (evt.type === "text") {
+                if (!assistantBubble) {
+                  addActivity("✍️", "Generating response…");
+                  removeActivity();
+                  wrap.querySelectorAll(".tool-indicator .spinner").forEach((s) => {
+                    s.style.animation = "none";
+                    s.style.borderColor = "var(--tool-text)";
+                  });
+                  assistantBubble = document.createElement("div");
+                  assistantBubble.className = "bubble";
+                  cursorEl = document.createElement("span");
+                  cursorEl.className = "cursor";
+                  assistantBubble.appendChild(cursorEl);
+                  wrap.appendChild(assistantBubble);
+                  if (thinkBlock) {
+                    thinkBlock.querySelector(".think-label").textContent = "Thought process";
+                    thinkBlock.classList.remove("open");
+                  }
+                }
+                contentText += evt.delta;
+                assistantBubble.innerHTML = renderMarkdown(contentText);
+                assistantBubble.appendChild(cursorEl);
+                setStatus("Streaming…");
+                scrollBottom();
+              }
+
+              if (evt.type === "metrics") {
+                updateTelemetry(evt.prompt_eval_count, evt.eval_count);
+              }
+
+              if (evt.type === "done") {
+                if (cursorEl) cursorEl.remove();
+                if (assistantBubble) assistantBubble.innerHTML = renderMarkdown(contentText);
+                const actions = document.createElement("div");
+                actions.className = "msg-actions";
+                const ttsBtn = document.createElement("button");
+                ttsBtn.className = "btn-tts";
+                ttsBtn.textContent = "🔊";
+                ttsBtn.title = "Play TTS";
+                const captured = contentText;
+                ttsBtn.onclick = () => playTTS(captured, ttsBtn);
+                actions.appendChild(ttsBtn);
+                wrap.appendChild(actions);
+                addWriteBadges(wrap, usedTools, contentText);
+                addRegenToUserMsg(userMsgDiv);
+                setStatus("Ready");
+                scrollBottom();
+                if (_autoSpeech) playTTS(captured, ttsBtn);
+              }
+            }
+          }
+        } catch (err) {
+          removeActivity();
+          const recovered = await recoverFromConnectionDrop(wrap);
+          if (!recovered) {
+            const errBubble = document.createElement("div");
+            errBubble.className = "bubble";
+            errBubble.style.color = "#ff6666";
+            errBubble.textContent = `Error: ${err.message}`;
+            wrap.appendChild(errBubble);
+            addRegenToUserMsg(userMsgDiv);
+            setStatus("Error");
+          }
+        } finally {
+          isStreaming = false;
+          document.getElementById("send-btn").disabled = false;
+          document.querySelector(".avatar").classList.remove("active");
+        }
+      }
+
 
       async function regenerateResponse(userMsgDiv) {
         if (isStreaming) return;
