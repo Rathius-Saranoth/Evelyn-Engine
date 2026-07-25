@@ -264,8 +264,8 @@ def get_time_gap_context() -> str | None:
     """Return a time-gap annotation if enough time has passed since the last message.
 
     Returns:
-        str | None: A bracketed explanation of elapsed time if exceeding
-            5 minutes, otherwise None.
+        str | None: A succinct bracketed explanation of the last message time,
+            elapsed time gap, and current time if exceeding 5 minutes, otherwise None.
     """
     con = get_db()
     row = con.execute(
@@ -284,15 +284,19 @@ def get_time_gap_context() -> str | None:
     if delta < _td(minutes=5):
         return None  # Continuous conversation, no annotation needed
 
-    time_str = now.strftime("%I:%M %p").lstrip("0")
+    last_time_str = (
+        last_ts.strftime("%a %b %d, %I:%M %p").lstrip("0")
+        if last_ts.date() != now.date()
+        else last_ts.strftime("%I:%M %p").lstrip("0")
+    )
 
     if delta < _td(hours=1):
         mins = int(delta.total_seconds() // 60)
-        return f"[About {mins} minutes have passed since the last message. Current time: {time_str}.]"
+        gap_str = f"{mins} minutes"
     elif delta < _td(hours=6):
         hrs = delta.total_seconds() / 3600
         label = f"{hrs:.1f}".rstrip("0").rstrip(".")
-        return f"[About {label} hours have passed since the last message. Current time: {time_str}.]"
+        gap_str = f"{label} hours"
     else:
         days = delta.days
         hrs = delta.seconds // 3600
@@ -301,8 +305,9 @@ def get_time_gap_context() -> str | None:
             parts.append(f"{days} day{'s' if days != 1 else ''}")
         if hrs:
             parts.append(f"{hrs} hour{'s' if hrs != 1 else ''}")
-        gap = " and ".join(parts) if parts else "a long time"
-        return f"[{gap} have passed since the last message. Current time: {time_str}.]"
+        gap_str = " and ".join(parts) if parts else "a long time"
+
+    return f"[Last user message: {last_time_str} ({gap_str} ago)]"
 
 
 # ---------------------------------------------------------------------------
