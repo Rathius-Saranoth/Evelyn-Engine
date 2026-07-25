@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-07-12 11:20:00
+date modified: 2026-07-25 08:02:00
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -27,6 +27,11 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `POST /regenerate`
 * **Purpose**: Triggers a regeneration of the latest response in the chat chain.
+* **Returns**: Streamed SSE assistant message.
+
+### `POST /edit`
+* **Purpose**: Updates the content of the latest user message in SQLite, deletes the previous assistant response, and streams a fresh response for the corrected prompt.
+* **Payload**: JSON object `{"message": "<updated text>"}`
 * **Returns**: Streamed SSE assistant message.
 
 ### `GET /latest_message_id`

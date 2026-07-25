@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-07-20 19:45:29
+date modified: 2026-07-25 08:03:00
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -103,7 +103,7 @@ graph TD
 
 ### 2.1 The Orchestrator
 The runtime core that manages user connections, model prompts, memory assembly, and active tool routing.
-* **[[evelyn_server.py]]**: Main FastAPI server codebase. Contains SSE endpoint streams, historical retrieval limits, thread-break marks, and endpoints for system tools. Implements a multi-round **agentic tool loop** (`call_ollama_full` with `think: cfg.THINK_TOOL_LOOP`) that allows the model to reason at each decision point — evaluating tool results and deciding whether to call another tool or exit — before streaming the final response. Intermediate per-round reasoning can optionally be forwarded to the client as SSE thinking events (`SHOW_TOOL_LOOP_THINKING`). Loop rounds use a configurable smaller token budget (`TOOL_LOOP_NUM_PREDICT`) distinct from the full response budget.
+* **[[evelyn_server.py]]**: Main FastAPI server codebase. Exposes `/chat` (streaming response), `/regenerate` (response regeneration), and `/edit` (`edit_last_user_message()`) endpoints alongside history, status, and system tool APIs. Implements a multi-round **agentic tool loop** (`call_ollama_full` with `think: cfg.THINK_TOOL_LOOP`) that allows the model to reason at each decision point — evaluating tool results and deciding whether to call another tool or exit — before streaming the final response. Intermediate per-round reasoning can optionally be forwarded to the client as SSE thinking events (`SHOW_TOOL_LOOP_THINKING`). Loop rounds use a configurable smaller token budget (`TOOL_LOOP_NUM_PREDICT`) distinct from the full response budget.
 * **[[evelyn_config.py]]**: Single source of truth config file. Controls LLM parameters, on-demand memory thresholds, allowed Tailscale CORS origins, and system path settings. Key agentic parameters: `THINK_TOOL_LOOP` (enable reasoning in tool rounds), `TOOL_LOOP_NUM_PREDICT` (per-round token budget), `SHOW_TOOL_LOOP_THINKING` (surface intermediate reasoning to UI), `MAX_TOOL_ROUNDS` (loop cap).
 
 ### 2.2 Memory & RAG Retrieval Engine
@@ -154,7 +154,7 @@ FastAPI services running locally to isolate heavy GPU model weights and guarante
 
 ### 2.7 The Frontend User Interface
 The presentation and interaction layout loaded by the client browser. Connects directly to server APIs for state management and model inference.
-* **`evelyn_ui/index.html`**: The main user-facing dashboard. Renders the interactive companion panel, maintains Tailscale CORS setups, triggers dynamic TTS playback, and drives background task polling. Implements a full **markdown renderer** (`renderMarkdown`) with: fenced code blocks (``` ``` ```) rendered on `done` event with CSS-only syntax highlighting (keywords, strings, comments, numbers), a copy-to-clipboard button per block, headings (h1–h3), bold, italic, inline code, and paragraph breaks. `renderFullMarkdown` (used for research/journal modals) is an alias to the same renderer.
+* **`evelyn_ui/index.html`**: The main user-facing dashboard. Renders the interactive companion panel, maintains Tailscale CORS setups, triggers dynamic TTS playback, drives background task polling, and supports in-place user message editing (✏️) and message regeneration (🔄). Implements a full **markdown renderer** (`renderMarkdown`) with: fenced code blocks (``` ``` ```) rendered on `done` event with CSS-only syntax highlighting (keywords, strings, comments, numbers), a copy-to-clipboard button per block, headings (h1–h3), bold, italic, inline code, and paragraph breaks. `renderFullMarkdown` (used for research/journal modals) is an alias to the same renderer.
   * *API Bridges*: Communicates via [[endpoints.md]] §1 (streaming prompts), §2 (memory refreshes), and §3 (speech generation).
 * **`evelyn_ui/dev.html`**: The developer and review dashboard console. Displays a visual triaging interface for reviewing staged observations and consolidation proposals.
   * *API Bridges*: Communicates via [[endpoints.md]] §5 (memory triaging) and §6 (research tasks).
