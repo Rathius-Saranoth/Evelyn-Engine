@@ -1508,9 +1508,14 @@ async def lifespan(app: FastAPI):
                     flush=True,
                 )
                 import fact_consolidator
-                fact_consolidator._consolidation_task = asyncio.create_task(run_consolidation())
                 import procedure_consolidator
-                procedure_consolidator._procedure_task = asyncio.create_task(run_procedure_consolidation())
+                t1 = asyncio.create_task(run_consolidation())
+                t2 = asyncio.create_task(run_procedure_consolidation())
+                fact_consolidator._consolidation_task = t1
+                procedure_consolidator._procedure_task = t2
+                await asyncio.gather(t1, t2, return_exceptions=True)
+                print(f"{_MAG}[CONSOLIDATOR]{_RST} Consolidation pass completed — triggering automatic memory refresh.", flush=True)
+                await start_refresh_memory_internal()
 
     asyncio.create_task(_idle_consolidation_loop())
     print(
@@ -1619,10 +1624,14 @@ async def lifespan(app: FastAPI):
                 
                 # If finished or changed out-of-band on disk, sync it to memory
                 if disk_status and disk_status not in ("running", "searching", "synthesizing"):
+                    prev_status = _background_tasks.get(tid, {}).get("status")
                     print(f"[RESEARCH SYNC] Task {tid} completed or changed status on disk to '{disk_status}' — updating server memory.", flush=True)
                     _background_tasks[tid]["status"] = disk_status
                     if disk_status in ("done", "error", "cancelled"):
                         _background_tasks[tid]["finished_at"] = time.time()
+                    if disk_status == "done" and prev_status in ("running", "searching", "synthesizing"):
+                        print(f"[RESEARCH REFRESH] Research task {tid} finished — triggering automatic memory refresh.", flush=True)
+                        await start_refresh_memory_internal()
                     continue
                     
                 if idle_seconds < 10:  # User active!
