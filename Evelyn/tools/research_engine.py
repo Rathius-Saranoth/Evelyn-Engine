@@ -517,7 +517,7 @@ async def formulate_search_query(
         ]
 
         state["ollama_calls"] += 1
-        raw = await call_ollama(messages, num_predict=512, think=True)
+        raw = await call_ollama(messages, num_predict=1024, think=True)
         candidate = raw.strip().strip('"\'\'').split("\n")[0].strip()
 
         is_ok, reason = research_prompts.is_atomic_query(candidate)
@@ -600,7 +600,7 @@ async def _rewrite_subquestion(
     ]
     state["ollama_calls"] += 1
     print(f"[RESEARCH_ENGINE] Auto-rewriting SQ {sq['id']}...", flush=True)
-    rewritten_q = await call_ollama(rewrite_messages, num_predict=512)
+    rewritten_q = await call_ollama(rewrite_messages, num_predict=1024)
     rewritten_q = rewritten_q.strip()
 
     gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
@@ -746,7 +746,7 @@ async def try_resolve_directly(task_id: str, state: Dict[str, Any]) -> bool:
     ]
 
     state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=200)
+    raw_response = await call_ollama(messages, num_predict=1024)
 
     try:
         result = parse_json_response(raw_response)
@@ -823,7 +823,7 @@ async def _generate_intent_frame(state: Dict[str, Any]) -> str:
     ]
     state["ollama_calls"] += 1
     try:
-        frame = await call_ollama(messages, num_predict=1024, think=True)
+        frame = await call_ollama(messages, num_predict=2048, think=True)
         frame = frame.strip()
         if frame:
             print(f"[RESEARCH_ENGINE] Generated intent frame: '{frame}'", flush=True)
@@ -1858,6 +1858,25 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             state["vault_path"] = vault_file_path
             state["quarantined"] = False
             print(f"[RESEARCH_ENGINE] Saved report to Obsidian Vault: {vault_file_path}", flush=True)
+
+            # Trigger memory refresh so vault indexer & Chroma ingest the new research report immediately
+            try:
+                server = sys.modules.get("evelyn_server") or sys.modules.get("__main__")
+                if server and hasattr(server, "start_refresh_memory_internal"):
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(server.start_refresh_memory_internal())
+                    except RuntimeError:
+                        asyncio.run(server.start_refresh_memory_internal())
+                else:
+                    refresh_script = os.path.join(r"C:\Projects\LocalAI", "Evelyn", "tools", "refresh_memory.py")
+                    if os.path.exists(refresh_script):
+                        import subprocess
+                        print(f"[RESEARCH_ENGINE] Triggering standalone memory refresh process...", flush=True)
+                        subprocess.Popen([sys.executable, "-u", refresh_script], cwd=r"C:\Projects\LocalAI")
+            except Exception as r_err:
+                print(f"[RESEARCH_ENGINE WARNING] Could not trigger memory refresh after vault save: {r_err}", flush=True)
         except Exception as e:
             print(f"[RESEARCH_ENGINE ERROR] Failed to copy report to Vault: {e}", flush=True)
     else:
@@ -2143,7 +2162,7 @@ If no topics are worth researching, output an empty list. Output nothing else bu
     ]
     
     try:
-        raw = await call_ollama(messages, num_predict=1000)
+        raw = await call_ollama(messages, num_predict=4096)
         match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
         block = match.group(1) if match else raw
         data = yaml.safe_load(block)

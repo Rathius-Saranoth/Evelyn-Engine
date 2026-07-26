@@ -1581,3 +1581,22 @@ async def _do_consolidation():
         flush=True,
     )
 
+    if recats_written > 0 or proposals_written > 0:
+        try:
+            server = sys.modules.get("evelyn_server") or sys.modules.get("__main__")
+            if server and hasattr(server, "start_refresh_memory_internal"):
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(server.start_refresh_memory_internal())
+                except RuntimeError:
+                    asyncio.run(server.start_refresh_memory_internal())
+            else:
+                refresh_script = os.path.join(r"C:\Projects\LocalAI", "Evelyn", "tools", "refresh_memory.py")
+                if os.path.exists(refresh_script):
+                    print(f"[CONSOLIDATOR] Triggering memory refresh for updated entries...", flush=True)
+                    subprocess.Popen([sys.executable, "-u", refresh_script], cwd=r"C:\Projects\LocalAI")
+        except Exception as r_err:
+            print(f"[CONSOLIDATOR WARNING] Could not trigger memory refresh: {r_err}", flush=True)
+
+

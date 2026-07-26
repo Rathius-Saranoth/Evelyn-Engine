@@ -253,6 +253,15 @@ def run_review():
     print(f"  Remaining pending : {remaining}")
     print()
 
+    if approved > 0:
+        try:
+            refresh_script = os.path.join(r"C:\Projects\LocalAI", "Evelyn", "tools", "refresh_memory.py")
+            if os.path.exists(refresh_script):
+                print(f"  {CYAN}Triggering background memory refresh for {approved} approved proposal(s)...{RESET}\n")
+                subprocess.Popen([sys.executable, "-u", refresh_script], cwd=r"C:\Projects\LocalAI")
+        except Exception as r_err:
+            print(f"  {RED}Warning: Could not trigger memory refresh: {r_err}{RESET}\n")
+
 
 def main():
     """Print the count of pending proposals and prompt the user to start the interactive review loop."""
