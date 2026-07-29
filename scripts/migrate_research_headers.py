@@ -169,11 +169,7 @@ async def migrate_file(filepath: str) -> bool:
     clean_short_title = short_title.replace('"', '\\"')
 
     # Build tags
-    tags_list = ["research/done"]
-    if confidence >= 80:
-        tags_list.append("research/high-quality")
-    else:
-        tags_list.append("research/partial")
+    tags_list = []
 
     for tag in topic_tags:
         cleaned_tag = re.sub(r"[^\w\s-]", "", tag.lower())
