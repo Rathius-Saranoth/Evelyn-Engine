@@ -177,8 +177,8 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `POST /research/guide/{task_id}/rewrite`
 * **Purpose**: Submit an explicit, manual rewrite for a single low-confidence sub-question.
-* **Payload**: `SQRewriteRequest` JSON: `{"sq_id": "string", "new_question": "string"}`
-* **Action**: Updates the sub-question text in state, clears its gaps, resets its depth to `0`, and sets it to `pending`. Does NOT resume the background process.
+* **Payload**: `SQRewriteRequest` JSON: `{"sq_id": "string", "new_question": "optional string", "new_search_query": "optional string"}`
+* **Action**: Updates the sub-question text and/or search query in state, clears its gaps, resets its depth to `0`, and sets it to `pending`. Does NOT resume the background process.
 
 ### `POST /research/guide/{task_id}/finalize`
 * **Purpose**: Signal that all manual sub-question rewrites are complete.
