@@ -507,15 +507,15 @@ def build_seed_subquestion_prompt(
     """
     if domain_level == "everyday":
         style_instruction = (
-            "Phrase it in plain, natural language — the way someone would "
-            "actually type it into a search engine or ask a knowledgeable "
-            "friend. Avoid academic or overly technical phrasing."
+            "Write it as a plain, conversational research question — the specific "
+            "thing you want to understand, stated the way a knowledgeable friend "
+            "would ask it. Not a search keyword string."
         )
     else:
         style_instruction = (
-            "Phrase it as a SHORT, single-concept search term or question "
-            "— the kind of thing a person would type directly into a search "
-            "engine, not an academic paper title."
+            "Write it as a full, clear research question — the specific thing you "
+            "want to understand, answerable with evidence: facts, mechanisms, "
+            "comparisons, or steps. Not a search keyword string."
         )
 
     intent_block = (
@@ -535,7 +535,6 @@ def build_seed_subquestion_prompt(
         "of the topic up front. Additional sub-questions will be generated "
         "later, one at a time, only if a genuine gap remains once this one is "
         "answered.\n\n"
-        f"{ATOMIC_QUERY_CONSTRAINT}\n"
         "Output ONLY the sub-question text on a single line. No numbering, no "
         "markdown, no explanation, no quotes."
     )
@@ -650,15 +649,16 @@ def build_extract_prompt(
     )
 
 
-def build_evaluate_prompt(sub_question: str, current_notes: str, confidence_threshold: int) -> str:
+def build_evaluate_prompt(sub_question: str, evidence_summary: str, confidence_threshold: int) -> str:
     """Build the prompt for the EVALUATE phase.
 
-    Instructs the model to evaluate the completeness of the collected notes against the
+    Instructs the model to evaluate the completeness of the evidence summary against the
     sub-question, assigning a confidence score (0-100) and identifying specific gaps if needed.
 
     Args:
-        sub_question: The sub-question being evaluated.
-        current_notes: Compiled notes for this sub-question.
+        sub_question: The sub-question being evaluated (full research question).
+        evidence_summary: Bounded incremental digest of what has been learned so far.
+            This is the sq_XX_summary.md content, NOT the raw notes file.
         confidence_threshold: The target confidence score (e.g., 80) to consider it resolved.
 
     Returns:
@@ -666,23 +666,22 @@ def build_evaluate_prompt(sub_question: str, current_notes: str, confidence_thre
     """
     return (
         f"Sub-question: \"{sub_question}\"\n\n"
-        f"Here are the compiled working notes collected from multiple sources:\n"
-        f"```markdown\n{current_notes}\n```\n\n"
+        f"Here is the structured evidence summary compiled from all sources consulted so far:\n"
+        f"```markdown\n{evidence_summary}\n```\n\n"
         "TASK:\n"
-        "Evaluate the adequacy of these notes to fully, accurately, and comprehensively answer the sub-question.\n"
-        "1. Assign a subjective confidence score from 0 to 100 on how thoroughly the notes resolve the sub-question. "
+        "Evaluate the adequacy of this evidence to fully, accurately, and comprehensively answer the sub-question.\n"
+        "1. Assign a subjective confidence score from 0 to 100 on how thoroughly the evidence resolves the sub-question. "
         "Be self-critical. If key details are missing, contradictory, or unverified, score it lower.\n"
         f"2. If your confidence is below the target threshold of {confidence_threshold}%, list the specific gaps "
-        "that need to be searched for next. Each gap must be phrased as a single, atomic, search-ready fragment "
-        "— NOT a restatement of the whole sub-question, and not a compound clause combining multiple gaps.\n\n"
-        f"{ATOMIC_QUERY_CONSTRAINT}\n"
+        "that still need to be found. Each gap must be a single, searchable fragment — a specific term, "
+        "mechanism, or missing fact — NOT a restatement of the whole sub-question.\n\n"
         "Output ONLY a valid, single JSON block containing exactly the keys 'confidence' and 'gaps'. "
         "Do not include markdown code fence formatting blocks inside or outside the JSON. "
         "Do not output any introductory or concluding text.\n\n"
         "Expected Format:\n"
         "{\n"
         "  \"confidence\": 85,  // an integer from 0 to 100\n"
-        "  \"gaps\": [\"List of specific, atomic search fragments to address remaining gaps\"]  // array of strings, empty if confidence is high\n"
+        "  \"gaps\": [\"specific missing fact or term to search for next\"]  // array of strings, empty if confidence is high\n"
         "}"
     )
 
@@ -718,14 +717,13 @@ def build_coverage_check_prompt(
     """
     if domain_level == "everyday":
         style_instruction = (
-            "If another sub-question is needed, phrase it in plain, natural "
-            "language — the way someone would actually type it into a search "
-            "engine, not an academic paper title."
+            "If another sub-question is needed, write it as a plain, "
+            "conversational research question that names the specific gap remaining."
         )
     else:
         style_instruction = (
-            "If another sub-question is needed, phrase it as a SHORT, "
-            "single-concept search term or question, not an academic paper title."
+            "If another sub-question is needed, write it as a full research "
+            "question that names the specific gap remaining. Not a search keyword string."
         )
 
     covered_text = ""
@@ -765,7 +763,6 @@ def build_coverage_check_prompt(
         "a small number of sub-questions; needing several more is the exception, "
         "not the norm.\n\n"
         f"{style_instruction}\n\n"
-        f"{ATOMIC_QUERY_CONSTRAINT}\n"
         "Output ONLY a valid JSON object with exactly the keys 'sufficient' and "
         "'next_question'. Do not include markdown code fences. Do not output "
         "any introductory or concluding text.\n\n"
@@ -1001,7 +998,7 @@ def build_rewrite_prompt(
         f"{aliases_block}"
         f"### Identified Knowledge Gaps:\n{gaps_text}\n\n"
         "TASK:\n"
-        "Rewrite this sub-question into a single, more targeted search question that directly "
+        "Rewrite this sub-question into a single, more targeted research question that directly "
         "addresses the identified gaps.\n\n"
         "CRITICAL RULES:\n"
         "1. You MUST NOT repeat the same phrasing as the original sub-question. The original "
@@ -1011,12 +1008,9 @@ def build_rewrite_prompt(
         "barren search terminology.\n"
         "3. If the gaps suggest the search space is barren (no sources found at all), try reframing "
         "the question using different technical vocabulary or targeting a closely related concept "
-        "that would indirectly answer the original question.\n"
-        "4. The rewritten question must stay atomic — narrow the scope, do not broaden it into a "
-        "compound question covering multiple gaps at once.\n\n"
-        f"{ATOMIC_QUERY_CONSTRAINT}\n"
-        "Output ONLY the rewritten question on a single line. No explanation, no numbering, "
-        "no meta-commentary, no quotes."
+        "that would indirectly answer the original question.\n\n"
+        "Output ONLY the rewritten question on a single line. Write a full research question, "
+        "not a search keyword string. No explanation, no numbering, no meta-commentary, no quotes."
     )
 
 
@@ -1063,9 +1057,8 @@ def build_post_synthesis_triage_prompt(
         "   - The gap analysis reveals the question needs OS-specific, language-specific, "
         "or domain-specific variants\n"
         "   - A more targeted set of 2-3 child questions would succeed where the broad one failed\n"
-        "   - Provide 2-3 specific, searchable child questions that narrow the scope. Each child "
-        "must be atomic — one concept per question, not a compound restatement of the parent.\n\n"
-        f"{ATOMIC_QUERY_CONSTRAINT}\n"
+        "   - Provide 2-3 child research questions that each target a distinct sub-topic. "
+        "Write each as a full research question — not a search keyword string.\n\n"
         "Output ONLY a valid JSON array. Do not wrap in markdown code fences. "
         "Do not include any introductory or concluding text.\n\n"
         "Expected Format:\n"
@@ -1080,9 +1073,166 @@ def build_post_synthesis_triage_prompt(
         '    "action": "split",\n'
         '    "reason": "Question was too broad.",\n'
         '    "children": [\n'
-        '      "Specific child question 1",\n'
-        '      "Specific child question 2"\n'
+        '      "Full research question targeting sub-topic 1",\n'
+        '      "Full research question targeting sub-topic 2"\n'
         "    ]\n"
         "  }\n"
         "]"
     )
+
+
+def build_evidence_digest_prompt(
+    sub_question: str,
+    current_summary: str,
+    new_extraction: str,
+    source_id: str,
+    source_title: str,
+) -> str:
+    """Build the prompt for the incremental evidence digest step.
+
+    Called once per source after extraction. Merges newly extracted facts into
+    the rolling evidence summary, keeping it bounded and structured. Produces
+    an explicit 'contributed' boolean so the caller knows whether to count this
+    source against the budget — no fragile string-diff inference needed.
+
+    Args:
+        sub_question: The full research question guiding this SQ.
+        current_summary: The existing evidence_summary (sq_XX_summary.md content).
+            May be empty string for the first source processed.
+        new_extraction: The raw extracted notes just produced for this source.
+        source_id: Citation identifier (e.g. 'src_003') for tag preservation.
+        source_title: Human-readable title of the source.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    existing_block = (
+        f"### Current Evidence Summary:\n```markdown\n{current_summary}\n```\n"
+        if current_summary.strip()
+        else "### Current Evidence Summary:\n*(No evidence collected yet — this is the first source.)*\n"
+    )
+
+    return (
+        f"Research question under investigation: \"{sub_question}\"\n\n"
+        f"{existing_block}\n"
+        f"### Newly Extracted Facts from [{source_id}] — {source_title}:\n"
+        f"```markdown\n{new_extraction}\n```\n\n"
+        "TASK:\n"
+        "Merge the newly extracted facts into the current evidence summary. Produce an updated "
+        "summary that:\n"
+        "1. Preserves ALL existing facts and their citation tags (e.g. [src_001]) exactly — "
+        "do not paraphrase or remove anything already in the summary.\n"
+        "2. Adds new, non-duplicate facts from the extraction under the appropriate thematic heading. "
+        "If a heading doesn't exist yet, create it.\n"
+        "3. Tags every new fact with its source citation [{source_id}].\n"
+        "4. Does NOT duplicate facts already present — if the new source confirms something "
+        "already recorded, skip it (the existing citation is sufficient).\n"
+        "5. Keeps the summary under 12,000 characters. If adding new facts would exceed this, "
+        "condense existing bullet points by removing redundant elaboration (never remove facts or "
+        "citation tags, only verbose phrasing).\n\n"
+        "After producing the updated summary, answer one question: did the new extraction add "
+        "at least one fact that was not already in the previous summary?\n\n"
+        "Output ONLY a valid JSON object with exactly two keys:\n"
+        "  'summary': the complete updated evidence summary as a markdown string\n"
+        "  'contributed': true if at least one new fact was added, false otherwise\n\n"
+        "Do not include markdown code fences around the JSON. Do not output any other text.\n\n"
+        "Expected Format:\n"
+        "{\n"
+        '  "summary": "## Theme One\\n- Fact A [src_001]\\n- New fact B [' + source_id + ']\\n",\n'
+        '  "contributed": true\n'
+        "}"
+    )
+
+
+def build_prior_knowledge_prompt(
+    query: str,
+    variant: str,
+    evidence_text: str,
+    sub_question: Optional[str] = None,
+) -> str:
+    """Build the prompt for the task-level or SQ-level knowledge gate assessment.
+
+    Two variants:
+    - 'internal': Can the LLM answer this from its training data alone?
+    - 'saved': Can this be answered from Evelyn's existing sources
+      (chat history, memory facts, vault documents, prior research)?
+
+    Used both at task creation (before any web search) and per-SQ (before
+    spawning a new sub-question) to avoid researching what is already known.
+
+    Args:
+        query: The original research query or proposed sub-question text.
+        variant: Either 'internal' or 'saved'.
+        evidence_text: For 'saved' variant: formatted block of existing sources
+            (chat history, memory entries, vault excerpts, prior task summaries).
+            For 'internal' variant: pass empty string.
+        sub_question: If this is a per-SQ gate check (not the whole task), the
+            specific sub-question text being evaluated. None for task-level checks.
+
+    Returns:
+        str: Formatted prompt.
+    """
+    scope_text = (
+        f"Specific sub-question: \"{sub_question}\""
+        if sub_question
+        else f"Research query: \"{query}\""
+    )
+    context_note = (
+        f" (part of the broader research task: \"{query}\")" if sub_question else ""
+    )
+
+    if variant == "internal":
+        return (
+            f"{scope_text}{context_note}\n\n"
+            "TASK:\n"
+            "Assess how completely you can answer this from your training data alone, "
+            "without any web search, document lookup, or external source.\n\n"
+            "Be honest and conservative. Training data has a knowledge cutoff and may be "
+            "incomplete or outdated for rapidly evolving topics. If the question concerns "
+            "recent events, specific version numbers, current prices, or anything that "
+            "changes frequently — score it low regardless of what you think you know.\n\n"
+            "Output ONLY a valid JSON object with exactly three keys:\n"
+            "  'answerable': true if you can give a complete, accurate answer from training data\n"
+            "  'confidence': integer 0-100 — confidence in that assessment\n"
+            "  'summary': 1-3 sentence summary of what you know (or what you're uncertain about)\n\n"
+            "Do not include markdown code fences. Do not output any other text.\n\n"
+            "Expected Format:\n"
+            "{\n"
+            '  "answerable": false,\n'
+            '  "confidence": 40,\n'
+            '  "summary": "Training data covers general patterns but lacks verified protocols from the last 12 months."\n'
+            "}"
+        )
+    else:  # saved
+        evidence_block = (
+            evidence_text.strip()
+            if evidence_text.strip()
+            else "(No relevant saved sources found.)"
+        )
+        return (
+            f"{scope_text}{context_note}\n\n"
+            "Here are Evelyn's existing saved sources that may be relevant:\n"
+            "-----------------------------------------\n"
+            f"{evidence_block}\n"
+            "-----------------------------------------\n\n"
+            "TASK:\n"
+            "Assess whether the saved sources above already provide a complete, accurate answer "
+            "to the question — not a partial answer, not a related tangent, but a direct, "
+            "usable answer that would make searching for more information unnecessary.\n\n"
+            "Be conservative. If the saved sources are incomplete, outdated, or only tangentially "
+            "related — score it low. It is always safer to proceed with research than to "
+            "prematurely declare the question answered.\n\n"
+            "Output ONLY a valid JSON object with exactly four keys:\n"
+            "  'answerable': true if saved sources fully answer the question\n"
+            "  'confidence': integer 0-100 — confidence in that assessment\n"
+            "  'summary': 1-3 sentence summary of what the saved sources cover\n"
+            "  'sources': list of source identifiers that contributed (task IDs, memory entry IDs, vault filenames)\n\n"
+            "Do not include markdown code fences. Do not output any other text.\n\n"
+            "Expected Format:\n"
+            "{\n"
+            '  "answerable": false,\n'
+            '  "confidence": 55,\n'
+            '  "summary": "Prior research task covers a related area but at shallower depth on this specific sub-question.",\n'
+            '  "sources": ["task_1785237960_94eef6fc"]\n'
+            "}"
+        )

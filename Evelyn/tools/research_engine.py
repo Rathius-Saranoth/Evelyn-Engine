@@ -124,27 +124,40 @@ def get_task_dir(task_id: str) -> str:
 
 
 def recalculate_total_sources(task_id: str, state: Dict[str, Any]) -> int:
-    """Recalculate the true source count based on actual citations in active notes files."""
-    task_dir = get_task_dir(task_id)
-    active_src_ids = set()
+    """Recalculate the true source count from the contributing_sources.json registry.
+
+    Reads the per-task contributing_sources.json file, which records only sources
+    that actually contributed new facts to the evidence summary (as determined by
+    the incremental digest step). This is the authoritative source for source
+    counting — it is never overwritten by the engine loop, so quality-gate
+    decisions persist across state reloads.
+
+    Falls back gracefully for old tasks that predate this file: leaves
+    sq["source_count"] at whatever state.json already records and returns 0
+    as the task-level total. Old tasks resume without breakage.
+
+    Args:
+        task_id: Unique task identifier.
+        state: Task state dict — mutated to update sq["source_count"] per SQ.
+
+    Returns:
+        int: Total number of contributing sources across all active SQs.
+    """
+    contrib_file = os.path.join(get_task_dir(task_id), "contributing_sources.json")
+    if not os.path.exists(contrib_file):
+        return 0  # Old task — leave counts intact, do not stomp
+    try:
+        with open(contrib_file, "r", encoding="utf-8") as f:
+            contrib = json.load(f)
+    except Exception:
+        return 0
+    all_sources: set = set()
     for sq in state.get("plan", {}).get("sub_questions", []):
         if sq.get("status") not in ("removed", "split"):
-            notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
-            sq_sources = set()
-            if os.path.exists(notes_file):
-                try:
-                    with open(notes_file, "r", encoding="utf-8") as f:
-                        content = f.read()
-                    matches = re.findall(r"\[src_(\d+)\]", content)
-                    for m in matches:
-                        src_name = f"src_{m}"
-                        active_src_ids.add(src_name)
-                        sq_sources.add(src_name)
-                except Exception:
-                    pass
+            sq_sources = set(contrib.get(sq["id"], []))
             sq["source_count"] = len(sq_sources)
-            
-    return len(active_src_ids)
+            all_sources |= sq_sources
+    return len(all_sources)
 
 
 def update_limit_warnings(task_id: str, state: Dict[str, Any]) -> None:
@@ -619,9 +632,24 @@ async def _rewrite_subquestion(
     sq["question"] = rewritten_q
     sq["gaps"] = []
 
+    # Regenerate search_query from the rewritten question
+    try:
+        task_type = state.get("task_type", "factual")
+        new_search_query = await formulate_search_query(
+            rewritten_q,
+            task_type,
+            state,
+            intent_frame=state.get("intent_frame", ""),
+        )
+        sq["search_query"] = new_search_query
+        print(f"[RESEARCH_ENGINE] Regenerated search_query after rewrite: '{new_search_query}'", flush=True)
+    except Exception as rse:
+        print(f"[RESEARCH_ENGINE WARNING] Failed to regenerate search_query after rewrite: {rse}", flush=True)
+
     # Clear gaps file since the rewrite absorbs them
     if os.path.exists(gaps_file):
         os.remove(gaps_file)
+
 
 
 def query_previous_deep_research(search_query: str, current_task_id: str, limit: int = 3) -> List[Dict[str, Any]]:
@@ -673,27 +701,33 @@ def query_previous_deep_research(search_query: str, current_task_id: str, limit:
     return results[:limit]
 
 
-async def try_resolve_directly(task_id: str, state: Dict[str, Any]) -> bool:
-    """Check whether a research query can be resolved without launching research at all.
+async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bool:
+    """Assess what Evelyn already knows before launching web research.
 
-    Runs as the first action of step_plan(). Checks the query against a
-    deterministic time-sensitivity gate, then (if it passes) against recent
-    chat history and existing live memory facts via one conservative LLM
-    self-assessment call. If the query is judged already resolved with high
-    confidence, the entire task directory is deleted -- no state.json, no
-    report, no vault write ever remains on disk. No answer text is stored
-    anywhere; the person can simply ask again and get a live response.
+    Replaces the old try_resolve_directly() / "no trace" pattern. Instead of
+    silently deleting the task directory on a resolved path, this function
+    populates two transparent, persisted fields on the task state:
+
+    - state["internal_knowledge"]: Can the LLM answer this from training data?
+    - state["saved_knowledge"]:    Can this be answered from chat history,
+      memory facts, vault documents, or prior completed research tasks?
+
+    Decision logic:
+      - saved_knowledge.confidence  >= threshold → status = "resolved"
+      - internal_knowledge.confidence >= threshold AND NOT time_sensitive → status = "resolved"
+      - Otherwise → proceed to full research; both summaries are available
+        as prior context for extract/evaluate prompts.
+
+    The task directory is NEVER deleted. Resolved tasks remain on disk with
+    status "resolved" for transparency.
 
     Args:
-        task_id: The unique task identifier (about to be deleted on success).
-        state: The task's in-memory state dict. Used only for query text and
-               ollama_calls bookkeeping before deletion; never saved back to
-               disk on the success path.
+        task_id: Unique task identifier.
+        state: Task state dict — mutated with knowledge gate fields and saved.
 
     Returns:
-        bool: True if the task was resolved and its directory deleted (the
-              caller must stop immediately and not touch state.json again).
-              False if research should proceed normally.
+        bool: True if the task was resolved from existing knowledge (caller
+              should stop the pipeline). False if research should proceed.
     """
     importlib.reload(cfg)
     if not getattr(cfg, "RESEARCH_NECESSITY_PREFILTER_ENABLED", True):
@@ -701,96 +735,144 @@ async def try_resolve_directly(task_id: str, state: Dict[str, Any]) -> bool:
 
     query = state["query"]
 
-    if research_prompts.is_time_sensitive_query(query):
-        print(
-            f"[RESEARCH_ENGINE] Necessity check skipped for '{query}' -- "
-            "time-sensitive query, proceeding with full research.",
-            flush=True,
-        )
-        return False
+    # --- Internal knowledge check ---
+    internal_prompt = research_prompts.build_prior_knowledge_prompt(
+        query, variant="internal", evidence_text=""
+    )
+    messages = [
+        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "user", "content": internal_prompt},
+    ]
+    state["ollama_calls"] += 1
+    try:
+        raw_internal = await call_ollama(messages, num_predict=512)
+        internal_result = parse_json_response(raw_internal)
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE WARNING] Internal knowledge check failed: {e}. Proceeding with research.", flush=True)
+        internal_result = {"answerable": False, "confidence": 0, "summary": ""}
+    state["internal_knowledge"] = {
+        "answerable": bool(internal_result.get("answerable", False)),
+        "confidence": int(internal_result.get("confidence", 0)),
+        "summary": str(internal_result.get("summary", "")),
+    }
+    print(
+        f"[RESEARCH_ENGINE] Internal knowledge check: "
+        f"answerable={state['internal_knowledge']['answerable']}, "
+        f"confidence={state['internal_knowledge']['confidence']}%",
+        flush=True,
+    )
 
-    # Gather evidence: recent chat history + keyword-overlapping live memory facts.
-    # Both are cheap, already-existing lookups -- no new infrastructure needed.
-    evidence_parts = []
+    # --- Saved knowledge check (cheap: chat + memory always; vault/prior tasks if inconclusive) ---
+    evidence_parts: list = []
 
     history = get_recent_chat_history(20)
     if history:
         history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history)
         evidence_parts.append(f"### Recent Conversation History:\n{history_text}")
 
-    matched_entries = []
     try:
         import memory_db
         all_entries = memory_db.get_all_entries(statuses=["live"])
+        matched_entries = []
         for entry in all_entries:
             overlap = evelyn_tools.get_jaccard_similarity(query, entry.get("observation", ""))
             if overlap >= 0.2:
                 matched_entries.append((overlap, entry))
         matched_entries.sort(key=lambda x: x[0], reverse=True)
         matched_entries = matched_entries[:5]
+        if matched_entries:
+            memory_text = "\n".join(
+                f"- [{e['category']}] {e['observation']}" for _, e in matched_entries
+            )
+            evidence_parts.append(f"### Recorded Memory Facts:\n{memory_text}")
     except Exception as e:
-        print(f"[RESEARCH_ENGINE WARNING] Failed to query memory_db for necessity check: {e}", flush=True)
+        print(f"[RESEARCH_ENGINE WARNING] Memory query failed for knowledge gate: {e}", flush=True)
+        matched_entries = []
 
-    if matched_entries:
-        memory_text = "\n".join(
-            f"- [{entry['category']}] {entry['observation']}" for _, entry in matched_entries
-        )
-        evidence_parts.append(f"### Recorded Memory Facts:\n{memory_text}")
-
-    evidence_text = "\n\n".join(evidence_parts)
-
-    prompt = research_prompts.build_necessity_check_prompt(query, evidence_text)
-    messages = [
-        {"role": "system", "content": research_prompts.get_system_prompt()},
-        {"role": "user", "content": prompt},
-    ]
-
-    state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=1024)
-
-    try:
-        result = parse_json_response(raw_response)
-        needs_research = bool(result.get("needs_research", True))
-        confidence = int(result.get("confidence", 0))
-    except Exception as e:
-        print(
-            f"[RESEARCH_ENGINE WARNING] Failed to parse necessity check JSON: {e}. "
-            "Proceeding with full research.",
-            flush=True,
-        )
-        return False
-
-    threshold = getattr(cfg, "RESEARCH_NECESSITY_CONFIDENCE_THRESHOLD", 90)
-
-    if needs_research or confidence < threshold:
-        print(
-            f"[RESEARCH_ENGINE] Necessity check: research still needed for '{query}' "
-            f"(needs_research={needs_research}, confidence={confidence}%).",
-            flush=True,
-        )
-        return False
-
-    # Resolved directly -- record that the evidence was used, then delete the
-    # task directory entirely. No report, no vault write, no trace on disk.
-    for _, entry in matched_entries:
+    # Gate expensive lookups (vault + prior research) behind an inconclusive cheap pass
+    cheap_confident = state["internal_knowledge"]["confidence"] >= 70
+    if not cheap_confident:
         try:
-            memory_db.touch_entry_retrieved(entry["id"])
+            from context_manager import search_vault_map
+            vault_res = search_vault_map(query, limit=3)
+            if vault_res and not vault_res.startswith("No results found"):
+                evidence_parts.append(f"### Obsidian Vault Excerpts:\n{vault_res}")
+        except Exception:
+            pass
+        try:
+            prev_chunks = query_previous_deep_research(query, task_id, limit=3)
+            if prev_chunks:
+                prior_text = "\n".join(
+                    f"[{c['task_id']}] {c['content'][:400]}" for c in prev_chunks
+                )
+                evidence_parts.append(f"### Prior Research Summaries:\n{prior_text}")
         except Exception:
             pass
 
+    evidence_text = "\n\n".join(evidence_parts)
+    saved_prompt = research_prompts.build_prior_knowledge_prompt(
+        query, variant="saved", evidence_text=evidence_text
+    )
+    messages = [
+        {"role": "system", "content": research_prompts.get_system_prompt()},
+        {"role": "user", "content": saved_prompt},
+    ]
+    state["ollama_calls"] += 1
+    try:
+        raw_saved = await call_ollama(messages, num_predict=512)
+        saved_result = parse_json_response(raw_saved)
+    except Exception as e:
+        print(f"[RESEARCH_ENGINE WARNING] Saved knowledge check failed: {e}. Proceeding with research.", flush=True)
+        saved_result = {"answerable": False, "confidence": 0, "summary": "", "sources": []}
+    state["saved_knowledge"] = {
+        "answerable": bool(saved_result.get("answerable", False)),
+        "confidence": int(saved_result.get("confidence", 0)),
+        "summary": str(saved_result.get("summary", "")),
+        "sources": list(saved_result.get("sources", [])),
+    }
     print(
-        f"[RESEARCH_ENGINE] Query '{query}' resolved directly without research "
-        f"(confidence={confidence}%). Deleting task directory -- no trace retained.",
+        f"[RESEARCH_ENGINE] Saved knowledge check: "
+        f"answerable={state['saved_knowledge']['answerable']}, "
+        f"confidence={state['saved_knowledge']['confidence']}%",
         flush=True,
     )
 
-    task_dir = get_task_dir(task_id)
-    try:
-        shutil.rmtree(task_dir, ignore_errors=True)
-    except Exception as e:
-        print(f"[RESEARCH_ENGINE WARNING] Failed to clean up resolved task directory: {e}", flush=True)
+    # --- Decision ---
+    threshold = getattr(cfg, "RESEARCH_NECESSITY_CONFIDENCE_THRESHOLD", 90)
+    is_time_sensitive = research_prompts.is_time_sensitive_query(query)
 
-    return True
+    resolved = False
+    if state["saved_knowledge"]["confidence"] >= threshold:
+        resolved = True
+        print(
+            f"[RESEARCH_ENGINE] Query '{query}' resolved from saved knowledge "
+            f"(confidence={state['saved_knowledge']['confidence']}%).",
+            flush=True,
+        )
+    elif (
+        not is_time_sensitive
+        and state["internal_knowledge"]["confidence"] >= threshold
+    ):
+        resolved = True
+        print(
+            f"[RESEARCH_ENGINE] Query '{query}' resolved from internal knowledge "
+            f"(confidence={state['internal_knowledge']['confidence']}%).",
+            flush=True,
+        )
+
+    if resolved:
+        # Touch memory entries so they register as retrieved
+        for _, entry in matched_entries:
+            try:
+                memory_db.touch_entry_retrieved(entry["id"])
+            except Exception:
+                pass
+        state["status"] = "resolved"
+        state["current_step"] = "done"
+        save_state(task_id, state)
+        return True
+
+    return False
 
 
 async def _generate_intent_frame(state: Dict[str, Any]) -> str:
@@ -861,7 +943,7 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
     print(f"[RESEARCH_ENGINE] Planning task {task_id}...", flush=True)
 
     if getattr(cfg, "RESEARCH_NECESSITY_PREFILTER_ENABLED", True):
-        resolved = await try_resolve_directly(task_id, state)
+        resolved = await step_assess_prior_knowledge(task_id, state)
         if resolved:
             return True
 
@@ -888,7 +970,6 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
         {"role": "user", "content": prompt}
     ]
 
-
     state["ollama_calls"] += 1
     raw_response = await call_ollama(messages, num_predict=1024, think=True)
     seed_question = raw_response.strip().strip('"\'').split("\n")[0].strip()
@@ -897,9 +978,19 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
         print("[RESEARCH_ENGINE WARNING] Seed sub-question generation returned empty. Defaulting to main query.", flush=True)
         seed_question = state["query"]
 
+    # Formulate the first search_query from the seed question
+    task_type = state.get("task_type", "factual")
+    seed_search_query = await formulate_search_query(
+        seed_question,
+        task_type,
+        state,
+        intent_frame=state.get("intent_frame", ""),
+    )
+
     state["plan"]["sub_questions"] = [{
         "id": "sq_01",
         "question": seed_question,
+        "search_query": seed_search_query,
         "status": "pending",
         "source_count": 0,
         "confidence": 0,
@@ -912,7 +1003,8 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
     state["status"] = "searching"
 
     save_state(task_id, state)
-    print(f"[RESEARCH_ENGINE] Seed sub-question: '{seed_question}'", flush=True)
+    print(f"[RESEARCH_ENGINE] Seed sub-question: '{seed_question}' | Initial search query: '{seed_search_query}'", flush=True)
+
 
 
 async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
@@ -961,30 +1053,33 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         except Exception:
             pass
 
-    # Formulate a short, atomic search-engine query from the basis text.
-    # Always runs — research tasks execute during idle time, so the extra
-    # ~1-3s LLM call is immaterial — and is validated/retried internally.
-    # We bypass formulation if the basis was explicitly provided as user guidance,
-    # starts with a URL, or contains explicit search operators (e.g. site:, filetype:).
-    bypass_formulation = is_user_guidance
-    if not bypass_formulation:
-        lower_basis = search_basis.lower()
-        operators = ["site:", "filetype:", "intitle:", "inurl:", "ext:", "cache:"]
-        if any(op in lower_basis for op in operators) or lower_basis.startswith("http://") or lower_basis.startswith("https://"):
-            bypass_formulation = True
-            print(f"[RESEARCH_ENGINE] Detected search operators or URL in search basis. Bypassing formulation.", flush=True)
+    # Use stored search_query if available; fall back to sq.question for old tasks
+    search_query = sq.get("search_query") or ""
 
-    if bypass_formulation:
-        search_query = search_basis
-        print(f"[RESEARCH_ENGINE] Using search basis directly (bypassing formulation): '{search_query}'", flush=True)
+    if not search_query:
+        # First round or old task — derive it now
+        bypass_formulation = is_user_guidance
+        if not bypass_formulation:
+            lower_basis = search_basis.lower()
+            operators = ["site:", "filetype:", "intitle:", "inurl:", "ext:", "cache:"]
+            if any(op in lower_basis for op in operators) or lower_basis.startswith("http://") or lower_basis.startswith("https://"):
+                bypass_formulation = True
+                print(f"[RESEARCH_ENGINE] Detected search operators or URL in search basis. Bypassing formulation.", flush=True)
+
+        if bypass_formulation:
+            search_query = search_basis
+            print(f"[RESEARCH_ENGINE] Using search basis directly (bypassing formulation): '{search_query}'", flush=True)
+        else:
+            task_type = state.get("task_type", "factual")
+            search_query = await formulate_search_query(
+                search_basis,
+                task_type,
+                state,
+                intent_frame=state.get("intent_frame", ""),
+            )
+        sq["search_query"] = search_query
     else:
-        task_type = state.get("task_type", "factual")
-        search_query = await formulate_search_query(
-            search_basis,
-            task_type,
-            state,
-            intent_frame=state.get("intent_frame", ""),
-        )
+        print(f"[RESEARCH_ENGINE] Using stored search query: '{search_query}'", flush=True)
 
     # Execute search
     print(f"[RESEARCH_ENGINE] Searching DuckDuckGo: '{search_query}'", flush=True)
@@ -1043,12 +1138,24 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         
     task_dir = get_task_dir(task_id)
     notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
-    
-    # Load current working notes
-    current_notes = ""
-    if os.path.exists(notes_file):
-        with open(notes_file, "r", encoding="utf-8") as f:
-            current_notes = f.read()
+    summary_file = os.path.join(task_dir, f"{sq['id']}_summary.md")
+    contrib_file = os.path.join(task_dir, "contributing_sources.json")
+
+    # Load current contributing sources registry
+    try:
+        if os.path.exists(contrib_file):
+            with open(contrib_file, "r", encoding="utf-8") as f:
+                contrib_registry = json.load(f)
+        else:
+            contrib_registry = {}
+    except Exception:
+        contrib_registry = {}
+
+    # Load current evidence summary
+    current_summary = ""
+    if os.path.exists(summary_file):
+        with open(summary_file, "r", encoding="utf-8") as f:
+            current_summary = f.read()
             
     extracted_any = False
     
@@ -1114,7 +1221,8 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             save_state(task_id, state)
             continue
             
-        # Scrape succeeded! Register as a valid source and increment limits
+        # Scrape succeeded — register in sources_registry (dedup/audit) but do NOT
+        # increment source_count yet. That only happens if the digest confirms contribution.
         src_id = f"src_{len(state['sources_registry']) + 1:03d}"
         source_entry = {
             "id": src_id,
@@ -1123,8 +1231,6 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             "timestamp": datetime.datetime.now().isoformat()
         }
         state["sources_registry"].append(source_entry)
-        state["total_sources"] += 1
-        sq["source_count"] += 1
         save_state(task_id, state)
         
         # If scope is deep, embed in custom Chroma collection (Phase 3)
@@ -1153,6 +1259,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
 
         # We extract chunk by chunk if the page has multiple chunks
         chunks = scrape_result["chunks"]
+        all_extracted_notes = ""
         for idx, chunk in enumerate(chunks):
             prompt = research_prompts.build_extract_prompt(
                 sq["question"],
@@ -1173,11 +1280,11 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             extracted_chunk_notes = extracted_chunk_notes.strip()
             
             if extracted_chunk_notes:
-                extracted_any = True
+                all_extracted_notes += extracted_chunk_notes + "\n\n"
                 section_header = f"### Source [{src_id}]: {title}\n"
                 formatted_entry = f"{section_header}{extracted_chunk_notes}\n\n"
                 
-                # Append notes additively to disk so prior source findings are permanently preserved
+                # Append raw notes to disk — permanent audit log, never truncated
                 with open(notes_file, "a", encoding="utf-8") as f:
                     f.write(formatted_entry)
 
@@ -1196,21 +1303,93 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                     if new_found:
                         state["topic_aliases"] = list(current_aliases)
                         save_state(task_id, state)
-                
+            
             # Respect step cooldown
             await asyncio.sleep(cfg.RESEARCH_STEP_COOLDOWN)
-            
+
+        # --- Incremental evidence digest ---
+        # Merge the extracted notes into the bounded evidence summary.
+        # The digest prompt returns an explicit 'contributed' boolean so we
+        # never need to diff strings to decide whether to count the source.
+        if all_extracted_notes.strip():
+            extracted_any = True
+            digest_prompt = research_prompts.build_evidence_digest_prompt(
+                sub_question=sq["question"],
+                current_summary=current_summary,
+                new_extraction=all_extracted_notes.strip(),
+                source_id=src_id,
+                source_title=title,
+            )
+            digest_messages = [
+                {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
+                {"role": "user", "content": digest_prompt},
+            ]
+            state["ollama_calls"] += 1
+            try:
+                raw_digest = await call_ollama(digest_messages, num_predict=4096)
+                digest_result = parse_json_response(raw_digest)
+                updated_summary = str(digest_result.get("summary", current_summary))
+                contributed = bool(digest_result.get("contributed", True))  # default True on parse error
+            except Exception as de:
+                print(f"[RESEARCH_ENGINE WARNING] Evidence digest parse failed: {de}. Treating source as contributing.", flush=True)
+                updated_summary = current_summary  # Don't corrupt existing summary
+                contributed = True
+
+            if contributed:
+                # Source added new facts — count it against budget and persist
+                current_summary = updated_summary
+                sq["evidence_summary"] = current_summary
+                with open(summary_file, "w", encoding="utf-8") as f:
+                    f.write(current_summary)
+
+                # Register in contributing_sources.json (the authoritative count)
+                sq_contrib_list = contrib_registry.get(sq["id"], [])
+                if src_id not in sq_contrib_list:
+                    sq_contrib_list.append(src_id)
+                contrib_registry[sq["id"]] = sq_contrib_list
+                with open(contrib_file, "w", encoding="utf-8") as f:
+                    json.dump(contrib_registry, f, indent=2)
+
+                # sq["source_count"] is now derived from contributing_sources.json
+                # but update it in-memory for limit_warnings to work this cycle
+                sq["source_count"] = len(sq_contrib_list)
+                state["total_sources"] += 1
+                print(f"[RESEARCH_ENGINE] Source [{src_id}] contributed new facts. source_count={sq['source_count']}", flush=True)
+            else:
+                print(
+                    f"[RESEARCH_ENGINE] Source [{src_id}] added no new facts to evidence summary. "
+                    "Not counted against source budget.",
+                    flush=True,
+                )
+
+            save_state(task_id, state)
+
+    # After all sources processed, update search_query from gaps for next round
+    current_gaps = sq.get("gaps", [])
+    if current_gaps and not is_user_guidance:
+        gap_basis = current_gaps[0]
+        task_type = state.get("task_type", "factual")
+        new_search_query = await formulate_search_query(
+            gap_basis,
+            task_type,
+            state,
+            intent_frame=state.get("intent_frame", ""),
+        )
+        sq["search_query"] = new_search_query
+        print(f"[RESEARCH_ENGINE] Updated search_query for next round: '{new_search_query}'", flush=True)
+
     # Move to the evaluate step
     state["current_step"] = "evaluate"
     save_state(task_id, state)
 
 
+
 def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Assemble a lightweight summary of all resolved sub-questions for the coverage check.
 
-    Reuses the same truncate-to-300-chars pattern already used by the
-    post-synthesis triage prompt, keeping the coverage-check call cheap even
-    on tasks with several completed sub-questions.
+    Prefers sq_XX_summary.md (the bounded evidence summary) over the raw notes
+    file. Falls back to a 300-char truncation of raw notes for old tasks that
+    predate the incremental digest.
 
     Args:
         task_id: Unique task identifier.
@@ -1225,9 +1404,14 @@ def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[D
     for s in state["plan"]["sub_questions"]:
         if s.get("status") != "done":
             continue
+        # Prefer evidence_summary file; fall back to raw notes for old tasks
+        summary_file = os.path.join(task_dir, f"{s['id']}_summary.md")
         notes_file = os.path.join(task_dir, f"{s['id']}_notes.md")
         notes_text = ""
-        if os.path.exists(notes_file):
+        if os.path.exists(summary_file):
+            with open(summary_file, "r", encoding="utf-8") as f:
+                notes_text = f.read()
+        elif os.path.exists(notes_file):
             with open(notes_file, "r", encoding="utf-8") as f:
                 notes_text = f.read()
         notes_summary = notes_text[:300] + "..." if len(notes_text) > 300 else notes_text
@@ -1237,6 +1421,7 @@ def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[D
             "notes_summary": notes_summary or "(no notes)",
         })
     return summaries
+
 
 
 async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
@@ -1280,18 +1465,71 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
             state["struggling"] = True
         save_state(task_id, state)
         return
-        
-    with open(notes_file, "r", encoding="utf-8") as f:
-        current_notes = f.read()
+
+    task_dir = get_task_dir(task_id)
+    notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
+    summary_file = os.path.join(task_dir, f"{sq['id']}_summary.md")
+
+    # Check source cap before attempting evaluate — nothing new can be added
+    # and the evaluate loop would just repeat the same failing call forever.
+    if "source_cap_reached" in sq.get("limit_warnings", []) and sq["source_count"] == 0:
+        print(
+            f"[RESEARCH_ENGINE] SQ {sq['id']} source cap reached with zero contributing sources. "
+            "Advancing to synthesize.",
+            flush=True,
+        )
+        sq["status"] = "done"
+        state["current_step"] = "synthesize"
+        save_state(task_id, state)
+        return
+
+    # Use evidence_summary if it exists (bounded digest); fall back to raw notes for old tasks.
+    # The raw notes file can be 60-97KB — passing it to the evaluator would saturate
+    # the model's context and produce garbled non-JSON, triggering the 0% fallback.
+    evidence_for_eval = ""
+    if os.path.exists(summary_file):
+        with open(summary_file, "r", encoding="utf-8") as f:
+            evidence_for_eval = f.read()
+        print(
+            f"[RESEARCH_ENGINE] Evaluating from evidence_summary ({len(evidence_for_eval)} chars).",
+            flush=True,
+        )
+    elif os.path.exists(notes_file):
+        # Old task without summary — compress before sending to evaluator
+        with open(notes_file, "r", encoding="utf-8") as f:
+            raw_notes = f.read()
+        evidence_for_eval = await _summarize_sq_notes(
+            sq["question"],
+            raw_notes,
+            sq["id"],
+            state.get("task_type", "factual"),
+            task_id,
+            task_dir,
+            domain_level=state.get("domain_level", "specialist"),
+        )
+        print(
+            f"[RESEARCH_ENGINE] Evaluating from compressed notes "
+            f"({len(raw_notes)} → {len(evidence_for_eval)} chars).",
+            flush=True,
+        )
+
+    if not evidence_for_eval.strip():
+        print(f"[RESEARCH_ENGINE WARNING] No notes or summary for SQ {sq['id']}. "
+              "Cannot evaluate — marking as needs_guidance.", flush=True)
+        sq["status"] = "needs_guidance"
+        state["status"] = "needs_guidance"
+        state["struggling"] = True
+        save_state(task_id, state)
+        return
         
     print(f"[RESEARCH_ENGINE] Evaluating collected evidence for SQ ({sq['id']})...", flush=True)
     
     prompt = research_prompts.build_evaluate_prompt(
         sq["question"],
-        current_notes,
+        evidence_for_eval,
         state["confidence_threshold"]
     )
-    
+
     messages = [
         {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
         {"role": "user", "content": prompt}
@@ -1307,9 +1545,23 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
         gaps = evaluation.get("gaps", [])
     except Exception as e:
         print(f"[RESEARCH_ENGINE WARNING] Failed to parse evaluate JSON: {e}. Output was: '{raw_response}'", flush=True)
+        # Source-cap escape hatch: if no more sources can be added AND the eval
+        # failed, we have no recovery path — advance to synthesize immediately
+        # rather than looping forever on a permanently-failing evaluate call.
+        if "source_cap_reached" in sq.get("limit_warnings", []):
+            print(
+                f"[RESEARCH_ENGINE] Source cap reached and evaluate failed — "
+                "advancing SQ to done and proceeding to synthesize.",
+                flush=True,
+            )
+            sq["status"] = "done"
+            state["current_step"] = "synthesize"
+            save_state(task_id, state)
+            return
         # Default fallback
         confidence = 0
         gaps = ["Insufficient evidence collected."]
+
         
     sq["confidence"] = confidence
     sq["gaps"] = gaps
@@ -1414,20 +1666,83 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                     state["current_step"] = "synthesize"
                 else:
                     next_question = str(next_question).strip()
-                    new_idx = len(state["plan"]["sub_questions"])
-                    new_sq = {
-                        "id": f"sq_{new_idx + 1:02d}",
-                        "question": next_question,
-                        "status": "pending",
-                        "source_count": 0,
-                        "confidence": 0,
-                        "search_depth": 0,
-                    }
-                    state["plan"]["sub_questions"].append(new_sq)
-                    state["current_sq_idx"] = new_idx
-                    state["current_step"] = "search"
-                    state["search_depth"] = 0
-                    print(
+
+                    # --- Phase 2 knowledge gate ---
+                    # Before spawning a new SQ, check if saved knowledge already
+                    # answers this specific proposed question. Avoids researching
+                    # what Evelyn already knows from prior work.
+                    sq_gate_evidence = ""
+                    try:
+                        # Cheap: chat + memory only (no vault/prior-task lookup here)
+                        gate_history = get_recent_chat_history(20)
+                        if gate_history:
+                            sq_gate_evidence = "### Recent Conversation:\n" + "\n".join(
+                                f"{m['role'].upper()}: {m['content']}" for m in gate_history
+                            )
+                        import memory_db as _mdb
+                        _entries = _mdb.get_all_entries(statuses=["live"])
+                        _matched = [
+                            e for e in _entries
+                            if evelyn_tools.get_jaccard_similarity(next_question, e.get("observation", "")) >= 0.2
+                        ]
+                        if _matched:
+                            sq_gate_evidence += "\n\n### Memory Facts:\n" + "\n".join(
+                                f"- {e['observation']}" for e in _matched[:5]
+                            )
+                    except Exception:
+                        pass
+
+                    sq_gate_prompt = research_prompts.build_prior_knowledge_prompt(
+                        state["query"],
+                        variant="saved",
+                        evidence_text=sq_gate_evidence,
+                        sub_question=next_question,
+                    )
+                    state["ollama_calls"] += 1
+                    try:
+                        raw_sq_gate = await call_ollama(
+                            [{"role": "system", "content": research_prompts.get_system_prompt()},
+                             {"role": "user", "content": sq_gate_prompt}],
+                            num_predict=512,
+                        )
+                        sq_gate_result = parse_json_response(raw_sq_gate)
+                        sq_gate_conf = int(sq_gate_result.get("confidence", 0))
+                    except Exception:
+                        sq_gate_conf = 0
+
+                    sq_gate_threshold = getattr(cfg, "RESEARCH_NECESSITY_CONFIDENCE_THRESHOLD", 90)
+                    if sq_gate_conf >= sq_gate_threshold:
+                        print(
+                            f"[RESEARCH_ENGINE] Phase 2 gate: proposed SQ '{next_question}' "
+                            f"already answered by saved knowledge (confidence={sq_gate_conf}%). "
+                            "Skipping — proceeding to synthesis.",
+                            flush=True,
+                        )
+                        state["current_step"] = "synthesize"
+                    else:
+                        new_idx = len(state["plan"]["sub_questions"])
+                        # Formulate search_query for the new SQ immediately
+                        new_sq_search_query = await formulate_search_query(
+                            next_question,
+                            state.get("task_type", "factual"),
+                            state,
+                            intent_frame=state.get("intent_frame", ""),
+                        )
+                        new_sq = {
+                            "id": f"sq_{new_idx + 1:02d}",
+                            "question": next_question,
+                            "search_query": new_sq_search_query,
+                            "status": "pending",
+                            "source_count": 0,
+                            "confidence": 0,
+                            "search_depth": 0,
+                        }
+                        state["plan"]["sub_questions"].append(new_sq)
+                        state["current_sq_idx"] = new_idx
+                        state["current_step"] = "search"
+                        state["search_depth"] = 0
+                        print(
+
                         f"[RESEARCH_ENGINE] Coverage check: gap found. Generated next "
                         f"sub-question: '{next_question}'",
                         flush=True,
@@ -1571,8 +1886,12 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     # preserved on disk; only the in-memory dict carries compressed text.
     all_notes = {}
     for sq in state["plan"]["sub_questions"]:
+        summary_file = os.path.join(task_dir, f"{sq['id']}_summary.md")
         notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
-        if os.path.exists(notes_file):
+        if os.path.exists(summary_file):
+            with open(summary_file, "r", encoding="utf-8") as f:
+                all_notes[sq["question"]] = f.read()
+        elif os.path.exists(notes_file):
             with open(notes_file, "r", encoding="utf-8") as f:
                 raw_notes = f.read()
             compressed = await _summarize_sq_notes(
@@ -1701,11 +2020,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     elif final_report.startswith("```yaml"):
         clean_report_body = re.sub(r"^```yaml.*?```\s*\n", "", final_report, count=1, flags=re.DOTALL)
         
-    tags_list = ["research/done"]
-    if state["confidence"] >= 80:
-        tags_list.append("research/high-quality")
-    else:
-        tags_list.append("research/partial")
+    tags_list = []
         
     # Clean and append topic tags from state
     for tag in state.get("topic_tags", []):
