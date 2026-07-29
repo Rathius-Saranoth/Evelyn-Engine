@@ -1160,8 +1160,13 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             
     extracted_any = False
     
+    max_sources_per_sq = state.get("max_sources_per_sq", 15)
     for title, url in parsed_sources:
-        # Check source ceiling
+        # Check per-SQ source ceiling and overall task source ceiling
+        if sq.get("source_count", 0) >= max_sources_per_sq:
+            print(f"[RESEARCH_ENGINE] SQ {sq['id']} per-SQ source limit ({max_sources_per_sq}) reached. Stopping extraction for this sub-question.", flush=True)
+            break
+            
         if state["total_sources"] >= 100:  # Just sanity check
             print("[RESEARCH_ENGINE] Total task source cap reached.", flush=True)
             break
@@ -1603,11 +1608,17 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     # Evaluate termination decisions
     is_sufficient = confidence >= state["confidence_threshold"]
     depth_exhausted = state["search_depth"] >= state["max_search_depth"] - 1
-    if is_sufficient or depth_exhausted:
-        if is_sufficient:
+    max_sources_per_sq = state.get("max_sources_per_sq", 15)
+    source_cap_hit = sq.get("source_count", 0) >= max_sources_per_sq or "source_cap_reached" in sq.get("limit_warnings", [])
+
+    if is_sufficient or depth_exhausted or source_cap_hit:
+        if is_sufficient or source_cap_hit:
             # Sub-question complete!
             sq["status"] = "done"
-            print(f"[RESEARCH_ENGINE] SQ {sq['id']} fully resolved (Threshold met).", flush=True)
+            if is_sufficient:
+                print(f"[RESEARCH_ENGINE] SQ {sq['id']} fully resolved (Threshold met).", flush=True)
+            else:
+                print(f"[RESEARCH_ENGINE] SQ {sq['id']} source limit reached ({sq.get('source_count', 0)}/{max_sources_per_sq}). Marking SQ done and running coverage check.", flush=True)
             if os.path.exists(gaps_file):
                 os.remove(gaps_file)
 
