@@ -329,6 +329,7 @@ def create_research_task(
     state = {
         "task_id": task_id,
         "query": query,
+        "original_question": query,
         "scope": scope,
         "status": initial_status,
         "created_at": datetime.datetime.now().isoformat(),
