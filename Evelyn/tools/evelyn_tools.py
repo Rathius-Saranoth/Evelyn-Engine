@@ -819,13 +819,14 @@ def guide_research(task_id: str, guidance: str) -> str:
         return f"Failed to guide research task: {e}"
 
 
-def rewrite_sub_question(task_id: str, sq_id: str, new_question: str) -> str:
-    """Manually rewrite a single sub-question without resuming the task.
+def rewrite_sub_question(task_id: str, sq_id: str, new_question: Optional[str] = None, new_search_query: Optional[str] = None) -> str:
+    """Manually rewrite a single sub-question or its search query without resuming the task.
 
     Args:
         task_id: Unique task identifier.
         sq_id: The identifier of the sub-question to modify.
         new_question: The updated question string.
+        new_search_query: Optional explicit search query rewrite to set on the sub-question.
 
     Returns:
         str: Status confirmation message.
@@ -860,8 +861,17 @@ def rewrite_sub_question(task_id: str, sq_id: str, new_question: str) -> str:
                     term_func(task_id)
             time.sleep(0.5)
 
-        target_sq["original_question"] = target_sq.get("original_question", target_sq["question"])
-        target_sq["question"] = new_question
+        target_sq["original_question"] = target_sq.get("original_question", target_sq.get("question", ""))
+        
+        # Update search_query and question
+        if new_search_query:
+            target_sq["search_query"] = new_search_query
+            if new_question:
+                target_sq["question"] = new_question
+        elif new_question:
+            target_sq["question"] = new_question
+            target_sq["search_query"] = new_question
+
         target_sq["status"] = "pending"
         target_sq["search_depth"] = 0
         

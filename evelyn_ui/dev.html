@@ -72,7 +72,7 @@
     .badge.searching { color: #60a5fa; }
     .badge.evaluating { color: #f472b6; }
     .badge.synthesizing { color: #c084fc; }
-    .badge.done { color: var(--success); }
+    .badge.done, .badge.resolved { color: var(--success); }
     .badge.error { color: var(--danger); }
     .badge.cancelled { color: var(--text-dim); }
     .badge.paused { color: var(--warning); }
@@ -534,8 +534,17 @@
       const container = document.getElementById('guidance-sq-container');
       container.innerHTML = '';
       
+      if (task.intent_frame) {
+        container.innerHTML += `
+          <div style="background: rgba(124, 106, 247, 0.12); border: 1px solid rgba(124, 106, 247, 0.3); border-radius: 8px; padding: 12px; font-size: 13.5px; line-height: 1.5; color: var(--text);">
+            <div style="font-weight: 600; color: var(--accent); margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">🎯 Intent Frame</div>
+            <div>${escapeHtml(task.intent_frame)}</div>
+          </div>
+        `;
+      }
+
       if ((task.limit_warnings || []).includes('total_sources_cap_reached')) {
-        container.innerHTML = `
+        container.innerHTML += `
           <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 12px; color: #f87171; font-size: 13.5px; line-height: 1.4;">
             <strong>⚠️ Scraper Cap Hit (100 Sources):</strong> The overall task limit has been reached. Evelyn cannot extract from new sources. Removing unnecessary sub-questions will automatically recalculate and free up source budget.
           </div>
@@ -571,13 +580,21 @@
           }).join('');
         }
         
+        const displayQuery = sq.search_query || sq.question || '';
+
         container.innerHTML += `
-          <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
-            <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim);">
+          <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-dim);">
               <span class="badge" style="background: ${badgeColor}; color: #fff;">${escapeHtml((sq.status || 'pending').toUpperCase())} (${sq.confidence || 0}%)</span>
               <span>Depth: ${sq.search_depth || 0} | Sources: ${sq.source_count || 0}</span>
             </div>
-            <textarea id="sq-edit-${sq.id}" rows="2" style="width: 100%; background: var(--bg); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: inherit; resize: vertical;" oninput="document.getElementById('sq-save-${sq.id}').disabled = (this.value.trim() === this.dataset.original)">${escapeHtml(sq.question)}</textarea>
+            <div style="font-weight: 600; font-size: 14px; color: #fff; line-height: 1.4;">
+              <span style="color: var(--accent); margin-right: 6px;">[${escapeHtml(sq.id)}]</span>${escapeHtml(sq.question)}
+            </div>
+            <div>
+              <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Search Query (Used for Save Rewrite):</label>
+              <textarea id="sq-edit-${sq.id}" rows="2" style="width: 100%; background: var(--bg); color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: inherit; resize: vertical;" oninput="document.getElementById('sq-save-${sq.id}').disabled = (this.value.trim() === this.dataset.original)">${escapeHtml(displayQuery)}</textarea>
+            </div>
             ${gapsHtml}
             ${reasonHtml}
             ${warningsHtml}
@@ -590,7 +607,7 @@
         // set original dataset after injection
         setTimeout(() => {
           const ta = document.getElementById(`sq-edit-${sq.id}`);
-          if(ta) ta.dataset.original = sq.question;
+          if(ta) ta.dataset.original = displayQuery;
         }, 10);
       });
       
@@ -620,8 +637,8 @@
     async function saveSqRewrite(taskId, sqId) {
       const ta = document.getElementById(`sq-edit-${sqId}`);
       const btn = document.getElementById(`sq-save-${sqId}`);
-      const newQuestion = ta.value.trim();
-      if (!newQuestion || newQuestion === ta.dataset.original) return;
+      const newSearchQuery = ta.value.trim();
+      if (!newSearchQuery || newSearchQuery === ta.dataset.original) return;
       
       btn.disabled = true;
       btn.textContent = 'Saving...';
@@ -630,10 +647,10 @@
         const res = await fetch(`${API_BASE}/research/guide/${taskId}/rewrite`, {
           method: 'POST',
           headers: headers(),
-          body: JSON.stringify({ sq_id: sqId, new_question: newQuestion })
+          body: JSON.stringify({ sq_id: sqId, new_search_query: newSearchQuery })
         });
         if (res.ok) {
-          ta.dataset.original = newQuestion;
+          ta.dataset.original = newSearchQuery;
           btn.textContent = 'Saved!';
           btn.style.background = 'var(--success)';
           btn.style.color = '#000';
@@ -649,7 +666,7 @@
           if (task) {
              const sq = task.plan.sub_questions.find(s => s.id === sqId);
              if (sq) {
-                 sq.question = newQuestion;
+                 sq.search_query = newSearchQuery;
                  sq.status = "pending";
                  sq.search_depth = 0;
                  sq.gaps = [];
@@ -1057,6 +1074,7 @@
           if (queryVal) {
             filtered = filtered.filter(task => 
               (task.query || '').toLowerCase().includes(queryVal) ||
+              (task.original_question || '').toLowerCase().includes(queryVal) ||
               (task.error || '').toLowerCase().includes(queryVal) ||
               (task.current_step || '').toLowerCase().includes(queryVal)
             );
@@ -1075,7 +1093,7 @@
               return timeA - timeB;
             });
           } else if (sortBy === 'alpha') {
-            filtered.sort((a, b) => (a.query || '').localeCompare(b.query || ''));
+            filtered.sort((a, b) => (a.query || a.original_question || '').localeCompare(b.query || b.original_question || ''));
           }
           
           const listContainer = document.getElementById('research-list-container');
@@ -1089,12 +1107,13 @@
           listContainer.innerHTML = filtered.map(task => {
             const finished = task.finished_at ? new Date(task.finished_at * 1000).toLocaleString() : '';
             const created = task.created_at ? new Date(task.created_at).toLocaleString() : '';
+            const primaryQuery = task.query || task.original_question || '';
             
             let progressVal = 0;
             let statusText = task.status || 'pending';
             let stepText = task.current_step || 'plan';
             
-            if (statusText === 'done') {
+            if (statusText === 'done' || statusText === 'resolved') {
               progressVal = 100;
             } else if (statusText === 'error' || statusText === 'cancelled') {
               progressVal = 100;
@@ -1116,7 +1135,9 @@
             }
             
             let actionButtons = '';
-            if (statusText === 'done') {
+            if (statusText === 'resolved') {
+              actionButtons = `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`;
+            } else if (statusText === 'done') {
               if (task.quarantined) {
                 actionButtons = [
                   `<button class="btn btn-start-now" onclick="openGuidanceModal('${task.task_id}')">▶ Provide Guidance</button>`,
@@ -1178,7 +1199,7 @@
                   <span style="margin-left: auto;">Created: ${created} ${finished ? ' | Finished: ' + finished : ''}</span>
                 </div>
                 <div class="card-body">
-                  <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(task.query)}</h3>
+                  <h3 style="font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 6px;">${escapeHtml(primaryQuery)}</h3>
                   <div style="font-size: 12px; color: var(--text-dim); font-family: monospace; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
                     <span style="opacity: 0.5;">ID:</span>
                     <span title="Click to copy task ID" onclick="navigator.clipboard.writeText('${task.task_id}').then(() => { this.textContent='Copied!'; setTimeout(() => this.textContent='${task.task_id}', 1500); })" style="cursor: pointer; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; user-select: all;" >${task.task_id}</span>
@@ -1190,7 +1211,7 @@
                     <span>Confidence: <strong>${task.confidence !== undefined ? task.confidence + '%' : 'N/A'}</strong></span>
                     <span>Sources: <strong>${task.total_sources || 0}</strong></span>
                   </div>
-                  ${statusText !== 'done' && statusText !== 'error' && statusText !== 'cancelled' ? `
+                  ${statusText !== 'done' && statusText !== 'resolved' && statusText !== 'error' && statusText !== 'cancelled' ? `
                     <div class="progress-bar-container">
                       <div class="progress-bar-fill" style="width: ${progressVal}%;"></div>
                     </div>

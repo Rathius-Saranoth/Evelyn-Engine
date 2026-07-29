@@ -2674,9 +2674,10 @@ class GuideRequest(BaseModel):
     guidance: str
 
 class SQRewriteRequest(BaseModel):
-    """Pydantic model representing a request to rewrite a sub-question."""
+    """Pydantic model representing a request to rewrite a sub-question or its search query."""
     sq_id: str
-    new_question: str
+    new_question: Optional[str] = None
+    new_search_query: Optional[str] = None
 
 class SQRemoveRequest(BaseModel):
     """Pydantic model representing a request to remove a sub-question from a research task."""
@@ -2742,14 +2743,19 @@ async def api_guide_research_rewrite(task_id: str, request: SQRewriteRequest, _:
 
     Args:
         task_id: The ID of the task.
-        request: Request containing the sub-question ID and new text.
+        request: Request containing the sub-question ID and new text or search query.
         _: Authorization dependency.
 
     Returns:
         dict: Status message confirming the rewrite.
     """
     from evelyn_tools import rewrite_sub_question
-    result = rewrite_sub_question(task_id, request.sq_id, request.new_question)
+    result = rewrite_sub_question(
+        task_id,
+        request.sq_id,
+        new_question=request.new_question,
+        new_search_query=request.new_search_query
+    )
     return {"message": result}
 
 
