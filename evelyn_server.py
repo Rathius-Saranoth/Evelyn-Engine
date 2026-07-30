@@ -185,7 +185,7 @@ def get_research_context() -> str:
             lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Status: {status}\n  Stuck on Sub-Question: {sq_query}\n")
 
     if unnotified_count > 0:
-        lines.append(f"\nSystem Notification: You have {unnotified_count} newly completed deep research task(s). Use the 'check_new_research' tool to review them.")
+        lines.append(f"\n(Context note: {unnotified_count} newly completed deep research task(s) are ready. You may call 'check_new_research' if relevant to Ricky's prompt.)")
             
     return "\n".join(lines)
 
@@ -207,7 +207,7 @@ def get_upcoming_agenda_prompt_context() -> str:
         
         lines = []
         if events:
-            lines.append(f"System Notification: You have {len(events)} upcoming calendar event(s) in the next 24 hours. Use the 'get_agenda' tool to view them.")
+            lines.append(f"(Context note: Ricky has {len(events)} upcoming calendar event(s) in the next 24 hours. You may call 'get_agenda' if Ricky asks about his schedule.)")
         
         if lines:
             return "\n" + "\n".join(lines)
