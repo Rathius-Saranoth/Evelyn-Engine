@@ -91,11 +91,9 @@ MAX_TOOL_ROUNDS = 5
 # agentic behavior. Set to False to revert to fast no-think routing.
 THINK_TOOL_LOOP = True
 
-# Token budget for each tool-loop reasoning round. Intentionally smaller than
-# NUM_PREDICT — mid-loop reasoning only needs to evaluate results and decide
-# next steps, not generate a full response. Adjust up if Evelyn truncates her
-# reasoning before reaching a conclusion.
-TOOL_LOOP_NUM_PREDICT = 1024
+# Token budget for each tool-loop reasoning round. Needs sufficient headroom
+# for Gemma 4 native thinking tokens plus tool call generation.
+TOOL_LOOP_NUM_PREDICT = 4096
 
 # When True, intermediate thinking from each tool-loop round is forwarded to
 # the client as thinking SSE events. Useful for seeing Evelyn's decision chain
