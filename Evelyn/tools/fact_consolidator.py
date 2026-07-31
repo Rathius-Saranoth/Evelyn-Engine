@@ -296,7 +296,7 @@ def remediate_database_categories() -> None:
             normalized = validate_and_normalize_category(cat, subject)
             if normalized and normalized != cat:
                 con.execute(
-                    "UPDATE context_entries SET category = ?, updated_at = ? WHERE id = ?",
+                    "UPDATE context_entries SET category = ?, recategorized_at = ? WHERE id = ?",
                     (normalized, time.time(), entry_id)
                 )
                 corrected_entries += 1

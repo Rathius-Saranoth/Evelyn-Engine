@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-06-27 09:15:14
+# date modified: 2026-07-30 20:46:52
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -13,17 +13,23 @@ in evelyn_memory.db. Keeps context/memory data separate from chat history
 Schema:
   context_entries — Stores all context facts (live, extracted, pending_review).
                     Replaces the Cat##/Cat##-{E,R}/*.md flat-file layout.
-                    Columns include last_retrieved_at and retrieval_count for
-                    memory health analysis (added 2026-06-14).
+                    Columns added over time (all idempotent migrations in init_db):
+                      last_retrieved_at / retrieval_count — RAG access tracking (2026-06-14)
+                      last_evolved_at   — Stamps when profile_evolver incorporated entry (2026-07-30)
+                      recategorized_at  — Admin category-change timestamp; kept separate from
+                                          updated_at so category fixes don't retrigger evolution (2026-07-30)
+                      first_observed / last_observed / observed_count — Recurrence tracking (2026-07-30)
   proposals       — Stores consolidation and recategorization proposals.
                     Replaces CONSOLIDATION_*.md and RECATEGORIZE_*.md files.
 
 Usage:
   import memory_db
-  memory_db.init_db()                      # Idempotent — safe to call on every startup
+  memory_db.init_db()                         # Idempotent — safe to call on every startup
   entry_id = memory_db.insert_entry(category='Cat05-R', subject='Ricky', ...)
   entries  = memory_db.get_entries_by_category('Cat05-R')
-  memory_db.touch_entry_retrieved(entry_id) # Fire-and-forget retrieval tracking
+  memory_db.touch_entry_retrieved(entry_id)   # Fire-and-forget RAG retrieval tracking
+  memory_db.touch_entry_evolved(entry_id, ts) # Fire-and-forget; called on profile_update approval
+  memory_db.increment_entry_observed(entry_id) # Increment observed_count on duplicate merge
 
 All functions use short-lived connections (no module-level state).
 """
@@ -78,16 +84,26 @@ def init_db() -> None:
             created_at        REAL NOT NULL,
             updated_at        REAL,
             last_retrieved_at REAL,
-            retrieval_count   INTEGER NOT NULL DEFAULT 0
+            retrieval_count   INTEGER NOT NULL DEFAULT 0,
+            last_evolved_at   REAL,
+            recategorized_at  REAL,
+            first_observed    REAL,
+            last_observed     REAL,
+            observed_count    INTEGER NOT NULL DEFAULT 1
         )
     """)
 
-    # Migrate: add usage-tracking columns if missing on existing databases.
+    # Migrate: add usage-tracking and evolution bookkeeping columns if missing on existing databases.
     # sqlite3.backup() runs before this on every consolidation cycle, so the
     # schema change is always protected by a recent hot-copy.
     for _migration in [
         "ALTER TABLE context_entries ADD COLUMN last_retrieved_at REAL",
         "ALTER TABLE context_entries ADD COLUMN retrieval_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE context_entries ADD COLUMN last_evolved_at REAL",
+        "ALTER TABLE context_entries ADD COLUMN recategorized_at REAL",
+        "ALTER TABLE context_entries ADD COLUMN first_observed REAL",
+        "ALTER TABLE context_entries ADD COLUMN last_observed REAL",
+        "ALTER TABLE context_entries ADD COLUMN observed_count INTEGER NOT NULL DEFAULT 1",
     ]:
         try:
             con.execute(_migration)
@@ -180,14 +196,15 @@ def insert_entry(
     Returns:
         int: The auto-generated row ID of the new entry.
     """
+    now = time.time()
     con = get_db()
     cur = con.execute(
         """INSERT INTO context_entries
            (category, subject, observation, confidence, source, status,
-            date, tags, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            date, tags, created_at, first_observed, last_observed, observed_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
         (category, subject, observation, confidence, source, status,
-         date, tags, time.time()),
+         date, tags, now, now, now),
     )
     row_id = cur.lastrowid
     con.commit()
@@ -269,12 +286,19 @@ def update_entry(entry_id: int, **fields) -> bool:
     valid_cols = {
         "category", "subject", "observation", "confidence", "source",
         "status", "date", "tags", "last_retrieved_at", "retrieval_count",
+        "last_evolved_at", "recategorized_at", "first_observed", "last_observed", "observed_count",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
         return False
 
-    updates["updated_at"] = time.time()
+    now = time.time()
+    if "category" in updates and "recategorized_at" not in updates:
+        updates["recategorized_at"] = now
+
+    if any(k in updates for k in ("observation", "subject", "status", "confidence")) and "updated_at" not in updates:
+        updates["updated_at"] = now
+
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [entry_id]
 
@@ -286,6 +310,53 @@ def update_entry(entry_id: int, **fields) -> bool:
     affected = cur.rowcount
     con.close()
     return affected > 0
+
+
+def touch_entry_evolved(entry_id: int, timestamp: Optional[float] = None) -> None:
+    """Update last_evolved_at timestamp for a context entry.
+
+    Called when an entry has been processed into a profile_update proposal.
+
+    Args:
+        entry_id: Row ID of the context entry.
+        timestamp: Unix timestamp. Defaults to current time.
+    """
+    ts = timestamp or time.time()
+    try:
+        con = get_db()
+        con.execute(
+            "UPDATE context_entries SET last_evolved_at = ? WHERE id = ?",
+            (ts, entry_id),
+        )
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+
+
+def increment_entry_observed(entry_id: int, count_delta: int = 1) -> None:
+    """Increment observed_count and set last_observed to current time.
+
+    Args:
+        entry_id: Row ID of the context entry.
+        count_delta: Amount to increase observed_count by. Default 1.
+    """
+    now = time.time()
+    try:
+        con = get_db()
+        con.execute(
+            """
+            UPDATE context_entries
+            SET observed_count = COALESCE(observed_count, 1) + ?,
+                last_observed  = ?
+            WHERE id = ?
+            """,
+            (count_delta, now, entry_id),
+        )
+        con.commit()
+        con.close()
+    except Exception:
+        pass
 
 
 def touch_entry_retrieved(entry_id: int) -> None:
