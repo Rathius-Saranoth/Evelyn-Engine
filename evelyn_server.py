@@ -3003,6 +3003,11 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
                 raise HTTPException(status_code=404, detail=f"Target file not found: {prop['suggested_category']}")
             target_file.write_text(prop["merged_observation"], encoding="utf-8")
             memory_db.apply_proposal(id)
+            # Stamp last_evolved_at on all source entries so they are not re-evaluated
+            # until their observation content actually changes.
+            now_ts = time.time()
+            for eid in prop.get("source_ids", []):
+                memory_db.touch_entry_evolved(eid, now_ts)
             # Run update_frontmatter script to update date modified/tags
             import subprocess
             subprocess.run(
