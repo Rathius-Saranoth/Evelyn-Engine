@@ -21,7 +21,7 @@ Internal security:
                                 patterns before any text reaches the memory DB.
 
 Key config: evelyn_config.py (FACT_EXTRACTION_*, THINK, NUM_CTX)
-Architecture notes: reference/docstring_content/pipeline_internals.md
+Architecture notes: reference/docstring_guide.md#fact_extractorpy--architecture-notes
 """
 
 

@@ -21,7 +21,7 @@ Internal safety:
                                      before every consolidation pass via sqlite3.backup().
 
 Key config: evelyn_config.py (CONSOLIDATION_*, THINK, NUM_CTX)
-Full function index and behavioral notes: reference/docstring_content/pipeline_internals.md
+Full function index and behavioral notes: reference/docstring_guide.md#fact_consolidatorpy--function-index
 """
 
 
