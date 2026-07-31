@@ -399,10 +399,12 @@ async def run_profile_evolution():
             for cat in categories:
                 entries = memory_db.get_entries_by_category(cat, status="live")
                 for entry in entries:
-                    created_at   = entry.get("created_at", 0.0) or 0.0
-                    updated_at   = entry.get("updated_at", 0.0)  or 0.0
-                    last_touched = max(created_at, updated_at)
-                    if last_touched > last_run:
+                    created_at      = entry.get("created_at", 0.0) or 0.0
+                    updated_at      = entry.get("updated_at", 0.0)  or 0.0
+                    last_evolved_at = entry.get("last_evolved_at")
+
+                    # Qualifies if it has never been evolved OR if observation content was updated after evolution
+                    if last_evolved_at is None or updated_at > last_evolved_at:
                         changed_entries.append(entry)
 
             min_entries = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
@@ -677,7 +679,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"INSTRUCTIONS:\n"
                 f"- Evolve the document body authentically based on the accumulated evidence.\n"
                 f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
-                f"- PRIORITIZE BEHAVIORAL DIRECTIVES: Focus on personality traits, voice/cadence guidelines, relationship rules/boundaries, routines, and interaction preferences.\n"
+                f"- PRIORITIZE BEHAVIORAL DIRECTIVES & CORE TRAITS: Focus on personality traits, psychological/health conditions (e.g., anxiety, core identity), governing ethics, voice/cadence guidelines, relationship rules/boundaries, routines, and interaction preferences.\n"
+                f"- IMPORTANCE HIERARCHY: Core behavioral directives, psychological/health traits, and governing ethics are high priority. Casual preferences (e.g. food/snack likes, minor item interests) must NEVER displace or replace core traits or directives.\n"
                 f"- EXCLUDE EPISODIC/FACTUAL MEMORIES: Do not add or retain specific historical events, physical locations, dates, or lists of minor personal facts. These belong in episodic RAG memory, not this prompt file. Remove any such facts from the document if they are not behavioral guides.\n"
                 f"- PREVENT REDUNDANCY: Do not repeat any details that are already documented in the OTHER ACTIVE SYSTEM PROMPT DOCUMENTS shown above.\n"
                 f"- TARGET WORD COUNT: Ensure the updated document is concise and stays under {target_limit} words.\n"
@@ -907,6 +910,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         reason=reason,
         source_ids=source_ids,
     )
+    # NOTE: touch_entry_evolved() is intentionally NOT called here.
+    # last_evolved_at must only be stamped when the proposal is *approved*,
+    # not when it is created. If the user rejects the proposal, entries must
+    # remain eligible for re-evaluation. See evelyn_server.py profile_update handler.
     print(f"[PROFILE EVOLVER] Created profile_update proposal for {filename}.", flush=True)
 
     # Proposal created — clean up the draft so the next run starts fresh
