@@ -14,7 +14,7 @@ Exports:
   reformulate_query(user_message) — Main entry point; returns reformulated query string.
 
 Key config: evelyn_config.py (RAG_REFORMULATE_ENABLED, RAG_REFORMULATE_MIN_WORDS, RAG_REFORMULATE_TIMEOUT)
-Design rationale: reference/docstring_content/pipeline_internals.md
+Design rationale: reference/docstring_guide.md#query_reformulatorpy--design-rationale
 """
 
 
