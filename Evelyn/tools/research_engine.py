@@ -123,6 +123,41 @@ def get_task_dir(task_id: str) -> str:
     return os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
 
 
+def _write_pid_lock(task_id: str) -> None:
+    """Write this process's PID to <task_dir>/engine.pid.
+
+    Called at the very start of main() before any pipeline work begins.
+    Serves as an OS-level lock that is visible across process restarts.
+
+    Args:
+        task_id: The unique task identifier.
+    """
+    pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
+    try:
+        with open(pid_path, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError as e:
+        print(f"[RESEARCH_ENGINE WARNING] Could not write PID lock file: {e}", flush=True)
+
+
+def _release_pid_lock(task_id: str) -> None:
+    """Delete the engine.pid lock file on clean or error exit.
+
+    Called in a finally block in main() so it always runs regardless of
+    whether the pipeline completed successfully, errored, or was cancelled.
+
+    Args:
+        task_id: The unique task identifier.
+    """
+    pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
+    try:
+        os.remove(pid_path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        print(f"[RESEARCH_ENGINE WARNING] Could not remove PID lock file: {e}", flush=True)
+
+
 def recalculate_total_sources(task_id: str, state: Dict[str, Any]) -> int:
     """Recalculate the true source count from the contributing_sources.json registry.
 
@@ -2552,7 +2587,8 @@ if __name__ == "__main__":
         """Run the research engine from the command line.
 
         Resolves the query argument to either resume an existing task or create a new
-        task before starting the asynchronous execution loop.
+        task before starting the asynchronous execution loop. Writes an OS-level PID
+        lock file for the duration of the run to prevent duplicate subprocesses.
         """
         if args.query.startswith("task_") and os.path.exists(os.path.join(cfg.RESEARCH_DATA_DIR, args.query)):
             task_id = args.query
@@ -2564,6 +2600,11 @@ if __name__ == "__main__":
                 save_state(task_id, state, ignore_disk_status=True)
         else:
             task_id = create_research_task(args.query, scope=args.scope, triggered_by="user")
-        await run_full_research(task_id)
+
+        _write_pid_lock(task_id)
+        try:
+            await run_full_research(task_id)
+        finally:
+            _release_pid_lock(task_id)
         
     asyncio.run(main())

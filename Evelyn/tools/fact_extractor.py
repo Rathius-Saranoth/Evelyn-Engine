@@ -222,45 +222,29 @@ _extraction_task = None
 def _heavy_tasks_running() -> bool:
     """Check if any heavy server background task is running.
 
+    Delegates to task_manager.is_any_running() — the single canonical
+    source of truth for mutual exclusion across all heavy tasks.
+
     Returns:
         bool: True if another heavy background task is active, False otherwise.
     """
-    import sys
-    for mod_name in ("evelyn_server", "__main__"):
-        mod = sys.modules.get(mod_name)
-        if mod:
-            tasks = getattr(mod, "_background_tasks", None)
-            if isinstance(tasks, dict):
-                for k, task in tasks.items():
-                    if k == "extractor":
-                        continue
-                    if k.startswith("task_"):
-                        if task.get("status") in ("running", "searching", "synthesizing"):
-                            return True
-                    elif task.get("status") == "running":
-                        return True
-    return False
+    import task_manager
+    return task_manager.is_any_running(exclude="extractor")
 
 
 def _set_status_in_server(status: str | None) -> None:
     """Register or clear extractor status in the server's central registry.
 
+    Delegates to task_manager.set_running() / task_manager.clear_running().
+
     Args:
         status: The status string to register (e.g., 'running'), or None to clear.
     """
-    import sys
-    for mod_name in ("evelyn_server", "__main__"):
-        mod = sys.modules.get(mod_name)
-        if mod:
-            tasks = getattr(mod, "_background_tasks", None)
-            if isinstance(tasks, dict):
-                if status == "running":
-                    tasks["extractor"] = {
-                        "status": "running",
-                        "started_at": time.time(),
-                    }
-                else:
-                    tasks.pop("extractor", None)
+    import task_manager
+    if status == "running":
+        task_manager.set_running("extractor")
+    else:
+        task_manager.clear_running("extractor")
 
 
 def cancel_pending_extraction():
@@ -305,10 +289,10 @@ async def run_extraction():
     except ImportError:
         pass
 
-    # Defer if a heavy server background task (Vault Map Gen, Sync, etc) is running.
+    # Defer if any other heavy background task is running (research, consolidator, etc.).
     if _heavy_tasks_running():
         print(
-            "[EXTRACTOR] Server background task is running — deferring extraction.",
+            "[EXTRACTOR] Another heavy task is running — deferring extraction.",
             flush=True,
         )
         return

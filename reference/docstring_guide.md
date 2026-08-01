@@ -103,7 +103,8 @@ Extracted from oversized module docstrings to maintain the 15-line navigation-ai
 
 #### Preamble Helpers
 - `_extracting_elsewhere()`: Mutual-exclusion check against `fact_extractor.py`.
-- `_heavy_tasks_running()`: Defer if vault-map or sync tasks are active.
+- `_heavy_tasks_running()`: Delegates to `task_manager.is_any_running(exclude="consolidator")` — see `engine_architecture.md §5`.
+- `_set_status_in_server()`: Delegates to `task_manager.set_running()` / `task_manager.clear_running()`.
 - `_load_scan_state()` / `_save_scan_state()`: Manage per-category anchor pointers on disk.
 - `_call_ollama()`: Shared non-streaming Ollama call primitive.
 
