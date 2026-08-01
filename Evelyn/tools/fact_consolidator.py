@@ -126,45 +126,29 @@ def _extracting_elsewhere() -> bool:
 def _heavy_tasks_running() -> bool:
     """Check if any heavy server background task is running.
 
+    Delegates to task_manager.is_any_running() — the single canonical
+    source of truth for mutual exclusion across all heavy tasks.
+
     Returns:
         bool: True if another heavy background task is active, False otherwise.
     """
-    import sys
-    for mod_name in ("evelyn_server", "__main__"):
-        mod = sys.modules.get(mod_name)
-        if mod:
-            tasks = getattr(mod, "_background_tasks", None)
-            if isinstance(tasks, dict):
-                for k, task in tasks.items():
-                    if k == "consolidator":
-                        continue
-                    if k.startswith("task_"):
-                        if task.get("status") in ("running", "searching", "synthesizing"):
-                            return True
-                    elif task.get("status") == "running":
-                        return True
-    return False
+    import task_manager
+    return task_manager.is_any_running(exclude="consolidator")
 
 
 def _set_status_in_server(status: str | None) -> None:
     """Register or clear consolidator status in the server's central registry.
 
+    Delegates to task_manager.set_running() / task_manager.clear_running().
+
     Args:
         status: The status string to set (e.g. 'running'), or None to clear.
     """
-    import sys
-    for mod_name in ("evelyn_server", "__main__"):
-        mod = sys.modules.get(mod_name)
-        if mod:
-            tasks = getattr(mod, "_background_tasks", None)
-            if isinstance(tasks, dict):
-                if status == "running":
-                    tasks["consolidator"] = {
-                        "status": "running",
-                        "started_at": time.time(),
-                    }
-                else:
-                    tasks.pop("consolidator", None)
+    import task_manager
+    if status == "running":
+        task_manager.set_running("consolidator")
+    else:
+        task_manager.clear_running("consolidator")
 
 
 

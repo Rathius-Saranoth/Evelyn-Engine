@@ -133,7 +133,8 @@ Enables fully autonomous, multi-step search and information synthesis in the bac
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and calendar tool definitions).
+* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and calendar tool definitions). Contains `_is_research_engine_running()` — the OS-level PID-based guard against duplicate research subprocess spawning.
+* **[[task_manager.py]]**: Centralized heavy task registry. Canonical `is_any_running()`, `set_running()`, and `clear_running()` API used by all heavy task modules. Replaces the 4 separate `_heavy_tasks_running()` copies that previously existed across `fact_extractor`, `fact_consolidator`, `profile_evolver`, and `evelyn_server`. See §5.
 * **[[journal_manager.py]]**: Handles journal entry creation, resolution, and roll-ups. Operates via direct UTF-8 file reads and writes across vault root, structured archive (`Journal Entries/YYYY/MM-ShortMonth`), and pending quarantine folders without Obsidian process or CLI dependencies.
 * **[[gcal_sync.py]]**: Google Calendar synchronizer. Pulls calendar events and caches them in the SQLite `calendar_events` table, supporting offline-first operations.
 * **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions (declarative memory) and procedural rules (imperative workflows) and stages them for review.
@@ -202,13 +203,54 @@ The Evelyn ecosystem operates in tandem with external environments and local sys
 > [!IMPORTANT]
 > **CRITICAL ARCHITECTURAL DIRECTIVE — UNIFIED MUTUAL EXCLUSION**
 > To avoid Ollama VRAM/GPU thrashing, SQLite database locks, and overall CPU resource contention, **NO TWO HEAVY BACKGROUND TASKS MAY RUN SIMULTANEOUSLY.**
-> 
-> All background operations (syncing, indexing, extracting, consolidating, or research) MUST be coordinated through the unified registry standard:
-> 
-> 1. **Central Source of Truth**: The `_background_tasks` registry dictionary inside `evelyn_server.py` tracks all running tasks.
-> 2. **Authoritative Checker**: The `is_any_heavy_task_running()` function inside `evelyn_server.py` is the single source of truth for checks.
-> 3. **Active Registration**: Any script running a heavy background operation MUST register its status as `"running"` under `_background_tasks` at startup, and cleanly pop/remove itself from the registry in its `finally` block or on cancellation.
-> 4. **Self-Healing Resolution**: Tool processes that run LLM calls (e.g. `fact_consolidator.py` and `fact_extractor.py`) must inspect the central registry using namespace-safe namespace searches (`sys.modules.get("evelyn_server")` or `sys.modules.get("__main__")`) and yield/defer if another heavy task is active.
-> 
-> *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED and must be explicitly approved with written justification prior to implementation.*
+>
+> All background operations (syncing, indexing, extracting, consolidating, or research) MUST be coordinated through the unified registry standard described below.
+
+### 5.1 Primary Mechanism — `task_manager.py`
+
+**`Evelyn/tools/task_manager.py`** is the single canonical source of truth for all heavy task mutual exclusion. It was introduced (2026-08-01) to replace 4 separate, drift-prone copies of `_heavy_tasks_running()` that previously existed across modules.
+
+| Function | Purpose |
+|---|---|
+| `task_manager.is_any_running(exclude=None)` | Authoritative check — returns `True` if any other heavy task is active |
+| `task_manager.set_running(name)` | Register a task as running in the central `_background_tasks` dict |
+| `task_manager.clear_running(name)` | Deregister a task on completion, cancellation, or error |
+| `task_manager.get_status(name)` | Read current status of a named task |
+
+**How it works:** `task_manager` reads `_background_tasks` from `evelyn_server` via `sys.modules`, exactly as the old per-module helpers did, but in a single shared location. No import of `evelyn_server` is required — it falls back gracefully when the server is not importable.
+
+### 5.2 Mandatory Rules for All Heavy Tasks
+
+1. **Central Source of Truth**: `_background_tasks` dict in `evelyn_server.py` remains the registry. `task_manager` reads and writes it.
+2. **Authoritative Checker**: Call `task_manager.is_any_running(exclude="<your_task_name>")` — do NOT re-implement the check inline.
+3. **Active Registration**: Any heavy operation MUST call `task_manager.set_running(name)` at startup and `task_manager.clear_running(name)` in its `finally` block. For `asyncio` tasks, this is done via `_set_status_in_server()` which delegates to `task_manager`. For subprocess tasks (research), the server's idle loop handles registration.
+4. **No Private Copies**: Do not add a new module-local `_heavy_tasks_running()`. Add the task key to `task_manager.HEAVY_TASK_KEYS` and use the shared API.
+
+### 5.3 Research Subprocess Hardening Layers (2026-08-01)
+
+The research engine (`research_engine.py`) runs as a subprocess, not an asyncio coroutine, which requires additional OS-level hardening beyond the in-memory registry:
+
+| Layer | Mechanism | Location |
+|---|---|---|
+| **L1 — PID Lock** | `engine.pid` written at subprocess start, checked before any `Popen` call | `research_engine.py: _write_pid_lock()/_release_pid_lock()`, `evelyn_tools.py: _is_research_engine_running()` |
+| **L2 — Spawn Debounce** | 60-second quiet period after any spawn; prevents 10s idle loop from firing twice | `evelyn_server.py: _last_research_spawn_ts` |
+| **L3 — Error Cooldown** | 10-minute backoff before auto-resuming a task with `status=="error"` | `evelyn_server.py: _error_resume_ts` |
+| **L4 — Orphan Detection** | On server startup, `engine.pid` is checked per task to distinguish live orphans from clean restarts | `evelyn_server.py: _load_existing_research_tasks()` |
+| **L5 — Eager Registration** | `task_manager.set_running()` called immediately after `asyncio.create_task()` for consolidator and profile_evolver | `evelyn_server.py` idle loops |
+
+### 5.4 Known Heavy Tasks
+
+| Task Key | Module | Type |
+|---|---|---|
+| `task_<id>` | `research_engine.py` | subprocess |
+| `extractor` | `fact_extractor.py` | asyncio coroutine |
+| `consolidator` | `fact_consolidator.py` | asyncio coroutine |
+| `procedure_consolidator` | `procedure_consolidator.py` | asyncio coroutine |
+| `profile_evolver` | `profile_evolver.py` | asyncio coroutine |
+| `refresh_memory` | `evelyn_server.py` | asyncio subprocess |
+| `sync` | `evelyn_server.py` | daemon thread |
+| `vault_map` | `evelyn_server.py` | daemon thread |
+
+> [!CAUTION]
+> *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED. Adding a new heavy task without routing it through `task_manager` is a bug, not a feature. New tasks must: (1) call `task_manager.set_running()` at start, (2) call `task_manager.clear_running()` in `finally`, (3) check `task_manager.is_any_running()` before beginning work.*
 

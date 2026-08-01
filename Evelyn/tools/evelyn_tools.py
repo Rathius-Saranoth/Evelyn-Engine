@@ -331,6 +331,35 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"Web search error: {e}"
 
 
+def _is_research_engine_running(task_id: str) -> bool:
+    """Return True if a live research_engine.py subprocess exists for this task.
+
+    Reads the engine.pid file written by research_engine.main() and performs
+    an OS-level liveness check (signal 0 = process exists). This is the
+    authoritative guard against duplicate subprocess spawning and works even
+    when evelyn_server is not importable (i.e. when server is None).
+
+    Args:
+        task_id: The research task identifier.
+
+    Returns:
+        bool: True if a live process is running for this task.
+    """
+    import os
+    try:
+        import evelyn_config as _cfg
+        from research_engine import get_task_dir
+        pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
+        if not os.path.exists(pid_path):
+            return False
+        with open(pid_path) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)  # Signal 0 = existence check, raises OSError if dead
+        return True
+    except (ValueError, OSError, ImportError):
+        return False
+
+
 def start_research(
     query: str,
     scope: str = "standard",
@@ -405,29 +434,34 @@ def start_research(
                         print(f"[RESEARCH DEDUP] {msg}", flush=True)
                         return msg
 
-        # 2. Concurrency & queue check: check for any unfinished research tasks (running, paused, errored, searching, synthesizing, pending)
+        # 2. Concurrency & queue check: check for any unfinished research tasks
+        # Uses task_manager as the primary guard so this works even when server
+        # is None (fixes the if server: guard hole — Root Cause #3).
         unfinished_task_id = None
         unfinished_status = None
         unfinished_query = None
 
-        if server:
-            bg_tasks = getattr(server, "_background_tasks", {})
-            for tid, tinfo in bg_tasks.items():
-                if tid.startswith("task_"):
-                    from research_engine import load_state
-                    disk_state = load_state(tid)
-                    status = disk_state.get("status") if disk_state else tinfo.get("status")
-                    if status in ("running", "paused", "error", "searching", "synthesizing", "pending"):
-                        unfinished_task_id = tid
-                        unfinished_status = status
-                        unfinished_query = disk_state.get("query") if disk_state else tinfo.get("query", "")
-                        
-                        # If a task is actively running, we cannot start a second subprocess under any circumstances
-                        if status in ("running", "searching", "synthesizing"):
-                            return (
-                                f"Cannot start immediately: another research task ({tid}) is already actively running. "
-                                "Wait for it to complete or pause before starting another."
-                            )
+        # Check all task directories on disk for unfinished/active tasks
+        if os.path.exists(cfg.RESEARCH_DATA_DIR):
+            from research_engine import load_state
+            for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
+                if not folder.startswith("task_"):
+                    continue
+                disk_state = load_state(folder)
+                if not disk_state:
+                    continue
+                status = disk_state.get("status", "")
+                if status in ("running", "paused", "error", "searching", "synthesizing", "pending"):
+                    unfinished_task_id = folder
+                    unfinished_status = status
+                    unfinished_query = disk_state.get("query", "")
+
+                    # If actively running, refuse unconditionally — regardless of server availability
+                    if status in ("running", "searching", "synthesizing") or _is_research_engine_running(folder):
+                        return (
+                            f"Cannot start immediately: another research task ({folder}) is already actively running. "
+                            "Wait for it to complete or pause before starting another."
+                        )
 
         # If there's an unfinished task and we aren't overriding via dashboard, we queue the new request
         if unfinished_task_id and not bypass_queue:
@@ -500,6 +534,16 @@ def start_research(
             import sys
             import os
             try:
+                # Layer 1: PID lock check — refuse to spawn if a live process already exists
+                # for this task. Works even if server is None or _background_tasks is stale.
+                if _is_research_engine_running(task_id):
+                    print(
+                        f"[RESEARCH] Subprocess already alive for {task_id} — "
+                        f"refusing to spawn duplicate.",
+                        flush=True,
+                    )
+                    return
+
                 creationflags = 0
                 if sys.platform == "win32":
                     creationflags = 0x08000000 # CREATE_NO_WINDOW
@@ -653,6 +697,16 @@ def resume_research_task(task_id: str) -> str:
             import sys
             import os
             try:
+                # Layer 1: PID lock check — refuse to spawn if a live process already exists
+                # for this task. Works even if server is None or _background_tasks is stale.
+                if _is_research_engine_running(task_id):
+                    print(
+                        f"[RESEARCH] Subprocess already alive for {task_id} — "
+                        f"refusing to spawn duplicate.",
+                        flush=True,
+                    )
+                    return
+
                 creationflags = 0
                 if sys.platform == "win32":
                     creationflags = 0x08000000 # CREATE_NO_WINDOW
