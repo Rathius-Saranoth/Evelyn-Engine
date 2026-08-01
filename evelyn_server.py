@@ -82,6 +82,8 @@ _last_activity_ts: float = time.time()
 _last_self_initiate_ts: float = 0.0
 _last_window_warn_ts: float = 0.0
 _active_research_processes = {}
+_last_research_spawn_ts: float = 0.0   # Layer 2: spawn debounce
+_error_resume_ts: dict = {}            # Layer 3: per-task error cooldown
 
 
 def _in_research_window() -> bool:
@@ -1429,9 +1431,9 @@ _background_tasks: dict[str, dict] = {}
 def is_any_heavy_task_running(exclude_name: str = None) -> bool:
     """Check if any heavy background task is currently running in the system.
 
-    Unified checker across all background tasks (sync, vault_map, refresh_memory,
-    consolidator, extractor, and active research tasks) to guarantee complete
-    mutual exclusion and prevent Ollama/CPU resource contention.
+    Delegates to task_manager.is_any_running() — the single canonical source
+    of truth for mutual exclusion. Preserves the existing exclude_name
+    parameter for backwards compatibility with all call sites.
 
     Args:
         exclude_name: Optional task name to exclude from checking.
@@ -1439,15 +1441,8 @@ def is_any_heavy_task_running(exclude_name: str = None) -> bool:
     Returns:
         bool: True if another heavy task is currently running, False otherwise.
     """
-    for k, task in _background_tasks.items():
-        if exclude_name and k == exclude_name:
-            continue
-        if k.startswith("task_"):
-            if task.get("status") in ("running", "searching", "synthesizing"):
-                return True
-        elif task.get("status") == "running":
-            return True
-    return False
+    import task_manager
+    return task_manager.is_any_running(exclude=exclude_name)
 
 
 # ---------------------------------------------------------------------------
@@ -1513,6 +1508,11 @@ async def lifespan(app: FastAPI):
                 t2 = asyncio.create_task(run_procedure_consolidation())
                 fact_consolidator._consolidation_task = t1
                 procedure_consolidator._procedure_task = t2
+                # Layer 5: Eagerly register so is_any_heavy_task_running() sees them
+                # immediately, before the coroutines reach their own _set_status calls.
+                import task_manager as _tm
+                _tm.set_running("consolidator")
+                _tm.set_running("procedure_consolidator")
                 await asyncio.gather(t1, t2, return_exceptions=True)
                 print(f"{_MAG}[CONSOLIDATOR]{_RST} Consolidation pass completed — triggering automatic memory refresh.", flush=True)
                 await start_refresh_memory_internal()
@@ -1664,14 +1664,31 @@ async def lifespan(app: FastAPI):
                         _last_window_warn_ts = time.time()
                     await asyncio.sleep(300)  # Check again in 5 min
                     continue
+
+                # Layer 2: Spawn debounce — 60s quiet period after any recent spawn
+                # prevents the 10s loop from firing twice before the first subprocess registers.
+                global _last_research_spawn_ts
+                if time.time() - _last_research_spawn_ts < 60:
+                    continue
+
                 if idle_seconds >= 300:  # Server idle for 5 min
                     # Sort unfinished tasks by created_at ascending (oldest gets priority)
                     unfinished_tasks.sort(key=lambda x: x.get("created_at") or "")
                     target_task = unfinished_tasks[0]
-                    
+
+                    # Layer 3: Error cooldown — crashed tasks must wait 10 minutes before
+                    # being auto-resumed to prevent cascade relaunches.
+                    global _error_resume_ts
+                    if target_task["status"] == "error":
+                        last_attempt = _error_resume_ts.get(target_task["task_id"], 0)
+                        if time.time() - last_attempt < 600:
+                            continue  # Cooldown active — skip silently
+                        _error_resume_ts[target_task["task_id"]] = time.time()
+
                     print(f"[RESEARCH AUTO-RECOVERY] Server idle for {idle_seconds:.1f}s — auto-resuming unfinished task {target_task['task_id']} (status: {target_task['status']})", flush=True)
                     from evelyn_tools import resume_research_task
                     resume_research_task(target_task['task_id'])
+                    _last_research_spawn_ts = time.time()  # Record spawn timestamp
                     # Wait for subprocess thread to spin up and register
                     await asyncio.sleep(20)
                 continue
@@ -1709,6 +1726,7 @@ async def lifespan(app: FastAPI):
                             triggered_by=next_task.get("source", "evelyn"),
                             intent_frame=next_task.get("intent_frame"),
                         )
+                        _last_research_spawn_ts = time.time()  # Record spawn timestamp
                         # Sleep long enough for the subprocess thread to register in
                         # _background_tasks before the next iteration's active-task check.
                         await asyncio.sleep(30)
@@ -1755,6 +1773,10 @@ async def lifespan(app: FastAPI):
             if idle_seconds >= threshold:
                 if not is_any_heavy_task_running():
                     print(f"{_GRN}[PROFILE EVOLVER]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background profile evolution check.", flush=True)
+                    # Layer 5: Eagerly register before create_task() so mutual exclusion
+                    # is enforced from the moment the task is scheduled.
+                    import task_manager as _tm
+                    _tm.set_running("profile_evolver")
                     asyncio.create_task(run_profile_evolution())
 
     asyncio.create_task(_idle_profile_evolution_loop())
@@ -2107,14 +2129,19 @@ async def new_thread(_: None = Depends(check_auth)):
 
 
 def _load_existing_research_tasks():
-    """Scan the research data directory and register any paused, errored, or interrupted tasks."""
+    """Scan the research data directory and register any paused, errored, or interrupted tasks.
+
+    Layer 4: Also checks engine.pid files to detect tasks that were genuinely
+    still running when the server was killed, rather than downgrading all
+    in-flight tasks to 'paused' unconditionally.
+    """
     try:
         import os
         import json
         research_dir = cfg.RESEARCH_DATA_DIR
         if not os.path.exists(research_dir):
             return
-            
+
         for d in os.listdir(research_dir):
             if d.startswith("task_"):
                 task_dir = os.path.join(research_dir, d)
@@ -2125,16 +2152,40 @@ def _load_existing_research_tasks():
                             with open(state_file, "r", encoding="utf-8") as f:
                                 state = json.load(f)
                             status = state.get("status")
-                            
+
                             if status in ("paused", "running", "error"):
                                 target_status = status
-                                # If it was running, it is now paused because the server restarted
+
+                                # Layer 4: If status was 'running', check engine.pid to
+                                # distinguish a genuine orphan from a server restart.
                                 if status == "running":
-                                    target_status = "paused"
-                                    state["status"] = "paused"
-                                    with open(state_file, "w", encoding="utf-8") as fw:
-                                        json.dump(state, fw, indent=2)
-                                        
+                                    pid_file = os.path.join(task_dir, "engine.pid")
+                                    still_alive = False
+                                    if os.path.exists(pid_file):
+                                        try:
+                                            with open(pid_file) as pf:
+                                                pid = int(pf.read().strip())
+                                            os.kill(pid, 0)  # Signal 0 = existence check
+                                            still_alive = True
+                                            print(
+                                                f"[RESEARCH RECOVERY] Task {d} has a live PID {pid} — "
+                                                f"marking as running (orphan subprocess detected).",
+                                                flush=True,
+                                            )
+                                        except (ValueError, OSError):
+                                            # PID dead or file corrupt — stale lock, clean up
+                                            try:
+                                                os.remove(pid_file)
+                                            except OSError:
+                                                pass
+
+                                    if not still_alive:
+                                        # Server restarted without the subprocess alive
+                                        target_status = "paused"
+                                        state["status"] = "paused"
+                                        with open(state_file, "w", encoding="utf-8") as fw:
+                                            json.dump(state, fw, indent=2)
+
                                 _background_tasks[d] = {
                                     "status": target_status,
                                     "query": state.get("query", ""),

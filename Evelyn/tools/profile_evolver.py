@@ -267,58 +267,28 @@ def _save_evolution_state(state: dict) -> None:
 def _other_heavy_tasks_running() -> bool:
     """Check if any other heavy background task is currently active.
 
+    Delegates to task_manager.is_any_running() — the single canonical
+    source of truth for mutual exclusion across all heavy tasks.
+
     Returns:
         bool: True if another heavy task is active, False otherwise.
     """
-    # Check if fact extractor or consolidator is running
-    try:
-        import fact_extractor
-        if fact_extractor._extracting:
-            return True
-    except (ImportError, AttributeError):
-        pass
-
-    try:
-        import fact_consolidator
-        if fact_consolidator._consolidating:
-            return True
-    except (ImportError, AttributeError):
-        pass
-
-    # Check server background tasks
-    for mod_name in ("evelyn_server", "__main__"):
-        mod = sys.modules.get(mod_name)
-        if mod:
-            tasks = getattr(mod, "_background_tasks", None)
-            if isinstance(tasks, dict):
-                for k, task in tasks.items():
-                    if k == "profile_evolver":
-                        continue
-                    if k.startswith("task_"):
-                        if task.get("status") in ("running", "searching", "synthesizing"):
-                            return True
-                    elif task.get("status") == "running":
-                        return True
-    return False
+    import task_manager
+    return task_manager.is_any_running(exclude="profile_evolver")
 
 def _set_status_in_server(status: str | None) -> None:
     """Register or clear status in the server's background task registry.
 
+    Delegates to task_manager.set_running() / task_manager.clear_running().
+
     Args:
         status: Status string (e.g. 'running'), or None to clear.
     """
-    for mod_name in ("evelyn_server", "__main__"):
-        mod = sys.modules.get(mod_name)
-        if mod:
-            tasks = getattr(mod, "_background_tasks", None)
-            if isinstance(tasks, dict):
-                if status == "running":
-                    tasks["profile_evolver"] = {
-                        "status": "running",
-                        "started_at": time.time(),
-                    }
-                else:
-                    tasks.pop("profile_evolver", None)
+    import task_manager
+    if status == "running":
+        task_manager.set_running("profile_evolver")
+    else:
+        task_manager.clear_running("profile_evolver")
 
 # ---------------------------------------------------------------------------
 # Public API
