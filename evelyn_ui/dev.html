@@ -43,16 +43,72 @@
     }
     .back-btn:hover { color: #fff; }
     
+    /* Heavy Tasks Dashboard Panel */
+    .heavy-tasks-panel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; margin: 16px auto;
+      max-width: 850px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .heavy-tasks-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+    }
+    .heavy-tasks-title {
+      font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;
+    }
+    .heavy-tasks-controls {
+      display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim);
+    }
+    .toggle-live {
+      display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 13px;
+    }
+    .toggle-live input { cursor: pointer; }
+    .heavy-tasks-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;
+    }
+    .heavy-task-card {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px;
+      transition: border-color 0.2s;
+    }
+    .heavy-task-card.active-task {
+      border-color: var(--accent); background: rgba(124, 106, 247, 0.08);
+    }
+    .heavy-task-top {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .heavy-task-name { font-weight: 500; color: #fff; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-dim);
+    }
+    .status-dot.running { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .status-dot.error { background: var(--danger); }
+    .status-dot.paused { background: var(--warning); }
+
+    /* Tabs & Filter bar */
     .tabs {
-      display: flex; gap: 8px; padding: 16px 20px; background: var(--bg);
+      display: flex; gap: 8px; padding: 0 20px 16px; background: var(--bg); max-width: 850px; margin: 0 auto;
     }
     .tab-btn {
       background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border);
-      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
+      padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
       transition: all 0.2s; flex: 1; text-align: center;
     }
     .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
     
+    .filter-bar {
+      display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+    }
+    .filter-pill {
+      background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border);
+      padding: 5px 12px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: 500;
+      transition: all 0.2s;
+    }
+    .filter-pill.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .filter-pill:hover:not(.active) { color: #fff; border-color: var(--text-dim); }
+
     main { padding: 0 20px; max-width: 850px; margin: 0 auto; }
     
     .card {
@@ -188,18 +244,36 @@
 </head>
 <body>
   <header>
-    <h1 id="header-title">Review Queue</h1>
+    <h1 id="header-title">Developer Dashboard</h1>
     <div style="display: flex; gap: 8px; align-items: center;">
       <button class="back-btn" onclick="loadData()" style="cursor: pointer; border: none; font-family: inherit;">⟳ Refresh</button>
       <a href="/ui/" class="back-btn">← Back to Chat</a>
     </div>
   </header>
   
+  <!-- Heavy Background Tasks Dashboard Panel -->
+  <div class="heavy-tasks-panel" id="heavy-tasks-panel">
+    <div class="heavy-tasks-header">
+      <div class="heavy-tasks-title">
+        <span>⚙️ Heavy Tasks Monitor</span>
+        <span id="lock-status-badge" class="badge">Checking...</span>
+      </div>
+      <div class="heavy-tasks-controls">
+        <label class="toggle-live">
+          <input type="checkbox" id="live-updates-toggle" onchange="toggleLiveUpdates(this.checked)">
+          ⚡ Live Updates (5s)
+        </label>
+        <button class="back-btn" onclick="triggerManualSync()" style="cursor: pointer; border: none; font-size: 12px; padding: 4px 8px;">Sync Chroma</button>
+        <button class="back-btn" onclick="triggerManualRefreshMemory()" style="cursor: pointer; border: none; font-size: 12px; padding: 4px 8px;">Refresh Memory</button>
+      </div>
+    </div>
+    <div class="heavy-tasks-grid" id="heavy-tasks-grid">
+      <div style="color: var(--text-dim); font-size: 13px; grid-column: 1 / -1;">Loading heavy background tasks...</div>
+    </div>
+  </div>
+
   <div class="tabs">
-    <button class="tab-btn active" id="tab-extractions" onclick="switchTab('extractions')">Extractions (<span id="count-ext">0</span>)</button>
-    <button class="tab-btn" id="tab-proposals" onclick="switchTab('proposals')">Proposals (<span id="count-prop">0</span>)</button>
-    <button class="tab-btn" id="tab-profile-updates" onclick="switchTab('profile_updates')">Profile Updates (<span id="count-prof-up">0</span>)</button>
-    <button class="tab-btn" id="tab-procedures" onclick="switchTab('procedures')">Procedures (<span id="count-proc">0</span>)</button>
+    <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
   </div>
   
@@ -238,11 +312,16 @@
   <script>
     const API_BASE = window.location.origin;
     const API_KEY = localStorage.getItem('evelyn_api_key') || '';
-    let currentTab = 'extractions';
+    let currentTab = 'triage';
+    let triageFilter = 'all';
+    
+    let unifiedItems = [];
     let extractions = [];
     let proposals = [];
-    let researchTasks = [];
     let procedures = [];
+    let researchTasks = [];
+    let heavyTasksData = { is_any_running: false, tasks: [], research_tasks: [] };
+    let liveUpdatesTimer = null;
 
     function headers() {
       return { 'Content-Type': 'application/json', 'X-Evelyn-Key': API_KEY };
@@ -253,33 +332,19 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    // A simple, very lightweight Markdown parser to render reports beautifully
     function renderMarkdown(md) {
       if (!md) return '';
       let html = escapeHtml(md);
       
-      // Headers
       html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
       html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
       html = html.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
-      
-      // Bold & Italic
       html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
       html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-      
-      // Inline Code
       html = html.replace(/`(.*?)`/g, '<code>$1</code>');
-      
-      // Preblocks (Code block)
       html = html.replace(/```(.*?)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-      
-      // Unordered lists
       html = html.replace(/^\s*-\s+(.*?)$/gm, '<li>$1</li>');
-      
-      // Fix list nesting
       html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-      
-      // Paragraphs (split by double newlines)
       html = html.replace(/\n\n/g, '</p><p>');
       html = '<p>' + html + '</p>';
       
@@ -288,47 +353,202 @@
 
     async function loadData() {
       try {
-        const [resExt, resProp, resRes, resProc] = await Promise.all([
-          fetch(`${API_BASE}/api/review/extractions`, { headers: headers() }),
-          fetch(`${API_BASE}/api/review/proposals`, { headers: headers() }),
+        const [resUnified, resRes, resTasks] = await Promise.all([
+          fetch(`${API_BASE}/api/review/unified`, { headers: headers() }),
           fetch(`${API_BASE}/research/list`, { headers: headers() }),
-          fetch(`${API_BASE}/api/review/procedures`, { headers: headers() })
+          fetch(`${API_BASE}/api/heavy_tasks`, { headers: headers() })
         ]);
-        if (resExt.ok) extractions = await resExt.json();
-        if (resProp.ok) proposals = await resProp.json();
-        if (resRes.ok) researchTasks = await resRes.json();
-        if (resProc.ok) procedures = await resProc.json();
         
-        const normalProposals = proposals.filter(p => p.type !== 'profile_update');
-        const profileUpdates = proposals.filter(p => p.type === 'profile_update');
+        if (resUnified.ok) {
+          unifiedItems = await resUnified.json();
+        } else {
+          // Fallback if unified endpoint is unavailable
+          const [resExt, resProp, resProc] = await Promise.all([
+            fetch(`${API_BASE}/api/review/extractions`, { headers: headers() }),
+            fetch(`${API_BASE}/api/review/proposals`, { headers: headers() }),
+            fetch(`${API_BASE}/api/review/procedures`, { headers: headers() })
+          ]);
+          extractions = resExt.ok ? await resExt.json() : [];
+          proposals = resProp.ok ? await resProp.json() : [];
+          procedures = resProc.ok ? await resProc.json() : [];
+          
+          unifiedItems = [
+            ...extractions.map(x => ({ ...x, item_type: 'extraction' })),
+            ...proposals.map(p => ({ ...p, item_type: p.type === 'profile_update' ? 'profile_update' : 'proposal' })),
+            ...procedures.map(pr => ({ ...pr, item_type: 'procedure' }))
+          ];
+        }
 
-        document.getElementById('count-ext').textContent = extractions.length;
-        document.getElementById('count-prop').textContent = normalProposals.length;
-        document.getElementById('count-prof-up').textContent = profileUpdates.length;
-        document.getElementById('count-proc').textContent = procedures.length;
-        document.getElementById('count-res').textContent = researchTasks.length;
-        
+        if (resRes.ok) researchTasks = await resRes.json();
+        if (resTasks.ok) heavyTasksData = await resTasks.json();
+
+        updateCounts();
+        renderHeavyTasks();
         render();
       } catch (e) {
         document.getElementById('container').innerHTML = `<div class="empty-state">Error loading data.</div>`;
       }
     }
 
+    async function loadHeavyTasks() {
+      try {
+        const res = await fetch(`${API_BASE}/api/heavy_tasks`, { headers: headers() });
+        if (res.ok) {
+          heavyTasksData = await res.json();
+          renderHeavyTasks();
+        }
+      } catch (e) {
+        console.error('Failed to update heavy tasks:', e);
+      }
+    }
+
+    function toggleLiveUpdates(enabled) {
+      if (enabled) {
+        if (!liveUpdatesTimer) {
+          loadHeavyTasks();
+          liveUpdatesTimer = setInterval(loadHeavyTasks, 5000);
+        }
+      } else {
+        if (liveUpdatesTimer) {
+          clearInterval(liveUpdatesTimer);
+          liveUpdatesTimer = null;
+        }
+      }
+    }
+
+    function renderHeavyTasks() {
+      const lockBadge = document.getElementById('lock-status-badge');
+      const grid = document.getElementById('heavy-tasks-grid');
+      if (!lockBadge || !grid) return;
+
+      const isRunning = heavyTasksData.is_any_running;
+      const activeHolder = heavyTasksData.active_lock_holder;
+
+      if (isRunning) {
+        lockBadge.className = 'badge';
+        lockBadge.style.background = 'var(--warning)';
+        lockBadge.style.color = '#000';
+        lockBadge.textContent = `🔒 Lock Held: ${activeHolder || 'Running'}`;
+      } else {
+        lockBadge.className = 'badge';
+        lockBadge.style.background = 'var(--surface2)';
+        lockBadge.style.color = 'var(--success)';
+        lockBadge.textContent = '✓ Idle (Lock Available)';
+      }
+
+      const allTasks = [...(heavyTasksData.tasks || [])];
+      
+      // Inject any active research tasks into the monitor list
+      (heavyTasksData.research_tasks || []).forEach(rt => {
+        if (rt.status === 'running' || rt.status === 'searching' || rt.status === 'synthesizing') {
+          allTasks.push(rt);
+        }
+      });
+
+      if (allTasks.length === 0) {
+        grid.innerHTML = `<div style="color: var(--text-dim); font-size: 13px; grid-column: 1 / -1;">No background task registry available.</div>`;
+        return;
+      }
+
+      grid.innerHTML = allTasks.map(t => {
+        const status = t.status || 'idle';
+        let dotClass = '';
+        if (status === 'running' || status === 'searching' || status === 'synthesizing') dotClass = 'running';
+        else if (status === 'error') dotClass = 'error';
+        else if (status === 'paused') dotClass = 'paused';
+
+        let durationText = '';
+        if (t.elapsed_seconds !== null && t.elapsed_seconds !== undefined) {
+          durationText = `${t.elapsed_seconds}s`;
+        }
+
+        let detailText = t.phase || t.error || (status === 'running' ? 'Active' : 'Idle');
+
+        return `
+          <div class="heavy-task-card ${dotClass === 'running' ? 'active-task' : ''}">
+            <div class="heavy-task-top">
+              <span class="heavy-task-name">${escapeHtml(t.name)}</span>
+              <span style="display: flex; align-items: center; gap: 6px;">
+                ${durationText ? `<span style="font-size: 11px; color: var(--text-dim);">${durationText}</span>` : ''}
+                <span class="status-dot ${dotClass}"></span>
+              </span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-dim); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+              ${escapeHtml(detailText)}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function triggerManualSync() {
+      try {
+        const res = await fetch(`${API_BASE}/sync`, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          loadHeavyTasks();
+        } else {
+          alert('Failed to trigger sync.');
+        }
+      } catch (e) {
+        alert('Network error triggering sync.');
+      }
+    }
+
+    async function triggerManualRefreshMemory() {
+      try {
+        const res = await fetch(`${API_BASE}/refresh_memory`, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          loadHeavyTasks();
+        } else {
+          alert('Failed to trigger memory refresh.');
+        }
+      } catch (e) {
+        alert('Network error triggering memory refresh.');
+      }
+    }
+
+    function updateCounts() {
+      const extCount = unifiedItems.filter(i => i.item_type === 'extraction').length;
+      const propCount = unifiedItems.filter(i => i.item_type === 'proposal').length;
+      const profUpCount = unifiedItems.filter(i => i.item_type === 'profile_update').length;
+      const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
+
+      document.getElementById('count-triage').textContent = unifiedItems.length;
+      document.getElementById('count-res').textContent = researchTasks.length;
+
+      const filterExt = document.getElementById('count-filter-ext');
+      if (filterExt) filterExt.textContent = extCount;
+      const filterProp = document.getElementById('count-filter-prop');
+      if (filterProp) filterProp.textContent = propCount;
+      const filterProfUp = document.getElementById('count-filter-prof-up');
+      if (filterProfUp) filterProfUp.textContent = profUpCount;
+      const filterProc = document.getElementById('count-filter-proc');
+      if (filterProc) filterProc.textContent = procCount;
+    }
+
     function switchTab(tab) {
-      currentTab = tab;
-      document.getElementById('tab-extractions').classList.toggle('active', tab === 'extractions');
-      document.getElementById('tab-proposals').classList.toggle('active', tab === 'proposals');
-      document.getElementById('tab-profile-updates').classList.toggle('active', tab === 'profile_updates');
-      document.getElementById('tab-procedures').classList.toggle('active', tab === 'procedures');
-      document.getElementById('tab-research').classList.toggle('active', tab === 'research');
+      if (['extractions', 'proposals', 'profile_updates', 'procedures'].includes(tab)) {
+        currentTab = 'triage';
+        if (tab === 'extractions') triageFilter = 'extraction';
+        else if (tab === 'proposals') triageFilter = 'proposal';
+        else if (tab === 'profile_updates') triageFilter = 'profile_update';
+        else if (tab === 'procedures') triageFilter = 'procedure';
+      } else {
+        currentTab = tab;
+      }
+
+      document.getElementById('tab-triage').classList.toggle('active', currentTab === 'triage');
+      document.getElementById('tab-research').classList.toggle('active', currentTab === 'research');
       
       const title = document.getElementById('header-title');
-      if (tab === 'extractions') title.textContent = 'Review Queue';
-      else if (tab === 'proposals') title.textContent = 'Proposals Queue';
-      else if (tab === 'profile_updates') title.textContent = 'Profile & Persona Updates';
-      else if (tab === 'procedures') title.textContent = 'Procedures Review';
+      if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
       else title.textContent = 'Deep Research Dashboard';
 
+      render();
+    }
+
+    function setTriageFilter(filter) {
+      triageFilter = filter;
       render();
     }
 
@@ -345,12 +565,11 @@
         const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
         if (res.ok) {
           if (type === 'extractions') {
-            extractions = extractions.filter(x => x.id !== id);
-            document.getElementById('count-ext').textContent = extractions.length;
+            unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id === id));
           } else {
-            proposals = proposals.filter(x => x.id !== id);
-            document.getElementById('count-prop').textContent = proposals.length;
+            unifiedItems = unifiedItems.filter(x => !((x.item_type === 'proposal' || x.item_type === 'profile_update') && x.id === id));
           }
+          updateCounts();
           render();
         } else {
           alert('Action failed.');
@@ -387,8 +606,8 @@
           body: body
         });
         if (res.ok) {
-          procedures = procedures.filter(p => p.id !== id);
-          document.getElementById('count-proc').textContent = procedures.length;
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          updateCounts();
           render();
         } else {
           alert('Action failed.');
@@ -487,10 +706,7 @@
     async function restartResearchTask(taskId, query, scope) {
       if (!confirm(`Are you sure you want to completely restart the research for: "${query}"?\nThis will remove the current quarantined task and create a brand new one.`)) return;
       try {
-        // First delete the old one
         await fetch(`${API_BASE}/research/delete/${taskId}`, { method: 'POST', headers: headers() });
-        
-        // Then start a new one
         const res = await fetch(`${API_BASE}/research/start`, {
           method: 'POST',
           headers: headers(),
@@ -607,7 +823,6 @@
             </div>
           </div>
         `;
-        // set original dataset after injection
         setTimeout(() => {
           const ta = document.getElementById(`sq-edit-${sq.id}`);
           if(ta) ta.dataset.original = displayQuery;
@@ -664,7 +879,6 @@
             btn.disabled = true;
           }, 2000);
           
-          // Also update the local state to reflect it so refreshing doesn't overwrite immediately
           const task = researchTasks.find(t => t.task_id === taskId);
           if (task) {
              const sq = task.plan.sub_questions.find(s => s.id === sqId);
@@ -701,26 +915,15 @@
           body: JSON.stringify({ sq_id: sqId })
         });
         if (res.ok) {
-          // Find container and remove it nicely
           const ta = document.getElementById(`sq-edit-${sqId}`);
           if (ta) {
-             const container = ta.closest('div[style*="margin-bottom"]');
+             const container = ta.closest('div[style*="background: var(--surface2)"]');
              if (container) {
                 container.style.transition = 'all 0.3s ease';
                 container.style.opacity = '0';
                 setTimeout(() => container.remove(), 300);
-             } else {
-                // fallback to parent element with background
-                const pContainer = ta.parentElement;
-                if (pContainer) {
-                   pContainer.style.transition = 'all 0.3s ease';
-                   pContainer.style.opacity = '0';
-                   setTimeout(() => pContainer.remove(), 300);
-                }
              }
           }
-          
-          // Update the local state
           const task = researchTasks.find(t => t.task_id === taskId);
           if (task) {
              task.plan.sub_questions = task.plan.sub_questions.filter(s => s.id !== sqId);
@@ -743,19 +946,24 @@
     }
 
     function handleEditInput(id) {
-      const item = extractions.find(x => x.id === id);
+      const item = unifiedItems.find(x => x.id === id);
+      if (!item) return;
       const obs = document.getElementById(`obs-${id}`).value;
       const isDirty = (obs !== item.observation);
       
-      document.getElementById(`btn-approve-${id}`).style.display = isDirty ? 'none' : 'block';
-      document.getElementById(`btn-edit-${id}`).style.display = isDirty ? 'block' : 'none';
-      document.getElementById(`btn-revert-${id}`).style.display = isDirty ? 'block' : 'none';
+      const btnApprove = document.getElementById(`btn-approve-${id}`);
+      const btnEdit = document.getElementById(`btn-edit-${id}`);
+      const btnRevert = document.getElementById(`btn-revert-${id}`);
+      if (btnApprove) btnApprove.style.display = isDirty ? 'none' : 'block';
+      if (btnEdit) btnEdit.style.display = isDirty ? 'block' : 'none';
+      if (btnRevert) btnRevert.style.display = isDirty ? 'block' : 'none';
     }
 
     function handleRevert(id) {
-      const item = extractions.find(x => x.id === id);
+      const item = unifiedItems.find(x => x.id === id);
+      if (!item) return;
       const textarea = document.getElementById(`obs-${id}`);
-      textarea.value = item.observation;
+      if (textarea) textarea.value = item.observation;
       handleEditInput(id);
     }
 
@@ -894,19 +1102,13 @@
       return html;
     }
 
-    function render() {
-      const container = document.getElementById('container');
-      
-      if (currentTab === 'extractions') {
-        if (extractions.length === 0) {
-          container.innerHTML = `<div class="empty-state">All caught up! No extractions to review.</div>`;
-          return;
-        }
-        container.innerHTML = extractions.map(item => `
+    function renderTriageItemCard(item) {
+      if (item.item_type === 'extraction') {
+        return `
           <div class="card">
             <div class="card-header">
-              <span class="badge extraction">${item.category}</span>
-              <span>${item.date || 'No Date'}</span>
+              <span class="badge extraction">EXTRACTION: ${escapeHtml(item.category)}</span>
+              <span>${escapeHtml(item.date || 'No Date')}</span>
             </div>
             <div class="card-body">
               <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})">${escapeHtml(item.observation)}</textarea>
@@ -918,81 +1120,60 @@
               <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete')">Delete</button>
             </div>
           </div>
+        `;
+      } else if (item.item_type === 'proposal') {
+        const sourcesHTML = (item.source_entries || []).map(s => `
+          <div class="source-item"><strong>[${escapeHtml(s.category)}]</strong> ${escapeHtml(s.observation)}</div>
         `).join('');
         
-      } else if (currentTab === 'proposals') {
-        const normalProposals = proposals.filter(p => p.type !== 'profile_update');
-        if (normalProposals.length === 0) {
-          container.innerHTML = `<div class="empty-state">All caught up! No proposals to review.</div>`;
-          return;
-        }
-        container.innerHTML = normalProposals.map(item => {
-          const sourcesHTML = item.source_entries.map(s => `
-            <div class="source-item"><strong>[${s.category}]</strong> ${escapeHtml(s.observation)}</div>
-          `).join('');
-          
-          return `
-            <div class="card">
-              <div class="card-header">
-                <span class="badge ${item.type}">${item.type}</span>
-                <span>ID: ${item.id}</span>
-              </div>
-              <div class="card-body">
-                <div style="color: var(--text-dim); font-size: 13px; margin-bottom: 8px;">Reason: ${escapeHtml(item.reason)}</div>
-                ${item.type === 'recategorize' 
-                  ? `<div>Move to <strong>${item.suggested_category}</strong></div>` 
-                  : `<div><strong>Merged text:</strong><br>${escapeHtml(item.merged_observation)}</div><div style="margin-top:4px;"><strong>Target Category:</strong> ${item.suggested_category}</div>`
-                }
-                <div class="source-list">${sourcesHTML}</div>
-              </div>
-              <div class="card-actions">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
-              </div>
+        return `
+          <div class="card">
+            <div class="card-header">
+              <span class="badge ${escapeHtml(item.type)}">PROPOSAL: ${escapeHtml(item.type)}</span>
+              <span>ID: ${item.id}</span>
             </div>
-          `;
-        }).join('');
+            <div class="card-body">
+              <div style="color: var(--text-dim); font-size: 13px; margin-bottom: 8px;">Reason: ${escapeHtml(item.reason)}</div>
+              ${item.type === 'recategorize' 
+                ? `<div>Move to <strong>${escapeHtml(item.suggested_category)}</strong></div>` 
+                : `<div><strong>Merged text:</strong><br>${escapeHtml(item.merged_observation)}</div><div style="margin-top:4px;"><strong>Target Category:</strong> ${escapeHtml(item.suggested_category)}</div>`
+              }
+              <div class="source-list">${sourcesHTML}</div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve</button>
+              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+            </div>
+          </div>
+        `;
+      } else if (item.item_type === 'profile_update') {
+        const sourcesHTML = (item.source_entries || []).map(s => `
+          <div class="source-item"><strong>[${escapeHtml(s.category)}]</strong> ${escapeHtml(s.observation)}</div>
+        `).join('');
         
-      } else if (currentTab === 'profile_updates') {
-        const profileUpdates = proposals.filter(p => p.type === 'profile_update');
-        if (profileUpdates.length === 0) {
-          container.innerHTML = `<div class="empty-state">All caught up! No profile updates to review.</div>`;
-          return;
-        }
-        container.innerHTML = profileUpdates.map(item => {
-          const sourcesHTML = item.source_entries.map(s => `
-            <div class="source-item"><strong>[${s.category}]</strong> ${escapeHtml(s.observation)}</div>
-          `).join('');
-          
-          return `
-            <div class="card">
-              <div class="card-header">
-                <span class="badge" style="background: var(--accent); color: #fff;">PROFILE UPDATE: ${item.suggested_category}</span>
-                <span>ID: ${item.id}</span>
-              </div>
-              <div class="card-body" style="display: flex; flex-direction: column; gap: 10px;">
-                <div style="color: var(--text-dim); font-size: 13px;"><strong>Reason / Explanation:</strong><br>${escapeHtml(item.reason)}</div>
-                <div style="font-size: 14px; font-weight: 500; margin-top: 6px; color: #fff;">Diff comparison:</div>
-                ${renderDiff(item.merged_tags, item.merged_observation)}
-                <div style="font-size: 13px; color: var(--text-dim); margin-top: 8px;">
-                  <strong>Supporting Context Entries:</strong>
-                </div>
-                <div class="source-list">${sourcesHTML}</div>
-              </div>
-              <div class="card-actions">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Update</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject Update</button>
-              </div>
+        return `
+          <div class="card">
+            <div class="card-header">
+              <span class="badge" style="background: var(--accent); color: #fff;">PROFILE UPDATE: ${escapeHtml(item.suggested_category)}</span>
+              <span>ID: ${item.id}</span>
             </div>
-          `;
-        }).join('');
-
-      } else if (currentTab === 'procedures') {
-        if (procedures.length === 0) {
-          container.innerHTML = `<div class="empty-state">All caught up! No procedures to review.</div>`;
-          return;
-        }
-        container.innerHTML = procedures.map(item => `
+            <div class="card-body" style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="color: var(--text-dim); font-size: 13px;"><strong>Reason / Explanation:</strong><br>${escapeHtml(item.reason)}</div>
+              <div style="font-size: 14px; font-weight: 500; margin-top: 6px; color: #fff;">Diff comparison:</div>
+              ${renderDiff(item.merged_tags, item.merged_observation)}
+              <div style="font-size: 13px; color: var(--text-dim); margin-top: 8px;">
+                <strong>Supporting Context Entries:</strong>
+              </div>
+              <div class="source-list">${sourcesHTML}</div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Update</button>
+              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject Update</button>
+            </div>
+          </div>
+        `;
+      } else if (item.item_type === 'procedure') {
+        return `
           <div class="card">
             <div class="card-header">
               <span class="badge extraction" style="background: var(--accent); color: #fff;">PROCEDURE</span>
@@ -1025,7 +1206,41 @@
               <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'deny')">Reject / Archive</button>
             </div>
           </div>
-        `).join('');
+        `;
+      }
+      return '';
+    }
+
+    function render() {
+      const container = document.getElementById('container');
+      
+      if (currentTab === 'triage') {
+        const extCount = unifiedItems.filter(i => i.item_type === 'extraction').length;
+        const propCount = unifiedItems.filter(i => i.item_type === 'proposal').length;
+        const profUpCount = unifiedItems.filter(i => i.item_type === 'profile_update').length;
+        const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
+
+        const filterBarHtml = `
+          <div class="filter-bar">
+            <button class="filter-pill ${triageFilter === 'all' ? 'active' : ''}" onclick="setTriageFilter('all')">All (${unifiedItems.length})</button>
+            <button class="filter-pill ${triageFilter === 'extraction' ? 'active' : ''}" onclick="setTriageFilter('extraction')">Extractions (${extCount})</button>
+            <button class="filter-pill ${triageFilter === 'proposal' ? 'active' : ''}" onclick="setTriageFilter('proposal')">Proposals (${propCount})</button>
+            <button class="filter-pill ${triageFilter === 'profile_update' ? 'active' : ''}" onclick="setTriageFilter('profile_update')">Profile Updates (${profUpCount})</button>
+            <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')">Procedures (${procCount})</button>
+          </div>
+        `;
+
+        let filteredItems = unifiedItems;
+        if (triageFilter !== 'all') {
+          filteredItems = unifiedItems.filter(i => i.item_type === triageFilter);
+        }
+
+        if (filteredItems.length === 0) {
+          container.innerHTML = filterBarHtml + `<div class="empty-state">All caught up! No ${triageFilter === 'all' ? '' : triageFilter.replace('_', ' ')} items to review.</div>`;
+          return;
+        }
+
+        container.innerHTML = filterBarHtml + filteredItems.map(item => renderTriageItemCard(item)).join('');
 
       } else if (currentTab === 'research') {
         const hasForm = !!document.getElementById('research-query');
@@ -1054,16 +1269,10 @@
           <div id="research-list-container"></div>
         `;
         
-        let savedSearch = '';
-        let savedSort = 'newest';
-        
         if (!hasForm) {
           container.innerHTML = formHTML;
           document.getElementById('research-search').addEventListener('input', renderResearchList);
           document.getElementById('research-sort').addEventListener('change', renderResearchList);
-        } else {
-          savedSearch = document.getElementById('research-search').value;
-          savedSort = document.getElementById('research-sort').value;
         }
         
         renderResearchList();
@@ -1239,21 +1448,23 @@
     // Keyboard shortcuts for review tab
     document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+      if (currentTab !== 'triage') return;
+
+      let filteredItems = unifiedItems;
+      if (triageFilter !== 'all') {
+        filteredItems = unifiedItems.filter(i => i.item_type === triageFilter);
+      }
+      if (filteredItems.length === 0) return;
       
-      const items = currentTab === 'extractions' 
-        ? extractions 
-        : (currentTab === 'proposals' 
-           ? proposals.filter(p => p.type !== 'profile_update') 
-           : (currentTab === 'profile_updates' 
-              ? proposals.filter(p => p.type === 'profile_update') 
-              : []));
-      if (items.length === 0) return;
-      
-      const firstId = items[0].id;
+      const firstItem = filteredItems[0];
       if (e.key.toLowerCase() === 'a') {
-        handleAction('proposals', firstId, 'approve');
+        if (firstItem.item_type === 'extraction') handleAction('extractions', firstItem.id, 'approve');
+        else if (firstItem.item_type === 'proposal' || firstItem.item_type === 'profile_update') handleAction('proposals', firstItem.id, 'approve');
+        else if (firstItem.item_type === 'procedure') handleProcedureAction(firstItem.id, 'approve');
       } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'd') {
-        handleAction('proposals', firstId, 'deny');
+        if (firstItem.item_type === 'extraction') handleAction('extractions', firstItem.id, 'delete');
+        else if (firstItem.item_type === 'proposal' || firstItem.item_type === 'profile_update') handleAction('proposals', firstItem.id, 'deny');
+        else if (firstItem.item_type === 'procedure') handleProcedureAction(firstItem.id, 'deny');
       }
     });
 
@@ -1265,7 +1476,7 @@
     // Init
     const params = new URLSearchParams(window.location.search);
     const initialTab = params.get('tab');
-    if (initialTab && ['extractions', 'proposals', 'profile_updates', 'research'].includes(initialTab)) {
+    if (initialTab) {
       switchTab(initialTab);
     }
     loadData();
