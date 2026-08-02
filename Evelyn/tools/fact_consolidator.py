@@ -101,7 +101,7 @@ _SCAN_STATE_FILE = os.path.join(
 )
 
 # Reference to the in-flight consolidation asyncio.Task so it can be cancelled
-# when a new chat request arrives (same pattern as context_summarizer._summary_task).
+# when a new chat request arrives.
 _consolidation_task = None
 
 
