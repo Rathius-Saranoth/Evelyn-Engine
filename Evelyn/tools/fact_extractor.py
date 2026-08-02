@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-06-27 09:15:52
+# date modified: 2026-08-02 12:15:34
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -38,6 +38,8 @@ import httpx
 import yaml
 
 import evelyn_config as cfg # [[evelyn_config.py]]
+from Evelyn.tools.tag_librarian import normalize_tag_format
+
 
 # ---------------------------------------------------------------------------
 # Module-level regex constants
@@ -465,7 +467,8 @@ def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
         "facts:\n"
         "  - subject: Ricky          # or Evelyn\n"
         "    category: Cat05-R        # best matching Cat##-E or Cat##-R code\n"
-        "    tags: \"kw/ricky, kw/habit\" # comma-separated semantic tags starting with kw/\n"
+        "    tags: \"ricky, habits\"     # comma-separated semantic tags
+
         "    summary: \"Exact fact.\"   # one clear, self-contained sentence\n"
         "    confidence: high         # high / medium / low\n"
         "    date: \"2025-03-15\"      # date this was discussed (from message timestamps above)\n"
@@ -517,7 +520,9 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
             continue
         subj = str(item.get("subject", "")).strip()
         cat = str(item.get("category", "")).strip()
-        tags = str(item.get("tags", "")).strip()
+        raw_tags = str(item.get("tags", "")).strip()
+        tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
+
         summ = str(item.get("summary", "")).strip()
         # Sanitize before any further processing — drop if injection or
         # invisible-char abuse detected.
@@ -636,7 +641,9 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
         steps = str(item.get("steps", "")).strip()
         pitfalls = item.get("pitfalls")
         verification = item.get("verification")
-        tags = str(item.get("tags", "")).strip()
+        raw_tags = str(item.get("tags", "")).strip()
+        tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
+
 
         # Sanitize trigger and steps against injection
         trigger = _sanitize_entry(trigger)

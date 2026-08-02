@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-06-14 16:22:21
+# date modified: 2026-08-02 12:17:22
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -38,10 +38,12 @@ import httpx
 import yaml
 
 import evelyn_config as cfg # [[evelyn_config.py]]
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 # Import full module so we can read fact_extractor._extracting for mutual exclusion.
 import fact_extractor # [[fact_extractor.py]]
 from fact_extractor import load_cat00_index
+
 
 
 # ---------------------------------------------------------------------------
@@ -1222,7 +1224,8 @@ Output ONLY a YAML block:
 ```yaml
 verdict: supersede   # supersede / merge / keep_both
 merged_summary: "The consolidated fact as a single clear sentence."
-merged_tags: "kw/tag1, kw/tag2" # comma-separated semantic tags starting with kw/
+merged_tags: "tag1, tag2"        # comma-separated semantic tags
+
 confidence: high     # high / medium / low
 reasoning: "Brief explanation of the verdict."
 ```\
@@ -1328,14 +1331,18 @@ def _parse_proposal_yaml(
         )
         normalized = category
 
+    raw_tags = str(data.get("merged_tags", "")).strip()
+    norm_tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
+
     return {
         "verdict": verdict,
         "merged_summary": str(data.get("merged_summary", "")).strip(),
-        "merged_tags": str(data.get("merged_tags", "")).strip(),
+        "merged_tags": norm_tags,
         "confidence": str(data.get("confidence", "medium")).strip().lower(),
         "target_category": normalized,
         "reasoning": str(data.get("reasoning", "")).strip(),
     }
+
 
 
 def _write_proposal(cluster: dict, proposal: dict) -> str | None:
