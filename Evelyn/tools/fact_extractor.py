@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-02 12:15:34
+# date modified: 2026-08-02 12:21:36
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -467,7 +467,7 @@ def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
         "facts:\n"
         "  - subject: Ricky          # or Evelyn\n"
         "    category: Cat05-R        # best matching Cat##-E or Cat##-R code\n"
-        "    tags: \"ricky, habits\"     # comma-separated semantic tags
+        "    tags: \"ricky, habits\"     # comma-separated semantic tags\n"
 
         "    summary: \"Exact fact.\"   # one clear, self-contained sentence\n"
         "    confidence: high         # high / medium / low\n"
