@@ -1360,9 +1360,7 @@ def clean_shutdown_all_tasks():
         print(f"[SERVER SHUTDOWN ERROR] Background task cancellation failed: {e}", flush=True)
 
 
-@app.on_event("shutdown")
-def on_server_shutdown():
-    clean_shutdown_all_tasks()
+
 
 
 async def chat_stream(user_message: str, is_regenerate: bool = False):
@@ -1856,6 +1854,8 @@ async def lifespan(app: FastAPI):
     print(f"  {_GRN}GCal Syncer:{_RST} periodic loop started (interval=30m)")
 
     yield
+    # Shutdown phase: pause all active research and cancel background tasks cleanly
+    clean_shutdown_all_tasks()
 
 
 
