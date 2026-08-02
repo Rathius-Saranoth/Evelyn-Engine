@@ -101,25 +101,13 @@ TOOL_LOOP_NUM_PREDICT = 4096
 # final response's thinking block is shown.
 SHOW_TOOL_LOOP_THINKING = True
 
-# --- Context Summarizer ---
-# Compresses older messages that have fallen out of the active history window
-# into a lean summary block, injected into the system prompt each turn.
-# Summarization runs asynchronously after each response — zero user-facing latency.
-
-# Number of messages (beyond the active window) to include in summarization.
-# These are the messages that just fell out of MAX_HISTORY_MESSAGES.
+# --- Context Summarizer (DEPRECATED & DISABLED) ---
+# Context summarizer has been removed to eliminate prompt clutter and temporal
+# hallucinations in journal writing. Active conversation history (MAX_HISTORY_MESSAGES=40)
+# + SQLite context_entries + Chroma RAG handle context retention.
 SUMMARY_WINDOW_SIZE = 20
-
-# Maximum word count for the generated summary. Controls token budget.
-# ~200 words ≈ ~270 tokens. Keep under 600 tokens to preserve response headroom.
 SUMMARY_MAX_WORDS = 200
-
-# How many of the active messages to overlap into the summary window,
-# giving the summarizer context about what the model already "sees."
 SUMMARY_OVERLAP = 4
-
-# Model override for summarization. "default" = use MODEL_NAME (recommended).
-# Set to a specific model name only if you want to experiment with a lighter model.
 SUMMARY_MODEL_OVERRIDE = "default"
 
 # =============================================================================

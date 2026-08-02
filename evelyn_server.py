@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-07-25 08:02:00
+# date modified: 2026-08-02 10:51:38
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -48,12 +48,6 @@ PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
 import evelyn_config as cfg
 from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS
 from chroma_rag import build_rag_context
-from context_summarizer import (
-    build_conversation_summary,
-    trigger_summary_update,
-    invalidate_summary_cache,
-    cancel_pending_summary,
-)
 from fact_consolidator import run_consolidation, cancel_pending_consolidation
 from procedure_consolidator import run_procedure_consolidation, cancel_pending_procedure_consolidation
 from fact_extractor import run_extraction, cancel_pending_extraction
@@ -1080,24 +1074,6 @@ async def _process_chat_background(
             pinned_count = rag_context.count("[primary source]")
             dlog(f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}")
 
-        conv_summary, summary_date_span = build_conversation_summary()
-        if conv_summary:
-            span_note = (
-                f" It covers {summary_date_span}."
-                if summary_date_span
-                else ""
-            )
-            system += (
-                f"\n\n--- Prior Conversation Summary ---"
-                f"\n(This is a summary of OLDER messages that have scrolled out of the active window.{span_note}"
-                f" IMPORTANT: Any relative time words in this summary — 'today', 'tomorrow', 'yesterday',"
-                f" 'tonight', 'this week', etc. — refer to the time period of THOSE messages,"
-                f" NOT the current moment. Treat this as historical context only.)\n"
-                f"{conv_summary}\n--- End Prior Conversation Summary ---"
-            )
-            dlog("Summary injected:", conv_summary[:200])
-
-
         history = load_history()
 
         # --- Tweak 2: Agenda as dynamic user-turn prefix (2026-06-21) ---
@@ -1318,12 +1294,6 @@ async def _process_chat_background(
         await queue.put(f"data: {json.dumps({'type': 'done'})}\n\n")
         await queue.put(None)  # sentinel
 
-        # Trigger summary update
-        if final_content:
-            import context_summarizer
-            context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
-
-
 def pause_all_active_research():
     """Immediately pause any currently running background research tasks to prevent Ollama blockage."""
     global _background_tasks
@@ -1362,7 +1332,6 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
     # Immediately pause any active deep research to unblock Ollama
     pause_all_active_research()
 
-    cancel_pending_summary()
     cancel_pending_consolidation()
     cancel_pending_procedure_consolidation()
     cancel_pending_extraction()
@@ -1478,11 +1447,6 @@ async def lifespan(app: FastAPI):
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
-
-    # Rebuild conversation summary cache in background (covers mid-day restarts)
-    import context_summarizer
-    context_summarizer._summary_task = asyncio.create_task(trigger_summary_update())
-    print(f"  {_GRN}Summarizer:{_RST} background rebuild started")
 
     # Idle-time consolidation loop — wakes every CONSOLIDATION_IDLE_CHECK_INTERVAL
     # seconds, checks inactivity, and runs run_consolidation() when idle long enough.
@@ -2111,7 +2075,6 @@ async def new_thread(_: None = Depends(check_auth)):
     """Insert a thread-break marker. History before this point won't be
     sent to the model, but remains in the DB for UI scrollback."""
     save_message("system", THREAD_BREAK_MARKER)
-    invalidate_summary_cache()
     print(f"{_MAG}[THREAD]{_RST} New thread started", flush=True)
     return {"status": "new thread started"}
 
