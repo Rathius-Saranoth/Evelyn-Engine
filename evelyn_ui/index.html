@@ -167,6 +167,8 @@
         display: flex;
         flex-direction: column;
         max-width: min(85%, 72ch);
+        width: fit-content;
+        min-width: 0;
         gap: 2px;
       }
       .msg.user {
@@ -209,6 +211,9 @@
         line-height: 1.6;
         white-space: normal;
         word-break: break-word;
+        overflow-wrap: break-word;
+        max-width: 100%;
+        min-width: 0;
       }
       .msg.user .bubble {
         background: var(--user-bg);
@@ -236,7 +241,8 @@
         overflow: hidden;
         margin-bottom: 8px;
         background: var(--think-bg);
-        max-width: 680px;
+        max-width: min(100%, 680px);
+        min-width: 0;
       }
       .think-header {
         padding: 6px 12px;
@@ -276,7 +282,10 @@
         display: none;
         max-height: 300px;
         overflow-y: auto;
+        overflow-x: auto;
         white-space: pre-wrap;
+        max-width: 100%;
+        min-width: 0;
       }
       .think-block.open .think-content {
         display: block;
@@ -565,6 +574,8 @@
         margin: 0.6em 0;
         overflow: hidden;
         display: block;
+        max-width: 100%;
+        min-width: 0;
       }
       .code-header {
         display: flex;
@@ -603,6 +614,8 @@
         padding: 12px 14px;
         overflow-x: auto;
         white-space: pre;
+        max-width: 100%;
+        min-width: 0;
       }
       .code-block pre code {
         font-family: "JetBrains Mono", monospace;
@@ -611,6 +624,31 @@
         background: none;
         padding: 0;
         border-radius: 0;
+        max-width: 100%;
+      }
+
+      /* Markdown & HTML tables */
+      .bubble table,
+      .modal-content table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        border-collapse: collapse;
+        margin: 0.8em 0;
+      }
+      .bubble th,
+      .bubble td,
+      .modal-content th,
+      .modal-content td {
+        border: 1px solid var(--border);
+        padding: 6px 10px;
+        text-align: left;
+        font-size: 13px;
+      }
+      .bubble th,
+      .modal-content th {
+        background: var(--surface2);
+        font-weight: 600;
       }
 
       /* CSS-only syntax highlighting */
