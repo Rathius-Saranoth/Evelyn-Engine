@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-06-07 10:29:14
+# date modified: 2026-08-02 11:57:26
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -46,11 +46,27 @@ def init_db() -> None:
             rag_pinned BOOLEAN,
             tags TEXT,
             aliases TEXT,
-            indexed_at REAL
+            indexed_at REAL,
+            last_tag_audit REAL
+        );
+
+        CREATE TABLE IF NOT EXISTS master_tag_taxonomy (
+            tag TEXT PRIMARY KEY,
+            category TEXT,
+            description TEXT,
+            usage_count INTEGER DEFAULT 0,
+            created_at REAL,
+            updated_at REAL
         );
     """)
+    # Migration check: Ensure last_tag_audit column exists if table was created previously
+    try:
+        con.execute("ALTER TABLE vault_documents ADD COLUMN last_tag_audit REAL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     con.commit()
     con.close()
+
 
 def upsert_document(
     path: str, title: str, mtime: float, gist: str, 
@@ -174,3 +190,107 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
             
     results.sort(key=lambda x: x["score"], reverse=True)
     return results[:limit]
+
+
+# =============================================================================
+# Tag Librarian Database Operations
+# =============================================================================
+
+def get_master_tags() -> List[Dict[str, Any]]:
+    """Return all active master tags with their categories, descriptions, and usage counts.
+
+    Prioritizes high-frequency tags first (usage_count DESC).
+
+    Returns:
+        List[Dict[str, Any]]: A list of master tag dictionaries.
+    """
+    init_db()
+    con = get_db()
+    rows = con.execute("SELECT * FROM master_tag_taxonomy ORDER BY usage_count DESC, category ASC, tag ASC").fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def upsert_master_tag(tag: str, category: str = "", description: str = "", usage_count: int = 0) -> None:
+    """Insert or update a master tag entry in the taxonomy table.
+
+    Args:
+        tag: The tag string (e.g. 'tech/python').
+        category: Top-level category name (e.g. 'tech').
+        description: Short 1-sentence scope statement.
+        usage_count: Current count of notes using this tag.
+    """
+    init_db()
+    con = get_db()
+    now = time.time()
+    con.execute("""
+        INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tag) DO UPDATE SET
+            category = excluded.category,
+            description = CASE WHEN excluded.description != '' THEN excluded.description ELSE master_tag_taxonomy.description END,
+            usage_count = excluded.usage_count,
+            updated_at = excluded.updated_at
+    """, (tag, category, description, usage_count, now, now))
+    con.commit()
+    con.close()
+
+def delete_master_tag(tag: str) -> None:
+    """Delete a tag from the master taxonomy table.
+
+    Args:
+        tag: The tag string to remove.
+    """
+    init_db()
+    con = get_db()
+    con.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (tag,))
+    con.commit()
+    con.close()
+
+def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
+    """Fetch the next vault document eligible for tag auditing.
+
+    Prioritizes un-audited documents (last_tag_audit IS NULL or 0) first,
+    followed by the document with the oldest last_tag_audit timestamp.
+
+    Returns:
+        Optional[Dict[str, Any]]: Document metadata dict or None if vault is empty.
+    """
+    init_db()
+    con = get_db()
+    row = con.execute("""
+        SELECT * FROM vault_documents
+        ORDER BY
+            CASE WHEN last_tag_audit IS NULL OR last_tag_audit = 0 THEN 0 ELSE 1 END ASC,
+            last_tag_audit ASC,
+            mtime DESC
+        LIMIT 1
+    """).fetchone()
+    con.close()
+    return dict(row) if row else None
+
+def update_document_tag_audit(path: str, tags: Optional[str] = None) -> None:
+    """Record that a document has completed a tag audit and optionally update its tags.
+
+    Args:
+        path: Relative or absolute path of the document.
+        tags: Optional comma-separated updated tags string.
+    """
+    init_db()
+    con = get_db()
+    now = time.time()
+    if tags is not None:
+        con.execute("""
+            UPDATE vault_documents
+            SET last_tag_audit = ?, tags = ?
+            WHERE path = ?
+        """, (now, tags, path))
+    else:
+        con.execute("""
+            UPDATE vault_documents
+            SET last_tag_audit = ?
+            WHERE path = ?
+        """, (now, path))
+    con.commit()
+    con.close()
+
