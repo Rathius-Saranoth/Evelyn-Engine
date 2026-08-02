@@ -204,7 +204,7 @@
         {
             "label": "Stop Evelyn Services",
             "type": "shell",
-            "command": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'evelyn_server\\.py|tts_server\\.py|image_server\\.py|ollama\\.exe|llama-server\\.exe' -and $_.ProcessName -notmatch 'Code\\.exe' } | Invoke-CimMethod -MethodName Terminate; Write-Host 'Evelyn Core Services stopped.'",
+            "command": "powershell -ExecutionPolicy Bypass -File '${workspaceFolder}\\scripts\\stop_evelyn_services.ps1'",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared"
