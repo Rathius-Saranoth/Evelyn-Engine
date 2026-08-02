@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-07-09 18:18:26
+# date modified: 2026-08-02 09:47:12
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -132,30 +132,30 @@ def write_journal_entry(
     )
 
 
-def read_journal_entry(date: str = "") -> str:
-    """Read a single journal entry by its date.
+def read_journal(date: str = "", days: int = 0) -> str:
+    """Read Evelyn's personal journal entries by a specific date or over a recent day window.
 
     Args:
-        date: Date in YYYY-MM-DD format. Defaults to today's date.
+        date: Optional date in YYYY-MM-DD format. If provided, reads that specific day's entry.
+        days: Optional number of recent days to retrieve (e.g. 7). Takes precedence if > 0.
 
     Returns:
-        str: Markdown contents of the journal entry, or error message.
+        str: Markdown contents of matching journal entries, or message if none found.
     """
     _reload()
+    if days > 0:
+        return journal_manager.read_recent_journal_entries(days)
     return journal_manager.read_journal_entry(date if date else None)
 
 
+def read_journal_entry(date: str = "") -> str:
+    """Read a single journal entry by its date (legacy wrapper)."""
+    return read_journal(date=date)
+
+
 def read_recent_journal_entries(days: int = 7) -> str:
-    """Read a chronological roll-up of journal entries from the last N days.
-
-    Args:
-        days: The number of days back to look. Defaults to 7.
-
-    Returns:
-        str: Concatenated text of all matching journal entries.
-    """
-    _reload()
-    return journal_manager.read_recent_journal_entries(days)
+    """Read recent journal entries from the last N days (legacy wrapper)."""
+    return read_journal(days=days)
 
 
 def search_vault(query: str) -> str:
@@ -1477,31 +1477,24 @@ MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "read_journal_entry",
-            "description": "Read a specific journal entry by date. Use ONLY when Ricky explicitly asks about a specific day's journal, or to confirm if an entry was written. Defaults to today if no date is given. Do NOT use for general memory recall — use search_vault instead.",
+            "name": "read_journal",
+            "description": (
+                "Read Evelyn's personal journal entries. "
+                "Pass 'date' (YYYY-MM-DD format) to read a specific day's entry (defaults to today if date and days are omitted). "
+                "Pass 'days' (integer, e.g. 7) to read a multi-day timeline slice of recent entries. "
+                "Use ONLY when catching up on recent events or when asked about journal entries. "
+                "Do NOT use for general memory recall or facts about specific people — use search_vault instead."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {
                         "type": "string",
-                        "description": "Date to read in YYYY-MM-DD format. Omit for today.",
+                        "description": "Optional target date in YYYY-MM-DD format. Omit if passing days.",
                     },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_recent_journal_entries",
-            "description": "Read Evelyn's journal entries from the last N days. Use when Ricky asks what has happened recently, to catch up on recent events, or when conversation context suggests short-term memory is needed. Default is 7 days. Do NOT use for questions about specific people or facts — use search_vault instead.",
-            "parameters": {
-                "type": "object",
-                "properties": {
                     "days": {
                         "type": "integer",
-                        "description": "Number of recent days to retrieve. Default is 7.",
+                        "description": "Optional number of recent days to retrieve (e.g. 7). Omit if querying a specific date.",
                     },
                 },
                 "required": [],
@@ -1892,6 +1885,7 @@ MODEL_TOOL_DEFINITIONS = [
 # Includes ALL functions (model + system) so dispatch_tool() works for any.
 # ---------------------------------------------------------------------------
 TOOL_FUNCTIONS = {
+    "read_journal": read_journal,
     "write_journal_entry": write_journal_entry,
     "read_journal_entry": read_journal_entry,
     "read_recent_journal_entries": read_recent_journal_entries,
