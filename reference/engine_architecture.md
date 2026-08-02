@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-07-25 08:03:00
+date modified: 2026-08-02 11:54:05
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -86,7 +86,9 @@ graph TD
         Extractor["[[fact_extractor.py]] (Fact Ingest)"]
         Consolidator["[[fact_consolidator.py]] (Memory Cleanup)"]
         Evolver["[[profile_evolver.py]] (Persona Evolution)"]
+        TagLibrarian["[[tag_librarian.py]] (Tag Audit & Taxonomy)"]
     end
+
 
     Server --->|Trigger Idle Run| IdleAgents
     Extractor <-->|Extract Facts & Procedures| ChatDB

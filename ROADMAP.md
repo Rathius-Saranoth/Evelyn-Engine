@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-02 09:53:29
+date modified: 2026-08-02 11:53:47
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -177,7 +177,9 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Automatic Memory Refresh & Research Engine Token Calibration**: Fixed reasoning token truncation in `research_engine.py` by increasing `num_predict` budgets (4096 for self-initiation, 2048 for intent frames, 1024 for query formulation/filtering). Wired automatic `refresh_memory` triggers to research task completion, idle consolidation passes, and proposal reviews to immediately index new vault notes and memory entries into Chroma DB and SQLite (`evelyn_vault.db`). *(Completed 2026-07-25)*
 - [ ] **Robust Profile Diff & Sectional Proposal Review**: Upgrade the Profile Evolution reviewer in the Developer Web UI (`dev.html`) with a robust diff comparison view (e.g., side-by-side split view with syntax/word highlights) and implement section-by-section / paragraph-level approve and reject controls, enabling granular triage of profile updates without accepting or discarding the entire document at once.
 - [x] **Developer Web UI: Heavy Tasks Dashboard & Queue Consolidation**: Added a dedicated Heavy Tasks Monitoring panel at the top of `dev.html` backed by `GET /api/heavy_tasks` in `evelyn_server.py`, rendering real-time background task states, runtime timers, lock status, phase descriptions, and manual Sync/Refresh triggers, with an optional 5s live updates toggle. Consolidate 'Extractions', 'Proposals', 'Profile Updates', and 'Procedures' into a single Unified Triage Queue view (`GET /api/review/unified`) featuring instant type filter pills (`All`, `Extractions`, `Proposals`, `Profile Updates`, `Procedures`). *(Completed 2026-08-02)*
+- [x] **Idle Obsidian Tag Librarian & Taxonomy Management**: Created `tag_librarian.py` as an incremental idle-time background process that audits vault notes one at a time against a Master Tag Taxonomy stored in `evelyn_vault.db`. Features protected date tags (`CY-YYYY/MM/DD`), formatting rules (hyphenated multi-words, underscore-cased entities, nested slash hierarchies), tag descriptions to accelerate LLM prompt evaluation, and prioritized document selection (`last_tag_audit IS NULL` first). *(Completed 2026-08-02)*
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the `#kw/` and `#ctx/` tags written by the Keyword-to-Tag Pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
+
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
 - [ ] **Multi-Node Expansion**: Split processes between machines (Evelyn Core on primary, TTS/Image Gen/idle tasks on secondary) to eliminate resource bottlenecks. See `reference/Multi_Node_Expansion_Plan.md` for feasibility and implementation details.
 
