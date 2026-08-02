@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-02 10:51:38
+# date modified: 2026-08-02 11:57:11
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1737,6 +1737,47 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_idle_profile_evolution_loop())
     print(f"  {_GRN}Profile Evolver:{_RST} idle loop started (threshold=45m, cooldown=24h/doc)")
 
+    # Idle-time Tag Librarian loop
+    async def run_tag_librarian_task():
+        """Runs Tag Librarian audit pass for configured batch size in a background thread."""
+        import task_manager
+        if is_any_heavy_task_running():
+            return
+        task_manager.set_running("tag_librarian")
+        try:
+            from Evelyn.tools import tag_librarian
+            batch_size = getattr(cfg, "TAG_LIBRARIAN_BATCH_SIZE", 1)
+            for i in range(batch_size):
+                if is_any_heavy_task_running("tag_librarian"):
+                    break  # Yield if another heavy task started
+                res = await asyncio.to_thread(tag_librarian.audit_single_document)
+                print(f"{_GRN}[TAG LIBRARIAN]{_RST} Audit pass {i+1}/{batch_size} result: {res}", flush=True)
+                if res.get("status") in ("empty", "error"):
+                    break
+        except Exception as e:
+            print(f"[TAG LIBRARIAN] Error during audit pass: {e}", flush=True)
+        finally:
+            task_manager.clear_running("tag_librarian")
+
+
+    async def _idle_tag_librarian_loop():
+        """Background loop that triggers incremental tag auditing during idle periods."""
+        while True:
+            await asyncio.sleep(600)  # Check every 10 minutes
+            importlib.reload(cfg)
+            if not getattr(cfg, "TAG_LIBRARIAN_ENABLED", False):
+                continue
+            idle_seconds = time.time() - _last_activity_ts
+            threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 1800)
+            if idle_seconds >= threshold:
+                if not is_any_heavy_task_running():
+                    print(f"{_GRN}[TAG LIBRARIAN]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background tag librarian audit.", flush=True)
+                    asyncio.create_task(run_tag_librarian_task())
+
+    asyncio.create_task(_idle_tag_librarian_loop())
+    print(f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=30m, limit=1 doc/run)")
+
+
     # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)
     async def _gcal_sync_loop():
         """Periodic background task that pulls events from Google Calendar and caches them.
@@ -2920,10 +2961,12 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         ("consolidator", "Fact Consolidator"),
         ("procedure_consolidator", "Procedure Consolidator"),
         ("profile_evolver", "Profile Evolver"),
+        ("tag_librarian", "Tag Librarian"),
         ("refresh_memory", "Memory Refresh"),
         ("sync", "Chroma Sync"),
         ("vault_map", "Vault Map Generator"),
     ]
+
 
     tasks_info = []
     active_lock_holder = None

@@ -1,6 +1,6 @@
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-05-25 20:08:48
+# date modified: 2026-08-02 11:53:12
 # tags: #frontmatter, #metadata, #headers, #update, #utility
 
 import sys
@@ -63,7 +63,11 @@ def main():
                     if m:
                         tags_content = m.group(1).strip()
                         if tags_content:
-                            raw_tags = [t.strip() for t in re.split(r'[, ]+', tags_content) if t.strip()]
+                            # Split by comma or whitespace only if not inside a tag path
+                            if ',' in tags_content:
+                                raw_tags = [t.strip() for t in tags_content.split(',') if t.strip()]
+                            else:
+                                raw_tags = [t.strip() for t in tags_content.split() if t.strip()]
                             formatted = []
                             for t in raw_tags:
                                 if t.startswith('#'):
@@ -73,6 +77,7 @@ def main():
                             out_lines.append(f"# tags: {', '.join(formatted)}")
                         else:
                             out_lines.append("# tags: ")
+
                     else:
                         out_lines.append(existing_tags_line)
                 else:
