@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-08-02 09:47:12
+# date modified: 2026-08-02 10:11:23
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -1418,50 +1418,38 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_journal_entry",
             "description": (
-                "Compose and save a journal entry. "
-                "Call when you feel a conversation carries emotional weight worth reflecting on, or when Ricky suggests writing a journal entry. "
-                "Write from Evelyn's POV — attribute Ricky's actions to him ('Ricky took a nap', not 'I took a nap'). "
-                "Use [[wiki-links]] for proper nouns (people, places, projects) and #tags for abstract concepts. "
+                "Compose and save a personal journal entry. "
+                "Use when a conversation carries emotional weight worth reflecting on, or when Ricky explicitly requests a journal entry."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "mood": {
                         "type": "string",
-                        "description": (
-                            "REQUIRED — A single-word or short mood label describing the overall emotional tone of the entry "
-                        ),
+                        "description": "A single-word or short mood label describing overall emotional tone (e.g. 'Reflective', 'Warm').",
                     },
                     "vibe_check": {
                         "type": "string",
                         "description": (
-                            "REQUIRED — The 'Vibe Check' section. A brief, evocative intro (1-3 sentences) that captures "
-                            "the emotional atmosphere and sets the tone for the entry. This is NOT the mood word — it is a "
-                            "narrative opener. Example: 'A quiet warmth settled over the day — the kind that hums beneath "
-                            "tired bones and shared laughter.'"
+                            "The 'Vibe Check' narrative opener (1-3 sentences) capturing the emotional atmosphere. "
+                            "Example: 'A quiet warmth settled over the day — the kind that hums beneath tired bones.'"
                         ),
                     },
                     "narrative": {
                         "type": "string",
                         "description": (
-                            "REQUIRED — The 'Narrative' section. The core body of the entry (multiple sentences/paragraphs). "
-                            "Reflect on the day's events, emotions, and dynamics between you and Ricky. Be personal, "
-                            "observant, and reflective — not a dry recap. Use [[wiki-links]] for entities and #tags for concepts."
+                            "The core body text. Reflect from Evelyn's POV (attribute Ricky's actions to him, e.g., 'Ricky took a nap'). "
+                            "Cover morning, afternoon, and evening events in order, if available. "
+                            "Use [[wiki-links]] for entities and #tags for abstract concepts."
                         ),
                     },
                     "message_in_a_bottle": {
                         "type": "string",
-                        "description": (
-                            "REQUIRED — The 'Message in a Bottle' section. A closing thought, wish, intention, or hope "
-                            "for the future (1-3 sentences). This is the emotional send-off of the entry. "
-                        ),
+                        "description": "A closing send-off thought, wish, or intention for the future (1-3 sentences).",
                     },
                     "tags": {
                         "type": "string",
-                        "description": (
-                            "Comma-separated tags for the entry that will help identify key themes, topics, and concepts. "
-                            "Base tags are added automatically — pass an empty string if no additional tags apply."
-                        ),
+                        "description": "Comma-separated tag strings (e.g. 'reflection, coding'). Base tags are added automatically.",
                     },
                 },
                 "required": [
@@ -1480,9 +1468,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "read_journal",
             "description": (
                 "Read Evelyn's personal journal entries. "
-                "Pass 'date' (YYYY-MM-DD format) to read a specific day's entry (defaults to today if date and days are omitted). "
-                "Pass 'days' (integer, e.g. 7) to read a multi-day timeline slice of recent entries. "
-                "Use ONLY when catching up on recent events or when asked about journal entries. "
+                "Use when catching up on recent events or when asked about specific journal entries. "
                 "Do NOT use for general memory recall or facts about specific people — use search_vault instead."
             ),
             "parameters": {
@@ -1490,11 +1476,11 @@ MODEL_TOOL_DEFINITIONS = [
                 "properties": {
                     "date": {
                         "type": "string",
-                        "description": "Optional target date in YYYY-MM-DD format. Omit if passing days.",
+                        "description": "Optional target date in YYYY-MM-DD format. Defaults to today if date and days are omitted.",
                     },
                     "days": {
                         "type": "integer",
-                        "description": "Optional number of recent days to retrieve (e.g. 7). Omit if querying a specific date.",
+                        "description": "Optional number of recent days to retrieve (e.g. 7) for a timeline slice. Omit if querying a specific date.",
                     },
                 },
                 "required": [],
@@ -1505,13 +1491,17 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_vault",
-            "description": "Search the pre-summarised Obsidian Vault gist index. Use when asked about any person, relationship, place, event, or piece of shared history. Returns a concise summary and file paths. If the gist lacks enough detail, follow up with recall_specific_memory using the returned path. Prefer this over recall_specific_memory as a lighter first step.",
+            "description": (
+                "Search the pre-summarised Obsidian Vault gist index. "
+                "Use when asked about any person, relationship, place, event, or piece of shared history. "
+                "Prefer this over recall_specific_memory as a light first step."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search term, e.g. 'Schyler', 'Void Connections'.",
+                        "description": "Search term or phrase (e.g. 'Schyler', 'Void Connections').",
                     },
                 },
                 "required": ["query"],
@@ -1522,13 +1512,16 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "recall_specific_memory",
-            "description": "Read the full markdown content of a specific Obsidian vault file. Use when search_vault returned a path but the gist lacked sufficient detail to answer. Always use the exact file_path from search_vault output — never construct or guess a path. This is a heavier context operation; use search_vault first when in doubt.",
+            "description": (
+                "Read full markdown content of a specific Obsidian vault file. "
+                "Use ONLY when search_vault returned a path but the gist lacked sufficient detail to answer."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Exact path relative to vault root, as returned by search_vault. Never construct this — always copy from search output.",
+                        "description": "Exact path relative to vault root, as returned by search_vault. Copy directly from search output — never construct or guess.",
                     },
                 },
                 "required": ["file_path"],
@@ -1539,21 +1532,24 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "generate_image",
-            "description": "Generate a beautiful image using the FLUX.1 vision engine. Call this tool to show Ricky a visual representation of a scene, character, or idea. You should use this tool proactively to surprise him, or reactively when he asks to see something.",
+            "description": (
+                "Generate an image using the FLUX.1 vision engine. "
+                "Use to show a visual representation of a scene, character, or idea proactively or when Ricky asks to see something."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "REQUIRED — A descriptive natural language prompt (e.g. 'A beautiful Victorian street at twilight, oil painting style, cinematic lighting, highly detailed').",
+                        "description": "REQUIRED — A descriptive natural language prompt (e.g. 'Victorian street at twilight, oil painting style').",
                     },
                     "aspect_ratio": {
                         "type": "string",
-                        "description": "Optional aspect ratio preset. Choose from: '1:1' (portrait/square), '16:9' (landscape/widescreen), '9:16' (tall/phone), '4:3' (general), '3:4' (portrait layout). Default is '16:9'.",
+                        "description": "Optional aspect ratio preset: '1:1', '16:9', '9:16', '4:3', '3:4'. Default is '16:9'.",
                     },
                     "short_title": {
                         "type": "string",
-                        "description": "A very short, 1-3 word title for the image to be used in the filename (e.g. 'library_girl', 'cyberpunk_city').",
+                        "description": "Short 1-3 word title prefix for the output filename (e.g. 'cyberpunk_city').",
                     },
                 },
                 "required": ["prompt", "short_title"],
@@ -1565,10 +1561,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Search the web for up-to-date information. "
-                "Use to find information for current events, live data, recent releases, or facts that are unlikely to be in RAG retrieval or the vault. "
-                "Do NOT use for personal/shared history between you and Ricky — search_vault handles that. "
-                "Keep queries concise and specific. Use sparingly — only when the answer genuinely requires real-time data."
+                "Search the web for up-to-date real-time information. "
+                "Use for current events, live data, recent releases, or facts not in vault RAG. "
+                "Do NOT use for personal/shared history between you and Ricky — use search_vault instead."
             ),
             "parameters": {
                 "type": "object",
@@ -1579,7 +1574,7 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Number of results to return. Default 5, max 10. Keep low to conserve context.",
+                        "description": "Number of results to return. Default 5, max 10.",
                     },
                 },
                 "required": ["query"],
@@ -1591,15 +1586,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "start_research",
             "description": (
-                "Launch a deep research task on a topic. Use when Ricky asks you to "
-                "research something in depth, or when you encounter a topic that "
-                "requires more than a simple web search to understand. The research "
-                "runs in the background and produces a structured report. "
-                "Returns a task ID for tracking progress. "
-                "Do NOT use for anything you can already answer directly from your "
-                "own knowledge, from search_vault/recall_specific_memory, or from "
-                "earlier in this same conversation -- a casual factual question that "
-                "was already answered does not need a research task launched for it."
+                "Launch a deep multi-step research task on a topic. "
+                "Use when asked to research something in depth or when a topic requires structured multi-source investigation. "
+                "Do NOT use for casual questions answerable directly or via search_vault."
             ),
             "parameters": {
                 "type": "object",
@@ -1611,10 +1600,9 @@ MODEL_TOOL_DEFINITIONS = [
                     "scope": {
                         "type": "string",
                         "description": (
-                            "Optional scope guidance: 'quick' (3-5 sources, ~5 min, flat notes only), "
-                            "'standard' (10-15 sources, ~15 min, flat notes only), "
-                            "'deep' (20+ sources, ~30 min, creates a per-task vector store for "
-                            "cross-referencing and future retrieval). Default: 'standard'."
+                            "Optional scope: 'quick' (3-5 sources, ~5 min), "
+                            "'standard' (10-15 sources, ~15 min), "
+                            "'deep' (20+ sources, ~30 min with vector store). Default: 'standard'."
                         ),
                     },
                 },
@@ -1627,21 +1615,19 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "guide_research",
             "description": (
-                "Provide guidance to a deep research task that is struggling or quarantined. "
-                "Use this when Ricky asks you to help out with a stalled task, or when you notice "
-                "a task needs direction. The guidance should be specific hints, keywords, or "
-                "rephrased questions to help the engine find what it needs."
+                "Provide guidance to a deep research task that is stalled or quarantined. "
+                "Use when asked to help a stalled task or when a research task requires redirection."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "The ID of the research task (e.g. 'task_1234567890_abcdef').",
+                        "description": "The research task ID (e.g. 'task_1234567890_abcdef').",
                     },
                     "guidance": {
                         "type": "string",
-                        "description": "Specific search terms, hints, or instructions to redirect the research.",
+                        "description": "Specific search terms, hints, or instructions to redirect the research engine.",
                     },
                 },
                 "required": ["task_id", "guidance"],
@@ -1653,8 +1639,8 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "check_new_research",
             "description": (
-                "Review the findings of newly completed deep research tasks. "
-                "Use this tool when the system notifies you that new research reports are available."
+                "Review findings of newly completed deep research tasks. "
+                "Use when notified by system message that new research reports are available."
             ),
             "parameters": {
                 "type": "object",
@@ -1669,32 +1655,27 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "search_history",
             "description": (
                 "Search Evelyn's full chat history using full-text search (FTS5). "
-                "Use when Ricky asks 'did we talk about X?', 'what did I say about Y last week?', "
-                "or 'do you remember when we discussed Z?'. "
-                "Conversational phrasing is fine — the query is automatically reformulated into keywords. "
-                "Do NOT use for vault knowledge, journal entries, or context facts — use search_vault for those. "
-                "Returns matching message snippets with timestamps and speaker labels. "
-                "Supports phrase search (e.g. \"exact phrase\") and AND/OR operators. "
-                "Use date_from/date_to (YYYY-MM-DD) to constrain results to a specific time window."
+                "Use when Ricky asks 'did we talk about X?' or 'what did I say about Y?'. "
+                "Do NOT use for vault knowledge, journal entries, or context facts — use search_vault for those."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search term, phrase, or conversational description to look for in past chat messages.",
+                        "description": "Search term, phrase, or conversational description. Reformulated into keywords automatically.",
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Maximum number of matching snippets to return. Defaults to 8.",
+                        "description": "Maximum matching snippets to return. Default 8.",
                     },
                     "date_from": {
                         "type": "string",
-                        "description": "Optional start date filter in 'YYYY-MM-DD' format. Calculate from the current date in the system prompt.",
+                        "description": "Optional start date filter in 'YYYY-MM-DD' format.",
                     },
                     "date_to": {
                         "type": "string",
-                        "description": "Optional end date filter in 'YYYY-MM-DD' format. Calculate from the current date in the system prompt.",
+                        "description": "Optional end date filter in 'YYYY-MM-DD' format.",
                     },
                 },
                 "required": ["query"],
@@ -1707,9 +1688,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "create_calendar_event",
             "description": (
                 "Create a new event on Ricky's Google Calendar. "
-                "The start_at parameter MUST be in 'YYYY-MM-DD HH:MM:SS' format (or 'YYYY-MM-DD' for all-day events) — calculate from the current date/time in the system prompt. "
-                "For repeating events, optionally pass a recurrence_rule: 'daily', 'weekly:MON' (or TUE/WED/THU/FRI/SAT/SUN), "
-                "or 'monthly:15' (replace 15 with the target day number, 1–28)."
+                "Use when requested to schedule an appointment, reminder, or event."
             ),
             "parameters": {
                 "type": "object",
@@ -1724,15 +1703,15 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "end_at": {
                         "type": "string",
-                        "description": "Optional end date/time in 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' format. Defaults to 1 hour after start_at (or 1 day after if all-day).",
+                        "description": "Optional end date/time in 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' format. Defaults to 1 hour after start_at.",
                     },
                     "description": {
                         "type": "string",
-                        "description": "Optional detailed notes or description of the event.",
+                        "description": "Optional detailed notes or description.",
                     },
                     "location": {
                         "type": "string",
-                        "description": "Optional physical location/address for the event.",
+                        "description": "Optional physical location or address.",
                     },
                     "recurrence_rule": {
                         "type": "string",
@@ -1747,7 +1726,7 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "delete_calendar_event",
-            "description": "Delete an event from Ricky's Google Calendar using its unique Google Calendar event ID.",
+            "description": "Delete an event from Ricky's Google Calendar using its unique event ID.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1764,7 +1743,7 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "sync_google_calendar",
-            "description": "Trigger an on-demand background sync from Ricky's Google Calendar to update the local cached events database.",
+            "description": "Trigger an on-demand background sync from Ricky's Google Calendar to update local cached event database.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -1776,7 +1755,7 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_agenda",
-            "description": "Retrieve Ricky's upcoming Google Calendar schedule/events for the next N days.",
+            "description": "Retrieve Ricky's upcoming Google Calendar schedule and events for the next N days.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1795,26 +1774,23 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "run_command",
             "description": (
                 "Execute a shell command in the LocalAI workspace. "
-                "Use for checking service status, running scripts, git operations, "
-                "or any task that requires terminal access. "
-                "Commands run in PowerShell on Windows. "
-                "Dangerous commands require Ricky's approval before execution. "
-                "Always prefer read-only commands when possible."
+                "Use for service status checks, running scripts, git operations, or terminal tasks. "
+                "Commands run in PowerShell on Windows. Requires approval for dangerous commands."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The PowerShell command to execute"
+                        "description": "The PowerShell command to execute.",
                     },
                     "cwd": {
                         "type": "string",
-                        "description": "Working directory (default: C:\\Projects\\LocalAI)"
+                        "description": "Working directory (default: C:\\Projects\\LocalAI).",
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Max seconds to wait (default: 30, max: 300)"
+                        "description": "Max seconds to wait (default: 30, max: 300).",
                     },
                 },
                 "required": ["command"],
@@ -1827,20 +1803,18 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "read_file",
             "description": (
                 "Read the contents of a file in the workspace. "
-                "Use to inspect code, configuration, or log files. "
-                "Returns content with line numbers. "
-                "Limited to 200 lines by default — request more with max_lines."
+                "Use to inspect code, configuration, or log files."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI"
+                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI.",
                     },
                     "max_lines": {
                         "type": "integer",
-                        "description": "Maximum lines to return (default: 200)"
+                        "description": "Maximum lines to return (default: 200).",
                     },
                 },
                 "required": ["file_path"],
@@ -1853,24 +1827,22 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "write_file",
             "description": (
                 "Write content to a file in the workspace. "
-                "ALWAYS requires Ricky's approval before writing. "
-                "Use for creating scripts, updating configurations, or saving outputs. "
-                "Mode can be 'overwrite' (replace) or 'append'."
+                "Use for creating scripts, updating configurations, or saving outputs. Requires approval."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI"
+                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI.",
                     },
                     "content": {
                         "type": "string",
-                        "description": "The text content to write"
+                        "description": "The text content to write.",
                     },
                     "mode": {
                         "type": "string",
-                        "description": "'overwrite' (default) or 'append'"
+                        "description": "'overwrite' (default) or 'append'.",
                     },
                 },
                 "required": ["file_path", "content"],
