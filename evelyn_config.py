@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-07-20 19:10:42
+# date modified: 2026-08-02 11:52:56
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -511,5 +511,29 @@ TERMINAL_ALLOWED_PATHS = [
 TERMINAL_DEFAULT_TIMEOUT = 30      # seconds
 TERMINAL_MAX_TIMEOUT = 300         # 5 minutes max
 TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
+
+
+# =============================================================================
+# Tag Librarian Configuration (Incremental Vault Tag Maintenance)
+# =============================================================================
+TAG_LIBRARIAN_ENABLED = True
+TAG_LIBRARIAN_IDLE_THRESHOLD = 1800  # 30 minutes idle
+TAG_LIBRARIAN_BATCH_SIZE = 1         # Process 1 document per idle trigger
+
+# Protected tag regexes (never modified, removed, or normalized)
+# CY-YYYY/MM/DD is strictly protected.
+TAG_LIBRARIAN_EXCLUSIONS = [
+    r"^CY-\d{4}/\d{2}/\d{2}$",  # Calendar year/month/day tags (e.g. CY-2026/08/02)
+    r"^status/",                 # System status tags
+    r"^kanban",                  # Kanban board tags
+]
+
+# Tag formatting standards
+TAG_LIBRARIAN_FORMAT_RULES = {
+    "default_multi_word": "hyphen",   # "acceptable-use", "habit-tracking"
+    "entity_multi_word": "underscore", # "Ricky_Sekulich", "Evelyn_Engine"
+    "lowercase_subpaths": True,       # "tech/python/fastapi"
+}
+
 
 
