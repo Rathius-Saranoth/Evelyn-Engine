@@ -236,7 +236,6 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 | **L2 — Spawn Debounce** | 60-second quiet period after any spawn; prevents 10s idle loop from firing twice | `evelyn_server.py: _last_research_spawn_ts` |
 | **L3 — Error Cooldown** | 10-minute backoff before auto-resuming a task with `status=="error"` | `evelyn_server.py: _error_resume_ts` |
 | **L4 — Orphan Detection** | On server startup, `engine.pid` is checked per task to distinguish live orphans from clean restarts | `evelyn_server.py: _load_existing_research_tasks()` |
-| **L5 — Eager Registration** | `task_manager.set_running()` called immediately after `asyncio.create_task()` for consolidator and profile_evolver | `evelyn_server.py` idle loops |
 
 ### 5.4 Known Heavy Tasks
 

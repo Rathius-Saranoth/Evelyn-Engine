@@ -1508,11 +1508,6 @@ async def lifespan(app: FastAPI):
                 t2 = asyncio.create_task(run_procedure_consolidation())
                 fact_consolidator._consolidation_task = t1
                 procedure_consolidator._procedure_task = t2
-                # Layer 5: Eagerly register so is_any_heavy_task_running() sees them
-                # immediately, before the coroutines reach their own _set_status calls.
-                import task_manager as _tm
-                _tm.set_running("consolidator")
-                _tm.set_running("procedure_consolidator")
                 await asyncio.gather(t1, t2, return_exceptions=True)
                 print(f"{_MAG}[CONSOLIDATOR]{_RST} Consolidation pass completed — triggering automatic memory refresh.", flush=True)
                 await start_refresh_memory_internal()
@@ -1773,10 +1768,6 @@ async def lifespan(app: FastAPI):
             if idle_seconds >= threshold:
                 if not is_any_heavy_task_running():
                     print(f"{_GRN}[PROFILE EVOLVER]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background profile evolution check.", flush=True)
-                    # Layer 5: Eagerly register before create_task() so mutual exclusion
-                    # is enforced from the moment the task is scheduled.
-                    import task_manager as _tm
-                    _tm.set_running("profile_evolver")
                     asyncio.create_task(run_profile_evolution())
 
     asyncio.create_task(_idle_profile_evolution_loop())
