@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-02 12:02:38
+# date modified: 2026-08-02 12:15:34
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time
 
 """
@@ -73,8 +73,18 @@ def normalize_tag_format(tag: str, is_entity: Optional[bool] = None) -> str:
     if not clean or is_excluded_tag(clean):
         return clean
 
+    # Strip redundant legacy noise prefixes (kw/, ctx/) to prevent bloated kw/ folders
+    if clean.lower().startswith("kw/"):
+        clean = clean[3:].strip()
+    elif clean.lower().startswith("ctx/"):
+        clean = clean[4:].strip()
+
+    if not clean or is_excluded_tag(clean):
+        return clean
+
     parts = clean.split("/")
     norm_parts = []
+
     
     for part in parts:
         p = part.strip()
@@ -363,9 +373,21 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
         try:
             with open(abs_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
+            # Instantly re-index modified note in Chroma DB vector store
+            try:
+                from Evelyn.tools import chroma_rag
+                chroma_rag.ingest_markdown_file(
+                    file_path=abs_path,
+                    content=new_content,
+                    collection_name="obsidian_vault",
+                    extra_metadata={"tags": tags_str}
+                )
+            except Exception as ve:
+                print(f"[TAG LIBRARIAN] Single-file vector update skipped: {ve}")
         except Exception as e:
             vault_db.update_document_tag_audit(doc_path)
             return {"status": "error", "path": doc_path, "message": f"Write error: {e}"}
+
 
 
     # Record new master tags in database
