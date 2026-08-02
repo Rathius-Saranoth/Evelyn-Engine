@@ -480,13 +480,14 @@
         padding: 4px 12px;
         font-size: 13px;
         cursor: pointer;
-        transition: border-color 0.15s, color 0.15s;
+        transition:
+          border-color 0.15s,
+          color 0.15s;
       }
       .btn-edit-cancel:hover {
         color: var(--text);
         border-color: var(--text-dim);
       }
-
 
       /* Write-tool badges */
       .write-badges {
@@ -2134,7 +2135,9 @@
 
       function addRegenToUserMsg(userMsgDiv) {
         // Remove any existing regen/edit buttons from other user messages
-        document.querySelectorAll(".msg.user .btn-regen, .msg.user .btn-edit").forEach((b) => b.remove());
+        document
+          .querySelectorAll(".msg.user .btn-regen, .msg.user .btn-edit")
+          .forEach((b) => b.remove());
         // Add action buttons to this user message
         let actions = userMsgDiv.querySelector(".msg-actions");
         if (!actions) {
@@ -2450,7 +2453,6 @@
           document.querySelector(".avatar").classList.remove("active");
         }
       }
-
 
       async function regenerateResponse(userMsgDiv) {
         if (isStreaming) return;
