@@ -79,60 +79,31 @@ _summary_task = None
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Public API (DEPRECATED — Context summarizer has been removed)
+# Conversation context is maintained via MAX_HISTORY_MESSAGES (40 msgs) + SQLite
+# context_entries + Chroma RAG. Functions preserved as safe no-ops.
 # ---------------------------------------------------------------------------
 
 
 def build_conversation_summary() -> tuple[str, str]:
-    """Return the cached conversation summary and its date span for injection.
-
-    Returns:
-        tuple[str, str]: (summary_text, date_span) where date_span is a
-            human-readable range like 'Fri Jul 10 morning → Fri Jul 10 evening'.
-            Both are empty strings if no summary exists.
-    """
-    return _cache["summary"], _cache.get("date_span", "")
+    """[DEPRECATED] Always returns empty summary strings."""
+    return "", ""
 
 
 def invalidate_summary_cache():
-    """Clear the cached summary when starting a new thread."""
-    global _cache
-    _cache = {"summary": "", "msg_hash": "", "last_updated": 0.0, "date_span": ""}
-    _save_cache_to_disk()
-    cancel_pending_summary()
-    print("[SUMMARIZER] Cache invalidated (new thread)", flush=True)
+    """[DEPRECATED] Safe no-op."""
+    pass
 
 
 def cancel_pending_summary():
-    """Cancel any in-flight summarization task to free Ollama."""
-    global _summary_task, _summarizing
-    if _summary_task and not _summary_task.done():
-        _summary_task.cancel()
-        _summarizing = False
-        print("[SUMMARIZER] Cancelled in-flight summarization (new chat request)", flush=True)
-    _summary_task = None
+    """[DEPRECATED] Safe no-op."""
+    pass
 
 
 async def trigger_summary_update():
-    """Regenerate the conversation summary in the background.
+    """[DEPRECATED] Safe no-op. Sliding window summarization is disabled."""
+    return
 
-    Spawns an asynchronous background task to query the DB and call Ollama.
-    """
-    global _summarizing, _summary_task
-
-    if _summarizing:
-        # Another summarization is already in flight — skip
-        return
-
-    _summarizing = True
-    try:
-        await _do_summary_update()
-    except asyncio.CancelledError:
-        print("[SUMMARIZER] Summarization cancelled", flush=True)
-    except Exception as e:
-        print(f"[SUMMARIZER ERROR] {type(e).__name__}: {e}", flush=True)
-    finally:
-        _summarizing = False
 
 
 # ---------------------------------------------------------------------------

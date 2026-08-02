@@ -112,7 +112,7 @@ Responsible for semantic vector indexing, context fact assemblies, and exact ent
 * **[[vault_db.py]]**: SQLite database connector for `evelyn_vault.db`. Handles super-fast incremental metadata writes for mapped files.
 * **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Performs vector assembly, distance scoring, and dynamic keyword-triggered procedure injection.
 * **[[context_manager.py]]**: Mismatch resolver and active context injector. Assembles dense facts, resolves entities, and strips search bloat.
-* **[[context_summarizer.py]]**: Sliding-window context compressor. Summarizes older context/messages and updates the rolling history boundary to keep LLM prompts thin.
+* **[[context_summarizer.py]]**: *(Deprecated)* Previously performed sliding-window context compression. Removed in favor of 40-message active history (`MAX_HISTORY_MESSAGES`) + SQLite `context_entries` + Chroma RAG to eliminate prompt clutter and temporal hallucination bleed in journal generation.
 * **[[query_reformulator.py]]**: Sub-pipeline LLM trigger that optimizes conversational keywords before vector lookup, boosting hit rates by 23%.
 
 ### 2.3 The Ingestion Pipeline
