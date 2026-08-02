@@ -98,11 +98,11 @@ def _in_research_window() -> bool:
 
 
 def terminate_research_process(task_id: str):
-    """Immediately terminate the active background subprocess for a research task if running."""
+    """Immediately terminate the active background subprocess for a research task if running and clean up lock files."""
     proc = _active_research_processes.pop(task_id, None)
     if proc:
         try:
-            print(f"[RESEARCH TERMINATE] Terminating active subprocess for task {task_id}", flush=True)
+            print(f"[RESEARCH TERMINATE] Terminating active subprocess handle for task {task_id}", flush=True)
             proc.terminate()
             try:
                 proc.wait(timeout=2.0)
@@ -112,7 +112,35 @@ def terminate_research_process(task_id: str):
                 except Exception:
                     pass
         except Exception as e:
-            print(f"[RESEARCH TERMINATE ERROR] Failed to terminate subprocess {task_id}: {e}", flush=True)
+            print(f"[RESEARCH TERMINATE ERROR] Failed to terminate subprocess handle {task_id}: {e}", flush=True)
+
+    # Hardened cleanup: check engine.pid via psutil, kill orphan process if alive, and remove engine.pid
+    try:
+        from Evelyn.tools.research_engine import get_task_dir
+        pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
+        if os.path.exists(pid_path):
+            try:
+                with open(pid_path) as f:
+                    pid = int(f.read().strip())
+                import psutil
+                if psutil.pid_exists(pid):
+                    p = psutil.Process(pid)
+                    if any("research_engine.py" in arg for arg in p.cmdline()):
+                        print(f"[RESEARCH TERMINATE] Killing process PID {pid} for task {task_id}", flush=True)
+                        p.terminate()
+                        try:
+                            p.wait(timeout=2.0)
+                        except Exception:
+                            p.kill()
+            except Exception:
+                pass
+            finally:
+                try:
+                    os.remove(pid_path)
+                except OSError:
+                    pass
+    except Exception as e:
+        print(f"[RESEARCH TERMINATE ERROR] PID cleanup failed for {task_id}: {e}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1315,6 +1343,28 @@ def pause_all_active_research():
     return paused_any
 
 
+def clean_shutdown_all_tasks():
+    """Cleanly pause all research tasks and cancel in-flight background worker tasks."""
+    print("[SERVER SHUTDOWN] Gracefully shutting down all tasks...", flush=True)
+    try:
+        pause_all_active_research()
+    except Exception as e:
+        print(f"[SERVER SHUTDOWN ERROR] Research pause failed: {e}", flush=True)
+        
+    try:
+        cancel_pending_consolidation()
+        cancel_pending_procedure_consolidation()
+        cancel_pending_extraction()
+        cancel_pending_evolution()
+    except Exception as e:
+        print(f"[SERVER SHUTDOWN ERROR] Background task cancellation failed: {e}", flush=True)
+
+
+@app.on_event("shutdown")
+def on_server_shutdown():
+    clean_shutdown_all_tasks()
+
+
 async def chat_stream(user_message: str, is_regenerate: bool = False):
     """Open an SSE connection to stream the generated chat response.
 
@@ -1444,6 +1494,8 @@ async def lifespan(app: FastAPI):
     asyncio.get_event_loop().set_exception_handler(_suppress_connection_reset)
 
     init_db()
+    import Evelyn.tools.task_manager as task_manager
+    task_manager.load_persistent_state()
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
@@ -2154,25 +2206,14 @@ def _load_existing_research_tasks():
                                 # Layer 4: If status was 'running', check engine.pid to
                                 # distinguish a genuine orphan from a server restart.
                                 if status == "running":
-                                    pid_file = os.path.join(task_dir, "engine.pid")
-                                    still_alive = False
-                                    if os.path.exists(pid_file):
-                                        try:
-                                            with open(pid_file) as pf:
-                                                pid = int(pf.read().strip())
-                                            os.kill(pid, 0)  # Signal 0 = existence check
-                                            still_alive = True
-                                            print(
-                                                f"[RESEARCH RECOVERY] Task {d} has a live PID {pid} — "
-                                                f"marking as running (orphan subprocess detected).",
-                                                flush=True,
-                                            )
-                                        except (ValueError, OSError):
-                                            # PID dead or file corrupt — stale lock, clean up
-                                            try:
-                                                os.remove(pid_file)
-                                            except OSError:
-                                                pass
+                                    from Evelyn.tools.evelyn_tools import _is_research_engine_running
+                                    still_alive = _is_research_engine_running(d)
+                                    if still_alive:
+                                        print(
+                                            f"[RESEARCH RECOVERY] Task {d} has a live process — "
+                                            f"marking as running (orphan subprocess detected).",
+                                            flush=True,
+                                        )
 
                                     if not still_alive:
                                         # Server restarted without the subprocess alive
@@ -2610,6 +2651,13 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
     return {"status": "cancelled", "task_id": task_id}
 
 
+@app.post("/shutdown")
+async def api_shutdown_server(_: None = Depends(check_auth)):
+    """Cleanly pause all tasks and release lock files during service shutdown."""
+    clean_shutdown_all_tasks()
+    return {"status": "shutting_down"}
+
+
 @app.post("/research/delete/{task_id}")
 async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
     """Permanently delete a research task directory from disk and server memory.
@@ -2953,6 +3001,7 @@ if __name__ == "__main__":
 async def get_heavy_tasks(_: None = Depends(check_auth)):
     """Return real-time status of all heavy background tasks and mutual-exclusion lock state."""
     import Evelyn.tools.task_manager as task_manager
+    from Evelyn.tools.research_engine import load_state
     now = time.time()
     is_any_running = task_manager.is_any_running()
 
@@ -2967,7 +3016,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         ("vault_map", "Vault Map Generator"),
     ]
 
-
     tasks_info = []
     active_lock_holder = None
 
@@ -2976,12 +3024,18 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         status = task_data.get("status", "idle")
         started_at = task_data.get("started_at")
         finished_at = task_data.get("finished_at")
+        last_run_at = task_data.get("last_run_at") or finished_at or started_at
+        
         elapsed = None
         if status == "running" and started_at:
             elapsed = round(now - started_at, 1)
             active_lock_holder = display_name
         elif finished_at and started_at:
             elapsed = round(finished_at - started_at, 1)
+        elif task_data.get("elapsed_seconds") is not None:
+            elapsed = task_data.get("elapsed_seconds")
+
+        runtime_mins = round(elapsed / 60.0, 1) if elapsed is not None else 0.0
 
         tasks_info.append({
             "key": key,
@@ -2990,7 +3044,9 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             "phase": task_data.get("phase"),
             "started_at": started_at,
             "finished_at": finished_at,
+            "last_run_at": last_run_at,
             "elapsed_seconds": elapsed,
+            "runtime_minutes": runtime_mins,
             "error": task_data.get("error"),
         })
 
@@ -3000,13 +3056,20 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             status = task_data.get("status", "idle")
             started_at = task_data.get("started_at")
             finished_at = task_data.get("finished_at")
-            elapsed = None
+            
+            disk_state = load_state(key) or {}
+            accum_sec = disk_state.get("accumulated_runtime", 0.0)
+            
             if status in ("running", "searching", "synthesizing") and started_at:
-                elapsed = round(now - started_at, 1)
+                session_sec = now - started_at
+                actual_sec = accum_sec + session_sec
                 if not active_lock_holder:
                     active_lock_holder = f"Research: {task_data.get('query', key)}"
-            elif finished_at and started_at:
-                elapsed = round(finished_at - started_at, 1)
+            else:
+                actual_sec = accum_sec
+
+            runtime_mins = round(actual_sec / 60.0, 1)
+            last_run_at = finished_at or started_at
 
             research_tasks_info.append({
                 "key": key,
@@ -3016,7 +3079,9 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 "status": status,
                 "started_at": started_at,
                 "finished_at": finished_at,
-                "elapsed_seconds": elapsed,
+                "last_run_at": last_run_at,
+                "elapsed_seconds": round(actual_sec, 1),
+                "runtime_minutes": runtime_mins,
             })
 
     return {

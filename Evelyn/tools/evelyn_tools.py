@@ -335,9 +335,9 @@ def _is_research_engine_running(task_id: str) -> bool:
     """Return True if a live research_engine.py subprocess exists for this task.
 
     Reads the engine.pid file written by research_engine.main() and performs
-    an OS-level liveness check (signal 0 = process exists). This is the
-    authoritative guard against duplicate subprocess spawning and works even
-    when evelyn_server is not importable (i.e. when server is None).
+    an OS-level liveness check using psutil to verify the PID is active and
+    actually running research_engine.py. If the PID is dead or assigned to
+    another process, cleans up the stale engine.pid lock file.
 
     Args:
         task_id: The research task identifier.
@@ -347,17 +347,32 @@ def _is_research_engine_running(task_id: str) -> bool:
     """
     import os
     try:
-        import evelyn_config as _cfg
         from research_engine import get_task_dir
         pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
         if not os.path.exists(pid_path):
             return False
         with open(pid_path) as f:
             pid = int(f.read().strip())
-        os.kill(pid, 0)  # Signal 0 = existence check, raises OSError if dead
-        return True
-    except (ValueError, OSError, ImportError):
+        
+        import psutil
+        if psutil.pid_exists(pid):
+            try:
+                proc = psutil.Process(pid)
+                cmdline = proc.cmdline()
+                if any("research_engine.py" in arg for arg in cmdline):
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        
+        # Dead PID or recycled PID for another process — delete stale pid file
+        try:
+            os.remove(pid_path)
+        except OSError:
+            pass
         return False
+    except Exception:
+        return False
+
 
 
 def start_research(

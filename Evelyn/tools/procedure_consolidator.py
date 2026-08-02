@@ -45,6 +45,8 @@ def cancel_pending_procedure_consolidation() -> None:
     if _procedure_task and not _procedure_task.done():
         _procedure_task.cancel()
         _consolidating = False
+        import task_manager
+        task_manager.clear_running("procedure_consolidator", status="cancelled")
         print("[PROC_CONSOLIDATOR] Cancelled in-flight procedure consolidation (new chat request)", flush=True)
     _procedure_task = None
 
