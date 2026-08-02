@@ -332,6 +332,16 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    function formatDuration(totalSeconds) {
+      if (totalSeconds === null || totalSeconds === undefined || isNaN(totalSeconds) || totalSeconds < 0) {
+        return '00:00:00';
+      }
+      const hrs = Math.floor(totalSeconds / 3600);
+      const mins = Math.floor((totalSeconds % 3600) / 60);
+      const secs = Math.floor(totalSeconds % 60);
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
     function renderMarkdown(md) {
       if (!md) return '';
       let html = escapeHtml(md);
@@ -457,12 +467,7 @@
         else if (status === 'error') dotClass = 'error';
         else if (status === 'paused' || status === 'cancelled') dotClass = 'paused';
 
-        let durationText = '';
-        if (t.runtime_minutes !== undefined && t.runtime_minutes !== null) {
-          durationText = `${t.runtime_minutes}m`;
-        } else if (t.elapsed_seconds !== null && t.elapsed_seconds !== undefined) {
-          durationText = `${(t.elapsed_seconds / 60).toFixed(1)}m`;
-        }
+        let durationText = formatDuration(t.elapsed_seconds);
 
         let detailText = t.phase || t.error || (status === 'running' ? 'Active' : (status === 'cancelled' ? 'Cancelled' : 'Idle'));
 
@@ -1433,7 +1438,7 @@
                   <div style="font-size: 13px; color: var(--text-dim); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 6px;">
                     <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
                     <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
-                    <span>Runtime: <strong>${task.accumulated_runtime ? (task.accumulated_runtime / 60).toFixed(1) + 'm' : '0.0m'}</strong></span>
+                    <span>Runtime: <strong>${formatDuration(task.accumulated_runtime)}</strong></span>
                     <span>Turns: <strong>${task.orchestrator_turns || 0}</strong></span>
                     <span>Confidence: <strong>${task.confidence !== undefined ? task.confidence + '%' : 'N/A'}</strong></span>
                     <span>Sources: <strong>${task.total_sources || 0}</strong></span>
