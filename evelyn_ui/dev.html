@@ -455,26 +455,40 @@
         let dotClass = '';
         if (status === 'running' || status === 'searching' || status === 'synthesizing') dotClass = 'running';
         else if (status === 'error') dotClass = 'error';
-        else if (status === 'paused') dotClass = 'paused';
+        else if (status === 'paused' || status === 'cancelled') dotClass = 'paused';
 
         let durationText = '';
-        if (t.elapsed_seconds !== null && t.elapsed_seconds !== undefined) {
-          durationText = `${t.elapsed_seconds}s`;
+        if (t.runtime_minutes !== undefined && t.runtime_minutes !== null) {
+          durationText = `${t.runtime_minutes}m`;
+        } else if (t.elapsed_seconds !== null && t.elapsed_seconds !== undefined) {
+          durationText = `${(t.elapsed_seconds / 60).toFixed(1)}m`;
         }
 
-        let detailText = t.phase || t.error || (status === 'running' ? 'Active' : 'Idle');
+        let detailText = t.phase || t.error || (status === 'running' ? 'Active' : (status === 'cancelled' ? 'Cancelled' : 'Idle'));
+
+        let lastRunText = 'Never run';
+        if (t.last_run_at) {
+          const d = new Date(t.last_run_at * 1000);
+          lastRunText = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } else if (t.finished_at) {
+          const d = new Date(t.finished_at * 1000);
+          lastRunText = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
 
         return `
           <div class="heavy-task-card ${dotClass === 'running' ? 'active-task' : ''}">
             <div class="heavy-task-top">
               <span class="heavy-task-name">${escapeHtml(t.name)}</span>
               <span style="display: flex; align-items: center; gap: 6px;">
-                ${durationText ? `<span style="font-size: 11px; color: var(--text-dim);">${durationText}</span>` : ''}
+                ${durationText ? `<span style="font-size: 11px; color: var(--accent); font-weight: 500;">${durationText}</span>` : ''}
                 <span class="status-dot ${dotClass}"></span>
               </span>
             </div>
-            <div style="font-size: 12px; color: var(--text-dim); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+            <div style="font-size: 12px; color: var(--text-dim); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin-bottom: 2px;">
               ${escapeHtml(detailText)}
+            </div>
+            <div style="font-size: 10px; color: var(--text-dim); opacity: 0.75;">
+              Last run: ${escapeHtml(lastRunText)}
             </div>
           </div>
         `;
@@ -1419,6 +1433,7 @@
                   <div style="font-size: 13px; color: var(--text-dim); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 6px;">
                     <span>Scope: <strong style="text-transform: uppercase;">${task.scope}</strong></span>
                     <span>Step: <strong style="text-transform: uppercase; color: var(--accent);">${stepText}</strong></span>
+                    <span>Runtime: <strong>${task.accumulated_runtime ? (task.accumulated_runtime / 60).toFixed(1) + 'm' : '0.0m'}</strong></span>
                     <span>Turns: <strong>${task.orchestrator_turns || 0}</strong></span>
                     <span>Confidence: <strong>${task.confidence !== undefined ? task.confidence + '%' : 'N/A'}</strong></span>
                     <span>Sources: <strong>${task.total_sources || 0}</strong></span>

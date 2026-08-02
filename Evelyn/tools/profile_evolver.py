@@ -282,13 +282,13 @@ def _set_status_in_server(status: str | None) -> None:
     Delegates to task_manager.set_running() / task_manager.clear_running().
 
     Args:
-        status: Status string (e.g. 'running'), or None to clear.
+        status: Status string (e.g. 'running'), or None/status string on completion.
     """
     import task_manager
     if status == "running":
         task_manager.set_running("profile_evolver")
     else:
-        task_manager.clear_running("profile_evolver")
+        task_manager.clear_running("profile_evolver", status=status or "idle")
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -305,7 +305,7 @@ def cancel_pending_evolution():
     if _evolver_task and not _evolver_task.done():
         _evolver_task.cancel()
         _evolving = False
-        _set_status_in_server(None)
+        _set_status_in_server("cancelled")
         print("[PROFILE EVOLVER] Cancelled (new chat request). Draft progress saved.", flush=True)
     _evolver_task = None
 

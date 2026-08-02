@@ -144,13 +144,13 @@ def _set_status_in_server(status: str | None) -> None:
     Delegates to task_manager.set_running() / task_manager.clear_running().
 
     Args:
-        status: The status string to set (e.g. 'running'), or None to clear.
+        status: The status string to set (e.g. 'running'), or None/status string on completion.
     """
     import task_manager
     if status == "running":
         task_manager.set_running("consolidator")
     else:
-        task_manager.clear_running("consolidator")
+        task_manager.clear_running("consolidator", status=status or "idle")
 
 
 
@@ -441,7 +441,7 @@ def cancel_pending_consolidation():
     if _consolidation_task and not _consolidation_task.done():
         _consolidation_task.cancel()
         _consolidating = False
-        _set_status_in_server(None)
+        _set_status_in_server("cancelled")
         print("[CONSOLIDATOR] Cancelled (new chat request).", flush=True)
     _consolidation_task = None
 
