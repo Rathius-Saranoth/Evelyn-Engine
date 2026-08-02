@@ -240,13 +240,13 @@ def _set_status_in_server(status: str | None) -> None:
     Delegates to task_manager.set_running() / task_manager.clear_running().
 
     Args:
-        status: The status string to register (e.g., 'running'), or None to clear.
+        status: The status string to register (e.g., 'running'), or None/status string on completion.
     """
     import task_manager
     if status == "running":
         task_manager.set_running("extractor")
     else:
-        task_manager.clear_running("extractor")
+        task_manager.clear_running("extractor", status=status or "idle")
 
 
 def cancel_pending_extraction():
@@ -258,7 +258,7 @@ def cancel_pending_extraction():
     if _extraction_task and not _extraction_task.done():
         _extraction_task.cancel()
         _extracting = False
-        _set_status_in_server(None)
+        _set_status_in_server("cancelled")
         print("[EXTRACTOR] Cancelled (new chat request).", flush=True)
     _extraction_task = None
 
