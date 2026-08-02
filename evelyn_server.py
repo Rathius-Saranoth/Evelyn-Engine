@@ -2907,6 +2907,130 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 # Developer Web UI Endpoints
 # ---------------------------------------------------------------------------
+
+@app.get("/api/heavy_tasks")
+async def get_heavy_tasks(_: None = Depends(check_auth)):
+    """Return real-time status of all heavy background tasks and mutual-exclusion lock state."""
+    import Evelyn.tools.task_manager as task_manager
+    now = time.time()
+    is_any_running = task_manager.is_any_running()
+
+    known_keys = [
+        ("extractor", "Fact Extractor"),
+        ("consolidator", "Fact Consolidator"),
+        ("procedure_consolidator", "Procedure Consolidator"),
+        ("profile_evolver", "Profile Evolver"),
+        ("refresh_memory", "Memory Refresh"),
+        ("sync", "Chroma Sync"),
+        ("vault_map", "Vault Map Generator"),
+    ]
+
+    tasks_info = []
+    active_lock_holder = None
+
+    for key, display_name in known_keys:
+        task_data = _background_tasks.get(key, {})
+        status = task_data.get("status", "idle")
+        started_at = task_data.get("started_at")
+        finished_at = task_data.get("finished_at")
+        elapsed = None
+        if status == "running" and started_at:
+            elapsed = round(now - started_at, 1)
+            active_lock_holder = display_name
+        elif finished_at and started_at:
+            elapsed = round(finished_at - started_at, 1)
+
+        tasks_info.append({
+            "key": key,
+            "name": display_name,
+            "status": status,
+            "phase": task_data.get("phase"),
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "elapsed_seconds": elapsed,
+            "error": task_data.get("error"),
+        })
+
+    research_tasks_info = []
+    for key, task_data in _background_tasks.items():
+        if key.startswith("task_"):
+            status = task_data.get("status", "idle")
+            started_at = task_data.get("started_at")
+            finished_at = task_data.get("finished_at")
+            elapsed = None
+            if status in ("running", "searching", "synthesizing") and started_at:
+                elapsed = round(now - started_at, 1)
+                if not active_lock_holder:
+                    active_lock_holder = f"Research: {task_data.get('query', key)}"
+            elif finished_at and started_at:
+                elapsed = round(finished_at - started_at, 1)
+
+            research_tasks_info.append({
+                "key": key,
+                "name": f"Research: {task_data.get('query', key)}",
+                "query": task_data.get("query", ""),
+                "scope": task_data.get("scope", "standard"),
+                "status": status,
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "elapsed_seconds": elapsed,
+            })
+
+    return {
+        "is_any_running": is_any_running,
+        "active_lock_holder": active_lock_holder,
+        "tasks": tasks_info,
+        "research_tasks": research_tasks_info,
+    }
+
+
+@app.get("/api/review/unified")
+async def get_unified_review(_: None = Depends(check_auth)):
+    """Return all pending review items (extractions, proposals, profile updates, procedures)
+    in a single unified list with item_type metadata.
+    """
+    import Evelyn.tools.memory_db as memory_db
+    unified_items = []
+
+    # 1. Extractions
+    raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
+    for item in raw_extractions:
+        item["item_type"] = "extraction"
+        unified_items.append(item)
+
+    # 2. Proposals
+    proposals = memory_db.get_pending_proposals()
+    for p in proposals:
+        source_entries = []
+        for eid in p.get("source_ids", []):
+            if p.get("type") == "procedure_merge":
+                proc = memory_db.get_procedure(eid)
+                if proc:
+                    source_entries.append({
+                        "category": "procedure",
+                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}..."
+                    })
+            else:
+                entry = memory_db.get_entry(eid)
+                if entry:
+                    source_entries.append(entry)
+        p["source_entries"] = source_entries
+
+        if p.get("type") == "profile_update":
+            p["item_type"] = "profile_update"
+        else:
+            p["item_type"] = "proposal"
+        unified_items.append(p)
+
+    # 3. Procedures
+    procedures = memory_db.get_all_procedures(status="extracted")
+    for proc in procedures:
+        proc["item_type"] = "procedure"
+        unified_items.append(proc)
+
+    return unified_items
+
+
 class EditEntryRequest(BaseModel):
     """Pydantic model representing a request to edit a memory entry."""
     observation: str = None
