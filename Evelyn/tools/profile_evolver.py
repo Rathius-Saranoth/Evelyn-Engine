@@ -209,6 +209,17 @@ def normalize_document_text(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+STATUS_LABELS = {
+    "PROPOSAL_STAGED": "Proposal Staged",
+    "NO_CORE_CHANGES": "Evaluated — No Core Changes",
+    "BELOW_THRESHOLD": "Skipped — Below Threshold",
+    "COOLDOWN_ACTIVE": "Skipped — Cooldown Active",
+    "PENDING_EXISTS": "Skipped — Proposal Pending",
+    "INTERRUPTED_SAVED": "Interrupted — Draft Saved",
+    "MODEL_ERROR": "Error — Generation Failed",
+}
+
+
 def _load_evolution_state() -> dict:
     """Load evolution state from disk.
 
@@ -218,21 +229,24 @@ def _load_evolution_state() -> dict:
       - draft_cursor_per_doc: Max last_touched timestamp of entries already
         incorporated into the current in-progress draft. Used to resume
         interrupted multi-pass runs without reprocessing completed batches.
+      - last_status_per_doc: Per-document status dictionary containing code,
+        label, timestamp, and detail message.
 
     Returns:
         dict: State dict with guaranteed keys for all tracked documents.
     """
     doc_keys = list(DOCUMENT_CATEGORIES.keys())
     default_state = {
-        "last_run_per_doc":    {k: 0.0 for k in doc_keys},
+        "last_run_per_doc":     {k: 0.0 for k in doc_keys},
         "draft_cursor_per_doc": {k: 0.0 for k in doc_keys},
+        "last_status_per_doc":  {},
     }
     try:
         if os.path.exists(_STATE_FILE):
             with open(_STATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict) and "last_run_per_doc" in data:
-                # Merge — guarantee all keys exist for both sub-dicts
+                # Merge — guarantee all keys exist for sub-dicts
                 for k in doc_keys:
                     if k not in data["last_run_per_doc"]:
                         data["last_run_per_doc"][k] = 0.0
@@ -242,6 +256,8 @@ def _load_evolution_state() -> dict:
                     for k in doc_keys:
                         if k not in data["draft_cursor_per_doc"]:
                             data["draft_cursor_per_doc"][k] = 0.0
+                if "last_status_per_doc" not in data:
+                    data["last_status_per_doc"] = {}
                 return data
     except Exception as e:
         print(f"[PROFILE EVOLVER] Warning: could not load state file: {e}", flush=True)
@@ -259,6 +275,48 @@ def _save_evolution_state(state: dict) -> None:
             json.dump(state, f, indent=2)
     except Exception as e:
         print(f"[PROFILE EVOLVER] Warning: could not save state file: {e}", flush=True)
+
+
+def update_doc_status(state: dict, filename: str, code: str, details: str = "") -> None:
+    """Record a structured status outcome for a target document in evolution state.
+
+    Args:
+        state: Evolution state dictionary.
+        filename: Document basename.
+        code: Status code key from STATUS_LABELS.
+        details: Optional detail context (e.g. entry counts, reason).
+    """
+    if "last_status_per_doc" not in state:
+        state["last_status_per_doc"] = {}
+    label = STATUS_LABELS.get(code, code)
+    state["last_status_per_doc"][filename] = {
+        "code": code,
+        "label": label,
+        "timestamp": time.time(),
+        "details": details,
+    }
+    _save_evolution_state(state)
+
+
+def get_profile_evolution_statuses() -> dict:
+    """Retrieve current per-document status records for API exposure.
+
+    Returns:
+        dict: Mapping of filename to status dictionary.
+    """
+    state = _load_evolution_state()
+    statuses = state.get("last_status_per_doc", {})
+    # Guarantee entries for all categories
+    for doc in DOCUMENT_CATEGORIES.keys():
+        if doc not in statuses:
+            last_run = state.get("last_run_per_doc", {}).get(doc, 0.0)
+            statuses[doc] = {
+                "code": "NEVER_RUN" if not last_run else "COOLDOWN_ACTIVE",
+                "label": "Never Run" if not last_run else "Skipped — Cooldown Active",
+                "timestamp": last_run,
+                "details": "No status recorded yet" if not last_run else "Cooldown active",
+            }
+    return statuses
 
 # ---------------------------------------------------------------------------
 # Infrastructure & Mutual Exclusion
@@ -348,6 +406,7 @@ async def run_profile_evolution():
                     f"[PROFILE EVOLVER] {filename} has a pending profile update. Skipping.",
                     flush=True,
                 )
+                update_doc_status(state, filename, "PENDING_EXISTS", "Pending proposal awaiting review")
                 continue
 
             last_run    = state["last_run_per_doc"].get(filename, 0.0)
@@ -359,6 +418,8 @@ async def run_profile_evolution():
             # of the cooldown, since last_run hasn't advanced yet.
             draft_exists = os.path.exists(_draft_path(filename))
             if now - last_run < cooldown and not draft_exists:
+                rem_h = round((cooldown - (now - last_run)) / 3600.0, 1)
+                update_doc_status(state, filename, "COOLDOWN_ACTIVE", f"Cooldown active ({rem_h}h remaining)")
                 continue
 
             # Collect all entries changed since the last *completed* run.
@@ -387,6 +448,7 @@ async def run_profile_evolution():
                     f"entries (need {min_entries}). Skipping.",
                     flush=True,
                 )
+                update_doc_status(state, filename, "BELOW_THRESHOLD", f"{len(changed_entries)}/{min_entries} qualifying entries")
                 continue
 
             resume_msg = " (resuming from draft)" if draft_exists else ""
@@ -838,6 +900,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     if proposed_body == current_body.strip() or not proposed_body:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
         _clear_draft(filename, state)
+        update_doc_status(state, filename, "NO_CORE_CHANGES", f"{len(new_entries)} entries evaluated; no core changes")
         return False
 
     # Generate a concise reason summary
@@ -885,6 +948,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     # not when it is created. If the user rejects the proposal, entries must
     # remain eligible for re-evaluation. See evelyn_server.py profile_update handler.
     print(f"[PROFILE EVOLVER] Created profile_update proposal for {filename}.", flush=True)
+    update_doc_status(state, filename, "PROPOSAL_STAGED", f"Proposal staged ({len(new_entries)} entries)")
 
     # Proposal created — clean up the draft so the next run starts fresh
     _clear_draft(filename, state)
