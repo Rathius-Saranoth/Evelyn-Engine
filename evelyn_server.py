@@ -503,9 +503,9 @@ def load_history() -> list[dict]:
     """Load recent chat history for the model, bounded by thread breaks and caps.
 
     Filters out empty, placeholder, and thread-break messages, and ensures
-    no orphaned trailing user messages confuse the model. Prepends a temporal
-    time-of-day label to each message content string to give the model historical
-    ordering and chronological context.
+    no orphaned trailing user messages confuse the model. Inject explicit system
+    date boundary markers when messages span across calendar days, giving the model
+    clear chronological context for journaling and reflections.
 
     Returns:
         list[dict]: A list of message dictionaries with "role" and "content".
@@ -529,27 +529,45 @@ def load_history() -> list[dict]:
     rows = list(reversed(rows))
 
     # Skip empty-content rows, placeholder messages, and thread-break markers.
-    # Placeholders must NOT be sent to the model -- they confuse magistral
-    # and cause it to produce empty responses on every subsequent request.
-    messages = [
-        {
-            "role": r["role"],
-            "content": (
-                f"{_time_of_day_label(r['ts'])}{r['content']}"
-                if r["role"] == "user"
-                else r["content"]
-            ),
-        }
+    valid_rows = [
+        r
         for r in rows
         if r["content"].strip()
         and not r["content"].startswith(PLACEHOLDER_MARKER)
         and r["content"] != THREAD_BREAK_MARKER
     ]
-    # Strip orphaned trailing user messages (no assistant response yet).
-    # These form double-user-message chains that confuse the model.
-    while messages and messages[-1]["role"] == "user":
-        messages.pop()
 
+    messages = []
+    last_date = None
+
+    for r in valid_rows:
+        ts = r["ts"]
+        if ts:
+            try:
+                msg_date = datetime.fromtimestamp(ts).date()
+                if last_date is not None and msg_date != last_date:
+                    date_str = msg_date.strftime("%A, %b %d, %Y")
+                    messages.append({
+                        "role": "system",
+                        "content": f"--- Date Changed: {date_str} ---",
+                    })
+                last_date = msg_date
+            except (OSError, OverflowError, ValueError):
+                pass
+
+        messages.append({
+            "role": r["role"],
+            "content": (
+                f"{_time_of_day_label(ts)}{r['content']}"
+                if r["role"] == "user"
+                else r["content"]
+            ),
+        })
+
+    # Strip orphaned trailing user/system messages (no assistant response yet).
+    # These form double-user-message chains that confuse the model.
+    while messages and messages[-1]["role"] in ("user", "system"):
+        messages.pop()
 
     if brk:
         dlog(f"History: thread-break at id={after_id}, returning {len(messages)} msgs (limit {limit})")
