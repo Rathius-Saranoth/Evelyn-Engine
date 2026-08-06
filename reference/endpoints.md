@@ -95,6 +95,9 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 Endpoints driving the cards in `dev.html` to manage memories during idle-time background extractions:
 
+### `GET /api/heavy_tasks`
+* **Purpose**: Returns real-time status of all heavy background tasks (`extractor`, `consolidator`, `procedure_consolidator`, `profile_evolver`, `tag_librarian`, `refresh_memory`, `sync`, `vault_map`), mutual exclusion lock state, runtime timers, and phase descriptions. For `profile_evolver`, includes per-document execution status codes (`doc_statuses`: `PROPOSAL_STAGED`, `NO_CORE_CHANGES`, `BELOW_THRESHOLD`, `COOLDOWN_ACTIVE`, `PENDING_EXISTS`, `INTERRUPTED_SAVED`, `MODEL_ERROR`) and entry metrics.
+
 ### `GET /api/review/extractions`
 * **Purpose**: Retrieves the queue of newly discovered assertions staged in `evelyn_memory.db` by [[fact_extractor.py]].
 
