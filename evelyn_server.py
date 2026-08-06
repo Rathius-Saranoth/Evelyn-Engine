@@ -22,6 +22,7 @@ Run: python evelyn_server.py
 import asyncio
 import json
 import importlib
+import os
 import sqlite3
 import sys
 import time
@@ -1804,6 +1805,11 @@ async def lifespan(app: FastAPI):
                 print(f"{_GRN}[TAG LIBRARIAN]{_RST} Audit pass {i+1}/{batch_size} result: {res}", flush=True)
                 if res.get("status") in ("empty", "error"):
                     break
+
+            # Periodically maintain master taxonomy to purge zero-usage orphan tags
+            m_res = await asyncio.to_thread(tag_librarian.maintain_master_taxonomy)
+            if m_res.get("removed_master_tags", 0) > 0:
+                print(f"{_GRN}[TAG LIBRARIAN]{_RST} Taxonomy maintenance pruned {m_res['removed_master_tags']} orphan tags.", flush=True)
         except Exception as e:
             print(f"[TAG LIBRARIAN] Error during audit pass: {e}", flush=True)
         finally:
@@ -3037,6 +3043,14 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
 
         runtime_mins = round(elapsed / 60.0, 1) if elapsed is not None else 0.0
 
+        doc_statuses = None
+        if key == "profile_evolver":
+            try:
+                from Evelyn.tools.profile_evolver import get_profile_evolution_statuses
+                doc_statuses = get_profile_evolution_statuses()
+            except Exception as e:
+                pass
+
         tasks_info.append({
             "key": key,
             "name": display_name,
@@ -3048,6 +3062,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             "elapsed_seconds": elapsed,
             "runtime_minutes": runtime_mins,
             "error": task_data.get("error"),
+            "doc_statuses": doc_statuses,
         })
 
     research_tasks_info = []
