@@ -480,6 +480,42 @@
           lastRunText = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         }
 
+        let docStatusesHtml = '';
+        if (t.key === 'profile_evolver' && t.doc_statuses) {
+          const docIcons = {
+            'Evelyn_Narrative_Persona.md': '👤 Evelyn Persona',
+            'Ricky_Narrative_Profile.md': '🙋‍♂️ Ricky Profile',
+            'System_Directives.md': '⚙️ Directives',
+          };
+          const docColorMap = {
+            'PROPOSAL_STAGED': '#10b981',    // green
+            'NO_CORE_CHANGES': '#3b82f6',    // blue
+            'BELOW_THRESHOLD': '#9ca3af',    // gray
+            'COOLDOWN_ACTIVE': '#9ca3af',    // gray
+            'PENDING_EXISTS': '#f59e0b',     // amber
+            'INTERRUPTED_SAVED': '#f59e0b',  // amber
+            'MODEL_ERROR': '#ef4444',        // red
+            'NEVER_RUN': '#6b7280'           // dark gray
+          };
+
+          const rows = Object.entries(t.doc_statuses).map(([docName, st]) => {
+            const shortName = docIcons[docName] || docName.replace('.md', '');
+            const color = docColorMap[st.code] || 'var(--text-dim)';
+            const timeStr = st.timestamp ? new Date(st.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            return `
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 4px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,0.06);">
+                <span style="color: var(--text); font-weight: 500;">${shortName}</span>
+                <span style="color: ${color}; display: flex; align-items: center; gap: 4px;" title="${escapeHtml(st.details || st.label)}${timeStr ? ` (${timeStr})` : ''}">
+                  <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>
+                  ${escapeHtml(st.label)}
+                </span>
+              </div>
+            `;
+          }).join('');
+
+          docStatusesHtml = `<div style="margin-top: 4px; padding-top: 2px;">${rows}</div>`;
+        }
+
         return `
           <div class="heavy-task-card ${dotClass === 'running' ? 'active-task' : ''}">
             <div class="heavy-task-top">
@@ -492,7 +528,8 @@
             <div style="font-size: 12px; color: var(--text-dim); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin-bottom: 2px;">
               ${escapeHtml(detailText)}
             </div>
-            <div style="font-size: 10px; color: var(--text-dim); opacity: 0.75;">
+            ${docStatusesHtml}
+            <div style="font-size: 10px; color: var(--text-dim); opacity: 0.75; margin-top: 4px;">
               Last run: ${escapeHtml(lastRunText)}
             </div>
           </div>
