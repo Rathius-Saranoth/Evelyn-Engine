@@ -647,10 +647,13 @@
       }
     }
 
-    function updateLiveDiff(id, originalText) {
+    function updateLiveDiff(id) {
       const textarea = document.getElementById(`prop-edit-${id}`);
       const diffDiv = document.getElementById(`prop-diff-${id}`);
       if (textarea && diffDiv) {
+        // originalText is stored as HTML-escaped JSON in data-original to avoid
+        // embedding large strings in oninput attributes (breaks on '"' chars).
+        const originalText = diffDiv.dataset.original ? JSON.parse(diffDiv.dataset.original) : '';
         diffDiv.innerHTML = renderDiff(originalText, textarea.value);
       }
     }
@@ -1347,13 +1350,13 @@
                 <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Proposed Document Content (Editable prior to approval):</div>
                 <textarea id="prop-edit-${item.id}"
                   style="width: 100%; min-height: 180px; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; resize: vertical;"
-                  oninput="updateLiveDiff(${item.id}, ${JSON.stringify(rawOriginal)})">${escapeHtml(item.merged_observation)}</textarea>
+                  oninput="updateLiveDiff(${item.id})">${escapeHtml(item.merged_observation)}</textarea>
               </div>
 
               <div>
                 <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Live Diff Comparison:</div>
-                <div id="prop-diff-${item.id}">
-                  ${renderDiff(item.merged_tags, item.merged_observation)}
+                <div id="prop-diff-${item.id}" data-original="${escapeHtml(JSON.stringify(rawOriginal))}">
+                  <!-- diff populated after DOM insertion by render() -->
                 </div>
               </div>
 
@@ -1437,6 +1440,12 @@
         }
 
         container.innerHTML = filterBarHtml + filteredItems.map(item => renderTriageItemCard(item)).join('');
+
+        // Initialize live diffs after DOM insertion — avoids embedding large renderDiff
+        // output in the template string which corrupts multi-card HTML structure.
+        filteredItems.filter(i => i.item_type === 'profile_update').forEach(item => {
+          updateLiveDiff(item.id);
+        });
 
       } else if (currentTab === 'research') {
         const hasForm = !!document.getElementById('research-query');
