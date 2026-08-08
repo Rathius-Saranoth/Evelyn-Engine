@@ -651,10 +651,10 @@
       const textarea = document.getElementById(`prop-edit-${id}`);
       const diffDiv = document.getElementById(`prop-diff-${id}`);
       if (textarea && diffDiv) {
-        // originalText is stored as HTML-escaped JSON in data-original to avoid
-        // embedding large strings in oninput attributes (breaks on '"' chars).
-        const originalText = diffDiv.dataset.original ? JSON.parse(diffDiv.dataset.original) : '';
-        diffDiv.innerHTML = renderDiff(originalText, textarea.value);
+        // dataset.original holds the raw original document text stored as a
+        // data-attribute. The browser decodes HTML entities automatically on
+        // read, so no JSON.parse is needed — just read and diff.
+        diffDiv.innerHTML = renderDiff(diffDiv.dataset.original || '', textarea.value);
       }
     }
 
@@ -1336,6 +1336,11 @@
         `).join('') : '<div style="color: var(--text-dim); font-style: italic; font-size: 13px;">No supporting context entries remaining.</div>';
 
         const rawOriginal = item.merged_tags || '';
+        // escapeAttr is escapeHtml + double-quote encoding, required for values
+        // stored in double-quoted HTML attributes (escapeHtml omits &quot;).
+        const escapeAttr = s => (!s ? '' : String(s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
         
         return `
           <div class="card">
@@ -1355,7 +1360,7 @@
 
               <div>
                 <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Live Diff Comparison:</div>
-                <div id="prop-diff-${item.id}" data-original="${escapeHtml(JSON.stringify(rawOriginal))}">
+                <div id="prop-diff-${item.id}" data-original="${escapeAttr(rawOriginal)}">
                   <!-- diff populated after DOM insertion by render() -->
                 </div>
               </div>
