@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-07-25 08:02:00
+date modified: 2026-08-07 21:09:00
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -102,8 +102,12 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 * **Purpose**: Retrieves the queue of newly discovered assertions staged in `evelyn_memory.db` by [[fact_extractor.py]].
 
 ### `POST /api/review/extractions/{id}/{action}`
-* **Purpose**: Action triage on a staged memory.
-* **Actions**: `approve` (commits fact), `reject` (drops fact).
+* **Purpose**: Action triage on a staged memory entry.
+* **Payload**: Optional JSON body (`EditEntryRequest`) carrying updated fields (`category`, `subject`, `observation`, `tags`).
+* **Actions**:
+  * `approve`: Commits the entry to `status='live'` and triggers a memory refresh.
+  * `delete`: Hard-deletes the entry and propagates the removal to any pending proposal `source_ids` lists via `remove_source_id_from_pending_proposals`.
+  * `edit`: Updates the given fields. If the entry is currently `extracted`, it is promoted to `live` and a memory refresh is triggered. If the entry is already `live` (e.g., a source entry within a profile update proposal), only the field values are updated — status is not touched.
 
 ### `GET /api/persona/{filename}`
 * **Purpose**: Fetches the current content of a core persona file (`Evelyn_Narrative_Persona.md`, `Ricky_Narrative_Profile.md`, or `System_Directives.md`) to display side-by-side or line-by-line diffs.
@@ -114,10 +118,15 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `POST /api/review/proposals/{id}/{action}`
 * **Purpose**: Action triage on proposals.
+* **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str) and/or `source_id` (int).
 * **Actions**:
-  * `approve`: Merges facts (for consolidations) or writes the approved markdown changes back to disk and runs `update_frontmatter.py` (for profile updates).
-  * `reject` / `deny`: Rejects the proposal and deletes it.
-  * `keep_both`: (For consolidations) preserves both context entries without deleting.
+  * `approve`: Executes the proposal based on type:
+    * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `last_evolved_at` on all source entries, runs `update_frontmatter.py`, and marks the proposal applied.
+    * `merge` / `supersede` — deletes source entries and inserts the merged fact (using `modified_text` if provided).
+    * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
+    * `procedure_merge` — deletes source procedures and inserts a new consolidated procedure parsed from `final_text` as YAML.
+  * `deny`: Rejects the proposal (`reject_proposal`). Deleted from the queue.
+  * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
 
 ### `GET /api/review/procedures`
 * **Purpose**: Retrieves all extracted procedures staged in `evelyn_memory.db` by [[fact_extractor.py]] that are pending review (`status='extracted'`).

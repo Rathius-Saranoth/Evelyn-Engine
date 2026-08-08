@@ -609,12 +609,24 @@
     }
 
     async function handleAction(type, id, action) {
+      if (action === 'deny' && type === 'proposals') {
+        if (!confirm('Are you sure you want to reject this proposal?')) return;
+      }
       const endpoint = `${API_BASE}/api/review/${type}/${id}/${action}`;
       let body = null;
       
       if (action === 'edit' && type === 'extractions') {
-        const obs = document.getElementById(`obs-${id}`).value;
-        body = JSON.stringify({ observation: obs });
+        // obs-${id} is the inline edit textarea on the extraction card.
+        const obs = document.getElementById(`obs-${id}`)?.value;
+        const cat = document.getElementById(`ce-cat-${id}`)?.value;
+        const subj = document.getElementById(`ce-subj-${id}`)?.value;
+        const tags = document.getElementById(`ce-tags-${id}`)?.value;
+        body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
+      } else if (action === 'approve' && type === 'proposals') {
+        const editArea = document.getElementById(`prop-edit-${id}`);
+        if (editArea) {
+          body = JSON.stringify({ modified_text: editArea.value });
+        }
       }
       
       try {
@@ -634,6 +646,93 @@
         alert('Network error.');
       }
     }
+
+    function updateLiveDiff(id, originalText) {
+      const textarea = document.getElementById(`prop-edit-${id}`);
+      const diffDiv = document.getElementById(`prop-diff-${id}`);
+      if (textarea && diffDiv) {
+        diffDiv.innerHTML = renderDiff(originalText, textarea.value);
+      }
+    }
+
+    function toggleEditSourceEntry(proposalId, entryId) {
+      const form = document.getElementById(`edit-source-form-${proposalId}-${entryId}`);
+      if (form) {
+        form.style.display = (form.style.display === 'none' || !form.style.display) ? 'flex' : 'none';
+      }
+    }
+
+    async function saveSourceEntry(proposalId, entryId) {
+      const cat = document.getElementById(`ce-cat-${entryId}`).value;
+      const subj = document.getElementById(`ce-subj-${entryId}`).value;
+      const obs = document.getElementById(`ce-obs-${entryId}`).value;
+      const tags = document.getElementById(`ce-tags-${entryId}`).value;
+
+      const endpoint = `${API_BASE}/api/review/extractions/${entryId}/edit`;
+      const body = JSON.stringify({ category: cat, subject: subj, observation: obs, tags: tags });
+
+      try {
+        const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
+        if (res.ok) {
+          const item = unifiedItems.find(x => x.id === proposalId);
+          if (item && item.source_entries) {
+            const s = item.source_entries.find(e => e.id === entryId);
+            if (s) {
+              s.category = cat;
+              s.subject = subj;
+              s.observation = obs;
+              s.tags = tags;
+            }
+          }
+          render();
+        } else {
+          alert('Failed to save entry.');
+        }
+      } catch (e) {
+        alert('Network error while saving entry.');
+      }
+    }
+
+    async function deleteSourceEntry(proposalId, entryId) {
+      if (!confirm('Are you sure you want to soft-delete this context entry?')) return;
+      const endpoint = `${API_BASE}/api/review/extractions/${entryId}/delete`;
+      try {
+        const res = await fetch(endpoint, { method: 'POST', headers: headers() });
+        if (res.ok) {
+          const item = unifiedItems.find(x => x.id === proposalId);
+          if (item) {
+            if (item.source_entries) item.source_entries = item.source_entries.filter(e => e.id !== entryId);
+            if (item.source_ids) item.source_ids = item.source_ids.filter(id => id !== entryId);
+          }
+          render();
+        } else {
+          alert('Failed to delete entry.');
+        }
+      } catch (e) {
+        alert('Network error while deleting entry.');
+      }
+    }
+
+    async function unlinkSourceEntry(proposalId, entryId) {
+      const endpoint = `${API_BASE}/api/review/proposals/${proposalId}/unlink_source`;
+      const body = JSON.stringify({ source_id: entryId });
+      try {
+        const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
+        if (res.ok) {
+          const item = unifiedItems.find(x => x.id === proposalId);
+          if (item) {
+            if (item.source_entries) item.source_entries = item.source_entries.filter(e => e.id !== entryId);
+            if (item.source_ids) item.source_ids = item.source_ids.filter(id => id !== entryId);
+          }
+          render();
+        } else {
+          alert('Failed to unlink entry.');
+        }
+      } catch (e) {
+        alert('Network error while unlinking entry.');
+      }
+    }
+
 
     async function handleProcedureAction(id, action) {
       const endpoint = `${API_BASE}/api/review/procedures/${id}/${action}`;
@@ -1203,9 +1302,37 @@
           </div>
         `;
       } else if (item.item_type === 'profile_update') {
-        const sourcesHTML = (item.source_entries || []).map(s => `
-          <div class="source-item"><strong>[${escapeHtml(s.category)}]</strong> ${escapeHtml(s.observation)}</div>
-        `).join('');
+        const sourcesHTML = (item.source_entries && item.source_entries.length > 0) ? item.source_entries.map(s => `
+          <div class="source-item-card" id="source-entry-${item.id}-${s.id}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+              <div style="font-size: 13px; flex: 1;">
+                <span style="color: var(--accent); font-weight: 600;">[${escapeHtml(s.category)}]</span>
+                <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || 'R')})</span>
+                <div style="color: var(--text); margin-top: 4px; line-height: 1.4;">${escapeHtml(s.observation)}</div>
+                ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
+              </div>
+              <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: var(--surface2);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id})">Unlink</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
+              </div>
+            </div>
+            <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="ce-cat-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || 'R')}" placeholder="Subject" style="width: 80px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              </div>
+              <textarea id="ce-obs-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px;">${escapeHtml(s.observation)}</textarea>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id})">Save</button>
+                <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
+              </div>
+            </div>
+          </div>
+        `).join('') : '<div style="color: var(--text-dim); font-style: italic; font-size: 13px;">No supporting context entries remaining.</div>';
+
+        const rawOriginal = item.merged_tags || '';
         
         return `
           <div class="card">
@@ -1213,14 +1340,27 @@
               <span class="badge" style="background: var(--accent); color: #fff;">PROFILE UPDATE: ${escapeHtml(item.suggested_category)}</span>
               <span>ID: ${item.id}</span>
             </div>
-            <div class="card-body" style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
               <div style="color: var(--text-dim); font-size: 13px;"><strong>Reason / Explanation:</strong><br>${escapeHtml(item.reason)}</div>
-              <div style="font-size: 14px; font-weight: 500; margin-top: 6px; color: #fff;">Diff comparison:</div>
-              ${renderDiff(item.merged_tags, item.merged_observation)}
-              <div style="font-size: 13px; color: var(--text-dim); margin-top: 8px;">
-                <strong>Supporting Context Entries:</strong>
+              
+              <div>
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Proposed Document Content (Editable prior to approval):</div>
+                <textarea id="prop-edit-${item.id}"
+                  style="width: 100%; min-height: 180px; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; resize: vertical;"
+                  oninput="updateLiveDiff(${item.id}, ${JSON.stringify(rawOriginal)})">${escapeHtml(item.merged_observation)}</textarea>
               </div>
-              <div class="source-list">${sourcesHTML}</div>
+
+              <div>
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Live Diff Comparison:</div>
+                <div id="prop-diff-${item.id}">
+                  ${renderDiff(item.merged_tags, item.merged_observation)}
+                </div>
+              </div>
+
+              <div style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">
+                <strong>Supporting Context Entries (${(item.source_entries || []).length}):</strong>
+              </div>
+              <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
             </div>
             <div class="card-actions">
               <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Update</button>
