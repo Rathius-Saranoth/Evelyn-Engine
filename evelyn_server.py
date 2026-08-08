@@ -3174,7 +3174,10 @@ async def get_unified_review(_: None = Depends(check_auth)):
 
 class EditEntryRequest(BaseModel):
     """Pydantic model representing a request to edit a memory entry."""
-    observation: str = None
+    category: str | None = None
+    subject: str | None = None
+    observation: str | None = None
+    tags: str | None = None
 
 @app.get("/api/review/extractions")
 async def get_extractions(_: None = Depends(check_auth)):
@@ -3189,7 +3192,7 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
     Args:
         id:     SQLite row ID of the entry.
         action: "approve" | "delete" | "edit".
-        req:    Required for "edit" — carries the updated observation text.
+        req:    Required for "edit" — carries updated fields.
     """
     import Evelyn.tools.memory_db as memory_db
     if action == "approve":
@@ -3197,9 +3200,30 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
         await start_refresh_memory_internal()
     elif action == "delete":
         memory_db.delete_entry(id)
-    elif action == "edit" and req and req.observation:
-        memory_db.update_entry(id, observation=req.observation, status="live")
-        await start_refresh_memory_internal()
+        memory_db.remove_source_id_from_pending_proposals(id)
+    elif action == "edit" and req:
+        fields = {}
+        if req.category is not None:
+            fields["category"] = req.category
+        if req.subject is not None:
+            fields["subject"] = req.subject
+        if req.observation is not None:
+            fields["observation"] = req.observation
+        if req.tags is not None:
+            fields["tags"] = req.tags
+        # No-op if caller sent an empty body — don't raise a 400,
+        # the entry already exists and nothing needs changing.
+        if fields:
+            # Only promote status to live if the entry is currently extracted.
+            # Editing an already-live entry (e.g. a profile_update source entry)
+            # should not touch its status.
+            entry = memory_db.get_entry(id)
+            if entry and entry.get("status") == "extracted":
+                fields["status"] = "live"
+            memory_db.update_entry(id, **fields)
+            await start_refresh_memory_internal()
+    elif action == "edit" and not req:
+        raise HTTPException(status_code=400, detail="Edit action requires a request body")
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     return {"status": "ok"}
@@ -3214,6 +3238,12 @@ async def get_persona_file(filename: str, _: None = Depends(check_auth)):
     if not fpath.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return {"filename": filename, "content": fpath.read_text(encoding="utf-8")}
+
+
+class ProposalActionRequest(BaseModel):
+    """Pydantic model representing optional parameters when acting on a proposal."""
+    modified_text: str | None = None
+    source_id: int | None = None
 
 
 @app.get("/api/review/proposals")
@@ -3239,16 +3269,22 @@ async def get_proposals(_: None = Depends(check_auth)):
     return proposals
 
 @app.post("/api/review/proposals/{id}/{action}")
-async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
-    """Approve or deny a consolidation/recategorization proposal.
+async def action_proposal(id: int, action: str, req: ProposalActionRequest = None, _: None = Depends(check_auth)):
+    """Approve, deny, or unlink source context entries on a proposal.
 
     Args:
         id:     Proposal row ID.
-        action: "approve" | "deny".
+        action: "approve" | "deny" | "unlink_source".
+        req:    Optional JSON body containing modified_text or source_id.
     """
     import Evelyn.tools.memory_db as memory_db
     if action == "deny":
         memory_db.reject_proposal(id)
+        return {"status": "ok"}
+    elif action == "unlink_source":
+        if not req or req.source_id is None:
+            raise HTTPException(status_code=400, detail="unlink_source requires source_id in request body")
+        memory_db.remove_proposal_source_id(id, req.source_id)
         return {"status": "ok"}
     elif action == "approve":
         proposals = memory_db.get_pending_proposals()
@@ -3256,6 +3292,8 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
         if not prop:
             raise HTTPException(status_code=404, detail="Proposal not found")
             
+        final_text = req.modified_text if (req and req.modified_text is not None) else prop["merged_observation"]
+
         source_entries = []
         for eid in prop.get("source_ids", []):
             entry = memory_db.get_entry(eid)
@@ -3263,6 +3301,8 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
                 source_entries.append(entry)
         
         if prop["type"] == "recategorize":
+            # final_text intentionally unused here — recategorize only moves entries,
+            # it does not write a merged document.
             for entry in source_entries:
                 memory_db.update_entry(entry["id"], category=prop["suggested_category"])
             memory_db.apply_proposal(id)
@@ -3271,7 +3311,8 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
             target_file = PERSONA_DIR / prop["suggested_category"]
             if not target_file.exists():
                 raise HTTPException(status_code=404, detail=f"Target file not found: {prop['suggested_category']}")
-            target_file.write_text(prop["merged_observation"], encoding="utf-8")
+            target_file.write_text(final_text, encoding="utf-8")
+            memory_db.update_proposal(id, merged_observation=final_text)
             memory_db.apply_proposal(id)
             # Stamp last_evolved_at on all source entries so they are not re-evaluated
             # until their observation content actually changes.
@@ -3290,7 +3331,7 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
             for eid in source_ids:
                 memory_db.delete_procedure(eid)
             try:
-                parsed_proc = yaml.safe_load(prop["merged_observation"])
+                parsed_proc = yaml.safe_load(final_text)
             except Exception:
                 parsed_proc = {}
             if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
@@ -3324,7 +3365,7 @@ async def action_proposal(id: int, action: str, _: None = Depends(check_auth)):
             memory_db.insert_entry(
                 category=prop["suggested_category"],
                 subject=subject,
-                observation=prop["merged_observation"],
+                observation=final_text,
                 source="consolidated",
                 date=date,
                 tags=merged_tags
