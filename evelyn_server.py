@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-02 11:57:11
+# date modified: 2026-08-08 07:03:52
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -52,7 +52,7 @@ from chroma_rag import build_rag_context
 from fact_consolidator import run_consolidation, cancel_pending_consolidation
 from procedure_consolidator import run_procedure_consolidation, cancel_pending_procedure_consolidation
 from fact_extractor import run_extraction, cancel_pending_extraction
-from profile_evolver import run_profile_evolution, cancel_pending_evolution
+from profile_evolver import run_profile_evolution, cancel_pending_evolution, advance_doc_run_timestamp
 
 
 # ---------------------------------------------------------------------------
@@ -3319,6 +3319,10 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
             now_ts = time.time()
             for eid in prop.get("source_ids", []):
                 memory_db.touch_entry_evolved(eid, now_ts)
+            # Reset the per-document cooldown from approval time, not proposal generation
+            # time. Without this, the evolver's cooldown runs from when the proposal was
+            # staged (potentially hours earlier), causing immediate re-evaluation overnight.
+            advance_doc_run_timestamp(prop["suggested_category"])
             # Run update_frontmatter script to update date modified/tags
             import subprocess
             subprocess.run(
