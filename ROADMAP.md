@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-02 11:53:47
+date modified: 2026-08-07 21:09:00
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -50,6 +50,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Deep Research Mode — Phase 11: Dynamic Terminology & Alias Expansion**: Solve the Vocabulary Mismatch Problem across research tasks. Extract discovered technical terms, industry slang, and synonyms during single-source extraction (`state["topic_aliases"]`), leverage extracted aliases in search rewrites (`_rewrite_subquestion`) when initial queries hit low confidence, output YAML frontmatter `aliases` in final synthesized reports for high-accuracy RAG discovery, and log technical alias mappings to Evelyn's SQLite procedural memory database. (Completed 2026-07-23)
 - [x] **Code & Terminal Agency**: Equip Evelyn with safe, scoped tools to read files, write scripts, and execute commands within the LocalAI workspace environment, enabling true pair-programming and self-modification. Implemented robust absolute path checking via `os.path.normcase`, security levels (safe, approval-required, blocked), automatic 10-minute approval pruning, FastAPI routes `/api/terminal/*` for user review/approve/deny operations, interactive visual cards in the main chat UI for real-time approval/denial execution, system prompt guidelines, and full unit tests. (Completed 2026-06-27)
 - [x] **Profile Auto-Evolution**: Implemented an idle-time background pipeline that scans context entries in the memory database to propose updates to narrative persona, profile, and directive documents, with an interactive visual diff reviewer tab in the developer Web UI. (Hermes Tier 3 #12 — Completed 2026-06-27)
+- [x] **Profile Evolution Pre-Approval Editing**: Extended the Developer Dashboard profile update review flow with full pre-approval editing capabilities. Added an inline editable textarea for the proposed document content with a live word-level diff panel, plus interactive source context entry triage cards (Edit, Unlink, Delete) that update both the in-memory `source_ids` list and the backing database atomically. Backend guards ensure already-live entries edited as source context do not have their status regressed. Pending proposal status is also safeguarded from background worker overwrites. *(Completed 2026-08-07)*
 - [x] **Procedural Knowledge Capture**: Implemented an idle-time background pipeline that scans chat history for procedural rules (workflows, trigger patterns, pitfalls, and verification criteria), stores them in the SQLite `procedures` table, and dynamically injects keyword-matched procedures into the active RAG context. Added a dedicated interactive Procedures review tab in the Developer Web UI. (Hermes Tier 3 #10 — Completed 2026-06-27)
 - [x] **Google Calendar write scheduling**: Scrapped local reminders module/table and integrated read/write calendar tools directly to Google Calendar. *(Completed 2026-07-02)*
 - [ ] **Implement Expressive Speech-to-Text (STT)**: Go beyond basic transcription (currently handled via phone OS keyboard) and integrate a local STT engine capable of extracting vocal nuance tags (pitch, stress, hesitation) so Evelyn can 'hear' the emotion behind the words.
@@ -184,6 +185,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the normalized Master Tag Taxonomy written by the Tag Librarian pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
+- [ ] **Valence-Arousal-Dominance (VAD) State Detection & Tracking**: Detect, extract, and track VAD (Valence-Arousal-Dominance) affective states for relevant database records (such as chat messages, context facts, and journal entries) to build historical emotional trajectories and enhance context awareness.
 - [ ] **Multi-Node Expansion**: Split processes between machines (Evelyn Core on primary, TTS/Image Gen/idle tasks on secondary) to eliminate resource bottlenecks. See `reference/Multi_Node_Expansion_Plan.md` for feasibility and implementation details.
 
 
