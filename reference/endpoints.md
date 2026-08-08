@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-07 21:09:00
+date modified: 2026-08-08 07:08:20
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -121,7 +121,7 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 * **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str) and/or `source_id` (int).
 * **Actions**:
   * `approve`: Executes the proposal based on type:
-    * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `last_evolved_at` on all source entries, runs `update_frontmatter.py`, and marks the proposal applied.
+    * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `last_evolved_at` on all source entries, resets the per-document evolution cooldown to the approval timestamp (prevents immediate re-evaluation on the next idle cycle), runs `update_frontmatter.py`, and marks the proposal applied.
     * `merge` / `supersede` — deletes source entries and inserts the merged fact (using `modified_text` if provided).
     * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
     * `procedure_merge` — deletes source procedures and inserts a new consolidated procedure parsed from `final_text` as YAML.
