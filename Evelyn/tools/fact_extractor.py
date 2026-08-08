@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-02 12:21:36
+# date modified: 2026-08-08 07:19:48
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -171,32 +171,41 @@ _STATE_FILE = os.path.join(
 )
 
 
-def _load_extraction_state() -> int:
-    """Load the persisted high-water mark from disk.
+def _load_extraction_state() -> tuple[int, float]:
+    """Load the persisted high-water mark and last-run timestamp from disk.
+
+    Both values are stored in the same state file so a server restart
+    respects the cooldown — preventing an immediate re-run after reboot.
 
     Returns:
-        int: The last processed message ID.
+        tuple[int, float]: (last_extracted_id, last_run_ts).
+            last_run_ts defaults to 0.0 if not present (first run ever).
     """
     try:
         with open(_STATE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return int(data.get("last_extracted_id", cfg.FACT_EXTRACTION_START_ID))
+        last_id = int(data.get("last_extracted_id", cfg.FACT_EXTRACTION_START_ID))
+        last_ts = float(data.get("last_run_ts", 0.0))
+        return last_id, last_ts
     except FileNotFoundError:
-        return cfg.FACT_EXTRACTION_START_ID
+        return cfg.FACT_EXTRACTION_START_ID, 0.0
     except (KeyError, ValueError, json.JSONDecodeError, OSError) as e:
         print(f"[EXTRACTOR] Warning: could not read state file: {e}", flush=True)
-        return cfg.FACT_EXTRACTION_START_ID
+        return cfg.FACT_EXTRACTION_START_ID, 0.0
 
 
 def _save_extraction_state(last_id: int) -> None:
-    """Persist the high-water mark to disk after a successful extraction run.
+    """Persist the high-water mark and last-run timestamp to disk.
+
+    Both are written atomically in the same file so a server restart
+    can honour the cooldown without re-running immediately.
 
     Args:
         last_id: The last processed message ID.
     """
     try:
         with open(_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump({"last_extracted_id": last_id}, f)
+            json.dump({"last_extracted_id": last_id, "last_run_ts": _last_run_ts}, f)
     except OSError as e:
         print(f"[EXTRACTOR] Warning: could not save state file: {e}", flush=True)
 
@@ -210,10 +219,17 @@ _extracting = False
 # High-water mark: highest DB message id already processed.
 # Loaded from disk on startup; written after each successful run.
 # To reset: delete evelyn_extraction_state.json and restart.
-_last_extracted_id: int = _load_extraction_state()
+_last_extracted_id: int
+_last_run_ts: float
+_last_extracted_id, _last_run_ts = _load_extraction_state()
 
 # Task reference for cancellation (same pattern as fact_consolidator)
 _extraction_task = None
+
+# Per-session batch counter — number of batches processed in the current
+# continuous idle window. Resets when a chat request arrives (cancel_pending_extraction).
+# Guards against processing an unbounded backlog overnight.
+_session_batches_this_idle: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -253,22 +269,25 @@ def cancel_pending_extraction():
     """Cancel any in-flight extraction task.
 
     Frees the Ollama instance immediately when a new user chat request is received.
+    Also resets the per-session batch counter so the next idle window starts fresh.
     """
-    global _extraction_task, _extracting
+    global _extraction_task, _extracting, _session_batches_this_idle
     if _extraction_task and not _extraction_task.done():
         _extraction_task.cancel()
         _extracting = False
         _set_status_in_server("cancelled")
         print("[EXTRACTOR] Cancelled (new chat request).", flush=True)
     _extraction_task = None
+    _session_batches_this_idle = 0  # New idle session will start fresh
 
 
 async def run_extraction():
     """Run the idle-time extraction process to find new facts in the chat history.
 
-    Coordinates mutual exclusion, cooldowns, and message batching before triggering extraction.
+    Coordinates mutual exclusion, cooldowns, session-batch cap, and message
+    batching before triggering extraction.
     """
-    global _extracting, _last_extracted_id
+    global _extracting, _last_extracted_id, _session_batches_this_idle
     importlib.reload(cfg)
 
     if not cfg.FACT_EXTRACTION_ENABLED:
@@ -276,6 +295,17 @@ async def run_extraction():
 
     if _extracting:
         print("[EXTRACTOR] Already running — skipping.", flush=True)
+        return
+
+    # Per-session batch cap: don't hammer Ollama with a large backlog in one
+    # idle window. Resets when cancel_pending_extraction() is called (new chat).
+    max_batches = getattr(cfg, "FACT_EXTRACTION_MAX_BATCHES_PER_SESSION", 5)
+    if _session_batches_this_idle >= max_batches:
+        print(
+            f"[EXTRACTOR] Session batch cap reached "
+            f"({_session_batches_this_idle}/{max_batches}) — deferring until next activity.",
+            flush=True,
+        )
         return
 
     # Defer if the consolidator is currently making an LLM call.
@@ -333,10 +363,12 @@ async def run_extraction():
         _set_status_in_server(None)
         if success:
             _last_extracted_id = max_id
-            _save_extraction_state(max_id)
-            _update_last_run_ts()
+            _session_batches_this_idle += 1
+            _update_last_run_ts()  # Updates _last_run_ts first
+            _save_extraction_state(max_id)  # Persists both id and ts
             print(
-                f"[EXTRACTOR] High-water mark advanced to message id={max_id} (persisted).",
+                f"[EXTRACTOR] High-water mark advanced to message id={max_id} "
+                f"(persisted). Session batch {_session_batches_this_idle}/{max_batches}.",
                 flush=True,
             )
 
@@ -345,11 +377,13 @@ async def run_extraction():
 # Cooldown tracking (mirrors fact_consolidator pattern)
 # ---------------------------------------------------------------------------
 
-_last_run_ts: float = 0.0
-
 
 def _update_last_run_ts():
-    """Update the global background task last-run timestamp to the current time."""
+    """Update the global background task last-run timestamp to the current time.
+
+    Note: _save_extraction_state() must be called immediately after to persist
+    the new value to disk, so the cooldown survives a server restart.
+    """
     global _last_run_ts
     _last_run_ts = time.time()
 
