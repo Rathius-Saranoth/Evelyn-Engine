@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-07-03 10:25:11
+# date modified: 2026-08-08 07:03:32
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -317,6 +317,22 @@ def get_profile_evolution_statuses() -> dict:
                 "details": "No status recorded yet" if not last_run else "Cooldown active",
             }
     return statuses
+
+
+def advance_doc_run_timestamp(filename: str) -> None:
+    """Advance last_run_per_doc for a document to the current time.
+
+    Called when a profile_update proposal is approved by the user. Resets the
+    per-document cooldown clock from the approval timestamp rather than from the
+    original proposal generation time, preventing the same context entries from
+    being immediately re-evaluated on the next idle evolution cycle.
+
+    Args:
+        filename: Document basename, e.g. 'Ricky_Narrative_Profile.md'.
+    """
+    state = _load_evolution_state()
+    state["last_run_per_doc"][filename] = time.time()
+    _save_evolution_state(state)
 
 # ---------------------------------------------------------------------------
 # Infrastructure & Mutual Exclusion
