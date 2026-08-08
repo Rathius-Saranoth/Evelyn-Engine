@@ -639,6 +639,86 @@ def reject_proposal(proposal_id: int) -> bool:
     return affected > 0
 
 
+def update_proposal(proposal_id: int, **fields) -> bool:
+    """Update specific fields on an existing proposal.
+
+    Args:
+        proposal_id: Row ID of the proposal to update.
+        **fields: Key-value pairs of columns and their new values.
+
+    Returns:
+        bool: True if updated, False otherwise.
+    """
+    valid_cols = {
+        "type", "source_ids", "merged_observation", "merged_tags",
+        "suggested_category", "reason", "topic", "confidence", "status"
+    }
+    updates = {k: v for k, v in fields.items() if k in valid_cols}
+    if not updates:
+        return False
+
+    if isinstance(updates.get("source_ids"), (list, dict)):
+        updates["source_ids"] = json.dumps(updates["source_ids"])
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [proposal_id]
+
+    con = get_db()
+    cur = con.execute(
+        f"UPDATE proposals SET {set_clause} WHERE id = ?", values
+    )
+    con.commit()
+    affected = cur.rowcount
+    con.close()
+    return affected > 0
+
+
+def remove_proposal_source_id(proposal_id: int, entry_id: int) -> bool:
+    """Remove a source entry ID from a proposal's source_ids list.
+
+    Args:
+        proposal_id: Row ID of the proposal.
+        entry_id: Row ID of the context entry to remove.
+
+    Returns:
+        bool: True if source_id was present and removed, False otherwise.
+    """
+    con = get_db()
+    row = con.execute("SELECT source_ids FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+    con.close()
+    if not row or not row["source_ids"]:
+        return False
+    try:
+        source_ids = json.loads(row["source_ids"])
+    except (json.JSONDecodeError, TypeError):
+        source_ids = []
+
+    if entry_id in source_ids:
+        source_ids = [s for s in source_ids if s != entry_id]
+        return update_proposal(proposal_id, source_ids=source_ids)
+    return False
+
+
+def remove_source_id_from_pending_proposals(entry_id: int) -> int:
+    """Remove an entry ID from source_ids across all pending proposals.
+
+    Args:
+        entry_id: Row ID of the context entry.
+
+    Returns:
+        int: Number of pending proposals updated.
+    """
+    pending = get_pending_proposals()
+    updated_count = 0
+    for p in pending:
+        sids = p.get("source_ids", [])
+        if entry_id in sids:
+            new_sids = [s for s in sids if s != entry_id]
+            if update_proposal(p["id"], source_ids=new_sids):
+                updated_count += 1
+    return updated_count
+
+
 def has_pending_proposal_for(entry_ids: list[int], type: Optional[str] = None) -> bool:
     """Check if any pending proposal already references the given entry IDs.
 
