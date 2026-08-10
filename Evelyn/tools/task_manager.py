@@ -82,7 +82,7 @@ def _get_background_tasks() -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 
-STATE_FILE = r"C:\Projects\LocalAI\data\heavy_tasks_state.json"
+STATE_FILE = r"/home/rathius/evelyn/data/heavy_tasks_state.json"
 
 
 def save_persistent_state() -> None:
