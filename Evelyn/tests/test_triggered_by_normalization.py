@@ -9,9 +9,9 @@ import asyncio
 from unittest.mock import patch, mock_open, MagicMock
 
 # Add directories to path
-sys.path.append(r"C:\Projects\LocalAI")
-sys.path.append(r"C:\Projects\LocalAI\Evelyn\tools")
-sys.path.append(r"C:\Projects\LocalAI\scripts")
+sys.path.append(r"/home/rathius/evelyn")
+sys.path.append(r"/home/rathius/evelyn/Evelyn/tools")
+sys.path.append(r"/home/rathius/evelyn/scripts")
 
 class TestTriggeredByNormalization(unittest.TestCase):
     @patch("builtins.open", new_callable=mock_open)

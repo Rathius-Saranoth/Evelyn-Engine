@@ -10,7 +10,7 @@
 
 """Terminal and file access agent tools for Evelyn.
 
-Gives Evelyn the capability to execute safe PowerShell commands, read files, and write
+Gives Evelyn the capability to execute safe bash/shell commands, read files, and write
 files in allowed workspace paths with a multi-layered safety check and user approval gate.
 """
 
@@ -192,10 +192,10 @@ def is_path_allowed(path: str) -> bool:
 
 
 def run_command(command: str, cwd: str = r"/home/rathius/evelyn", timeout: int = 30) -> str:
-    """Execute a shell command in the LocalAI workspace with safety checks.
+    """Execute a shell command in the Evelyn workspace with safety checks.
 
     Args:
-        command: The PowerShell command string to execute.
+        command: The bash command string to execute.
         cwd: Working directory. Must be in TERMINAL_ALLOWED_PATHS.
         timeout: Maximum execution time in seconds.
 
@@ -257,10 +257,10 @@ def run_command(command: str, cwd: str = r"/home/rathius/evelyn", timeout: int =
 
 
 def _execute_command(command: str, cwd: str, timeout: int) -> str:
-    """Execute a command via PowerShell and capture stdout/stderr.
+    """Execute a command via bash and capture stdout/stderr.
 
     Args:
-        command: The PowerShell command string to execute.
+        command: The bash command string to execute.
         cwd: Directory context for execution.
         timeout: Execution timeout in seconds.
 

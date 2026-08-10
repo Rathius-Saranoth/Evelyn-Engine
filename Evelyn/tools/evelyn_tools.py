@@ -1493,7 +1493,7 @@ def get_agenda(days: int = 7, **kwargs) -> str:
 
 
 def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: int = 30, **kwargs) -> str:
-    """Execute a shell command in the LocalAI workspace.
+    """Execute a shell command in the Evelyn workspace.
 
     Args:
         command: The command string to execute.
@@ -1930,20 +1930,20 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "run_command",
             "description": (
-                "Execute a shell command in the LocalAI workspace. "
+                "Execute a shell command in the Evelyn workspace. "
                 "Use for service status checks, running scripts, git operations, or terminal tasks. "
-                "Commands run in PowerShell on Windows. Requires approval for dangerous commands."
+                "Commands run in bash on Linux. Requires approval for dangerous commands."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The PowerShell command to execute.",
+                        "description": "The shell/bash command to execute.",
                     },
                     "cwd": {
                         "type": "string",
-                        "description": "Working directory (default: C:\\Projects\\LocalAI).",
+                        "description": "Working directory (default: /home/rathius/evelyn).",
                     },
                     "timeout": {
                         "type": "integer",
@@ -1967,7 +1967,7 @@ MODEL_TOOL_DEFINITIONS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI.",
+                        "description": "Absolute path or path relative to /home/rathius/evelyn.",
                     },
                     "max_lines": {
                         "type": "integer",
@@ -1991,7 +1991,7 @@ MODEL_TOOL_DEFINITIONS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or path relative to C:\\Projects\\LocalAI.",
+                        "description": "Absolute path or path relative to /home/rathius/evelyn.",
                     },
                     "content": {
                         "type": "string",
