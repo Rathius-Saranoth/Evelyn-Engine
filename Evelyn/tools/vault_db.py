@@ -13,8 +13,9 @@ import sqlite3
 import os
 import time
 from typing import Optional, List, Dict, Any
+import evelyn_config as cfg
 
-DB_PATH = r"C:\Projects\LocalAI\data\evelyn_vault.db"
+DB_PATH = getattr(cfg, "VAULT_DB_PATH", r"/home/rathius/evelyn/data/evelyn_vault.db")
 
 def get_db() -> sqlite3.Connection:
     """Return a new SQLite connection to the vault database with row_factory set.
@@ -86,6 +87,7 @@ def upsert_document(
         tags: Comma-separated tag string.
         aliases: Comma-separated aliases string.
     """
+    path = path.replace('\\', '/')
     con = get_db()
     con.execute("""
         INSERT INTO vault_documents 
@@ -114,6 +116,7 @@ def get_document(path: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dict of metadata fields, or None if the document is not indexed.
     """
+    path = path.replace('\\', '/')
     con = get_db()
     row = con.execute("SELECT * FROM vault_documents WHERE path = ?", (path,)).fetchone()
     con.close()

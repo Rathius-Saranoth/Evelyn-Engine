@@ -24,20 +24,22 @@ import json
 import time
 
 # Chroma RAG wrapper
-ROOT_DIR  = r"C:\Projects\LocalAI"
-TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+import evelyn_config as cfg
+
+ROOT_DIR  = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 import chroma_rag  # noqa: E402
 
 # Paths
-SYNC_STATE_FILE = r"C:\Projects\LocalAI\data\gist_sync_state.json" # [[gist_sync_state.json]]
+SYNC_STATE_FILE = getattr(cfg, "GIST_SYNC_STATE", r"/home/rathius/evelyn/data/gist_sync_state.json") # [[gist_sync_state.json]]
 COLLECTION_NAME = "evelyn_gists"
 
 # Excluded paths — handled by [[ingest_obsidian_knowledge.py]]
-EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
-PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
+EVELYN_DIR         = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Evelyn")
+PHYSICAL_DESC_FILE = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Notes", "Prompt Lab", "Physical Descriptions", "Physical Description - Evelyn.md") # [[Physical Description - Evelyn.md]]
 
 
 # ---------------------------------------------------------------------------
