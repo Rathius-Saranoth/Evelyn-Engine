@@ -39,8 +39,8 @@ import argparse
 # ---------------------------------------------------------------------------
 # Path setup
 # ---------------------------------------------------------------------------
-ROOT_DIR  = r"C:\Projects\LocalAI"
-TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+ROOT_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOOLS_DIR = os.path.join(ROOT_DIR, "Evelyn", "tools")
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)

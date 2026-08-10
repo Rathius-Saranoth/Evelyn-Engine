@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch, mock_open
 
 # Add tools to path
-sys.path.append(r"C:\Projects\LocalAI\Evelyn\tools")
+sys.path.append(r"/home/rathius/evelyn/Evelyn/tools")
 import journal_manager
 import context_manager
 
