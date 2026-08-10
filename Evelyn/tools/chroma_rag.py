@@ -375,21 +375,21 @@ def get_vault_relative_path(path: str) -> str:
         path: Absolute or relative file path.
 
     Returns:
-        str: Vault-relative path using backslashes.
+        str: Vault-relative path using forward slashes.
     """
     if path.startswith("sqlite::"):
         return path
-    vault_base = r"G:\My Drive\Obsidian_Vault"
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
     try:
         norm_path = os.path.normpath(path)
         norm_base = os.path.normpath(vault_base)
         if os.path.isabs(norm_path):
-            return os.path.relpath(norm_path, norm_base)
+            rel = os.path.relpath(norm_path, norm_base)
+            return rel.replace('\\', '/')
         else:
-            return norm_path
+            return norm_path.replace('\\', '/')
     except Exception:
-        pass
-    return path
+        return path.replace('\\', '/')
 
 
 def get_document_gist(path: str) -> str | None:

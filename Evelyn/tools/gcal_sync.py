@@ -317,11 +317,16 @@ def create_gcal_event(
         }
 
 
-def delete_gcal_event(event_id: str) -> dict:
+def delete_gcal_event(event_id_or_query: str, target_date: str = None) -> dict:
     """Delete an event from Google Calendar and the local cache.
 
+    Accepts either an exact event ID or an event title/summary query.
+    If target_date is provided ('YYYY-MM-DD'), limits title matches to that specific date.
+    If multiple events match and target_date is ambiguous, returns a list of matching candidates.
+
     Args:
-        event_id: The ID of the calendar event to delete.
+        event_id_or_query: The ID or title/summary of the calendar event to delete.
+        target_date: Optional target date string ('YYYY-MM-DD') to ensure the correct event is selected.
 
     Returns:
         dict: Sync outcome summary with 'status' and 'message'.
@@ -333,27 +338,89 @@ def delete_gcal_event(event_id: str) -> dict:
             "message": "Google Calendar token not found or expired. Run scripts/setup_gcal.py."
         }
 
+    target_id = event_id_or_query.strip()
+    clean_date = target_date.strip()[:10] if target_date else None
+    resolved_id = None
+    candidates = []
+
+    # 1. Direct raw ID check in local cache
     try:
-        print(f"[GCal Sync] Deleting event {event_id} from Google Calendar...", flush=True)
+        con = sqlite3.connect(cfg.CHAT_DB_PATH)
+        row = con.execute("SELECT id, summary, start_at FROM calendar_events WHERE id = ?", (target_id,)).fetchone()
+        if row:
+            resolved_id = row[0]
+        else:
+            # Search by title in local cache
+            rows = con.execute(
+                "SELECT id, summary, start_at FROM calendar_events WHERE summary LIKE ? ORDER BY start_at DESC",
+                (f"%{target_id}%",)
+            ).fetchall()
+            if rows:
+                if clean_date:
+                    date_matched = [r for r in rows if r[2] and r[2].startswith(clean_date)]
+                    candidates = date_matched if date_matched else rows
+                else:
+                    candidates = rows
+        con.close()
+    except Exception as e:
+        print(f"[GCal Sync] Error checking local cache: {e}", flush=True)
+
+    # 2. If no direct ID and no candidates in cache, search GCal API directly
+    if not resolved_id and not candidates:
+        try:
+            events_result = service.events().list(calendarId="primary", q=target_id, maxResults=10).execute()
+            items = events_result.get("items", [])
+            for item in items:
+                e_id = item.get("id")
+                e_summary = item.get("summary", "")
+                e_start = item.get("start", {}).get("dateTime") or item.get("start", {}).get("date", "")
+                candidates.append((e_id, e_summary, e_start))
+
+            if clean_date and candidates:
+                date_matched = [c for c in candidates if c[2] and c[2].startswith(clean_date)]
+                if date_matched:
+                    candidates = date_matched
+        except Exception as e:
+            print(f"[GCal Sync] Error searching GCal API: {e}", flush=True)
+
+    # Resolve candidates
+    if not resolved_id:
+        if len(candidates) == 1:
+            resolved_id = candidates[0][0]
+        elif len(candidates) > 1:
+            # Disambiguation needed!
+            matches_str = "; ".join([f"'{c[1]}' on {c[2][:10]} (ID: {c[0]})" for c in candidates[:5]])
+            return {
+                "status": "ambiguous",
+                "message": (
+                    f"Found {len(candidates)} events matching '{target_id}'. "
+                    f"Please specify the target_date or event_id to delete. Matching options: {matches_str}"
+                )
+            }
+        else:
+            resolved_id = target_id  # fallback to raw target_id string
+
+    try:
+        print(f"[GCal Sync] Deleting event '{target_id}' (ID: {resolved_id}) from Google Calendar...", flush=True)
         service.events().delete(
             calendarId="primary",
-            eventId=event_id
+            eventId=resolved_id
         ).execute()
 
         # Immediately update the local cache
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
-        con.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+        con.execute("DELETE FROM calendar_events WHERE id = ? OR id = ?", (resolved_id, target_id))
         con.commit()
         con.close()
 
         return {
             "status": "success",
-            "message": f"Successfully deleted calendar event ID {event_id}."
+            "message": f"Successfully deleted calendar event '{target_id}' (ID: {resolved_id})."
         }
     except Exception as e:
-        print(f"[GCal Sync] Failed to delete event {event_id}: {e}", flush=True)
+        print(f"[GCal Sync] Failed to delete event {resolved_id}: {e}", flush=True)
         return {
             "status": "error",
-            "message": f"API error: {e}"
+            "message": f"API error deleting '{target_id}': {e}"
         }
 

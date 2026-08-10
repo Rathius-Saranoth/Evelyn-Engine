@@ -222,7 +222,7 @@ def get_upcoming_agenda_prompt_context() -> str:
     """
     try:
         import sys
-        TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+        TOOLS_DIR = str(BASE_DIR / "Evelyn" / "tools")
         if TOOLS_DIR not in sys.path:
             sys.path.append(TOOLS_DIR)
         import gcal_sync
@@ -1622,6 +1622,19 @@ async def lifespan(app: FastAPI):
             # 2. Build a unified view of unfinished tasks from memory and disk
             from research_engine import load_state, save_state
             
+            # Sync any new task folders on disk into _background_tasks
+            if os.path.exists(cfg.RESEARCH_DATA_DIR):
+                for d in os.listdir(cfg.RESEARCH_DATA_DIR):
+                    if d.startswith("task_") and d not in _background_tasks:
+                        disk_s = load_state(d)
+                        if disk_s:
+                            _background_tasks[d] = {
+                                "status": disk_s.get("status", "pending"),
+                                "query": disk_s.get("query", ""),
+                                "scope": disk_s.get("scope", "standard"),
+                                "started_at": time.time()
+                            }
+
             unfinished_tasks = []
             active_task = None
             

@@ -33,8 +33,10 @@ import subprocess
 # Absolute path anchoring — behaves identically whether called by the FastAPI
 # server daemon or directly from a PowerShell/Termux prompt.
 # ---------------------------------------------------------------------------
-ROOT_DIR  = r"C:\Projects\LocalAI"
-TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+import evelyn_config as cfg
+
+ROOT_DIR  = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
 
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:

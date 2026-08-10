@@ -32,7 +32,7 @@ TERMINAL_BLOCKED_PATTERNS = [
     r"(?i)shutdown|restart.*computer",    # System shutdown
     r"(?i)reg\s+(add|delete)",           # Registry modification
     r"(?i)net\s+(user|localgroup)",      # User account manipulation
-    r"(?i)powershell.*-enc",             # Encoded PowerShell (injection vector)
+    r"(?i)base64\s.*\|\s*(ba)?sh",       # Encoded shell injection
     r"(?i)invoke-webrequest|curl.*-o",   # Downloading executables
     r"(?i)pip\s+install(?!\s+--user)",   # Global pip install (allow --user)
     r"(?i)npm\s+install\s+-g",          # Global npm install
@@ -67,7 +67,9 @@ TERMINAL_SAFE_PATTERNS = [
 # though get_pending_approvals() and disk-based lookups are now preferred)
 _pending_approvals: dict[str, dict] = {}
 
-APPROVALS_FILE = r"C:\Projects\LocalAI\data\terminal_approvals.json"
+import evelyn_config as cfg
+
+APPROVALS_FILE = getattr(cfg, "TERMINAL_APPROVALS_PATH", r"/home/rathius/evelyn/data/terminal_approvals.json")
 
 
 def _load_approvals() -> dict:
@@ -176,7 +178,7 @@ def is_path_allowed(path: str) -> bool:
     try:
         resolved = os.path.normcase(os.path.abspath(os.path.realpath(path)))
         importlib.reload(cfg)
-        allowed_paths = getattr(cfg, "TERMINAL_ALLOWED_PATHS", [r"C:\Projects\LocalAI"])
+        allowed_paths = getattr(cfg, "TERMINAL_ALLOWED_PATHS", [r"/home/rathius/evelyn"])
         for allowed in allowed_paths:
             allowed_abs = os.path.normcase(os.path.abspath(os.path.realpath(allowed)))
             if resolved == allowed_abs:
@@ -188,7 +190,7 @@ def is_path_allowed(path: str) -> bool:
         return False
 
 
-def run_command(command: str, cwd: str = r"C:\Projects\LocalAI", timeout: int = 30) -> str:
+def run_command(command: str, cwd: str = r"/home/rathius/evelyn", timeout: int = 30) -> str:
     """Execute a shell command in the LocalAI workspace with safety checks.
 
     Args:
@@ -268,7 +270,7 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
     max_chars = getattr(cfg, "TERMINAL_MAX_OUTPUT_CHARS", 10000)
     try:
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            ["/bin/bash", "-c", command],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -308,7 +310,7 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
     
     # Resolve path
     if not os.path.isabs(file_path):
-        file_path = os.path.join(r"C:\Projects\LocalAI", file_path)
+        file_path = os.path.join(r"/home/rathius/evelyn", file_path)
     abs_path = os.path.abspath(file_path)
 
     # Path safety check
@@ -353,7 +355,7 @@ def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
     
     # Resolve path
     if not os.path.isabs(file_path):
-        file_path = os.path.join(r"C:\Projects\LocalAI", file_path)
+        file_path = os.path.join(r"/home/rathius/evelyn", file_path)
     abs_path = os.path.abspath(file_path)
 
     # Path safety check

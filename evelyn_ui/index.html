@@ -2062,12 +2062,25 @@
         container.insertBefore(wrapDiv, container.firstChild);
       }
 
+      function handleAuthError(resp) {
+        if (resp && resp.status === 401) {
+          const key = prompt("API Key Required / Invalid. Enter your Evelyn API key (X-Evelyn-Key):");
+          if (key) {
+            localStorage.setItem("evelyn_api_key", key);
+            location.reload();
+          }
+        }
+      }
+
       async function loadHistory() {
         try {
           const resp = await fetch(`${API_BASE}/history?limit=${HISTORY_PAGE_SIZE}`, {
             headers: headers(),
           });
-          if (!resp.ok) return;
+          if (!resp.ok) {
+            handleAuthError(resp);
+            return;
+          }
           const msgs = await resp.json();
           const container = document.getElementById("messages");
           container.innerHTML = "";

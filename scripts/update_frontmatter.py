@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-08-02 11:53:12
+# date modified: 2026-08-09 19:25:59
 # tags: #frontmatter, #metadata, #headers, #update, #utility
 
 import sys
@@ -12,7 +13,7 @@ def main():
     if len(sys.argv) < 2:
         return
         
-    filepath = sys.argv[1]
+    filepath = os.path.normpath(sys.argv[1])
     if not os.path.exists(filepath):
         return
         
@@ -20,14 +21,16 @@ def main():
     ext = os.path.splitext(filename)[1].lower()
     
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
             content = f.read()
     except UnicodeDecodeError:
         return
 
     # Get system dates
-    ctime = os.path.getctime(filepath)
-    mtime = os.path.getmtime(filepath)
+    st = os.stat(filepath)
+    # On Unix/Linux, st_ctime is metadata change time, while st_birthtime is creation time (if supported)
+    ctime = getattr(st, 'st_birthtime', st.st_ctime)
+    mtime = st.st_mtime
     date_created = datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
     date_modified = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -92,18 +95,22 @@ def main():
             
         if not header_updated:
             # Fallback if anchor is missing
-            out_lines = [
+            header = [
                 f"# {filename}",
                 f"# date created: {date_created}",
                 f"# date modified: {date_modified}",
                 f"# tags: ",
                 ""
-            ] + lines
+            ]
+            if lines and lines[0].startswith('#!'):
+                out_lines = [lines[0]] + header + lines[1:]
+            else:
+                out_lines = header + lines
             
         new_content = '\n'.join(out_lines)
         
         if new_content != content:
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(new_content)
         return
         
@@ -174,7 +181,7 @@ def main():
             new_content = '\n'.join(fm) + content
 
     if new_content != content:
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, 'w', encoding='utf-8', newline='\n') as f:
             f.write(new_content)
 
 if __name__ == "__main__":
