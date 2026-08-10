@@ -24,14 +24,14 @@ import json
 import time
 from glob import glob
 
-# Chroma RAG wrapper
-import evelyn_config as cfg
-
-ROOT_DIR  = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
-TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
+# Anchoring paths before importing evelyn_config
+ROOT_DIR  = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
+
+import evelyn_config as cfg
 import chroma_rag  # noqa: E402
 import memory_db   # noqa: E402
 

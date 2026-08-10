@@ -32,15 +32,17 @@ import subprocess
 # ---------------------------------------------------------------------------
 # Absolute path anchoring — behaves identically whether called by the FastAPI
 # server daemon or directly from a PowerShell/Termux prompt.
+# Must compute ROOT_DIR and TOOLS_DIR and insert into sys.path BEFORE
+# importing evelyn_config.
 # ---------------------------------------------------------------------------
-import evelyn_config as cfg
-
-ROOT_DIR  = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
-TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
+ROOT_DIR  = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
+
+import evelyn_config as cfg
 
 
 def run_phase_subprocess(name: str, args: list[str]) -> None:
