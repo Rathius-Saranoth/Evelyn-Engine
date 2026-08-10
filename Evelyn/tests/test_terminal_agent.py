@@ -18,8 +18,8 @@ import unittest
 from unittest.mock import patch, mock_open
 
 # Add Evelyn/tools and root to system path
-sys.path.append(r"C:\Projects\LocalAI")
-sys.path.append(r"C:\Projects\LocalAI\Evelyn\tools")
+sys.path.append(r"/home/rathius/evelyn")
+sys.path.append(r"/home/rathius/evelyn/Evelyn/tools")
 
 import terminal_agent
 
@@ -44,20 +44,20 @@ class TestTerminalAgent(unittest.TestCase):
     def test_path_scoping(self, mock_cfg, mock_reload):
         """Verify that paths outside the allowed list are blocked."""
         mock_cfg.TERMINAL_ALLOWED_PATHS = [
-            r"C:\Projects\LocalAI",
-            r"C:\Temp",
+            r"/home/rathius/evelyn",
+            r"/tmp",
         ]
 
         # Allowed paths
-        self.assertTrue(terminal_agent.is_path_allowed(r"C:\Projects\LocalAI"))
-        self.assertTrue(terminal_agent.is_path_allowed(r"C:\Projects\LocalAI\subfolder"))
-        self.assertTrue(terminal_agent.is_path_allowed(r"C:\Temp\file.txt"))
+        self.assertTrue(terminal_agent.is_path_allowed(r"/home/rathius/evelyn"))
+        self.assertTrue(terminal_agent.is_path_allowed(r"/home/rathius/evelyn/subfolder"))
+        self.assertTrue(terminal_agent.is_path_allowed(r"/tmp/file.txt"))
 
         # Blocked paths
-        self.assertFalse(terminal_agent.is_path_allowed(r"C:\Windows"))
-        self.assertFalse(terminal_agent.is_path_allowed(r"C:\Users\ricky\Documents"))
+        self.assertFalse(terminal_agent.is_path_allowed(r"/etc"))
+        self.assertFalse(terminal_agent.is_path_allowed(r"/home/otheruser/Documents"))
         # Path traversal checks
-        self.assertFalse(terminal_agent.is_path_allowed(r"C:\Projects\LocalAI\..\..\Windows"))
+        self.assertFalse(terminal_agent.is_path_allowed(r"/home/rathius/evelyn/../../etc"))
 
     def test_blocked_patterns(self):
         """Verify that dangerous blocked commands are instantly rejected."""
