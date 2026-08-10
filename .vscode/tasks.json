@@ -3,222 +3,40 @@
     "tasks": [
         {
             "label": "Start Evelyn Services",
-            "dependsOn": [
-                "Run Ollama",
-                "Wait for Ollama",
-                "Start Remaining Services"
-            ],
-            "dependsOrder": "sequence",
-            "problemMatcher": []
-        },
-        {
-            "label": "Start Evelyn Minimal",
-            "dependsOn": [
-                "Run Ollama",
-                "Wait for Ollama",
-                "Run Evelyn Server"
-            ],
-            "dependsOrder": "sequence",
-            "problemMatcher": []
-        },
-        {
-            "label": "Start Remaining Services",
-            "dependsOn": [
-                "Run Tailscale",
-                "Run Chatterbox TTS",
-                "Run Evelyn Server",
-                "Run Image Server"
-            ],
-            "dependsOrder": "parallel",
-            "problemMatcher": []
-        },
-        {
-            "label": "Run Ollama",
             "type": "shell",
-            "command": "ollama serve",
-            "isBackground": true,
-            "options": {
-                "env": {
-                    "OLLAMA_KEEP_ALIVE": "-1",
-                    "OLLAMA_FLASH_ATTENTION": "1",
-                    "OLLAMA_KV_CACHE_TYPE": "q8_0",
-                    "OLLAMA_NUM_PARALLEL": "1",
-                    "OLLAMA_MAX_LOADED_MODELS": "1"
-                }
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "new",
-                "group": "evelyn"
-            },
-            "problemMatcher": [
-                {
-                    "pattern": [
-                        {
-                            "regexp": ".",
-                            "file": 1,
-                            "location": 2,
-                            "message": 3
-                        }
-                    ],
-                    "background": {
-                        "activeOnStart": true,
-                        "beginsPattern": ".",
-                        "endsPattern": "."
-                    }
-                }
-            ]
-        },
-        {
-            "label": "Wait for Ollama",
-            "type": "shell",
-            "command": "powershell -ExecutionPolicy Bypass -File '${workspaceFolder}\\scripts\\wait_for_ollama.ps1'",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared",
-                "group": "evelyn"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "Run Tailscale",
-            "type": "shell",
-            "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' serve --bg 8080",
-            "presentation": {
-                "reveal": "never"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "Run Chatterbox TTS",
-            "type": "shell",
-            "command": "& '${workspaceFolder}\\services\\tts\\venv\\Scripts\\python.exe' '${workspaceFolder}\\services\\tts\\tts_server.py'",
-            "isBackground": true,
-            "presentation": {
-                "reveal": "always",
-                "panel": "new",
-                "group": "evelyn"
-            },
-            "problemMatcher": [
-                {
-                    "pattern": [
-                        {
-                            "regexp": ".",
-                            "file": 1,
-                            "location": 2,
-                            "message": 3
-                        }
-                    ],
-                    "background": {
-                        "activeOnStart": true,
-                        "beginsPattern": ".",
-                        "endsPattern": "."
-                    }
-                }
-            ]
-        },
-        {
-            "label": "Run Evelyn Server",
-            "type": "shell",
-            "command": "$ErrorActionPreference = 'Continue'; python evelyn_server.py",
-            "options": {
-                "cwd": "C:\\Projects\\LocalAI",
-                "env": {
-                    "EVELYN_API_KEY": "${env:EVELYN_API_KEY}"
-                }
-            },
-            "isBackground": true,
-            "presentation": {
-                "reveal": "always",
-                "panel": "new",
-                "group": "evelyn"
-            },
-            "problemMatcher": [
-                {
-                    "pattern": [
-                        {
-                            "regexp": ".",
-                            "file": 1,
-                            "location": 2,
-                            "message": 3
-                        }
-                    ],
-                    "background": {
-                        "activeOnStart": true,
-                        "beginsPattern": ".",
-                        "endsPattern": "."
-                    }
-                }
-            ]
-        },
-        {
-            "label": "Run Image Server",
-            "type": "shell",
-            "command": "& '${workspaceFolder}\\services\\image\\venv\\Scripts\\python.exe' '${workspaceFolder}\\services\\image\\image_server.py'",
-            "isBackground": true,
-            "presentation": {
-                "reveal": "always",
-                "panel": "new",
-                "group": "evelyn"
-            },
-            "problemMatcher": [
-                {
-                    "pattern": [
-                        {
-                            "regexp": ".",
-                            "file": 1,
-                            "location": 2,
-                            "message": 3
-                        }
-                    ],
-                    "background": {
-                        "activeOnStart": true,
-                        "beginsPattern": ".",
-                        "endsPattern": "."
-                    }
-                }
-            ]
-        },
-        {
-            "label": "Update Ollama",
-            "type": "shell",
-            "command": "Write-Host 'Downloading latest Ollama installer...'; Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'C:\\Windows\\Temp\\OllamaSetup.exe'; Write-Host 'Installing (UAC will prompt once, then silent)...'; Start-Process 'C:\\Windows\\Temp\\OllamaSetup.exe' -ArgumentList '/S' -Verb RunAs -Wait; Write-Host 'Update complete!'; ollama --version",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared",
-                "close": false
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "Unload Evelyn Model",
-            "type": "shell",
-            "command": "Invoke-RestMethod -Uri 'http://localhost:11434/api/generate' -Method Post -Body '{\"model\":\"gemma4:12b\",\"keep_alive\":0}' -ContentType 'application/json'; Write-Host 'Model unloaded from VRAM.'",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared",
-                "close": false
-            },
+            "command": "sudo systemctl start ollama evelyn evelyn-tts",
             "problemMatcher": []
         },
         {
             "label": "Stop Evelyn Services",
             "type": "shell",
-            "command": "powershell -ExecutionPolicy Bypass -File '${workspaceFolder}\\scripts\\stop_evelyn_services.ps1'",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            },
+            "command": "sudo systemctl stop evelyn evelyn-tts",
             "problemMatcher": []
         },
         {
-            "label": "Renew SSL Certificate",
+            "label": "Restart Evelyn Server",
             "type": "shell",
-            "command": "& 'C:\\Program Files\\Tailscale\\tailscale.exe' cert --cert-file ricky-pc.tail0e161b.ts.net.crt --key-file ricky-pc.tail0e161b.ts.net.key ricky-pc.tail0e161b.ts.net",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            },
+            "command": "sudo systemctl restart evelyn",
+            "problemMatcher": []
+        },
+        {
+            "label": "View Evelyn Logs",
+            "type": "shell",
+            "command": "journalctl -u evelyn -f --no-pager -n 50",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "View TTS Logs",
+            "type": "shell",
+            "command": "journalctl -u evelyn-tts -f --no-pager -n 50",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "GPU Status",
+            "type": "shell",
+            "command": "nvidia-smi",
             "problemMatcher": []
         }
     ]

@@ -10,6 +10,15 @@ Edit this file to change any path, URL, or behaviour flag.
 No restart required for DEBUG_LOGGING changes — the server reads it per-request.
 """
 
+import os
+import time
+
+# User Timezone (America/Chicago for Ricky / Kansas City)
+USER_TIMEZONE = "America/Chicago"
+os.environ["TZ"] = USER_TIMEZONE
+if hasattr(time, "tzset"):
+    time.tzset()
+
 # =============================================================================
 # Model
 # =============================================================================
@@ -113,18 +122,20 @@ SUMMARY_MODEL_OVERRIDE = "default"
 # =============================================================================
 # Paths
 # =============================================================================
-VAULT_BASE_DIR = r"G:\My Drive\Obsidian_Vault" # [[Obsidian_Vault]]
-EVELYN_MEMORY_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn" # [[Obsidian_Vault\Evelyn]]
-PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
-VAULT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_vault.db" # [[evelyn_vault.db]]
-VAULT_SYNC_STATE = r"C:\Projects\LocalAI\data\vault_sync_state.json" # [[vault_sync_state.json]]
-GIST_SYNC_STATE = r"C:\Projects\LocalAI\data\gist_sync_state.json" # [[gist_sync_state.json]]
-CHROMA_DB_PATH = r"C:\Projects\LocalAI\data\chroma_db" # [[chroma_db]]
-CHAT_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_chat.db" # [[evelyn_chat.db]]
-MEMORY_DB_PATH = r"C:\Projects\LocalAI\data\evelyn_memory.db" # [[evelyn_memory.db]]
-PERSONA_DIR = r"C:\Projects\LocalAI\Evelyn\persona" # [[persona]]
-GCAL_CREDENTIALS_PATH = r"C:\Projects\LocalAI\data\gcal_credentials.json"
-GCAL_TOKEN_PATH = r"C:\Projects\LocalAI\data\gcal_token.json"
+BASE_DIR = r"/home/rathius/evelyn"
+TOOLS_DIR = r"/home/rathius/evelyn/Evelyn/tools"
+VAULT_BASE_DIR = r"/home/rathius/obsidian_vault" # [[Obsidian_Vault]]
+EVELYN_MEMORY_DIR = r"/home/rathius/obsidian_vault/Evelyn" # [[Obsidian_Vault\Evelyn]]
+PHYSICAL_DESC_FILE = r"/home/rathius/obsidian_vault/Notes/Prompt Lab/Physical Descriptions/Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
+VAULT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_vault.db" # [[evelyn_vault.db]]
+VAULT_SYNC_STATE = r"/home/rathius/evelyn/data/vault_sync_state.json" # [[vault_sync_state.json]]
+GIST_SYNC_STATE = r"/home/rathius/evelyn/data/gist_sync_state.json" # [[gist_sync_state.json]]
+CHROMA_DB_PATH = r"/home/rathius/evelyn/data/chroma_db" # [[chroma_db]]
+CHAT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_chat.db" # [[evelyn_chat.db]]
+MEMORY_DB_PATH = r"/home/rathius/evelyn/data/evelyn_memory.db" # [[evelyn_memory.db]]
+PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
+GCAL_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gcal_credentials.json"
+GCAL_TOKEN_PATH = r"/home/rathius/evelyn/data/gcal_token.json"
 
 
 
@@ -326,10 +337,10 @@ CONSOLIDATION_TIMEOUT = 180
 # Deep Research
 # =============================================================================
 RESEARCH_ENABLED = True
-RESEARCH_DATA_DIR = r"C:\Projects\LocalAI\data\research"
+RESEARCH_DATA_DIR = r"/home/rathius/evelyn/data/research"
 
 # Vault directory for finished reports.
-RESEARCH_VAULT_DIR = r"G:\My Drive\Obsidian_Vault\Evelyn\Research"
+RESEARCH_VAULT_DIR = r"/home/rathius/obsidian_vault/Evelyn/Research"
 
 # Maximum sub-questions the planner can generate per research task.
 RESEARCH_MAX_SUB_QUESTIONS = 6
@@ -423,8 +434,8 @@ RESEARCH_ACTIVE_HOURS_END   = 21  # 21:00 local time
 # Services
 # =============================================================================
 TTS_SERVER_URL = "http://localhost:5050"  # Chatterbox TTS server
-IMAGE_SERVER_URL = "http://localhost:5055"  # FLUX.1 [schnell] Image server
-IMAGE_OUTPUT_DIR = r"C:\Projects\LocalAI\services\image\output"
+IMAGE_SERVER_URL = "http://ricky-pc.tail0e161b.ts.net:5055"  # FLUX.1 [schnell] Image server
+IMAGE_OUTPUT_DIR = r"/home/rathius/evelyn/services/image/output"
 
 # =============================================================================
 # Server
@@ -440,6 +451,10 @@ API_KEY = os.environ.get("EVELYN_API_KEY", "")
 
 # Tailscale + local CORS origins
 ALLOWED_ORIGINS = [
+    "http://sanctum.tail0e161b.ts.net:7860",
+    "https://sanctum.tail0e161b.ts.net:7860",
+    "http://192.168.1.187:7860",
+    "https://192.168.1.187:7860",
     "http://localhost:7860",
     "https://localhost:7860",
     "http://127.0.0.1:7860",
@@ -510,9 +525,9 @@ PROFILE_EVOLUTION_LIMITS = {
 TERMINAL_ENABLED = True
 
 TERMINAL_ALLOWED_PATHS = [
-    r"C:\Projects\LocalAI",
-    r"C:\Temp",
-    r"G:\My Drive\Obsidian_Vault",
+    "/home/rathius/evelyn",
+    "/tmp",
+    "/home/rathius/obsidian_vault",
 ]
 
 TERMINAL_DEFAULT_TIMEOUT = 30      # seconds

@@ -1582,11 +1582,11 @@ async def _do_consolidation():
                     loop.create_task(server.start_refresh_memory_internal())
                 except RuntimeError:
                     asyncio.run(server.start_refresh_memory_internal())
-            else:
-                refresh_script = os.path.join(r"C:\Projects\LocalAI", "Evelyn", "tools", "refresh_memory.py")
+                base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+                refresh_script = os.path.join(base_dir, "Evelyn", "tools", "refresh_memory.py")
                 if os.path.exists(refresh_script):
                     print(f"[CONSOLIDATOR] Triggering memory refresh for updated entries...", flush=True)
-                    subprocess.Popen([sys.executable, "-u", refresh_script], cwd=r"C:\Projects\LocalAI")
+                    subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
         except Exception as r_err:
             print(f"[CONSOLIDATOR WARNING] Could not trigger memory refresh: {r_err}", flush=True)
 

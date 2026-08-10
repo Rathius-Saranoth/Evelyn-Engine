@@ -25,8 +25,10 @@ import time
 from glob import glob
 
 # Chroma RAG wrapper
-ROOT_DIR  = r"C:\Projects\LocalAI"
-TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+import evelyn_config as cfg
+
+ROOT_DIR  = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
@@ -34,17 +36,17 @@ import chroma_rag  # noqa: E402
 import memory_db   # noqa: E402
 
 # Paths
-EVELYN_DIR         = r"G:\My Drive\Obsidian_Vault\Evelyn"
-PHYSICAL_DESC_FILE = r"G:\My Drive\Obsidian_Vault\Notes\Prompt Lab\Physical Descriptions\Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
+EVELYN_DIR         = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Evelyn")
+PHYSICAL_DESC_FILE = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Notes", "Prompt Lab", "Physical Descriptions", "Physical Description - Evelyn.md") # [[Physical Description - Evelyn.md]]
 EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals", "Extracted", "Pending"]
-SYNC_STATE_FILE    = r"C:\Projects\LocalAI\data\vault_sync_state.json" # [[vault_sync_state.json]]
+SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json") # [[vault_sync_state.json]]
 COLLECTION_NAME    = "evelyn_memory"
 
 # Ricky/ files that belong in core memory (full-text, high-fidelity operational docs).
 # General Ricky facts (work history, education, etc.) flow through the gist pipeline instead.
 RICKY_CORE_FILES = [
-    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Psychological Blueprint.md", # [[Ricky - Psychological Blueprint.md]]
-    r"G:\My Drive\Obsidian_Vault\Ricky\Ricky - Love Languages & Connection.md", # [[Ricky - Love Languages & Connection.md]]
+    os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Ricky", "Ricky - Psychological Blueprint.md"), # [[Ricky - Psychological Blueprint.md]]
+    os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Ricky", "Ricky - Love Languages & Connection.md"), # [[Ricky - Love Languages & Connection.md]]
 ]
 
 

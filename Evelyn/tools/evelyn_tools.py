@@ -25,11 +25,13 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 # Module path setup
 # ---------------------------------------------------------------------------
-TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
-VAULT_BASE = r"G:\My Drive\Obsidian_Vault"
+import evelyn_config as cfg
+
+TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
+VAULT_BASE = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
 
-def get_jaccard_similarity(str1: str, str2: str) -> float:
+def get_jaccard_similarity(str1: str = "", str2: str = "", **kwargs) -> float:
     """Calculate Jaccard similarity between two strings.
 
     Tokenizes strings into words and filters out common English stop words.
@@ -105,7 +107,12 @@ def _reload():
 
 
 def write_journal_entry(
-    mood: str, vibe_check: str, narrative: str, message_in_a_bottle: str, tags: str
+    mood: str = "",
+    vibe_check: str = "",
+    narrative: str = "",
+    message_in_a_bottle: str = "",
+    tags: str = "",
+    **kwargs,
 ) -> str:
     """Compose and queue a new journal entry for Ricky's review.
 
@@ -115,11 +122,18 @@ def write_journal_entry(
         narrative: Main reflective text or journal body.
         message_in_a_bottle: A lingering question or message meant for future recall.
         tags: Comma-separated list of tags to associate.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Outcome confirmation message or path to the pending entry.
     """
     _reload()
+    mood = mood or str(kwargs.get("feeling") or kwargs.get("emotion") or "Reflective")
+    vibe_check = vibe_check or str(kwargs.get("vibe") or kwargs.get("intro") or "")
+    narrative = narrative or str(kwargs.get("body") or kwargs.get("text") or kwargs.get("journal_text") or "")
+    message_in_a_bottle = message_in_a_bottle or str(kwargs.get("bottle_message") or kwargs.get("closing") or "")
+    tags = tags or str(kwargs.get("tag_list") or kwargs.get("tag_string") or "")
+
     if (
         not vibe_check.strip()
         and not narrative.strip()
@@ -132,55 +146,76 @@ def write_journal_entry(
     )
 
 
-def read_journal(date: str = "", days: int = 0) -> str:
+def read_journal(date: str = "", days: int = 0, **kwargs) -> str:
     """Read Evelyn's personal journal entries by a specific date or over a recent day window.
 
     Args:
         date: Optional date in YYYY-MM-DD format. If provided, reads that specific day's entry.
         days: Optional number of recent days to retrieve (e.g. 7). Takes precedence if > 0.
+        **kwargs: Accepts flexible keyword arguments (date_str, target_date, query_date, days_back).
 
     Returns:
         str: Markdown contents of matching journal entries, or message if none found.
     """
     _reload()
+    if not date:
+        date = str(kwargs.get("date_str") or kwargs.get("target_date") or kwargs.get("query_date") or "")
+    if not days and "days_back" in kwargs:
+        try:
+            days = int(kwargs["days_back"])
+        except (ValueError, TypeError):
+            pass
+
     if days > 0:
         return journal_manager.read_recent_journal_entries(days)
     return journal_manager.read_journal_entry(date if date else None)
 
 
-def read_journal_entry(date: str = "") -> str:
+def read_journal_entry(date: str = "", **kwargs) -> str:
     """Read a single journal entry by its date (legacy wrapper)."""
+    if not date:
+        date = str(kwargs.get("date_str") or kwargs.get("target_date") or "")
     return read_journal(date=date)
 
 
-def read_recent_journal_entries(days: int = 7) -> str:
+def read_recent_journal_entries(days: int = 7, **kwargs) -> str:
     """Read recent journal entries from the last N days (legacy wrapper)."""
+    if not days or days == 7:
+        if "days_back" in kwargs:
+            try:
+                days = int(kwargs["days_back"])
+            except (ValueError, TypeError):
+                pass
     return read_journal(days=days)
 
 
-def search_vault(query: str) -> str:
+def search_vault(query: str = "", **kwargs) -> str:
     """Search the pre-summarized Obsidian Vault gist index.
 
     Args:
         query: Search term or phrase.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: A concise summary of matching documents and their vault-relative paths.
     """
     _reload()
+    query = query or str(kwargs.get("search_query") or kwargs.get("search_term") or kwargs.get("term") or "")
     return context_manager.search_vault_map(query)
 
 
-def recall_specific_memory(file_path: str) -> str:
+def recall_specific_memory(file_path: str = "", **kwargs) -> str:
     """Read the full markdown content of a specific Obsidian vault file.
 
     Args:
         file_path: Exact vault-relative path returned by search_vault.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Full text content of the markdown file, or error message.
     """
-    clean_path = file_path.strip().strip('"').strip("'")
+    file_path = file_path or str(kwargs.get("filepath") or kwargs.get("path") or kwargs.get("file") or "")
+    clean_path = file_path.strip().strip('"').strip("'").replace('\\', '/')
     full_path = os.path.abspath(os.path.join(VAULT_BASE, clean_path))
     if not full_path.startswith(os.path.abspath(VAULT_BASE)):
         return "Error: Invalid path — path traversal detected."
@@ -193,18 +228,22 @@ def recall_specific_memory(file_path: str) -> str:
         return f"Error reading {clean_path}: {e}"
 
 
-def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
+def log_context_fact(category: str = "", summary: str = "", secondary_cats: str = "", **kwargs) -> str:
     """Write a context fact file to the in-vault Pending folder.
 
     Args:
         category: Primary category/domain.
         summary: Precise fact summary.
         secondary_cats: Comma-separated secondary categories.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Confirmation message.
     """
     _reload()
+    category = category or str(kwargs.get("cat") or kwargs.get("domain") or "")
+    summary = summary or str(kwargs.get("fact") or kwargs.get("text") or "")
+    secondary_cats = secondary_cats or str(kwargs.get("refs") or kwargs.get("tags") or "")
     if not summary.strip():
         return "Error: log_context_fact called with blank summary. Aborted."
     refs = (
@@ -213,27 +252,32 @@ def log_context_fact(category: str, summary: str, secondary_cats: str) -> str:
     return context_manager.append_context_log(category, summary, refs)
 
 
-def update_context_fact(target_filepaths: list, new_summary: str) -> str:
+def update_context_fact(target_filepaths: list = None, new_summary: str = "", **kwargs) -> str:
     """Queue an update request for an existing vault context file.
 
     Args:
         target_filepaths: List of vault paths targeted for consolidation.
         new_summary: Revised context summary.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Confirmation message.
     """
     _reload()
+    if target_filepaths is None:
+        target_filepaths = kwargs.get("filepaths") or kwargs.get("paths") or []
+    new_summary = new_summary or str(kwargs.get("summary") or kwargs.get("revised_summary") or "")
     if not new_summary.strip():
         return "Error: update_context_fact called with blank new_summary. Aborted."
     return context_manager.update_context_log(target_filepaths, new_summary)
 
 
 def generate_image(
-    prompt: str,
+    prompt: str = "",
     aspect_ratio: str = "16:9",
     seed: int | None = None,
     short_title: str | None = None,
+    **kwargs,
 ) -> str:
     """Generate a high-quality image via FLUX.1 Schnell.
 
@@ -242,6 +286,7 @@ def generate_image(
         aspect_ratio: Image format ratio (e.g., "16:9", "1:1", "9:16").
         seed: Optional random generator seed.
         short_title: Optional title prefix for the generated file.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Confirmation path/URL to the generated image, or error description.
@@ -249,6 +294,7 @@ def generate_image(
     import requests
     from evelyn_config import IMAGE_SERVER_URL
 
+    prompt = prompt or str(kwargs.get("description") or kwargs.get("image_prompt") or "")
     try:
         payload = {
             "prompt": prompt,
@@ -300,12 +346,13 @@ def sync_context_memory(**kwargs) -> str:
     return "Memory sync initiated in the background. New context will be available shortly."
 
 
-def web_search(query: str, max_results: int = 5) -> str:
+def web_search(query: str, max_results: int = 5, **kwargs) -> str:
     """Search the web via DuckDuckGo and return a brief summary of the top results.
 
     Args:
         query: Concise, keyword-based web query.
         max_results: Max result snippets to fetch. Defaults to 5.
+        **kwargs: Accepts flexible keyword arguments.
 
     Returns:
         str: Summarized search results or error details.
@@ -316,6 +363,11 @@ def web_search(query: str, max_results: int = 5) -> str:
         return "Error: ddgs library is not installed. Run 'pip install ddgs' to enable web search."
 
     try:
+        try:
+            max_results = int(max_results)
+        except (ValueError, TypeError):
+            max_results = 5
+
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
         if not results:
@@ -563,8 +615,9 @@ def start_research(
                 if sys.platform == "win32":
                     creationflags = 0x08000000 # CREATE_NO_WINDOW
                 
-                script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
-                log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
+                base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+                script = os.path.join(base_dir, "Evelyn", "tools", "research_engine.py")
+                log_path = os.path.join(base_dir, "data", "research_subprocess.log")
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 _prune_log_file(log_path)
                 
@@ -574,7 +627,7 @@ def start_research(
                     log_file = open(log_path, "a", encoding="utf-8")
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
-                        cwd=r"C:\Projects\LocalAI",
+                        cwd=base_dir,
                         stdout=log_file,
                         stderr=log_file,
                         creationflags=creationflags
@@ -582,7 +635,7 @@ def start_research(
                 except Exception:
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
-                        cwd=r"C:\Projects\LocalAI",
+                        cwd=base_dir,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         creationflags=creationflags
@@ -643,11 +696,12 @@ def start_research(
         return f"Failed to start deep research: {e}"
 
 
-def resume_research_task(task_id: str) -> str:
+def resume_research_task(task_id: str = "", **kwargs) -> str:
     """Re-spawn the background subprocess for a non-running research task.
 
     Args:
         task_id: Unique task identifier.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Confirmation message.
@@ -726,8 +780,9 @@ def resume_research_task(task_id: str) -> str:
                 if sys.platform == "win32":
                     creationflags = 0x08000000 # CREATE_NO_WINDOW
                 
-                script = r"C:\Projects\LocalAI\Evelyn\tools\research_engine.py"
-                log_path = r"C:\Projects\LocalAI\data\research_subprocess.log"
+                base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+                script = os.path.join(base_dir, "Evelyn", "tools", "research_engine.py")
+                log_path = os.path.join(base_dir, "data", "research_subprocess.log")
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 _prune_log_file(log_path)
                 
@@ -737,7 +792,7 @@ def resume_research_task(task_id: str) -> str:
                     log_file = open(log_path, "a", encoding="utf-8")
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
-                        cwd=r"C:\Projects\LocalAI",
+                        cwd=base_dir,
                         stdout=log_file,
                         stderr=log_file,
                         creationflags=creationflags
@@ -745,7 +800,7 @@ def resume_research_task(task_id: str) -> str:
                 except Exception:
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
-                        cwd=r"C:\Projects\LocalAI",
+                        cwd=base_dir,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         creationflags=creationflags
@@ -802,12 +857,13 @@ def resume_research_task(task_id: str) -> str:
         return f"Failed to resume research task: {e}"
 
 
-def guide_research(task_id: str, guidance: str) -> str:
+def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
     """Inject user guidance into a struggling research task and resume it.
 
     Args:
         task_id: Unique task identifier.
         guidance: Free-form text guidance to redirect the query search.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Resumption status confirmation.
@@ -888,7 +944,7 @@ def guide_research(task_id: str, guidance: str) -> str:
         return f"Failed to guide research task: {e}"
 
 
-def rewrite_sub_question(task_id: str, sq_id: str, new_question: Optional[str] = None, new_search_query: Optional[str] = None) -> str:
+def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: Optional[str] = None, new_search_query: Optional[str] = None, **kwargs) -> str:
     """Manually rewrite a single sub-question or its search query without resuming the task.
 
     Args:
@@ -896,6 +952,7 @@ def rewrite_sub_question(task_id: str, sq_id: str, new_question: Optional[str] =
         sq_id: The identifier of the sub-question to modify.
         new_question: The updated question string.
         new_search_query: Optional explicit search query rewrite to set on the sub-question.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Status confirmation message.
@@ -958,12 +1015,13 @@ def rewrite_sub_question(task_id: str, sq_id: str, new_question: Optional[str] =
         return f"Failed to rewrite sub-question: {e}"
 
 
-def remove_sub_question(task_id: str, sq_id: str) -> str:
+def remove_sub_question(task_id: str = "", sq_id: str = "", **kwargs) -> str:
     """Remove a sub-question entirely from the research plan and delete any partial notes.
 
     Args:
         task_id: Unique task identifier.
         sq_id: The identifier of the sub-question to remove.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Status confirmation message.
@@ -1009,11 +1067,12 @@ def remove_sub_question(task_id: str, sq_id: str) -> str:
         return f"Failed to remove sub-question: {e}"
 
 
-def finalize_guidance(task_id: str) -> str:
+def finalize_guidance(task_id: str = "", **kwargs) -> str:
     """Signal that all manual edits are complete and place the task in the waiting queue.
 
     Args:
         task_id: Unique task identifier.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Confirmation message.
@@ -1138,10 +1197,11 @@ def check_new_research(**kwargs) -> str:
 
 
 def search_history(
-    query: str,
+    query: str = "",
     max_results: int = 8,
     date_from: str = None,
     date_to: str = None,
+    **kwargs,
 ) -> str:
     """Search the full chat history using FTS5 full-text search.
 
@@ -1174,6 +1234,21 @@ def search_history(
     except Exception:
         fts_query = query  # Graceful degradation — FTS5 still runs on the raw query
 
+    import re
+    def sanitize_fts5(q: str) -> str:
+        if not q or not q.strip():
+            return ""
+        tokens = q.strip().split()
+        cleaned = []
+        for t in tokens:
+            if re.search(r'[&*:()"\-+]', t) or t.upper() in ("AND", "OR", "NOT"):
+                cleaned.append(f'"{t.replace('"', '""')}"')
+            else:
+                cleaned.append(t)
+        return " ".join(cleaned)
+
+    fts_query = sanitize_fts5(fts_query)
+
     # --- Tweak 1: Date-range filtering — convert YYYY-MM-DD strings to Unix timestamps ---
     ts_from: float | None = None
     ts_to: float | None = None
@@ -1200,9 +1275,7 @@ def search_history(
     try:
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         con.row_factory = sqlite3.Row
-        # FTS5 snippet() highlights matched terms. bm25() ranks by relevance.
-        rows = con.execute(
-            f"""
+        sql = f"""
             SELECT
                 m.id,
                 m.role,
@@ -1215,9 +1288,22 @@ def search_history(
               {date_clause}
             ORDER BY bm25(messages_fts)
             LIMIT ?
-            """,
-            (fts_query, *date_params, max_results),
-        ).fetchall()
+        """
+        try:
+            rows = con.execute(sql, (fts_query, *date_params, max_results)).fetchall()
+        except sqlite3.OperationalError:
+            quoted_q = f'"{query.replace('"', '""')}"'
+            try:
+                rows = con.execute(sql, (quoted_q, *date_params, max_results)).fetchall()
+            except sqlite3.OperationalError:
+                like_sql = f"""
+                    SELECT m.id, m.role, m.ts, m.content AS snippet
+                    FROM messages m
+                    WHERE m.content LIKE ? AND m.content NOT IN ('[THREAD_BREAK]')
+                    {date_clause}
+                    ORDER BY m.id DESC LIMIT ?
+                """
+                rows = con.execute(like_sql, (f"%{query}%", *date_params, max_results)).fetchall()
         con.close()
     except Exception as e:
         return f"History search failed: {e}"
@@ -1244,12 +1330,13 @@ def search_history(
 
 
 def create_calendar_event(
-    title: str,
-    start_at: str,
+    title: str = "",
+    start_at: str = "",
     end_at: str = None,
     description: str = None,
     location: str = None,
     recurrence_rule: str = None,
+    **kwargs,
 ) -> str:
     """Create a new event on Ricky's Google Calendar.
 
@@ -1263,11 +1350,14 @@ def create_calendar_event(
         location: Optional location.
         recurrence_rule: Optional recurrence pattern (e.g. 'daily', 'weekly:MON', 'monthly:15').
                          Will be converted to standard Google Calendar RRULEs.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Success or error message with event details.
     """
     try:
+        title = title or str(kwargs.get("summary") or kwargs.get("name") or "")
+        start_at = start_at or str(kwargs.get("start_time") or kwargs.get("start") or kwargs.get("date") or "")
         recurrence = None
         if recurrence_rule:
             rule = recurrence_rule.strip().lower()
@@ -1306,26 +1396,44 @@ def create_calendar_event(
         return f"Error creating calendar event: {e}"
 
 
-def delete_calendar_event(event_id: str) -> str:
-    """Delete an event from Ricky's Google Calendar using its unique event ID.
+def delete_calendar_event(
+    event_id: str = "",
+    query: str = "",
+    title: str = "",
+    target_date: str = "",
+    date: str = "",
+    **kwargs
+) -> str:
+    """Delete an event from Ricky's Google Calendar using its title/summary or event ID.
 
     Args:
-        event_id: The unique ID of the Google Calendar event.
+        event_id: The unique ID or title/summary of the Google Calendar event.
+        query: Optional title or search query for the event to delete.
+        title: Optional title of the event to delete.
+        target_date: Optional target date string ('YYYY-MM-DD') for safety.
+        date: Optional date string ('YYYY-MM-DD').
+        **kwargs: Flexible keyword arguments.
 
     Returns:
-        str: Success or error message.
+        str: Outcome message or list of candidates if ambiguous.
     """
     try:
-        result = gcal_sync.delete_gcal_event(event_id)
+        target = event_id or query or title or str(kwargs.get("name") or kwargs.get("summary") or "")
+        if not target:
+            return "Error: delete_calendar_event requires an event title or event_id."
+        t_date = target_date or date or str(kwargs.get("start_at") or kwargs.get("date_str") or "")
+        result = gcal_sync.delete_gcal_event(target, target_date=t_date if t_date else None)
         if result["status"] == "success":
             return f"Successfully deleted event from Google Calendar: {result['message']}"
+        elif result["status"] == "ambiguous":
+            return f"Multiple matching events found: {result['message']}"
         else:
             return f"Failed to delete event: {result['message']}"
     except Exception as e:
         return f"Error deleting calendar event: {e}"
 
 
-def sync_google_calendar() -> str:
+def sync_google_calendar(**kwargs) -> str:
     """Manually trigger a pull from Google Calendar to update the local cached events.
 
     Returns:
@@ -1341,16 +1449,21 @@ def sync_google_calendar() -> str:
         return f"Error syncing Google Calendar: {e}"
 
 
-def get_agenda(days: int = 7) -> str:
+def get_agenda(days: int = 7, **kwargs) -> str:
     """Retrieve Ricky's Google Calendar agenda/schedule for the next N days.
 
     Args:
         days: Number of days forward to include. Defaults to 7.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Formatted agenda schedule list.
     """
     try:
+        try:
+            days = int(days or kwargs.get("num_days") or kwargs.get("days_forward") or 7)
+        except (ValueError, TypeError):
+            days = 7
         events = gcal_sync.get_cached_gcal_events(days_back=1, days_forward=days)
         if not events:
             return f"Your agenda is clear for the next {days} days."
@@ -1368,47 +1481,58 @@ def get_agenda(days: int = 7) -> str:
 
 
 
-def run_command(command: str, cwd: str = r"C:\Projects\LocalAI", timeout: int = 30) -> str:
+def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: int = 30, **kwargs) -> str:
     """Execute a shell command in the LocalAI workspace.
 
     Args:
-        command: The PowerShell command string to execute.
-        cwd: Working directory (default: C:\\Projects\\LocalAI).
-        timeout: Maximum seconds to wait (default: 30, max: 300).
+        command: The command string to execute.
+        cwd: Working directory.
+        timeout: Maximum seconds to wait.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Output from the command, or warning if approval is required.
     """
     _reload()
+    command = command or str(kwargs.get("cmd") or kwargs.get("bash") or "")
     return terminal_agent.run_command(command, cwd, timeout)
 
 
-def read_file(file_path: str, max_lines: int = 200) -> str:
+def read_file(file_path: str = "", max_lines: int = 200, **kwargs) -> str:
     """Read the contents of a file in the workspace.
 
     Args:
-        file_path: Absolute path or path relative to C:\\Projects\\LocalAI.
-        max_lines: Maximum lines to return (default: 200).
+        file_path: Absolute path or path relative to workspace.
+        max_lines: Maximum lines to return.
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: File content with line numbers, or error message.
     """
     _reload()
+    file_path = file_path or str(kwargs.get("path") or kwargs.get("filepath") or "")
+    try:
+        max_lines = int(max_lines)
+    except (ValueError, TypeError):
+        max_lines = 200
     return terminal_agent.read_file(file_path, max_lines)
 
 
-def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
+def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", **kwargs) -> str:
     """Write or append content to a file in the workspace.
 
     Args:
-        file_path: Absolute path or path relative to C:\\Projects\\LocalAI.
+        file_path: Absolute path or path relative to workspace.
         content: The text content to write.
         mode: Write mode ('overwrite' or 'append').
+        **kwargs: Flexible keyword arguments.
 
     Returns:
         str: Warning message with approval ID.
     """
     _reload()
+    file_path = file_path or str(kwargs.get("path") or kwargs.get("filepath") or "")
+    content = content or str(kwargs.get("text") or kwargs.get("body") or "")
     return terminal_agent.write_file(file_path, content, mode)
 
 
@@ -1741,13 +1865,20 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "delete_calendar_event",
-            "description": "Delete an event from Ricky's Google Calendar using its unique event ID.",
+            "description": (
+                "Delete an event from Ricky's Google Calendar. Accepts either a unique event ID or an event title "
+                "(with optional target_date 'YYYY-MM-DD' for date safety)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "event_id": {
                         "type": "string",
-                        "description": "The unique Google Calendar event ID.",
+                        "description": "The unique Google Calendar event ID or the title/summary of the event to delete (e.g. 'test').",
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Optional target date in 'YYYY-MM-DD' format to safely disambiguate when deleting by title.",
                     },
                 },
                 "required": ["event_id"],

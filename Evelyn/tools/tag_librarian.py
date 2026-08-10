@@ -26,12 +26,12 @@ import urllib.request
 import urllib.parse
 from typing import Dict, Any, List, Optional, Tuple
 
-# Ensure parent path for imports
-sys.path.insert(0, r"C:\Projects\LocalAI")
 import evelyn_config as cfg
-from Evelyn.tools import vault_db
 
-VAULT_ROOT = r"G:\My Drive\Obsidian_Vault"
+sys.path.insert(0, getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"))
+import vault_db
+
+VAULT_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
 
 def is_excluded_tag(tag: str) -> bool:

@@ -2210,7 +2210,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             slug = re.sub(r"[-\s]+", "-", slug).strip("-_")
             vault_filename = f"{slug}.md"
             
-            vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", r"G:\My Drive\Obsidian_Vault\Evelyn\Research")
+            vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", r"/home/rathius/obsidian_vault/Evelyn/Research")
             os.makedirs(vault_dir, exist_ok=True)
             vault_file_path = os.path.join(vault_dir, vault_filename)
             
@@ -2232,11 +2232,12 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                     except RuntimeError:
                         asyncio.run(server.start_refresh_memory_internal())
                 else:
-                    refresh_script = os.path.join(r"C:\Projects\LocalAI", "Evelyn", "tools", "refresh_memory.py")
+                    base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+                    refresh_script = os.path.join(base_dir, "Evelyn", "tools", "refresh_memory.py")
                     if os.path.exists(refresh_script):
                         import subprocess
                         print(f"[RESEARCH_ENGINE] Triggering standalone memory refresh process...", flush=True)
-                        subprocess.Popen([sys.executable, "-u", refresh_script], cwd=r"C:\Projects\LocalAI")
+                        subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
             except Exception as r_err:
                 print(f"[RESEARCH_ENGINE WARNING] Could not trigger memory refresh after vault save: {r_err}", flush=True)
         except Exception as e:

@@ -21,17 +21,18 @@ import re
 import sys
 import requests
 
+import evelyn_config as cfg
+
 # Anchoring paths
-ROOT_DIR = r"C:\Projects\LocalAI"
-TOOLS_DIR = r"C:\Projects\LocalAI\Evelyn\tools"
+ROOT_DIR = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
 for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import evelyn_config as cfg
 import vault_db
 
-OBSIDIAN_ROOT = r"G:\My Drive\Obsidian_Vault"
+OBSIDIAN_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
 EXCLUDE_DIRS = {
     "evelyn/archived",
