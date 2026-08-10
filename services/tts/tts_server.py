@@ -25,6 +25,7 @@ Run:
 """
 
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import re
 import time
 import uuid
@@ -184,6 +185,8 @@ def _unload_ollama():
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read()
         print(f"[TTS] Sent unload signal for {cfg.MODEL_NAME} to Ollama", flush=True)
+        time.sleep(0.8)
+        torch.cuda.empty_cache()
     except Exception as e:
         print(f"[TTS] Failed to unload Ollama: {e}", flush=True)
 
