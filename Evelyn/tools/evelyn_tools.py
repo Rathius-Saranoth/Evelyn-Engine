@@ -939,7 +939,18 @@ def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
             result = resume_research_task(task_id)
             return f"Guidance injected into sub-question '{sq.get('query')}'. Task is resuming. {result}"
         else:
-            return "Could not determine the active sub-question to guide."
+            state["intent_frame"] = guidance
+            state["struggling"] = False
+            state["status"] = "pending"
+            if "termination_reason" in state:
+                state["termination_reason"] = None
+            if "quarantined" in state:
+                state["quarantined"] = False
+            if "error" in state:
+                state["error"] = None
+            save_state(task_id, state, ignore_disk_status=True)
+            result = resume_research_task(task_id)
+            return f"Guidance attached to research task '{state.get('query')}'. Task is resuming. {result}"
     except Exception as e:
         return f"Failed to guide research task: {e}"
 

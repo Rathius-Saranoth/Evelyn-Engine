@@ -15,6 +15,7 @@ files in allowed workspace paths with a multi-layered safety check and user appr
 """
 
 import os
+import sys
 import json
 import re
 import subprocess
@@ -267,15 +268,19 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
         str: Captured execution output or error description.
     """
     importlib.reload(cfg)
-    max_chars = getattr(cfg, "TERMINAL_MAX_OUTPUT_CHARS", 10000)
     try:
+        max_chars = getattr(cfg, "TERMINAL_MAX_OUTPUT_CHARS", 10000)
+        run_kwargs = {
+            "cwd": cwd,
+            "capture_output": True,
+            "text": True,
+            "timeout": timeout,
+        }
+        if sys.platform == "win32":
+            run_kwargs["creationflags"] = 0x08000000
         result = subprocess.run(
             ["/bin/bash", "-c", command],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            **run_kwargs,
         )
         output = ""
         if result.stdout:
