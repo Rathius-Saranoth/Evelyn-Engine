@@ -126,6 +126,81 @@ def load_persistent_state() -> None:
         print(f"[TASK MANAGER] Error loading persistent state: {e}", flush=True)
 
 
+def get_last_run_ts(name: str, default: float = 0.0) -> float:
+    """Return the last_run_at timestamp for a named heavy task from memory or disk.
+
+    Args:
+        name: Task key (e.g. "consolidator", "extractor", "procedure_consolidator", "profile_evolver").
+        default: Default float timestamp to return if no record exists.
+
+    Returns:
+        float: Timestamp of the last run, or `default`.
+    """
+    import json
+    import os
+    tasks = _get_background_tasks()
+    if tasks and name in tasks:
+        ts = tasks[name].get("last_run_at")
+        if isinstance(ts, (int, float)) and ts > 0:
+            return float(ts)
+
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and name in data:
+                ts = data[name].get("last_run_at")
+                if isinstance(ts, (int, float)) and ts > 0:
+                    return float(ts)
+        except Exception:
+            pass
+
+    return default
+
+
+def save_last_run_ts(name: str, ts: Optional[float] = None) -> float:
+    """Save and update the last_run_at timestamp for a named heavy task.
+
+    Args:
+        name: Task key.
+        ts: Float timestamp (defaults to current time if None).
+
+    Returns:
+        float: The timestamp float that was saved.
+    """
+    import json
+    import os
+    now = ts if ts is not None else time.time()
+    tasks = _get_background_tasks()
+    if tasks is not None:
+        if name not in tasks or not isinstance(tasks.get(name), dict):
+            tasks[name] = {"status": "idle"}
+        tasks[name]["last_run_at"] = now
+        save_persistent_state()
+    else:
+        # Standalone / test mode without server module imported
+        data = {}
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+        if not isinstance(data, dict):
+            data = {}
+        if name not in data or not isinstance(data[name], dict):
+            data[name] = {"status": "idle"}
+        data[name]["last_run_at"] = now
+        try:
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            with open(STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"[TASK MANAGER] Error saving persistent state: {e}", flush=True)
+
+    return now
+
+
 def is_any_running(exclude: str = None) -> bool:
     """Return True if any heavy background task is currently running.
 
@@ -210,6 +285,7 @@ def clear_running(name: str, status: str = "idle", error: Optional[str] = None, 
     """
     tasks = _get_background_tasks()
     if tasks is None:
+        save_last_run_ts(name)
         return
     now = time.time()
     existing = tasks.get(name, {})
