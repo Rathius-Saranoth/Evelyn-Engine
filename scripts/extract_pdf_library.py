@@ -40,8 +40,8 @@ import fitz  # pymupdf
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DEFAULT_INPUT_DIR = r"C:\Temp"
-DEFAULT_OUTPUT_DIR = r"G:\My Drive\Obsidian_Vault\Reference Library"
+DEFAULT_INPUT_DIR = r"/tmp"
+DEFAULT_OUTPUT_DIR = r"/home/rathius/obsidian_vault/Reference Library"
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "gemma4:26b"  # Overridden by --model CLI arg
 
