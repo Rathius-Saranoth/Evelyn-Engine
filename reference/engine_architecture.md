@@ -215,11 +215,13 @@ The Evelyn ecosystem operates in tandem with external environments and local sys
 | Function | Purpose |
 |---|---|
 | `task_manager.is_any_running(exclude=None)` | Authoritative check — returns `True` if any other heavy task is active |
-| `task_manager.set_running(name)` | Register a task as running in the central `_background_tasks` dict |
-| `task_manager.clear_running(name)` | Deregister a task on completion, cancellation, or error |
+| `task_manager.set_running(name, task_obj=None)` | Register a task as running in central dict and store backing Python handle |
+| `task_manager.clear_running(name)` | Deregister a task and log runtime metrics to SQLite `heavy_task_history` table |
 | `task_manager.get_status(name)` | Read current status of a named task |
+| `task_manager.start_watchdog(interval=30.0)` | Start 30s background loop for handle reconciliation & dynamic soft-timeouts |
+| `task_manager.get_dynamic_timeout(name)` | Calculate dynamic soft-timeout threshold using historical statistics ($\mu + 3\sigma$) |
 
-**How it works:** `task_manager` reads `_background_tasks` from `evelyn_server` via `sys.modules`, exactly as the old per-module helpers did, but in a single shared location. No import of `evelyn_server` is required — it falls back gracefully when the server is not importable.
+**How it works:** `task_manager` reads `_background_tasks` from `evelyn_server` via `sys.modules`, exactly as the old per-module helpers did, but in a single shared location. It runs a 30-second background watchdog (`start_watchdog()`) that monitors backing `asyncio.Task` and `threading.Thread` handles. If a task coroutine completes without calling `clear_running()`, the watchdog automatically reconciles the registry state to `"idle"`. Completed task runs write metrics to `heavy_task_history` in `evelyn_memory.db` to calculate adaptive runtime thresholds. No import of `evelyn_server` is required — it falls back gracefully when the server is not importable.
 
 ### 5.2 Mandatory Rules for All Heavy Tasks
 

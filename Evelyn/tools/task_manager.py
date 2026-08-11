@@ -53,6 +53,148 @@ HEAVY_TASK_KEYS = frozenset({
 # Statuses that indicate a task is actively consuming resources.
 RUNNING_STATUSES = frozenset({"running", "searching", "synthesizing"})
 
+# Default baseline timeouts (in seconds) used until historical data is collected.
+DEFAULT_SOFT_TIMEOUTS = {
+    "extractor": 1200.0,             # 20 minutes
+    "consolidator": 2100.0,          # 35 minutes
+    "procedure_consolidator": 900.0, # 15 minutes
+    "profile_evolver": 900.0,        # 15 minutes
+    "refresh_memory": 600.0,         # 10 minutes
+    "vault_map": 600.0,              # 10 minutes
+    "sync": 300.0,                   # 5 minutes
+    "tag_librarian": 600.0,          # 10 minutes
+}
+
+# Active Python task/thread handles for handle-reconciliation
+_active_handles: dict = {}
+_watchdog_task = None
+
+
+# ---------------------------------------------------------------------------
+# SQLite Performance History Database Helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_db_connection():
+    """Return an open SQLite connection to evelyn_memory.db."""
+    import sqlite3
+    import os
+    try:
+        import evelyn_config as cfg
+        db_path = getattr(cfg, "MEMORY_DB_PATH", r"/home/rathius/evelyn/data/evelyn_memory.db")
+    except Exception:
+        db_path = r"/home/rathius/evelyn/data/evelyn_memory.db"
+    
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_history_db() -> None:
+    """Ensure the heavy_task_history table exists in evelyn_memory.db."""
+    try:
+        conn = _get_db_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS heavy_task_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_name TEXT NOT NULL,
+                started_at REAL NOT NULL,
+                finished_at REAL NOT NULL,
+                elapsed_seconds REAL NOT NULL,
+                status TEXT NOT NULL,
+                error TEXT,
+                items_processed INTEGER DEFAULT 0,
+                timestamp REAL NOT NULL
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_heavy_task_name ON heavy_task_history(task_name);")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[TASK MANAGER] Warning: Could not initialize task history DB: {e}", flush=True)
+
+
+def record_task_history(
+    name: str,
+    started_at: float,
+    finished_at: float,
+    elapsed_seconds: float,
+    status: str,
+    error: Optional[str] = None,
+    items_processed: int = 0,
+) -> None:
+    """Record a completed task run in heavy_task_history SQLite table."""
+    if not name or not started_at or not finished_at or elapsed_seconds is None:
+        return
+    try:
+        _init_history_db()
+        conn = _get_db_connection()
+        conn.execute(
+            """
+            INSERT INTO heavy_task_history 
+            (task_name, started_at, finished_at, elapsed_seconds, status, error, items_processed, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (name, started_at, finished_at, elapsed_seconds, status, error, items_processed, time.time()),
+        )
+        # Prune old records to keep table under 500 rows per task
+        conn.execute(
+            """
+            DELETE FROM heavy_task_history 
+            WHERE id IN (
+                SELECT id FROM heavy_task_history 
+                WHERE task_name = ? 
+                ORDER BY id DESC LIMIT -1 OFFSET 500
+            )
+            """,
+            (name,),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[TASK MANAGER] Error recording task history for {name}: {e}", flush=True)
+
+
+def get_dynamic_timeout(name: str) -> float:
+    """Calculate the soft maximum runtime timeout for a task using historical statistics (mean + 3 * std_dev).
+
+    Args:
+        name: The task key (e.g. 'extractor', 'profile_evolver').
+
+    Returns:
+        float: Soft timeout threshold in seconds.
+    """
+    baseline = DEFAULT_SOFT_TIMEOUTS.get(name, 1800.0)
+    try:
+        _init_history_db()
+        conn = _get_db_connection()
+        rows = conn.execute(
+            """
+            SELECT elapsed_seconds FROM heavy_task_history
+            WHERE task_name = ? AND status IN ('idle', 'done', 'success')
+            ORDER BY id DESC LIMIT 50
+            """,
+            (name,),
+        ).fetchall()
+        conn.close()
+
+        if len(rows) >= 5:
+            times = [r["elapsed_seconds"] for r in rows if r["elapsed_seconds"] > 0]
+            if len(times) >= 5:
+                import math
+                mean = sum(times) / len(times)
+                variance = sum((x - mean) ** 2 for x in times) / len(times)
+                std_dev = math.sqrt(variance)
+                dynamic_val = mean + (3.0 * std_dev)
+                # Enforce baseline minimum so small averages don't cut off normal runs
+                return max(baseline, dynamic_val)
+    except Exception:
+        pass
+
+    return baseline
+
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -234,7 +376,13 @@ def is_any_running(exclude: str = None) -> bool:
     return False
 
 
-def set_running(name: str, phase: Optional[str] = None, sub_status: Optional[dict] = None, diagnostics: Optional[dict] = None) -> None:
+def set_running(
+    name: str,
+    phase: Optional[str] = None,
+    sub_status: Optional[dict] = None,
+    diagnostics: Optional[dict] = None,
+    task_obj: Optional[object] = None,
+) -> None:
     """Register a named task as running in the server's background task registry.
 
     Idempotent — calling when already registered updates phase and preserves
@@ -245,7 +393,21 @@ def set_running(name: str, phase: Optional[str] = None, sub_status: Optional[dic
         phase: Optional phase description string.
         sub_status: Optional dictionary with task-specific sub-status metrics.
         diagnostics: Optional diagnostic details dictionary.
+        task_obj: Optional asyncio.Task or threading.Thread reference for auto-reconciliation.
     """
+    global _active_handles
+    if task_obj is not None:
+        _active_handles[name] = task_obj
+    else:
+        # Fallback to current asyncio task if available
+        try:
+            import asyncio
+            current = asyncio.current_task()
+            if current:
+                _active_handles[name] = current
+        except Exception:
+            pass
+
     tasks = _get_background_tasks()
     if tasks is None:
         return
@@ -267,13 +429,20 @@ def set_running(name: str, phase: Optional[str] = None, sub_status: Optional[dic
     save_persistent_state()
 
 
-def clear_running(name: str, status: str = "idle", error: Optional[str] = None, summary: Optional[str] = None, sub_status: Optional[dict] = None, diagnostics: Optional[dict] = None) -> None:
+def clear_running(
+    name: str,
+    status: str = "idle",
+    error: Optional[str] = None,
+    summary: Optional[str] = None,
+    sub_status: Optional[dict] = None,
+    diagnostics: Optional[dict] = None,
+    items_processed: int = 0,
+) -> None:
     """Mark a named task as completed/cancelled/idle in the background task registry.
 
     Preserves started_at, finished_at, last_run_at, elapsed_seconds, error info,
     and diagnostic payloads so UI monitors can render completion status and last run summaries.
-    `is_any_running()` evaluates only active RUNNING_STATUSES, so preserving
-    completed task metadata does not block other heavy tasks.
+    Also logs runtime metrics to heavy_task_history SQLite database table.
 
     Args:
         name: The task key to update.
@@ -282,7 +451,11 @@ def clear_running(name: str, status: str = "idle", error: Optional[str] = None, 
         summary: Optional completion summary text.
         sub_status: Optional task-specific sub-status metrics dictionary.
         diagnostics: Optional diagnostic details dictionary.
+        items_processed: Optional count of items processed in this run.
     """
+    global _active_handles
+    _active_handles.pop(name, None)
+
     tasks = _get_background_tasks()
     if tasks is None:
         save_last_run_ts(name)
@@ -291,7 +464,19 @@ def clear_running(name: str, status: str = "idle", error: Optional[str] = None, 
     existing = tasks.get(name, {})
     started_at = existing.get("started_at")
     elapsed = round(now - started_at, 1) if started_at else None
-    
+
+    # Record history to SQLite DB if valid duration
+    if started_at and elapsed is not None:
+        record_task_history(
+            name=name,
+            started_at=started_at,
+            finished_at=now,
+            elapsed_seconds=elapsed,
+            status=status,
+            error=error or existing.get("error"),
+            items_processed=items_processed,
+        )
+
     tasks[name] = {
         "status": status,
         "started_at": started_at,
@@ -320,3 +505,108 @@ def get_status(name: str) -> Optional[str]:
     if tasks is None:
         return None
     return tasks.get(name, {}).get("status")
+
+
+# ---------------------------------------------------------------------------
+# Task Watchdog & Handle Auto-Reconciliation
+# ---------------------------------------------------------------------------
+
+
+def _reconcile_orphaned_tasks() -> None:
+    """Check active task handles; if the backing task/thread is finished, clear status."""
+    import asyncio
+    import threading
+
+    tasks = _get_background_tasks()
+    if not tasks:
+        return
+
+    to_clear = []
+    for name, handle in list(_active_handles.items()):
+        current_status = tasks.get(name, {}).get("status")
+        if current_status not in RUNNING_STATUSES and current_status != "running":
+            _active_handles.pop(name, None)
+            continue
+
+        is_done = False
+        if isinstance(handle, asyncio.Task):
+            is_done = handle.done()
+        elif isinstance(handle, threading.Thread):
+            is_done = not handle.is_alive()
+
+        if is_done:
+            print(
+                f"[TASK WATCHDOG] Auto-reconciling completed handle for task '{name}' "
+                f"(status was stuck on '{current_status}'). Clearing to idle.",
+                flush=True,
+            )
+            to_clear.append(name)
+
+    for name in to_clear:
+        clear_running(name, status="idle", summary="Auto-reconciled by task watchdog")
+
+
+def _check_soft_timeouts() -> None:
+    """Check running tasks against dynamic soft-timeout thresholds."""
+    import asyncio
+
+    tasks = _get_background_tasks()
+    if not tasks:
+        return
+
+    now = time.time()
+    for name, task_info in list(tasks.items()):
+        if task_info.get("status") not in RUNNING_STATUSES and task_info.get("status") != "running":
+            continue
+
+        started_at = task_info.get("started_at")
+        if not started_at:
+            continue
+
+        elapsed = now - started_at
+        threshold = get_dynamic_timeout(name)
+
+        if elapsed > threshold:
+            print(
+                f"[TASK WATCHDOG WARNING] Task '{name}' running for {elapsed:.1f}s "
+                f"exceeds dynamic threshold ({threshold:.1f}s). Triggering soft cancellation.",
+                flush=True,
+            )
+
+            # Issue gentle cancellation to the backing handle if available
+            handle = _active_handles.get(name)
+            if isinstance(handle, asyncio.Task) and not handle.done():
+                handle.cancel()
+
+            # Clear status in registry
+            clear_running(
+                name,
+                status="timed_out",
+                error=f"Soft timeout exceeded ({round(elapsed)}s > threshold {round(threshold)}s)",
+            )
+
+
+async def start_watchdog(interval: float = 30.0) -> None:
+    """Start the periodic background task watchdog loop if not already running.
+
+    Args:
+        interval: Polling interval in seconds (defaults to 30.0).
+    """
+    global _watchdog_task
+    import asyncio
+
+    if _watchdog_task and not _watchdog_task.done():
+        return
+
+    async def _loop():
+        print(f"[TASK WATCHDOG] Started background monitoring loop (interval={interval}s).", flush=True)
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                _reconcile_orphaned_tasks()
+                _check_soft_timeouts()
+            except Exception as e:
+                print(f"[TASK WATCHDOG ERROR] {e}", flush=True)
+
+    _watchdog_task = asyncio.create_task(_loop())
+
