@@ -282,10 +282,10 @@ def _set_status_in_server(
         )
 
 
-def cancel_pending_extraction():
+def cancel_pending_extraction(reason: str = "chat_request"):
     """Cancel any in-flight extraction task.
 
-    Frees the Ollama instance immediately when a new user chat request is received.
+    Frees the Ollama instance immediately when a new user chat request or internal refresh is triggered.
     Also resets the per-session batch counter so the next idle window starts fresh.
     """
     global _extraction_task, _extracting, _session_batches_this_idle
@@ -293,7 +293,7 @@ def cancel_pending_extraction():
         _extraction_task.cancel()
         _extracting = False
         _set_status_in_server("cancelled")
-        print("[EXTRACTOR] Cancelled (new chat request).", flush=True)
+        print(f"[EXTRACTOR] Cancelled ({reason}).", flush=True)
     _extraction_task = None
     _session_batches_this_idle = 0  # New idle session will start fresh
 
@@ -791,7 +791,12 @@ async def _do_extraction(messages: list[dict]):
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
                 resp.raise_for_status()
-                async for line in resp.aiter_lines():
+                aiter = resp.aiter_lines()
+                while True:
+                    try:
+                        line = await asyncio.wait_for(aiter.__anext__(), timeout=30.0)
+                    except StopAsyncIteration:
+                        break
                     if not line.strip():
                         continue
                     try:
@@ -805,7 +810,7 @@ async def _do_extraction(messages: list[dict]):
         raise  # Let it propagate — caller handles it
     except Exception as e:
         print(f"[EXTRACTOR] Ollama call failed: {e}", flush=True)
-        return
+        raise
 
     raw = content_buffer.strip()
     elapsed = time.time() - start
@@ -847,7 +852,12 @@ async def _do_extraction(messages: list[dict]):
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
                 resp.raise_for_status()
-                async for line in resp.aiter_lines():
+                proc_aiter = resp.aiter_lines()
+                while True:
+                    try:
+                        line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=30.0)
+                    except StopAsyncIteration:
+                        break
                     if not line.strip():
                         continue
                     try:
@@ -861,7 +871,7 @@ async def _do_extraction(messages: list[dict]):
         raise
     except Exception as e:
         print(f"[EXTRACTOR] Ollama procedure call failed: {e}", flush=True)
-        return
+        raise
 
     proc_raw = proc_content_buffer.strip()
     elapsed_proc = time.time() - start_proc
