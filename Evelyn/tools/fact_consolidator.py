@@ -495,6 +495,8 @@ async def run_consolidation():
         )
         return
 
+    import task_manager
+    _last_run_ts = task_manager.get_last_run_ts("consolidator")
     now = time.time()
     if (now - _last_run_ts) < cfg.CONSOLIDATION_COOLDOWN:
         remaining = int(cfg.CONSOLIDATION_COOLDOWN - (now - _last_run_ts))
@@ -522,7 +524,7 @@ async def run_consolidation():
             _set_status_in_server("idle")
         # Only lock the cooldown on a successful (non-cancelled) run
         if completed:
-            _last_run_ts = time.time()
+            _last_run_ts = task_manager.save_last_run_ts("consolidator")
 
 
 # ============================================================================

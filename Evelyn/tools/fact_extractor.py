@@ -346,6 +346,8 @@ async def run_extraction():
         )
         return
 
+    import task_manager
+    _last_run_ts = task_manager.get_last_run_ts("extractor")
     now = time.time()
     if (now - _last_run_ts) < cfg.FACT_EXTRACTION_COOLDOWN:
         remaining = int(cfg.FACT_EXTRACTION_COOLDOWN - (now - _last_run_ts))
@@ -384,7 +386,7 @@ async def run_extraction():
         if success:
             _last_extracted_id = max_id
             _session_batches_this_idle += 1
-            _update_last_run_ts()  # Updates _last_run_ts first
+            _update_last_run_ts()  # Updates _last_run_ts via task_manager
             _save_extraction_state(max_id)  # Persists both id and ts
             print(
                 f"[EXTRACTOR] High-water mark advanced to message id={max_id} "
@@ -399,13 +401,10 @@ async def run_extraction():
 
 
 def _update_last_run_ts():
-    """Update the global background task last-run timestamp to the current time.
-
-    Note: _save_extraction_state() must be called immediately after to persist
-    the new value to disk, so the cooldown survives a server restart.
-    """
+    """Update the global background task last-run timestamp in task_manager."""
     global _last_run_ts
-    _last_run_ts = time.time()
+    import task_manager
+    _last_run_ts = task_manager.save_last_run_ts("extractor")
 
 
 # ---------------------------------------------------------------------------
