@@ -291,27 +291,46 @@ def generate_image(
     Returns:
         str: Confirmation path/URL to the generated image, or error description.
     """
+    import os
     import requests
-    from evelyn_config import IMAGE_SERVER_URL
+    from pathlib import Path
+    from evelyn_config import IMAGE_SERVER_URL, IMAGE_OUTPUT_DIR
 
-    prompt = prompt or str(kwargs.get("description") or kwargs.get("image_prompt") or "")
+    prompt = prompt or str(kwargs.get("description") or kwargs.get("image_prompt") or kwargs.get("p") or "")
+    if not prompt.strip():
+        return "Error: generate_image called with an empty prompt. Please provide a prompt description."
+
     try:
         payload = {
-            "prompt": prompt,
+            "prompt": prompt.strip(),
             "aspect_ratio": aspect_ratio,
         }
-        if short_title:
-            payload["short_title"] = short_title
+        if short_title or kwargs.get("title"):
+            payload["short_title"] = short_title or kwargs.get("title")
         if seed is not None:
             payload["seed"] = seed
 
-        url = f"{IMAGE_SERVER_URL}/generate"
+        url = f"{IMAGE_SERVER_URL.rstrip('/')}/generate"
         resp = requests.post(url, json=payload, timeout=600)
         if resp.status_code != 200:
             return f"Error from Image Engine: {resp.text}"
-        
+
         result = resp.json()
         filename = result["filename"]
+        
+        # Download and cache the image locally if server is remote
+        try:
+            download_url = f"{IMAGE_SERVER_URL.rstrip('/')}/images/{filename}"
+            img_resp = requests.get(download_url, timeout=30)
+            if img_resp.status_code == 200:
+                local_dir = Path(IMAGE_OUTPUT_DIR)
+                local_dir.mkdir(parents=True, exist_ok=True)
+                local_path = local_dir / filename
+                with open(local_path, "wb") as f:
+                    f.write(img_resp.content)
+        except Exception as dl_err:
+            print(f"[IMAGE] Warning: Could not cache remote image locally ({dl_err}). Serving via remote host.")
+
         # Served statically via the main evelyn_server mount
         image_url = f"/images/{filename}"
         return f"Image generated successfully at {image_url}."

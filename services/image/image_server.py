@@ -56,11 +56,11 @@ BASE_DIR = Path(__file__).parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-HOST = "127.0.0.1"
-PORT = 5055
+HOST = os.getenv("IMAGE_SERVER_HOST", "0.0.0.0")
+PORT = int(os.getenv("IMAGE_SERVER_PORT", "5055"))
 
 # Auto-unload after 2 minutes (120s) of inactivity to free VRAM for Ollama
-UNLOAD_TIMEOUT_S = 120
+UNLOAD_TIMEOUT_S = int(os.getenv("IMAGE_SERVER_UNLOAD_TIMEOUT", "120"))
 
 # ---------------------------------------------------------------------------
 # Resolutions & Aspect Ratios
@@ -88,6 +88,14 @@ app.add_middleware(
 
 # Mount the output directory to serve static images directly
 app.mount("/images", StaticFiles(directory=str(OUTPUT_DIR)), name="images")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Cancel timer and release VRAM on server shutdown."""
+    global _unload_timer
+    if _unload_timer is not None:
+        _unload_timer.cancel()
+    _unload_pipeline()
 
 # ---------------------------------------------------------------------------
 # Model Lifecycle Manager (Lazy Loading & Unloading)
