@@ -15,11 +15,10 @@ tags: requirements, dependencies, system, hardware, environment
 
 ## 1. Runtime Environment
 
-| Component      | Required  | Tested Version | Notes                                             |
-| -------------- | --------- | -------------- | ------------------------------------------------- |
-| **Python**     | 3.11+     | 3.11.9         | System install; no venv used for the main project |
-| **PowerShell** | 5.1+ / 7+ | PS5.1 / PS7    | Used for startup/wait scripts (wait_for_ollama)   |
-| **Windows**    | 10/11     | Windows 11     | Tested platform; Linux untested                   |
+| Component   | Required | Tested Version       | Notes                                          |
+| ----------- | -------- | -------------------- | ---------------------------------------------- |
+| **Python**  | 3.11+    | Python 3.14 (venv)   | Active virtualenv for system services          |
+| **Linux**   | 6.x      | Arch Linux (x86_64) | Tested production platform (`sanctum`)          |
 
 ---
 
@@ -102,12 +101,11 @@ ollama pull gemma4:12b
 
 ### Obsidian (Optional — Knowledge Base UI)
 
-| Detail         | Value                                          |
-| -------------- | ---------------------------------------------- |
-| **What**       | Markdown knowledge base — Evelyn's "vault"     |
-| **Install**    | https://obsidian.md                            |
-| **Vault Path** | `G:\My Drive\Obsidian_Vault`                   |
-| **Usage**      | Launched via `Start-Process 'obsidian://open'` |
+| Detail         | Value                                     |
+| -------------- | ----------------------------------------- |
+| **What**       | Markdown knowledge base — Evelyn's "vault"|
+| **Install**    | https://obsidian.md                       |
+| **Vault Path** | `/home/rathius/obsidian_vault`            |
 
 
 ---
@@ -128,12 +126,12 @@ ollama pull gemma4:12b
 > [!NOTE]
 > See [[system_specs.md]] for the full hardware analysis.
 
-| Component   | Minimum   | Recommended (Current Setup)            |
-| ----------- | --------- | -------------------------------------- |
-| **GPU**     | 8 GB VRAM | NVIDIA RTX 4070 (12 GB VRAM)           |
-| **RAM**     | 16 GB     | 32 GB DDR5-6000                        |
-| **CPU**     | 8 cores   | AMD Ryzen 7 7800X3D (8C/16T, 96 MB L3) |
-| **Storage** | SSD       | NVMe SSD for project + model weights   |
+| Component   | Minimum   | Recommended (Current Setup)                  |
+| ----------- | --------- | -------------------------------------------- |
+| **GPU**     | 8 GB VRAM | NVIDIA Tesla T4 (16 GB GDDR6 VRAM)           |
+| **RAM**     | 16 GB     | 192 GB DDR4-2666 ECC                         |
+| **CPU**     | 8 cores   | 2x Intel Xeon Gold 5220R (48C/96T, 36.6 MB L3)|
+| **Storage** | SSD       | Enterprise SATA SSDs (`/` and `/data`)       |
 
 The 12B parameter dense model (Q4_0 QAT quantization) uses ~7.6 GB and fits 100% in VRAM.
 `NUM_CTX=32768` is the active window (KV cache quantized to 8-bit using `OLLAMA_KV_CACHE_TYPE=q8_0` uses ~2.6 GB VRAM).
@@ -143,55 +141,53 @@ The 12B parameter dense model (Q4_0 QAT quantization) uses ~7.6 GB and fits 100%
 ## 6. Directory Structure
 
 ```
-C:\Projects\LocalAI\             # Project root
+/home/rathius/evelyn/            # Project root
 ├── evelyn_server.py             # Main server (FastAPI)
 ├── evelyn_config.py             # All configuration
 ├── requirements.txt             # Python dependencies
-├── evelyn_chat.db               # SQLite chat history
-├── chroma_db\                   # ChromaDB persistent storage
-├── Evelyn\
-│   ├── persona\                 # System prompt, directives
-│   └── tools\                   # All Python tools
-├── data\                        # SQLite databases (chat, context, vault)
-├── evelyn_ui\                   # Chat web UI (HTML + favicon)
-└── reference\                   # System specs, benchmarks
+├── Evelyn/
+│   ├── persona/                 # System prompt, directives
+│   └── tools/                   # All Python tools
+├── data/                        # Persistent databases & indexes
+│   ├── evelyn_chat.db           # SQLite chat history
+│   ├── evelyn_memory.db         # SQLite memory database
+│   ├── evelyn_vault.db          # SQLite vault database
+│   └── chroma_db/               # ChromaDB persistent storage
+├── evelyn_ui/                   # Chat web UI (HTML + favicon)
+└── reference/                   # System specs, benchmarks
 ```
 
 External data path:
 ```
-G:\My Drive\Obsidian_Vault\      # Obsidian vault (Google Drive synced)
-└── Evelyn\                      # Evelyn's memory, journal, context entries
+/home/rathius/obsidian_vault/    # Obsidian vault
+└── Evelyn/                      # Evelyn's memory, journal, context entries
 ```
 
 ---
 
 ## 7. Quick Start
 
-```powershell
+```bash
 # 1. Clone the repo
-git clone https://github.com/Rathius-Saranoth/Evelyn-Engine.git C:\Projects\LocalAI
+git clone https://github.com/Rathius-Saranoth/Evelyn-Engine.git /home/rathius/evelyn
 
 # 2. Install Python dependencies
 pip install -r requirements.txt # [[python_requirements.md]]
 
-# 3. Install and start Ollama
-# Download from https://ollama.com/download
-ollama pull gemma4:26b
+# 3. Pull active LLM model
+ollama pull gemma4:12b
 
-# 4. Set the API key
-$env:EVELYN_API_KEY = "your-secret-key"
+# 4. Set environment variables
+export EVELYN_API_KEY="your-secret-key"
+export OLLAMA_KEEP_ALIVE="-1"
+export OLLAMA_FLASH_ATTENTION="1"
+export OLLAMA_KV_CACHE_TYPE="q8_0"
 
-# 5. Start Ollama (terminal 1)
-$env:OLLAMA_KEEP_ALIVE = "-1"
-$env:OLLAMA_FLASH_ATTENTION = "1"
-$env:OLLAMA_KV_CACHE_TYPE = "q8_0"
-ollama serve
+# 5. Start systemd services
+sudo systemctl start ollama evelyn evelyn-tts
 
-# 6. Start Evelyn (terminal 2)
-python evelyn_server.py
-
-# 7. Open in browser
+# 6. Open in browser
 # http://localhost:7860
 ```
 [python_requirements.md]: python_requirements.md "python_requirements.md"
-[system_specs.md]: reference/system/system_specs.md "RICKY-PC System Specifications"
+[system_specs.md]: reference/system/system_specs.md "Sanctum System Specifications"

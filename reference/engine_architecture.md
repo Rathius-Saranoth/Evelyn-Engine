@@ -77,7 +77,7 @@ graph TD
     ResearchEngine -.->|Reads Templates| Prompts
     
     %% External Ecosystem
-    Obsidian["Obsidian Vault<br>(G:\My Drive\Obsidian_Vault)"] <-->|Read / Sync| IngestVault
+    Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"] <-->|Read / Sync| IngestVault
     Obsidian <-->|Vector Base| IngestGist
     ResearchEngine -->|Save Report| Obsidian
 
@@ -189,14 +189,14 @@ Evelyn Engine operations are codified inside interactive workflow files:
 The Evelyn ecosystem operates in tandem with external environments and local system processes. Refer to the following standardized directory mappings:
 
 ### 4.1 Development Workspaces
-* **LocalAI Root**: `C:\Projects\LocalAI` (Main custom server and companion repository)
-* **Scripts / Automation**: `C:\Projects\Scripts` (General utility and automation codebase)
+* **Evelyn Root**: `/home/rathius/evelyn` (Main custom server and companion repository)
+* **Scripts / Automation**: `/home/rathius/evelyn/scripts` (General utility and maintenance tools)
 
 ### 4.2 Resource & Data Directories
-* **Obsidian Vault Base**: `G:\My Drive\Obsidian_Vault` (Core vault hosting personal knowledge bases, prompts, and notes)
-* **Evelyn Tools**: `C:\Projects\LocalAI\Evelyn\tools` (Sub-pipelines and executable runtime actions)
-* **SQLite Data Base & Approvals**: `C:\Projects\LocalAI\data` (Persistent databases, index hashes, Chroma vectors, and staged terminal approvals JSON)
-* **Ollama Data**: `C:\Users\ricky\AppData\Local\Ollama` (Local model weights and parameters)
+* **Obsidian Vault Base**: `/home/rathius/obsidian_vault` (Core vault hosting personal knowledge bases, prompts, and notes)
+* **Evelyn Tools**: `/home/rathius/evelyn/Evelyn/tools` (Sub-pipelines and executable runtime actions)
+* **SQLite Data Base & Approvals**: `/home/rathius/evelyn/data` (Persistent databases, index hashes, Chroma vectors, and staged terminal approvals JSON)
+* **Ollama Data**: `~/.ollama/models` (Local model weights and parameters)
 
 ---
 
