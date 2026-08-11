@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-08 07:03:52
+# date modified: 2026-08-10 19:01:48
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1643,7 +1643,14 @@ async def lifespan(app: FastAPI):
                     # Check disk state as well to stay perfectly in sync
                     disk_state = load_state(tid)
                     status = disk_state.get("status") if disk_state else task.get("status")
-                    if status in ("running", "paused", "error", "searching", "synthesizing", "pending"):
+                    if status:
+                        # Sync memory status back to prevent drift and release locks immediately
+                        _background_tasks[tid]["status"] = status
+                        if status in ("done", "error", "cancelled", "needs_guidance", "paused"):
+                            if "finished_at" not in _background_tasks[tid] or not _background_tasks[tid].get("finished_at"):
+                                _background_tasks[tid]["finished_at"] = time.time()
+
+                    if status in ("running", "paused", "error", "searching", "synthesizing", "pending", "needs_guidance"):
                         task_info = {
                             "task_id": tid,
                             "status": status,
@@ -1654,8 +1661,6 @@ async def lifespan(app: FastAPI):
                         unfinished_tasks.append(task_info)
                         if status in ("running", "searching", "synthesizing"):
                             active_task = task_info
-                        # Sync memory status back to prevent drift
-                        _background_tasks[tid]["status"] = status
 
             # 3. Handle active task pausing if user becomes active
             if active_task:
@@ -1843,8 +1848,10 @@ async def lifespan(app: FastAPI):
                 print(f"{_GRN}[TAG LIBRARIAN]{_RST} Taxonomy maintenance pruned {m_res['removed_master_tags']} orphan tags.", flush=True)
         except Exception as e:
             print(f"[TAG LIBRARIAN] Error during audit pass: {e}", flush=True)
+            task_manager.clear_running("tag_librarian", status="error", error=str(e))
         finally:
-            task_manager.clear_running("tag_librarian")
+            if task_manager.get_status("tag_librarian") == "running":
+                task_manager.clear_running("tag_librarian", status="idle")
 
 
     async def _idle_tag_librarian_loop():
@@ -2301,6 +2308,7 @@ async def trigger_sync(_: None = Depends(check_auth)):
     calls simultaneously.
     """
     import threading
+    import task_manager
     from evelyn_tools import TOOL_FUNCTIONS
 
     # Free Ollama before a heavy background operation starts
@@ -2308,17 +2316,17 @@ async def trigger_sync(_: None = Depends(check_auth)):
     cancel_pending_extraction()
     cancel_pending_evolution()
 
-    _background_tasks["sync"] = {"status": "running", "started_at": time.time()}
+    task_manager.set_running("sync", phase="Syncing Chroma DB...")
 
     def _run():
         """Run sync_context_memory in a daemon thread and update the task registry."""
         try:
             print(f"{_GRN}[SYNC]{_RST} Manual sync triggered via /sync endpoint", flush=True)
             TOOL_FUNCTIONS["sync_context_memory"]()
-            _background_tasks["sync"] = {"status": "done", "finished_at": time.time()}
+            task_manager.clear_running("sync", status="done")
             print(f"{_GRN}[SYNC]{_RST} Complete.", flush=True)
         except Exception as e:
-            _background_tasks["sync"] = {"status": "error", "error": str(e), "finished_at": time.time()}
+            task_manager.clear_running("sync", status="error", error=str(e))
             print(f"{_RED}[SYNC ERROR]{_RST} {e}", flush=True)
 
     threading.Thread(target=_run, daemon=True).start()
@@ -2336,13 +2344,14 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     import threading
     import subprocess
     import sys
+    import task_manager
 
     # Free Ollama before a heavy background operation starts
     cancel_pending_consolidation()
     cancel_pending_extraction()
     cancel_pending_evolution()
 
-    _background_tasks["vault_map"] = {"status": "running", "started_at": time.time()}
+    task_manager.set_running("vault_map", phase="Mapping Obsidian Vault...")
 
     def _run():
         """Run vault_indexer.py as a subprocess and update the task registry on completion."""
@@ -2355,13 +2364,13 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
                 cwd=str(BASE_DIR),
             )
             if result.returncode == 0:
-                _background_tasks["vault_map"] = {"status": "done", "finished_at": time.time()}
+                task_manager.clear_running("vault_map", status="done")
                 print(f"{_GRN}[VAULT MAP]{_RST} Done.", flush=True)
             else:
-                _background_tasks["vault_map"] = {"status": "error", "error": f"Exit code {result.returncode}", "finished_at": time.time()}
+                task_manager.clear_running("vault_map", status="error", error=f"Exit code {result.returncode}")
                 print(f"{_RED}[VAULT MAP ERROR]{_RST} Process exited with code {result.returncode}", flush=True)
         except Exception as e:
-            _background_tasks["vault_map"] = {"status": "error", "error": str(e), "finished_at": time.time()}
+            task_manager.clear_running("vault_map", status="error", error=str(e))
             print(f"{_RED}[VAULT MAP ERROR]{_RST} {e}", flush=True)
 
     threading.Thread(target=_run, daemon=True).start()
@@ -2390,11 +2399,8 @@ async def start_refresh_memory_internal():
     cancel_pending_extraction()
     cancel_pending_evolution()
 
-    _background_tasks["refresh_memory"] = {
-        "status": "running",
-        "phase": "Starting...",
-        "started_at": time.time(),
-    }
+    import task_manager
+    task_manager.set_running("refresh_memory", phase="Starting...")
 
     async def _run_subprocess():
         """Run refresh_memory.py as an async subprocess, streaming phase updates to the registry."""
@@ -2417,7 +2423,8 @@ async def start_refresh_memory_internal():
 
                 if line.startswith("[PHASE_START:"):
                     key = line.split("[PHASE_START:")[1].split("]")[0]
-                    _background_tasks["refresh_memory"]["phase"] = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
+                    phase_label = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
+                    task_manager.set_running("refresh_memory", phase=phase_label)
 
                 elif line.startswith("[PHASE_FAIL:"):
                     key = line.split("[PHASE_FAIL:")[1].split("]")[0]
@@ -2426,22 +2433,17 @@ async def start_refresh_memory_internal():
             await proc.wait()
 
             if proc.returncode == 0:
-                _background_tasks["refresh_memory"].update({
-                    "status": "done",
-                    "phase": "Completed successfully.",
-                    "finished_at": time.time(),
-                })
+                task_manager.clear_running("refresh_memory", status="done")
+                if "refresh_memory" in _background_tasks:
+                    _background_tasks["refresh_memory"]["phase"] = "Completed successfully."
                 print(f"{_GRN}[REFRESH]{_RST} All phases done.", flush=True)
             else:
                 raise RuntimeError(f"Pipeline exited with code {proc.returncode}")
 
         except Exception as e:
-            _background_tasks["refresh_memory"].update({
-                "status": "error",
-                "phase": "Failed.",
-                "error": str(e),
-                "finished_at": time.time(),
-            })
+            task_manager.clear_running("refresh_memory", status="error", error=str(e))
+            if "refresh_memory" in _background_tasks:
+                _background_tasks["refresh_memory"]["phase"] = "Failed."
             print(f"{_RED}[REFRESH ERROR]{_RST} {e}", flush=True)
 
     asyncio.create_task(_run_subprocess())
