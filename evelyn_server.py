@@ -3136,9 +3136,10 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 if os.path.exists(scan_path):
                     with open(scan_path, "r", encoding="utf-8") as sf:
                         scan_st = json.load(sf)
+                active_cat = task_data.get("phase") if status == "running" else None
                 sub_status = sub_status or {
                     "scan_state": scan_st.get("categories", {}),
-                    "active_category": task_data.get("phase") or "Idle"
+                    "active_category": active_cat
                 }
             elif key == "tag_librarian":
                 import sqlite3, os
@@ -3201,6 +3202,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 exists = os.path.exists(map_file)
                 mtime = os.path.getmtime(map_file) if exists else None
                 sub_status = sub_status or {
+                    "ref_doc": "reference/engine_architecture.md",
                     "target": "engine_architecture.md",
                     "file_exists": exists,
                     "last_modified": mtime
