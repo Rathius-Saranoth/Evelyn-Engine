@@ -479,6 +479,9 @@ async def run_profile_evolution():
                 # Only advance last_run on a successfully created proposal
                 state["last_run_per_doc"][filename] = now
                 _save_evolution_state(state)
+        
+        import task_manager
+        task_manager.save_last_run_ts("profile_evolver")
 
     except asyncio.CancelledError:
         print("[PROFILE EVOLVER] Execution cancelled.", flush=True)

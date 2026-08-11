@@ -66,6 +66,8 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
         return {"status": "skipped", "reason": "already_running"}
 
     importlib.reload(cfg)
+    import task_manager
+    _last_run_ts = task_manager.get_last_run_ts("procedure_consolidator")
     now = time.time()
 
     # Cooldown: don't run more than once per hour unless forced
@@ -74,8 +76,7 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
         return {"status": "skipped", "reason": "cooldown_active"}
 
     _consolidating = True
-    _last_run_ts = now
-    import task_manager
+    _last_run_ts = task_manager.save_last_run_ts("procedure_consolidator", now)
     task_manager.set_running("procedure_consolidator", phase="deduplicating_procedures")
 
     try:
