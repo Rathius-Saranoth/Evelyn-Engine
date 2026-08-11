@@ -106,7 +106,8 @@ class TestTerminalAgent(unittest.TestCase):
 
     def test_read_file_blocked(self):
         """Verify reading file outside allowed paths is blocked."""
-        res = terminal_agent.read_file("C:\\Windows\\system.ini")
+        blocked_path = "C:\\Windows\\system.ini" if os.name == "nt" else "/etc/shadow"
+        res = terminal_agent.read_file(blocked_path)
         self.assertIn("outside allowed paths", res)
 
     def test_write_file_approval_staging(self):

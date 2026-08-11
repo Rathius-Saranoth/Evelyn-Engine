@@ -3639,8 +3639,8 @@ if __name__ == "__main__":
     import uvicorn
     import os
 
-    SSL_KEY = "ricky-pc.tail0e161b.ts.net.key"
-    SSL_CERT = "ricky-pc.tail0e161b.ts.net.crt"
+    SSL_KEY = "sanctum.tail0e161b.ts.net.key"
+    SSL_CERT = "sanctum.tail0e161b.ts.net.crt"
     ssl_args = {}
     if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT):
         ssl_args = {"ssl_keyfile": SSL_KEY, "ssl_certfile": SSL_CERT}
