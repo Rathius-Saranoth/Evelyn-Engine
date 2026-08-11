@@ -666,7 +666,7 @@ def start_research(
                         if disk_state is None:
                             disk_state = {"status": "error"}
                         disk_status = disk_state.get("status")
-                        if disk_status in ("paused", "cancelled"):
+                        if disk_status in ("paused", "cancelled", "needs_guidance"):
                             bg_tasks[task_id]["status"] = disk_status
                             bg_tasks[task_id]["finished_at"] = time.time()
                         elif returncode == 0:
@@ -831,7 +831,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                         if disk_state is None:
                             disk_state = {"status": "error"}
                         disk_status = disk_state.get("status")
-                        if disk_status in ("paused", "cancelled"):
+                        if disk_status in ("paused", "cancelled", "needs_guidance"):
                             bg_tasks[task_id]["status"] = disk_status
                             bg_tasks[task_id]["finished_at"] = time.time()
                         elif returncode == 0:
