@@ -398,7 +398,12 @@ async def _call_ollama(
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
                 resp.raise_for_status()
-                async for line in resp.aiter_lines():
+                aiter = resp.aiter_lines()
+                while True:
+                    try:
+                        line = await asyncio.wait_for(aiter.__anext__(), timeout=30.0)
+                    except StopAsyncIteration:
+                        break
                     if not line.strip():
                         continue
                     try:

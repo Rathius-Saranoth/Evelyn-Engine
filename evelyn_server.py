@@ -1513,6 +1513,7 @@ async def lifespan(app: FastAPI):
     init_db()
     import Evelyn.tools.task_manager as task_manager
     task_manager.load_persistent_state()
+    asyncio.create_task(task_manager.start_watchdog())
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
@@ -2396,7 +2397,7 @@ async def start_refresh_memory_internal():
 
     # Free VRAM before a heavy multi-phase Ollama operation starts.
     cancel_pending_consolidation()
-    cancel_pending_extraction()
+    cancel_pending_extraction(reason="memory_refresh")
     cancel_pending_evolution()
 
     import task_manager
