@@ -75,16 +75,22 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
 
     _consolidating = True
     _last_run_ts = now
+    import task_manager
+    task_manager.set_running("procedure_consolidator", phase="deduplicating_procedures")
 
     try:
         _procedure_task = asyncio.current_task()
         result = await _do_procedure_consolidation()
+        status_res = result.get("status", "idle") if isinstance(result, dict) else "idle"
+        task_manager.clear_running("procedure_consolidator", status=status_res)
         return result
     except asyncio.CancelledError:
         print("[PROC_CONSOLIDATOR] Procedure consolidation pass cancelled", flush=True)
+        task_manager.clear_running("procedure_consolidator", status="cancelled")
         return {"status": "cancelled"}
     except Exception as e:
         print(f"[PROC_CONSOLIDATOR ERROR] {type(e).__name__}: {e}", flush=True)
+        task_manager.clear_running("procedure_consolidator", status="error", error=str(e))
         return {"status": "error", "error": str(e)}
     finally:
         _consolidating = False

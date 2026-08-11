@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-07 21:09:00
+date modified: 2026-08-10 19:05:15
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -184,6 +184,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Profile Evolution Per-Document Status Dashboard Monitoring**: Added a 7-code status taxonomy (`PROPOSAL_STAGED`, `NO_CORE_CHANGES`, `BELOW_THRESHOLD`, `COOLDOWN_ACTIVE`, `PENDING_EXISTS`, `INTERRUPTED_SAVED`, `MODEL_ERROR`) to `profile_evolver.py` and `evelyn_evolution_state.json`. Expanded `GET /api/heavy_tasks` in `evelyn_server.py` and rendered per-document status rows directly inside the Profile Evolver card in the Heavy Tasks Monitor on `dev.html`. *(Completed 2026-08-05)*
 - [ ] **Heavy Task Monitor Detail & Error Notes Enhancement**: Expand the Heavy Task Monitor cards on `dev.html` to display detailed task diagnostics, sub-status details, completion summaries, and explicit error notes across all heavy background tasks (Consolidator, Extractor, Tag Librarian, Memory Refresh, Chroma Sync, Vault Map Generator).
 - [x] **Tool Signature Standardization & `**kwargs` Audit**: Audited all 27 tool definitions and dispatch entrypoints in `evelyn_tools.py` and supporting modules. Standardized every function signature to accept `**kwargs` and flexible parameter aliases (e.g. `query`/`search_query`/`search_term`, `days`/`num_days`/`days_back`, `file_path`/`path`/`filepath`, `mood`/`feeling`, `title`/`summary`). Eliminates model tool-call failures (`TypeError: unexpected keyword argument`) caused by LLM argument variations. *(Completed 2026-08-09)*
+- [x] **Research Needs Guidance Lock Release & Background Task Telemetry Hardening**: Fixed mutual-exclusion lock retention bug when deep research tasks hit `needs_guidance`. Updated `evelyn_server.py` `_idle_research_loop` to unconditionally sync disk status into `_background_tasks` memory, immediately releasing the lock when `needs_guidance` is set. Standardized `task_manager.set_running()` and `task_manager.clear_running()` across all background processes (`procedure_consolidator`, `tag_librarian`, `sync`, `vault_map`, `refresh_memory`, `fact_extractor`, `fact_consolidator`, `profile_evolver`), preserving timestamps, runtime durations, and exact error telemetry across module restarts. Added unit tests in `Evelyn/tests/test_needs_guidance_lock_release.py`. *(Completed 2026-08-10)*
 - [ ] **Obsidian Related Documents Plugin**: Custom Obsidian plugin that displays semantically related documents in a sidebar panel. Leverages the normalized Master Tag Taxonomy written by the Tag Librarian pipeline — ranks related notes by tag overlap count (no LLM call needed at runtime).
 
 - [ ] **Ghost Link Manifestation**: Auto-create stub notes for high-frequency unresolved wiki-links in the Obsidian vault. When the Fact Extraction pipeline identifies entities that match existing ghost links (tracked by `ghost_link_counter.py`), generate a templated stub note with auto-extracted context.
