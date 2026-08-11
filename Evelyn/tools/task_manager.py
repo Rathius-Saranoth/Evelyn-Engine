@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-01 09:20:18
+# date modified: 2026-08-10 19:17:23
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -159,7 +159,7 @@ def is_any_running(exclude: str = None) -> bool:
     return False
 
 
-def set_running(name: str, phase: Optional[str] = None) -> None:
+def set_running(name: str, phase: Optional[str] = None, sub_status: Optional[dict] = None, diagnostics: Optional[dict] = None) -> None:
     """Register a named task as running in the server's background task registry.
 
     Idempotent — calling when already registered updates phase and preserves
@@ -168,6 +168,8 @@ def set_running(name: str, phase: Optional[str] = None) -> None:
     Args:
         name: The task key (e.g. "extractor", "consolidator").
         phase: Optional phase description string.
+        sub_status: Optional dictionary with task-specific sub-status metrics.
+        diagnostics: Optional diagnostic details dictionary.
     """
     tasks = _get_background_tasks()
     if tasks is None:
@@ -182,16 +184,19 @@ def set_running(name: str, phase: Optional[str] = None) -> None:
         "started_at": started_at,
         "last_run_at": last_run_at,
         "phase": phase or existing.get("phase"),
+        "sub_status": sub_status if sub_status is not None else existing.get("sub_status"),
+        "diagnostics": diagnostics if diagnostics is not None else existing.get("diagnostics"),
+        "summary": existing.get("summary"),
         "error": None,
     }
     save_persistent_state()
 
 
-def clear_running(name: str, status: str = "idle", error: Optional[str] = None) -> None:
+def clear_running(name: str, status: str = "idle", error: Optional[str] = None, summary: Optional[str] = None, sub_status: Optional[dict] = None, diagnostics: Optional[dict] = None) -> None:
     """Mark a named task as completed/cancelled/idle in the background task registry.
 
-    Preserves started_at, finished_at, last_run_at, elapsed_seconds, and error info
-    so UI monitors can render completion status and last run timestamps.
+    Preserves started_at, finished_at, last_run_at, elapsed_seconds, error info,
+    and diagnostic payloads so UI monitors can render completion status and last run summaries.
     `is_any_running()` evaluates only active RUNNING_STATUSES, so preserving
     completed task metadata does not block other heavy tasks.
 
@@ -199,6 +204,9 @@ def clear_running(name: str, status: str = "idle", error: Optional[str] = None) 
         name: The task key to update.
         status: The completion status ("idle", "done", "cancelled", "error").
         error: Optional error message string.
+        summary: Optional completion summary text.
+        sub_status: Optional task-specific sub-status metrics dictionary.
+        diagnostics: Optional diagnostic details dictionary.
     """
     tasks = _get_background_tasks()
     if tasks is None:
@@ -216,6 +224,9 @@ def clear_running(name: str, status: str = "idle", error: Optional[str] = None) 
         "elapsed_seconds": elapsed,
         "error": error or existing.get("error"),
         "phase": existing.get("phase"),
+        "summary": summary or existing.get("summary"),
+        "sub_status": sub_status if sub_status is not None else existing.get("sub_status"),
+        "diagnostics": diagnostics if diagnostics is not None else existing.get("diagnostics"),
     }
     save_persistent_state()
 
