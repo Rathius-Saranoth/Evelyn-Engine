@@ -2425,15 +2425,32 @@ async def start_refresh_memory_internal():
                     key = line.split("[PHASE_START:")[1].split("]")[0]
                     phase_label = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
                     task_manager.set_running("refresh_memory", phase=phase_label)
+                    if key == "vault_map":
+                        task_manager.set_running("vault_map", phase="Mapping Obsidian Vault...")
+                    elif key in ("ingest_knowledge", "ingest_gists"):
+                        task_manager.set_running("sync", phase="Syncing Chroma DB...")
+
+                elif line.startswith("[PHASE_DONE:"):
+                    key = line.split("[PHASE_DONE:")[1].split("]")[0]
+                    if key == "vault_map":
+                        task_manager.clear_running("vault_map", status="done")
+                    elif key == "ingest_gists":
+                        task_manager.clear_running("sync", status="done")
 
                 elif line.startswith("[PHASE_FAIL:"):
                     key = line.split("[PHASE_FAIL:")[1].split("]")[0]
+                    if key == "vault_map":
+                        task_manager.clear_running("vault_map", status="error", error=f"Phase '{key}' failed.")
+                    elif key in ("ingest_knowledge", "ingest_gists"):
+                        task_manager.clear_running("sync", status="error", error=f"Phase '{key}' failed.")
                     raise RuntimeError(f"Phase '{key}' failed.")
 
             await proc.wait()
 
             if proc.returncode == 0:
                 task_manager.clear_running("refresh_memory", status="done")
+                task_manager.clear_running("vault_map", status="done")
+                task_manager.clear_running("sync", status="done")
                 if "refresh_memory" in _background_tasks:
                     _background_tasks["refresh_memory"]["phase"] = "Completed successfully."
                 print(f"{_GRN}[REFRESH]{_RST} All phases done.", flush=True)
@@ -3084,6 +3101,127 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             except Exception as e:
                 pass
 
+        sub_status = task_data.get("sub_status")
+        summary = task_data.get("summary")
+        diagnostics = task_data.get("diagnostics")
+
+        # Dynamic diagnostic enrichment if sub_status wasn't explicitly populated
+        try:
+            if key == "extractor":
+                import json, os, sqlite3
+                state_path = str(BASE_DIR / "data" / "evelyn_extraction_state.json")
+                last_id = 0
+                if os.path.exists(state_path):
+                    with open(state_path, "r", encoding="utf-8") as sf:
+                        st = json.load(sf)
+                        last_id = st.get("last_extracted_id", 0)
+                db_path = str(BASE_DIR / "data" / "evelyn_chat.db")
+                backlog = 0
+                if os.path.exists(db_path):
+                    conn = sqlite3.connect(db_path, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM messages WHERE id > ?", (last_id,))
+                        backlog = cur.fetchone()[0]
+                    finally:
+                        conn.close()
+                sub_status = sub_status or {
+                    "last_extracted_id": last_id,
+                    "unextracted_backlog": backlog
+                }
+            elif key == "consolidator":
+                import json, os
+                scan_path = str(BASE_DIR / "data" / "evelyn_scan_state.json")
+                scan_st = {}
+                if os.path.exists(scan_path):
+                    with open(scan_path, "r", encoding="utf-8") as sf:
+                        scan_st = json.load(sf)
+                sub_status = sub_status or {
+                    "scan_state": scan_st.get("categories", {}),
+                    "active_category": task_data.get("phase") or "Idle"
+                }
+            elif key == "tag_librarian":
+                import sqlite3, os
+                vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
+                audited = 0
+                total = 0
+                tags_cnt = 0
+                if os.path.exists(vdb):
+                    conn = sqlite3.connect(vdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM master_tag_taxonomy")
+                        tags_cnt = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM vault_documents WHERE last_tag_audit IS NOT NULL")
+                        audited = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM vault_documents")
+                        total = cur.fetchone()[0]
+                    except Exception:
+                        pass
+                    finally:
+                        conn.close()
+                sub_status = sub_status or {
+                    "master_tags": tags_cnt,
+                    "audited_notes": audited,
+                    "total_notes": total
+                }
+            elif key == "sync":
+                import sqlite3, os
+                mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
+                facts_cnt = 0
+                procs_cnt = 0
+                if os.path.exists(mdb):
+                    conn = sqlite3.connect(mdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM context_entries WHERE status='live'")
+                        facts_cnt = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM procedures")
+                        procs_cnt = cur.fetchone()[0]
+                    except Exception:
+                        pass
+                    finally:
+                        conn.close()
+                chroma_cnt = 0
+                try:
+                    import chromadb, evelyn_config
+                    client = chromadb.PersistentClient(path=evelyn_config.CHROMA_DB_PATH)
+                    for col in client.list_collections():
+                        if col.name in ("evelyn_memory", "evelyn_gists", "obsidian_vault"):
+                            chroma_cnt += col.count()
+                except Exception:
+                    pass
+                sub_status = sub_status or {
+                    "context_facts": facts_cnt,
+                    "system_procedures": procs_cnt,
+                    "chroma_vectors": chroma_cnt,
+                }
+            elif key == "vault_map":
+                map_file = str(BASE_DIR / "reference" / "engine_architecture.md")
+                exists = os.path.exists(map_file)
+                mtime = os.path.getmtime(map_file) if exists else None
+                sub_status = sub_status or {
+                    "target": "engine_architecture.md",
+                    "file_exists": exists,
+                    "last_modified": mtime
+                }
+            elif key == "refresh_memory":
+                phase = task_data.get("phase", "Idle")
+                current_step = 1
+                if "Phase 2" in phase:
+                    current_step = 2
+                elif "Phase 3" in phase:
+                    current_step = 3
+                elif phase == "Completed successfully.":
+                    current_step = 3
+                sub_status = sub_status or {
+                    "total_steps": 3,
+                    "current_step": current_step,
+                    "steps": ["Vault Map", "Knowledge Ingest", "Gist Ingest"]
+                }
+        except Exception as e:
+            pass
+
         tasks_info.append({
             "key": key,
             "name": display_name,
@@ -3095,6 +3233,9 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             "elapsed_seconds": elapsed,
             "runtime_minutes": runtime_mins,
             "error": task_data.get("error"),
+            "summary": summary,
+            "sub_status": sub_status,
+            "diagnostics": diagnostics,
             "doc_statuses": doc_statuses,
         })
 

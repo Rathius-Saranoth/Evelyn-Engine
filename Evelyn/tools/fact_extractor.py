@@ -250,7 +250,13 @@ def _heavy_tasks_running() -> bool:
     return task_manager.is_any_running(exclude="extractor")
 
 
-def _set_status_in_server(status: str | None, error: str | None = None) -> None:
+def _set_status_in_server(
+    status: str | None,
+    error: str | None = None,
+    summary: str | None = None,
+    sub_status: dict | None = None,
+    diagnostics: dict | None = None,
+) -> None:
     """Register or clear extractor status in the server's central registry.
 
     Delegates to task_manager.set_running() / task_manager.clear_running().
@@ -258,12 +264,22 @@ def _set_status_in_server(status: str | None, error: str | None = None) -> None:
     Args:
         status: The status string to register (e.g., 'running'), or None/status string on completion.
         error: Optional error message string.
+        summary: Optional completion summary text.
+        sub_status: Optional sub-status metrics dict.
+        diagnostics: Optional diagnostic details dict.
     """
     import task_manager
     if status == "running":
-        task_manager.set_running("extractor")
+        task_manager.set_running("extractor", sub_status=sub_status, diagnostics=diagnostics)
     else:
-        task_manager.clear_running("extractor", status=status or "idle", error=error)
+        task_manager.clear_running(
+            "extractor",
+            status=status or "idle",
+            error=error,
+            summary=summary,
+            sub_status=sub_status,
+            diagnostics=diagnostics,
+        )
 
 
 def cancel_pending_extraction():
