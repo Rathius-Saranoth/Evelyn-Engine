@@ -350,19 +350,20 @@ def _other_heavy_tasks_running() -> bool:
     import task_manager
     return task_manager.is_any_running(exclude="profile_evolver")
 
-def _set_status_in_server(status: str | None) -> None:
+def _set_status_in_server(status: str | None, error: str | None = None) -> None:
     """Register or clear status in the server's background task registry.
 
     Delegates to task_manager.set_running() / task_manager.clear_running().
 
     Args:
         status: Status string (e.g. 'running'), or None/status string on completion.
+        error: Optional error message string.
     """
     import task_manager
     if status == "running":
         task_manager.set_running("profile_evolver")
     else:
-        task_manager.clear_running("profile_evolver", status=status or "idle")
+        task_manager.clear_running("profile_evolver", status=status or "idle", error=error)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -481,11 +482,12 @@ async def run_profile_evolution():
 
     except asyncio.CancelledError:
         print("[PROFILE EVOLVER] Execution cancelled.", flush=True)
+        _set_status_in_server("cancelled")
     except Exception as e:
         print(f"[PROFILE EVOLVER ERROR] Exception: {e}", flush=True)
+        _set_status_in_server("error", error=f"{type(e).__name__}: {e}")
     finally:
         _evolving = False
-        _set_status_in_server(None)
         _evolver_task = None
 
 # ---------------------------------------------------------------------------

@@ -138,19 +138,20 @@ def _heavy_tasks_running() -> bool:
     return task_manager.is_any_running(exclude="consolidator")
 
 
-def _set_status_in_server(status: str | None) -> None:
+def _set_status_in_server(status: str | None, error: str | None = None) -> None:
     """Register or clear consolidator status in the server's central registry.
 
     Delegates to task_manager.set_running() / task_manager.clear_running().
 
     Args:
         status: The status string to set (e.g. 'running'), or None/status string on completion.
+        error: Optional error message string.
     """
     import task_manager
     if status == "running":
         task_manager.set_running("consolidator")
     else:
-        task_manager.clear_running("consolidator", status=status or "idle")
+        task_manager.clear_running("consolidator", status=status or "idle", error=error)
 
 
 
@@ -495,11 +496,14 @@ async def run_consolidation():
         completed = True
     except asyncio.CancelledError:
         print("[CONSOLIDATOR] Cancelled — cooldown not applied.", flush=True)
+        _set_status_in_server("cancelled")
     except Exception as e:
         print(f"[CONSOLIDATOR ERROR] {type(e).__name__}: {e}", flush=True)
+        _set_status_in_server("error", error=f"{type(e).__name__}: {e}")
     finally:
         _consolidating = False
-        _set_status_in_server(None)
+        if completed:
+            _set_status_in_server("idle")
         # Only lock the cooldown on a successful (non-cancelled) run
         if completed:
             _last_run_ts = time.time()

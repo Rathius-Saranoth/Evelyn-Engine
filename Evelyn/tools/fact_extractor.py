@@ -250,19 +250,20 @@ def _heavy_tasks_running() -> bool:
     return task_manager.is_any_running(exclude="extractor")
 
 
-def _set_status_in_server(status: str | None) -> None:
+def _set_status_in_server(status: str | None, error: str | None = None) -> None:
     """Register or clear extractor status in the server's central registry.
 
     Delegates to task_manager.set_running() / task_manager.clear_running().
 
     Args:
         status: The status string to register (e.g., 'running'), or None/status string on completion.
+        error: Optional error message string.
     """
     import task_manager
     if status == "running":
         task_manager.set_running("extractor")
     else:
-        task_manager.clear_running("extractor", status=status or "idle")
+        task_manager.clear_running("extractor", status=status or "idle", error=error)
 
 
 def cancel_pending_extraction():
@@ -356,11 +357,14 @@ async def run_extraction():
         success = True
     except asyncio.CancelledError:
         print("[EXTRACTOR] Cancelled — high-water mark not advanced.", flush=True)
+        _set_status_in_server("cancelled")
     except Exception as e:
         print(f"[EXTRACTOR ERROR] {type(e).__name__}: {e}", flush=True)
+        _set_status_in_server("error", error=f"{type(e).__name__}: {e}")
     finally:
         _extracting = False
-        _set_status_in_server(None)
+        if success:
+            _set_status_in_server("idle")
         if success:
             _last_extracted_id = max_id
             _session_batches_this_idle += 1
