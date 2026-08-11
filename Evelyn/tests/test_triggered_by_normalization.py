@@ -12,6 +12,7 @@ from unittest.mock import patch, mock_open, MagicMock
 sys.path.append(r"/home/rathius/evelyn")
 sys.path.append(r"/home/rathius/evelyn/Evelyn/tools")
 sys.path.append(r"/home/rathius/evelyn/scripts")
+sys.path.append(r"/home/rathius/evelyn/scripts/archive")
 
 class TestTriggeredByNormalization(unittest.TestCase):
     @patch("builtins.open", new_callable=mock_open)

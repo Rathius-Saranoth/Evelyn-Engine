@@ -406,8 +406,8 @@ async def run_profile_evolution():
         return
 
     _evolving = True
-    _set_status_in_server("running")
     _evolver_task = asyncio.current_task()
+    _set_status_in_server("running")
 
     try:
         state = _load_evolution_state()
@@ -482,6 +482,7 @@ async def run_profile_evolution():
         
         import task_manager
         task_manager.save_last_run_ts("profile_evolver")
+        _set_status_in_server("idle")
 
     except asyncio.CancelledError:
         print("[PROFILE EVOLVER] Execution cancelled.", flush=True)
