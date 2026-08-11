@@ -35,16 +35,23 @@ graph TD
     Server <-->|Index / Trace| VaultDB
     Server <-->|Semantic Search| ChromaDB
 
-    %% Local Inference Services
-    subgraph LocalAI [Local Inference Servers]
-        Ollama["Ollama API<br>(gemma4:12b thinking LLM)"]
-        TTS["[[tts_server.py]] (FastAPI)<br>(Chatterbox F5-TTS Engine)"]
-        Image["[[image_server.py]] (FastAPI)<br>(Flux.1 Schnell Image Gen)"]
+    %% Local & Remote Inference Services
+    subgraph LocalAI [Inference & Voice Services]
+        subgraph NUMANode0 [NUMA Node 0: Core Engine & GPU]
+            Ollama["Ollama API (gemma4:12b thinking LLM)<br>(CPUs 0-23, 48-71 + Tesla T4 GPU)"]
+            ChromaDB_Local["ChromaDB Vector Embeddings<br>(ONNX all-MiniLM-L6-v2)"]
+        end
+        subgraph NUMANode1 [NUMA Node 1: Auxiliary Offload]
+            TTS["[[tts_server.py]] (FastAPI)<br>(Chatterbox TTS Engine - CPUs 24-47, 72-95)"]
+        end
+        subgraph RemoteHost [Remote Tailscale Host: ricky-pc]
+            Image["FLUX.1 Schnell Image Host<br>(http://ricky-pc.tail0e161b.ts.net:5055)"]
+        end
     end
     
     Server <-->|Prompt / Tool Call| Ollama
     Server -->|Generate Audio| TTS
-    Server -->|Generate Visuals| Image
+    Server -->|Generate Visuals (Tailscale)| Image
 
     %% Knowledge Sync Pipeline
     subgraph Ingestion [Ingestion Pipeline]
@@ -151,9 +158,9 @@ Standalone background processes and tools loaded dynamically by the model during
 
 
 ### 2.6 Standalone Inference Services
-FastAPI services running locally to isolate heavy GPU model weights and guarantee zero VRAM resource leakage when idle.
-* **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech.
-* **[[image_server.py]]**: FLUX.1 [schnell] server with lazy-loading auto-eviction.
+FastAPI and remote inference services designed to isolate heavy model weights and guarantee zero VRAM resource leakage.
+* **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech. Bound to **NUMA Node 1** (`CPUAffinity=24-47 72-95`, `numactl --cpunodebind=1 --membind=1`) with 24 physical cores and 96 GB DRAM isolated on Socket 1.
+* **[[image_server.py]]**: FLUX.1 [schnell] server running off-node on `ricky-pc` over Tailscale (`http://ricky-pc.tail0e161b.ts.net:5055`) to leverage workstation GPU resources.
 
 ### 2.7 The Frontend User Interface
 The presentation and interaction layout loaded by the client browser. Connects directly to server APIs for state management and model inference.
@@ -256,4 +263,38 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 
 > [!CAUTION]
 > *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED. Adding a new heavy task without routing it through `task_manager` is a bug, not a feature. New tasks must: (1) call `task_manager.set_running()` at start, (2) call `task_manager.clear_running()` in `finally`, (3) check `task_manager.is_any_running()` before beginning work.*
+
+---
+
+## 6. NUMA Topology & Server Performance Tuning
+
+The HPE ProLiant DL360 Gen10 server (*Sanctum*) features a **Dual-Socket Intel Xeon Gold 5220R** architecture (48 Cores / 96 Threads, 192 GB DDR4 RAM). The system is partitioned into two distinct NUMA domains to maximize throughput and eliminate Ultra Path Interconnect (UPI) cross-socket memory latency:
+
+```
++-----------------------------------------------------------------------------------+
+|                            HPE ProLiant DL360 Gen10 (Sanctum)                     |
++--------------------------------------------------+--------------------------------+
+|                   NUMA Node 0                    |           NUMA Node 1          |
+|             (Cores 0-23 / Threads 0-23, 48-71)    | (Cores 24-47 / Threads 24-47,  |
+|                     96 GB DRAM                   |            72-95)              |
+|          PCIe Slot 1: NVIDIA Tesla T4 16GB        |           96 GB DRAM           |
++--------------------------------------------------+--------------------------------+
+|  Services:                                       |  Services:                     |
+|   • ollama.service (gemma4:12b LLM)              |   • evelyn-tts.service         |
+|   • evelyn.service (FastAPI Core Engine)         |     (Chatterbox TTS)           |
+|   • ChromaDB ONNX Vector Index                   |   • Batch Data Ingestion       |
+|   • SQLite History / Vault / Memory Databases    |     (extract_pdf_library.py)   |
++--------------------------------------------------+--------------------------------+
+```
+
+### 6.1 NUMA Pinning Rules
+1. **Unified Core Engine (NUMA Node 0)**:
+   - `ollama.service` and `evelyn.service` are explicitly pinned to **CPUs 0-23, 48-71** via `CPUAffinity=0-23 48-71` and `numactl --cpunodebind=0 --membind=0`.
+   - Keeps all GPU DMA transfers (Tesla T4 on PCIe Slot 1), PyTorch CUDA buffers, ONNX vector embeddings, and SQLite database IO local to Socket 0 DRAM.
+2. **Auxiliary Offloading (NUMA Node 1)**:
+   - `evelyn-tts.service` is pinned to **CPUs 24-47, 72-95** via `CPUAffinity=24-47 72-95` and `numactl --cpunodebind=1 --membind=1`.
+   - Voice generation runs with 24 dedicated physical cores without taking CPU cycles or memory bandwidth from LLM chat.
+3. **Thread Pool Limits**:
+   - Environment variables (`OMP_NUM_THREADS=16/24`, `MKL_NUM_THREADS=16`, `OPENBLAS_NUM_THREADS=16`, `ONNXRUNTIME_NUM_THREADS=16`, `KMP_AFFINITY=granularity=fine,compact,1,0`) bound OpenMP/MKL thread pools within single sockets, preventing 96-thread unpinned CPU thrashing.
+
 
