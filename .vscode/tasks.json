@@ -34,6 +34,18 @@
             "problemMatcher": []
         },
         {
+            "label": "Evelyn Diagnostics & NUMA Status",
+            "type": "shell",
+            "command": "bash scripts/check_evelyn_status.sh",
+            "problemMatcher": []
+        },
+        {
+            "label": "NUMA Memory Allocation",
+            "type": "shell",
+            "command": "numastat -c ollama evelyn",
+            "problemMatcher": []
+        },
+        {
             "label": "GPU Status",
             "type": "shell",
             "command": "nvidia-smi",
