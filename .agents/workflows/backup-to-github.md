@@ -15,7 +15,7 @@ This workflow ensures your code "Engine" is backed up to GitHub while your priva
 // turbo
 Verify what files are tracked by Git. Our `.gitignore` should prevent private data from being staged.
 
-```powershell
+```bash
 git status
 ```
 
@@ -28,14 +28,14 @@ git status
 
 Stage all files first, then inspect the diff so you can write a meaningful message.
 
-```powershell
+```bash
 git add .
 git diff --cached --stat
 ```
 
 Also check the most recent commit for context on what was previously saved:
 
-```powershell
+```bash
 git log -1 --pretty=format:"%h %s (%ar)"
 ```
 
@@ -58,7 +58,7 @@ Examples:
 
 If multiple unrelated areas changed, use a multi-line message:
 
-```powershell
+```bash
 git commit -m "Primary change summary
 
 - Area 1: what changed
@@ -67,15 +67,15 @@ git commit -m "Primary change summary
 
 Only fall back to a generic timestamped message if **nothing meaningful changed** (e.g., only whitespace or auto-generated files):
 
-```powershell
-git commit -m "Chore: Minor housekeeping $(Get-Date -Format 'yyyy-MM-dd')"
+```bash
+git commit -m "Chore: Minor housekeeping $(date +%Y-%m-%d)"
 ```
 
 ## 3. Push to GitHub
 
 If you have a remote configured:
 
-```powershell
+```bash
 git push origin main
 ```
 

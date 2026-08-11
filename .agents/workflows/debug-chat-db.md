@@ -26,45 +26,45 @@ This is already implemented in all scripts below.
 
 ## Ready-Made Debug Scripts (`scratch/`)
 
-All scripts are run from `C:\Projects\LocalAI` and write output to `scratch/out/`.
+All scripts are run from `/home/rathius/evelyn` and write output to `scratch/out/`.
 
 // turbo
 ### Show Recent Messages
-```powershell
-python scratch\db_recent.py           # last 20 messages
-python scratch\db_recent.py 40        # last 40 messages
+```bash
+python scratch/db_recent.py           # last 20 messages
+python scratch/db_recent.py 40        # last 40 messages
 ```
-Then read: `view_file C:\Projects\LocalAI\scratch\out\db_recent.txt`
+Then read: `view_file /home/rathius/evelyn/scratch/out/db_recent.txt`
 
 // turbo
 ### Search by Keyword
-```powershell
-python scratch\db_search.py journal
-python scratch\db_search.py write_journal_entry
+```bash
+python scratch/db_search.py journal
+python scratch/db_search.py write_journal_entry
 ```
-Then read: `view_file C:\Projects\LocalAI\scratch\out\db_search.txt`
+Then read: `view_file /home/rathius/evelyn/scratch/out/db_search.txt`
 
 // turbo
 ### Audit Tool Calls (Did tools actually fire?)
-```powershell
-python scratch\db_tool_calls.py
+```bash
+python scratch/db_tool_calls.py
 ```
-Then read: `view_file C:\Projects\LocalAI\scratch\out\db_tool_calls.txt`
+Then read: `view_file /home/rathius/evelyn/scratch/out/db_tool_calls.txt`
 
 This also shows all distinct roles in the DB and whether any `tools_used` entries exist.
 
 // turbo
 ### Check Pending Approval Files
-```powershell
-python scratch\check_pending.py
+```bash
+python scratch/check_pending.py
 ```
-Then read: `view_file C:\Projects\LocalAI\scratch\out\check_pending.txt`
+Then read: `view_file /home/rathius/evelyn/scratch/out/check_pending.txt`
 
 ---
 
 ## DB Location & Schema
 
-The chat history lives at: `C:\Projects\LocalAI\evelyn_chat.db`
+The chat history lives at: `/home/rathius/evelyn/data/evelyn_chat.db`
 
 ```
 messages (
@@ -95,7 +95,7 @@ datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 To enable verbose server-side logging (RAG chunks, tool calls, thinking content):
 
-1. Open `C:\Projects\LocalAI\evelyn_config.py`
+1. Open `/home/rathius/evelyn/evelyn_config.py`
 2. Set `DEBUG_LOGGING = True`
 3. No restart required — the server reads this value per-request.
 
