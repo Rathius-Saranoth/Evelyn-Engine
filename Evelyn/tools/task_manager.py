@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-10 19:17:23
+# date modified: 2026-08-11 06:47:08
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -299,7 +299,7 @@ def clear_running(name: str, status: str = "idle", error: Optional[str] = None, 
         "last_run_at": now,
         "elapsed_seconds": elapsed,
         "error": error or existing.get("error"),
-        "phase": existing.get("phase"),
+        "phase": None,
         "summary": summary or existing.get("summary"),
         "sub_status": sub_status if sub_status is not None else existing.get("sub_status"),
         "diagnostics": diagnostics if diagnostics is not None else existing.get("diagnostics"),

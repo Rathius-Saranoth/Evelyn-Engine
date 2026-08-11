@@ -499,7 +499,8 @@
 
         let durationText = formatDuration(t.elapsed_seconds);
 
-        let detailText = t.phase || t.error || (status === 'running' ? 'Active' : (status === 'cancelled' ? 'Cancelled' : 'Idle'));
+        let isRunningTask = (status === 'running' || status === 'searching' || status === 'synthesizing');
+        let detailText = isRunningTask ? (t.phase || 'Active') : (status === 'error' ? (t.error || 'Failed') : (status === 'done' ? (t.summary || 'Completed') : (status === 'cancelled' ? 'Cancelled' : 'Idle')));
 
         let lastRunText = 'Never run';
         if (t.last_run_at) {
@@ -566,7 +567,7 @@
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Active Target:</span>
-                <span style="color: var(--accent); font-weight: 500;">${escapeHtml(st.active_category || 'Idle')}</span>
+                <span style="color: var(--accent); font-weight: 500;">${escapeHtml(st.active_category || 'None')}</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Scanned Categories:</span>
@@ -631,8 +632,8 @@
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Graph Target:</span>
-                <span style="color: var(--accent); font-family: monospace; font-size: 10px;">${st.target}</span>
+                <span style="color: var(--text-dim);">Architecture Reference:</span>
+                <span style="color: var(--accent); font-family: monospace; font-size: 10px;">${st.ref_doc || st.target}</span>
               </div>
             </div>
           `;
