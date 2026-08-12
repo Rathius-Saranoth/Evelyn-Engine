@@ -42,11 +42,11 @@ import evelyn_config as cfg
 # ---------------------------------------------------------------------------
 # Chunking config
 # ---------------------------------------------------------------------------
-# all-MiniLM-L6-v2 has a 256 WordPiece token context window (~1000 chars for
-# typical English text). We chunk at 1000 chars with 150-char overlap to stay
-# within the embedding window and avoid silent truncation.
-CHUNK_SIZE    = 1000  # chars per chunk (fits ~250 tokens)
-CHUNK_OVERLAP = 150   # chars of overlap between consecutive chunks
+# BAAI/bge-large-en-v1.5 has a 512 WordPiece token context window (~2000 chars).
+# We chunk at 1600 chars (~400 tokens) with 200-char overlap to maximize note integrity
+# and preserve full paragraphs without truncation.
+CHUNK_SIZE    = 1600  # chars per chunk (fits ~400 tokens)
+CHUNK_OVERLAP = 200   # chars of overlap between consecutive chunks
 
 
 def chunk_text(content: str) -> list[str]:
@@ -108,16 +108,18 @@ def _get_client() -> chromadb.PersistentClient:
 
 
 def _get_embedding_fn():
-    """Return a cached instance of Chroma's default embedding model.
+    """Return a cached instance of BAAI/bge-large-en-v1.5 embedding function.
 
-    Model is all-MiniLM-L6-v2 (22.7M params, 384-dim, 256-token context).
+    Model is BAAI/bge-large-en-v1.5 (1024-dim, 512-token context window).
 
     Returns:
-        embedding_functions.DefaultEmbeddingFunction: Cached embedding function.
+        embedding_functions.SentenceTransformerEmbeddingFunction: Cached embedding function.
     """
     global _embedding_fn
     if _embedding_fn is None:
-        _embedding_fn = embedding_functions.DefaultEmbeddingFunction()
+        _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="BAAI/bge-large-en-v1.5"
+        )
     return _embedding_fn
 
 
@@ -430,9 +432,9 @@ def build_rag_context(query: str) -> str:
     pinned_sources = {c["source"] for c in pinned_chunks}
 
     # Step 2: Normal vector search (uses REFORMULATED query for semantic matching)
-    memory_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION)
-    gist_chunks   = query_collection(search_query, cfg.CHROMA_GISTS_COLLECTION)
-    all_chunks = memory_chunks + gist_chunks
+    # Query evelyn_memory (full-text index of all vault notes and context entries).
+    # evelyn_gists lookups are retired to eliminate redundant vector searches.
+    all_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION)
 
     # Step 3: Priority re-ranking
     all_chunks = _apply_priority_boost(all_chunks)
