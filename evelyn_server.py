@@ -1816,14 +1816,14 @@ async def lifespan(app: FastAPI):
             if not getattr(cfg, "PROFILE_EVOLUTION_ENABLED", False):
                 continue
             idle_seconds = time.time() - _last_activity_ts
-            threshold = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 2700)
+            threshold = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 3600)
             if idle_seconds >= threshold:
                 if not is_any_heavy_task_running():
                     print(f"{_GRN}[PROFILE EVOLVER]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background profile evolution check.", flush=True)
                     asyncio.create_task(run_profile_evolution())
 
     asyncio.create_task(_idle_profile_evolution_loop())
-    print(f"  {_GRN}Profile Evolver:{_RST} idle loop started (threshold=45m, cooldown=24h/doc)")
+    print(f"  {_GRN}Profile Evolver:{_RST} idle loop started (threshold=60m, cooldown=24h/doc)")
 
     # Idle-time Tag Librarian loop
     async def run_tag_librarian_task():
@@ -1863,14 +1863,14 @@ async def lifespan(app: FastAPI):
             if not getattr(cfg, "TAG_LIBRARIAN_ENABLED", False):
                 continue
             idle_seconds = time.time() - _last_activity_ts
-            threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 1800)
+            threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
             if idle_seconds >= threshold:
                 if not is_any_heavy_task_running():
                     print(f"{_GRN}[TAG LIBRARIAN]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background tag librarian audit.", flush=True)
                     asyncio.create_task(run_tag_librarian_task())
 
     asyncio.create_task(_idle_tag_librarian_loop())
-    print(f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=30m, limit=1 doc/run)")
+    print(f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=45m, limit=1 doc/run)")
 
 
     # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)

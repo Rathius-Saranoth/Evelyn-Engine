@@ -36,17 +36,20 @@ import chroma_rag  # noqa: E402
 import memory_db   # noqa: E402
 
 # Paths
-EVELYN_DIR         = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Evelyn")
-PHYSICAL_DESC_FILE = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Notes", "Prompt Lab", "Physical Descriptions", "Physical Description - Evelyn.md") # [[Physical Description - Evelyn.md]]
+VAULT_DIR          = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+EVELYN_DIR         = os.path.join(VAULT_DIR, "Evelyn")
+PHYSICAL_DESC_FILE = os.path.join(VAULT_DIR, "Notes", "Prompt Lab", "Physical Descriptions", "Physical Description - Evelyn.md")
 EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals", "Extracted", "Pending"]
-SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json") # [[vault_sync_state.json]]
+SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json")
 COLLECTION_NAME    = "evelyn_memory"
 
-# Ricky/ files that belong in core memory (full-text, high-fidelity operational docs).
-# General Ricky facts (work history, education, etc.) flow through the gist pipeline instead.
-RICKY_CORE_FILES = [
-    os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Ricky", "Ricky - Psychological Blueprint.md"), # [[Ricky - Psychological Blueprint.md]]
-    os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Ricky", "Ricky - Love Languages & Connection.md"), # [[Ricky - Love Languages & Connection.md]]
+# Core identity files that receive rag_priority=high by default
+CORE_IDENTITY_FILES = [
+    os.path.join(VAULT_DIR, "Ricky", "Ricky - Psychological Blueprint.md"),
+    os.path.join(VAULT_DIR, "Ricky", "Ricky - Love Languages & Connection.md"),
+    os.path.join(VAULT_DIR, "Evelyn", "Evelyn Narrative Persona.md"),
+    os.path.join(VAULT_DIR, "Evelyn", "System Directives.md"),
+    PHYSICAL_DESC_FILE,
 ]
 
 
@@ -143,22 +146,19 @@ def parse_rag_frontmatter(content: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Perform a full incremental sync of Evelyn's core memory files into Chroma.
+    """Perform a full incremental sync of all vault markdown files into Chroma.
 
     Returns:
         None
     """
-    if not os.path.exists(EVELYN_DIR):
-        print(f"Could not find Vault directory: {EVELYN_DIR}")
+    if not os.path.exists(VAULT_DIR):
+        print(f"Could not find Vault directory: {VAULT_DIR}")
         return
 
     state = load_state(SYNC_STATE_FILE)
 
-    # Build active file list
-    all_files = get_markdown_files(EVELYN_DIR)
-    all_files += [f for f in RICKY_CORE_FILES if os.path.exists(f)]
-    if os.path.exists(PHYSICAL_DESC_FILE):
-        all_files.append(PHYSICAL_DESC_FILE)
+    # Scan the full vault directory
+    all_files = get_markdown_files(VAULT_DIR)
 
     active_paths = set()
     for fp in all_files:
@@ -188,11 +188,11 @@ def main() -> None:
             del state[stale_path]
             cleaned += 1
 
-    print("Starting core memory sync...")
+    print("Starting full vault memory sync...")
 
     for file_path in active_paths:
         if file_path.startswith("sqlite::context_entry::"):
-            # It's a SQLite DB entry
+            # It's a SQLite DB entry — high priority
             row = sqlite_entries_map.get(file_path)
             if not row:
                 continue
@@ -206,7 +206,7 @@ def main() -> None:
                 continue
 
             content = f"Date: {row['date'] or 'Unknown'}\nTags: {row.get('tags', '')}\nObservation: {row['observation']}"
-            rag_meta = {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
+            rag_meta = {"rag_priority": "high", "rag_pinned": False, "aliases": ""}
             print(f"Ingesting DB Entry: {file_path}")
             
         else:
@@ -232,6 +232,12 @@ def main() -> None:
 
             print(f"Ingesting: {os.path.basename(file_path)}")
             rag_meta = parse_rag_frontmatter(content)
+            
+            # Boost core identity files and extracted facts to rag_priority=high if not specified
+            basename = os.path.basename(file_path)
+            if rag_meta.get("rag_priority") == "normal":
+                if file_path in CORE_IDENTITY_FILES or basename.startswith("EX_") or basename.startswith("CE_"):
+                    rag_meta["rag_priority"] = "high"
             
         if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,
                                            extra_metadata=rag_meta):

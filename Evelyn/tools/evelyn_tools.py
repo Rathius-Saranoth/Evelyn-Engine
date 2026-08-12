@@ -146,86 +146,65 @@ def write_journal_entry(
     )
 
 
+DEPRECATION_LOG_FILE = os.path.join(getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"), "data", "deprecation_warnings.log")
+
+def _log_deprecation(func_name: str, args_summary: str = "") -> None:
+    """Log prominent warning to console and append to deprecation_warnings.log with traceback."""
+    import time
+    import traceback
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    tb = "".join(traceback.format_stack()[:-1])  # Exclude current call frame
+    
+    warning_msg = f"[DEPRECATION WARNING] {timestamp} - Function '{func_name}' was called with args ({args_summary}). Static read tools are deprecated in favor of full-vault Chroma RAG."
+    print(f"\033[93m{warning_msg}\033[0m", flush=True)
+    
+    try:
+        os.makedirs(os.path.dirname(DEPRECATION_LOG_FILE), exist_ok=True)
+        with open(DEPRECATION_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"--- {timestamp} ---\n{warning_msg}\nTraceback:\n{tb}\n\n")
+    except Exception as e:
+        print(f"[DEPRECATION LOG ERROR] Could not write to log: {e}", flush=True)
+
+
 def read_journal(date: str = "", days: int = 0, **kwargs) -> str:
-    """Read Evelyn's personal journal entries by a specific date or over a recent day window.
-
-    Args:
-        date: Optional date in YYYY-MM-DD format. If provided, reads that specific day's entry.
-        days: Optional number of recent days to retrieve (e.g. 7). Takes precedence if > 0.
-        **kwargs: Accepts flexible keyword arguments (date_str, target_date, query_date, days_back).
-
-    Returns:
-        str: Markdown contents of matching journal entries, or message if none found.
+    """[DEPRECATED] Read Evelyn's personal journal entries.
+    
+    All journal entries are now indexed full-text in Chroma RAG context.
     """
-    _reload()
-    if not date:
-        date = str(kwargs.get("date_str") or kwargs.get("target_date") or kwargs.get("query_date") or "")
-    if not days and "days_back" in kwargs:
-        try:
-            days = int(kwargs["days_back"])
-        except (ValueError, TypeError):
-            pass
-
-    if days > 0:
-        return journal_manager.read_recent_journal_entries(days)
-    return journal_manager.read_journal_entry(date if date else None)
+    _log_deprecation("read_journal", f"date='{date}', days={days}")
+    return "[NOTICE] 'read_journal' is deprecated. All journal entries are indexed full-text in Chroma RAG context automatically."
 
 
 def read_journal_entry(date: str = "", **kwargs) -> str:
-    """Read a single journal entry by its date (legacy wrapper)."""
-    if not date:
-        date = str(kwargs.get("date_str") or kwargs.get("target_date") or "")
-    return read_journal(date=date)
+    """[DEPRECATED] Read a single journal entry by date."""
+    _log_deprecation("read_journal_entry", f"date='{date}'")
+    return "[NOTICE] 'read_journal_entry' is deprecated. All journal entries are indexed full-text in Chroma RAG context automatically."
 
 
 def read_recent_journal_entries(days: int = 7, **kwargs) -> str:
-    """Read recent journal entries from the last N days (legacy wrapper)."""
-    if not days or days == 7:
-        if "days_back" in kwargs:
-            try:
-                days = int(kwargs["days_back"])
-            except (ValueError, TypeError):
-                pass
-    return read_journal(days=days)
+    """[DEPRECATED] Read recent journal entries."""
+    _log_deprecation("read_recent_journal_entries", f"days={days}")
+    return "[NOTICE] 'read_recent_journal_entries' is deprecated. All journal entries are indexed full-text in Chroma RAG context automatically."
 
 
 def search_vault(query: str = "", **kwargs) -> str:
-    """Search the pre-summarized Obsidian Vault gist index.
-
-    Args:
-        query: Search term or phrase.
-        **kwargs: Flexible keyword arguments.
-
-    Returns:
-        str: A concise summary of matching documents and their vault-relative paths.
+    """[DEPRECATED] Search Obsidian Vault gist index.
+    
+    Full vault text across all 1,202 notes is indexed directly in Chroma RAG context.
     """
-    _reload()
     query = query or str(kwargs.get("search_query") or kwargs.get("search_term") or kwargs.get("term") or "")
-    return context_manager.search_vault_map(query)
+    _log_deprecation("search_vault", f"query='{query}'")
+    return f"[NOTICE] 'search_vault' is deprecated. The entire vault is indexed in Chroma RAG context automatically. Relevant content for query '{query}' is already supplied in context."
 
 
 def recall_specific_memory(file_path: str = "", **kwargs) -> str:
-    """Read the full markdown content of a specific Obsidian vault file.
-
-    Args:
-        file_path: Exact vault-relative path returned by search_vault.
-        **kwargs: Flexible keyword arguments.
-
-    Returns:
-        str: Full text content of the markdown file, or error message.
+    """[DEPRECATED] Read full markdown content of a specific Obsidian vault file.
+    
+    All vault files are indexed in Chroma RAG. For workspace files, use read_file.
     """
     file_path = file_path or str(kwargs.get("filepath") or kwargs.get("path") or kwargs.get("file") or "")
-    clean_path = file_path.strip().strip('"').strip("'").replace('\\', '/')
-    full_path = os.path.abspath(os.path.join(VAULT_BASE, clean_path))
-    if not full_path.startswith(os.path.abspath(VAULT_BASE)):
-        return "Error: Invalid path — path traversal detected."
-    try:
-        with open(full_path, "r", encoding="utf-8") as f:
-            return f"--- Content of {clean_path} ---\n\n{f.read()}"
-    except FileNotFoundError:
-        return f"Error: File '{clean_path}' not found."
-    except Exception as e:
-        return f"Error reading {clean_path}: {e}"
+    _log_deprecation("recall_specific_memory", f"file_path='{file_path}'")
+    return f"[NOTICE] 'recall_specific_memory' is deprecated. Vault files are indexed in Chroma RAG context. For non-vault code/workspace files, use 'read_file'."
 
 
 def log_context_fact(category: str = "", summary: str = "", secondary_cats: str = "", **kwargs) -> str:
@@ -1631,72 +1610,7 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_journal",
-            "description": (
-                "Read Evelyn's personal journal entries. "
-                "Use when catching up on recent events or when asked about specific journal entries. "
-                "Do NOT use for general memory recall or facts about specific people — use search_vault instead."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "date": {
-                        "type": "string",
-                        "description": "Optional target date in YYYY-MM-DD format. Defaults to today if date and days are omitted.",
-                    },
-                    "days": {
-                        "type": "integer",
-                        "description": "Optional number of recent days to retrieve (e.g. 7) for a timeline slice. Omit if querying a specific date.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_vault",
-            "description": (
-                "Search the pre-summarised Obsidian Vault gist index. "
-                "Use when asked about any person, relationship, place, event, or piece of shared history. "
-                "Prefer this over recall_specific_memory as a light first step."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search term or phrase (e.g. 'Schyler', 'Void Connections').",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "recall_specific_memory",
-            "description": (
-                "Read full markdown content of a specific Obsidian vault file. "
-                "Use ONLY when search_vault returned a path but the gist lacked sufficient detail to answer."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Exact path relative to vault root, as returned by search_vault. Copy directly from search output — never construct or guess.",
-                    },
-                },
-                "required": ["file_path"],
-            },
-        },
-    },
+
     {
         "type": "function",
         "function": {
@@ -1731,8 +1645,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "web_search",
             "description": (
                 "Search the web for up-to-date real-time information. "
-                "Use for current events, live data, recent releases, or facts not in vault RAG. "
-                "Do NOT use for personal/shared history between you and Ricky — use search_vault instead."
+                "Use for current events, live data, recent releases, or external facts."
             ),
             "parameters": {
                 "type": "object",
@@ -1756,8 +1669,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "start_research",
             "description": (
                 "Launch a deep multi-step research task on a topic. "
-                "Use when asked to research something in depth or when a topic requires structured multi-source investigation. "
-                "Do NOT use for casual questions answerable directly or via search_vault."
+                "Use when asked to research something in depth or when a topic requires structured multi-source investigation."
             ),
             "parameters": {
                 "type": "object",
@@ -1824,8 +1736,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "search_history",
             "description": (
                 "Search Evelyn's full chat history using full-text search (FTS5). "
-                "Use when Ricky asks 'did we talk about X?' or 'what did I say about Y?'. "
-                "Do NOT use for vault knowledge, journal entries, or context facts — use search_vault for those."
+                "Use when Ricky asks 'did we talk about X?' or 'what did I say about Y?'."
             ),
             "parameters": {
                 "type": "object",

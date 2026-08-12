@@ -137,6 +137,15 @@ PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
 GCAL_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gcal_credentials.json"
 GCAL_TOKEN_PATH = r"/home/rathius/evelyn/data/gcal_token.json"
 
+# High-Performance SQLite PRAGMAs for Sanctum Server (192 GB DRAM)
+SQLITE_PRAGMAS = [
+    "PRAGMA journal_mode=WAL;",       # Enable WAL for concurrent non-blocking reads/writes
+    "PRAGMA synchronous=NORMAL;",     # Optimal disk flush balance under WAL mode
+    "PRAGMA mmap_size=2147483648;",   # 2 GB Memory-mapped I/O (mmap) for zero-copy file reads
+    "PRAGMA cache_size=-64000;",      # 64 MB DRAM page cache per connection
+    "PRAGMA temp_store=MEMORY;",      # Store intermediate result sets in DRAM
+]
+
 
 
 # Official category names — single source of truth for the consolidator and reviewer.
@@ -180,17 +189,17 @@ CATEGORY_NAMES: dict = {
 # =============================================================================
 # Chroma RAG
 # =============================================================================
-CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full markdown files (journals, context)
-CHROMA_GISTS_COLLECTION = "evelyn_gists"  # LLM-generated gist summaries
+CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full-text vault notes & memory chunks
+CHROMA_GISTS_COLLECTION = "evelyn_gists"   # Deprecated (retained for backward compatibility)
 # Increased to 8 for Gemma 4 12B's 32K context (Old value: 5)
 RAG_TOP_K = 8  # Number of chunks to retrieve per query
 
 # Cosine distance threshold for RAG injection (0.0 = identical, 1.0 = unrelated).
 # Chunks with distance ABOVE this value are discarded before injection.
 # If all chunks are filtered out, nothing is added to the system prompt for that turn.
-# NOTE: This value is model-specific. Current: all-MiniLM-L6-v2 (0.55).
-#       Previous: nomic-embed-text via Ollama (0.35). Recalibrate if embedding model changes.
-RAG_DISTANCE_THRESHOLD = 0.55
+# NOTE: Model-specific threshold. BAAI/bge-large-en-v1.5 (1024-dim): 0.45 cosine distance.
+#       Previous: all-MiniLM-L6-v2 (0.55), nomic-embed-text (0.35).
+RAG_DISTANCE_THRESHOLD = 0.45
 
 RAG_EXCLUDED_SUBDIRS = [
     "Archived",
@@ -404,10 +413,9 @@ RESEARCH_STEP_COOLDOWN = 5
 RESEARCH_NOTES_SUMMARY_THRESHOLD = 12000
 
 # Idle-time trigger: seconds of inactivity before research can start a new queued task.
-# Must be LONGER than consolidation threshold to avoid conflicts.
-# Reduced from 1800s (30m) to 900s (15m) — 2026-06-21 budget review.
+# Wave 3 idle trigger (30m / 1800s): Staggered to prevent NUMA Node 0 CPU contention with extraction (5m) and consolidation (15m).
 # Note: auto-RESUME of a paused task requires only 300s (5m) idle — see evelyn_server.py.
-RESEARCH_IDLE_THRESHOLD = 900  # 15 minutes
+RESEARCH_IDLE_THRESHOLD = 1800  # 30 minutes (Wave 3)
 
 # Model override for research calls. "default" = use MODEL_NAME.
 RESEARCH_MODEL_OVERRIDE = "default"
@@ -495,8 +503,9 @@ PROFILE_EVOLUTION_COOLDOWN = 43200  # 12 hours
 # is triggered for a given document. Prevents churning on sparse data.
 PROFILE_EVOLUTION_MIN_ENTRIES = 5
 
-# Idle threshold — same as deep memory refresh (45 minutes).
-PROFILE_EVOLUTION_IDLE_THRESHOLD = 2700  # 45 minutes
+# Idle threshold — Wave 5 idle trigger (60 minutes / 3600s).
+# Staggered after Tag Librarian (45m) to complete non-overlapping idle task waves on NUMA Node 0.
+PROFILE_EVOLUTION_IDLE_THRESHOLD = 3600  # 60 minutes (1 hour)
 
 # Model override. "default" = use MODEL_NAME.
 PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
@@ -539,7 +548,8 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 # Tag Librarian Configuration (Incremental Vault Tag Maintenance)
 # =============================================================================
 TAG_LIBRARIAN_ENABLED = True
-TAG_LIBRARIAN_IDLE_THRESHOLD = 1800  # 30 minutes idle
+# Wave 4 idle trigger (45 minutes / 2700s). Staggered after deep research (30m).
+TAG_LIBRARIAN_IDLE_THRESHOLD = 2700  # 45 minutes idle (Wave 4)
 TAG_LIBRARIAN_BATCH_SIZE = 1         # Process 1 document per idle trigger
 
 # Protected tag regexes (never modified, removed, or normalized)
