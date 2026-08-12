@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-08 07:08:20
+date modified: 2026-08-11 20:10:00
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -21,7 +21,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 * **Purpose**: Processes a new conversational message from the UI.
 * **Flow**:
   1. Runs [[query_reformulator.py]] for conversational keywords.
-  2. Executes semantic vector search via [[chroma_rag.py]] to extract relevant vault gists.
+  2. Executes semantic vector search via [[chroma_rag.py]] across `evelyn_memory` full-text index using `BAAI/bge-large-en-v1.5` (1024-dim, 1,600-char chunks) with priority score boosting (`rag_priority: high` multiplier 0.75).
   3. Query matches dense facts from [[context_manager.py]].
   4. Returns a stream of **Server-Sent Events (SSE)** including the thinking trace and the dynamic tool-call updates.
 
@@ -56,7 +56,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `POST /refresh_memory`
 * **Purpose**: The master ingestion trigger. Executes [[refresh_memory.py]] as an asynchronous subprocess.
-* **Sequence**: Map Vault Index $\rightarrow$ Ingest Obsidian Knowledge $\rightarrow$ Ingest Gists.
+* **Sequence**: Map Vault Index $\rightarrow$ Ingest Obsidian Knowledge (Full Vault).
 * **Monitoring**: Outputs real-time phase tags (`[PHASE_START:]`, `[PHASE_DONE:]`) to drive progress loops.
 
 ### `GET /task_status/{task_name}`

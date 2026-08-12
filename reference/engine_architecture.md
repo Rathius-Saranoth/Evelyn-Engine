@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-02 11:54:05
+date modified: 2026-08-11 20:10:00
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -39,7 +39,7 @@ graph TD
     subgraph LocalAI [Inference & Voice Services]
         subgraph NUMANode0 [NUMA Node 0: Core Engine & GPU]
             Ollama["Ollama API (gemma4:12b thinking LLM)<br>(CPUs 0-23, 48-71 + Tesla T4 GPU)"]
-            ChromaDB_Local["ChromaDB Vector Embeddings<br>(ONNX all-MiniLM-L6-v2)"]
+            ChromaDB_Local["ChromaDB Vector Embeddings<br>(BAAI/bge-large-en-v1.5 1024-dim)"]
         end
         subgraph NUMANode1 [NUMA Node 1: Auxiliary Offload]
             TTS["[[tts_server.py]] (FastAPI)<br>(Chatterbox TTS Engine - CPUs 24-47, 72-95)"]
@@ -56,18 +56,18 @@ graph TD
     %% Knowledge Sync Pipeline
     subgraph Ingestion [Ingestion Pipeline]
         Refresh["[[refresh_memory.py]] (Master Runner)"]
-        IngestVault["[[ingest_obsidian_knowledge.py]]"]
-        IngestGist["[[ingest_gists.py]]"]
+        IngestVault["[[ingest_obsidian_knowledge.py]] (Full-Vault)"]
         VaultIndexer["[[vault_indexer.py]]"]
+        SyncFull["[[sync_full_vault_to_chroma.py]] (Reset & Sync)"]
     end
     
     Server --->|Trigger Task| Refresh
     Refresh --> IngestVault
-    Refresh --> IngestGist
     IngestVault --> VaultIndexer
     VaultIndexer <-->|Map Relationships| VaultDB
     IngestVault <-->|Write Context| MemoryDB
-    IngestGist <-->|Vector Index| ChromaDB
+    IngestVault <-->|Full-Text Vector Index| ChromaDB
+    SyncFull --->|Reset & Re-index| ChromaDB
     
     %% Deep Research Subsystem
     subgraph DeepResearch [Deep Research System]
@@ -117,21 +117,19 @@ The runtime core that manages user connections, model prompts, memory assembly, 
 
 ### 2.2 Memory & RAG Retrieval Engine
 Responsible for semantic vector indexing, context fact assemblies, and exact entity resolutions.
-* **[[memory_db.py]]**: SQLite database connector for `evelyn_memory.db`. Manages transactions for context entries and procedural rules.
+* **[[memory_db.py]]**: SQLite database connector for `evelyn_memory.db`. Manages transactions for context entries and procedural rules. Configured with high-performance PRAGMAs (`WAL` mode, 2 GB `mmap_size`, 64 MB DRAM cache).
 * **[[vault_db.py]]**: SQLite database connector for `evelyn_vault.db`. Handles super-fast incremental metadata writes for mapped files.
-* **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Performs vector assembly, distance scoring, and dynamic keyword-triggered procedure injection.
+* **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Uses **`BAAI/bge-large-en-v1.5`** (1024-dimensional embeddings, 1,600-character chunks with 200 overlap). Performs single-collection vector retrieval across `evelyn_memory`, priority score boosting (`rag_priority: high` multiplier 0.75), and dynamic procedure injection. `evelyn_gists` collection lookups are retired.
 * **[[context_manager.py]]**: Mismatch resolver and active context injector. Assembles dense facts, resolves entities, and strips search bloat.
 * **[[context_summarizer.py]]**: *(Deprecated)* Previously performed sliding-window context compression. Removed in favor of 40-message active history (`MAX_HISTORY_MESSAGES`) + SQLite `context_entries` + Chroma RAG to eliminate prompt clutter and temporal hallucination bleed in journal generation.
 * **[[query_reformulator.py]]**: Sub-pipeline LLM trigger that optimizes conversational keywords before vector lookup, boosting hit rates by 23%.
 
 ### 2.3 The Ingestion Pipeline
 Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Vault into the local RAG database.
-* **[[refresh_memory.py]]**: Master synchronous process orchestrator. SEQUENTIALLY triggers:
-  1. Vault Mapping (`VaultIndexer`)
-  2. Knowledge Sync (`ingest_obsidian_knowledge`)
-  3. Gist Sync (`ingest_gists`)
-* **[[ingest_obsidian_knowledge.py]]**: Imports psychological blueprints, relationship taxons, and narrative files into memory.
-* **[[ingest_gists.py]]**: Parses vault markdown files, strips YAML bloat, generates dense summarizing gists, and uploads them to Chroma DB.
+* **[[refresh_memory.py]]**: Master process orchestrator. Triggers vault mapping (`VaultIndexer`) and full-vault knowledge ingestion (`ingest_obsidian_knowledge.py`).
+* **[[ingest_obsidian_knowledge.py]]**: Full-vault full-text memory ingestion engine. Recursively scans `/home/rathius/obsidian_vault` (1,202 files), enforcing 1,600-character chunking and automatic `rag_priority: high` for core identity files (`Ricky - Psychological Blueprint.md`, `Evelyn Narrative Persona.md`, `System Directives.md`, `CE_*.md`, `EX_*.md`).
+* **[[ingest_gists.py]]**: *(Deprecated & Retired)* Previously generated gist summaries for vector search. Superseded by `ingest_obsidian_knowledge.py` full-vault full-text vector indexing in `evelyn_memory`.
+* **[[sync_full_vault_to_chroma.py]]**: Dedicated CLI reset and migration script that purges old vector caches and executes a clean full-vault re-indexing pass.
 * **[[vault_indexer.py]]**: Scans directory tree files and generates incremental database relationships (hashes, links, backlinks) inside SQLite.
 
 ### 2.4 Deep Research Subsystem
@@ -142,7 +140,7 @@ Enables fully autonomous, multi-step search and information synthesis in the bac
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library (e.g., DuckDuckGo `search_web`, `write_journal_entry`, `recall_specific_memory`, `start_research`, background task recovery `resume_research_task`, and calendar tool definitions). Contains `_is_research_engine_running()` — the OS-level PID-based guard against duplicate research subprocess spawning.
+* **[[evelyn_tools.py]]**: Definitive tool definitions library containing 14 active model tools (`write_journal_entry`, `generate_image`, `web_search`, `start_research`, `guide_research`, `check_new_research`, `search_history`, `create_calendar_event`, `delete_calendar_event`, `sync_google_calendar`, `get_agenda`, `run_command`, `read_file`, `write_file`). Contains `_log_deprecation()` which logs yellow console warnings and appends full tracebacks to `data/deprecation_warnings.log` whenever deprecated static read tools (`search_vault`, `recall_specific_memory`, `read_journal`) are called out-of-band. Contains `_is_research_engine_running()` — the OS-level PID-based guard against duplicate research subprocess spawning.
 * **[[task_manager.py]]**: Centralized heavy task registry. Canonical `is_any_running()`, `set_running()`, and `clear_running()` API used by all heavy task modules. Replaces the 4 separate `_heavy_tasks_running()` copies that previously existed across `fact_extractor`, `fact_consolidator`, `profile_evolver`, and `evelyn_server`. See §5.
 * **[[journal_manager.py]]**: Handles journal entry creation, resolution, and roll-ups. Operates via direct UTF-8 file reads and writes across vault root, structured archive (`Journal Entries/YYYY/MM-ShortMonth`), and pending quarantine folders without Obsidian process or CLI dependencies.
 * **[[gcal_sync.py]]**: Google Calendar synchronizer. Pulls calendar events and caches them in the SQLite `calendar_events` table, supporting offline-first operations.
