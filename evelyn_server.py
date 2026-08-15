@@ -23,6 +23,7 @@ import asyncio
 import json
 import importlib
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -47,7 +48,7 @@ if str(TOOLS_DIR) not in sys.path:
 PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
 
 import evelyn_config as cfg
-from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS
+from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS, TOOL_THINK_EFFORT
 from chroma_rag import build_rag_context
 from fact_consolidator import run_consolidation, cancel_pending_consolidation
 from procedure_consolidator import run_procedure_consolidation, cancel_pending_procedure_consolidation
@@ -79,6 +80,76 @@ _last_window_warn_ts: float = 0.0
 _active_research_processes = {}
 _last_research_spawn_ts: float = 0.0   # Layer 2: spawn debounce
 _error_resume_ts: dict = {}            # Layer 3: per-task error cooldown
+
+# ---------------------------------------------------------------------------
+# Thinking-effort classifier
+# ---------------------------------------------------------------------------
+
+# Regex for stripping model-emitted self-election hints from content streams.
+# Applied in pass1 content cleanup AND in _stream_content to prevent leaking
+# into chat bubbles. Defined here so both sites share the same compiled pattern.
+_SELF_ELECT_RE = re.compile(
+    r'\s*\{"requested_effort":\s*"(?:low|medium|high|max)"\}\s*',
+    re.IGNORECASE,
+)
+
+# Trivial pattern: must be the ENTIRE message (fullmatch), must be short (<45 chars).
+# "Thanks! Why didn't that work?" → fails fullmatch → falls to medium. ✓
+_TRIVIAL_RE = re.compile(
+    r"\s*(good\s*night|gn|goodnight|good\s*morning|gm|"
+    r"thank(?:\s*you)?(?:\s+(?:so\s+much|very\s+much))?|thanks(?:\s+(?:so\s+much|a\s+lot))?|thx|ty|"
+    r"ok(?:ay)?|k|👍|✓|✔|"
+    r"sounds?\s*good|perfect|noted|will\s*do|alright|sure|got\s*it|"
+    r"bye|goodbye|see\s*you|take\s*care|later|ttyl|"
+    r"night|sweet\s*dreams?|sleep\s*well)\W*",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Complex pattern: unambiguous analytical/multi-step phrasing only.
+# \b boundaries: "why is that?" does not match; "explain why X" does.
+# Length gate (>50) stops short rhetorical questions from escalating.
+_COMPLEX_RE = re.compile(
+    r"\b(analyze|analyse|deep\s+dive|walk\s+me\s+through|"
+    r"step[\s-]by[\s-]step|compare\s+and\s+contrast|"
+    r"help\s+me\s+understand|explain\s+(?:how|why|what)|"
+    r"what(?:'s|\s+is)\s+the\s+best\s+way|"
+    r"diagnose|troubleshoot|figure\s+out|think\s+through|"
+    r"what\s+should\s+(?:i|we)\s+do\s+about|"
+    r"struggling\s+with|is\s+there\s+a\s+better\s+way)\b",
+    re.IGNORECASE,
+)
+
+# Numeric ranking for effort comparison during escalation.
+_EFFORT_RANK: dict[str, int] = {"false": -1, "low": 0, "medium": 1, "high": 2, "max": 3}
+
+
+def classify_message_effort(message: str) -> str:
+    """Heuristic pre-classifier: returns a suggested think effort level.
+
+    Strict priority hierarchy:
+      1. Trivial isolated phrase (<45 chars, fullmatch) → "low"
+      2. Analytical keywords present (>50 chars)       → "high"
+      3. Everything else                                → "medium"
+
+    The model may still self-elect or tool-escalation may override this result.
+
+    Returns:
+        str: One of "low", "medium", or "high".
+    """
+    stripped = message.strip()
+
+    # Rule 1 — trivial: entire message must match, must be short
+    if len(stripped) < 45 and _TRIVIAL_RE.fullmatch(stripped):
+        return "low"
+
+    # Rule 2 — complex: analytical phrasing + length gate to avoid casual
+    # rhetorical questions ("Why is that?" = 13 chars → medium, not high)
+    if len(stripped) > 50 and _COMPLEX_RE.search(stripped):
+        return "high"
+
+    # Rule 3 — baseline
+    return "medium"
+
 
 
 def _in_research_window() -> bool:
@@ -259,7 +330,12 @@ def load_system_prompt() -> str:
         "Before responding, briefly verify any facts about people, relationships, or past events "
         "from your knowledge. Use <think> tags for this verification step. For complex questions "
         "requiring multi-step logic, use <think> tags for full reasoning. Keep thinking concise -- "
-        "you don't need lengthy chains for casual conversation."
+        "you don't need lengthy chains for casual conversation. "
+        "If a turn calls for unusually deep reflection (complex planning, emotional nuance, "
+        "multi-step analysis), you may include {\"requested_effort\":\"high\"} on its own line before "
+        "your response. For brief acknowledgments or casual sign-offs where deep reasoning is "
+        "unnecessary, include {\"requested_effort\":\"low\"} instead. "
+        "Do not include this marker in routine replies."
     )
     for fname in [
         "Evelyn_Narrative_Persona.md",
@@ -432,9 +508,20 @@ def init_db():
             eval_duration REAL,
             total_duration REAL,
             load_duration REAL,
+            think_effort TEXT,
+            think_source TEXT,
             FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
         )
     """)
+    # Migrate: add think_effort and think_source columns if missing
+    try:
+        con.execute("ALTER TABLE message_metrics ADD COLUMN think_effort TEXT")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE message_metrics ADD COLUMN think_source TEXT")
+    except Exception:
+        pass
 
     # Drop reminders table if it exists to cleanly remove local reminders data
     con.execute("DROP TABLE IF EXISTS reminders")
@@ -500,12 +587,14 @@ def _time_of_day_label(ts: float | None) -> str:
 
 
 def load_history() -> list[dict]:
-    """Load recent chat history for the model, bounded by thread breaks and caps.
+    """Load recent chat history bounded by day boundaries, thread breaks, and caps.
 
-    Filters out empty, placeholder, and thread-break messages, and ensures
-    no orphaned trailing user messages confuse the model. Inject explicit system
-    date boundary markers when messages span across calendar days, giving the model
-    clear chronological context for journaling and reflections.
+    Rules:
+      1. Loads 100% of today's messages (ts >= midnight).
+      2. Plus up to 6 messages from the previous day (for evening/transition context).
+      3. Overall bounded by cfg.MAX_HISTORY_MESSAGES (hard limit).
+      4. Bounded by the latest [THREAD_BREAK] marker if present.
+      5. Inject explicit date boundary markers with journal isolation instructions.
 
     Returns:
         list[dict]: A list of message dictionaries with "role" and "content".
@@ -519,14 +608,30 @@ def load_history() -> list[dict]:
     after_id = brk["id"] if brk else 0
 
     limit = cfg.MAX_HISTORY_MESSAGES
-    rows = con.execute(
-        "SELECT role, content, ts FROM messages WHERE id > ? ORDER BY id DESC LIMIT ?",
-        (after_id, limit),
+    from datetime import time as dtime
+    today_start = datetime.combine(datetime.now().date(), dtime.min).timestamp()
+
+    # 1. Fetch today's messages (newest first)
+    today_rows = con.execute(
+        "SELECT role, content, ts FROM messages WHERE id > ? AND ts >= ? ORDER BY id DESC LIMIT ?",
+        (after_id, today_start, limit),
     ).fetchall()
+
+    # 2. Fetch up to 6 messages from yesterday (if limit headroom permits)
+    remaining_limit = max(0, limit - len(today_rows))
+    prev_day_limit = min(6, remaining_limit)
+
+    prev_rows = []
+    if prev_day_limit > 0:
+        prev_rows = con.execute(
+            "SELECT role, content, ts FROM messages WHERE id > ? AND ts < ? ORDER BY id DESC LIMIT ?",
+            (after_id, today_start, prev_day_limit),
+        ).fetchall()
+
     con.close()
 
-    # Rows come back newest-first; reverse to chronological order
-    rows = list(reversed(rows))
+    # Combine: prev_rows (older) + today_rows (newer), then reverse to chronological order
+    rows = list(reversed(today_rows + prev_rows))
 
     # Skip empty-content rows, placeholder messages, and thread-break markers.
     valid_rows = [
@@ -549,7 +654,7 @@ def load_history() -> list[dict]:
                     date_str = msg_date.strftime("%A, %b %d, %Y")
                     messages.append({
                         "role": "system",
-                        "content": f"--- Date Changed: {date_str} ---",
+                        "content": f"--- Date Changed: {date_str} (All journal entries and daily reflections must reference ONLY events occurring after this date marker) ---",
                     })
                 last_date = msg_date
             except (OSError, OverflowError, ValueError):
@@ -569,13 +674,7 @@ def load_history() -> list[dict]:
     while messages and messages[-1]["role"] in ("user", "system"):
         messages.pop()
 
-    if brk:
-        dlog(f"History: thread-break at id={after_id}, returning {len(messages)} msgs (limit {limit})")
-    elif len(rows) >= limit:
-        dlog(f"History: capped at {limit} msgs (oldest trimmed)")
-    else:
-        dlog(f"History: {len(messages)} msgs (no cap hit)")
-
+    dlog(f"History: loaded {len(today_rows)} today + {len(prev_rows)} prev day = {len(messages)} total msgs")
     return messages
 
 
@@ -645,15 +744,15 @@ def save_message_metrics(message_id: int, metrics: dict):
     Args:
         message_id: The ID of the message associated with these metrics.
         metrics: A dictionary containing metrics like prompt_eval_count,
-            eval_count, total_duration, etc.
+            eval_count, total_duration, think_effort, think_source, etc.
     """
     if not metrics:
         return
     con = get_db()
     con.execute(
         """INSERT INTO message_metrics 
-           (message_id, prompt_eval_count, prompt_eval_duration, eval_count, eval_duration, total_duration, load_duration)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+           (message_id, prompt_eval_count, prompt_eval_duration, eval_count, eval_duration, total_duration, load_duration, think_effort, think_source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             message_id,
             metrics.get("prompt_eval_count"),
@@ -661,7 +760,9 @@ def save_message_metrics(message_id: int, metrics: dict):
             metrics.get("eval_count"),
             metrics.get("eval_duration"),
             metrics.get("total_duration"),
-            metrics.get("load_duration")
+            metrics.get("load_duration"),
+            metrics.get("think_effort"),
+            metrics.get("think_source"),
         )
     )
     con.commit()
@@ -756,7 +857,8 @@ def check_auth(request: Request):
 # ---------------------------------------------------------------------------
 
 
-async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
+async def call_ollama_stream(messages: list[dict], tools: list[dict] = None,
+                              think_effort=None):
     """Stream a chat request to Ollama.
 
     Note that streaming combined with think=True silently swallows tool_call
@@ -765,11 +867,13 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] = None):
     Args:
         messages: A list of message objects mapping to conversation history.
         tools: Optional list of tool definitions.
+        think_effort: Thinking effort level for this request. One of False,
+            "low", "medium", "high", "max". Defaults to cfg.THINK when None.
 
     Yields:
         str: Raw JSON response lines from the Ollama server.
     """
-    use_think = cfg.THINK
+    use_think = think_effort if think_effort is not None else cfg.THINK
     options = {"num_ctx": cfg.NUM_CTX}
     for key, val in {
         "temperature": cfg.TEMPERATURE,
@@ -899,12 +1003,17 @@ def dispatch_tool(name: str, args: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _stream_content(msgs: list[dict]):
+async def _stream_content(msgs: list[dict], think_effort=None):
     """
     Stream the content follow-up pass (no tool definitions).
     Handles native think field + inline <think> tag parsing.
     Yields SSE data strings.
     Returns final (content_buf, thinking_buf) via a _state sentinel event.
+
+    Args:
+        msgs: Conversation messages to send to Ollama.
+        think_effort: Thinking effort level for this response pass. Forwarded
+            to call_ollama_stream. Defaults to cfg.THINK when None.
     """
     thinking_buf = ""
     content_buf = ""
@@ -922,7 +1031,7 @@ async def _stream_content(msgs: list[dict]):
     async def _feed():
         """Feed Ollama stream lines into the queue for the outer consumer."""
         try:
-            async for line in call_ollama_stream(msgs, tools=None):
+            async for line in call_ollama_stream(msgs, tools=None, think_effort=think_effort):
                 await queue.put(("line", line))
         except BaseException as exc:
             await queue.put(("error", exc))
@@ -957,11 +1066,15 @@ async def _stream_content(msgs: list[dict]):
                 thinking_buf += native_think
                 yield f"data: {json.dumps({'type': 'thinking', 'delta': native_think})}\n\n"
 
-            # Content field -- strip leaked model tokens, then route through inline-tag parser
+            # Content field -- strip leaked model tokens and self-elect hints,
+            # then route through inline-tag parser.
             text_delta = msg.get("content", "")
             if text_delta:
                 for _tok in _LEAKED_MODEL_TOKENS:
                     text_delta = text_delta.replace(_tok, "")
+                # Belt-and-suspenders: strip self-election hints that escaped
+                # into the stream (pass1_content cleanup is the primary guard).
+                text_delta = _SELF_ELECT_RE.sub("", text_delta)
                 parse_buf += text_delta
                 while parse_buf:
                     if in_think:
@@ -1045,6 +1158,7 @@ async def _stream_content(msgs: list[dict]):
 class ChatRequest(BaseModel):
     """Pydantic model representing an incoming chat request from the user."""
     message: str
+    think: str | bool | None = None  # UI override: "low"/"medium"/"high"/"max"/False/None
 
 
 class EditRequest(BaseModel):
@@ -1059,6 +1173,8 @@ async def _process_chat_background(
     time_ctx: str | None,
     assistant_row_id: int,
     queue: asyncio.Queue,
+    think_effort: str | bool = "medium",
+    ui_override: bool = False,
 ):
     """Run the background chat processing worker.
 
@@ -1078,6 +1194,8 @@ async def _process_chat_background(
     tools_used_list = []
     tool_metadata_list = []
 
+    think_source = "ui_override" if ui_override else "heuristic"
+
     async def put(type_: str, **kw):
         """Enqueue a serialized SSE event dictionary.
 
@@ -1087,9 +1205,17 @@ async def _process_chat_background(
         """
         await queue.put("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
 
-    async def drain_stream(stream):
-        """Iterate _stream_content, buffer state, and forward events to queue."""
+    async def drain_stream(stream, response_label: bool = False):
+        """Iterate _stream_content, buffer state, and forward events to queue.
+
+        Args:
+            stream: The async generator from _stream_content.
+            response_label: When True, inject a [Response] thinking label before
+                the first thinking token. Set True when a tool loop preceded this
+                stream so the UI creates a distinct collapsable section.
+        """
         nonlocal content_buf, thinking_buf, metrics_dict
+        _label_sent = not response_label  # if False, skip label entirely
         async for event in stream:
             if event.startswith("data: "):
                 try:
@@ -1097,10 +1223,15 @@ async def _process_chat_background(
                     if d.get("type") == "_state":
                         content_buf = d["content"]
                         thinking_buf = d.get("thinking", "")
-                        metrics_dict = d.get("metrics", {})
+                        metrics_dict.update(d.get("metrics", {}))
                         if metrics_dict:
                             await put("metrics", **metrics_dict)
                         continue          # _state is internal bookkeeping only
+                    if d.get("type") == "thinking" and not _label_sent:
+                        _label_sent = True
+                        await queue.put(
+                            "data: " + json.dumps({"type": "thinking", "delta": "[Response]\n"}) + "\n\n"
+                        )
                     if d.get("type") == "text":
                         content_buf += d.get("delta", "")
                     elif d.get("type") == "thinking":
@@ -1180,10 +1311,29 @@ async def _process_chat_background(
         )
 
         if cfg.SHOW_TOOL_LOOP_THINKING and pass1_thinking:
-            await put("thinking", delta=f"[Tool round 0]\n{pass1_thinking}")
+            await put("thinking", delta=f"[Initial]\n{pass1_thinking}")
+
+        # Self-election: strip routing hint from content before it enters message
+        # history (primary leak-prevention; _stream_content has a belt-and-suspenders strip).
+        pass1_content_clean = _SELF_ELECT_RE.sub("", pass1_content).strip()
+        if cfg.THINK_SELF_ELECT and not ui_override:
+            m = _SELF_ELECT_RE.search(pass1_content)
+            if m:
+                elected = re.search(
+                    r'"requested_effort":\s*"(low|medium|high|max)"',
+                    m.group(0), re.IGNORECASE
+                )
+                if elected:
+                    think_effort = elected.group(1)
+                    think_source = "self_elect"
+                    dlog(f"Self-elected think effort: {think_effort}")
+        pass1_content = pass1_content_clean
 
         if not tool_calls:
-            await drain_stream(_stream_content(messages))
+            metrics_dict["think_effort"] = str(think_effort)
+            metrics_dict["think_source"] = think_source
+            await drain_stream(_stream_content(messages, think_effort=think_effort),
+                               response_label=False)
 
         else:
             # ------------------------------------------------------------------
@@ -1300,15 +1450,36 @@ async def _process_chat_background(
                 )
 
                 if cfg.SHOW_TOOL_LOOP_THINKING and followup_thinking:
-                    await put("thinking", delta=f"[Tool round {tool_round}]\n{followup_thinking}")
+                    await put("thinking", delta=f"[Tool {tool_round}]\n{followup_thinking}")
 
                 if not current_tool_calls:
                     dlog("Model produced no more tool calls. Exiting tool loop.")
                     await put("status", msg="Generating response...")
                     break
 
+            # Tool effort escalation: raise response effort if any invoked tool
+            # demands more depth than the heuristic/self-elected level.
+            if tools_used_list and not ui_override:
+                tool_names_used = [t.split("[")[0] for t in tools_used_list if t]
+                if tool_names_used:
+                    max_tool_effort = max(
+                        (TOOL_THINK_EFFORT.get(n, "medium") for n in tool_names_used),
+                        key=lambda e: _EFFORT_RANK.get(str(e).lower(), 1),
+                        default="medium",
+                    )
+                    curr_rank = _EFFORT_RANK.get(str(think_effort).lower(), 1)
+                    max_rank = _EFFORT_RANK.get(str(max_tool_effort).lower(), 1)
+                    if max_rank > curr_rank:
+                        dlog(f"Tool effort escalation: {think_effort} → {max_tool_effort} (tools: {tool_names_used})")
+                        think_effort = max_tool_effort
+                        think_source = "tool_escalation"
+
+            metrics_dict["think_effort"] = str(think_effort)
+            metrics_dict["think_source"] = think_source
+
             # Final streaming response after tool loop
-            await drain_stream(_stream_content(messages))
+            await drain_stream(_stream_content(messages, think_effort=think_effort),
+                               response_label=True)
 
     finally:
         # Always commit to DB — independent of whether SSE pipe is alive
@@ -1382,12 +1553,16 @@ def clean_shutdown_all_tasks():
 
 
 
-async def chat_stream(user_message: str, is_regenerate: bool = False):
+async def chat_stream(user_message: str, is_regenerate: bool = False,
+                      think_effort=None, ui_override: bool = False):
     """Open an SSE connection to stream the generated chat response.
 
     Args:
         user_message: The text of the user's incoming chat message.
         is_regenerate: True if regenerating the last assistant response.
+        think_effort: Resolved thinking effort level for this turn.
+        ui_override: True when think_effort came from the UI chip (skips
+            self-election and tool escalation).
 
     Yields:
         str: Server-Sent Events formatted data blocks.
@@ -1413,6 +1588,10 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
         time_ctx = None
         dlog("Regenerating last response")
 
+    # Resolve effort: fallback to heuristic if no UI override was provided
+    resolved_effort = think_effort if think_effort is not None else cfg.THINK
+    dlog(f"Think effort resolved: {resolved_effort} (ui_override={ui_override})")
+
     # Reserve DB row and spawn the background task synchronously.
     # From this point the task owns all processing — client can disconnect freely.
     assistant_row_id = save_message_get_id("assistant", "")
@@ -1420,7 +1599,8 @@ async def chat_stream(user_message: str, is_regenerate: bool = False):
 
     asyncio.create_task(
         _process_chat_background(
-            user_message, is_regenerate, time_ctx, assistant_row_id, event_queue
+            user_message, is_regenerate, time_ctx, assistant_row_id, event_queue,
+            think_effort=resolved_effort, ui_override=ui_override,
         )
     )
     print(f"{_CYN}[CHAT]{_RST} Background task started — SSE pipe open", flush=True)
@@ -1933,6 +2113,8 @@ async def status(_: None = Depends(check_auth)):
         "status": "ok",
         "model": cfg.MODEL_NAME,
         "think": cfg.THINK,
+        "think_tool_loop": cfg.THINK_TOOL_LOOP,
+        "think_self_elect": getattr(cfg, "THINK_SELF_ELECT", True),
         "debug": cfg.DEBUG_LOGGING,
         "num_ctx": cfg.NUM_CTX,
     }
@@ -1949,8 +2131,10 @@ async def chat(req: ChatRequest, _: None = Depends(check_auth)):
     Returns:
         StreamingResponse: An SSE stream of the assistant's response.
     """
+    ui_override = req.think is not None
+    think_effort = req.think if ui_override else classify_message_effort(req.message)
     return StreamingResponse(
-        chat_stream(req.message),
+        chat_stream(req.message, think_effort=think_effort, ui_override=ui_override),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -1964,8 +2148,9 @@ async def regenerate(_: None = Depends(check_auth)):
         raise HTTPException(
             status_code=400, detail="No user message to regenerate from."
         )
+    think_effort = classify_message_effort(user_message)
     return StreamingResponse(
-        chat_stream(user_message, is_regenerate=True),
+        chat_stream(user_message, is_regenerate=True, think_effort=think_effort),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -1979,8 +2164,9 @@ async def edit_message(req: EditRequest, _: None = Depends(check_auth)):
         raise HTTPException(
             status_code=400, detail="No user message to edit."
         )
+    think_effort = classify_message_effort(user_message)
     return StreamingResponse(
-        chat_stream(user_message, is_regenerate=True),
+        chat_stream(user_message, is_regenerate=True, think_effort=think_effort),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

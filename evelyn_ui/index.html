@@ -758,8 +758,38 @@
         padding-left: 4px;
         display: flex;
         justify-content: space-between;
+        align-items: center;
         max-width: 760px;
         margin: 6px auto 0 auto;
+      }
+
+      /* Effort chips — replace hint text left side */
+      #effort-chips {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .effort-chip {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        font-family: "Inter", sans-serif;
+        font-size: 11px;
+        padding: 2px 9px;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+        line-height: 1.6;
+        letter-spacing: 0.01em;
+      }
+      .effort-chip:hover {
+        color: var(--text);
+        border-color: var(--text-dim);
+      }
+      .effort-chip.active {
+        color: var(--accent);
+        border-color: var(--accent);
+        box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent);
       }
 
       /* Load-more button */
@@ -917,7 +947,12 @@
         <button id="send-btn" title="Send">↑</button>
       </div>
       <div class="input-hint">
-        <span>Enter to send · Shift+Enter for newline</span>
+        <div id="effort-chips">
+          <button class="effort-chip active" data-effort="null" id="chip-auto" title="Evelyn decides thinking depth automatically">Auto</button>
+          <button class="effort-chip" data-effort="low" id="chip-low" title="Brief thinking — fast replies">Low</button>
+          <button class="effort-chip" data-effort="medium" id="chip-mid" title="Standard reasoning">Mid</button>
+          <button class="effort-chip" data-effort="high" id="chip-high" title="Deep reflection">High</button>
+        </div>
         <span style="display: flex; gap: 12px; align-items: center">
           <a
             href="/ui/dev.html"
@@ -1113,19 +1148,81 @@
       }
 
       // ---------------------------------------------------------------------------
-      // Think block builder
+      // Think block builder & multi-section streaming handler
       // ---------------------------------------------------------------------------
-      function createThinkBlock() {
+      function createThinkBlock(label = "Thinking…") {
         const wrap = document.createElement("div");
         wrap.className = "think-block open";
         wrap.innerHTML = `
     <div class="think-header" onclick="this.parentElement.classList.toggle('open')">
       <span class="think-icon">🧠</span>
-      <span class="think-label">Thinking…</span>
+      <span class="think-label">${label}</span>
       <span class="think-chevron">▼</span>
     </div>
     <div class="think-content"></div>`;
         return wrap;
+      }
+
+      function createThinkingHandler(wrap, getBubble, addActivity) {
+        const thinkSections = [];
+        let currentThinkSection = null;
+
+        function handleDelta(delta) {
+          // Check if delta starts with a phase label: [Initial]\n, [Tool 1]\n, [Response]\n
+          const labelMatch = delta.match(/^\[(Initial|Tool \d+|Response)\]\n/);
+          if (labelMatch) {
+            const labelName = labelMatch[1];
+            if (addActivity) addActivity("🧠", `${labelName} thinking…`);
+            const block = createThinkBlock(labelName);
+            const bubble = getBubble ? getBubble() : null;
+            if (bubble) {
+              wrap.insertBefore(block, bubble);
+            } else {
+              wrap.appendChild(block);
+            }
+            const content = block.querySelector(".think-content");
+            currentThinkSection = { label: labelName, block, content };
+            thinkSections.push(currentThinkSection);
+
+            const rest = delta.slice(labelMatch[0].length);
+            if (rest) {
+              content.textContent += rest;
+              content.scrollTop = content.scrollHeight;
+            }
+          } else {
+            if (!currentThinkSection) {
+              if (addActivity) addActivity("🧠", "Model thinking…");
+              const block = createThinkBlock("Thinking…");
+              const bubble = getBubble ? getBubble() : null;
+              if (bubble) {
+                wrap.insertBefore(block, bubble);
+              } else {
+                wrap.appendChild(block);
+              }
+              const content = block.querySelector(".think-content");
+              currentThinkSection = { label: "Thinking…", block, content };
+              thinkSections.push(currentThinkSection);
+            }
+            currentThinkSection.content.textContent += delta;
+            currentThinkSection.content.scrollTop = currentThinkSection.content.scrollHeight;
+          }
+          scrollBottom();
+        }
+
+        function finalize() {
+          thinkSections.forEach((sec) => {
+            const lbl = sec.block.querySelector(".think-label");
+            if (lbl) {
+              lbl.textContent = lbl.textContent.replace("…", "");
+              if (lbl.textContent === "Thinking") {
+                lbl.textContent = "Thought process";
+              }
+            }
+            sec.block.classList.remove("open");
+          });
+        }
+
+        return { handleDelta, finalize };
       }
 
       // ---------------------------------------------------------------------------
@@ -1837,18 +1934,21 @@
         }
 
         addActivity("📨", "Message sent");
-        let thinkBlock = null;
-        let thinkContent = null;
+        const thinkingHandler = createThinkingHandler(wrap, () => bubble, addActivity);
         let bubble = null;
         let contentText = "";
         let cursorEl = null;
         const usedTools = [];
 
         try {
+          const chatPayload = { message: text };
+          if (selectedEffort !== null) {
+            chatPayload.think = selectedEffort;
+          }
           const resp = await fetch(`${API_BASE}/chat`, {
             method: "POST",
             headers: headers(),
-            body: JSON.stringify({ message: text }),
+            body: JSON.stringify(chatPayload),
           });
 
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -1879,20 +1979,7 @@
               }
 
               if (evt.type === "thinking") {
-                if (!thinkBlock) {
-                  addActivity("🧠", "Model thinking…");
-                  thinkBlock = createThinkBlock();
-                  thinkContent = thinkBlock.querySelector(".think-content");
-                  // Always insert thinking above the bubble (even if bubble exists first)
-                  if (bubble) {
-                    wrap.insertBefore(thinkBlock, bubble);
-                  } else {
-                    wrap.appendChild(thinkBlock);
-                  }
-                }
-                thinkContent.textContent += evt.delta;
-                thinkContent.scrollTop = thinkContent.scrollHeight;
-                scrollBottom();
+                thinkingHandler.handleDelta(evt.delta);
               }
 
               if (evt.type === "tool") {
@@ -1939,11 +2026,8 @@
                   cursorEl.className = "cursor";
                   bubble.appendChild(cursorEl);
                   wrap.appendChild(bubble);
-                  // Finalise think label
-                  if (thinkBlock) {
-                    thinkBlock.querySelector(".think-label").textContent = "Thought process";
-                    thinkBlock.classList.remove("open"); // collapse after done streaming
-                  }
+                  // Finalise thinking sections
+                  thinkingHandler.finalize();
                 }
                 contentText += evt.delta;
                 // Insert rendered text before cursor
@@ -1958,6 +2042,7 @@
               }
 
               if (evt.type === "done") {
+                thinkingHandler.finalize();
                 if (cursorEl) cursorEl.remove();
                 if (bubble) bubble.innerHTML = renderMarkdown(contentText);
                 // Add TTS on assistant
@@ -2021,11 +2106,28 @@
         } else if (m.role === "assistant") {
           const wrap = createAssistantMessage(m.ts);
           if (m.thinking) {
-            const tb = createThinkBlock();
-            tb.querySelector(".think-content").textContent = m.thinking;
-            tb.querySelector(".think-label").textContent = "Thought process";
-            tb.classList.remove("open");
-            wrap.appendChild(tb);
+            const sections = m.thinking.split(/(?=\[(?:Initial|Tool \d+|Response)\]\n)/g);
+            if (sections.length > 1) {
+              sections.forEach((sec) => {
+                const mLabel = sec.match(/^\[(Initial|Tool \d+|Response)\]\n([\s\S]*)$/);
+                if (mLabel) {
+                  const tb = createThinkBlock(mLabel[1]);
+                  tb.querySelector(".think-content").textContent = mLabel[2].trim();
+                  tb.classList.remove("open");
+                  wrap.appendChild(tb);
+                } else if (sec.trim()) {
+                  const tb = createThinkBlock("Thought process");
+                  tb.querySelector(".think-content").textContent = sec.trim();
+                  tb.classList.remove("open");
+                  wrap.appendChild(tb);
+                }
+              });
+            } else {
+              const tb = createThinkBlock("Thought process");
+              tb.querySelector(".think-content").textContent = m.thinking;
+              tb.classList.remove("open");
+              wrap.appendChild(tb);
+            }
           }
           const b = document.createElement("div");
           b.className = "bubble";
@@ -2376,8 +2478,7 @@
         }
 
         addActivity("✏️", "Resubmitting edited message…");
-        let thinkBlock = null;
-        let thinkContent = null;
+        const thinkingHandler = createThinkingHandler(wrap, () => assistantBubble, addActivity);
         let assistantBubble = null;
         let contentText = "";
         let cursorEl = null;
@@ -2418,19 +2519,7 @@
               }
 
               if (evt.type === "thinking") {
-                if (!thinkBlock) {
-                  addActivity("🧠", "Model thinking…");
-                  thinkBlock = createThinkBlock();
-                  thinkContent = thinkBlock.querySelector(".think-content");
-                  if (assistantBubble) {
-                    wrap.insertBefore(thinkBlock, assistantBubble);
-                  } else {
-                    wrap.appendChild(thinkBlock);
-                  }
-                }
-                thinkContent.textContent += evt.delta;
-                thinkContent.scrollTop = thinkContent.scrollHeight;
-                scrollBottom();
+                thinkingHandler.handleDelta(evt.delta);
               }
 
               if (evt.type === "tool") {
@@ -2484,10 +2573,7 @@
                   cursorEl.className = "cursor";
                   assistantBubble.appendChild(cursorEl);
                   wrap.appendChild(assistantBubble);
-                  if (thinkBlock) {
-                    thinkBlock.querySelector(".think-label").textContent = "Thought process";
-                    thinkBlock.classList.remove("open");
-                  }
+                  thinkingHandler.finalize();
                 }
                 contentText += evt.delta;
                 assistantBubble.innerHTML = renderMarkdown(contentText);
@@ -2501,6 +2587,7 @@
               }
 
               if (evt.type === "done") {
+                thinkingHandler.finalize();
                 if (cursorEl) cursorEl.remove();
                 if (assistantBubble) assistantBubble.innerHTML = renderMarkdown(contentText);
                 const actions = document.createElement("div");
@@ -2585,8 +2672,7 @@
         }
 
         addActivity("🔄", "Regenerating response…");
-        let thinkBlock = null;
-        let thinkContent = null;
+        const thinkingHandler = createThinkingHandler(wrap, () => bubble, addActivity);
         let bubble = null;
         let contentText = "";
         let cursorEl = null;
@@ -2624,16 +2710,7 @@
               if (evt.type === "status") addActivity(null, evt.msg);
 
               if (evt.type === "thinking") {
-                if (!thinkBlock) {
-                  addActivity("🧠", "Model thinking…");
-                  thinkBlock = createThinkBlock();
-                  thinkContent = thinkBlock.querySelector(".think-content");
-                  if (bubble) wrap.insertBefore(thinkBlock, bubble);
-                  else wrap.appendChild(thinkBlock);
-                }
-                thinkContent.textContent += evt.delta;
-                thinkContent.scrollTop = thinkContent.scrollHeight;
-                scrollBottom();
+                thinkingHandler.handleDelta(evt.delta);
               }
 
               if (evt.type === "tool") {
@@ -2675,10 +2752,7 @@
                   cursorEl.className = "cursor";
                   bubble.appendChild(cursorEl);
                   wrap.appendChild(bubble);
-                  if (thinkBlock) {
-                    thinkBlock.querySelector(".think-label").textContent = "Thought process";
-                    thinkBlock.classList.remove("open");
-                  }
+                  thinkingHandler.finalize();
                 }
                 contentText += evt.delta;
                 bubble.innerHTML = renderMarkdown(contentText);
@@ -2692,6 +2766,7 @@
               }
 
               if (evt.type === "done") {
+                thinkingHandler.finalize();
                 if (cursorEl) cursorEl.remove();
                 if (bubble) bubble.innerHTML = renderMarkdown(contentText);
                 const actions = document.createElement("div");
@@ -2827,6 +2902,25 @@
         localStorage.setItem("autoSpeech", _autoSpeech);
         _applyAutoSpeechUI();
       }
+
+      // ---------------------------------------------------------------------------
+      // Thinking effort chips
+      // ---------------------------------------------------------------------------
+      let selectedEffort = null; // null = Auto
+
+      function initEffortChips() {
+        const chips = document.querySelectorAll(".effort-chip");
+        chips.forEach((chip) => {
+          chip.addEventListener("click", () => {
+            chips.forEach((c) => c.classList.remove("active"));
+            chip.classList.add("active");
+            const val = chip.dataset.effort;
+            selectedEffort = val === "null" ? null : val;
+          });
+        });
+      }
+
+      initEffortChips();
 
       // Apply saved state on load
       _applyAutoSpeechUI();
