@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-11 20:10:00
+date modified: 2026-08-15 17:32:45
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
@@ -34,6 +34,17 @@ This document is the single source of truth for the custom REST and Server-Sent 
 * **Purpose**: Updates the content of the latest user message in SQLite, deletes the previous assistant response, and streams a fresh response for the corrected prompt.
 * **Payload**: JSON object `{"message": "<updated text>"}`
 * **Returns**: Streamed SSE assistant message.
+
+### `GET /chat/stream/{stream_id}`
+* **Purpose**: Reconnects to an in-memory streaming session (`ActiveStreamSession`) with cursor replay.
+* **Parameters**: Query parameter `after` (integer, default `-1`).
+* **Returns**: Streamed Server-Sent Events (SSE) starting from chunk `after + 1` with sequential `id: <int>` lines, live event forwarding, and keep-alive heartbeats until completion or disconnection.
+
+### `GET /chat/active_stream`
+* **Purpose**: Queries whether an assistant generation turn is currently active/in-flight on the server.
+* **Returns**: JSON object:
+  * Active: `{"active": true, "stream_id": "<id>", "status": "running", "chunks_count": <int>, "created_at": <float>}`
+  * Inactive: `{"active": false}`
 
 ### `GET /latest_message_id`
 * **Purpose**: Mobile connection recovery helper. Polled on tab visibility changes to compare the UI's last message ID against the database, triggering an automatic history recovery if there is a mismatch.
