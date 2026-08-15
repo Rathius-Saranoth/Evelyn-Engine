@@ -9,4 +9,5 @@ requests>=2.32,<3.0          # HTTP client — vault indexer (sync calls)
 ddgs>=9.0                    # DuckDuckGo search — web_search tool
 PyMuPDF>=1.27,<2.0           # PDF text extraction — extract_pdf_library.py
 trafilatura>=2.0             # Web page text extraction — web_reader tool
+watchdog>=6.0,<7.0           # Debounced filesystem watcher — obsidian_vault_watcher.py
 

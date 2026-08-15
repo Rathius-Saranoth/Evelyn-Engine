@@ -59,6 +59,7 @@ graph TD
         IngestVault["[[ingest_obsidian_knowledge.py]] (Full-Vault)"]
         VaultIndexer["[[vault_indexer.py]]"]
         SyncFull["[[sync_full_vault_to_chroma.py]] (Reset & Sync)"]
+        VaultWatcher["[[obsidian_vault_watcher.py]] (Real-Time Watchdog)"]
     end
     
     Server --->|Trigger Task| Refresh
@@ -68,6 +69,8 @@ graph TD
     IngestVault <-->|Write Context| MemoryDB
     IngestVault <-->|Full-Text Vector Index| ChromaDB
     SyncFull --->|Reset & Re-index| ChromaDB
+    VaultWatcher --->|Debounced Trigger| IngestVault
+    VaultWatcher --->|Update Metadata| VaultDB
     
     %% Deep Research Subsystem
     subgraph DeepResearch [Deep Research System]
@@ -84,8 +87,18 @@ graph TD
     ResearchEngine -.->|Reads Templates| Prompts
     
     %% External Ecosystem
-    Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"] <-->|Read / Sync| IngestVault
-    Obsidian <-->|Vector Base| IngestGist
+    subgraph SyncMesh [Multi-Device Syncthing Mesh]
+        WinNode["Windows Node (workstation-pc)"]
+        MobileNode["Android Node (pixel-9-pro)"]
+        TabNode["Tablet Node (lenovo-tab)"]
+        SyncthingServer["Syncthing Daemon (sanctum:22000)"]
+    end
+    WinNode <== Tailscale P2P ==> SyncthingServer
+    MobileNode <== Tailscale P2P ==> SyncthingServer
+    TabNode <== Tailscale P2P ==> SyncthingServer
+    SyncthingServer <-->|Sync Files| Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"]
+    Obsidian <-->|Inotify Watch| VaultWatcher
+    Obsidian <-->|Read / Sync| IngestVault
     ResearchEngine -->|Save Report| Obsidian
 
     %% Idle Background Agents
