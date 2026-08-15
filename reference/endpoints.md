@@ -15,15 +15,16 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `GET /status`
 * **Purpose**: Performs a quick health check on the server runtime and connection statuses of downstream local services (Ollama, TTS server, Image server).
-* **Returns**: JSON object showing service statuses, active model parameters, and the active context limit (`num_ctx`).
+* **Returns**: JSON object showing service statuses, active model parameters, thinking effort settings (`think`, `think_tool_loop`, `think_self_elect`), and active context limit (`num_ctx`).
 
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.
+* **Payload**: JSON object `{"message": "<user text>", "think": "<optional effort level>"}` where `think` can be `"low"`, `"medium"`, `"high"`, `"max"`, or `false` (overrides heuristic/self-election when provided).
 * **Flow**:
   1. Runs [[query_reformulator.py]] for conversational keywords.
   2. Executes semantic vector search via [[chroma_rag.py]] across `evelyn_memory` full-text index using `BAAI/bge-large-en-v1.5` (1024-dim, 1,600-char chunks) with priority score boosting (`rag_priority: high` multiplier 0.75).
   3. Query matches dense facts from [[context_manager.py]].
-  4. Returns a stream of **Server-Sent Events (SSE)** including the thinking trace and the dynamic tool-call updates.
+  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** with phase labels (`[Initial]`, `[Tool N]`, `[Response]`), dynamic tool-call updates, and per-message telemetry logging.
 
 ### `POST /regenerate`
 * **Purpose**: Triggers a regeneration of the latest response in the chat chain.
