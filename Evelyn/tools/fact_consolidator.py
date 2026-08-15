@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-08-02 12:17:22
+# date modified: 2026-08-15 11:30:39
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -31,6 +31,8 @@ import importlib
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -144,6 +146,8 @@ def _set_status_in_server(
     summary: str | None = None,
     sub_status: dict | None = None,
     diagnostics: dict | None = None,
+    phase: str | None = None,
+    items_processed: int = 0,
 ) -> None:
     """Register or clear consolidator status in the server's central registry.
 
@@ -155,10 +159,12 @@ def _set_status_in_server(
         summary: Optional completion summary text.
         sub_status: Optional sub-status metrics dict.
         diagnostics: Optional diagnostic details dict.
+        phase: Optional phase indicator string.
+        items_processed: Optional count of processed items.
     """
     import task_manager
     if status == "running":
-        task_manager.set_running("consolidator", sub_status=sub_status, diagnostics=diagnostics)
+        task_manager.set_running("consolidator", phase=phase, sub_status=sub_status, diagnostics=diagnostics)
     else:
         task_manager.clear_running(
             "consolidator",
@@ -167,6 +173,7 @@ def _set_status_in_server(
             summary=summary,
             sub_status=sub_status,
             diagnostics=diagnostics,
+            items_processed=items_processed,
         )
 
 
@@ -401,7 +408,7 @@ async def _call_ollama(
                 aiter = resp.aiter_lines()
                 while True:
                     try:
-                        line = await asyncio.wait_for(aiter.__anext__(), timeout=30.0)
+                        line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
                     except StopAsyncIteration:
                         break
                     if not line.strip():
@@ -440,7 +447,10 @@ async def _call_ollama(
         )
         return ""
     except Exception as e:
-        print(f"[CONSOLIDATOR] Ollama call failed: {type(e).__name__}: {e}", flush=True)
+        err_cls = type(e).__name__
+        err_msg = str(e).strip()
+        formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
+        print(f"[CONSOLIDATOR] Ollama call failed: {formatted_err}", flush=True)
         return ""
 
 
@@ -513,7 +523,7 @@ async def run_consolidation():
 
     _consolidating = True
     completed = False
-    _set_status_in_server("running")
+    _set_status_in_server("running", phase="initializing")
     try:
         await _do_consolidation()
         completed = True
@@ -521,12 +531,13 @@ async def run_consolidation():
         print("[CONSOLIDATOR] Cancelled — cooldown not applied.", flush=True)
         _set_status_in_server("cancelled")
     except Exception as e:
-        print(f"[CONSOLIDATOR ERROR] {type(e).__name__}: {e}", flush=True)
-        _set_status_in_server("error", error=f"{type(e).__name__}: {e}")
+        err_cls = type(e).__name__
+        err_msg = str(e).strip()
+        formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
+        print(f"[CONSOLIDATOR ERROR] {formatted_err}", flush=True)
+        _set_status_in_server("error", error=formatted_err)
     finally:
         _consolidating = False
-        if completed:
-            _set_status_in_server("idle")
         # Only lock the cooldown on a successful (non-cancelled) run
         if completed:
             _last_run_ts = task_manager.save_last_run_ts("consolidator")
@@ -1168,6 +1179,20 @@ async def find_consolidation_candidates(
             # Single entry — nothing to consolidate; don't count against scan limit
             continue
 
+        _set_status_in_server(
+            "running",
+            phase=f"auditing_{category}",
+            sub_status={
+                "active_category": category,
+                "scanned_groups": groups_scanned,
+                "total_groups": total_groups,
+                "total_records": len(records),
+                "clusters_found": len(clusters),
+                "recats_found": len(recat_items),
+                "scan_state": _category_scan_state,
+            },
+        )
+
         groups_scanned += 1
         new_clusters, new_recats = await _detect_in_group(
             category, group_records, cat00
@@ -1570,7 +1595,7 @@ async def _do_consolidation():
 
     # Step 4 — Write consolidation proposals via LLM
     proposals_written = proposals_skipped = 0
-    for cluster in clusters:
+    for idx, cluster in enumerate(clusters):
         # Skip if any source file in this cluster already has an open proposal.
         cluster_ids = [r["id"] for r in cluster["records"]]
         if memory_db.has_pending_proposal_for(cluster_ids):
@@ -1581,6 +1606,18 @@ async def _do_consolidation():
             )
             proposals_skipped += 1
             continue
+
+        _set_status_in_server(
+            "running",
+            phase=f"synthesizing_{cluster['category']}",
+            sub_status={
+                "active_category": cluster["category"],
+                "clusters_found": len(clusters),
+                "proposals_written": proposals_written,
+                "recats_written": recats_written,
+                "scan_state": _category_scan_state,
+            },
+        )
             
         result = await generate_consolidation_proposal(cluster)
         if result:
@@ -1590,6 +1627,24 @@ async def _do_consolidation():
     _save_scan_state()
 
     elapsed = time.time() - start
+    summary_text = (
+        f"Consolidated {len(records)} entries. "
+        f"Proposals: {proposals_written} written, {proposals_skipped} skipped. "
+        f"Recats: {recats_written} auto-applied."
+    )
+    _set_status_in_server(
+        "idle",
+        summary=summary_text,
+        sub_status={
+            "active_category": None,
+            "total_records": len(records),
+            "clusters_found": len(clusters),
+            "proposals_written": proposals_written,
+            "recats_written": recats_written,
+            "scan_state": _category_scan_state,
+        },
+        items_processed=len(records),
+    )
     print(
         f"[CONSOLIDATOR] Done. {proposals_written} consolidation proposal(s) written, "
         f"{proposals_skipped} skipped (already pending). "

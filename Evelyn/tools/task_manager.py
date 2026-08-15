@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-11 06:47:08
+# date modified: 2026-08-15 11:54:52
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -237,7 +237,8 @@ def save_persistent_state() -> None:
     try:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
         persist_data = {
-            k: v for k, v in tasks.items() if not k.startswith("task_")
+            k: v for k, v in tasks.items()
+            if not k.startswith("task_") and not k.startswith("test_")
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(persist_data, f, indent=2)
@@ -246,30 +247,68 @@ def save_persistent_state() -> None:
 
 
 def load_persistent_state() -> None:
-    """Load persistent heavy task state from disk into server memory on startup."""
+    """Load persistent heavy task state from disk and SQLite history into server memory on startup."""
     import json
     import os
     tasks = _get_background_tasks()
     if tasks is None:
         return
-    if not os.path.exists(STATE_FILE):
-        return
+
+    # 1. Load state file from disk if present
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                for key, val in data.items():
+                    if isinstance(val, dict) and not key.startswith("test_"):
+                        if val.get("status") in RUNNING_STATUSES or val.get("status") == "running":
+                            val["status"] = "idle"
+                        tasks[key] = val
+                print(f"[TASK MANAGER] Restored heavy tasks state from disk ({len(tasks)} tasks).", flush=True)
+        except Exception as e:
+            print(f"[TASK MANAGER] Error loading persistent state: {e}", flush=True)
+
+    # 2. Reconcile missing / uninitialized task records from SQLite heavy_task_history
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            for key, val in data.items():
-                if isinstance(val, dict):
-                    if val.get("status") in RUNNING_STATUSES or val.get("status") == "running":
-                        val["status"] = "idle"
-                    tasks[key] = val
-            print(f"[TASK MANAGER] Restored heavy tasks state from disk ({len(data)} tasks).", flush=True)
+        conn = _get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT task_name, MAX(finished_at) as last_fin, elapsed_seconds, status, error, items_processed
+                FROM heavy_task_history
+                WHERE task_name NOT LIKE 'test_%'
+                GROUP BY task_name
+            """)
+            rows = cur.fetchall()
+            for r in rows:
+                t_name = r["task_name"]
+                t_fin = r["last_fin"]
+                if t_name not in tasks:
+                    tasks[t_name] = {
+                        "status": "idle" if r["status"] in RUNNING_STATUSES or r["status"] == "running" else r["status"],
+                        "started_at": t_fin,
+                        "finished_at": t_fin,
+                        "last_run_at": t_fin,
+                        "elapsed_seconds": r["elapsed_seconds"],
+                        "error": r["error"],
+                    }
+                else:
+                    if not tasks[t_name].get("last_run_at") and t_fin:
+                        tasks[t_name]["last_run_at"] = t_fin
+                    if not tasks[t_name].get("finished_at") and t_fin:
+                        tasks[t_name]["finished_at"] = t_fin
+                    if tasks[t_name].get("elapsed_seconds") is None and r["elapsed_seconds"] is not None:
+                        tasks[t_name]["elapsed_seconds"] = r["elapsed_seconds"]
+            save_persistent_state()
+        finally:
+            conn.close()
     except Exception as e:
-        print(f"[TASK MANAGER] Error loading persistent state: {e}", flush=True)
+        print(f"[TASK MANAGER] Error reconciling history from DB: {e}", flush=True)
 
 
 def get_last_run_ts(name: str, default: float = 0.0) -> float:
-    """Return the last_run_at timestamp for a named heavy task from memory or disk.
+    """Return the last_run_at timestamp for a named heavy task from memory, disk, or SQLite history.
 
     Args:
         name: Task key (e.g. "consolidator", "extractor", "procedure_consolidator", "profile_evolver").
@@ -296,6 +335,22 @@ def get_last_run_ts(name: str, default: float = 0.0) -> float:
                     return float(ts)
         except Exception:
             pass
+
+    try:
+        conn = _get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT MAX(finished_at) FROM heavy_task_history WHERE task_name = ?",
+                (name,)
+            )
+            row = cur.fetchone()
+            if row and row[0] and row[0] > 0:
+                return float(row[0])
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
     return default
 
@@ -465,6 +520,14 @@ def clear_running(
     started_at = existing.get("started_at")
     elapsed = round(now - started_at, 1) if started_at else None
 
+    # Sanitize and normalize error string
+    clean_error = None
+    raw_error = error if error is not None else (existing.get("error") if status == "error" else None)
+    if raw_error:
+        s = str(raw_error).rstrip(": ").strip()
+        if s:
+            clean_error = s
+
     # Record history to SQLite DB if valid duration
     if started_at and elapsed is not None:
         record_task_history(
@@ -473,7 +536,7 @@ def clear_running(
             finished_at=now,
             elapsed_seconds=elapsed,
             status=status,
-            error=error or existing.get("error"),
+            error=clean_error,
             items_processed=items_processed,
         )
 
@@ -483,7 +546,7 @@ def clear_running(
         "finished_at": now,
         "last_run_at": now,
         "elapsed_seconds": elapsed,
-        "error": error or existing.get("error"),
+        "error": clean_error,
         "phase": None,
         "summary": summary or existing.get("summary"),
         "sub_status": sub_status if sub_status is not None else existing.get("sub_status"),

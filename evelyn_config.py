@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-08 07:20:00
+# date modified: 2026-08-15 12:07:07
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -278,7 +278,7 @@ FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
 FACT_EXTRACTION_BATCH_SIZE = 20
 
 # Per-run Ollama call timeout (seconds).
-FACT_EXTRACTION_TIMEOUT = 90
+FACT_EXTRACTION_TIMEOUT = 180
 
 # Maximum number of sequential batches allowed per continuous idle session.
 # Caps worst-case extraction time to ~N × (2 × timeout) so a large backlog
