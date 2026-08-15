@@ -1037,6 +1037,10 @@ tags:
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       }
 
+      function isTouchDevice() {
+        return window.matchMedia("(pointer: coarse)").matches;
+      }
+
       // applyHighlighting — CSS-only token coloring on already-HTML-escaped code.
       // Runs on complete code blocks only (never on partial streaming text).
       // Order: strings → comments → keywords → numbers to minimise collision risk.
@@ -2530,9 +2534,14 @@ tags:
         textarea.onkeydown = (e) => {
           if (e.key === "Escape") {
             closeEditBox();
-          } else if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            saveBtn.click();
+          } else if (e.key === "Enter") {
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+              e.preventDefault();
+              saveBtn.click();
+            } else if (!e.shiftKey && !isTouchDevice()) {
+              e.preventDefault();
+              saveBtn.click();
+            }
           }
         };
 
@@ -2877,9 +2886,17 @@ tags:
       _applyAutoSpeechUI();
 
       document.getElementById("input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          sendMessage();
+        if (e.key === "Enter") {
+          // On mobile/touch devices, plain Enter inserts a newline and Send button is tapped.
+          // On desktop keyboards, plain Enter sends and Shift+Enter inserts a newline.
+          // Ctrl+Enter or Cmd+Enter will always send on any device.
+          if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+          } else if (!e.shiftKey && !isTouchDevice()) {
+            e.preventDefault();
+            sendMessage();
+          }
         }
       });
       document.getElementById("input").addEventListener("input", function () {
