@@ -1,5 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
+# date modified: 2026-08-15 11:30:47
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -83,16 +84,26 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
         _procedure_task = asyncio.current_task()
         result = await _do_procedure_consolidation()
         status_res = result.get("status", "idle") if isinstance(result, dict) else "idle"
-        task_manager.clear_running("procedure_consolidator", status=status_res)
+        summary_text = f"Audited {result.get('total_procedures', 0)} procedures. Created {result.get('proposals_created', 0)} merge proposal(s)."
+        task_manager.clear_running(
+            "procedure_consolidator",
+            status="idle",
+            summary=summary_text,
+            sub_status=result.get("sub_status"),
+            items_processed=result.get("total_procedures", 0),
+        )
         return result
     except asyncio.CancelledError:
         print("[PROC_CONSOLIDATOR] Procedure consolidation pass cancelled", flush=True)
         task_manager.clear_running("procedure_consolidator", status="cancelled")
         return {"status": "cancelled"}
     except Exception as e:
-        print(f"[PROC_CONSOLIDATOR ERROR] {type(e).__name__}: {e}", flush=True)
-        task_manager.clear_running("procedure_consolidator", status="error", error=str(e))
-        return {"status": "error", "error": str(e)}
+        err_cls = type(e).__name__
+        err_msg = str(e).strip()
+        formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
+        print(f"[PROC_CONSOLIDATOR ERROR] {formatted_err}", flush=True)
+        task_manager.clear_running("procedure_consolidator", status="error", error=formatted_err)
+        return {"status": "error", "error": formatted_err}
     finally:
         _consolidating = False
         _procedure_task = None
@@ -174,20 +185,52 @@ def find_procedure_clusters() -> list[list[dict]]:
 
 async def _do_procedure_consolidation() -> dict:
     """Internal implementation for finding procedure clusters and creating proposals."""
+    import memory_db
+    import task_manager
+    live_procs = memory_db.get_all_procedures(status="live")
+    total_procs = len(live_procs)
+
     clusters = find_procedure_clusters()
     if not clusters:
         print("[PROC_CONSOLIDATOR] No procedure clusters found for consolidation.", flush=True)
-        return {"status": "success", "proposals_created": 0}
+        return {
+            "status": "success",
+            "proposals_created": 0,
+            "total_procedures": total_procs,
+            "sub_status": {
+                "total_procedures": total_procs,
+                "clusters_found": 0,
+                "proposals_created": 0,
+            },
+        }
 
     proposals_created = 0
     print(f"[PROC_CONSOLIDATOR] Found {len(clusters)} procedure cluster(s) to consolidate.", flush=True)
 
-    for cluster in clusters:
+    for idx, cluster in enumerate(clusters):
+        task_manager.set_running(
+            "procedure_consolidator",
+            phase=f"Merging cluster {idx + 1}/{len(clusters)} ({len(cluster)} procedures)",
+            sub_status={
+                "total_procedures": total_procs,
+                "clusters_found": len(clusters),
+                "proposals_created": proposals_created,
+            },
+        )
         proposal_id = await generate_procedure_merge_proposal(cluster)
         if proposal_id:
             proposals_created += 1
 
-    return {"status": "success", "proposals_created": proposals_created}
+    return {
+        "status": "success",
+        "proposals_created": proposals_created,
+        "total_procedures": total_procs,
+        "sub_status": {
+            "total_procedures": total_procs,
+            "clusters_found": len(clusters),
+            "proposals_created": proposals_created,
+        },
+    }
 
 
 async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int]:
@@ -247,7 +290,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
             "options": {"temperature": 0.2, "num_ctx": cfg.NUM_CTX}
         }
 
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code != 200:
                 print(f"[PROC_CONSOLIDATOR ERROR] Ollama call failed with status {resp.status_code}", flush=True)

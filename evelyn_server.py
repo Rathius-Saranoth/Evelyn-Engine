@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-10 19:01:48
+# date modified: 2026-08-15 11:31:24
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1229,6 +1229,7 @@ async def _process_chat_background(
                         continue          # _state is internal bookkeeping only
                     if d.get("type") == "thinking" and not _label_sent:
                         _label_sent = True
+                        thinking_buf += "[Response]\n"
                         await queue.put(
                             "data: " + json.dumps({"type": "thinking", "delta": "[Response]\n"}) + "\n\n"
                         )
@@ -1312,6 +1313,7 @@ async def _process_chat_background(
 
         if cfg.SHOW_TOOL_LOOP_THINKING and pass1_thinking:
             await put("thinking", delta=f"[Initial]\n{pass1_thinking}")
+            thinking_buf += f"[Initial]\n{pass1_thinking}\n\n"
 
         # Self-election: strip routing hint from content before it enters message
         # history (primary leak-prevention; _stream_content has a belt-and-suspenders strip).
@@ -1332,8 +1334,9 @@ async def _process_chat_background(
         if not tool_calls:
             metrics_dict["think_effort"] = str(think_effort)
             metrics_dict["think_source"] = think_source
+            has_prior_thinking = bool(pass1_thinking and cfg.SHOW_TOOL_LOOP_THINKING)
             await drain_stream(_stream_content(messages, think_effort=think_effort),
-                               response_label=False)
+                               response_label=has_prior_thinking)
 
         else:
             # ------------------------------------------------------------------
@@ -1451,6 +1454,7 @@ async def _process_chat_background(
 
                 if cfg.SHOW_TOOL_LOOP_THINKING and followup_thinking:
                     await put("thinking", delta=f"[Tool {tool_round}]\n{followup_thinking}")
+                    thinking_buf += f"[Tool {tool_round}]\n{followup_thinking}\n\n"
 
                 if not current_tool_calls:
                     dlog("Model produced no more tool calls. Exiting tool loop.")
@@ -1478,8 +1482,9 @@ async def _process_chat_background(
             metrics_dict["think_source"] = think_source
 
             # Final streaming response after tool loop
+            has_prior_thinking = bool(thinking_buf.strip())
             await drain_stream(_stream_content(messages, think_effort=think_effort),
-                               response_label=True)
+                               response_label=has_prior_thinking)
 
     finally:
         # Always commit to DB — independent of whether SSE pipe is alive
@@ -1490,7 +1495,7 @@ async def _process_chat_background(
             update_message(
                 assistant_row_id,
                 final_content,
-                thinking=thinking_buf if thinking_buf else None,
+                thinking=thinking_buf.strip() if thinking_buf.strip() else None,
                 tools_used=tools_str,
                 tool_metadata=tools_meta_str
             )
@@ -3318,16 +3323,48 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 }
             elif key == "consolidator":
                 import json, os
-                scan_path = str(BASE_DIR / "data" / "evelyn_scan_state.json")
+                scan_path = str(BASE_DIR / "data" / "evelyn_consolidation_offsets.json")
                 scan_st = {}
                 if os.path.exists(scan_path):
                     with open(scan_path, "r", encoding="utf-8") as sf:
                         scan_st = json.load(sf)
                 active_cat = task_data.get("phase") if status == "running" else None
-                sub_status = sub_status or {
-                    "scan_state": scan_st.get("categories", {}),
-                    "active_category": active_cat
-                }
+                if not sub_status:
+                    sub_status = {
+                        "scan_state": scan_st,
+                        "active_category": active_cat
+                    }
+                else:
+                    if "scan_state" not in sub_status or not sub_status["scan_state"]:
+                        sub_status["scan_state"] = scan_st
+                    if "active_category" not in sub_status:
+                        sub_status["active_category"] = active_cat
+            elif key == "procedure_consolidator":
+                import sqlite3, os
+                mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
+                proc_cnt = 0
+                pending_proposals = 0
+                if os.path.exists(mdb):
+                    conn = sqlite3.connect(mdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM procedures WHERE status='live'")
+                        proc_cnt = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM memory_proposals WHERE type='procedure_merge' AND status='pending'")
+                        pending_proposals = cur.fetchone()[0]
+                    except Exception:
+                        pass
+                    finally:
+                        conn.close()
+                if not sub_status:
+                    sub_status = {
+                        "total_procedures": proc_cnt,
+                        "pending_proposals": pending_proposals,
+                        "clusters_found": 0,
+                    }
+                else:
+                    sub_status.setdefault("total_procedures", proc_cnt)
+                    sub_status.setdefault("pending_proposals", pending_proposals)
             elif key == "tag_librarian":
                 import sqlite3, os
                 vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
