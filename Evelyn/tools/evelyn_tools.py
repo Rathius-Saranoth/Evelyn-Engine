@@ -1560,6 +1560,35 @@ def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", 
 #   of whether it's in the model schema.
 # ===========================================================================
 
+# TOOL_THINK_EFFORT — per-tool thinking effort for the streaming response pass.
+# Applied when that tool is invoked and no UI override is active.
+# Priority chain: UI override > tool escalation > self-election > heuristic > config default.
+#
+# Rationale:
+#   write_journal_entry  → "high":   cornerstone reflection documents
+#   start_research       → "high":   kicking off deep research warrants strong intent
+#   web_search           → "medium": synthesis takes thought
+#   search_history       → "low":    pure retrieval, factual response
+#   calendar ops         → "low":    simple confirmation responses
+#   generate_image       → "medium": creative framing
+#   run/read/write_file  → "medium": context-dependent
+TOOL_THINK_EFFORT: dict[str, str] = {
+    "write_journal_entry":   "high",
+    "generate_image":        "medium",
+    "web_search":            "medium",
+    "start_research":        "high",
+    "guide_research":        "medium",
+    "check_new_research":    "medium",
+    "search_history":        "low",
+    "create_calendar_event": "low",
+    "delete_calendar_event": "low",
+    "sync_google_calendar":  "low",
+    "get_agenda":            "low",
+    "run_command":           "medium",
+    "read_file":             "medium",
+    "write_file":            "medium",
+}
+
 MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -1587,7 +1616,8 @@ MODEL_TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": (
                             "The core body text. Reflect from Evelyn's POV (attribute Ricky's actions to him, e.g., 'Ricky took a nap'). "
-                            "Cover morning, afternoon, and evening events in order, if available. "
+                            "Cover morning, afternoon, and evening events of the CURRENT day in order. "
+                            "Summarize ONLY events occurring after the latest '--- Date Changed ---' marker; strictly exclude prior-day events. "
                             "Use [[wiki-links]] for entities and #tags for abstract concepts."
                         ),
                     },
