@@ -25,7 +25,16 @@ if hasattr(time, "tzset"):
 OLLAMA_URL = "http://localhost:11434"
 MODEL_NAME = "gemma4:12b"
 NUM_CTX = 32768
-THINK = True  # Pass think:true to Ollama for native reasoning tokens
+
+# Thinking effort for the final streaming response (Evelyn's visible reply).
+# Overridden per-message by heuristic classifier, model self-election, tool
+# escalation, or UI chip (in ascending priority).
+# Options: False (disabled), "low", "medium", "high", "max"
+#   "low"    — brief sanity-check, fast  (casual sign-offs, simple acks)
+#   "medium" — standard conversational reasoning  ← DEFAULT
+#   "high"   — emotional depth, multi-step planning, complex questions
+#   "max"    — deep problem solving, research synthesis (use sparingly)
+THINK = "medium"
 
 # =============================================================================
 # Model Parameters  (passed to Ollama's "options" dict on every request)
@@ -93,12 +102,10 @@ MAX_HISTORY_MESSAGES = 40
 # cap is hit, then the streaming response pass runs.
 MAX_TOOL_ROUNDS = 5
 
-# Whether to enable native reasoning (think=True) for tool-loop rounds.
-# When True, the model reasons at each decision point — evaluating tool results
-# and deciding whether the task is complete before calling the next tool.
-# Costs additional latency per round (~30-60s) but enables proactive, multi-step
-# agentic behavior. Set to False to revert to fast no-think routing.
-THINK_TOOL_LOOP = True
+# Thinking effort for ALL tool-loop routing rounds (tool detection + result
+# evaluation). These rounds make binary routing decisions only — "low" is
+# appropriate and keeps latency low. Set to False to disable entirely.
+THINK_TOOL_LOOP = "low"
 
 # Token budget for each tool-loop reasoning round. Needs sufficient headroom
 # for Gemma 4 native thinking tokens plus tool call generation.
@@ -109,6 +116,11 @@ TOOL_LOOP_NUM_PREDICT = 4096
 # in the UI. When False (default), reasoning is internal only and only the
 # final response's thinking block is shown.
 SHOW_TOOL_LOOP_THINKING = True
+
+# When True, Evelyn may self-elect her response effort during Tool Round 0 by
+# including {"requested_effort":"X"} in her output. This overrides the heuristic
+# classifier but not a UI chip override. Set to False to disable self-election.
+THINK_SELF_ELECT = True
 
 # --- Context Summarizer (DEPRECATED & DISABLED) ---
 # Context summarizer has been removed to eliminate prompt clutter and temporal
