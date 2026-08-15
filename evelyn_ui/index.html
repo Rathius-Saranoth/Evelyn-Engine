@@ -1,3 +1,9 @@
+---
+title: index.html
+date created: 2026-08-15 17:26:30
+date modified: 2026-08-15 17:26:30
+tags: 
+---
 <!doctype html>
 <html lang="en">
   <head>
@@ -1714,22 +1720,234 @@
       }
 
       // ---------------------------------------------------------------------------
-      // SSE streaming chat
+      // ---------------------------------------------------------------------------
+      // SSE streaming chat & session state
       // ---------------------------------------------------------------------------
       let isStreaming = false;
 
+      let currentStream = {
+        id: null,
+        lastChunkId: -1,
+        wrap: null,
+        userMsgDiv: null,
+        thinkingHandler: null,
+        addActivity: null,
+        removeActivity: null,
+        bubble: null,
+        cursorEl: null,
+        actLog: null,
+        actRemoved: false,
+        contentText: "",
+        usedTools: [],
+        isReading: false,
+        isDone: false,
+      };
+
+      function finishStreamingUI() {
+        isStreaming = false;
+        document.getElementById("send-btn").disabled = false;
+        document.querySelector(".avatar").classList.remove("active");
+        const input = document.getElementById("input");
+        if (input) input.focus();
+        updateDevUIBadge();
+      }
+
+      function handleStreamEvent(evt, chunkId) {
+        if (chunkId !== undefined && chunkId !== null && !isNaN(chunkId)) {
+          currentStream.lastChunkId = chunkId;
+        }
+
+        if (evt.type === "stream_session") {
+          currentStream.id = evt.stream_id;
+          sessionStorage.setItem("active_stream_id", evt.stream_id);
+          return;
+        }
+
+        if (evt.type === "status") {
+          if (currentStream.addActivity) currentStream.addActivity(null, evt.msg);
+          setStatus(evt.msg);
+          return;
+        }
+
+        if (evt.type === "thinking") {
+          if (currentStream.thinkingHandler) currentStream.thinkingHandler.handleDelta(evt.delta);
+          return;
+        }
+
+        if (evt.type === "tool") {
+          const toolLabels = {
+            search_vault: "Searching vault",
+            recall_specific_memory: "Reading memory",
+            read_journal: "Reading journal",
+            read_journal_entry: "Reading journal",
+            read_recent_journal_entries: "Reviewing recent journal",
+            write_journal_entry: "Writing journal entry",
+            log_context_fact: "Logging context fact",
+            update_context_fact: "Updating context fact",
+            generate_image: "Generating image",
+            sync_context_memory: "Syncing memory",
+            run_command: "Running command",
+            read_file: "Reading file",
+            write_file: "Writing file",
+          };
+          if (currentStream.addActivity) {
+            currentStream.addActivity("⚙️", toolLabels[evt.name] || evt.name.replace(/_/g, " "));
+          }
+          setStatus((toolLabels[evt.name] || evt.name) + "…");
+          currentStream.usedTools.push(evt.name);
+          scrollBottom();
+          return;
+        }
+
+        if (evt.type === "tool_data") {
+          const idx = currentStream.usedTools.indexOf(evt.name);
+          if (idx !== -1) {
+            currentStream.usedTools[idx] = `${evt.name}[${evt.data}]`;
+          }
+          return;
+        }
+
+        if (evt.type === "text") {
+          if (!currentStream.bubble) {
+            if (currentStream.addActivity) currentStream.addActivity("✍️", "Generating response…");
+            if (currentStream.removeActivity) currentStream.removeActivity();
+            if (currentStream.wrap) {
+              currentStream.wrap.querySelectorAll(".tool-indicator .spinner").forEach((s) => {
+                s.style.animation = "none";
+                s.style.borderColor = "var(--tool-text)";
+              });
+            }
+            currentStream.bubble = document.createElement("div");
+            currentStream.bubble.className = "bubble";
+            currentStream.cursorEl = document.createElement("span");
+            currentStream.cursorEl.className = "cursor";
+            currentStream.bubble.appendChild(currentStream.cursorEl);
+            if (currentStream.wrap) currentStream.wrap.appendChild(currentStream.bubble);
+            if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
+          }
+          currentStream.contentText += evt.delta;
+          currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
+          currentStream.bubble.appendChild(currentStream.cursorEl);
+          setStatus("Streaming…");
+          scrollBottom();
+          return;
+        }
+
+        if (evt.type === "metrics") {
+          updateTelemetry(evt.prompt_eval_count, evt.eval_count);
+          return;
+        }
+
+        if (evt.type === "done") {
+          if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
+          if (currentStream.cursorEl) currentStream.cursorEl.remove();
+          if (currentStream.bubble) currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
+          
+          if (currentStream.wrap) {
+            const actions = document.createElement("div");
+            actions.className = "msg-actions";
+            const ttsBtn = document.createElement("button");
+            ttsBtn.className = "btn-tts";
+            ttsBtn.textContent = "🔊";
+            ttsBtn.title = "Play TTS";
+            const captured = currentStream.contentText;
+            ttsBtn.onclick = () => playTTS(captured, ttsBtn);
+            actions.appendChild(ttsBtn);
+            currentStream.wrap.appendChild(actions);
+            addWriteBadges(currentStream.wrap, currentStream.usedTools, currentStream.contentText);
+            if (_autoSpeech) playTTS(captured, ttsBtn);
+          }
+
+          if (currentStream.userMsgDiv) {
+            addRegenToUserMsg(currentStream.userMsgDiv);
+          }
+
+          setStatus("Ready");
+          scrollBottom();
+          currentStream.isDone = true;
+          sessionStorage.removeItem("active_stream_id");
+          return;
+        }
+      }
+
+      async function consumeStreamResponse(resp) {
+        currentStream.isReading = true;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        try {
+          let pendingChunkId = null;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+
+            const lines = buf.split("\n");
+            buf = lines.pop();
+
+            for (const line of lines) {
+              if (line.startsWith("id: ")) {
+                pendingChunkId = parseInt(line.slice(4).trim(), 10);
+                continue;
+              }
+              if (!line.startsWith("data: ")) continue;
+              let evt;
+              try {
+                evt = JSON.parse(line.slice(6));
+              } catch {
+                continue;
+              }
+              handleStreamEvent(evt, pendingChunkId);
+              pendingChunkId = null;
+            }
+          }
+        } finally {
+          currentStream.isReading = false;
+        }
+      }
+
+      async function reconnectActiveStream() {
+        if (!currentStream.id || currentStream.isDone) return;
+        
+        // Abort any existing stalled socket before opening a fresh reconnect stream
+        if (currentStream.abortController) {
+          try {
+            currentStream.abortController.abort();
+          } catch {}
+        }
+        currentStream.abortController = new AbortController();
+
+        console.log(`[Stream Reconnect] Reconnecting to stream ${currentStream.id} after chunk #${currentStream.lastChunkId}`);
+        setStatus("Reconnecting…");
+        try {
+          const resp = await fetch(`${API_BASE}/chat/stream/${currentStream.id}?after=${currentStream.lastChunkId}`, {
+            headers: headers(),
+            signal: currentStream.abortController.signal,
+          });
+          if (resp.status === 404) {
+            console.log("[Stream Reconnect] Session not found or finished — reloading history");
+            currentStream.isDone = true;
+            sessionStorage.removeItem("active_stream_id");
+            await loadHistory();
+            finishStreamingUI();
+            setStatus("Ready");
+            return;
+          }
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          await consumeStreamResponse(resp);
+          if (currentStream.isDone) {
+            finishStreamingUI();
+          }
+        } catch (err) {
+          if (err.name !== "AbortError") {
+            console.warn("[Stream Reconnect] Failed to reconnect stream:", err);
+          }
+        }
+      }
+
       // ---------------------------------------------------------------------------
       // Response poll — runs after recovery to catch late-arriving assistant messages
-      // ---------------------------------------------------------------------------
-      // Problem: recovery fires after 2.5s, but at that point only the USER's
-      // message is committed (the empty assistant placeholder is filtered out of
-      // /latest_message_id).  Recovery reloads history (user msg visible), updates
-      // lastRenderedMsgId, and stops.  The server keeps processing for 30+ more
-      // seconds.  Nothing on the client detects the assistant response.
-      //
-      // Fix: after recovery loads history, start this poll.  It fires every 3s for
-      // up to 2 minutes.  When /latest_message_id advances again (the assistant
-      // response lands), reload history to show it.
       // ---------------------------------------------------------------------------
       let _responsePollTimer = null;
 
@@ -1771,15 +1989,8 @@
       // ---------------------------------------------------------------------------
       // Connection-drop recovery helper
       // ---------------------------------------------------------------------------
-      // Called from both sendMessage() and regenerateResponse() catch blocks.
-      // When the SSE stream dies (phone sleep, network blip), waits briefly then
-      // checks /latest_message_id.  If the server has something newer, reload
-      // history and start the response poll to catch the still-generating response.
-      // Returns true if recovery succeeded (caller should skip error bubble).
       async function recoverFromConnectionDrop(wrap) {
         setStatus("Reconnecting…");
-        // Brief wait so the server has a chance to commit anything fast
-        // (tool-free responses sometimes finish within a few seconds).
         await new Promise((r) => setTimeout(r, 2500));
         try {
           const resp = await fetch(`${API_BASE}/latest_message_id`, { headers: headers() });
@@ -1792,12 +2003,11 @@
             if (wrap && wrap.parentNode) wrap.remove();
             setStatus("Reconnected");
             await loadHistory();
-            // Server may still be generating — poll until the assistant response lands
             startResponsePoll();
             return true;
           }
         } catch {
-          /* server unreachable — fall through to error bubble */
+          /* server unreachable */
         }
         return false;
       }
@@ -1895,9 +2105,8 @@
       }
 
       async function executeChatTurn(text) {
-        const input = document.getElementById("input");
         isStreaming = true;
-        stopResponsePoll(); // cancel any poll from a previous connection drop
+        stopResponsePoll();
         document.getElementById("send-btn").disabled = true;
         document.querySelector(".avatar").classList.add("active");
         setStatus("Thinking…");
@@ -1913,7 +2122,6 @@
         let actRemoved = false;
 
         function addActivity(icon, text, isDone = false) {
-          // Mark previous step as done
           const prev = actLog.querySelector(".activity-step:last-child");
           if (prev) prev.classList.add("done");
           const step = document.createElement("div");
@@ -1934,11 +2142,26 @@
         }
 
         addActivity("📨", "Message sent");
-        const thinkingHandler = createThinkingHandler(wrap, () => bubble, addActivity);
-        let bubble = null;
-        let contentText = "";
-        let cursorEl = null;
-        const usedTools = [];
+        const thinkingHandler = createThinkingHandler(wrap, () => currentStream.bubble, addActivity);
+
+        currentStream = {
+          id: null,
+          lastChunkId: -1,
+          wrap: wrap,
+          userMsgDiv: userMsgDiv,
+          thinkingHandler: thinkingHandler,
+          addActivity: addActivity,
+          removeActivity: removeActivity,
+          bubble: null,
+          cursorEl: null,
+          actLog: actLog,
+          actRemoved: false,
+          contentText: "",
+          usedTools: [],
+          abortController: new AbortController(),
+          isReading: false,
+          isDone: false,
+        };
 
         try {
           const chatPayload = { message: text };
@@ -1949,141 +2172,36 @@
             method: "POST",
             headers: headers(),
             body: JSON.stringify(chatPayload),
+            signal: currentStream.abortController.signal,
           });
 
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = "";
+          await consumeStreamResponse(resp);
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-
-            const lines = buf.split("\n");
-            buf = lines.pop();
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              let evt;
-              try {
-                evt = JSON.parse(line.slice(6));
-              } catch {
-                continue;
-              }
-
-              if (evt.type === "status") {
-                addActivity(null, evt.msg);
-              }
-
-              if (evt.type === "thinking") {
-                thinkingHandler.handleDelta(evt.delta);
-              }
-
-              if (evt.type === "tool") {
-                const toolLabels = {
-                  search_vault: "Searching vault",
-                  recall_specific_memory: "Reading memory",
-                  read_journal: "Reading journal",
-                  read_journal_entry: "Reading journal",
-                  read_recent_journal_entries: "Reviewing recent journal",
-                  write_journal_entry: "Writing journal entry",
-                  log_context_fact: "Logging context fact",
-                  update_context_fact: "Updating context fact",
-                  generate_image: "Generating image",
-                  sync_context_memory: "Syncing memory",
-                  run_command: "Running command",
-                  read_file: "Reading file",
-                  write_file: "Writing file",
-                };
-                addActivity("⚙️", toolLabels[evt.name] || evt.name.replace(/_/g, " "));
-                setStatus((toolLabels[evt.name] || evt.name) + "…");
-                usedTools.push(evt.name);
-                scrollBottom();
-              }
-
-              if (evt.type === "tool_data") {
-                const idx = usedTools.indexOf(evt.name);
-                if (idx !== -1) {
-                  usedTools[idx] = `${evt.name}[${evt.data}]`;
-                }
-              }
-
-              if (evt.type === "text") {
-                if (!bubble) {
-                  addActivity("✍️", "Generating response…");
-                  removeActivity();
-                  // Remove completed tool indicators (spinner done)
-                  wrap.querySelectorAll(".tool-indicator .spinner").forEach((s) => {
-                    s.style.animation = "none";
-                    s.style.borderColor = "var(--tool-text)";
-                  });
-                  bubble = document.createElement("div");
-                  bubble.className = "bubble";
-                  cursorEl = document.createElement("span");
-                  cursorEl.className = "cursor";
-                  bubble.appendChild(cursorEl);
-                  wrap.appendChild(bubble);
-                  // Finalise thinking sections
-                  thinkingHandler.finalize();
-                }
-                contentText += evt.delta;
-                // Insert rendered text before cursor
-                bubble.innerHTML = renderMarkdown(contentText);
-                bubble.appendChild(cursorEl);
-                setStatus("Streaming…");
-                scrollBottom();
-              }
-
-              if (evt.type === "metrics") {
-                updateTelemetry(evt.prompt_eval_count, evt.eval_count);
-              }
-
-              if (evt.type === "done") {
-                thinkingHandler.finalize();
-                if (cursorEl) cursorEl.remove();
-                if (bubble) bubble.innerHTML = renderMarkdown(contentText);
-                // Add TTS on assistant
-                const actions = document.createElement("div");
-                actions.className = "msg-actions";
-                const ttsBtn = document.createElement("button");
-                ttsBtn.className = "btn-tts";
-                ttsBtn.textContent = "🔊";
-                ttsBtn.title = "Play TTS";
-                const captured = contentText;
-                ttsBtn.onclick = () => playTTS(captured, ttsBtn);
-                actions.appendChild(ttsBtn);
-                wrap.appendChild(actions);
-                addWriteBadges(wrap, usedTools, contentText);
-                // Add regen button on the user message
-                addRegenToUserMsg(userMsgDiv);
-                setStatus("Ready");
-                scrollBottom();
-                if (_autoSpeech) playTTS(captured, ttsBtn);
-              }
-            }
+          if (!currentStream.isDone && currentStream.id) {
+            await reconnectActiveStream();
           }
         } catch (err) {
           removeActivity();
-          const recovered = await recoverFromConnectionDrop(wrap);
-          if (!recovered) {
-            // Server unreachable or has nothing new — show the error
-            const errBubble = document.createElement("div");
-            errBubble.className = "bubble";
-            errBubble.style.color = "#ff6666";
-            errBubble.textContent = `Error: ${err.message}`;
-            wrap.appendChild(errBubble);
-            addRegenToUserMsg(userMsgDiv);
-            setStatus("Error");
+          if (currentStream.id && !currentStream.isDone) {
+            await reconnectActiveStream();
+          } else {
+            const recovered = await recoverFromConnectionDrop(wrap);
+            if (!recovered) {
+              const errBubble = document.createElement("div");
+              errBubble.className = "bubble";
+              errBubble.style.color = "#ff6666";
+              errBubble.textContent = `Error: ${err.message}`;
+              wrap.appendChild(errBubble);
+              addRegenToUserMsg(userMsgDiv);
+              setStatus("Error");
+            }
           }
         } finally {
-          isStreaming = false;
-          document.getElementById("send-btn").disabled = false;
-          document.querySelector(".avatar").classList.remove("active");
-          input.focus();
-          updateDevUIBadge();
+          if (currentStream.isDone) {
+            finishStreamingUI();
+          }
         }
       }
 
@@ -2478,152 +2596,62 @@
         }
 
         addActivity("✏️", "Resubmitting edited message…");
-        const thinkingHandler = createThinkingHandler(wrap, () => assistantBubble, addActivity);
-        let assistantBubble = null;
-        let contentText = "";
-        let cursorEl = null;
-        const usedTools = [];
+        const thinkingHandler = createThinkingHandler(wrap, () => currentStream.bubble, addActivity);
+
+        currentStream = {
+          id: null,
+          lastChunkId: -1,
+          wrap: wrap,
+          userMsgDiv: userMsgDiv,
+          thinkingHandler: thinkingHandler,
+          addActivity: addActivity,
+          removeActivity: removeActivity,
+          bubble: null,
+          cursorEl: null,
+          actLog: actLog,
+          actRemoved: false,
+          contentText: "",
+          usedTools: [],
+          abortController: new AbortController(),
+          isReading: false,
+          isDone: false,
+        };
 
         try {
           const resp = await fetch(`${API_BASE}/edit`, {
             method: "POST",
             headers: headers(),
             body: JSON.stringify({ message: newText }),
+            signal: currentStream.abortController.signal,
           });
 
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = "";
+          await consumeStreamResponse(resp);
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-
-            const lines = buf.split("\n\n");
-            buf = lines.pop();
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              let evt;
-              try {
-                evt = JSON.parse(line.slice(6));
-              } catch {
-                continue;
-              }
-
-              if (evt.type === "status") {
-                addActivity(null, evt.msg);
-              }
-
-              if (evt.type === "thinking") {
-                thinkingHandler.handleDelta(evt.delta);
-              }
-
-              if (evt.type === "tool") {
-                const toolLabels = {
-                  search_vault: "Searching vault",
-                  recall_specific_memory: "Reading memory",
-                  read_journal: "Reading journal",
-                  read_journal_entry: "Reading journal",
-                  read_recent_journal_entries: "Reviewing recent journal",
-                  write_journal_entry: "Writing journal entry",
-                  log_context_fact: "Logging context fact",
-                  update_context_fact: "Updating context fact",
-                  delete_context_fact: "Deleting context fact",
-                  add_reflection: "Adding reflection",
-                  gcal_search_events: "Searching Google Calendar",
-                  gcal_create_event: "Creating Google Calendar event",
-                  gcal_update_event: "Updating Google Calendar event",
-                  gcal_delete_event: "Deleting Google Calendar event",
-                  gcal_list_upcoming: "Fetching upcoming events",
-                  schedule_reminder: "Scheduling reminder",
-                  complete_reminder: "Completing reminder",
-                  list_reminders: "Checking reminders",
-                  system_shell: "Running command",
-                  start_deep_research: "Starting Deep Research",
-                  get_research_status: "Checking research status",
-                  get_research_report: "Reading research report",
-                  list_research_tasks: "Listing research tasks",
-                  cancel_research_task: "Canceling research task",
-                  delete_research_task: "Deleting research task",
-                  trigger_research_now: "Starting research immediately",
-                  resume_research_task: "Resuming research task",
-                  guide_research_task: "Guiding research task",
-                  trigger_profile_evolution: "Triggering profile evolution",
-                };
-                const label = toolLabels[evt.name] || evt.name;
-                addActivity("⚙️", `${label} (${evt.arg || ""})`);
-                usedTools.push(evt.name);
-              }
-
-              if (evt.type === "text") {
-                if (!assistantBubble) {
-                  addActivity("✍️", "Generating response…");
-                  removeActivity();
-                  wrap.querySelectorAll(".tool-indicator .spinner").forEach((s) => {
-                    s.style.animation = "none";
-                    s.style.borderColor = "var(--tool-text)";
-                  });
-                  assistantBubble = document.createElement("div");
-                  assistantBubble.className = "bubble";
-                  cursorEl = document.createElement("span");
-                  cursorEl.className = "cursor";
-                  assistantBubble.appendChild(cursorEl);
-                  wrap.appendChild(assistantBubble);
-                  thinkingHandler.finalize();
-                }
-                contentText += evt.delta;
-                assistantBubble.innerHTML = renderMarkdown(contentText);
-                assistantBubble.appendChild(cursorEl);
-                setStatus("Streaming…");
-                scrollBottom();
-              }
-
-              if (evt.type === "metrics") {
-                updateTelemetry(evt.prompt_eval_count, evt.eval_count);
-              }
-
-              if (evt.type === "done") {
-                thinkingHandler.finalize();
-                if (cursorEl) cursorEl.remove();
-                if (assistantBubble) assistantBubble.innerHTML = renderMarkdown(contentText);
-                const actions = document.createElement("div");
-                actions.className = "msg-actions";
-                const ttsBtn = document.createElement("button");
-                ttsBtn.className = "btn-tts";
-                ttsBtn.textContent = "🔊";
-                ttsBtn.title = "Play TTS";
-                const captured = contentText;
-                ttsBtn.onclick = () => playTTS(captured, ttsBtn);
-                actions.appendChild(ttsBtn);
-                wrap.appendChild(actions);
-                addWriteBadges(wrap, usedTools, contentText);
-                addRegenToUserMsg(userMsgDiv);
-                setStatus("Ready");
-                scrollBottom();
-                if (_autoSpeech) playTTS(captured, ttsBtn);
-              }
-            }
+          if (!currentStream.isDone && currentStream.id) {
+            await reconnectActiveStream();
           }
         } catch (err) {
           removeActivity();
-          const recovered = await recoverFromConnectionDrop(wrap);
-          if (!recovered) {
-            const errBubble = document.createElement("div");
-            errBubble.className = "bubble";
-            errBubble.style.color = "#ff6666";
-            errBubble.textContent = `Error: ${err.message}`;
-            wrap.appendChild(errBubble);
-            addRegenToUserMsg(userMsgDiv);
-            setStatus("Error");
+          if (currentStream.id && !currentStream.isDone) {
+            await reconnectActiveStream();
+          } else {
+            const recovered = await recoverFromConnectionDrop(wrap);
+            if (!recovered) {
+              const errBubble = document.createElement("div");
+              errBubble.className = "bubble";
+              errBubble.style.color = "#ff6666";
+              errBubble.textContent = `Error: ${err.message}`;
+              wrap.appendChild(errBubble);
+              addRegenToUserMsg(userMsgDiv);
+              setStatus("Error");
+            }
           }
         } finally {
-          isStreaming = false;
-          document.getElementById("send-btn").disabled = false;
-          document.querySelector(".avatar").classList.remove("active");
+          if (currentStream.isDone) {
+            finishStreamingUI();
+          }
         }
       }
 
@@ -2672,138 +2700,61 @@
         }
 
         addActivity("🔄", "Regenerating response…");
-        const thinkingHandler = createThinkingHandler(wrap, () => bubble, addActivity);
-        let bubble = null;
-        let contentText = "";
-        let cursorEl = null;
-        const usedTools = [];
+        const thinkingHandler = createThinkingHandler(wrap, () => currentStream.bubble, addActivity);
+
+        currentStream = {
+          id: null,
+          lastChunkId: -1,
+          wrap: wrap,
+          userMsgDiv: userMsgDiv,
+          thinkingHandler: thinkingHandler,
+          addActivity: addActivity,
+          removeActivity: removeActivity,
+          bubble: null,
+          cursorEl: null,
+          actLog: actLog,
+          actRemoved: false,
+          contentText: "",
+          usedTools: [],
+          abortController: new AbortController(),
+          isReading: false,
+          isDone: false,
+        };
 
         try {
           const resp = await fetch(`${API_BASE}/regenerate`, {
             method: "POST",
             headers: headers(),
+            signal: currentStream.abortController.signal,
           });
 
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = "";
+          await consumeStreamResponse(resp);
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-
-            const lines = buf.split("\n");
-            buf = lines.pop();
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              let evt;
-              try {
-                evt = JSON.parse(line.slice(6));
-              } catch {
-                continue;
-              }
-
-              if (evt.type === "status") addActivity(null, evt.msg);
-
-              if (evt.type === "thinking") {
-                thinkingHandler.handleDelta(evt.delta);
-              }
-
-              if (evt.type === "tool") {
-                const toolLabels = {
-                  search_vault: "Searching vault",
-                  recall_specific_memory: "Reading memory",
-                  read_journal: "Reading journal",
-                  read_journal_entry: "Reading journal",
-                  read_recent_journal_entries: "Reviewing recent journal",
-                  write_journal_entry: "Writing journal entry",
-                  log_context_fact: "Logging context fact",
-                  update_context_fact: "Updating context fact",
-                  generate_image: "Generating image",
-                  sync_context_memory: "Syncing memory",
-                  run_command: "Running command",
-                  read_file: "Reading file",
-                  write_file: "Writing file",
-                };
-                addActivity("⚙️", toolLabels[evt.name] || evt.name.replace(/_/g, " "));
-                setStatus((toolLabels[evt.name] || evt.name) + "…");
-                usedTools.push(evt.name);
-                scrollBottom();
-              }
-
-              if (evt.type === "tool_data") {
-                const idx = usedTools.indexOf(evt.name);
-                if (idx !== -1) {
-                  usedTools[idx] = `${evt.name}[${evt.data}]`;
-                }
-              }
-
-              if (evt.type === "text") {
-                if (!bubble) {
-                  addActivity("✍️", "Generating response…");
-                  removeActivity();
-                  bubble = document.createElement("div");
-                  bubble.className = "bubble";
-                  cursorEl = document.createElement("span");
-                  cursorEl.className = "cursor";
-                  bubble.appendChild(cursorEl);
-                  wrap.appendChild(bubble);
-                  thinkingHandler.finalize();
-                }
-                contentText += evt.delta;
-                bubble.innerHTML = renderMarkdown(contentText);
-                bubble.appendChild(cursorEl);
-                setStatus("Streaming…");
-                scrollBottom();
-              }
-
-              if (evt.type === "metrics") {
-                updateTelemetry(evt.prompt_eval_count, evt.eval_count);
-              }
-
-              if (evt.type === "done") {
-                thinkingHandler.finalize();
-                if (cursorEl) cursorEl.remove();
-                if (bubble) bubble.innerHTML = renderMarkdown(contentText);
-                const actions = document.createElement("div");
-                actions.className = "msg-actions";
-                const ttsBtn = document.createElement("button");
-                ttsBtn.className = "btn-tts";
-                ttsBtn.textContent = "🔊";
-                const captured = contentText;
-                ttsBtn.onclick = () => playTTS(captured, ttsBtn);
-                actions.appendChild(ttsBtn);
-                wrap.appendChild(actions);
-                addWriteBadges(wrap, usedTools);
-                // Add regen to user message
-                addRegenToUserMsg(userMsgDiv);
-                setStatus("Ready");
-                scrollBottom();
-                if (_autoSpeech) playTTS(captured, ttsBtn);
-              }
-            }
+          if (!currentStream.isDone && currentStream.id) {
+            await reconnectActiveStream();
           }
         } catch (err) {
           removeActivity();
-          const recovered = await recoverFromConnectionDrop(wrap);
-          if (!recovered) {
-            const errBubble = document.createElement("div");
-            errBubble.className = "bubble";
-            errBubble.style.color = "#ff6666";
-            errBubble.textContent = `Error: ${err.message}`;
-            wrap.appendChild(errBubble);
-            addRegenToUserMsg(userMsgDiv);
-            setStatus("Error");
+          if (currentStream.id && !currentStream.isDone) {
+            await reconnectActiveStream();
+          } else {
+            const recovered = await recoverFromConnectionDrop(wrap);
+            if (!recovered) {
+              const errBubble = document.createElement("div");
+              errBubble.className = "bubble";
+              errBubble.style.color = "#ff6666";
+              errBubble.textContent = `Error: ${err.message}`;
+              wrap.appendChild(errBubble);
+              addRegenToUserMsg(userMsgDiv);
+              setStatus("Error");
+            }
           }
         } finally {
-          isStreaming = false;
-          document.getElementById("send-btn").disabled = false;
-          document.querySelector(".avatar").classList.remove("active");
-          updateDevUIBadge();
+          if (currentStream.isDone) {
+            finishStreamingUI();
+          }
         }
       }
 
@@ -2938,18 +2889,34 @@
       document.getElementById("send-btn").addEventListener("click", sendMessage);
 
       // ---------------------------------------------------------------------------
-      // Visibility recovery — pull-based: ask the server if we missed anything
-      // ---------------------------------------------------------------------------
-      // Instead of trying to infer stream health from event timestamps (which
-      // breaks whenever new SSE event types are added), we track the last message
-      // ID the UI has rendered and compare it to the server's latest committed
-      // message on tab-focus.  Immune to heartbeat/status event changes.
+      // Visibility recovery — reconnect active stream or pull missed history
       // ---------------------------------------------------------------------------
       document.addEventListener("visibilitychange", async () => {
         if (document.visibilityState !== "visible") return;
 
-        // Small debounce — skip Alt+Tab flicker (< 2s away)
-        // Not needed for correctness, just avoids a pointless fetch.
+        // If a turn was streaming when backgrounded, check if server completed it or is still streaming
+        if (isStreaming) {
+          try {
+            const resp = await fetch(`${API_BASE}/chat/active_stream`, { headers: headers() });
+            if (resp.ok) {
+              const activeData = await resp.json();
+              if (activeData.active && activeData.stream_id) {
+                currentStream.id = activeData.stream_id;
+                await reconnectActiveStream();
+                return;
+              } else {
+                // Server finished the turn while tab was away — reload history and finish
+                finishStreamingUI();
+                sessionStorage.removeItem("active_stream_id");
+                await loadHistory();
+                setStatus("Ready");
+                return;
+              }
+            }
+          } catch (e) {
+            // Network blip
+          }
+        }
 
         try {
           const resp = await fetch(`${API_BASE}/latest_message_id`, { headers: headers() });
@@ -2961,18 +2928,15 @@
             console.log(
               `[Recovery] Server has msg #${serverLatest}, UI has #${lastRenderedMsgId} — reloading`
             );
-            // Reset streaming state if we were mid-stream
             if (isStreaming) {
-              isStreaming = false;
-              document.getElementById("send-btn").disabled = false;
-              document.querySelector(".avatar").classList.remove("active");
+              finishStreamingUI();
             }
             setStatus("Reconnected");
             await loadHistory();
             setStatus("Ready");
           }
         } catch {
-          // Offline or server down — nothing to do, next focus will retry
+          // Offline or server down — next focus will retry
         }
       });
 
@@ -2989,7 +2953,99 @@
         }
       }
 
-      // Init
+      // Startup & Active Stream Resumption
+      async function checkAndResumeActiveStream() {
+        try {
+          const resp = await fetch(`${API_BASE}/chat/active_stream`, { headers: headers() });
+          if (!resp.ok) return false;
+          const activeData = await resp.json();
+          if (!activeData.active || !activeData.stream_id) {
+            sessionStorage.removeItem("active_stream_id");
+            return false;
+          }
+
+          const streamIdToResume = activeData.stream_id;
+          console.log(`[Startup] Resuming in-flight stream session: ${streamIdToResume}`);
+          sessionStorage.setItem("active_stream_id", streamIdToResume);
+
+          const wrap = createAssistantMessage();
+          const actLog = document.createElement("div");
+          actLog.className = "activity-log";
+          wrap.appendChild(actLog);
+          let actRemoved = false;
+
+          function addActivity(icon, text, isDone = false) {
+            const prev = actLog.querySelector(".activity-step:last-child");
+            if (prev) prev.classList.add("done");
+            const step = document.createElement("div");
+            step.className = "activity-step";
+            step.innerHTML = icon
+              ? `<span class="step-icon">${icon}</span><span>${text}</span>`
+              : `<div class="step-dot"></div><span>${text}</span>`;
+            if (isDone) step.classList.add("done");
+            actLog.appendChild(step);
+            scrollBottom();
+          }
+
+          function removeActivity() {
+            if (!actRemoved) {
+              actLog.remove();
+              actRemoved = true;
+            }
+          }
+
+          const thinkingHandler = createThinkingHandler(wrap, () => currentStream.bubble, addActivity);
+
+          isStreaming = true;
+          document.getElementById("send-btn").disabled = true;
+          document.querySelector(".avatar").classList.add("active");
+          setStatus("Streaming…");
+
+          currentStream = {
+            id: streamIdToResume,
+            lastChunkId: -1,
+            wrap: wrap,
+            userMsgDiv: null,
+            thinkingHandler: thinkingHandler,
+            addActivity: addActivity,
+            removeActivity: removeActivity,
+            bubble: null,
+            cursorEl: null,
+            actLog: actLog,
+            actRemoved: false,
+            contentText: "",
+            usedTools: [],
+            abortController: new AbortController(),
+            isReading: false,
+            isDone: false,
+          };
+
+          const streamResp = await fetch(`${API_BASE}/chat/stream/${streamIdToResume}?after=-1`, {
+            headers: headers(),
+            signal: currentStream.abortController.signal,
+          });
+
+          if (streamResp.ok) {
+            await consumeStreamResponse(streamResp);
+            return true;
+          } else {
+            sessionStorage.removeItem("active_stream_id");
+            wrap.remove();
+            return false;
+          }
+        } catch (e) {
+          if (e.name !== "AbortError") {
+            console.warn("[Startup] Failed to resume stream:", e);
+          }
+          sessionStorage.removeItem("active_stream_id");
+          return false;
+        } finally {
+          if (currentStream && currentStream.isDone) {
+            finishStreamingUI();
+          }
+        }
+      }
+
       async function fetchStatus() {
         try {
           const resp = await fetch(`${API_BASE}/status`, { headers: headers() });
@@ -3007,8 +3063,15 @@
         }
       }
 
-      fetchStatus();
-      loadHistory();
+      async function initApp() {
+        await fetchStatus();
+        await loadHistory();
+        updateDevUIBadge();
+        // Check for active background stream
+        checkAndResumeActiveStream();
+      }
+
+      initApp();
 
       async function updateDevUIBadge() {
         try {
