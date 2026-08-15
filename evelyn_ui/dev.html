@@ -1,3 +1,9 @@
+---
+title: dev.html
+date created: 2026-08-15 11:31:31
+date modified: 2026-08-15 11:31:31
+tags: 
+---
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -567,11 +573,30 @@
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Active Target:</span>
-                <span style="color: var(--accent); font-weight: 500;">${escapeHtml(st.active_category || 'None')}</span>
+                <span style="color: var(--accent); font-weight: 500;">${escapeHtml(st.active_category || (t.phase || 'None'))}</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Scanned Categories:</span>
                 <span style="color: var(--text);">${catCount} tracked</span>
+              </div>
+              ${st.clusters_found !== undefined ? `
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
+                <span>Clusters: ${st.clusters_found || 0}</span>
+                <span>Proposals: ${st.proposals_written || 0}</span>
+              </div>` : ''}
+            </div>
+          `;
+        } else if (t.key === 'procedure_consolidator' && t.sub_status) {
+          const st = t.sub_status;
+          taskDetailsHtml = `
+            <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-dim);">Live Procedures:</span>
+                <span style="color: var(--accent); font-weight: 500;">${st.total_procedures || 0} rules</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-dim);">Pending Proposals:</span>
+                <span style="color: ${st.pending_proposals > 0 ? 'var(--warning)' : 'var(--text-dim)'}; font-weight: 500;">${st.pending_proposals || 0}</span>
               </div>
             </div>
           `;
