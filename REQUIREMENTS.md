@@ -58,6 +58,7 @@ pip install -r requirements.txt
 | ------------------ | ------- | ------------------------------------------------------------------------------------------ |
 | `ddgs`             | ≥9.0    | DuckDuckGo search — powers the `web_search` tool                                           |
 | `PyMuPDF`          | ≥1.27   | PDF text extraction with font metadata — `extract_pdf_library.py`. Import as `import fitz` |
+| `watchdog`         | ≥6.0    | Debounced filesystem watcher — `scripts/obsidian_vault_watcher.py`                         |
 
 ### Standard Library (No Install Needed)
 

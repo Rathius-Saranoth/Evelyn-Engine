@@ -19,6 +19,11 @@ os.environ["TZ"] = USER_TIMEZONE
 if hasattr(time, "tzset"):
     time.tzset()
 
+# HuggingFace & Transformers Offline Mode (loads from local cache without web checks)
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
 # =============================================================================
 # Model
 # =============================================================================
