@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-15 11:31:24
+# date modified: 2026-08-15 17:12:42
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -80,6 +80,120 @@ _last_window_warn_ts: float = 0.0
 _active_research_processes = {}
 _last_research_spawn_ts: float = 0.0   # Layer 2: spawn debounce
 _error_resume_ts: dict = {}            # Layer 3: per-task error cooldown
+
+# ---------------------------------------------------------------------------
+# In-Memory Stream Buffer & Session Management
+# ---------------------------------------------------------------------------
+
+class ActiveStreamSession:
+    """Buffer and notification manager for a single active chat generation turn."""
+
+    def __init__(self, stream_id: str):
+        self.stream_id: str = stream_id
+        self.chunks: list[dict] = []  # [{"id": int, "event": str}]
+        self.status: str = "running"  # "running", "completed", "error"
+        self.event_notify: asyncio.Event = asyncio.Event()
+        self.created_at: float = time.time()
+        self.completed_at: float | None = None
+        self.error_msg: str | None = None
+
+    def push_chunk(self, raw_event_str: str):
+        """Append an event chunk and wake all awaiting listeners without race conditions."""
+        chunk_id = len(self.chunks)
+        self.chunks.append({
+            "id": chunk_id,
+            "event": raw_event_str
+        })
+        old_event = self.event_notify
+        self.event_notify = asyncio.Event()
+        old_event.set()
+
+    def mark_complete(self, error: str | None = None):
+        """Mark stream complete or error and wake all listeners."""
+        if error:
+            self.status = "error"
+            self.error_msg = error
+        else:
+            self.status = "completed"
+        self.completed_at = time.time()
+        old_event = self.event_notify
+        self.event_notify = asyncio.Event()
+        old_event.set()
+
+
+class StreamRegistry:
+    """Registry tracking active and recently completed streaming sessions."""
+
+    def __init__(self):
+        self.sessions: dict[str, ActiveStreamSession] = {}
+        self.active_stream_id: str | None = None
+
+    def create(self, stream_id: str) -> ActiveStreamSession:
+        self.cleanup_stale()
+        session = ActiveStreamSession(stream_id)
+        self.sessions[stream_id] = session
+        self.active_stream_id = stream_id
+        return session
+
+    def get(self, stream_id: str) -> ActiveStreamSession | None:
+        return self.sessions.get(stream_id)
+
+    def get_active(self) -> ActiveStreamSession | None:
+        if self.active_stream_id:
+            s = self.sessions.get(self.active_stream_id)
+            if s and s.status == "running":
+                return s
+        return None
+
+    def cleanup_stale(self, ttl_seconds: int = 300):
+        now = time.time()
+        expired = [
+            sid for sid, s in self.sessions.items()
+            if s.completed_at and (now - s.completed_at > ttl_seconds)
+        ]
+        for sid in expired:
+            del self.sessions[sid]
+        if self.active_stream_id in expired:
+            self.active_stream_id = None
+
+
+stream_registry = StreamRegistry()
+
+
+async def stream_session_events(
+    session: ActiveStreamSession,
+    after: int = -1,
+    request: Request | None = None
+):
+    """Asynchronous generator that replays buffered chunks and streams live events."""
+    cursor = after + 1
+    try:
+        while True:
+            # 1. Replay / flush any chunks past cursor
+            while cursor < len(session.chunks):
+                chunk = session.chunks[cursor]
+                yield f"id: {chunk['id']}\n{chunk['event']}"
+                cursor += 1
+
+            # 2. If finished and caught up, exit cleanly
+            if session.status in ("completed", "error") and cursor >= len(session.chunks):
+                break
+
+            # 3. Check client disconnect
+            if request and await request.is_disconnected():
+                break
+
+            # 4. Wait for new chunk or timeout (for keep-alive heartbeat)
+            if cursor >= len(session.chunks):
+                current_event = session.event_notify
+                if cursor < len(session.chunks) or session.status in ("completed", "error"):
+                    continue
+                try:
+                    await asyncio.wait_for(current_event.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    yield 'data: {"type":"heartbeat"}\n\n'
+    except (GeneratorExit, asyncio.CancelledError):
+        pass
 
 # ---------------------------------------------------------------------------
 # Thinking-effort classifier
@@ -1172,7 +1286,7 @@ async def _process_chat_background(
     is_regenerate: bool,
     time_ctx: str | None,
     assistant_row_id: int,
-    queue: asyncio.Queue,
+    session: ActiveStreamSession,
     think_effort: str | bool = "medium",
     ui_override: bool = False,
 ):
@@ -1186,7 +1300,7 @@ async def _process_chat_background(
         is_regenerate: True if regenerating the last assistant response.
         time_ctx: Optional time-gap context string to prefix to user message.
         assistant_row_id: The database message ID reserved for the response.
-        queue: The queue used to forward SSE stream event dictionaries.
+        session: The active stream session used to buffer SSE events.
     """
     content_buf = ""
     thinking_buf = ""
@@ -1197,16 +1311,16 @@ async def _process_chat_background(
     think_source = "ui_override" if ui_override else "heuristic"
 
     async def put(type_: str, **kw):
-        """Enqueue a serialized SSE event dictionary.
+        """Enqueue a serialized SSE event dictionary to the active stream session.
 
         Args:
             type_: The event type string.
             **kw: Additional fields to serialize into the event payload.
         """
-        await queue.put("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
+        session.push_chunk("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
 
     async def drain_stream(stream, response_label: bool = False):
-        """Iterate _stream_content, buffer state, and forward events to queue.
+        """Iterate _stream_content, buffer state, and forward events to session.
 
         Args:
             stream: The async generator from _stream_content.
@@ -1230,7 +1344,7 @@ async def _process_chat_background(
                     if d.get("type") == "thinking" and not _label_sent:
                         _label_sent = True
                         thinking_buf += "[Response]\n"
-                        await queue.put(
+                        session.push_chunk(
                             "data: " + json.dumps({"type": "thinking", "delta": "[Response]\n"}) + "\n\n"
                         )
                     if d.get("type") == "text":
@@ -1239,9 +1353,10 @@ async def _process_chat_background(
                         thinking_buf += d.get("delta", "")
                 except Exception:
                     pass
-            await queue.put(event)
+            session.push_chunk(event)
 
     try:
+        session.push_chunk("data: " + json.dumps({"type": "stream_session", "stream_id": session.stream_id}) + "\n\n")
         await put("status", msg="Processing...")
 
         # RAG + system prompt + history (fast synchronous work)
@@ -1284,19 +1399,12 @@ async def _process_chat_background(
             flush=True,
         )
 
-        pass1_task = asyncio.ensure_future(
-            call_ollama_full(
+        try:
+            pass1_resp = await call_ollama_full(
                 messages,
                 tools=MODEL_TOOL_DEFINITIONS,
                 num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
             )
-        )
-        while not pass1_task.done():
-            await queue.put('data: {"type":"heartbeat"}\n\n')
-            await asyncio.sleep(1.0)
-
-        try:
-            pass1_resp = pass1_task.result()
         except Exception as exc:
             print(f"{_RED}[TOOL_ROUND_0 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
             # finally block will log the empty response and update DB
@@ -1368,13 +1476,9 @@ async def _process_chat_background(
                     await put("tool", name=fn_name)
                     dlog(f"Dispatching tool: {fn_name}({fn_args})")
 
-                    tool_task = loop.run_in_executor(
+                    result = await loop.run_in_executor(
                         None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
                     )
-                    while not tool_task.done():
-                        await queue.put('data: {"type":"heartbeat"}\n\n')
-                        await asyncio.sleep(1.0)
-                    result = tool_task.result()
                     
                     tool_entry = fn_name
                     meta_entry = {"name": fn_name, "data": None}
@@ -1430,18 +1534,11 @@ async def _process_chat_background(
                     flush=True,
                 )
 
-                followup_task = asyncio.ensure_future(
-                    call_ollama_full(
-                        messages,
-                        tools=MODEL_TOOL_DEFINITIONS,
-                        num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
-                    )
+                followup_resp = await call_ollama_full(
+                    messages,
+                    tools=MODEL_TOOL_DEFINITIONS,
+                    num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
                 )
-                while not followup_task.done():
-                    await queue.put('data: {"type":"heartbeat"}\n\n')
-                    await asyncio.sleep(1.0)
-
-                followup_resp = followup_task.result()
                 followup_msg = followup_resp.get("message", {})
                 current_tool_calls = followup_msg.get("tool_calls") or []
                 current_content = followup_msg.get("content") or ""
@@ -1514,8 +1611,8 @@ async def _process_chat_background(
         dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
 
         # Signal SSE pipe to close cleanly
-        await queue.put(f"data: {json.dumps({'type': 'done'})}\n\n")
-        await queue.put(None)  # sentinel
+        session.push_chunk(f"data: {json.dumps({'type': 'done'})}\n\n")
+        session.mark_complete()
 
 def pause_all_active_research():
     """Immediately pause any currently running background research tasks to prevent Ollama blockage."""
@@ -1559,7 +1656,8 @@ def clean_shutdown_all_tasks():
 
 
 async def chat_stream(user_message: str, is_regenerate: bool = False,
-                      think_effort=None, ui_override: bool = False):
+                      think_effort=None, ui_override: bool = False,
+                      request: Request | None = None):
     """Open an SSE connection to stream the generated chat response.
 
     Args:
@@ -1568,6 +1666,7 @@ async def chat_stream(user_message: str, is_regenerate: bool = False,
         think_effort: Resolved thinking effort level for this turn.
         ui_override: True when think_effort came from the UI chip (skips
             self-election and tool escalation).
+        request: Optional FastAPI Request object for disconnect detection.
 
     Yields:
         str: Server-Sent Events formatted data blocks.
@@ -1600,35 +1699,21 @@ async def chat_stream(user_message: str, is_regenerate: bool = False,
     # Reserve DB row and spawn the background task synchronously.
     # From this point the task owns all processing — client can disconnect freely.
     assistant_row_id = save_message_get_id("assistant", "")
-    event_queue: asyncio.Queue = asyncio.Queue()
+    
+    stream_id = f"stream_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
+    session = stream_registry.create(stream_id)
 
     asyncio.create_task(
         _process_chat_background(
-            user_message, is_regenerate, time_ctx, assistant_row_id, event_queue,
+            user_message, is_regenerate, time_ctx, assistant_row_id, session,
             think_effort=resolved_effort, ui_override=ui_override,
         )
     )
-    print(f"{_CYN}[CHAT]{_RST} Background task started — SSE pipe open", flush=True)
+    print(f"{_CYN}[CHAT]{_RST} Background task started for session {stream_id} — SSE pipe open", flush=True)
 
-    # Drain queue and forward to client.
-    # GeneratorExit/CancelledError = client disconnected — log and exit cleanly.
-    # The background task is completely unaffected.
-    try:
-        while True:
-            try:
-                event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                yield 'data: {"type":"heartbeat"}\n\n'
-                continue
-            if event is None:  # sentinel from _process_chat_background
-                break
-            yield event
-    except (GeneratorExit, asyncio.CancelledError):
-        print(
-            f"{_CYN}[CHAT]{_RST} SSE pipe closed (client disconnected) — "
-            f"background task continues independently",
-            flush=True,
-        )
+    # Replay/stream chunks from the session buffer
+    async for event in stream_session_events(session, after=-1, request=request):
+        yield event
 
 
 
@@ -2126,11 +2211,12 @@ async def status(_: None = Depends(check_auth)):
 
 
 @app.post("/chat")
-async def chat(req: ChatRequest, _: None = Depends(check_auth)):
+async def chat(req: ChatRequest, request: Request, _: None = Depends(check_auth)):
     """Accept a user message and return a Server-Sent Events stream of the response.
 
     Args:
         req: The chat request object containing the user message.
+        request: FastAPI Request object for disconnect detection.
         _: Authentication dependency placeholder.
 
     Returns:
@@ -2139,14 +2225,14 @@ async def chat(req: ChatRequest, _: None = Depends(check_auth)):
     ui_override = req.think is not None
     think_effort = req.think if ui_override else classify_message_effort(req.message)
     return StreamingResponse(
-        chat_stream(req.message, think_effort=think_effort, ui_override=ui_override),
+        chat_stream(req.message, think_effort=think_effort, ui_override=ui_override, request=request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @app.post("/regenerate")
-async def regenerate(_: None = Depends(check_auth)):
+async def regenerate(request: Request, _: None = Depends(check_auth)):
     """Delete the last assistant message and re-generate a response."""
     user_message = delete_last_assistant_message()
     if not user_message:
@@ -2155,14 +2241,14 @@ async def regenerate(_: None = Depends(check_auth)):
         )
     think_effort = classify_message_effort(user_message)
     return StreamingResponse(
-        chat_stream(user_message, is_regenerate=True, think_effort=think_effort),
+        chat_stream(user_message, is_regenerate=True, think_effort=think_effort, request=request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @app.post("/edit")
-async def edit_message(req: EditRequest, _: None = Depends(check_auth)):
+async def edit_message(req: EditRequest, request: Request, _: None = Depends(check_auth)):
     """Update the content of the last user message and re-generate a response."""
     user_message = edit_last_user_message(req.message)
     if not user_message:
@@ -2171,10 +2257,39 @@ async def edit_message(req: EditRequest, _: None = Depends(check_auth)):
         )
     think_effort = classify_message_effort(user_message)
     return StreamingResponse(
-        chat_stream(user_message, is_regenerate=True, think_effort=think_effort),
+        chat_stream(user_message, is_regenerate=True, think_effort=think_effort, request=request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/chat/stream/{stream_id}")
+async def get_chat_stream(stream_id: str, request: Request, after: int = -1, _: None = Depends(check_auth)):
+    """Attach to an active or recently completed stream session and replay missed chunks."""
+    session = stream_registry.get(stream_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Stream session not found or expired")
+    return StreamingResponse(
+        stream_session_events(session, after=after, request=request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/chat/active_stream")
+async def get_active_stream(_: None = Depends(check_auth)):
+    """Return the currently active stream session info, if any."""
+    session = stream_registry.get_active()
+    if session:
+        return {
+            "active": True,
+            "stream_id": session.stream_id,
+            "status": session.status,
+            "chunks_count": len(session.chunks),
+            "created_at": session.created_at,
+        }
+    return {"active": False}
+
 
 @app.get("/latest_message_id")
 async def get_latest_message_id(_: None = Depends(check_auth)):
