@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-08 07:19:48
+# date modified: 2026-08-15 11:30:20
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -256,6 +256,7 @@ def _set_status_in_server(
     summary: str | None = None,
     sub_status: dict | None = None,
     diagnostics: dict | None = None,
+    items_processed: int = 0,
 ) -> None:
     """Register or clear extractor status in the server's central registry.
 
@@ -267,6 +268,7 @@ def _set_status_in_server(
         summary: Optional completion summary text.
         sub_status: Optional sub-status metrics dict.
         diagnostics: Optional diagnostic details dict.
+        items_processed: Optional number of items processed.
     """
     import task_manager
     if status == "running":
@@ -279,6 +281,7 @@ def _set_status_in_server(
             summary=summary,
             sub_status=sub_status,
             diagnostics=diagnostics,
+            items_processed=items_processed,
         )
 
 
@@ -369,7 +372,10 @@ async def run_extraction():
 
     _extracting = True
     success = False
-    _set_status_in_server("running")
+    _set_status_in_server(
+        "running",
+        sub_status={"last_extracted_id": _last_extracted_id, "unextracted_backlog": len(messages)},
+    )
     try:
         await _do_extraction(messages)
         success = True
@@ -377,17 +383,28 @@ async def run_extraction():
         print("[EXTRACTOR] Cancelled — high-water mark not advanced.", flush=True)
         _set_status_in_server("cancelled")
     except Exception as e:
-        print(f"[EXTRACTOR ERROR] {type(e).__name__}: {e}", flush=True)
-        _set_status_in_server("error", error=f"{type(e).__name__}: {e}")
+        err_cls = type(e).__name__
+        err_msg = str(e).strip()
+        formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
+        print(f"[EXTRACTOR ERROR] {formatted_err}", flush=True)
+        _set_status_in_server(
+            "error",
+            error=formatted_err,
+            sub_status={"last_extracted_id": _last_extracted_id, "unextracted_backlog": len(messages)},
+        )
     finally:
         _extracting = False
-        if success:
-            _set_status_in_server("idle")
         if success:
             _last_extracted_id = max_id
             _session_batches_this_idle += 1
             _update_last_run_ts()  # Updates _last_run_ts via task_manager
             _save_extraction_state(max_id)  # Persists both id and ts
+            _set_status_in_server(
+                "idle",
+                summary=f"Extracted {len(messages)} messages (up to id #{max_id})",
+                sub_status={"last_extracted_id": max_id, "unextracted_backlog": 0},
+                items_processed=len(messages),
+            )
             print(
                 f"[EXTRACTOR] High-water mark advanced to message id={max_id} "
                 f"(persisted). Session batch {_session_batches_this_idle}/{max_batches}.",
@@ -794,7 +811,7 @@ async def _do_extraction(messages: list[dict]):
                 aiter = resp.aiter_lines()
                 while True:
                     try:
-                        line = await asyncio.wait_for(aiter.__anext__(), timeout=30.0)
+                        line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
                     except StopAsyncIteration:
                         break
                     if not line.strip():
@@ -855,7 +872,7 @@ async def _do_extraction(messages: list[dict]):
                 proc_aiter = resp.aiter_lines()
                 while True:
                     try:
-                        line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=30.0)
+                        line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=120.0)
                     except StopAsyncIteration:
                         break
                     if not line.strip():
