@@ -1,0 +1,11 @@
+{
+    "recommendations": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "qwtel.sqlite-viewer",
+        "humao.rest-client",
+        "mhutchie.git-graph",
+        "redhat.vscode-yaml",
+        "charliermarsh.ruff"
+    ]
+}
