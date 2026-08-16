@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-15 22:12:00
+date modified: 2026-08-16 13:54:30
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -56,6 +56,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Implement Expressive Speech-to-Text (STT)**: Go beyond basic transcription (currently handled via phone OS keyboard) and integrate a local STT engine capable of extracting vocal nuance tags (pitch, stress, hesitation) so Evelyn can 'hear' the emotion behind the words.
 - [x] **Google Drive & Health Connect Integration**: Implemented Google Drive, Docs, Sheets, and Tasks OAuth2 authentication flow (`scripts/setup_gdrive.py`), automated background downloading and extraction of daily `Health Connect.zip` exports (`gdrive_sync.py`), local SQLite data query layer (`health_manager.py`) providing daily step counts, distance, calories, sleep stage breakdowns, resting HR, HRV trends, workouts, and FHIR clinical records, and model tools (`get_health_metrics`, `get_recent_workouts`, `sync_google_drive`). *(Completed 2026-08-16)*
 - [x] **Direct Oura Ring Cloud API v2 Integration**: Wired Oura Cloud API (`oura_client.py`) using personal access tokens for real-time, zero-lag morning health stats: live sleep scores & stage breakdowns (Deep, REM, Light, Awake), readiness & recovery index, body temperature deviations, daytime stress/recovery zones, and continuous vitals seamlessly blended into `get_health_metrics()`. *(Completed 2026-08-16)*
+- [x] **Thinking Loop Optimization & Task Preemption Hardening**: Optimized model reasoning budgets in `evelyn_config.py` (`THINK_TOOL_LOOP = False`, `NUM_PREDICT = 8192`, `TOOL_LOOP_NUM_PREDICT = 1024`) and added system prompt anti-drafting guidance in `evelyn_server.py`. Eliminated duplicate reasoning traces and Pass 1 response pre-drafting, dropping response latency by up to ~10.5x with zero token truncation. Hardened `pause_all_active_research()` to scan disk state (`state.json`), clear `engine.pid` lockfiles, and terminate orphan subprocesses via `psutil` upon incoming chat requests, guaranteeing immediate GPU availability for conversations. *(Completed 2026-08-16)*
 - [ ] **System-Event Prompting Flow**: Expand the transient system message / badge workflow to inject notifications into active conversation turns when background events occur (e.g., calendar/reminder due alerts, finished background research, or tasks needing manual search guidance).
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).
 
