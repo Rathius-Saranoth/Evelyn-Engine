@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-15 12:07:39
+date modified: 2026-08-15 22:12:00
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -54,6 +54,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Procedural Knowledge Capture**: Implemented an idle-time background pipeline that scans chat history for procedural rules (workflows, trigger patterns, pitfalls, and verification criteria), stores them in the SQLite `procedures` table, and dynamically injects keyword-matched procedures into the active RAG context. Added a dedicated interactive Procedures review tab in the Developer Web UI. (Hermes Tier 3 #10 — Completed 2026-06-27)
 - [x] **Google Calendar write scheduling**: Scrapped local reminders module/table and integrated read/write calendar tools directly to Google Calendar. *(Completed 2026-07-02)*
 - [ ] **Implement Expressive Speech-to-Text (STT)**: Go beyond basic transcription (currently handled via phone OS keyboard) and integrate a local STT engine capable of extracting vocal nuance tags (pitch, stress, hesitation) so Evelyn can 'hear' the emotion behind the words.
+- [ ] **Real-Time Screen Watching / Vision Perception**: Stream and process real-time screen captures or video feed to allow Evelyn to observe active desktop browsing, video watching, and pair-programming workflows, providing contextual visual assistance (see `[[Feature Idea-20260815.md]]`).
 - [ ] Explore Google Drive File Integration.
 - [ ] **System-Event Prompting Flow**: Expand the transient system message / badge workflow to inject notifications into active conversation turns when background events occur (e.g., calendar/reminder due alerts, finished background research, or tasks needing manual search guidance).
 - [ ] Explore 'always on' functionality (day/night cycles & random messages).
@@ -160,7 +161,6 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Dynamic Thinking Effort & Phase-Aware Telemetry**: Implemented multi-tiered reasoning depth control in `evelyn_config.py` (`THINK = "medium"`, `THINK_TOOL_LOOP = "low"`), `evelyn_tools.py` (`TOOL_THINK_EFFORT`), `evelyn_server.py` (`classify_message_effort`), and `evelyn_ui/index.html`. Pre-classifies message intent (`"low"`, `"medium"`, `"high"`), supports model self-election in Tool Round 0, automatically escalates streaming effort for action tools (e.g. `write_journal_entry` $\rightarrow$ `"high"`), and provides a manual UI chip selector (`Auto`, `Low`, `Mid`, `High`). Surfaces phase-aware collapsible thinking blocks (`[Initial]`, `[Tool N]`, `[Response]`) in the chat UI and records resolved effort (`think_effort`) and resolution source (`think_source`) into SQLite `message_metrics` (`data/evelyn_chat.db`). Reduced casual response latency by **20–30s** and shrank reasoning traces by up to **58%**. *(Completed 2026-08-14)*
 - [x] **Multi-Device Obsidian Vault Sync & Real-Time Ingestion Pipeline**: Established a private peer-to-peer synchronization mesh using **Syncthing** over **Tailscale** between Sanctum (Linux server), Windows workstation (`ricky-pc2`), and Android mobile (`pixel-9-pro`). Deployed a real-time debounced filesystem watcher (`scripts/obsidian_vault_watcher.py`) as a systemd user service (`evelyn-vault-watcher.service`). Both Syncthing and the Watcher are pinned to Socket 1 (`CPUAffinity=48-95`) with low scheduling priority (`Nice=19`). Configured `.stignore` to isolate workspace layout caches while syncing plugins/snippets/themes, disabled Syncthing versioning (delegating snapshots cleanly to Obsidian's built-in File Recovery), and configured offline HuggingFace mode (`HF_HUB_OFFLINE=1`). Automatically updates SQLite metadata (`vault_db.py`) and ChromaDB vector embeddings (`evelyn_memory` via `BAAI/bge-large-en-v1.5`) incrementally in **~0.43s** upon vault changes with automated garbage collection. *(Completed 2026-08-15)*
 
-
 ---
 
 ## Phase 4: Data Architecture & Ecosystem (Planned)
@@ -197,7 +197,6 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [ ] **Valence-Arousal-Dominance (VAD) State Detection & Tracking**: Detect, extract, and track VAD (Valence-Arousal-Dominance) affective states for relevant database records (such as chat messages, context facts, and journal entries) to build historical emotional trajectories and enhance context awareness.
 - [ ] **Multi-Node Expansion**: Split processes between machines (Evelyn Core on primary, TTS/Image Gen/idle tasks on secondary) to eliminate resource bottlenecks. See `reference/Multi_Node_Expansion_Plan.md` for feasibility and implementation details.
 - [x] **Standalone Image Generation Host Service Reconfiguration & Testing**: Reconfigured the FLUX.1 Schnell image generation server (`services/image/image_server.py`) to run standalone as an independent background service binding to `0.0.0.0:5055` over Tailscale (`ricky-pc.tail0e161b.ts.net:5055`). Created `services/image/REQUIREMENTS_IMAGE_HOST.md` and `services/image/requirements.txt` for host environment restoration. Upgraded `generate_image` in `evelyn_tools.py` with automatic image retrieval, local caching in `services/image/output/`, flexible parameter aliasing, and cross-platform launcher scripts (`start_image_server.sh` and `start_image_server.ps1`). Added unit test suite in `Evelyn/tests/test_image_generation.py`. *(Completed 2026-08-10)*
-
 
 ## Phase 5: Embodiment & Advanced Senses (Future)
 
