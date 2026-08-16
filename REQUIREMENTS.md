@@ -154,8 +154,11 @@ The 12B parameter dense model (Q4_0 QAT quantization) uses ~7.6 GB and fits 100%
 │   ├── evelyn_memory.db         # SQLite memory database
 │   ├── evelyn_vault.db          # SQLite vault database
 │   └── chroma_db/               # ChromaDB persistent storage
-├── evelyn_ui/                   # Chat web UI (HTML + favicon)
-└── reference/                   # System specs, benchmarks
+├── evelyn_ui/                   # Chat web UI (HTML + vendor assets + favicon)
+│   ├── dev.html                 # Developer & review dashboard
+│   ├── index.html               # Main Chat UI
+│   └── vendor/                  # Vendored client-side JS (marked.min.js, purify.min.js)
+├── reference/                   # System specs, benchmarks
 ```
 
 External data path:
