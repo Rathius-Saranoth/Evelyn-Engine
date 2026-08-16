@@ -153,6 +153,14 @@ MEMORY_DB_PATH = r"/home/rathius/evelyn/data/evelyn_memory.db" # [[evelyn_memory
 PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
 GCAL_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gcal_credentials.json"
 GCAL_TOKEN_PATH = r"/home/rathius/evelyn/data/gcal_token.json"
+GDRIVE_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gdrive_credentials.json"
+GDRIVE_TOKEN_PATH = r"/home/rathius/evelyn/data/gdrive_token.json"
+
+# Health Connect & Oura Ring Configuration
+HEALTH_DATA_DIR = r"/home/rathius/evelyn/data/health"
+HEALTH_DB_PATH = r"/home/rathius/evelyn/data/health/health_connect.db"
+HEALTH_SYNC_STATE_PATH = r"/home/rathius/evelyn/data/health_sync_state.json"
+OURA_TOKEN_PATH = r"/home/rathius/evelyn/data/oura_token.json"
 
 # High-Performance SQLite PRAGMAs for Sanctum Server (192 GB DRAM)
 SQLITE_PRAGMAS = [
