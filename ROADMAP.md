@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-16 13:54:30
+date modified: 2026-08-16 14:12:48
 tags: roadmap, goals, features, implementation, planning
 ---
 
@@ -72,6 +72,7 @@ This is the primary source of truth for project progress. AI agents MUST update 
 - [x] **Service Management**: Implement `.agents/workflows/start-services.md`.
 - [x] **Coding Standards**: Enforce Google-style Docstrings across core scripts.
 - [x] **Version Control**: Initialize local Git repository with protective `.gitignore`.
+- [x] **ChatUI & DevUI Markdown Enhancement & UI Streamlining**: Upgraded the frontend Markdown rendering pipeline across `index.html` (ChatUI) and `dev.html` (DevUI) by vendoring `marked.js` and `DOMPurify` locally in `evelyn_ui/vendor/` for 100% offline self-contained operation. Added full GFM table support with horizontal scrolling, typography heading hierarchy (`h1`–`h4`), ordered/unordered and interactive task checkboxes (`- [ ]`/`- [x]`), blockquotes, and an automatic YAML frontmatter extractor that converts leading metadata into sleek collapsible/pill cards. Removed the redundant bottom-right context counter from the chat footer for a cleaner interface. *(Completed 2026-08-16)*
 - [x] **Architecture Overhaul**: Retired Modelfile pipeline and Open WebUI entirely; `evelyn_server.py` is now the sole authority for model config, system prompt, and parameters.
 - [x] **Prompt Engineering**: Rewrote Evelyn persona (first-person structured), system prompt (with tool priority ordering), and RAG prompt.
 - [x] **Sync Scripts**: Fixed state-based file_id tracking in ingest scripts; fixed openwebui_sync_tool.py Phase 2 duplication bug.
