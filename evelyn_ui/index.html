@@ -1,3 +1,9 @@
+---
+title: index.html
+date created: 2026-08-16 14:05:23
+date modified: 2026-08-16 14:05:23
+tags: 
+---
 <!doctype html>
 <html lang="en">
   <head>
@@ -10,6 +16,8 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap"
       rel="stylesheet"
     />
+    <script src="/ui/vendor/marked.min.js"></script>
+    <script src="/ui/vendor/purify.min.js"></script>
     <style>
       :root {
         --bg: #0d0d12;
@@ -559,7 +567,7 @@
         border-color: rgba(253, 224, 71, 0.25);
       }
 
-      /* Markdown: inline code */
+      /* Markdown: inline code & formatting */
       .bubble code {
         background: var(--surface2);
         padding: 2px 6px;
@@ -567,29 +575,146 @@
         font-family: "JetBrains Mono", monospace;
         font-size: 13px;
       }
-      .bubble strong {
+      .bubble strong, .modal-content strong {
         font-weight: 600;
       }
-      .bubble em {
+      .bubble em, .modal-content em {
         font-style: italic;
       }
-      .bubble h1 {
-        font-size: 1.1em;
+      .bubble h1, .modal-content h1 {
+        font-size: 1.35em;
         font-weight: 600;
-        margin: 0.8em 0 0.3em;
+        margin: 0.9em 0 0.4em;
         line-height: 1.3;
+        color: #fff;
       }
-      .bubble h2 {
-        font-size: 1.05em;
+      .bubble h2, .modal-content h2 {
+        font-size: 1.2em;
         font-weight: 600;
-        margin: 0.7em 0 0.25em;
+        margin: 0.8em 0 0.35em;
         line-height: 1.3;
+        color: #fff;
       }
-      .bubble h3 {
-        font-size: 1em;
+      .bubble h3, .modal-content h3 {
+        font-size: 1.08em;
         font-weight: 600;
-        margin: 0.6em 0 0.2em;
+        margin: 0.7em 0 0.3em;
         line-height: 1.3;
+        color: var(--text);
+      }
+      .bubble h4, .modal-content h4 {
+        font-size: 1.0em;
+        font-weight: 600;
+        margin: 0.6em 0 0.25em;
+        line-height: 1.3;
+        color: var(--text);
+      }
+      .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child,
+      .modal-content h1:first-child, .modal-content h2:first-child, .modal-content h3:first-child {
+        margin-top: 0;
+      }
+      .bubble p, .modal-content p {
+        margin: 0.45em 0;
+        line-height: 1.55;
+      }
+      .bubble p:first-child, .modal-content p:first-child {
+        margin-top: 0;
+      }
+      .bubble p:last-child, .modal-content p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Lists & Task Checkboxes */
+      .bubble ul, .bubble ol,
+      .modal-content ul, .modal-content ol {
+        margin: 0.5em 0;
+        padding-left: 1.4em;
+      }
+      .bubble li, .modal-content li {
+        margin: 0.25em 0;
+        line-height: 1.5;
+      }
+      .bubble ul.contains-task-list, .modal-content ul.contains-task-list,
+      .bubble ul.task-list, .modal-content ul.task-list {
+        list-style: none;
+        padding-left: 0.2em;
+      }
+      .bubble li.task-list-item, .modal-content li.task-list-item {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      .bubble li input[type="checkbox"],
+      .modal-content li input[type="checkbox"] {
+        margin-right: 6px;
+        vertical-align: middle;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
+      /* Blockquotes & Dividers */
+      .bubble blockquote,
+      .modal-content blockquote {
+        border-left: 3px solid var(--accent);
+        margin: 0.6em 0;
+        padding: 4px 12px;
+        background: rgba(124, 106, 247, 0.05);
+        border-radius: 0 4px 4px 0;
+        color: var(--text-dim);
+        font-style: italic;
+      }
+      .bubble hr,
+      .modal-content hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 1em 0;
+      }
+
+      /* YAML Frontmatter / Metadata Card */
+      .frontmatter-card {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin: 0.4em 0 0.8em;
+        font-size: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .frontmatter-header {
+        font-weight: 600;
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.5px;
+      }
+      .frontmatter-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        margin-top: 4px;
+      }
+      .frontmatter-item {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 4px;
+      }
+      .frontmatter-key {
+        color: var(--text-dim);
+        font-weight: 500;
+      }
+      .frontmatter-val {
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        background: rgba(0, 0, 0, 0.25);
+        padding: 1px 5px;
+        border-radius: 3px;
       }
 
       /* Fenced code blocks */
@@ -661,20 +786,28 @@
         overflow-x: auto;
         border-collapse: collapse;
         margin: 0.8em 0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
       }
       .bubble th,
       .bubble td,
       .modal-content th,
       .modal-content td {
         border: 1px solid var(--border);
-        padding: 6px 10px;
+        padding: 6px 12px;
         text-align: left;
         font-size: 13px;
+        line-height: 1.4;
       }
       .bubble th,
       .modal-content th {
         background: var(--surface2);
+        color: #fff;
         font-weight: 600;
+      }
+      .bubble tr:nth-child(even) td,
+      .modal-content tr:nth-child(even) td {
+        background: rgba(255, 255, 255, 0.02);
       }
 
       /* CSS-only syntax highlighting */
@@ -984,7 +1117,6 @@
             ></span>
             <span>⚙️ Dev UI</span>
           </a>
-          <span id="telemetry" style="transition: color 0.3s; opacity: 0.8"></span>
         </span>
       </div>
     </footer>
@@ -1078,54 +1210,119 @@
           });
       }
 
+      // Configure marked with GFM, line breaks, and custom code block rendering
+      if (typeof marked !== "undefined") {
+        const customRenderer = {
+          code(token) {
+            const text = token.text || "";
+            const lang = token.lang || "";
+            const language = (lang || "").match(/^\S*/)?.[0] || "";
+            const escaped = escapeHtml(text);
+            const highlighted = applyHighlighting(escaped);
+            const langBadge = language ? `<span class="code-lang">${escapeHtml(language)}</span>` : "";
+            return `<div class="code-block"><div class="code-header">${langBadge}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div><pre><code>${highlighted}</code></pre></div>`;
+          }
+        };
+        marked.use({
+          gfm: true,
+          breaks: true,
+          renderer: customRenderer
+        });
+      }
+
+      function extractFrontmatter(text) {
+        if (!text) return { frontmatter: null, body: "" };
+        const trimmed = text.trimStart();
+        if (!trimmed.startsWith("---")) {
+          return { frontmatter: null, body: text };
+        }
+        const match = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+        if (!match) return { frontmatter: null, body: text };
+
+        const rawYaml = match[1];
+        const body = match[2];
+        const entries = [];
+        const lines = rawYaml.split(/\r?\n/);
+        let currentKey = null;
+        let currentVal = [];
+
+        for (const line of lines) {
+          const kvMatch = line.match(/^([A-Za-z0-9_ -]+):\s*(.*)$/);
+          if (kvMatch) {
+            if (currentKey) {
+              entries.push({ key: currentKey, val: currentVal.join("\n").trim() });
+            }
+            currentKey = kvMatch[1].trim();
+            currentVal = kvMatch[2] ? [kvMatch[2].trim()] : [];
+          } else if (currentKey) {
+            currentVal.push(line.trim());
+          }
+        }
+        if (currentKey) {
+          entries.push({ key: currentKey, val: currentVal.join("\n").trim() });
+        }
+
+        return {
+          frontmatter: entries.length > 0 ? entries : null,
+          body: body
+        };
+      }
+
+      function renderFrontmatter(entries) {
+        if (!entries || entries.length === 0) return "";
+        const items = entries.map(e => `
+          <div class="frontmatter-item">
+            <span class="frontmatter-key">${escapeHtml(e.key)}:</span>
+            <span class="frontmatter-val">${escapeHtml(e.val)}</span>
+          </div>
+        `).join("");
+        return `<div class="frontmatter-card"><div class="frontmatter-header">📋 Metadata</div><div class="frontmatter-grid">${items}</div></div>`;
+      }
+
       function renderMarkdown(text) {
-        // Step 1: Extract complete fenced code blocks into placeholders.
-        // Regex only matches closed ``` pairs — unclosed fences during streaming
-        // pass through as raw text and render correctly once the fence closes.
-        const blocks = [];
-        const src = text.replace(/```(\w*)\r?\n?([\s\S]*?)```/g, (_, lang, code) => {
-          blocks.push({ lang: lang.trim(), code: code.replace(/\n$/, "") });
-          return `\x00CB${blocks.length - 1}\x00`;
-        });
+        if (!text) return "";
 
-        // Step 2: Escape HTML in non-code text.
-        let html = escapeHtml(src);
+        // 1. Extract leading YAML frontmatter if present
+        const { frontmatter, body } = extractFrontmatter(text);
+        const frontmatterHtml = frontmatter ? renderFrontmatter(frontmatter) : "";
 
-        // Step 3: Inline rules.
-        html = html
-          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-          .replace(/\*(.*?)\*/g, "<em>$1</em>")
-          .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+        let html = "";
+        if (typeof marked !== "undefined" && typeof marked.parse === "function") {
+          html = marked.parse(body);
+        } else {
+          // Fallback legacy renderer if library failed to load
+          let src = escapeHtml(body);
+          src = src
+            .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+            .replace(/\*(.*?)\*/g, "<em>$1</em>")
+            .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+            .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+            .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+            .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+            .replace(/\n\n+/g, "<br><br>")
+            .replace(/\n/g, "<br>");
+          html = src;
+        }
 
-        // Step 4: Headings (must run before line-break conversion).
-        html = html
-          .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-          .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-          .replace(/^# (.+)$/gm, "<h1>$1</h1>");
+        // 2. Sanitize with DOMPurify if available (safely allowing onclick for copy/research buttons)
+        if (typeof DOMPurify !== "undefined" && typeof DOMPurify.sanitize === "function") {
+          html = DOMPurify.sanitize(html, {
+            ADD_ATTR: ["onclick", "target", "checked", "disabled"],
+            ADD_TAGS: ["button", "input"]
+          });
+        }
 
-        // Step 5: Line breaks (white-space:normal on .bubble, so we handle them).
-        html = html.replace(/\n\n+/g, "<br><br>").replace(/\n/g, "<br>");
-
-        // Step 6: Restore code blocks with syntax highlighting.
-        html = html.replace(/\x00CB(\d+)\x00/g, (_, i) => {
-          const { lang, code } = blocks[parseInt(i)];
-          const escaped = escapeHtml(code);
-          const highlighted = applyHighlighting(escaped);
-          const langBadge = lang ? `<span class="code-lang">${lang}</span>` : "";
-          return `<div class="code-block"><div class="code-header">${langBadge}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div><pre><code>${highlighted}</code></pre></div>`;
-        });
-
-        // Step 7: Research deep-link buttons (unchanged).
+        // 3. Research deep-link buttons
         html = html.replace(
           /\[\[Research\/([^\]]+)\]\]/g,
           (_, slug) =>
             `<button class="write-badge" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;vertical-align:middle;border:1px solid var(--tool-border);background:var(--tool-bg);color:var(--tool-text);" onclick="openModal('research','${slug}')">\uD83D\uDD0D Deep Research: ${slug}</button>`
         );
 
-        return html;
+        return frontmatterHtml + html;
       }
 
-      // renderFullMarkdown: modals (research reports, journal entries) now share the
+      // renderFullMarkdown: modals (research reports, journal entries) share the
       // same full renderer. Alias kept for call-site clarity.
       function renderFullMarkdown(text) {
         return renderMarkdown(text);
@@ -2010,24 +2207,8 @@
         return false;
       }
 
-      let maxContextTokens = 32768; // fallback default
-      let lastTelemetryTokens = 0;
-      let lastTelemetryEvalTokens = 0;
-
       function updateTelemetry(promptTokens, evalTokens = 0) {
-        lastTelemetryTokens = promptTokens;
-        lastTelemetryEvalTokens = evalTokens;
-        const el = document.getElementById("telemetry");
-        if (!el) return;
-        const totalTokens = promptTokens + evalTokens;
-        const max = maxContextTokens;
-        const limitLabel = max >= 1024 ? `${Math.round(max / 1024)}k` : `${max}`;
-        el.textContent = `Context: ${(totalTokens / 1000).toFixed(1)}k / ${limitLabel}`;
-        if (totalTokens > max * 0.9)
-          el.style.color = "#e86040"; // Red
-        else if (totalTokens > max * 0.75)
-          el.style.color = "#e8b040"; // Amber
-        else el.style.color = "var(--text-dim)"; // Normal
+        // Telemetry context counter removed from footer per user request
       }
 
       async function sendMessage() {
