@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-15 12:07:07
+# date modified: 2026-08-16 13:43:01
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -83,7 +83,7 @@ SEED = 0
 
 # Num predict — maximum tokens to generate. -1 = unlimited, -2 = fill context.
 # Range: -2–∞       |  Ollama default: -1
-NUM_PREDICT = 4096
+NUM_PREDICT = 8192
 
 # Stop sequences — generation halts immediately when any of these strings are
 # produced. Primarily added to prevent the model from looping inside its own
@@ -110,11 +110,11 @@ MAX_TOOL_ROUNDS = 5
 # Thinking effort for ALL tool-loop routing rounds (tool detection + result
 # evaluation). These rounds make binary routing decisions only — "low" is
 # appropriate and keeps latency low. Set to False to disable entirely.
-THINK_TOOL_LOOP = "low"
+THINK_TOOL_LOOP = False
 
 # Token budget for each tool-loop reasoning round. Needs sufficient headroom
 # for Gemma 4 native thinking tokens plus tool call generation.
-TOOL_LOOP_NUM_PREDICT = 4096
+TOOL_LOOP_NUM_PREDICT = 1024
 
 # When True, intermediate thinking from each tool-loop round is forwarded to
 # the client as thinking SSE events. Useful for seeing Evelyn's decision chain
