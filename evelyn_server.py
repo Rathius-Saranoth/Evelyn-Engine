@@ -444,7 +444,8 @@ def load_system_prompt() -> str:
         "Before responding, briefly verify any facts about people, relationships, or past events "
         "from your knowledge. Use <think> tags for this verification step. For complex questions "
         "requiring multi-step logic, use <think> tags for full reasoning. Keep thinking concise -- "
-        "you don't need lengthy chains for casual conversation. "
+        "you don't need lengthy chains for casual conversation. Do not draft your response inside <think> tags; "
+        "use thinking solely for analysis, planning, and knowledge retrieval. "
         "If a turn calls for unusually deep reflection (complex planning, emotional nuance, "
         "multi-step analysis), you may include {\"requested_effort\":\"high\"} on its own line before "
         "your response. For brief acknowledgments or casual sign-offs where deep reasoning is "
@@ -1618,20 +1619,72 @@ def pause_all_active_research():
     """Immediately pause any currently running background research tasks to prevent Ollama blockage."""
     global _background_tasks
     paused_any = False
-    for tid, task in list(_background_tasks.items()):
-        if tid.startswith("task_") and task.get("status") in ("running", "searching", "synthesizing"):
-            print(f"[IMMEDIATE RESEARCH PAUSE] Pausing active research task {tid} due to incoming user chat activity.", flush=True)
-            from research_engine import load_state, save_state
-            try:
-                state = load_state(tid)
-                if state and state["status"] in ("running", "searching", "synthesizing"):
-                    state["status"] = "paused"
-                    save_state(tid, state)
-                    _background_tasks[tid]["status"] = "paused"
-                    terminate_research_process(tid)
+
+    # 1. Terminate all tracked active process handles
+    for task_id in list(_active_research_processes.keys()):
+        print(f"[IMMEDIATE RESEARCH PAUSE] Terminating tracked active research process handle: {task_id}", flush=True)
+        terminate_research_process(task_id)
+        paused_any = True
+
+    # 2. Check disk state for any active tasks in data/research
+    try:
+        from Evelyn.tools.research_engine import load_state, save_state, get_task_dir
+    except Exception:
+        try:
+            from research_engine import load_state, save_state, get_task_dir
+        except Exception as e:
+            print(f"[IMMEDIATE RESEARCH PAUSE ERROR] Could not import research_engine: {e}", flush=True)
+            load_state, save_state, get_task_dir = None, None, None
+
+    if os.path.exists(cfg.RESEARCH_DATA_DIR):
+        for d in os.listdir(cfg.RESEARCH_DATA_DIR):
+            if d.startswith("task_"):
+                task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, d)
+                pid_path = os.path.join(task_dir, "engine.pid")
+                is_active = os.path.exists(pid_path)
+
+                if load_state:
+                    try:
+                        state = load_state(d)
+                        if state and state.get("status") in ("running", "searching", "synthesizing"):
+                            is_active = True
+                            state["status"] = "paused"
+                            state["error"] = "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
+                            if save_state:
+                                save_state(d, state)
+                    except Exception as e:
+                        print(f"[IMMEDIATE RESEARCH PAUSE ERROR] Failed to pause task {d} state: {e}", flush=True)
+
+                if is_active:
+                    print(f"[IMMEDIATE RESEARCH PAUSE] Pausing active research task {d} on disk due to user chat activity.", flush=True)
+                    terminate_research_process(d)
                     paused_any = True
-            except Exception as e:
-                print(f"[IMMEDIATE RESEARCH PAUSE ERROR] Failed to pause task {tid}: {e}", flush=True)
+
+                if d in _background_tasks:
+                    _background_tasks[d]["status"] = "paused"
+
+    # 3. Sweep psutil for any orphan research_engine.py processes
+    try:
+        import psutil
+        current_pid = os.getpid()
+        for p in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if p.pid == current_pid:
+                    continue
+                cmdline = p.info.get('cmdline') or []
+                if any("research_engine.py" in str(arg) for arg in cmdline):
+                    print(f"[IMMEDIATE RESEARCH PAUSE] Killing orphan research_engine process PID {p.pid}", flush=True)
+                    p.terminate()
+                    try:
+                        p.wait(timeout=2.0)
+                    except Exception:
+                        p.kill()
+                    paused_any = True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception as e:
+        print(f"[IMMEDIATE RESEARCH PAUSE ERROR] psutil process scan failed: {e}", flush=True)
+
     return paused_any
 
 
