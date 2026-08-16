@@ -2168,6 +2168,33 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_gcal_sync_loop())
     print(f"  {_GRN}GCal Syncer:{_RST} periodic loop started (interval=30m)")
 
+    # Periodic Google Drive & Health Connect auto-sync loop
+    async def _gdrive_sync_loop():
+        """Periodic background task that checks Google Drive for Health Connect exports and syncs the DB.
+        Runs on startup and then every 2 hours.
+        """
+        await asyncio.sleep(15)  # Brief warm-up delay on startup
+        while True:
+            try:
+                import gdrive_sync
+                result = await asyncio.to_thread(gdrive_sync.sync_health_connect_from_drive)
+                if result.get("status") == "success":
+                    action = result.get("action", "")
+                    if action == "downloaded":
+                        print(f"{_GRN}[GDRIVE SYNC]{_RST} {result['message']}", flush=True)
+                    elif cfg.DEBUG_LOGGING:
+                        print(f"{_GRN}[GDRIVE SYNC]{_RST} {result['message']}", flush=True)
+                elif cfg.DEBUG_LOGGING:
+                    print(f"{_YEL}[GDRIVE SYNC]{_RST} {result.get('message')}", flush=True)
+            except Exception as e:
+                print(f"{_RED}[GDRIVE SYNC ERROR]{_RST} {e}", flush=True)
+
+            # Check every 2 hours (7200s)
+            await asyncio.sleep(7200)
+
+    asyncio.create_task(_gdrive_sync_loop())
+    print(f"  {_GRN}GDrive Syncer:{_RST} periodic loop started (interval=2h)")
+
     yield
     # Shutdown phase: pause all active research and cancel background tasks cleanly
     clean_shutdown_all_tasks()
