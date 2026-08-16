@@ -83,6 +83,9 @@ import ingest_gists # [[ingest_gists.py]]
 import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
 import gcal_sync
 import terminal_agent
+import gdrive_sync
+import health_manager
+import oura_client
 
 
 def _reload():
@@ -94,6 +97,9 @@ def _reload():
         "ingest_obsidian_knowledge",
         "gcal_sync",
         "terminal_agent",
+        "gdrive_sync",
+        "health_manager",
+        "oura_client",
     ):
         if mod in sys.modules:
             importlib.reload(sys.modules[mod])
@@ -1545,6 +1551,85 @@ def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", 
     return terminal_agent.write_file(file_path, content, mode)
 
 
+def get_health_metrics(date: str = "today", metric: str = "summary", **kwargs) -> str:
+    """Retrieve daily health and activity data (steps, sleep, readiness, stress, calories, resting heart rate, vitals, clinical records).
+
+    Args:
+        date: Target date ('YYYY-MM-DD', 'today', 'yesterday'). Defaults to 'today'.
+        metric: Specific metric to retrieve:
+            - 'summary': comprehensive daily overview (live Oura sleep & readiness + steps & workouts)
+            - 'sleep': granular sleep stages breakdown (Deep, REM, Light, Awake), scores, and hypnogram
+            - 'readiness': Oura readiness score, body temp deviation, and recovery index
+            - 'stress': Oura daytime stress and restorative recovery periods
+            - 'vitals': resting HR and HRV trends
+            - 'clinical': FHIR medical lab results and observations
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: JSON formatted string containing the requested health metrics.
+    """
+    import json
+    _reload()
+    date = date or str(kwargs.get("target_date") or kwargs.get("d") or "today")
+    metric = (metric or str(kwargs.get("type") or kwargs.get("category") or "summary")).lower().strip()
+
+    if metric in ("sleep", "sleep_stages", "stages"):
+        res = health_manager.get_sleep_breakdown(date)
+    elif metric in ("readiness", "recovery", "ready"):
+        res = health_manager.get_readiness_summary(date)
+    elif metric in ("stress", "daytime_stress"):
+        res = health_manager.get_stress_summary(date)
+    elif metric in ("vitals", "heart_rate", "rhr", "resting_heart_rate"):
+        res = health_manager.get_vitals_trend(metric="resting_heart_rate", days=14)
+    elif metric in ("hrv", "heart_rate_variability"):
+        res = health_manager.get_vitals_trend(metric="hrv", days=14)
+    elif metric in ("clinical", "labs", "medical", "fhir"):
+        res = health_manager.get_clinical_records(limit=10)
+    else:
+        res = health_manager.get_daily_summary(date)
+
+    return json.dumps(res, indent=2)
+
+
+def get_recent_workouts(days: int = 7, **kwargs) -> str:
+    """Retrieve recorded workout and exercise sessions for the past N days.
+
+    Args:
+        days: Number of past days to query. Defaults to 7.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: JSON formatted string of recent workouts.
+    """
+    import json
+    _reload()
+    try:
+        days = int(days or kwargs.get("num_days") or 7)
+    except (ValueError, TypeError):
+        days = 7
+    res = health_manager.get_recent_workouts(days=days)
+    if not res:
+        return f"No workout sessions recorded in the past {days} days."
+    return json.dumps(res, indent=2)
+
+
+def sync_google_drive(force: bool = False, **kwargs) -> str:
+    """Trigger sync to download and update latest Health Connect database export from Google Drive.
+
+    Args:
+        force: Force re-download even if already up to date. Defaults to False.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Outcome confirmation message.
+    """
+    _reload()
+    res = gdrive_sync.sync_health_connect_from_drive(force=bool(force))
+    if res.get("status") == "success":
+        return f"Google Drive sync complete: {res.get('message')}"
+    return f"Google Drive sync error: {res.get('message')}"
+
+
 # ===========================================================================
 
 # Tool registries
@@ -1570,6 +1655,7 @@ def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", 
 #   web_search           → "medium": synthesis takes thought
 #   search_history       → "low":    pure retrieval, factual response
 #   calendar ops         → "low":    simple confirmation responses
+#   health ops           → "low":    factual retrieval
 #   generate_image       → "medium": creative framing
 #   run/read/write_file  → "medium": context-dependent
 TOOL_THINK_EFFORT: dict[str, str] = {
@@ -1584,6 +1670,9 @@ TOOL_THINK_EFFORT: dict[str, str] = {
     "delete_calendar_event": "low",
     "sync_google_calendar":  "low",
     "get_agenda":            "low",
+    "get_health_metrics":    "low",
+    "get_recent_workouts":   "low",
+    "sync_google_drive":     "low",
     "run_command":           "medium",
     "read_file":             "medium",
     "write_file":            "medium",
@@ -1654,7 +1743,7 @@ MODEL_TOOL_DEFINITIONS = [
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "REQUIRED — A descriptive natural language prompt (e.g. 'Victorian street at twilight, oil painting style').",
+                        "description": "A detailed, descriptive English prompt describing the visual scene, subject, lighting, style, and composition.",
                     },
                     "aspect_ratio": {
                         "type": "string",
@@ -1888,6 +1977,80 @@ MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "get_health_metrics",
+            "description": (
+                "Retrieve Ricky's health, fitness, sleep, vitals, readiness, or medical records from Oura Ring and Google Health Connect. "
+                "Use when Ricky asks about his sleep quality, sleep stages (deep/REM/light), readiness score, recovery, daytime stress, "
+                "resting heart rate, HRV, body temperature deviation, daily steps, calories burned, distance, or clinical lab results."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "Target date in 'YYYY-MM-DD' format, 'today', or 'yesterday'. Defaults to 'today'.",
+                    },
+                    "metric": {
+                        "type": "string",
+                        "description": (
+                            "Specific health domain to query: "
+                            "'summary' (comprehensive daily overview: sleep, readiness, steps, calories), "
+                            "'sleep' (detailed sleep score, duration, deep/REM/light stages, latency, efficiency, and hypnogram), "
+                            "'readiness' (Oura readiness score, recovery index, HRV balance, temperature deviation), "
+                            "'stress' (daytime stress vs recovery duration), "
+                            "'vitals' (resting heart rate and HRV trends over time), "
+                            "'clinical' (medical lab observations, FHIR records, blood work, or doctor records). "
+                            "Defaults to 'summary'."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_recent_workouts",
+            "description": (
+                "Retrieve Ricky's recorded exercise and workout sessions (walks, runs, strength training, gym sessions, cycling). "
+                "Use when asked about physical activities, recent walks, workout duration, or exercise history."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of past days to query (default 7).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_google_drive",
+            "description": (
+                "Sync and update the latest Google Health Connect database export from Google Drive. "
+                "Use when Ricky asks to sync health data from Drive or update his health database."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "force": {
+                        "type": "boolean",
+                        "description": "Force re-download even if already up to date.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": (
                 "Execute a shell command in the Evelyn workspace. "
@@ -1991,8 +2154,10 @@ TOOL_FUNCTIONS = {
     "delete_calendar_event": delete_calendar_event,
     "sync_google_calendar": sync_google_calendar,
     "get_agenda": get_agenda,
+    "get_health_metrics": get_health_metrics,
+    "get_recent_workouts": get_recent_workouts,
+    "sync_google_drive": sync_google_drive,
     "run_command": run_command,
     "read_file": read_file,
     "write_file": write_file,
 }
-
