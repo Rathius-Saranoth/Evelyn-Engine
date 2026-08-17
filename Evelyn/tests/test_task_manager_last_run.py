@@ -35,18 +35,18 @@ class TestTaskManagerLastRun(unittest.TestCase):
                 now = time.time()
                 
                 # Save timestamp for a task
-                saved_ts = task_manager.save_last_run_ts("test_consolidator", ts=now)
+                saved_ts = task_manager.save_last_run_ts("custom_consolidator", ts=now)
                 self.assertEqual(saved_ts, now)
 
                 # Read back timestamp
-                fetched_ts = task_manager.get_last_run_ts("test_consolidator")
+                fetched_ts = task_manager.get_last_run_ts("custom_consolidator")
                 self.assertEqual(fetched_ts, now)
 
                 # Verify disk contents
                 self.assertTrue(os.path.exists(test_state_file))
                 with open(test_state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                self.assertEqual(data["test_consolidator"]["last_run_at"], now)
+                self.assertEqual(data["custom_consolidator"]["last_run_at"], now)
 
             finally:
                 task_manager.STATE_FILE = original_state_file
@@ -59,11 +59,11 @@ class TestTaskManagerLastRun(unittest.TestCase):
             try:
                 task_manager.STATE_FILE = test_state_file
                 
-                task_manager.set_running("test_task_abc")
+                task_manager.set_running("custom_task_abc")
                 time.sleep(0.05)
-                task_manager.clear_running("test_task_abc", status="idle")
+                task_manager.clear_running("custom_task_abc", status="idle")
 
-                fetched_ts = task_manager.get_last_run_ts("test_task_abc")
+                fetched_ts = task_manager.get_last_run_ts("custom_task_abc")
                 self.assertGreater(fetched_ts, 0)
             finally:
                 task_manager.STATE_FILE = original_state_file

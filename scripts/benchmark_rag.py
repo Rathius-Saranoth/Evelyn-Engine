@@ -82,9 +82,7 @@ def run_query(query: str, n_results: int = None, reformulate: bool = False) -> l
         from query_reformulator import reformulate_query
         search_query = reformulate_query(query)
 
-    memory_chunks = chroma_rag.query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION, n_results)
-    gist_chunks = chroma_rag.query_collection(search_query, cfg.CHROMA_GISTS_COLLECTION, n_results)
-    all_chunks = memory_chunks + gist_chunks
+    all_chunks = chroma_rag.query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION, n_results)
     all_chunks = chroma_rag._apply_priority_boost(all_chunks)
     return all_chunks
 
@@ -150,8 +148,7 @@ def print_results_table(results: list[dict], verbose: bool = False):
     print(f"  Chunk size: {chroma_rag.CHUNK_SIZE} chars | Top-K: {cfg.RAG_TOP_K}")
 
     mem_col = chroma_rag.get_or_create_collection(cfg.CHROMA_MEMORY_COLLECTION)
-    gist_col = chroma_rag.get_or_create_collection(cfg.CHROMA_GISTS_COLLECTION)
-    print(f"  Collections: memory={mem_col.count()} chunks, gists={gist_col.count()} chunks")
+    print(f"  Collections: memory={mem_col.count()} chunks")
     print("-" * 80)
 
     # Group by category
@@ -243,7 +240,6 @@ def _ingest_into_temp_collections(model_key: str):
     # Copy data from production collections
     for src_name, dst_col in [
         (cfg.CHROMA_MEMORY_COLLECTION, mem_col),
-        (cfg.CHROMA_GISTS_COLLECTION, gist_col),
     ]:
         src_col = chroma_rag.get_or_create_collection(src_name)
         count = src_col.count()

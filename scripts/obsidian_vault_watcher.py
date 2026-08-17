@@ -150,7 +150,6 @@ def update_sqlite_for_changed_files(changed_files: set[str], deleted_files: set[
                     title=meta["title"],
                     mtime=mtime,
                     gist=meta["gist"],
-                    gist_failed=False,
                     rag_priority=meta["rag_priority"],
                     rag_pinned=meta["rag_pinned"],
                     tags=",".join(meta["tags"]),

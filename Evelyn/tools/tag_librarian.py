@@ -376,10 +376,11 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
             # Instantly re-index modified note in Chroma DB vector store
             try:
                 from Evelyn.tools import chroma_rag
+                target_col = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
                 chroma_rag.ingest_markdown_file(
                     file_path=abs_path,
                     content=new_content,
-                    collection_name="obsidian_vault",
+                    collection_name=target_col,
                     extra_metadata={"tags": tags_str}
                 )
             except Exception as ve:
