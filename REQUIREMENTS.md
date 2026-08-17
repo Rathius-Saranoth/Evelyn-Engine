@@ -52,13 +52,19 @@ pip install -r requirements.txt
 | `PyYAML`   | ≥6.0    | YAML parsing — fact extractor output, consolidator proposals, pending reviewer, frontmatter processing |
 | `requests` | ≥2.32   | Synchronous HTTP — vault map generator (`generate_vault_map.py`)                                       |
 
-### Tools
+### Tools & Workspace Sync
 
-| Package            | Version | Purpose                                                                                    |
-| ------------------ | ------- | ------------------------------------------------------------------------------------------ |
-| `ddgs`             | ≥9.0    | DuckDuckGo search — powers the `web_search` tool                                           |
-| `PyMuPDF`          | ≥1.27   | PDF text extraction with font metadata — `extract_pdf_library.py`. Import as `import fitz` |
-| `watchdog`         | ≥6.0    | Debounced filesystem watcher — `scripts/obsidian_vault_watcher.py`                         |
+| Package                     | Version | Purpose                                                                                    |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------ |
+| `ddgs`                      | ≥9.0    | DuckDuckGo search — powers the `web_search` tool                                           |
+| `PyMuPDF`                   | ≥1.27   | PDF text extraction and page rendering — `extract_pdf_library.py`, `document_vision_processor.py` |
+| `watchdog`                  | ≥6.0    | Debounced filesystem watcher — `scripts/obsidian_vault_watcher.py`                         |
+| `beautifulsoup4`            | ≥4.13   | HTML DOM parser & asset cleaner — `gdrive_knowledge_importer.py`                           |
+| `markdownify`               | ≥1.2    | HTML to Obsidian Markdown conversion with table & image preservation                       |
+| `html2text`                 | ≥2024.2 | Fallback HTML to clean text/markdown converter                                             |
+| `google-api-python-client`  | ≥2.100  | Google Drive, Docs, Sheets & Tasks API client — `gdrive_sync.py`, `gdrive_knowledge_importer.py` |
+| `google-auth-oauthlib`      | ≥1.2    | Google OAuth 2.0 InstalledAppFlow client credential management                             |
+| `google-auth-httplib2`      | ≥0.2    | Google HTTP transport authentication layer                                                 |
 
 ### Standard Library (No Install Needed)
 
