@@ -1,13 +1,13 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-08-02 11:57:26
+# date modified: 2026-08-17 18:15:00
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
 vault_db.py - SQLite interface for the Obsidian Vault Map
 
-Stores metadata and LLM-generated gists for every markdown file in the vault.
-Replaces the flat vault_map_data.json file to enable partial updates and fast querying.
+Stores metadata, tags, and text preview snippets for every markdown file in the vault.
+Enables fast querying and structural vault inspection without full disk walks.
 """
 import sqlite3
 import os
@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any
 import evelyn_config as cfg
 
 DB_PATH = getattr(cfg, "VAULT_DB_PATH", r"/home/rathius/evelyn/data/evelyn_vault.db")
+
 
 def get_db() -> sqlite3.Connection:
     """Return a new SQLite connection to the vault database with row_factory set.
@@ -26,6 +27,7 @@ def get_db() -> sqlite3.Connection:
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
+
 
 def init_db() -> None:
     """Create the initial table schema.
@@ -42,7 +44,7 @@ def init_db() -> None:
             title TEXT,
             mtime REAL,
             gist TEXT,
-            gist_failed BOOLEAN,
+            gist_failed BOOLEAN DEFAULT 0,
             rag_priority TEXT,
             rag_pinned BOOLEAN,
             tags TEXT,
@@ -70,9 +72,9 @@ def init_db() -> None:
 
 
 def upsert_document(
-    path: str, title: str, mtime: float, gist: str, 
-    gist_failed: bool, rag_priority: str, rag_pinned: bool,
-    tags: str, aliases: str
+    path: str, title: str, mtime: float, gist: str = "", 
+    gist_failed: bool = False, rag_priority: str = "normal", rag_pinned: bool = False,
+    tags: str = "", aliases: str = ""
 ) -> None:
     """Insert or update a document in the vault map.
 
@@ -80,8 +82,8 @@ def upsert_document(
         path: Relative or absolute path of the document.
         title: Title of the document.
         mtime: Modification time.
-        gist: The summary/gist text.
-        gist_failed: Whether gist generation failed.
+        gist: The text preview snippet.
+        gist_failed: Unused legacy flag (defaults to False).
         rag_priority: 'high', 'normal', or 'low'.
         rag_pinned: Whether document is pinned in RAG context.
         tags: Comma-separated tag string.
@@ -107,6 +109,7 @@ def upsert_document(
     con.commit()
     con.close()
 
+
 def get_document(path: str) -> Optional[Dict[str, Any]]:
     """Retrieve a single document's metadata from the vault map by its relative path.
 
@@ -122,6 +125,7 @@ def get_document(path: str) -> Optional[Dict[str, Any]]:
     con.close()
     return dict(row) if row else None
 
+
 def get_all_documents() -> List[Dict[str, Any]]:
     """Return metadata dicts for all documents currently indexed in the vault.
 
@@ -133,16 +137,6 @@ def get_all_documents() -> List[Dict[str, Any]]:
     con.close()
     return [dict(r) for r in rows]
 
-def get_failed_gists() -> List[Dict[str, Any]]:
-    """Return metadata dicts for all indexed documents that failed to generate an LLM gist.
-
-    Returns:
-        List[Dict[str, Any]]: A list of metadata dicts for documents with failed gists.
-    """
-    con = get_db()
-    rows = con.execute("SELECT * FROM vault_documents WHERE gist_failed = 1").fetchall()
-    con.close()
-    return [dict(r) for r in rows]
 
 def delete_document(path: str) -> None:
     """Delete a document's indexed metadata from the vault map database.
@@ -154,6 +148,7 @@ def delete_document(path: str) -> None:
     con.execute("DELETE FROM vault_documents WHERE path = ?", (path,))
     con.commit()
     con.close()
+
 
 def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """Scores and returns documents matching a keyword query.
@@ -175,12 +170,12 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     for row in rows:
         title = (row["title"] or "").lower()
         tags = (row["tags"] or "").lower()
-        gist = (row["gist"] or "").lower()
+        snippet = (row["gist"] or "").lower()
         
         score = 0
         if query_lower in title: score += 10
         if query_lower in tags: score += 5
-        if query_lower in gist: score += 2
+        if query_lower in snippet: score += 2
         
         if score > 0:
             results.append({
@@ -188,7 +183,7 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                 "title": row["title"],
                 "score": score,
                 "tags": [t.strip() for t in row["tags"].split(",")] if row["tags"] else [],
-                "gist": row["gist"]
+                "snippet": row["gist"]
             })
             
     results.sort(key=lambda x: x["score"], reverse=True)

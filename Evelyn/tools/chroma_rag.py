@@ -14,19 +14,18 @@ Exports:
   delete_document()          — Remove all chunks for a document by source path.
   query_collection()         — Retrieve top-K relevant chunks for a query.
   get_or_create_collection() — Idempotently get a named Chroma collection.
-  build_rag_context()        — Query both collections, apply priority boosting and
-                               pinned doc injection; return formatted context block.
-                               Also fires touch_entry_retrieved() for SQLite context
-                               entries served to the model (retrieval tracking).
+  build_rag_context()        — Query Chroma collection, apply priority boosting and
+                                pinned doc injection; return formatted context block.
+                                Also fires touch_entry_retrieved() for SQLite context
+                                entries served to the model (retrieval tracking).
 
-Collections: evelyn_memory (full markdown files), evelyn_gists (LLM-generated gist summaries)
+Collection: evelyn_memory (full markdown files & SQLite context entries)
 
-Embedding model: all-MiniLM-L6-v2 (22.7M params, 384-dim) via Chroma's ONNX runtime.
-  CPU-only to avoid VRAM eviction of the chat model. Hard context: 256 WordPiece tokens
-  (~1000 chars). Chunks exceeding the limit are silently truncated by the model.
+Embedding model: BAAI/bge-large-en-v1.5 (1024-dim) via local HuggingFace / ONNX runtime.
+  CPU-only to avoid VRAM eviction of the chat model.
 
 Index: HNSW with cosine distance (0.0 = identical, 1.0 = orthogonal).
-Chunking: ~1000-char overlapping chunks, YAML frontmatter stripped before embedding.
+Chunking: ~1600-char overlapping chunks, YAML frontmatter stripped before embedding.
 Priority/Pinning: rag_priority multiplier adjusts cosine distance before threshold filter;
   rag_pinned=true guarantees injection when any alias appears in the query.
 """
@@ -203,7 +202,7 @@ def ingest_markdown_file(file_path: str, content: str, collection_name: str,
     Args:
         file_path: Absolute path — used as the document ID prefix.
         content: Text content to embed and store.
-        collection_name: Target collection (evelyn_memory or evelyn_gists).
+        collection_name: Target collection (defaults to evelyn_memory).
         extra_metadata: Optional extra fields stored alongside each chunk.
 
     Returns:
@@ -356,7 +355,7 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
     pinned = []
     seen_sources = set()
 
-    for collection_name in [cfg.CHROMA_MEMORY_COLLECTION, cfg.CHROMA_GISTS_COLLECTION]:
+    for collection_name in [cfg.CHROMA_MEMORY_COLLECTION]:
         try:
             col = get_or_create_collection(collection_name)
             if col.count() == 0:
@@ -450,34 +449,14 @@ def get_vault_relative_path(path: str) -> str:
         return path.replace('\\', '/')
 
 
-def get_document_gist(path: str) -> str | None:
-    """Retrieve the gist summary of a document from vault_db SQLite.
-
-    Args:
-        path: File path (absolute or relative).
-
-    Returns:
-        str | None: The gist summary, or None if not found/error.
-    """
-    import vault_db
-    rel_path = get_vault_relative_path(path)
-    try:
-        doc = vault_db.get_document(rel_path)
-        if doc and doc.get("gist"):
-            return doc["gist"]
-    except Exception:
-        pass
-    return None
-
-
 def build_rag_context(query: str) -> str:
-    """Query both collections and return a formatted context block.
+    """Query Chroma vector store and return a formatted context block.
 
     Args:
         query: The raw incoming query string.
 
     Returns:
-        str: A formatted context block of retrieve/pinned chunks, or empty string.
+        str: A formatted context block of retrieved/pinned chunks, or empty string.
     """
     # Step 0: Query reformulation — extract search keywords from conversational text
     from query_reformulator import reformulate_query
@@ -489,7 +468,6 @@ def build_rag_context(query: str) -> str:
 
     # Step 2: Normal vector search (uses REFORMULATED query for semantic matching)
     # Query evelyn_memory (full-text index of all vault notes and context entries).
-    # evelyn_gists lookups are retired to eliminate redundant vector searches.
     all_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION)
 
     # Step 3: Priority re-ranking
@@ -530,7 +508,7 @@ def build_rag_context(query: str) -> str:
             flush=True,
         )
 
-    # Step 6: Assemble with Progressive Vault Disclosure
+    # Step 6: Assemble Context
     all_context = pinned_chunks + relevant
 
     # Retrieve procedures (matches user conversational trigger keywords)
@@ -562,7 +540,7 @@ def build_rag_context(query: str) -> str:
     except Exception:
         pass
 
-    # Separate context types to structure the final block and apply progressive disclosure
+    # Separate context types to structure the final block
     pinned_by_source = {}
     sqlite_entries = []
     normal_files_by_source = {}
@@ -574,13 +552,12 @@ def build_rag_context(query: str) -> str:
                 pinned_by_source[src] = []
             pinned_by_source[src].append(chunk)
         elif src.startswith("sqlite::context_entry::"):
-            # Ensure SQLite entries are unique in our output
             if chunk not in sqlite_entries:
                 sqlite_entries.append(chunk)
         else:
-            # Standard file-based chunk: keep the first matched chunk to fetch the gist
             if src not in normal_files_by_source:
-                normal_files_by_source[src] = chunk
+                normal_files_by_source[src] = []
+            normal_files_by_source[src].append(chunk)
 
     parts = ["--- Retrieved Context ---"]
 
@@ -612,35 +589,27 @@ def build_rag_context(query: str) -> str:
         entry_id = src.rsplit("::", 1)[-1]
         parts.append(f"[Context Entry (ID: {entry_id})]\n{chunk['content']}")
 
-    # 3. Normal Vault/Memory Documents: Show Gist Summary
-    for src, chunk in normal_files_by_source.items():
+    # 3. Vault Documents: Show direct relevant content chunks
+    for src, chunks in normal_files_by_source.items():
+        chunks.sort(key=lambda x: x.get("metadata", {}).get("chunk", 0))
         rel_path = get_vault_relative_path(src)
-        
-        # Get gist summary
-        gist = None
-        if "gist" in chunk.get("metadata", {}):
-            gist = chunk["metadata"]["gist"]
-        
-        if not gist:
-            gist = get_document_gist(src)
-            
-        if not gist:
-            # Fallback snippet
-            gist = chunk["content"][:300] + "..." if len(chunk["content"]) > 300 else chunk["content"]
+        first_meta = chunks[0].get("metadata", {})
 
-        title = chunk.get("metadata", {}).get("title", "")
+        title = first_meta.get("title", "")
         if not title:
             title = os.path.splitext(os.path.basename(src))[0]
 
-        tags_raw = chunk.get("metadata", {}).get("tags", "")
+        tags_raw = first_meta.get("tags", "")
         tags_str = f"Tags: {tags_raw}\n" if tags_raw else ""
+
+        content_parts = [c["content"] for c in chunks]
+        matched_content = "\n...\n".join(content_parts)
 
         parts.append(
             f"[Vault Document: {rel_path}]\n"
             f"Title: {title}\n"
             f"{tags_str}"
-            f"Gist Summary: {gist}\n"
-            f"(Note: To read the full content of this document, call recall_specific_memory(file_path=\"{rel_path}\"))"
+            f"Content:\n{matched_content}"
         )
 
     parts.append("--- End Context ---")

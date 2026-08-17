@@ -6,10 +6,9 @@
 """
 refresh_memory.py — Unified memory refresh runner for Evelyn.
 
-Runs three phases in strict sequential order:
+Runs two phases in strict sequential order:
   Phase 1 (vault_map):        vault_indexer.py — builds/updates SQLite evelyn_vault.db
-  Phase 2 (ingest_knowledge): ingest_obsidian_knowledge.py — pushes core docs to Chroma
-  Phase 3 (ingest_gists):     ingest_gists.py — pushes gist entries to Chroma
+  Phase 2 (ingest_knowledge): ingest_obsidian_knowledge.py — pushes all vault markdown docs to Chroma evelyn_memory
 
 Each phase is launched as its own subprocess so memory is fully reaped between
 phases and VRAM is never shared with parallel Ollama calls.

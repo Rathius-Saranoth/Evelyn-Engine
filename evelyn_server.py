@@ -2725,8 +2725,6 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
     """Regenerate the Obsidian vault map in the background (no chat turn required).
 
     Cancels any in-flight consolidation or extraction tasks before starting.
-    Vault map generation is CPU/IO heavy and runs Ollama for gist generation;
-    sharing Ollama with idle-time tasks simultaneously causes timeouts.
     """
     import threading
     import subprocess
@@ -2858,8 +2856,7 @@ async def trigger_refresh_memory(_: None = Depends(check_auth)):
 
     Sequentially runs:
       Phase 1 — Vault Map generation (vault_indexer.py)
-      Phase 2 — Core Knowledge ingest (ingest_obsidian_knowledge.py)
-      Phase 3 — Gist ingest (ingest_gists.py)
+      Phase 2 — Knowledge ingest into Chroma evelyn_memory (ingest_obsidian_knowledge.py)
 
     Cancels in-flight consolidation/extraction tasks first to free VRAM.
     Returns 200 OK immediately; the pipeline runs in the background.
@@ -3614,7 +3611,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                                 FROM collections c
                                 JOIN segments s ON s.collection = c.id AND s.scope='METADATA'
                                 LEFT JOIN embeddings e ON e.segment_id = s.id
-                                WHERE c.name IN ('evelyn_memory', 'evelyn_gists', 'obsidian_vault')
+                                WHERE c.name = 'evelyn_memory'
                             """)
                             row = ccur.fetchone()
                             chroma_cnt = row[0] if row and row[0] is not None else 0

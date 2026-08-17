@@ -79,7 +79,6 @@ if TOOLS_DIR not in sys.path:
 
 import journal_manager # [[journal_manager.py]]
 import context_manager # [[context_manager.py]]
-import ingest_gists # [[ingest_gists.py]]
 import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
 import gcal_sync
 import terminal_agent
@@ -93,7 +92,6 @@ def _reload():
     for mod in (
         "journal_manager",
         "context_manager",
-        "ingest_gists",
         "ingest_obsidian_knowledge",
         "gcal_sync",
         "terminal_agent",
