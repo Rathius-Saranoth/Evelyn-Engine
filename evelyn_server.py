@@ -2696,21 +2696,21 @@ async def trigger_sync(_: None = Depends(check_auth)):
     """
     import threading
     import task_manager
-    from evelyn_tools import TOOL_FUNCTIONS
-
+    import ingest_obsidian_knowledge
     # Free Ollama before a heavy background operation starts
     cancel_pending_consolidation()
     cancel_pending_extraction()
     cancel_pending_evolution()
 
-    task_manager.set_running("sync", phase="Syncing Chroma DB...")
+    task_manager.set_running("sync", phase="Starting Chroma Sync...")
 
     def _run():
-        """Run sync_context_memory in a daemon thread and update the task registry."""
+        """Run sync phases in a daemon thread and update the task registry."""
         try:
             print(f"{_GRN}[SYNC]{_RST} Manual sync triggered via /sync endpoint", flush=True)
-            TOOL_FUNCTIONS["sync_context_memory"]()
-            task_manager.clear_running("sync", status="done")
+            task_manager.set_running("sync", phase="Syncing Core Knowledge...")
+            ingest_obsidian_knowledge.main()
+            task_manager.clear_running("sync", status="done", summary="Chroma Sync completed successfully.")
             print(f"{_GRN}[SYNC]{_RST} Complete.", flush=True)
         except Exception as e:
             task_manager.clear_running("sync", status="error", error=str(e))
@@ -2769,7 +2769,6 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
 _REFRESH_PHASE_LABELS = {
     "vault_map":        "Mapping Obsidian Vault...",
     "ingest_knowledge": "Ingesting Core Knowledge...",
-    "ingest_gists":     "Ingesting Gists into Chroma...",
 }
 
 
@@ -2814,21 +2813,21 @@ async def start_refresh_memory_internal():
                     task_manager.set_running("refresh_memory", phase=phase_label)
                     if key == "vault_map":
                         task_manager.set_running("vault_map", phase="Mapping Obsidian Vault...")
-                    elif key in ("ingest_knowledge", "ingest_gists"):
+                    elif key == "ingest_knowledge":
                         task_manager.set_running("sync", phase="Syncing Chroma DB...")
 
                 elif line.startswith("[PHASE_DONE:"):
                     key = line.split("[PHASE_DONE:")[1].split("]")[0]
                     if key == "vault_map":
                         task_manager.clear_running("vault_map", status="done")
-                    elif key == "ingest_gists":
+                    elif key == "ingest_knowledge":
                         task_manager.clear_running("sync", status="done")
 
                 elif line.startswith("[PHASE_FAIL:"):
                     key = line.split("[PHASE_FAIL:")[1].split("]")[0]
                     if key == "vault_map":
                         task_manager.clear_running("vault_map", status="error", error=f"Phase '{key}' failed.")
-                    elif key in ("ingest_knowledge", "ingest_gists"):
+                    elif key == "ingest_knowledge":
                         task_manager.clear_running("sync", status="error", error=f"Phase '{key}' failed.")
                     raise RuntimeError(f"Phase '{key}' failed.")
 
@@ -3604,11 +3603,23 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         conn.close()
                 chroma_cnt = 0
                 try:
-                    import chromadb, evelyn_config
-                    client = chromadb.PersistentClient(path=evelyn_config.CHROMA_DB_PATH)
-                    for col in client.list_collections():
-                        if col.name in ("evelyn_memory", "evelyn_gists", "obsidian_vault"):
-                            chroma_cnt += col.count()
+                    import sqlite3
+                    cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
+                    if os.path.exists(cdb_path):
+                        cconn = sqlite3.connect(f"file:{cdb_path}?mode=ro", uri=True, timeout=1.0)
+                        try:
+                            ccur = cconn.cursor()
+                            ccur.execute("""
+                                SELECT COUNT(e.id)
+                                FROM collections c
+                                JOIN segments s ON s.collection = c.id AND s.scope='METADATA'
+                                LEFT JOIN embeddings e ON e.segment_id = s.id
+                                WHERE c.name IN ('evelyn_memory', 'evelyn_gists', 'obsidian_vault')
+                            """)
+                            row = ccur.fetchone()
+                            chroma_cnt = row[0] if row and row[0] is not None else 0
+                        finally:
+                            cconn.close()
                 except Exception:
                     pass
                 sub_status = sub_status or {
@@ -3629,16 +3640,14 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             elif key == "refresh_memory":
                 phase = task_data.get("phase", "Idle")
                 current_step = 1
-                if "Phase 2" in phase:
+                if "Phase 2" in phase or "Ingest" in phase or "Knowledge" in phase:
                     current_step = 2
-                elif "Phase 3" in phase:
-                    current_step = 3
                 elif phase == "Completed successfully.":
-                    current_step = 3
+                    current_step = 2
                 sub_status = sub_status or {
-                    "total_steps": 3,
+                    "total_steps": 2,
                     "current_step": current_step,
-                    "steps": ["Vault Map", "Knowledge Ingest", "Gist Ingest"]
+                    "steps": ["Vault Map", "Knowledge Ingest"]
                 }
         except Exception as e:
             pass

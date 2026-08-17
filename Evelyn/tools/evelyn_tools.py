@@ -324,7 +324,7 @@ def generate_image(
 
 
 def sync_context_memory(**kwargs) -> str:
-    """Trigger background sync of vault gists and core memory into Chroma.
+    """Trigger background sync of core vault memory and context entries into Chroma.
 
     Args:
         **kwargs: Unused parameters.
@@ -335,13 +335,11 @@ def sync_context_memory(**kwargs) -> str:
     import threading
 
     def _run():
-        """Run sync_context_memory phases (knowledge and gists ingest) in a daemon thread."""
+        """Run sync_context_memory in a daemon thread."""
         _reload()
         try:
             print("Sync: Starting core memory ingest...")
             ingest_obsidian_knowledge.main()
-            print("Sync: Starting gist ingest...")
-            ingest_gists.main()
             print("Sync: Complete.")
         except Exception as e:
             print(f"Sync error: {e}")
