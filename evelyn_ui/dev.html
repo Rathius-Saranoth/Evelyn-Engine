@@ -707,18 +707,19 @@
         } else if (t.key === 'refresh_memory' && t.sub_status) {
           const st = t.sub_status;
           const curStep = st.current_step || 1;
-          const stepsHtml = (st.steps || ['Vault Map', 'Knowledge', 'Gists']).map((stepName, idx) => {
+          const totalSteps = st.total_steps || (st.steps ? st.steps.length : 2);
+          const stepsHtml = (st.steps || ['Vault Map', 'Knowledge Ingest']).map((stepName, idx) => {
             const stepNum = idx + 1;
             let color = 'var(--text-dim)';
             let icon = '○';
-            if (stepNum < curStep || (t.status === 'done' && curStep === 3)) {
+            if (stepNum < curStep || (t.status === 'done' && curStep >= totalSteps)) {
               color = 'var(--success)';
               icon = '✓';
             } else if (stepNum === curStep && t.status === 'running') {
               color = 'var(--accent)';
               icon = '►';
             }
-            return `<span style="color: ${color}; font-size: 10px; font-weight: 500;" title="Phase ${stepNum}">${icon} P${stepNum}</span>`;
+            return `<span style="color: ${color}; font-size: 10px; font-weight: 500;" title="${escapeHtml(stepName)}: Phase ${stepNum}">${icon} P${stepNum}: ${escapeHtml(stepName)}</span>`;
           }).join('<span style="color: var(--border); font-size: 9px;">→</span>');
 
           taskDetailsHtml = `

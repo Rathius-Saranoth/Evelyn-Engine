@@ -34,10 +34,60 @@ Priority/Pinning: rag_priority multiplier adjusts cosine distance before thresho
 
 import os
 import re
+import time
+import fcntl
+from contextlib import contextmanager
 import chromadb
 from chromadb.utils import embedding_functions
 
 import evelyn_config as cfg
+
+_CHROMA_DIR = getattr(cfg, "CHROMA_DB_PATH", r"/home/rathius/evelyn/data/chroma_db")
+CHROMA_LOCK_FILE = os.path.join(_CHROMA_DIR, ".chroma_write.lock")
+
+
+@contextmanager
+def acquire_chroma_write_lock(timeout: float = 60.0, non_blocking: bool = False):
+    """Acquire an exclusive cross-process file lock for ChromaDB write operations.
+
+    Guarantees that only one process or thread can write to ChromaDB at any given time,
+    preventing Rust HNSW segment writer and compaction desynchronization.
+
+    Args:
+        timeout: Maximum seconds to wait for the lock when non_blocking is False.
+        non_blocking: If True, raises BlockingIOError immediately if lock is held.
+
+    Yields:
+        None
+    """
+    os.makedirs(os.path.dirname(CHROMA_LOCK_FILE), exist_ok=True)
+    lock_file = open(CHROMA_LOCK_FILE, "a+")
+    start = time.time()
+    acquired = False
+    try:
+        while True:
+            try:
+                flags = fcntl.LOCK_EX
+                if non_blocking:
+                    flags |= fcntl.LOCK_NB
+                fcntl.flock(lock_file.fileno(), flags)
+                acquired = True
+                break
+            except (BlockingIOError, IOError):
+                if non_blocking or (time.time() - start) >= timeout:
+                    raise TimeoutError(f"Could not acquire ChromaDB write lock after {timeout:.1f}s")
+                time.sleep(0.1)
+        yield
+    finally:
+        if acquired:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+        try:
+            lock_file.close()
+        except Exception:
+            pass
 
 # ---------------------------------------------------------------------------
 # Chunking config
@@ -148,6 +198,8 @@ def ingest_markdown_file(file_path: str, content: str, collection_name: str,
                           extra_metadata: dict = None) -> bool:
     """Upsert a markdown file into a Chroma collection, split into chunks.
 
+    Guarded by exclusive cross-process write lock.
+
     Args:
         file_path: Absolute path — used as the document ID prefix.
         content: Text content to embed and store.
@@ -158,30 +210,31 @@ def ingest_markdown_file(file_path: str, content: str, collection_name: str,
         bool: True on success, False on failure.
     """
     try:
-        col = get_or_create_collection(collection_name)
+        with acquire_chroma_write_lock(timeout=60.0):
+            col = get_or_create_collection(collection_name)
 
-        # Remove old chunks for this file before upserting the new set
-        _delete_chunks_by_source(col, file_path)
+            # Remove old chunks for this file before upserting the new set
+            _delete_chunks_by_source(col, file_path)
 
-        # Strip YAML frontmatter before chunking — metadata is already
-        # extracted by the ingestion scripts and stored via extra_metadata.
-        clean_content = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
+            # Strip YAML frontmatter before chunking — metadata is already
+            # extracted by the ingestion scripts and stored via extra_metadata.
+            clean_content = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
 
-        chunks = chunk_text(clean_content)
-        ids       = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
-        metadatas = []
-        for i in range(len(chunks)):
-            meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
-            if extra_metadata:
-                meta.update(extra_metadata)
-            # Defaults so the fields always exist for query-time inspection
-            meta.setdefault("rag_priority", "normal")
-            meta.setdefault("rag_pinned", False)
-            meta.setdefault("aliases", "")
-            metadatas.append(meta)
+            chunks = chunk_text(clean_content)
+            ids       = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
+            metadatas = []
+            for i in range(len(chunks)):
+                meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
+                if extra_metadata:
+                    meta.update(extra_metadata)
+                # Defaults so the fields always exist for query-time inspection
+                meta.setdefault("rag_priority", "normal")
+                meta.setdefault("rag_pinned", False)
+                meta.setdefault("aliases", "")
+                metadatas.append(meta)
 
-        col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
-        return True
+            col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
+            return True
     except Exception as e:
         print(f"[chroma_rag] ingest failed for {file_path}: {e}")
         return False
@@ -206,6 +259,8 @@ def _delete_chunks_by_source(col: chromadb.Collection, file_path: str):
 def delete_document(file_path: str, collection_name: str) -> bool:
     """Remove all chunks for a document from a collection by source path.
 
+    Guarded by exclusive cross-process write lock.
+
     Args:
         file_path: The source path of the document to delete.
         collection_name: The name of the collection.
@@ -214,9 +269,10 @@ def delete_document(file_path: str, collection_name: str) -> bool:
         bool: True if deletion was successful, False otherwise.
     """
     try:
-        col = get_or_create_collection(collection_name)
-        _delete_chunks_by_source(col, file_path)
-        return True
+        with acquire_chroma_write_lock(timeout=60.0):
+            col = get_or_create_collection(collection_name)
+            _delete_chunks_by_source(col, file_path)
+            return True
     except Exception as e:
         print(f"[chroma_rag] delete failed for {file_path}: {e}")
         return False

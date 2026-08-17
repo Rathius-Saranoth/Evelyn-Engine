@@ -37,6 +37,8 @@ for _p in (ROOT_DIR, TOOLS_DIR):
 import evelyn_config as cfg  # noqa: E402
 import ingest_obsidian_knowledge  # noqa: E402
 import vault_db  # noqa: E402
+import task_manager  # noqa: E402
+import chroma_rag  # noqa: E402
 
 VAULT_DIR = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 DEBOUNCE_SECONDS = 4.0
@@ -233,8 +235,15 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
                 # 1. Update SQLite fast metadata index
                 update_sqlite_for_changed_files(files_to_sync, files_to_del)
 
-                # 2. Incremental ChromaDB Vector Sync
-                ingest_obsidian_knowledge.main()
+                # 2. Incremental ChromaDB Vector Sync (skip if heavy task running or lock held)
+                if task_manager.is_any_running():
+                    print("[WATCHER] Heavy background task is active; skipping immediate Chroma vector sync.", flush=True)
+                else:
+                    try:
+                        with chroma_rag.acquire_chroma_write_lock(timeout=2.0, non_blocking=True):
+                            ingest_obsidian_knowledge.main()
+                    except (TimeoutError, BlockingIOError):
+                        print("[WATCHER] ChromaDB write lock is held by another process; skipping immediate vector sync.", flush=True)
 
                 duration = time.time() - start_t
                 print(f"[WATCHER] Ingestion completed successfully in {duration:.2f}s.\n", flush=True)
