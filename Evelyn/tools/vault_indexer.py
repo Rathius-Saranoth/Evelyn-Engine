@@ -180,71 +180,21 @@ def extract_metadata(file_path, timeout=300):
     text_body = re.sub(r"\[\[(.*?)\]\]", replace_link, text_body)
     text_body = re.sub(r"\s+", " ", text_body).strip()
 
-    summary = ""
-    gist_failed = False
-    if text_body:
-        ollama_url = f"{cfg.OLLAMA_URL}/api/generate"
-        prompt = (
-            f"Summarize this document in 2-3 concise sentences. State facts directly "
-            f"(e.g., 'Ricky discussed...' not 'The narrator describes...'). "
-            f"Focus on: who is involved, what happened or was discussed, and the emotional tone. "
-            f"No preamble, no meta-commentary.\n"
-            f"After the summary, add a single line starting with 'Keywords:' listing 5-8 "
-            f"conversational search terms someone might use to find this content "
-            f"(e.g., casual synonyms, related topics, emotional states).\n\n"
-            f"Title: {title}\n"
-            f"Tags: {', '.join(all_tags)}\n"
-            f"Content: {text_body}"
-        )
-
-        options = {"num_ctx": cfg.NUM_CTX}
-        for key, val in {
-            "temperature": 0.3,
-            "min_p": cfg.MIN_P,
-            "top_k": cfg.TOP_K,
-            "top_p": cfg.TOP_P,
-            "repeat_penalty": cfg.REPEAT_PENALTY,
-            "repeat_last_n": cfg.REPEAT_LAST_N,
-            "seed": cfg.SEED,
-            "num_predict": 200,
-        }.items():
-            if val is not None:
-                options[key] = val
-        if cfg.STOP_SEQUENCES:
-            options["stop"] = cfg.STOP_SEQUENCES
-
-        try:
-            payload = {
-                "model": cfg.MODEL_NAME,
-                "prompt": prompt,
-                "stream": False,
-                "think": False,
-                "options": options,
-            }
-            ollama_response = requests.post(ollama_url, json=payload, timeout=timeout)
-            if ollama_response.ok:
-                summary = clean_gist(ollama_response.json().get("response", "").strip())
-            else:
-                print(f"  -> Ollama API error for {file_path}: {ollama_response.status_code}")
-        except Exception as e:
-            print(f"  -> Ollama API request failed for {file_path}: {e}")
-
-    if not summary:
-        gist_failed = True
-        summary = text_body[:SUMMARY_MAX_CHARS]
-        if len(text_body) > SUMMARY_MAX_CHARS:
-            summary += "..."
-        print(f"  -> [GIST FAILED] Using text-slice fallback for: {os.path.basename(file_path)}")
+    # Fast text preview snippet without blocking Ollama LLM calls
+    summary = text_body[:SUMMARY_MAX_CHARS]
+    if len(text_body) > SUMMARY_MAX_CHARS:
+        summary += "..."
 
     return {
         "title":        title,
         "tags":         all_tags,
         "gist":         summary,
-        "gist_failed":  gist_failed,
+        "gist_failed":  False,
         "aliases":      fm_aliases,
         "rag_priority": fm_rag_priority,
         "rag_pinned":   fm_rag_pinned,
     }
+
 
 def scan_vault():
     """Scan the Obsidian root folder incrementally, updating the SQLite database.
@@ -273,10 +223,9 @@ def scan_vault():
             existing = vault_db.get_document(rel_path)
             if existing:
                 mtime_unchanged = existing["mtime"] == mtime
-                if mtime_unchanged and not existing["gist_failed"]:
+                if mtime_unchanged:
                     continue
 
-            print(f"Processing: {rel_path}")
             metadata = extract_metadata(full_path)
             if metadata:
                 new_mtime = os.path.getmtime(full_path)
@@ -292,7 +241,7 @@ def scan_vault():
                     aliases=",".join(metadata["aliases"])
                 )
                 processed += 1
-                if processed % 50 == 0:
+                if processed % 100 == 0:
                     print(f"  [CHECKPOINT] Processed {processed} files")
 
     existing_docs = vault_db.get_all_documents()
@@ -303,63 +252,12 @@ def scan_vault():
 
     print(f"Scan complete: {processed} files processed")
 
-def retry_failed_gists():
-    """Re-run metadata extraction for files that previously failed to get an LLM summary.
-
-    Sequentially increases request timeouts on each retry round.
-
-    Returns:
-        The number of files that are still failing after all retries.
-    """
-    RETRY_TIMEOUTS = [450, 600, 900]
-    
-    failed_docs = vault_db.get_failed_gists()
-    failed_paths = [(doc["path"], os.path.join(OBSIDIAN_ROOT, doc["path"])) 
-                    for doc in failed_docs 
-                    if os.path.exists(os.path.join(OBSIDIAN_ROOT, doc["path"]))]
-
-    if not failed_paths:
-        return 0
-
-    print(f"\n[RETRY] {len(failed_paths)} file(s) need gist retries.")
-
-    still_failed = list(failed_paths)
-    for attempt, timeout in enumerate(RETRY_TIMEOUTS, start=1):
-        if not still_failed: break
-        print(f"[RETRY] Round {attempt}/{len(RETRY_TIMEOUTS)} — timeout={timeout}s — {len(still_failed)} remaining")
-        next_failed = []
-        for rel_path, full_path in still_failed:
-            print(f"  Retrying: {rel_path}")
-            metadata = extract_metadata(full_path, timeout=timeout)
-            if metadata and not metadata.get("gist_failed"):
-                new_mtime = os.path.getmtime(full_path)
-                vault_db.upsert_document(
-                    path=rel_path,
-                    title=metadata["title"],
-                    mtime=new_mtime,
-                    gist=metadata["gist"],
-                    gist_failed=metadata["gist_failed"],
-                    rag_priority=metadata["rag_priority"],
-                    rag_pinned=metadata["rag_pinned"],
-                    tags=",".join(metadata["tags"]),
-                    aliases=",".join(metadata["aliases"])
-                )
-                print(f"  -> [OK] Gist generated at timeout={timeout}s")
-            else:
-                next_failed.append((rel_path, full_path))
-        still_failed = next_failed
-
-    return len(still_failed)
 
 def main():
-    """Execute the full vault scan pipeline, retrying any failed gists afterward."""
+    """Execute the fast local vault scan pipeline."""
     scan_vault()
-    still_failing = retry_failed_gists()
-    
-    if still_failing:
-        print(f"\n[GIST SUMMARY] {still_failing} file(s) still using text-slice fallback after all retries.")
-    else:
-        print("\n[GIST SUMMARY] All gists generated successfully.")
+    print("[VAULT MAP] Vault metadata indexed successfully.")
+
 
 if __name__ == "__main__":
     main()

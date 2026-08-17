@@ -59,9 +59,9 @@ DEFAULT_SOFT_TIMEOUTS = {
     "consolidator": 2100.0,          # 35 minutes
     "procedure_consolidator": 900.0, # 15 minutes
     "profile_evolver": 900.0,        # 15 minutes
-    "refresh_memory": 600.0,         # 10 minutes
+    "refresh_memory": 1800.0,        # 30 minutes
     "vault_map": 600.0,              # 10 minutes
-    "sync": 300.0,                   # 5 minutes
+    "sync": 1800.0,                  # 30 minutes
     "tag_librarian": 600.0,          # 10 minutes
 }
 

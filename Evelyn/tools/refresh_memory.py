@@ -72,29 +72,23 @@ def run_phase_subprocess(name: str, args: list[str]) -> None:
 
 
 def main() -> None:
-    """Execute all three memory refresh phases in sequence.
+    """Execute memory refresh phases in sequence.
 
     Returns:
         None
     """
     print("[START] Unified Memory Refresh Pipeline", flush=True)
 
-    # Phase 1 — Vault Map (heavy: reads every vault file, calls Ollama for gists)
+    # Phase 1 — Vault Map (reads vault files, builds/updates SQLite evelyn_vault.db)
     run_phase_subprocess(
         "vault_map",
         [os.path.join(TOOLS_DIR, "vault_indexer.py")],
     )
 
-    # Phase 2 — Core Knowledge Ingest (pushes processed vault docs to Chroma)
+    # Phase 2 — Core Knowledge Ingest (pushes all vault docs & context entries into Chroma evelyn_memory)
     run_phase_subprocess(
         "ingest_knowledge",
         [os.path.join(TOOLS_DIR, "ingest_obsidian_knowledge.py")],
-    )
-
-    # Phase 3 — Gist Ingest (pushes gist summaries to Chroma)
-    run_phase_subprocess(
-        "ingest_gists",
-        [os.path.join(TOOLS_DIR, "ingest_gists.py")],
     )
 
     print("[SUCCESS] All memory refresh phases completed.", flush=True)
