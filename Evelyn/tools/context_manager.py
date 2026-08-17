@@ -69,13 +69,12 @@ def append_context_log(
 
 
 def search_vault_map(query: str, limit: int = 5) -> str:
-    """
-    Searches the SQLite vault map for files matching the query string.
+    """Searches the SQLite vault map for files matching the query string.
 
     Scoring heuristic (higher = stronger match):
       +10 points  -- query found in the file title
       +5 points   -- query found in a tag
-      +2 points   -- query found in the LLM-generated gist
+      +2 points   -- query found in the text preview snippet
 
     Results are sorted by descending score; only the top ``limit`` entries
     are returned. Matching is case-insensitive.
@@ -86,7 +85,7 @@ def search_vault_map(query: str, limit: int = 5) -> str:
 
     Returns:
         str: A formatted, human-readable block of the top matches, each showing
-        title, file path, tags, and gist. Returns an error string if the vault
+        title, file path, tags, and snippet. Returns an error string if the vault
         map database is missing or unreadable.
     """
     import vault_db
@@ -105,7 +104,8 @@ def search_vault_map(query: str, limit: int = 5) -> str:
         output += f"Path: {r['path']}\n"
         if r["tags"]:
             output += f"Tags: {', '.join(r['tags'])}\n"
-        output += f"Gist: {r['gist']}\n\n"
+        snippet = r.get("snippet") or r.get("gist") or ""
+        output += f"Preview: {snippet}\n\n"
 
     return output.strip()
 

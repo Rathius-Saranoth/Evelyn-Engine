@@ -215,7 +215,6 @@ CATEGORY_NAMES: dict = {
 # Chroma RAG
 # =============================================================================
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full-text vault notes & memory chunks
-CHROMA_GISTS_COLLECTION = "evelyn_gists"   # Deprecated (retained for backward compatibility)
 # Increased to 8 for Gemma 4 12B's 32K context (Old value: 5)
 RAG_TOP_K = 8  # Number of chunks to retrieve per query
 
