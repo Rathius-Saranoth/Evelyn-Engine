@@ -141,7 +141,7 @@ Responsible for semantic vector indexing, context fact assemblies, and exact ent
 Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Vault into the local RAG database.
 * **[[refresh_memory.py]]**: Master process orchestrator. Triggers vault mapping (`VaultIndexer`) and full-vault knowledge ingestion (`ingest_obsidian_knowledge.py`).
 * **[[ingest_obsidian_knowledge.py]]**: Full-vault full-text memory ingestion engine. Recursively scans `/home/rathius/obsidian_vault` (1,202 files), enforcing 1,600-character chunking and automatic `rag_priority: high` for core identity files (`Ricky - Psychological Blueprint.md`, `Evelyn Narrative Persona.md`, `System Directives.md`, `CE_*.md`, `EX_*.md`).
-* **[[ingest_gists.py]]**: *(Deprecated & Retired)* Previously generated gist summaries for vector search. Superseded by `ingest_obsidian_knowledge.py` full-vault full-text vector indexing in `evelyn_memory`.
+* **`ingest_gists.py`**: *(Removed)* Gist summaries and legacy `evelyn_gists` collection have been fully eliminated in favor of direct full-text vector indexing in `evelyn_memory`.
 * **[[sync_full_vault_to_chroma.py]]**: Dedicated CLI reset and migration script that purges old vector caches and executes a clean full-vault re-indexing pass.
 * **[[vault_indexer.py]]**: Scans directory tree files and generates incremental database relationships (hashes, links, backlinks) inside SQLite.
 
