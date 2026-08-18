@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-06-27 09:39:05
+# date modified: 2026-08-17 19:08:10
 # tags: 
 
 # Evelyn/tools/terminal_agent.py
@@ -26,49 +26,135 @@ import evelyn_config as cfg
 
 # Multi-layered safety pattern rules
 TERMINAL_BLOCKED_PATTERNS = [
-    r"(?i)format\s+[a-z]:",              # format C:
-    r"(?i)del\s+/[sq]",                  # del /s, del /q (recursive delete)
-    r"(?i)rmdir\s+/[sq]",               # rmdir /s /q
-    r"(?i)rm\s+-r[f]?\s",               # rm -rf
-    r"(?i)shutdown|restart.*computer",    # System shutdown
-    r"(?i)reg\s+(add|delete)",           # Registry modification
-    r"(?i)net\s+(user|localgroup)",      # User account manipulation
-    r"(?i)base64\s.*\|\s*(ba)?sh",       # Encoded shell injection
-    r"(?i)invoke-webrequest|curl.*-o",   # Downloading executables
+    # Privilege escalation
+    r"(?i)\b(sudo|su|doas|pkexec)\b",
+
+    # Destructive disk / filesystem formatting & raw device writes
+    r"(?i)\b(mkfs|fdisk|parted|sfdisk|gdisk)\b",
+    r"(?i)\bdd\s+if=",
+    r"(?i)>\s*/dev/sd[a-z]",
+    r"(?i)format\s+[a-z]:",              # Windows format C:
+
+    # Dangerous recursive deletes
+    r"(?i)\brm\s+-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r)\b", # rm -rf / rm -fr
+    r"(?i)\brm\s+--recursive\s+--force\b",
+    r"(?i)\brm\s+.*-(?:rf|fr)\s+(?:/|/root|/etc|/boot|/sys|/proc|/dev|~|\*|\.)\b",
+    r"(?i)del\s+/[sq]",                  # Windows del /s /q
+    r"(?i)rmdir\s+/[sq]",               # Windows rmdir /s /q
+
+    # System shutdown & reboot
+    r"(?i)\b(shutdown|reboot|poweroff|halt|init\s+[06])\b",
+    r"(?i)\bsystemctl\s+(poweroff|reboot|halt)\b",
+    r"(?i)restart.*computer",
+
+    # User / account / credential manipulation
+    r"(?i)\b(useradd|userdel|usermod|groupadd|groupdel|passwd|chpasswd)\b",
+    r"(?i)net\s+(user|localgroup)",      # Windows user mgmt
+    r"(?i)reg\s+(add|delete)",           # Windows registry
+
+    # Dangerous permission stripping / recursive ownership takeovers
+    r"(?i)\bchmod\s+(-R\s+)?(?:777|000|\+x\s+/)\b",
+    r"(?i)\bchown\s+-R\b",
+
+    # Remote execution piping & shell injections
+    r"(?i)\b(?:curl|wget|fetch|base64)\b[^|]*\|\s*(?:ba)?sh",
+    r"(?i)invoke-webrequest",
+    r"(?i):\(\)\s*\{\s*:\|:&\s*\};:",   # Fork bomb
+
+    # Global package installations (allow user-scoped or local)
+    r"(?i)\b(apt|apt-get|dpkg|dnf|yum|pacman|zypper)\b",
     r"(?i)pip\s+install(?!\s+--user)",   # Global pip install (allow --user)
     r"(?i)npm\s+install\s+-g",          # Global npm install
+    r"(?i)npm\s+-g\s+install",
     r"(?i)Set-ExecutionPolicy",          # PowerShell policy change
 ]
 
 TERMINAL_APPROVAL_PATTERNS = [
-    r"(?i)pip\s+install",               # Any pip install
-    r"(?i)pip\s+uninstall",             # Package removal
-    r"(?i)git\s+(push|reset|rebase)",   # Destructive git operations
-    r"(?i)Remove-Item",                 # PowerShell file deletion
-    r"(?i)del\s+",                      # Any del command
-    r"(?i)move\s+",                     # File moves
-    r"(?i)ren\s+",                      # File renames
-    r"(?i)python\s+.*server",           # Starting server processes
-    r"(?i)ollama\s+(pull|rm|create)",   # Model management
-    r"(?i)>\s*\S+",                     # Output redirection (overwrite)
+    # File and directory mutations / deletions
+    r"(?i)\b(rm|rmdir|unlink)\s+",       # Linux deletions
+    r"(?i)\b(mv|cp)\s+",                 # Linux file moves / copies
+    r"(?i)\b(touch|mkdir)\s+",           # Creating files / dirs
+    r"(?i)Remove-Item",                  # PowerShell file deletion
+    r"(?i)Move-Item|Rename-Item",        # PowerShell file moves
+    r"(?i)del\s+",                       # Windows del command
+    r"(?i)move\s+",                      # Windows move command
+    r"(?i)ren\s+",                       # Windows ren command
+
+    # In-place file modification / truncation / redirection
+    r"(?i)>>?\s*\S+",                    # Output redirection (> or >>)
+    r"(?i)\bsed\s+-i\b",                # In-place sed
+    r"(?i)\btruncate\s+",                # File truncation
+
+    # Process / Service management
+    r"(?i)\b(kill|pkill|killall)\s+",    # Terminating processes
+    r"(?i)\bsystemctl\s+(start|stop|restart|reload|disable|enable)\b",
+    r"(?i)\bservice\s+\S+\s+(start|stop|restart)\b",
+
+    # Packages & models
+    r"(?i)pip\s+(install|uninstall)",    # Pip installs / uninstalls
+    r"(?i)npm\s+(install|uninstall|update)", # NPM installs / uninstalls
+    r"(?i)ollama\s+(pull|rm|create|cp)", # Model management
+
+    # Destructive / state-changing git operations
+    r"(?i)git\s+(push|reset|rebase|clean|restore|branch\s+-[dD]|checkout\s+\.)",
+
+    # Server / process execution
+    r"(?i)python\s+.*server",            # Starting server processes
+    r"(?i)\b(uvicorn|gunicorn|fastapi\s+run)\b",
 ]
 
 TERMINAL_SAFE_PATTERNS = [
-    r"(?i)^python\s+-c\s+",            # Python one-liners
-    r"(?i)^python\s+.*\.py$",           # Running Python scripts (no args)
-    r"(?i)^git\s+(status|log|diff|branch|show)", # Read-only git
-    r"(?i)^ollama\s+(list|ps|show)",    # Read-only Ollama
-    r"(?i)^(ls|dir|type|cat|head|tail|find|where|echo)", # Read-only FS
+    # Python & Testing execution
+    r"(?i)^python\s+-c\s+",              # Python one-liners
+    r"(?i)^python\s+.*\.py$",             # Running Python scripts (no args)
+    r"(?i)^python\s+-m\s+(pytest|unittest)", # Running unit tests via python -m
+    r"(?i)^pytest\b",                    # Pytest test execution
+
+    # Read-only Git
+    r"(?i)^git\s+(status|log|diff|branch|show|remote|tag|describe|rev-parse)",
+
+    # Read-only Ollama
+    r"(?i)^ollama\s+(list|ps|show)",     # Read-only Ollama
+
+    # Read-only FS & System inspection
+    r"(?i)^(ls|dir|type|cat|head|tail|less|more|find|where|which|whereis|echo|printf)",
+    r"(?i)^(grep|egrep|fgrep|rg|awk|wc|diff|stat|file|tree|jq|readlink|realpath)",
+    r"(?i)^(ps|top|htop|uptime|free|uname|whoami|id|date|env|printenv|df|du|pwd)",
+
+    # Package info queries
+    r"(?i)^pip\s+(list|show|freeze|check)", # pip info
+    r"(?i)^npm\s+(list|view|outdated|audit)", # npm info
+
+    # PowerShell read-only equivalents
     r"(?i)^Get-(Content|ChildItem|Item|Process|Service)", # PS read-only
-    r"(?i)^Select-String",              # grep equivalent
-    r"(?i)^pip\s+(list|show|freeze)",   # pip info
+    r"(?i)^Select-String",                # grep equivalent
+]
+
+# Excluded system, synchronization, and metadata folders
+TERMINAL_BLOCKED_SUBPATHS = [
+    ".obsidian",
+    ".stfolder",
+    ".stversions",
+    ".trash",
+    ".git",
+    "syncthing",
+]
+
+# Prohibited OS system root directories
+SYSTEM_BLOCKED_ROOTS = [
+    "/etc",
+    "/boot",
+    "/sys",
+    "/proc",
+    "/dev",
+    "/root",
+    "/usr",
+    "/var/run",
 ]
 
 # Pending approvals storage (maintained as an empty dict for backward compatibility,
 # though get_pending_approvals() and disk-based lookups are now preferred)
 _pending_approvals: dict[str, dict] = {}
-
-import evelyn_config as cfg
 
 APPROVALS_FILE = getattr(cfg, "TERMINAL_APPROVALS_PATH", r"/home/rathius/evelyn/data/terminal_approvals.json")
 
@@ -167,8 +253,60 @@ def get_approval_status(approval_id: str) -> dict:
     }
 
 
+def resolve_file_path(file_path: str) -> str:
+    """Resolve a relative or absolute file path to its canonical target.
+
+    If file_path is relative, it checks whether the path points to a known
+    Obsidian Vault directory or already exists in the vault; otherwise defaults to
+    the Evelyn workspace directory.
+
+    Args:
+        file_path: Absolute or relative file path string.
+
+    Returns:
+        str: Absolute resolved path string.
+    """
+    if not file_path:
+        return ""
+    if os.path.isabs(file_path):
+        return os.path.abspath(file_path)
+
+    importlib.reload(cfg)
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    evelyn_base = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+
+    # Normalize slashes for inspection
+    norm = file_path.replace("\\", "/").strip("/")
+    parts = norm.split("/")
+    top_dir = parts[0] if parts else ""
+
+    # Check if target explicitly exists under vault
+    vault_candidate = os.path.abspath(os.path.join(vault_base, norm))
+    evelyn_candidate = os.path.abspath(os.path.join(evelyn_base, norm))
+
+    if os.path.exists(vault_candidate) and not os.path.exists(evelyn_candidate):
+        return vault_candidate
+    if os.path.exists(evelyn_candidate):
+        return evelyn_candidate
+
+    # Check top-level folder names in Obsidian Vault
+    known_vault_dirs = {
+        "notes", "projects", "ricky", "evelyn", "genealogy", "contacts",
+        "templates", "attachments", "bases", "dream journal", "dungeons & dragons",
+        "learning lab", "reference library", "schyler", "music", "pets",
+        "programs", "prompt lab", "recipes", "tech quick reference", "video games",
+        "vault", "obsidian",
+    }
+    if top_dir.lower() in known_vault_dirs or (os.path.exists(vault_base) and os.path.isdir(os.path.join(vault_base, top_dir))):
+        return vault_candidate
+
+    return evelyn_candidate
+
+
 def is_path_allowed(path: str) -> bool:
-    """Check if the resolved absolute path falls under any allowed prefix.
+    """Check if the resolved absolute path falls under any allowed prefix
+
+    and does not enter any excluded system or metadata folders.
 
     Args:
         path: Path string to check.
@@ -179,14 +317,39 @@ def is_path_allowed(path: str) -> bool:
     try:
         resolved = os.path.normcase(os.path.abspath(os.path.realpath(path)))
         importlib.reload(cfg)
-        allowed_paths = getattr(cfg, "TERMINAL_ALLOWED_PATHS", [r"/home/rathius/evelyn"])
+
+        # 1. Check against OS system root blacklists
+        for sys_root in SYSTEM_BLOCKED_ROOTS:
+            sys_root_norm = os.path.normcase(os.path.abspath(os.path.realpath(sys_root)))
+            if resolved == sys_root_norm or resolved.startswith(sys_root_norm + os.sep):
+                return False
+
+        # 2. Check allowed roots
+        allowed_paths = getattr(cfg, "TERMINAL_ALLOWED_PATHS", [
+            r"/home/rathius/evelyn",
+            r"/home/rathius/obsidian_vault",
+            r"/tmp",
+        ])
+
+        is_under_allowed = False
         for allowed in allowed_paths:
             allowed_abs = os.path.normcase(os.path.abspath(os.path.realpath(allowed)))
-            if resolved == allowed_abs:
-                return True
-            if resolved.startswith(allowed_abs + os.sep):
-                return True
-        return False
+            if resolved == allowed_abs or resolved.startswith(allowed_abs + os.sep):
+                is_under_allowed = True
+                break
+
+        if not is_under_allowed:
+            return False
+
+        # 3. Check blocked subpaths / system folders (.obsidian, .stfolder, .trash, .git, etc.)
+        norm_path = resolved.replace("\\", "/")
+        path_segments = [s.lower() for s in norm_path.split("/") if s]
+        for blocked in TERMINAL_BLOCKED_SUBPATHS:
+            blocked_lower = blocked.lower()
+            if blocked_lower in path_segments:
+                return False
+
+        return True
     except Exception:
         return False
 
@@ -206,9 +369,9 @@ def run_command(command: str, cwd: str = r"/home/rathius/evelyn", timeout: int =
     importlib.reload(cfg)
     
     # 1. Path scoping check
-    cwd_abs = os.path.abspath(cwd)
+    cwd_abs = resolve_file_path(cwd)
     if not is_path_allowed(cwd_abs):
-        return f"Error: Working directory '{cwd}' is outside allowed paths."
+        return f"Error: Working directory '{cwd}' is outside allowed paths or in a protected system directory."
 
     # 2. Blocked pattern check
     for pattern in TERMINAL_BLOCKED_PATTERNS:
@@ -302,7 +465,7 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
 
 
 def read_file(file_path: str, max_lines: int = 200) -> str:
-    """Read contents of a file within allowed workspace paths.
+    """Read contents of a file within allowed workspace or vault paths.
 
     Args:
         file_path: Absolute or relative file path.
@@ -314,13 +477,11 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
     cleanup_stale_approvals()
     
     # Resolve path
-    if not os.path.isabs(file_path):
-        file_path = os.path.join(r"/home/rathius/evelyn", file_path)
-    abs_path = os.path.abspath(file_path)
+    abs_path = resolve_file_path(file_path)
 
     # Path safety check
     if not is_path_allowed(abs_path):
-        return f"Error: Path '{file_path}' is outside allowed paths."
+        return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
 
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
@@ -359,13 +520,11 @@ def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
     cleanup_stale_approvals()
     
     # Resolve path
-    if not os.path.isabs(file_path):
-        file_path = os.path.join(r"/home/rathius/evelyn", file_path)
-    abs_path = os.path.abspath(file_path)
+    abs_path = resolve_file_path(file_path)
 
     # Path safety check
     if not is_path_allowed(abs_path):
-        return f"Error: Path '{file_path}' is outside allowed paths."
+        return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
 
     approval_id = f"write_{int(time.time())}_{uuid.uuid4().hex[:8]}"
     approvals = _load_approvals()

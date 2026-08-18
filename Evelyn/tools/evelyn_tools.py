@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-08-02 10:11:23
+# date modified: 2026-08-17 19:07:50
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -1493,11 +1493,11 @@ def get_agenda(days: int = 7, **kwargs) -> str:
 
 
 def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: int = 30, **kwargs) -> str:
-    """Execute a shell command in the Evelyn workspace.
+    """Execute a shell command in the Evelyn workspace or Obsidian Vault.
 
     Args:
         command: The command string to execute.
-        cwd: Working directory.
+        cwd: Working directory (evelyn workspace or obsidian vault).
         timeout: Maximum seconds to wait.
         **kwargs: Flexible keyword arguments.
 
@@ -1510,10 +1510,10 @@ def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: 
 
 
 def read_file(file_path: str = "", max_lines: int = 200, **kwargs) -> str:
-    """Read the contents of a file in the workspace.
+    """Read the contents of a file in the workspace or Obsidian Vault.
 
     Args:
-        file_path: Absolute path or path relative to workspace.
+        file_path: Absolute path or relative path (e.g. 'Notes/foo.md' or 'Evelyn/bar.py').
         max_lines: Maximum lines to return.
         **kwargs: Flexible keyword arguments.
 
@@ -1530,10 +1530,10 @@ def read_file(file_path: str = "", max_lines: int = 200, **kwargs) -> str:
 
 
 def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", **kwargs) -> str:
-    """Write or append content to a file in the workspace.
+    """Write or append content to a file in the workspace or Obsidian Vault.
 
     Args:
-        file_path: Absolute path or path relative to workspace.
+        file_path: Absolute path or relative path (e.g. 'Notes/Features/foo.md' or 'scripts/bar.py').
         content: The text content to write.
         mode: Write mode ('overwrite' or 'append').
         **kwargs: Flexible keyword arguments.
@@ -2049,9 +2049,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "run_command",
             "description": (
-                "Execute a shell command in the Evelyn workspace. "
+                "Execute a shell command in the Evelyn workspace or Obsidian Vault. "
                 "Use for service status checks, running scripts, git operations, or terminal tasks. "
-                "Commands run in bash on Linux. Requires approval for dangerous commands."
+                "Commands run in bash on Linux. Requires approval for destructive/modifying commands."
             ),
             "parameters": {
                 "type": "object",
@@ -2062,7 +2062,7 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "cwd": {
                         "type": "string",
-                        "description": "Working directory (default: /home/rathius/evelyn).",
+                        "description": "Working directory (default: /home/rathius/evelyn or /home/rathius/obsidian_vault).",
                     },
                     "timeout": {
                         "type": "integer",
@@ -2078,15 +2078,15 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "read_file",
             "description": (
-                "Read the contents of a file in the workspace. "
-                "Use to inspect code, configuration, or log files."
+                "Read the contents of a file in the workspace or Obsidian Vault. "
+                "Use to inspect code, configuration, log files, or vault notes (e.g. 'Notes/...', 'Projects/...'). System directories (.obsidian, .git) are protected."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or path relative to /home/rathius/evelyn.",
+                        "description": "Absolute path or relative path (e.g. 'Notes/Features/idea.md', 'scripts/test.py').",
                     },
                     "max_lines": {
                         "type": "integer",
@@ -2102,15 +2102,15 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_file",
             "description": (
-                "Write content to a file in the workspace. "
-                "Use for creating scripts, updating configurations, or saving outputs. Requires approval."
+                "Write content to a file in the workspace or Obsidian Vault. "
+                "Use for creating scripts, updating configurations, or creating/updating vault notes (e.g. 'Notes/Features/...'). System directories (.obsidian, .git) are protected. Requires approval."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or path relative to /home/rathius/evelyn.",
+                        "description": "Absolute path or relative path (e.g. 'Notes/Features/idea.md', 'scripts/my_script.py').",
                     },
                     "content": {
                         "type": "string",
