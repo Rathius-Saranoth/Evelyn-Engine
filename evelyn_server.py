@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-15 17:12:42
+# date modified: 2026-08-17 19:22:40
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1952,6 +1952,13 @@ async def lifespan(app: FastAPI):
                     if d.startswith("task_") and d not in _background_tasks:
                         disk_s = load_state(d)
                         if disk_s:
+                            if disk_s.get("status") == "resolved":
+                                import shutil
+                                task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, d)
+                                if os.path.exists(task_dir):
+                                    shutil.rmtree(task_dir, ignore_errors=True)
+                                print(f"[RESEARCH CLEANUP] Auto-cleared resolved task {d} from disk during sync.", flush=True)
+                                continue
                             _background_tasks[d] = {
                                 "status": disk_s.get("status", "pending"),
                                 "query": disk_s.get("query", ""),
@@ -1966,7 +1973,19 @@ async def lifespan(app: FastAPI):
                 if tid.startswith("task_"):
                     # Check disk state as well to stay perfectly in sync
                     disk_state = load_state(tid)
+                    if not disk_state:
+                        if task.get("status") not in ("running", "searching", "synthesizing"):
+                            del _background_tasks[tid]
+                            continue
                     status = disk_state.get("status") if disk_state else task.get("status")
+                    if status == "resolved":
+                        import shutil
+                        task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, tid)
+                        if os.path.exists(task_dir):
+                            shutil.rmtree(task_dir, ignore_errors=True)
+                        if tid in _background_tasks:
+                            del _background_tasks[tid]
+                        continue
                     if status:
                         # Sync memory status back to prevent drift and release locks immediately
                         _background_tasks[tid]["status"] = status
@@ -2630,6 +2649,12 @@ def _load_existing_research_tasks():
                             with open(state_file, "r", encoding="utf-8") as f:
                                 state = json.load(f)
                             status = state.get("status")
+
+                            if status == "resolved":
+                                import shutil
+                                shutil.rmtree(task_dir, ignore_errors=True)
+                                print(f"[RESEARCH CLEANUP] Auto-cleared legacy resolved task {d} from disk on startup.", flush=True)
+                                continue
 
                             if status in ("paused", "running", "error"):
                                 target_status = status
