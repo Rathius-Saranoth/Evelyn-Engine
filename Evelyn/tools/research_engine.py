@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-07-16 19:36:00
+# date modified: 2026-08-17 19:23:53
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -740,30 +740,25 @@ def query_previous_deep_research(search_query: str, current_task_id: str, limit:
 async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bool:
     """Assess what Evelyn already knows before launching web research.
 
-    Replaces the old try_resolve_directly() / "no trace" pattern. Instead of
-    silently deleting the task directory on a resolved path, this function
-    populates two transparent, persisted fields on the task state:
-
-    - state["internal_knowledge"]: Can the LLM answer this from training data?
-    - state["saved_knowledge"]:    Can this be answered from chat history,
-      memory facts, vault documents, or prior completed research tasks?
+    Checks internal knowledge (training data) and saved knowledge (chat history,
+    memory facts, vault documents, prior research).
 
     Decision logic:
-      - saved_knowledge.confidence  >= threshold → status = "resolved"
+      - saved_knowledge.confidence >= threshold → status = "resolved"
       - internal_knowledge.confidence >= threshold AND NOT time_sensitive → status = "resolved"
       - Otherwise → proceed to full research; both summaries are available
         as prior context for extract/evaluate prompts.
 
-    The task directory is NEVER deleted. Resolved tasks remain on disk with
-    status "resolved" for transparency.
+    When resolved, the task directory is automatically cleared from disk and
+    deregistered from server tracking.
 
     Args:
         task_id: Unique task identifier.
-        state: Task state dict — mutated with knowledge gate fields and saved.
+        state: Task state dict — mutated with knowledge gate fields.
 
     Returns:
-        bool: True if the task was resolved from existing knowledge (caller
-              should stop the pipeline). False if research should proceed.
+        bool: True if the task was resolved from existing knowledge and auto-cleared
+              (caller should stop the pipeline). False if research should proceed.
     """
     importlib.reload(cfg)
     if not getattr(cfg, "RESEARCH_NECESSITY_PREFILTER_ENABLED", True):
@@ -905,7 +900,23 @@ async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bo
                 pass
         state["status"] = "resolved"
         state["current_step"] = "done"
-        save_state(task_id, state)
+
+        # Auto-clear: Delete task workspace directory from disk and deregister tracking
+        task_dir = get_task_dir(task_id)
+        if os.path.exists(task_dir):
+            try:
+                shutil.rmtree(task_dir, ignore_errors=True)
+                print(f"[RESEARCH_ENGINE] Auto-cleared resolved task workspace: {task_id}", flush=True)
+            except Exception as e:
+                print(f"[RESEARCH_ENGINE WARNING] Failed to auto-clear task workspace {task_id}: {e}", flush=True)
+
+        try:
+            import evelyn_server
+            if hasattr(evelyn_server, "_background_tasks") and task_id in evelyn_server._background_tasks:
+                del evelyn_server._background_tasks[task_id]
+        except Exception:
+            pass
+
         return True
 
     return False
