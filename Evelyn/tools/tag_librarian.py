@@ -1,19 +1,23 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-02 12:15:34
-# tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time
+# date modified: 2026-08-18 20:49:07
+# tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
 tag_librarian.py — Incremental Obsidian Tag Maintenance & Taxonomy Management.
 
 Exports:
-    is_excluded_tag()          — Checks if a tag matches protected exclusion rules (e.g. CY-YYYY/MM/DD).
-    normalize_tag_format()     — Standardizes multi-word tags (hyphens), entities (underscores), and paths.
-    audit_single_document()    — Audits one vault note against the Master Tag Taxonomy during idle windows.
-    maintain_master_taxonomy() — Cleans up stale/unused master tags and keeps tag counts balanced.
-    seed_master_taxonomy_from_vault() — Seeds initial master tags from current vault index.
+    is_excluded_tag()                     — Checks if a tag matches protected exclusion rules (e.g. CY-YYYY/MM/DD).
+    normalize_tag_format()                — Standardizes multi-word tags (hyphens), entities (underscores), and paths.
+    audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
+    retrieve_candidate_tags_for_document() — Semantic vector retrieval of candidate master tags with distance scoring.
+    sync_master_tags_to_vector_db()       — Syncs all SQLite master tags into Chroma vector store for Tag RAG.
+    index_master_tag_in_chroma()          — Upserts an individual master tag into Chroma vector store.
+    delete_tag_from_chroma()              — Removes a tag from Chroma vector store.
+    maintain_master_taxonomy()            — Cleans up stale/unused master tags and keeps tag counts balanced.
+    seed_master_taxonomy_from_vault()     — Seeds initial master tags from current vault index.
 
-Key config: evelyn_config.py (TAG_LIBRARIAN_EXCLUSIONS, TAG_LIBRARIAN_FORMAT_RULES)
+Key config: evelyn_config.py (TAG_LIBRARIAN_EXCLUSIONS, TAG_LIBRARIAN_FORMAT_RULES, CHROMA_TAG_COLLECTION)
 See also: reference/engine_architecture.md
 """
 
@@ -26,12 +30,18 @@ import urllib.request
 import urllib.parse
 from typing import Dict, Any, List, Optional, Tuple
 
-import evelyn_config as cfg
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "../.."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
-sys.path.insert(0, getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"))
-import vault_db
+import evelyn_config as cfg
+import Evelyn.tools.vault_db as vault_db
+import Evelyn.tools.chroma_rag as chroma_rag
+from Evelyn.tools.chroma_rag import acquire_chroma_write_lock
 
 VAULT_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+TAG_COLLECTION_NAME = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
 
 
 def is_excluded_tag(tag: str) -> bool:
@@ -60,7 +70,7 @@ def normalize_tag_format(tag: str, is_entity: Optional[bool] = None) -> str:
     - Proper Nouns / Entities (Person, Place, Thing, Title - detected by Capitalized/CamelCase words
       or explicit is_entity flag) use TitleCase with underscores (e.g. 'Dungeon_Crawler_Carl', 'Ricky_Sekulich').
     - General concepts (lowercase) use hyphens for multi-word phrases (e.g. 'home-improvement', 'system-update').
-    - Hierarchy slashes (e.g. 'tech/python/fastapi') are preserved.
+    - Hierarchy slashes (e.g. '3D-Printing/Slicing', 'Tech/Python/FastAPI') are preserved.
 
     Args:
         tag: Raw tag string (e.g. 'home_improvement' or 'DungeonCrawlerCarl').
@@ -85,20 +95,16 @@ def normalize_tag_format(tag: str, is_entity: Optional[bool] = None) -> str:
     parts = clean.split("/")
     norm_parts = []
 
-    
     for part in parts:
         p = part.strip()
         if not p:
             continue
 
         # Determine if part is an entity (Proper Noun: Person, Place, Thing, Title)
-        # If is_entity is explicitly passed, use it.
-        # Otherwise, check if string contains any uppercase characters (CamelCase or TitleCase).
         part_is_entity = is_entity if is_entity is not None else any(c.isupper() for c in p)
 
         if part_is_entity:
             # Handle CamelCase insertion before splitting on spaces/hyphens/underscores
-            # e.g., 'DungeonCrawlerCarl' -> 'Dungeon Crawler Carl'
             s1 = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', p)
             words = [w.capitalize() for w in re.split(r"[\s_-]+", s1) if w]
             norm_parts.append("_".join(words))
@@ -108,7 +114,6 @@ def normalize_tag_format(tag: str, is_entity: Optional[bool] = None) -> str:
             norm_parts.append("-".join(words))
 
     return "/".join(norm_parts)
-
 
 
 def parse_frontmatter_tags(content: str) -> Tuple[List[str], str]:
@@ -216,6 +221,250 @@ def update_frontmatter_tags(content: str, updated_tags: List[str]) -> str:
         return "\n".join(fm) + content.lstrip("\n")
 
 
+# =============================================================================
+# Tag RAG Vector Store & Chroma Synchronization
+# =============================================================================
+
+def _build_tag_embedding_doc(tag: str, category: str = "", description: str = "") -> str:
+    """Build rich descriptive text for embedding a taxonomy tag in Chroma."""
+    parts = tag.split("/")
+    hierarchy = " > ".join(parts)
+    cat_str = category or (parts[0] if parts else "general")
+    desc_str = description or f"Obsidian notes tagged under {tag}"
+    return (
+        f"Tag: #{tag}\n"
+        f"Category: {cat_str}\n"
+        f"Hierarchy: {hierarchy}\n"
+        f"Scope & Scope Description: {desc_str}"
+    )
+
+
+def index_master_tag_in_chroma(tag: str, category: str = "", description: str = "", usage_count: int = 0) -> bool:
+    """Upsert an individual master tag into the Chroma tag taxonomy collection.
+
+    Guarded by exclusive cross-process write lock.
+
+    Args:
+        tag: Normalized tag path (e.g. '3D-Printing/Slicing').
+        category: Root category name.
+        description: Scope description.
+        usage_count: Current count of notes using this tag.
+
+    Returns:
+        bool: True on success, False on failure.
+    """
+    clean_tag = normalize_tag_format(tag)
+    if not clean_tag or is_excluded_tag(clean_tag):
+        return False
+
+    try:
+        with acquire_chroma_write_lock(timeout=60.0):
+            col = chroma_rag.get_or_create_collection(TAG_COLLECTION_NAME)
+            doc_id = f"tag::{clean_tag}"
+            doc_text = _build_tag_embedding_doc(clean_tag, category, description)
+            meta = {
+                "tag": clean_tag,
+                "category": category or (clean_tag.split("/")[0] if "/" in clean_tag else "general"),
+                "description": description or "",
+                "usage_count": usage_count,
+                "type": "master_tag"
+            }
+            col.upsert(ids=[doc_id], documents=[doc_text], metadatas=[meta])
+            return True
+    except Exception as e:
+        print(f"[TAG LIBRARIAN] Chroma tag indexing failed for #{clean_tag}: {e}")
+        return False
+
+
+def delete_tag_from_chroma(tag: str) -> bool:
+    """Remove a tag from the Chroma tag taxonomy collection.
+
+    Guarded by exclusive cross-process write lock.
+
+    Args:
+        tag: Tag string to delete.
+
+    Returns:
+        bool: True on success, False on failure.
+    """
+    clean_tag = normalize_tag_format(tag)
+    try:
+        with acquire_chroma_write_lock(timeout=60.0):
+            col = chroma_rag.get_or_create_collection(TAG_COLLECTION_NAME)
+            doc_id = f"tag::{clean_tag}"
+            col.delete(ids=[doc_id])
+            return True
+    except Exception as e:
+        print(f"[TAG LIBRARIAN] Chroma tag deletion failed for #{clean_tag}: {e}")
+        return False
+
+
+def sync_master_tags_to_vector_db() -> int:
+    """Synchronize all SQLite master taxonomy tags into Chroma vector store.
+
+    Guarded by exclusive cross-process write lock.
+
+    Returns:
+        int: Total number of tags synced into Chroma.
+    """
+    master_tags = vault_db.get_master_tags()
+    if not master_tags:
+        return 0
+
+    ids = []
+    docs = []
+    metadatas = []
+
+    for m in master_tags:
+        tag = normalize_tag_format(m["tag"])
+        if not tag or is_excluded_tag(tag):
+            continue
+        category = m.get("category", tag.split("/")[0] if "/" in tag else "general")
+        description = m.get("description", "")
+        usage_count = m.get("usage_count", 0)
+
+        ids.append(f"tag::{tag}")
+        docs.append(_build_tag_embedding_doc(tag, category, description))
+        metadatas.append({
+            "tag": tag,
+            "category": category,
+            "description": description,
+            "usage_count": usage_count,
+            "type": "master_tag"
+        })
+
+    if not ids:
+        return 0
+
+    try:
+        with acquire_chroma_write_lock(timeout=60.0):
+            col = chroma_rag.get_or_create_collection(TAG_COLLECTION_NAME)
+            # Batch upsert in chunks of 250
+            batch_size = 250
+            for i in range(0, len(ids), batch_size):
+                b_ids = ids[i:i + batch_size]
+                b_docs = docs[i:i + batch_size]
+                b_meta = metadatas[i:i + batch_size]
+                col.upsert(ids=b_ids, documents=b_docs, metadatas=b_meta)
+        return len(ids)
+    except Exception as e:
+        print(f"[TAG LIBRARIAN] Bulk Chroma tag sync failed: {e}")
+        return 0
+
+
+def retrieve_candidate_tags_for_document(
+    title: str,
+    gist: str,
+    body_sample: str,
+    current_tags: List[str],
+    top_k: Optional[int] = None
+) -> Tuple[List[Dict[str, Any]], float, str]:
+    """Retrieve semantically relevant candidate master tags for a document using Tag RAG.
+
+    Uses a composite query approach (title + gist, sample body, and current tags)
+    and computes cosine distance to evaluate taxonomy alignment and novelty.
+
+    Args:
+        title: Document title.
+        gist: Document summary or gist.
+        body_sample: Initial text chunk of note body.
+        current_tags: Existing tags on the note.
+        top_k: Maximum candidate tags to retrieve.
+
+    Returns:
+        Tuple[List[Dict[str, Any]], float, str]:
+            - List of candidate tag dictionaries (tag, category, description, distance, usage_count).
+            - Minimum cosine distance found.
+            - Novelty guidance directive for the LLM.
+    """
+    if top_k is None:
+        top_k = getattr(cfg, "TAG_LIBRARIAN_TOP_K_TAGS", 35)
+
+    queries = []
+    # 1. Semantic metadata query (title + summary)
+    meta_query = f"{title}. {gist}".strip()
+    if meta_query:
+        queries.append(meta_query)
+
+    # 2. Body sample query
+    sample_clean = body_sample[:600].strip()
+    if sample_clean:
+        queries.append(sample_clean)
+
+    # 3. Taxonomic query from current tags
+    if current_tags:
+        clean_tags_query = " ".join([
+            t.replace("/", " ").replace("-", " ").replace("_", " ")
+            for t in current_tags if not is_excluded_tag(t)
+        ]).strip()
+        if clean_tags_query:
+            queries.append(clean_tags_query)
+
+    if not queries:
+        return [], 1.0, "NO_QUERY_AVAILABLE"
+
+    candidates_map: Dict[str, Dict[str, Any]] = {}
+
+    for q in queries:
+        try:
+            results = chroma_rag.query_collection(q, TAG_COLLECTION_NAME, n_results=top_k)
+            for r in results:
+                meta = r.get("metadata") or {}
+                tag = meta.get("tag")
+                if not tag or is_excluded_tag(tag):
+                    continue
+                dist = float(r.get("distance", 1.0))
+                
+                if tag not in candidates_map or dist < candidates_map[tag]["distance"]:
+                    candidates_map[tag] = {
+                        "tag": tag,
+                        "category": meta.get("category", "general"),
+                        "description": meta.get("description", ""),
+                        "usage_count": meta.get("usage_count", 0),
+                        "distance": dist
+                    }
+        except Exception as e:
+            print(f"[TAG LIBRARIAN] Tag RAG query failed for '{q[:30]}...': {e}")
+
+    # If Chroma tag collection is empty or query had no results, fallback to SQLite master tags
+    if not candidates_map:
+        fallback_tags = vault_db.get_master_tags()
+        for m in fallback_tags[:top_k]:
+            t = m["tag"]
+            if not is_excluded_tag(t):
+                candidates_map[t] = {
+                    "tag": t,
+                    "category": m.get("category", "general"),
+                    "description": m.get("description", ""),
+                    "usage_count": m.get("usage_count", 0),
+                    "distance": 0.50
+                }
+
+    sorted_candidates = sorted(candidates_map.values(), key=lambda x: x["distance"])[:top_k]
+    min_dist = sorted_candidates[0]["distance"] if sorted_candidates else 1.0
+    novelty_threshold = getattr(cfg, "TAG_NOVELTY_DISTANCE_THRESHOLD", 0.55)
+
+    if min_dist < 0.40:
+        novelty_guidance = (
+            "TAXONOMY MATCH CONFIDENCE: HIGH (Nearest match distance: {:.2f}).\n"
+            "Strong domain alignment exists in the Master Taxonomy. Strictly adhere to existing parent hierarchies "
+            "or add specific child tags if the document covers a narrower specialization."
+        ).format(min_dist)
+    elif min_dist < novelty_threshold:
+        novelty_guidance = (
+            "TAXONOMY MATCH CONFIDENCE: MODERATE (Nearest match distance: {:.2f}).\n"
+            "Related parent domains found, but this note may represent a distinct sub-domain or angle. "
+            "You may extend existing parent branches (e.g. '3D-Printing/...', 'AI/LLM/...') or introduce a clean nested category."
+        ).format(min_dist)
+    else:
+        novelty_guidance = (
+            "TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN (Nearest match distance: {:.2f}).\n"
+            "This document introduces concepts not well-covered by existing taxonomy. "
+            "You are EXPLICITLY ENCOURAGED to mint new domain-level tag hierarchies (e.g. #Domain/Subtopic or #Domain/Subdomain/Topic)."
+        ).format(min_dist)
+
+    return sorted_candidates, min_dist, novelty_guidance
+
 
 def query_ollama(prompt: str, system_prompt: str = "") -> str:
     """Query local Ollama instance synchronously for LLM reasoning.
@@ -227,15 +476,19 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     Returns:
         str: Raw response text from model.
     """
-    url = f"{cfg.OLLAMA_URL}/api/generate"
+    url = f"{cfg.OLLAMA_URL}/api/chat"
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
     payload = {
         "model": cfg.MODEL_NAME,
-        "prompt": prompt,
-        "system": system_prompt,
+        "messages": messages,
         "stream": False,
         "options": {
             "temperature": 0.2,
-            "num_predict": 2048,
+            "num_predict": 1024,
         }
     }
     
@@ -248,7 +501,7 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            res_text = data.get("response", "")
+            res_text = data.get("message", {}).get("content", "")
             # Strip <think> tags if present
             res_text = re.sub(r"<think>.*?</think>", "", res_text, flags=re.DOTALL).strip()
             return res_text
@@ -258,7 +511,7 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
 
 
 def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
-    """Audit a single vault document against the Master Tag Taxonomy.
+    """Audit a single vault document against the Master Tag Taxonomy using Tag RAG.
 
     Args:
         doc_path: Optional relative path of document to audit. If None, fetches next.
@@ -281,7 +534,6 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
     # Resolve absolute file path
     abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(VAULT_ROOT, doc_path)
     if not os.path.exists(abs_path):
-        # Update DB to record attempt
         vault_db.update_document_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": "File not found on disk."}
 
@@ -298,51 +550,65 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
     protected_tags = [t for t in current_tags if is_excluded_tag(t)]
     auditable_tags = [normalize_tag_format(t) for t in current_tags if not is_excluded_tag(t)]
 
-    # Fetch active master taxonomy
-    master_tags = vault_db.get_master_tags()
-    master_list_text = "\n".join([
-        f"- #{m['tag']} ({m['category']}): {m['description'] or 'No description'}"
-        for m in master_tags[:150]  # Cap to prevent prompt overflow
-    ]) if master_tags else "No master tags indexed yet."
-
-    system_prompt = (
-        "You are an expert librarian and bookseller maintaining a precise tag taxonomy for a personal knowledge vault.\n"
-        "Your goal is to ensure notes have clear, relevant, nested tags that are neither too vague nor overly specific.\n"
-        "Formatting rules:\n"
-        "- General semantic concepts MUST use lowercase hyphens for multi-word phrases (e.g. 'home-improvement', 'system-update', 'recovery-journey', 'peace-of-mind').\n"
-        "- Proper Nouns / Entities (Person, Place, Thing, Title, Media) MUST use TitleCase with underscores (e.g. 'Ricky_Sekulich', 'Dungeon_Crawler_Carl', 'Evelyn_Engine').\n"
-        "- Sub-hierarchies use slashes (e.g. 'tech/python/fastapi', 'journal/reflections').\n"
-        "Return ONLY a valid JSON object with the following fields:\n"
-        "{\n"
-        '  "tags_to_keep": ["tag1", "tag2"],\n'
-        '  "tags_to_add": ["tag3"],\n'
-        '  "tags_to_remove": ["tag4"],\n'
-        '  "new_master_tags": [{"tag": "cat/name", "category": "cat", "description": "1-sentence scope"}]\n'
-        "}"
+    # Semantic Tag RAG: Retrieve candidate master tags and novelty guidance based on document content
+    candidate_tags, min_dist, novelty_guidance = retrieve_candidate_tags_for_document(
+        title=title,
+        gist=gist,
+        body_sample=body[:1500],
+        current_tags=auditable_tags
     )
 
+    candidate_list_text = "\n".join([
+        f"- #{c['tag']} (category: {c['category']}, match distance: {c['distance']:.2f}): {c['description'] or 'No description'}"
+        for c in candidate_tags
+    ]) if candidate_tags else "No existing master tags matched."
+
+    system_prompt = (
+        "You are an expert taxonomy librarian maintaining a structured, nested tag hierarchy for a personal Obsidian knowledge vault.\n"
+        "Your goal is to organize notes under clear, domain-level nested tags that reduce clutter, group related concepts, and resolve ambiguous terms using note context.\n\n"
+        "Taxonomy & Nesting Principles:\n"
+        "1. Domain-Level Hierarchies: Group flat concepts into logical multi-tier domains using forward slashes (e.g. #3D-Printing/Slicing, #3D-Modeling/Topology, #AI/LLM/Inference, #AI/RAG/Evaluation, #Mood/Peace, #Lore/Worldbuilding, #Contact/Friend, #Media/Game).\n"
+        "2. Semantic & Contextual Disambiguation: Use the full context of the note to disambiguate polysemous or broad words:\n"
+        "   - 'corruption' -> #Lore/Corruption (fantasy/magic), #Politics/Corruption, #Psychology/Corruption\n"
+        "   - 'mesh' -> #3D-Modeling/Mesh, #Networking/Mesh-Topology\n"
+        "   - 'memory' -> #AI/LLM/Memory, #Psychology/Memory, #Hardware/RAM\n"
+        "   - 'peace' / 'anxiety' / 'reflection' -> #Mood/Peace, #Mood/Anxiety, #Mood/Reflection\n"
+        "3. Tag Formatting Rules:\n"
+        "   - General semantic concepts MUST use lowercase hyphens for multi-word segments (e.g. 'home-improvement', 'system-update', 'peace-of-mind').\n"
+        "   - Proper Nouns / Entities (Person, Place, Thing, Title, Media) MUST use TitleCase with underscores (e.g. 'Ricky_Sekulich', 'Dungeon_Crawler_Carl', 'Evelyn_Engine').\n"
+        "   - Sub-hierarchies use forward slashes (e.g. 'Tech/Python/FastAPI', 'Journal/Reflections').\n"
+        "4. Clean Replacement: Replace overly flat, vague, or cluttered tags with clean nested equivalents (put old flat tags in 'tags_to_remove' and new nested tags in 'tags_to_add').\n"
+        "5. Output Format: Return ONLY a valid JSON object with the following fields:\n"
+        "{\n"
+        '  "tags_to_keep": ["tag1", "tag2"],\n'
+        '  "tags_to_add": ["domain/subdomain/tag3"],\n'
+        '  "tags_to_remove": ["flat-tag-being-replaced"],\n'
+        '  "new_master_tags": [{"tag": "domain/subdomain/tag3", "category": "domain", "description": "1-sentence scope"}]\n'
+        "}"
+    )
 
     user_prompt = (
         f"Document Title: {title}\n"
         f"Document Path: {doc_path}\n"
         f"Document Summary/Gist: {gist}\n"
         f"Current Auditable Tags: {auditable_tags}\n\n"
-        f"Active Master Tag Taxonomy:\n{master_list_text}\n\n"
-        "Note Content Sample (first 1000 chars):\n"
-        f"'''\n{body[:1000]}\n'''\n\n"
+        f"--- SEMANTICALLY MATCHED MASTER TAGS (TAG RAG) ---\n"
+        f"{candidate_list_text}\n\n"
+        f"--- NOVELTY & ALIGNMENT GUIDANCE ---\n"
+        f"{novelty_guidance}\n\n"
+        f"--- NOTE CONTENT SAMPLE ---\n"
+        f"'''\n{body[:1500]}\n'''\n\n"
         "Evaluate tag suitability for this document. Select 2-5 highly relevant tags from the Master Taxonomy or suggest new nested tags if appropriate."
     )
 
     response_text = query_ollama(user_prompt, system_prompt)
     
-    # Try parsing JSON output
     tags_to_keep = auditable_tags
     tags_to_add = []
     tags_to_remove = []
     new_masters = []
 
     try:
-        # Match JSON block in response
         json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
         if json_match:
             parsed = json.loads(json_match.group(0))
@@ -373,9 +639,8 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
         try:
             with open(abs_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
-            # Instantly re-index modified note in Chroma DB vector store
+            # Re-index modified note in Chroma DB memory collection
             try:
-                from Evelyn.tools import chroma_rag
                 target_col = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
                 chroma_rag.ingest_markdown_file(
                     file_path=abs_path,
@@ -389,15 +654,14 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
             vault_db.update_document_tag_audit(doc_path)
             return {"status": "error", "path": doc_path, "message": f"Write error: {e}"}
 
-
-
-    # Record new master tags in database
+    # Record new master tags in SQLite and index into Chroma Tag Taxonomy
     for m in new_masters:
         ntag = normalize_tag_format(m.get("tag", ""))
-        if ntag:
+        if ntag and not is_excluded_tag(ntag):
             category = m.get("category", ntag.split("/")[0] if "/" in ntag else "general")
-            desc = m.get("description", f"Tags related to {ntag}")
+            desc = m.get("description", f"Obsidian notes tagged under {ntag}")
             vault_db.upsert_master_tag(ntag, category=category, description=desc, usage_count=1)
+            index_master_tag_in_chroma(ntag, category=category, description=desc, usage_count=1)
 
     # Update database audit timestamp & tags
     vault_db.update_document_tag_audit(doc_path, tags=tags_str)
@@ -408,12 +672,13 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
         "modified": modified,
         "previous_tags": current_tags,
         "final_tags": final_tags_list,
-        "protected_tags": protected_tags
+        "protected_tags": protected_tags,
+        "min_taxonomy_distance": min_dist
     }
 
 
 def seed_master_taxonomy_from_vault() -> int:
-    """Seed initial master tag taxonomy from all existing vault notes in database.
+    """Seed initial master tag taxonomy from all existing vault notes and sync to Chroma.
 
     Returns:
         int: Number of unique tags seeded into master_tag_taxonomy.
@@ -435,11 +700,14 @@ def seed_master_taxonomy_from_vault() -> int:
         desc = f"Obsidian notes tagged under {tag}"
         vault_db.upsert_master_tag(tag, category=category, description=desc, usage_count=count)
 
+    # Sync all seeded tags into Chroma vector store
+    sync_master_tags_to_vector_db()
+
     return len(tag_counts)
 
 
 def maintain_master_taxonomy() -> Dict[str, Any]:
-    """Perform periodic maintenance on the master tag taxonomy table.
+    """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
     Updates tag usage counts across the vault and removes zero-usage tags.
 
@@ -467,10 +735,14 @@ def maintain_master_taxonomy() -> Dict[str, Any]:
         count = current_counts.get(t, 0)
         if count == 0:
             vault_db.delete_master_tag(t)
+            delete_tag_from_chroma(t)
             removed_count += 1
         elif count != m["usage_count"]:
             vault_db.upsert_master_tag(t, category=m["category"], description=m["description"], usage_count=count)
             updated_count += 1
+
+    # Sync any updated counts to Chroma
+    sync_master_tags_to_vector_db()
 
     return {
         "status": "success",
@@ -486,12 +758,16 @@ if __name__ == "__main__":
     parser.add_argument("--audit-batch", type=int, default=0, help="Audit N eligible vault documents")
     parser.add_argument("--seed-taxonomy", action="store_true", help="Seed master taxonomy from vault index")
     parser.add_argument("--maintain-taxonomy", action="store_true", help="Perform taxonomy maintenance pass")
+    parser.add_argument("--sync-vector-tags", action="store_true", help="Sync SQLite master tags to Chroma vector store")
     
     args = parser.parse_args()
     
     if args.seed_taxonomy:
         count = seed_master_taxonomy_from_vault()
-        print(f"[TAG LIBRARIAN] Seeded {count} tags into master_tag_taxonomy.")
+        print(f"[TAG LIBRARIAN] Seeded {count} tags into master_tag_taxonomy and Chroma vector store.")
+    elif args.sync_vector_tags:
+        count = sync_master_tags_to_vector_db()
+        print(f"[TAG LIBRARIAN] Synced {count} master tags into Chroma collection '{TAG_COLLECTION_NAME}'.")
     elif args.maintain_taxonomy:
         res = maintain_master_taxonomy()
         print(f"[TAG LIBRARIAN] Taxonomy maintenance: {res}")
