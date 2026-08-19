@@ -66,14 +66,15 @@ def acquire_chroma_write_lock(timeout: float = 60.0, non_blocking: bool = False)
     try:
         while True:
             try:
-                flags = fcntl.LOCK_EX
-                if non_blocking:
-                    flags |= fcntl.LOCK_NB
-                fcntl.flock(lock_file.fileno(), flags)
+                # Always use LOCK_NB so flock returns immediately if held by another process/thread,
+                # allowing the timeout loop to enforce the deadline without kernel-level deadlock.
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 acquired = True
                 break
-            except (BlockingIOError, IOError):
-                if non_blocking or (time.time() - start) >= timeout:
+            except (BlockingIOError, OSError):
+                if non_blocking:
+                    raise BlockingIOError("ChromaDB write lock is held by another process")
+                if (time.time() - start) >= timeout:
                     raise TimeoutError(f"Could not acquire ChromaDB write lock after {timeout:.1f}s")
                 time.sleep(0.1)
         yield
