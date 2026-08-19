@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-16 13:43:01
+# date modified: 2026-08-18 20:37:22
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -590,6 +590,11 @@ TAG_LIBRARIAN_FORMAT_RULES = {
     "entity_multi_word": "underscore", # "Ricky_Sekulich", "Evelyn_Engine"
     "lowercase_subpaths": True,       # "tech/python/fastapi"
 }
+
+# Chroma Vector Tag Taxonomy Settings (Tag RAG)
+CHROMA_TAG_COLLECTION = "evelyn_tag_taxonomy"
+TAG_LIBRARIAN_TOP_K_TAGS = 35           # Max semantically matched master tags to retrieve
+TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55   # Cosine distance above which a note domain is deemed novel
 
 
 
