@@ -97,17 +97,34 @@ def _display_proposal(prop: dict, source_entries: list[dict], idx: int, total: i
     for entry in source_entries:
         cat = entry.get("category", "")
         obs = entry.get("observation", "")
-        print(f"    {DIM}[{cat}]{RESET} {obs}")
-    print()
-
+        tags_str = f"  {DIM}(Tags: #{entry['tags']}){RESET}" if entry.get("tags") else ""
+        print(f"    {DIM}[{cat}]{RESET} {obs}{tags_str}")
     if prop["type"] in ("merge", "supersede", "procedure_merge"):
         print(f"  {BOLD}Proposed Action: {p_type}{RESET}")
         print(f"  {DIM}Target Category:{RESET} {prop.get('suggested_category')}")
+        if prop.get("merged_tags"):
+            print(f"  {DIM}Merged Domain Tags:{RESET} {CYAN}#{prop.get('merged_tags')}{RESET}")
         print(f"  {DIM}Merged Summary / Procedure:{RESET}")
         print(f"  {GREEN}> {prop.get('merged_observation')}{RESET}\n")
+    elif prop["type"] == "split":
+        print(f"  {BOLD}Proposed Action: SPLIT COMPOUND ENTRY{RESET}")
+        print(f"  {DIM}Decomposed Atomic Facts to Create:{RESET}")
+        import yaml
+        try:
+            p_data = yaml.safe_load(prop.get("merged_observation", ""))
+            child_list = p_data.get("entries", []) if isinstance(p_data, dict) else (p_data if isinstance(p_data, list) else [])
+        except Exception:
+            child_list = []
+        for i, ce in enumerate(child_list, 1):
+            c_cat = ce.get("category", "")
+            c_tags = f"  {CYAN}(Tags: #{ce['tags']}){RESET}" if ce.get("tags") else ""
+            c_obs = ce.get("observation", "")
+            print(f"    {GREEN}{i}. [{c_cat}]{RESET} {c_obs}{c_tags}")
+        print()
     elif prop["type"] == "recategorize":
         print(f"  {BOLD}Proposed Action: RECATEGORIZE{RESET}")
         print(f"  {DIM}Suggested Category:{RESET} {GREEN}{prop.get('suggested_category')}{RESET}\n")
+
 
 
 # ---------------------------------------------------------------------------
@@ -128,13 +145,16 @@ def run_review():
     while idx < len(proposals):
         prop = proposals[idx]
         source_ids = prop.get("source_ids", [])
-        
         source_entries = []
         for eid in source_ids:
             if prop["type"] == "procedure_merge":
-                p_item = memory_db.get_procedure(eid)
-                if p_item:
-                    source_entries.append({"category": "procedures", "observation": f"[{p_item['trigger_pattern']}] {p_item['steps'][:100]}..."})
+                proc = memory_db.get_procedure(eid)
+                if proc:
+                    source_entries.append({
+                        "category": "procedure",
+                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}...",
+                        "tags": proc.get("tags")
+                    })
             else:
                 entry = memory_db.get_entry(eid)
                 if entry:
@@ -142,16 +162,12 @@ def run_review():
 
         _display_proposal(prop, source_entries, idx, len(proposals))
 
-        print(f"{DIM}{_DIV}{RESET}")
-        print(
-            f"  {GREEN}[A]{RESET} Approve   "
-            f"{YELLOW}[D]{RESET} Deny / skip   "
-            f"{DIM}[Q]{RESET} Quit"
-        )
-        print(f"{DIM}{_DIV}{RESET}")
-        sys.stdout.flush()
-
-        ch = _getch()
+        print(f"  [{GREEN}a{RESET}]pprove  [{RED}d{RESET}]eny  [{YELLOW}s{RESET}]kip  [{DIM}q{RESET}]uit")
+        try:
+            ch = input("  > ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n\n  {DIM}Session interrupted. Exiting.{RESET}\n")
+            break
 
         if ch == "q":
             print(f"\n  {DIM}Quitting — {len(proposals) - idx} proposal(s) remaining.{RESET}")
@@ -159,7 +175,17 @@ def run_review():
 
         if ch == "a":
             try:
-                if prop["type"] == "recategorize":
+                if prop["type"] == "split":
+                    import yaml
+                    try:
+                        p_data = yaml.safe_load(prop.get("merged_observation", ""))
+                        child_list = p_data.get("entries", []) if isinstance(p_data, dict) else (p_data if isinstance(p_data, list) else [])
+                    except Exception:
+                        child_list = []
+                    if source_ids and child_list:
+                        memory_db.split_entry(source_ids[0], child_list)
+                    memory_db.apply_proposal(prop["id"])
+                elif prop["type"] == "recategorize":
                     # Apply recategorization
                     for entry in source_entries:
                         memory_db.update_entry(entry["id"], category=prop["suggested_category"])
@@ -254,6 +280,8 @@ def run_review():
     print()
 
     if approved > 0:
+        try:
+            import subprocess
             base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
             refresh_script = os.path.join(base_dir, "Evelyn", "tools", "refresh_memory.py")
             if os.path.exists(refresh_script):
@@ -261,6 +289,7 @@ def run_review():
                 subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
         except Exception as r_err:
             print(f"  {RED}Warning: Could not trigger memory refresh: {r_err}{RESET}\n")
+
 
 
 def main():
