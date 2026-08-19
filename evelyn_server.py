@@ -3733,10 +3733,50 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
     }
 
 
+def _enrich_extraction_with_taxonomy(item: dict) -> dict:
+    """Enrich an extraction item with Vector RAG taxonomy suggestions and novelty score."""
+    obs = item.get("observation", "")
+    if not obs:
+        return item
+
+    try:
+        import Evelyn.tools.chroma_rag as chroma_rag
+        from Evelyn.tools.tag_librarian import is_excluded_tag
+        tag_col = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
+        results = chroma_rag.query_collection(obs, tag_col, n_results=5)
+        
+        suggested_tags = []
+        min_dist = 1.0
+        
+        for r in results:
+            meta = r.get("metadata") or {}
+            tag = meta.get("tag")
+            if tag and not is_excluded_tag(tag) and tag not in suggested_tags:
+                suggested_tags.append(tag)
+            dist = float(r.get("distance", 1.0))
+            if dist < min_dist:
+                min_dist = dist
+
+        item["suggested_tags"] = suggested_tags[:4]
+        item["novelty_score"] = round(min_dist, 2)
+        if min_dist < 0.40:
+            item["alignment_label"] = "Aligned"
+        elif min_dist < 0.55:
+            item["alignment_label"] = "Related"
+        else:
+            item["alignment_label"] = "Novel"
+    except Exception as e:
+        item["suggested_tags"] = []
+        item["novelty_score"] = 1.0
+        item["alignment_label"] = "Novel"
+
+    return item
+
+
 @app.get("/api/review/unified")
 async def get_unified_review(_: None = Depends(check_auth)):
     """Return all pending review items (extractions, proposals, profile updates, procedures)
-    in a single unified list with item_type metadata.
+    in a single unified list with item_type metadata and vector taxonomy suggestions.
     """
     import Evelyn.tools.memory_db as memory_db
     unified_items = []
@@ -3745,7 +3785,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
     raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
     for item in raw_extractions:
         item["item_type"] = "extraction"
-        unified_items.append(item)
+        unified_items.append(_enrich_extraction_with_taxonomy(item))
 
     # 2. Proposals
     proposals = memory_db.get_pending_proposals()
@@ -3789,9 +3829,11 @@ class EditEntryRequest(BaseModel):
 
 @app.get("/api/review/extractions")
 async def get_extractions(_: None = Depends(check_auth)):
-    """Return all extracted (pending review) memory entries."""
+    """Return all extracted (pending review) memory entries with vector taxonomy enrichment."""
     import Evelyn.tools.memory_db as memory_db
-    return memory_db.get_all_entries(statuses=["extracted"])
+    raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
+    return [_enrich_extraction_with_taxonomy(item) for item in raw_extractions]
+
 
 @app.post("/api/review/extractions/{id}/{action}")
 async def action_extraction(id: int, action: str, req: EditEntryRequest = None, _: None = Depends(check_auth)):
@@ -3957,6 +3999,24 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
                     tags=parsed_proc.get("tags")
                 )
             memory_db.apply_proposal(id)
+        elif prop["type"] == "split":
+            import yaml
+            source_ids = prop.get("source_ids", [])
+            source_id = source_ids[0] if source_ids else None
+            if source_id:
+                try:
+                    parsed_splits = yaml.safe_load(final_text)
+                    if isinstance(parsed_splits, dict) and "entries" in parsed_splits:
+                        child_entries = parsed_splits["entries"]
+                    elif isinstance(parsed_splits, list):
+                        child_entries = parsed_splits
+                    else:
+                        child_entries = []
+                except Exception:
+                    child_entries = []
+                if child_entries:
+                    memory_db.split_entry(source_id, child_entries)
+            memory_db.apply_proposal(id)
         elif prop["type"] in ("merge", "supersede"):
             for entry in source_entries:
                 memory_db.delete_entry(entry["id"])
@@ -3987,6 +4047,134 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
         return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
+
+
+class SplitPreviewRequest(BaseModel):
+    entry_id: int | None = None
+    observation: str | None = None
+    category: str | None = None
+    subject: str | None = None
+    tags: str | None = None
+
+
+class SplitApplyRequest(BaseModel):
+    source_id: int
+    entries: list[dict]
+
+
+@app.post("/api/context/split_preview")
+async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(check_auth)):
+    """Decompose a compound or over-merged context entry into atomic child entries."""
+    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools.tag_librarian import normalize_tag_format
+    import Evelyn.tools.fact_extractor as fact_extractor
+
+    obs = req.observation
+    cat = req.category
+    subj = req.subject
+    tags = req.tags
+
+    if req.entry_id:
+        entry = memory_db.get_entry(req.entry_id)
+        if entry:
+            obs = obs or entry.get("observation")
+            cat = cat or entry.get("category")
+            subj = subj or entry.get("subject")
+            tags = tags or entry.get("tags")
+
+    if not obs or not obs.strip():
+        raise HTTPException(status_code=400, detail="Observation text is required for split preview")
+
+    cat00 = fact_extractor.load_cat00_index()
+
+    prompt = (
+        "You are an expert knowledge decomposition engine for a personal memory system.\n"
+        "Analyze the following compound observation and decompose it into 2 or more atomic, self-contained, "
+        "durable context facts. Each fact should represent exactly one coherent observation or preference.\n\n"
+        f"COMPOUND OBSERVATION:\n{obs}\n\n"
+        f"SOURCE CATEGORY: {cat or 'Cat05-R'}\n"
+        f"SOURCE SUBJECT: {subj or 'Ricky'}\n"
+        f"SOURCE TAGS: {tags or ''}\n\n"
+        f"CATEGORY REFERENCE:\n{cat00}\n\n"
+        "RULES:\n"
+        "1. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
+        "2. MULTI-TIER DOMAIN TAGS: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, "
+        "`Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n"
+        "3. Assign the most fitting Cat##-{E,R} code for each split entry.\n\n"
+        "Output ONLY a fenced YAML block:\n"
+        "```yaml\n"
+        "entries:\n"
+        "  - category: Cat05-R\n"
+        "    subject: Ricky\n"
+        "    tags: \"Tech/Python/FastAPI\"\n"
+        "    observation: \"First clean, atomic fact with full specific detail.\"\n"
+        "  - category: Cat14-R\n"
+        "    subject: Ricky\n"
+        "    tags: \"Home/Server/ZWave\"\n"
+        "    observation: \"Second clean, atomic fact with full specific detail.\"\n"
+        "```"
+    )
+
+    import Evelyn.tools.tag_librarian as tag_librarian
+    raw_response = await asyncio.to_thread(tag_librarian.query_ollama, prompt, "You decompose compound memory facts into atomic observations. Output only YAML.")
+
+    import yaml
+    match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw_response, re.DOTALL | re.IGNORECASE)
+    block = match.group(1) if match else raw_response
+    try:
+        data = yaml.safe_load(block)
+    except Exception:
+        data = None
+
+    entries_list = []
+    if isinstance(data, dict) and "entries" in data and isinstance(data["entries"], list):
+        entries_list = data["entries"]
+    elif isinstance(data, list):
+        entries_list = data
+
+    splits = []
+    for item in entries_list:
+        if not isinstance(item, dict):
+            continue
+        c_obs = str(item.get("observation", "")).strip()
+        if not c_obs:
+            continue
+        c_cat = str(item.get("category", cat or "Cat05-R")).strip()
+        c_subj = str(item.get("subject", subj or "Ricky")).strip()
+        raw_t = str(item.get("tags", tags or "")).strip()
+        norm_t = ", ".join([normalize_tag_format(t) for t in raw_t.split(",") if t.strip()])
+
+        split_dict = {
+            "category": c_cat,
+            "subject": c_subj,
+            "observation": c_obs,
+            "tags": norm_t
+        }
+        splits.append(_enrich_extraction_with_taxonomy(split_dict))
+
+    return {
+        "original": {
+            "entry_id": req.entry_id,
+            "observation": obs,
+            "category": cat,
+            "subject": subj,
+            "tags": tags
+        },
+        "splits": splits
+    }
+
+
+@app.post("/api/context/split_apply")
+async def apply_context_split(req: SplitApplyRequest, _: None = Depends(check_auth)):
+    """Apply a split on a compound context entry."""
+    import Evelyn.tools.memory_db as memory_db
+    if not req.entries:
+        raise HTTPException(status_code=400, detail="At least one child entry is required to split")
+
+    new_ids = memory_db.split_entry(req.source_id, req.entries)
+    await start_refresh_memory_internal()
+    return {"status": "ok", "new_ids": new_ids}
+
 
 
 class ProcedureReviewBody(BaseModel):

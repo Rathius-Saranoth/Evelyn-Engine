@@ -38,7 +38,9 @@ import httpx
 import yaml
 
 import evelyn_config as cfg # [[evelyn_config.py]]
-from Evelyn.tools.tag_librarian import normalize_tag_format
+import Evelyn.tools.chroma_rag as chroma_rag
+import Evelyn.tools.vault_db as vault_db
+from Evelyn.tools.tag_librarian import normalize_tag_format, is_excluded_tag
 
 
 # ---------------------------------------------------------------------------
@@ -503,12 +505,159 @@ def _format_messages_for_extraction(messages: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
-    """Assemble the extraction prompt.
+def retrieve_candidate_taxonomy_and_clusters(
+    messages: list[dict],
+    top_k_tags: int | None = None,
+    top_k_facts: int | None = None,
+) -> tuple[list[dict], list[dict], float, str]:
+    """Retrieve semantically relevant candidate taxonomy branches and memory clusters.
+
+    Queries ChromaDB tag taxonomy (evelyn_tag_taxonomy) and memory chunks (evelyn_memory)
+    using multi-angle queries derived from recent messages.
+    Computes minimum cosine distance to assess taxonomy alignment vs novelty.
+
+    Args:
+        messages: List of chat messages in the current batch.
+        top_k_tags: Max candidate master tags to retrieve. Defaults to FACT_EXTRACTION_TOP_K_TAXONOMY.
+        top_k_facts: Max candidate memory chunks to retrieve. Defaults to FACT_EXTRACTION_TOP_K_FACTS.
+
+    Returns:
+        tuple[list[dict], list[dict], float, str]:
+            - Candidate taxonomy tags/branches (tag, category, description, distance)
+            - Candidate prior memory chunks/facts (content, distance, source)
+            - Minimum cosine distance found across candidates
+            - Novelty Guidance Directive string for Ollama prompt
+    """
+    if top_k_tags is None:
+        top_k_tags = getattr(cfg, "FACT_EXTRACTION_TOP_K_TAXONOMY", 30)
+    if top_k_facts is None:
+        top_k_facts = getattr(cfg, "FACT_EXTRACTION_TOP_K_FACTS", 6)
+
+    tag_col_name = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
+    mem_col_name = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
+
+    queries: list[str] = []
+
+    # 1. User messages extracted text / intent
+    user_texts = [m.get("content", "") for m in messages if m.get("role") == "user"]
+    if user_texts:
+        combined_user = " ".join(user_texts)[:600].strip()
+        if combined_user:
+            queries.append(combined_user)
+
+    # 2. Overall conversation transcript sample
+    transcript_sample = _format_messages_for_extraction(messages)[:600].strip()
+    if transcript_sample and transcript_sample not in queries:
+        queries.append(transcript_sample)
+
+    if not queries:
+        return [], [], 1.0, "NO_QUERY_AVAILABLE"
+
+    candidates_tag_map: dict[str, dict] = {}
+    memory_candidates: list[dict] = []
+    seen_mem_docs = set()
+
+    for q in queries:
+        # Tag taxonomy query
+        try:
+            results = chroma_rag.query_collection(q, tag_col_name, n_results=top_k_tags)
+            for r in results:
+                meta = r.get("metadata") or {}
+                tag = meta.get("tag")
+                if not tag or is_excluded_tag(tag):
+                    continue
+                dist = float(r.get("distance", 1.0))
+                if tag not in candidates_tag_map or dist < candidates_tag_map[tag]["distance"]:
+                    candidates_tag_map[tag] = {
+                        "tag": tag,
+                        "category": meta.get("category", "general"),
+                        "description": meta.get("description", ""),
+                        "distance": dist,
+                    }
+        except Exception as e:
+            print(f"[EXTRACTOR] Tag taxonomy query failed for '{q[:30]}...': {e}", flush=True)
+
+        # Memory chunks query
+        try:
+            mem_results = chroma_rag.query_collection(q, mem_col_name, n_results=top_k_facts)
+            for mr in mem_results:
+                doc = mr.get("document", "").strip()
+                dist = float(mr.get("distance", 1.0))
+                meta = mr.get("metadata") or {}
+                if doc and doc not in seen_mem_docs:
+                    seen_mem_docs.add(doc)
+                    memory_candidates.append({
+                        "content": doc[:250],
+                        "distance": dist,
+                        "source": meta.get("source", "memory"),
+                    })
+        except Exception as e:
+            print(f"[EXTRACTOR] Memory cluster query failed for '{q[:30]}...': {e}", flush=True)
+
+    # Fallback to SQLite master tags if Chroma tag collection is empty
+    if not candidates_tag_map:
+        try:
+            fallback_tags = vault_db.get_master_tags()
+            for m in fallback_tags[:top_k_tags]:
+                t = m.get("tag", "")
+                if t and not is_excluded_tag(t):
+                    candidates_tag_map[t] = {
+                        "tag": t,
+                        "category": m.get("category", "general"),
+                        "description": m.get("description", ""),
+                        "distance": 0.50,
+                    }
+        except Exception as e:
+            print(f"[EXTRACTOR] Fallback master tags retrieval failed: {e}", flush=True)
+
+    sorted_tags = sorted(candidates_tag_map.values(), key=lambda x: x["distance"])[:top_k_tags]
+    sorted_facts = sorted(memory_candidates, key=lambda x: x["distance"])[:top_k_facts]
+
+    min_dist = 1.0
+    if sorted_tags:
+        min_dist = min(min_dist, sorted_tags[0]["distance"])
+    if sorted_facts:
+        min_dist = min(min_dist, sorted_facts[0]["distance"])
+
+    novelty_threshold = getattr(cfg, "FACT_EXTRACTION_NOVELTY_THRESHOLD", 0.55)
+
+    if min_dist < 0.40:
+        novelty_guidance = (
+            f"TAXONOMY MATCH CONFIDENCE: HIGH (Nearest match distance: {min_dist:.2f}).\n"
+            "Strong domain alignment exists in the Master Taxonomy. Strictly adhere to existing parent domain "
+            "hierarchies (e.g. #Domain/Subtopic) and matching Cat## codes."
+        )
+    elif min_dist < novelty_threshold:
+        novelty_guidance = (
+            f"TAXONOMY MATCH CONFIDENCE: MODERATE (Nearest match distance: {min_dist:.2f}).\n"
+            "Related parent domains found. You may extend existing parent branches (e.g. '3D-Printing/...', "
+            "'Tech/...', 'Health/...', 'Lore/...') or specialize child tags."
+        )
+    else:
+        novelty_guidance = (
+            f"TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN (Nearest match distance: {min_dist:.2f}).\n"
+            "This conversation introduces topics not well-covered by existing taxonomy. "
+            "You are EXPLICITLY ENCOURAGED to mint new domain-level tag hierarchies (e.g. #Domain/Subtopic or #Domain/Category/Subtopic)."
+        )
+
+    return sorted_tags, sorted_facts, min_dist, novelty_guidance
+
+
+def _build_extraction_prompt(
+    messages: list[dict],
+    cat00: str,
+    taxonomy_candidates: list[dict] | None = None,
+    memory_candidates: list[dict] | None = None,
+    novelty_guidance: str | None = None,
+) -> str:
+    """Assemble the extraction prompt with vector taxonomy and prior knowledge alignment.
 
     Args:
         messages: A list of message dictionaries.
         cat00: The Cat00 index taxonomy block.
+        taxonomy_candidates: Retrieved master taxonomy candidates.
+        memory_candidates: Retrieved prior memory chunks.
+        novelty_guidance: Novelty directive string based on cosine distance.
 
     Returns:
         str: The assembled prompt text.
@@ -521,27 +670,57 @@ def _build_extraction_prompt(messages: list[dict], cat00: str) -> str:
         else "\n\n(Category reference unavailable — use best judgment for Cat##-E/R codes.)"
     )
 
+    taxonomy_block = ""
+    if taxonomy_candidates:
+        tag_lines = []
+        for t in taxonomy_candidates[:20]:
+            desc = f" — {t['description']}" if t.get("description") else ""
+            tag_lines.append(f"  - #{t['tag']}{desc}")
+        taxonomy_block = (
+            f"\n\nRELEVANT MASTER TAXONOMY DOMAINS & TAGS (Tag RAG):\n" + "\n".join(tag_lines)
+        )
+
+    memory_block = ""
+    if memory_candidates:
+        fact_lines = []
+        for m in memory_candidates[:4]:
+            fact_lines.append(f"  - {m['content']}")
+        memory_block = (
+            f"\n\nRELEVANT EXISTING KNOWLEDGE CLUSTERS (for deduplication & context):\n" + "\n".join(fact_lines)
+        )
+
+    guidance_block = f"\n\n{novelty_guidance}" if novelty_guidance else ""
+
     return (
-        "You are a precise fact extractor for a personal memory system. "
+        "You are a precise, highly observant personal memory extractor. "
         "Analyze the following conversation and extract ONLY concrete, durable personal facts "
-        "about Ricky (the user) or Evelyn (the AI). "
+        "about Ricky (the user) or Evelyn (the AI).\n"
         "Extract: preferences, physical traits, relationships, goals, beliefs, skills, events, "
-        "opinions, habits, or any detail worth remembering long-term. "
-        "DO NOT extract: greetings, small talk, questions without answers, or hypotheticals. \n"
-        f"{category_block}\n\n"
-        "CRITICAL RULE: Write pure, factual observations. Do not 'summarize' or evaluate the event. "
-        "Do NOT inject the Category Reference titles into the text of the observation.\n\n"
+        "opinions, habits, routines, or any detail worth remembering long-term.\n"
+        "DO NOT extract: greetings, small talk, questions without answers, or hypotheticals.\n"
+        f"{category_block}"
+        f"{taxonomy_block}"
+        f"{memory_block}"
+        f"{guidance_block}\n\n"
+        "CRITICAL SUBSTANCE & OBSERVATION RULES:\n"
+        "1. WRITE DEEP, SUBSTANTIVE OBSERVATIONS: State the exact specific facts with nouns, preferences, "
+        "conditions, reasons, and temporal context. AVOID vague or shallow one-liners (e.g. Do NOT write 'Likes coffee'; "
+        "instead write 'Prefers dark roast pour-over coffee with a splash of oat milk in the morning, avoiding sugar').\n"
+        "2. MULTI-TIER DOMAIN TAXONOMY: Structure tags as hierarchical domain trees (e.g. `Tech/Python/FastAPI`, "
+        "`Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`). "
+        "Use TitleCase with underscores for named entities (`Ricky_Sekulich`, `FastAPI`).\n"
+        "3. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
+        "Do NOT inject Category Reference titles into the observation text.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no durable facts are found, output an empty list.\n\n"
         "```facts\n"
         "facts:\n"
         "  - subject: Ricky          # or Evelyn\n"
         "    category: Cat05-R        # best matching Cat##-E or Cat##-R code\n"
-        "    tags: \"ricky, habits\"     # comma-separated semantic tags\n"
-
-        "    summary: \"Exact fact.\"   # one clear, self-contained sentence\n"
+        "    tags: \"Tech/Python/FastAPI, Ricky_Sekulich\"  # comma-separated hierarchical domain tags\n"
+        "    summary: \"Exact, specific, contextualized observation.\"  # full substantive statement\n"
         "    confidence: high         # high / medium / low\n"
-        "    date: \"2025-03-15\"      # date this was discussed (from message timestamps above)\n"
+        "    date: \"2025-03-15\"      # date this was discussed (from message timestamps)\n"
         "```\n\n"
         f"CONVERSATION:\n{transcript}"
     )
@@ -746,7 +925,15 @@ async def _do_extraction(messages: list[dict]):
     """
     import datetime as dt
     cat00 = load_cat00_index()
-    prompt = _build_extraction_prompt(messages, cat00)
+    tag_candidates, mem_candidates, min_dist, novelty_guidance = retrieve_candidate_taxonomy_and_clusters(messages)
+    prompt = _build_extraction_prompt(
+        messages=messages,
+        cat00=cat00,
+        taxonomy_candidates=tag_candidates,
+        memory_candidates=mem_candidates,
+        novelty_guidance=novelty_guidance,
+    )
+
 
     # Compute fallback date from the latest message timestamp in the batch
     latest_ts = max((m.get("ts") or 0) for m in messages)

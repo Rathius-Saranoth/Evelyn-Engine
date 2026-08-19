@@ -322,6 +322,36 @@
         <button class="btn btn-reject" onclick="closeGuidanceModal()">Cancel</button>
         <button class="btn btn-action" id="guidance-finalize-btn" style="max-width: 250px;">Finalize & Queue Task</button>
       </div>
+  <!-- Modal for Context Entry Splitting -->
+  <div class="modal" id="split-modal">
+    <div class="modal-content" style="max-width: 850px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <span class="modal-title" id="split-modal-title">✂️ Split Compound Context Entry</span>
+        <button class="close-btn" onclick="closeSplitModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y: auto; display: flex; flex-direction: column; gap: 15px; padding: 20px;">
+        <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+          <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Original Compound Entry</div>
+          <div id="split-modal-orig-text" style="font-size: 13px; line-height: 1.4; color: var(--text); white-space: pre-wrap;"></div>
+        </div>
+
+        <div id="split-loading" style="display: none; padding: 25px; text-align: center; color: var(--accent);">
+          <div style="font-size: 14px; font-weight: 500;">Decomposing into atomic context facts with LLM & Taxonomy...</div>
+        </div>
+
+        <div id="split-drafts-container" style="display: flex; flex-direction: column; gap: 12px;">
+          <!-- Dynamically populated child split cards -->
+        </div>
+
+        <div style="display: flex; justify-content: flex-start;">
+          <button class="btn btn-sm" style="background: var(--surface); border: 1px dashed var(--border); font-size: 12px; padding: 6px 12px;" onclick="addSplitDraft()">+ Add Another Atomic Fact</button>
+        </div>
+      </div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-reject" onclick="closeSplitModal()">Cancel</button>
+        <button class="btn btn-edit" onclick="reDecomposeSplit()">Re-Analyze with LLM</button>
+        <button class="btn btn-approve" id="btn-apply-split" onclick="applySplitModal()">Apply Split</button>
+      </div>
     </div>
   </div>
 
@@ -866,9 +896,9 @@
       if (action === 'edit' && type === 'extractions') {
         // obs-${id} is the inline edit textarea on the extraction card.
         const obs = document.getElementById(`obs-${id}`)?.value;
-        const cat = document.getElementById(`ce-cat-${id}`)?.value;
-        const subj = document.getElementById(`ce-subj-${id}`)?.value;
-        const tags = document.getElementById(`ce-tags-${id}`)?.value;
+        const cat = document.getElementById(`ext-cat-${id}`)?.value || document.getElementById(`ce-cat-${id}`)?.value;
+        const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
+        const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
         body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
       } else if (action === 'approve' && type === 'proposals') {
         const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
@@ -1366,8 +1396,11 @@
     function handleEditInput(id) {
       const item = unifiedItems.find(x => x.id === id);
       if (!item) return;
-      const obs = document.getElementById(`obs-${id}`).value;
-      const isDirty = (obs !== item.observation);
+      const obs = document.getElementById(`obs-${id}`)?.value ?? item.observation;
+      const cat = document.getElementById(`ext-cat-${id}`)?.value ?? item.category;
+      const subj = document.getElementById(`ext-subj-${id}`)?.value ?? (item.subject || 'Ricky');
+      const tags = document.getElementById(`ext-tags-${id}`)?.value ?? (item.tags || '');
+      const isDirty = (obs !== item.observation || cat !== item.category || subj !== (item.subject || 'Ricky') || tags !== (item.tags || ''));
       
       const btnApprove = document.getElementById(`btn-approve-${id}`);
       const btnEdit = document.getElementById(`btn-edit-${id}`);
@@ -1377,12 +1410,251 @@
       if (btnRevert) btnRevert.style.display = isDirty ? 'block' : 'none';
     }
 
+    function appendExtractionTag(id, tag) {
+      const input = document.getElementById(`ext-tags-${id}`);
+      if (!input) return;
+      const current = input.value.trim();
+      const tagsList = current ? current.split(',').map(t => t.trim()) : [];
+      if (!tagsList.includes(tag)) {
+        tagsList.push(tag);
+        input.value = tagsList.join(', ');
+        handleEditInput(id);
+      }
+    }
+
+    function setExtractionCategory(id, cat) {
+      const input = document.getElementById(`ext-cat-${id}`);
+      if (!input) return;
+      input.value = cat;
+      handleEditInput(id);
+    }
+
     function handleRevert(id) {
       const item = unifiedItems.find(x => x.id === id);
       if (!item) return;
       const textarea = document.getElementById(`obs-${id}`);
       if (textarea) textarea.value = item.observation;
+      const catInput = document.getElementById(`ext-cat-${id}`);
+      if (catInput) catInput.value = item.category;
+      const subjInput = document.getElementById(`ext-subj-${id}`);
+      if (subjInput) subjInput.value = item.subject || 'Ricky';
+      const tagsInput = document.getElementById(`ext-tags-${id}`);
+      if (tagsInput) tagsInput.value = item.tags || '';
       handleEditInput(id);
+    }
+
+    let currentSplitEntryId = null;
+    let currentSplitProposalId = null;
+    let currentSplitContext = null;
+    let currentSplitDrafts = [];
+    let currentSplitOriginal = null;
+
+    async function openSplitModal(entryId, sourceContext, proposalId = null) {
+      currentSplitEntryId = entryId;
+      currentSplitProposalId = proposalId;
+      currentSplitContext = sourceContext;
+      currentSplitDrafts = [];
+
+      let origText = '';
+      let origCat = 'Cat05-R';
+      let origSubj = 'Ricky';
+      let origTags = '';
+
+      if (sourceContext === 'extractions') {
+        const item = unifiedItems.find(x => x.item_type === 'extraction' && x.id === entryId);
+        if (item) {
+          origText = document.getElementById(`obs-${entryId}`)?.value || item.observation;
+          origCat = document.getElementById(`ext-cat-${entryId}`)?.value || item.category;
+          origSubj = document.getElementById(`ext-subj-${entryId}`)?.value || item.subject || 'Ricky';
+          origTags = document.getElementById(`ext-tags-${entryId}`)?.value || item.tags || '';
+        }
+      } else if (sourceContext === 'source') {
+        const prop = unifiedItems.find(x => x.id === proposalId);
+        const s = prop?.source_entries?.find(e => e.id === entryId);
+        if (s) {
+          origText = document.getElementById(`ce-obs-${entryId}`)?.value || s.observation;
+          origCat = document.getElementById(`ce-cat-${entryId}`)?.value || s.category;
+          origSubj = document.getElementById(`ce-subj-${entryId}`)?.value || s.subject || 'Ricky';
+          origTags = document.getElementById(`ce-tags-${entryId}`)?.value || s.tags || '';
+        }
+      }
+
+      currentSplitOriginal = {
+        entry_id: entryId,
+        observation: origText,
+        category: origCat,
+        subject: origSubj,
+        tags: origTags
+      };
+
+      document.getElementById('split-modal-title').textContent = `✂️ Split Compound Context Entry #${entryId}`;
+      document.getElementById('split-modal-orig-text').textContent = origText;
+      document.getElementById('split-modal').style.display = 'flex';
+
+      await reDecomposeSplit();
+    }
+
+    function closeSplitModal() {
+      document.getElementById('split-modal').style.display = 'none';
+      currentSplitEntryId = null;
+      currentSplitProposalId = null;
+      currentSplitDrafts = [];
+      currentSplitOriginal = null;
+    }
+
+    async function reDecomposeSplit() {
+      if (!currentSplitOriginal || !currentSplitOriginal.observation) return;
+      document.getElementById('split-loading').style.display = 'block';
+      document.getElementById('split-drafts-container').innerHTML = '';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/split_preview`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(currentSplitOriginal)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentSplitDrafts = data.splits || [];
+          if (currentSplitDrafts.length === 0) {
+            currentSplitDrafts = [
+              { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: currentSplitOriginal.observation, tags: currentSplitOriginal.tags },
+              { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: '', tags: '' }
+            ];
+          }
+        } else {
+          alert('Failed to decompose with LLM. Creating manual split template.');
+          currentSplitDrafts = [
+            { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: currentSplitOriginal.observation, tags: currentSplitOriginal.tags },
+            { category: currentSplitOriginal.category, subject: currentSplitOriginal.subject, observation: '', tags: '' }
+          ];
+        }
+      } catch (e) {
+        alert('Network error during split preview.');
+      } finally {
+        document.getElementById('split-loading').style.display = 'none';
+        renderSplitDrafts();
+      }
+    }
+
+    function renderSplitDrafts() {
+      const container = document.getElementById('split-drafts-container');
+      if (!container) return;
+
+      container.innerHTML = currentSplitDrafts.map((d, idx) => {
+        const alignBadge = d.alignment_label ? `
+          <span class="badge" style="font-size: 10px; background: rgba(34, 197, 94, 0.15); color: #4ade80;">${escapeHtml(d.alignment_label)}</span>
+        ` : '';
+
+        const suggTags = (d.suggested_tags && d.suggested_tags.length > 0) ? `
+          <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; font-size: 11px;">
+            <span style="color: var(--text-dim);">Suggestions:</span>
+            ${d.suggested_tags.map(t => `<button class="filter-pill" style="padding: 1px 6px; font-size: 10px;" onclick="appendSplitDraftTag(${idx}, '${escapeHtml(t)}')">+ #${escapeHtml(t)}</button>`).join('')}
+          </div>
+        ` : '';
+
+        return `
+          <div class="card" style="background: var(--surface2); border: 1px solid var(--border); padding: 12px; margin-bottom: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <span style="font-weight: 600; font-size: 12px; color: var(--accent);">Atomic Fact #${idx + 1}</span>
+                ${alignBadge}
+              </div>
+              <button class="btn btn-sm" style="font-size: 11px; padding: 2px 6px; background: rgba(239, 68, 68, 0.15); color: #f87171;" onclick="removeSplitDraft(${idx})">✕ Remove</button>
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <input type="text" id="split-cat-${idx}" value="${escapeHtml(d.category || '')}" placeholder="Category (e.g. Cat05-R)" oninput="updateSplitDraft(${idx})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || 'Ricky')}" placeholder="Subject" oninput="updateSplitDraft(${idx})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" oninput="updateSplitDraft(${idx})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+            </div>
+            <textarea id="split-obs-${idx}" oninput="updateSplitDraft(${idx})" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(d.observation || '')}</textarea>
+            ${suggTags}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function addSplitDraft() {
+      currentSplitDrafts.push({
+        category: currentSplitOriginal?.category || 'Cat05-R',
+        subject: currentSplitOriginal?.subject || 'Ricky',
+        observation: '',
+        tags: ''
+      });
+      renderSplitDrafts();
+    }
+
+    function removeSplitDraft(idx) {
+      if (currentSplitDrafts.length <= 1) {
+        alert('A split requires at least one atomic entry.');
+        return;
+      }
+      currentSplitDrafts.splice(idx, 1);
+      renderSplitDrafts();
+    }
+
+    function updateSplitDraft(idx) {
+      if (!currentSplitDrafts[idx]) return;
+      currentSplitDrafts[idx].category = document.getElementById(`split-cat-${idx}`)?.value || '';
+      currentSplitDrafts[idx].subject = document.getElementById(`split-subj-${idx}`)?.value || 'Ricky';
+      currentSplitDrafts[idx].tags = document.getElementById(`split-tags-${idx}`)?.value || '';
+      currentSplitDrafts[idx].observation = document.getElementById(`split-obs-${idx}`)?.value || '';
+    }
+
+    function appendSplitDraftTag(idx, tag) {
+      const input = document.getElementById(`split-tags-${idx}`);
+      if (!input) return;
+      const current = input.value.trim();
+      const tagsList = current ? current.split(',').map(t => t.trim()) : [];
+      if (!tagsList.includes(tag)) {
+        tagsList.push(tag);
+        input.value = tagsList.join(', ');
+        updateSplitDraft(idx);
+      }
+    }
+
+    async function applySplitModal() {
+      currentSplitDrafts.forEach((_, idx) => updateSplitDraft(idx));
+      const validDrafts = currentSplitDrafts.filter(d => d.observation.trim().length > 0);
+      if (validDrafts.length < 2) {
+        if (!confirm('You only have 1 atomic fact. Are you sure you want to replace the original with this single fact?')) {
+          return;
+        }
+      }
+
+      const btn = document.getElementById('btn-apply-split');
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/context/split_apply`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            source_id: currentSplitEntryId,
+            entries: validDrafts
+          })
+        });
+
+        if (res.ok) {
+          closeSplitModal();
+          if (currentSplitContext === 'extractions') {
+            unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id === currentSplitEntryId));
+          } else if (currentSplitContext === 'source' && currentSplitProposalId) {
+            const prop = unifiedItems.find(x => x.id === currentSplitProposalId);
+            if (prop && prop.source_entries) {
+              prop.source_entries = prop.source_entries.filter(e => e.id !== currentSplitEntryId);
+            }
+          }
+          updateCounts();
+          render();
+        } else {
+          alert('Failed to apply split.');
+        }
+      } catch (e) {
+        alert('Network error applying split.');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     }
 
     function formatDiffTokens(tokens, lcsMask, className) {
@@ -1522,17 +1794,43 @@
 
     function renderTriageItemCard(item) {
       if (item.item_type === 'extraction') {
+        const alignLabel = item.alignment_label || (item.novelty_score < 0.40 ? 'Aligned' : (item.novelty_score < 0.55 ? 'Related' : 'Novel'));
+        let badgeStyle = 'background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);';
+        if (alignLabel === 'Aligned') {
+          badgeStyle = 'background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);';
+        } else if (alignLabel === 'Related') {
+          badgeStyle = 'background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);';
+        }
+        const noveltyBadge = `<span class="badge" style="${badgeStyle}">${alignLabel} (${item.novelty_score !== undefined ? item.novelty_score : '1.00'})</span>`;
+        
+        const suggestionsHTML = (item.suggested_tags && item.suggested_tags.length > 0) ? `
+          <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px;">
+            <span style="color: var(--text-dim);">Suggested Domain Tags:</span>
+            ${item.suggested_tags.map(t => `<button class="filter-pill" style="padding: 2px 8px; font-size: 11px;" onclick="appendExtractionTag(${item.id}, '${escapeHtml(t)}')">+ #${escapeHtml(t)}</button>`).join('')}
+          </div>
+        ` : '';
+
         return `
           <div class="card">
             <div class="card-header">
-              <span class="badge extraction">EXTRACTION: ${escapeHtml(item.category)}</span>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <span class="badge extraction">EXTRACTION</span>
+                ${noveltyBadge}
+              </div>
               <span>${escapeHtml(item.date || 'No Date')}</span>
             </div>
-            <div class="card-body">
-              <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})">${escapeHtml(item.observation)}</textarea>
+            <div class="card-body" style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-R)" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || 'Ricky')}" placeholder="Subject" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI, Ricky_Sekulich)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              </div>
+              <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})" style="min-height: 70px; line-height: 1.4;">${escapeHtml(item.observation)}</textarea>
+              ${suggestionsHTML}
             </div>
             <div class="card-actions">
               <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve')">Approve</button>
+              <button class="btn btn-sm" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;" onclick="openSplitModal(${item.id}, 'extractions')">✂️ Split</button>
               <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit')">Save Edit</button>
               <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})">Revert</button>
               <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete')">Delete</button>
@@ -1551,6 +1849,7 @@
               </div>
               ${s.id ? `
               <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openSplitModal(${s.id}, 'source', ${item.id})">✂️ Split</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: var(--surface);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id})">Unlink</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
@@ -1571,6 +1870,79 @@
             </div>` : ''}
           </div>
         `).join('') : '<div style="color: var(--text-dim); font-style: italic; font-size: 13px;">No supporting context entries remaining.</div>';
+
+        if (item.type === 'split') {
+          let splitEntries = [];
+          try {
+            const raw = item.merged_observation || '';
+            const match = raw.match(/```(?:yaml)?\s*\n(.*?)```/s);
+            const textToParse = match ? match[1] : raw;
+            // Parse simple YAML or JSON entries
+            const lines = textToParse.split('\n');
+            let cur = null;
+            for (const line of lines) {
+              if (line.trim().startsWith('- category:') || line.trim().startsWith('category:')) {
+                if (cur) splitEntries.push(cur);
+                cur = { category: '', subject: 'Ricky', tags: '', observation: '' };
+                const m = line.match(/category:\s*(.*)/);
+                if (m) cur.category = m[1].replace(/["']/g, '').trim();
+              } else if (cur && line.trim().startsWith('subject:')) {
+                const m = line.match(/subject:\s*(.*)/);
+                if (m) cur.subject = m[1].replace(/["']/g, '').trim();
+              } else if (cur && line.trim().startsWith('tags:')) {
+                const m = line.match(/tags:\s*(.*)/);
+                if (m) cur.tags = m[1].replace(/["']/g, '').trim();
+              } else if (cur && line.trim().startsWith('observation:')) {
+                const m = line.match(/observation:\s*(.*)/);
+                if (m) cur.observation = m[1].replace(/^["']|["']$/g, '').trim();
+              }
+            }
+            if (cur) splitEntries.push(cur);
+          } catch (e) {
+            splitEntries = [];
+          }
+
+          const childHTML = splitEntries.length > 0 ? splitEntries.map((ce, idx) => `
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;">Fact #${idx + 1}: ${escapeHtml(ce.category || 'Cat05-R')}</span>
+                <span style="font-size: 11px; color: var(--accent); font-family: monospace;">#${escapeHtml(ce.tags || '')}</span>
+              </div>
+              <div style="font-size: 13px; line-height: 1.4; color: var(--text);">${escapeHtml(ce.observation || '')}</div>
+            </div>
+          `).join('') : `<pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap;">${escapeHtml(item.merged_observation)}</pre>`;
+
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">PROPOSAL: SPLIT ENTRY</span>
+                <span>ID: ${item.id}</span>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Reason / Rationale</div>
+                  <div style="font-size: 13px; color: var(--text);">${escapeHtml(item.reason || '')}</div>
+                </div>
+
+                <div>
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Source Compound Entry</div>
+                  ${sourcesHTML}
+                </div>
+
+                <div>
+                  <div style="font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; margin-bottom: 6px;">Proposed Atomic Context Facts</div>
+                  <div style="display: flex; flex-direction: column; gap: 8px;">
+                    ${childHTML}
+                  </div>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Split</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+              </div>
+            </div>
+          `;
+        }
 
         if (item.type === 'procedure_merge') {
           const procData = parseProcedureYaml(item.merged_observation);
