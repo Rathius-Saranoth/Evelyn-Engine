@@ -160,8 +160,8 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[gdrive_sync.py]]**: Google Drive synchronizer. Periodically syncs and downloads daily Android `Health Connect.zip` exports from Google Drive to maintain local health databases.
 * **[[oura_client.py]]**: Oura Ring Cloud API v2 client. Fetches real-time, zero-lag sleep scores, sleep stage hypnograms, readiness scores, and daytime stress indicators.
 * **[[health_manager.py]]**: Health and vitals query engine. Blends live Oura Cloud API metrics with local SQLite Health Connect records for comprehensive health intelligence.
-* **[[fact_extractor.py]]**: Idle-time fact scanner. Audits chat history for fresh assertions (declarative memory) and procedural rules (imperative workflows) and stages them for review.
-* **[[fact_consolidator.py]]**: Idle-time database cleaner. Scans context databases for duplicate or superseded facts.
+* **[[fact_consolidator.py]]**: Idle-time database cleaner and consolidator. Scans context databases for duplicate, compound, or superseded facts. Generates merge, supersede, recategorize, and split/decomposition proposals for bloated compound entries.
+* **[[procedure_consolidator.py]]**: Idle-time procedure consolidation engine. Merges overlapping procedural rules into unified specifications.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. **Draft persistence**: accumulated working document and cursor are saved to disk after each successful pass so interrupted runs resume from the last completed batch rather than restarting.
 * **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[terminal_agent.py]]**: Manages shell command execution and file write safety checks, staging operations for user approval and persisting approvals to disk to survive server restarts.

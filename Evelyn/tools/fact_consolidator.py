@@ -1270,18 +1270,19 @@ TASK:
 4. THE EVENT EXCEPTION: If the entries represent discrete events, moods, or occurrences tied to different dates (State-Data vs Time-Series Data), they are a historical log. You MUST choose 'keep_both'.
 5. If verdict is 'keep_both', set merged_summary to an empty string.
 6. DATA PRESERVATION RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining them causes a loss of specific detail, you must choose 'keep_both'.
+7. MULTI-TIER DOMAIN TAXONOMY RULE: Format `merged_tags` using hierarchical domain trees (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`) and TitleCase with underscores for named entities (`Ricky_Sekulich`).
 {cat_ref}
 
 Output ONLY a YAML block:
 ```yaml
 verdict: supersede   # supersede / merge / keep_both
-merged_summary: "The consolidated fact as a single clear sentence."
-merged_tags: "tag1, tag2"        # comma-separated semantic tags
-
+merged_summary: "The consolidated fact as a rich, substantive, clear sentence."
+merged_tags: "Tech/Python/FastAPI, Ricky_Sekulich"        # comma-separated hierarchical domain tags
 confidence: high     # high / medium / low
 reasoning: "Brief explanation of the verdict."
 ```\
 """
+
 
 
 async def generate_consolidation_proposal(cluster: dict) -> str | None:
@@ -1395,6 +1396,111 @@ def _parse_proposal_yaml(
         "reasoning": str(data.get("reasoning", "")).strip(),
     }
 
+
+
+async def generate_split_proposal(record: dict, cat00: str) -> str | None:
+    """Evaluate a single long or compound context entry and generate a split proposal if it contains multiple atomic facts."""
+    obs = record.get("summary", "")
+    cat = record.get("category", "Cat05-R")
+    subj = record.get("subject", "Ricky")
+    record_id = record.get("id")
+
+    prompt = (
+        "You are an expert knowledge decomposition engine for a personal memory system.\n"
+        "Evaluate the following context entry. Determine if it expresses 2 or more distinct, separate facts, "
+        "or if it is already a single atomic observation.\n\n"
+        f"ENTRY OBSERVATION:\n{obs}\n\n"
+        f"CATEGORY: {cat}\n"
+        f"SUBJECT: {subj}\n\n"
+        f"CATEGORY REFERENCE:\n{cat00}\n\n"
+        "RULES:\n"
+        "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
+        "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
+        "3. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
+        "4. MULTI-TIER DOMAIN TAGS: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n\n"
+        "Output ONLY a YAML block:\n"
+        "```yaml\n"
+        "verdict: split   # split / atomic\n"
+        "reasoning: \"Brief explanation why this entry needs splitting or is atomic.\"\n"
+        "entries:\n"
+        "  - category: Cat05-R\n"
+        "    subject: Ricky\n"
+        "    tags: \"Tech/Python/FastAPI\"\n"
+        "    observation: \"First clean, atomic fact with full specific detail.\"\n"
+        "  - category: Cat14-R\n"
+        "    subject: Ricky\n"
+        "    tags: \"Home/Server/ZWave\"\n"
+        "    observation: \"Second clean, atomic fact with full specific detail.\"\n"
+        "```"
+    )
+
+    messages = [
+        {"role": "system", "content": "You evaluate compound memory facts for atomic decomposition. Output only YAML."},
+        {"role": "user", "content": prompt}
+    ]
+
+    raw = await _call_ollama(
+        messages,
+        timeout=cfg.CONSOLIDATION_TIMEOUT,
+        think=True,
+        num_predict=3000,
+    )
+    if not raw:
+        return None
+
+    match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    block = match.group(1) if match else raw
+    try:
+        data = yaml.safe_load(block)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    if str(data.get("verdict", "")).strip().lower() != "split":
+        return None
+
+    entries_list = data.get("entries", [])
+    if not isinstance(entries_list, list) or len(entries_list) < 2:
+        return None
+
+    valid_entries = []
+    for item in entries_list:
+        if not isinstance(item, dict):
+            continue
+        c_obs = str(item.get("observation", "")).strip()
+        if not c_obs:
+            continue
+        c_cat = str(item.get("category", cat)).strip()
+        c_subj = str(item.get("subject", subj)).strip()
+        raw_t = str(item.get("tags", "")).strip()
+        norm_t = ", ".join([normalize_tag_format(t) for t in raw_t.split(",") if t.strip()])
+        valid_entries.append({
+            "category": c_cat,
+            "subject": c_subj,
+            "observation": c_obs,
+            "tags": norm_t
+        })
+
+    if len(valid_entries) < 2:
+        return None
+
+    import memory_db
+    constructed_yaml = yaml.dump({"entries": valid_entries}, default_flow_style=False)
+
+    pid = memory_db.insert_proposal(
+        type="split",
+        source_ids=[record_id],
+        merged_observation=constructed_yaml,
+        merged_tags=", ".join([e["tags"] for e in valid_entries if e["tags"]]),
+        suggested_category=valid_entries[0]["category"],
+        reason=str(data.get("reasoning", "Decomposed bloated compound entry into atomic context facts.")),
+        topic=f"Split Compound Fact #{record_id}",
+        confidence=str(data.get("confidence", "medium")).strip().lower(),
+        status="pending"
+    )
+    return str(pid)
 
 
 def _write_proposal(cluster: dict, proposal: dict) -> str | None:
@@ -1623,13 +1729,38 @@ async def _do_consolidation():
         if result:
             proposals_written += 1
 
-    # Step 5 — Persist anchor scan state
+    # Step 5 — Scan for bloated / compound entries and generate split proposals
+    splits_written = 0
+    if getattr(cfg, "CONSOLIDATION_SPLIT_ENABLED", True):
+        threshold = getattr(cfg, "CONSOLIDATION_SPLIT_WORD_THRESHOLD", 35)
+        # Find candidates with high word count
+        candidate_records = [
+            r for r in records
+            if len(r.get("summary", "").split()) >= threshold
+            and not memory_db.has_pending_proposal_for([r["id"]])
+        ]
+        for c_rec in candidate_records[:3]:  # Cap at 3 per consolidation run
+            _set_status_in_server(
+                "running",
+                phase=f"splitting_{c_rec['category']}",
+                sub_status={
+                    "active_category": c_rec["category"],
+                    "splitting_record": c_rec["id"],
+                    "proposals_written": proposals_written + splits_written,
+                },
+            )
+            s_res = await generate_split_proposal(c_rec, cat00)
+            if s_res:
+                splits_written += 1
+                proposals_written += 1
+
+    # Step 6 — Persist anchor scan state
     _save_scan_state()
 
     elapsed = time.time() - start
     summary_text = (
         f"Consolidated {len(records)} entries. "
-        f"Proposals: {proposals_written} written, {proposals_skipped} skipped. "
+        f"Proposals: {proposals_written} written (including {splits_written} splits), {proposals_skipped} skipped. "
         f"Recats: {recats_written} auto-applied."
     )
     _set_status_in_server(
@@ -1664,12 +1795,15 @@ async def _do_consolidation():
                     loop.create_task(server.start_refresh_memory_internal())
                 except RuntimeError:
                     asyncio.run(server.start_refresh_memory_internal())
+            else:
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 refresh_script = os.path.join(base_dir, "Evelyn", "tools", "refresh_memory.py")
                 if os.path.exists(refresh_script):
-                    print(f"[CONSOLIDATOR] Triggering memory refresh for updated entries...", flush=True)
+                    import subprocess
+                    print(f"[CONSOLIDATOR] Triggering standalone memory refresh for updated entries...", flush=True)
                     subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
         except Exception as r_err:
             print(f"[CONSOLIDATOR WARNING] Could not trigger memory refresh: {r_err}", flush=True)
+
 
 

@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-18 20:37:22
+# date modified: 2026-08-19 18:42:06
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -310,6 +310,16 @@ FACT_EXTRACTION_START_ID = 0
 # Independent from SUMMARY_MODEL_OVERRIDE — the two tasks can be configured separately.
 FACT_EXTRACTION_MODEL_OVERRIDE = "default"
 
+# Vector RAG & Semantic Taxonomy Retrieval for Fact Extraction
+# Max candidate master taxonomy tags and domain branches to retrieve
+FACT_EXTRACTION_TOP_K_TAXONOMY = 30
+# Max existing memory chunks / fact clusters to retrieve for context alignment
+FACT_EXTRACTION_TOP_K_FACTS = 6
+# Cosine distance threshold for novel domain detection (0.0 = identical, 1.0 = orthogonal)
+# Distances >= this threshold prompt the model to mint clean domain-level hierarchies.
+FACT_EXTRACTION_NOVELTY_THRESHOLD = 0.55
+
+
 # =============================================================================
 # Idle-Time Consolidation
 # =============================================================================
@@ -360,6 +370,12 @@ CONSOLIDATION_GROUP_SCAN_LIMIT = 8
 # Keeps prompts focused and KV cache lean. With the anchor-based scan,
 # all entries are still visited over multiple passes.
 CONSOLIDATION_MAX_RECORDS_PER_GROUP = 15
+
+# Automatic Fissure/Split detection for bloated compound context entries.
+# Flags single context entries exceeding this word count or containing multiple
+# distinct domain predicates for atomic decomposition.
+CONSOLIDATION_SPLIT_ENABLED = True
+CONSOLIDATION_SPLIT_WORD_THRESHOLD = 35
 
 # Per-cluster LLM call timeout (seconds). Consolidation uses think=True
 # for proposal generation — allow generous headroom for reasoning traces.

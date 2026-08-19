@@ -135,10 +135,21 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
   * `approve`: Executes the proposal based on type:
     * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `last_evolved_at` on all source entries, resets the per-document evolution cooldown to the approval timestamp (prevents immediate re-evaluation on the next idle cycle), runs `update_frontmatter.py`, and marks the proposal applied.
     * `merge` / `supersede` — deletes source entries and inserts the merged fact (using `modified_text` if provided).
+    * `split` — deletes the source compound entry and inserts decomposed atomic child context facts parsed from `final_text` as YAML/JSON.
     * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
     * `procedure_merge` — deletes source procedures and inserts a new consolidated procedure parsed from `final_text` as YAML.
   * `deny`: Rejects the proposal (`reject_proposal`). Deleted from the queue.
   * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
+
+### `POST /api/context/split_preview`
+* **Purpose**: Decompose a compound or over-merged context entry into atomic child entries with LLM assistance and Vector RAG taxonomy tagging.
+* **Payload**: `SplitPreviewRequest` JSON: `{"entry_id": int, "observation": "string", "category": "string", "subject": "string", "tags": "string"}`.
+* **Response**: `{"original": {...}, "splits": [{"category": "Cat05-R", "subject": "Ricky", "observation": "...", "tags": "...", "suggested_tags": [...], "alignment_label": "Aligned", "novelty_score": 0.22}, ...]}`.
+
+### `POST /api/context/split_apply`
+* **Purpose**: Atomically soft-delete a compound parent context entry and insert the verified atomic child entries.
+* **Payload**: `SplitApplyRequest` JSON: `{"source_id": 123, "entries": [{"category": "Cat05-R", "subject": "Ricky", "observation": "...", "tags": "..."}]}`.
+* **Response**: `{"status": "ok", "new_ids": [124, 125]}`. Triggers a background memory refresh automatically.
 
 ### `GET /api/review/procedures`
 * **Purpose**: Retrieves all extracted procedures staged in `evelyn_memory.db` by [[fact_extractor.py]] that are pending review (`status='extracted'`).

@@ -104,6 +104,7 @@ def init_db() -> None:
         "ALTER TABLE context_entries ADD COLUMN first_observed REAL",
         "ALTER TABLE context_entries ADD COLUMN last_observed REAL",
         "ALTER TABLE context_entries ADD COLUMN observed_count INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE context_entries ADD COLUMN vad TEXT",
     ]:
         try:
             con.execute(_migration)
@@ -287,6 +288,7 @@ def update_entry(entry_id: int, **fields) -> bool:
         "category", "subject", "observation", "confidence", "source",
         "status", "date", "tags", "last_retrieved_at", "retrieval_count",
         "last_evolved_at", "recategorized_at", "first_observed", "last_observed", "observed_count",
+        "vad",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -399,6 +401,73 @@ def delete_entry(entry_id: int) -> bool:
         bool: True if updated, False otherwise.
     """
     return update_entry(entry_id, status="deleted")
+
+
+def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
+    """Split a single compound context entry into multiple atomic context entries.
+
+    Atomically soft-deletes the source entry and inserts the new child entries.
+    Also removes the source_entry_id from any pending proposals.
+
+    Args:
+        source_entry_id: Row ID of the composite context entry to split.
+        new_entries: List of dicts representing the atomic child entries to insert.
+            Each dict should have keys: category, subject, observation, and optional tags, date, confidence.
+
+    Returns:
+        list[int]: List of newly generated row IDs.
+    """
+    if not new_entries:
+        return []
+
+    source = get_entry(source_entry_id)
+    if not source:
+        return []
+
+    default_subject = source.get("subject", "Ricky")
+    default_date = source.get("date")
+    default_status = source.get("status", "live")
+    now = time.time()
+
+    new_ids = []
+    con = get_db()
+    try:
+        # 1. Soft-delete source entry
+        con.execute(
+            "UPDATE context_entries SET status = 'deleted', updated_at = ? WHERE id = ?",
+            (now, source_entry_id),
+        )
+
+        # 2. Insert new child entries
+        for item in new_entries:
+            cat = item.get("category") or source.get("category", "Cat05-R")
+            subj = item.get("subject") or default_subject
+            obs = item.get("observation", "").strip()
+            if not obs:
+                continue
+            conf = item.get("confidence", "medium")
+            tags = item.get("tags")
+            entry_date = item.get("date") or default_date
+            status = item.get("status") or default_status
+
+            cur = con.execute(
+                """INSERT INTO context_entries
+                   (category, subject, observation, confidence, source, status,
+                    date, tags, created_at, first_observed, last_observed, observed_count)
+                   VALUES (?, ?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, 1)""",
+                (cat, subj, obs, conf, status, entry_date, tags, now, now, now),
+            )
+            new_ids.append(cur.lastrowid)
+
+        con.commit()
+    finally:
+        con.close()
+
+    # 3. Clean up proposals referencing source_entry_id
+    remove_source_id_from_pending_proposals(source_entry_id)
+
+    return new_ids
+
 
 
 def count_entries(status: Optional[str] = None) -> int:
