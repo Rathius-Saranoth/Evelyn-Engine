@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-08-17 18:15:00
+# date modified: 2026-08-18 20:37:27
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -21,11 +21,15 @@ DB_PATH = getattr(cfg, "VAULT_DB_PATH", r"/home/rathius/evelyn/data/evelyn_vault
 def get_db() -> sqlite3.Connection:
     """Return a new SQLite connection to the vault database with row_factory set.
 
+    Configured with WAL mode and busy timeout to prevent lock contention.
+
     Returns:
         sqlite3.Connection: A database connection.
     """
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(DB_PATH, timeout=30.0)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=30000")
     return con
 
 
