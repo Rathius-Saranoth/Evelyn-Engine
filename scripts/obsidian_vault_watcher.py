@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # obsidian_vault_watcher.py
 # date created: 2026-08-15 14:45:36
-# date modified: 2026-08-15 14:45:36
+# date modified: 2026-08-19 19:48:02
 # tags: 
 
 # scripts/obsidian_vault_watcher.py
@@ -234,15 +234,11 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
                 # 1. Update SQLite fast metadata index
                 update_sqlite_for_changed_files(files_to_sync, files_to_del)
 
-                # 2. Incremental ChromaDB Vector Sync (skip if heavy task running or lock held)
+                # 2. Incremental ChromaDB Vector Sync via staging queue
                 if task_manager.is_any_running():
                     print("[WATCHER] Heavy background task is active; skipping immediate Chroma vector sync.", flush=True)
                 else:
-                    try:
-                        with chroma_rag.acquire_chroma_write_lock(timeout=2.0, non_blocking=True):
-                            ingest_obsidian_knowledge.main()
-                    except (TimeoutError, BlockingIOError):
-                        print("[WATCHER] ChromaDB write lock is held by another process; skipping immediate vector sync.", flush=True)
+                    ingest_obsidian_knowledge.main()
 
                 duration = time.time() - start_t
                 print(f"[WATCHER] Ingestion completed successfully in {duration:.2f}s.\n", flush=True)

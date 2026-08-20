@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-18 20:49:07
+# date modified: 2026-08-19 19:48:43
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -239,47 +239,44 @@ def _build_tag_embedding_doc(tag: str, category: str = "", description: str = ""
     )
 
 
-def index_master_tag_in_chroma(tag: str, category: str = "", description: str = "", usage_count: int = 0) -> bool:
-    """Upsert an individual master tag into the Chroma tag taxonomy collection.
-
-    Guarded by exclusive cross-process write lock.
+def index_tag_in_chroma(tag: str, category: str = "", description: str = "",
+                        usage_count: int = 0) -> bool:
+    """Index a single tag into the Chroma vector database via the staging queue.
 
     Args:
-        tag: Normalized tag path (e.g. '3D-Printing/Slicing').
-        category: Root category name.
-        description: Scope description.
-        usage_count: Current count of notes using this tag.
+        tag: The raw or formatted tag string to index.
+        category: The top-level category domain for the tag.
+        description: Brief semantic description of the tag concept.
+        usage_count: How many times this tag is currently referenced.
 
     Returns:
-        bool: True on success, False on failure.
+        bool: True on successful enqueue, False on failure.
     """
     clean_tag = normalize_tag_format(tag)
     if not clean_tag or is_excluded_tag(clean_tag):
         return False
 
     try:
-        with acquire_chroma_write_lock(timeout=60.0):
-            col = chroma_rag.get_or_create_collection(TAG_COLLECTION_NAME)
-            doc_id = f"tag::{clean_tag}"
-            doc_text = _build_tag_embedding_doc(clean_tag, category, description)
-            meta = {
-                "tag": clean_tag,
-                "category": category or (clean_tag.split("/")[0] if "/" in clean_tag else "general"),
-                "description": description or "",
-                "usage_count": usage_count,
-                "type": "master_tag"
-            }
-            col.upsert(ids=[doc_id], documents=[doc_text], metadatas=[meta])
-            return True
+        doc_id = f"tag::{clean_tag}"
+        doc_text = _build_tag_embedding_doc(clean_tag, category, description)
+        meta = {
+            "tag": clean_tag,
+            "category": category or (clean_tag.split("/")[0] if "/" in clean_tag else "general"),
+            "description": description or "",
+            "usage_count": usage_count,
+            "type": "master_tag"
+        }
+        return chroma_rag.enqueue_upsert(doc_id, doc_text, collection_name=TAG_COLLECTION_NAME, extra_metadata=meta)
     except Exception as e:
-        print(f"[TAG LIBRARIAN] Chroma tag indexing failed for #{clean_tag}: {e}")
+        print(f"[TAG LIBRARIAN] Chroma tag indexing enqueue failed for #{clean_tag}: {e}")
         return False
 
 
-def delete_tag_from_chroma(tag: str) -> bool:
-    """Remove a tag from the Chroma tag taxonomy collection.
+index_master_tag_in_chroma = index_tag_in_chroma
 
-    Guarded by exclusive cross-process write lock.
+
+def delete_tag_from_chroma(tag: str) -> bool:
+    """Remove a tag from the Chroma tag taxonomy collection via staging queue.
 
     Args:
         tag: Tag string to delete.
@@ -289,32 +286,24 @@ def delete_tag_from_chroma(tag: str) -> bool:
     """
     clean_tag = normalize_tag_format(tag)
     try:
-        with acquire_chroma_write_lock(timeout=60.0):
-            col = chroma_rag.get_or_create_collection(TAG_COLLECTION_NAME)
-            doc_id = f"tag::{clean_tag}"
-            col.delete(ids=[doc_id])
-            return True
+        doc_id = f"tag::{clean_tag}"
+        return chroma_rag.enqueue_delete(doc_id, collection_name=TAG_COLLECTION_NAME)
     except Exception as e:
-        print(f"[TAG LIBRARIAN] Chroma tag deletion failed for #{clean_tag}: {e}")
+        print(f"[TAG LIBRARIAN] Chroma tag deletion enqueue failed for #{clean_tag}: {e}")
         return False
 
 
 def sync_master_tags_to_vector_db() -> int:
-    """Synchronize all SQLite master taxonomy tags into Chroma vector store.
-
-    Guarded by exclusive cross-process write lock.
+    """Synchronize all SQLite master taxonomy tags into Chroma vector store via staging queue.
 
     Returns:
-        int: Total number of tags synced into Chroma.
+        int: Total number of tags enqueued into Chroma staging queue.
     """
     master_tags = vault_db.get_master_tags()
     if not master_tags:
         return 0
 
-    ids = []
-    docs = []
-    metadatas = []
-
+    enqueued_count = 0
     for m in master_tags:
         tag = normalize_tag_format(m["tag"])
         if not tag or is_excluded_tag(tag):
@@ -323,33 +312,19 @@ def sync_master_tags_to_vector_db() -> int:
         description = m.get("description", "")
         usage_count = m.get("usage_count", 0)
 
-        ids.append(f"tag::{tag}")
-        docs.append(_build_tag_embedding_doc(tag, category, description))
-        metadatas.append({
+        doc_id = f"tag::{tag}"
+        doc_text = _build_tag_embedding_doc(tag, category, description)
+        meta = {
             "tag": tag,
             "category": category,
             "description": description,
             "usage_count": usage_count,
             "type": "master_tag"
-        })
+        }
+        if chroma_rag.enqueue_upsert(doc_id, doc_text, collection_name=TAG_COLLECTION_NAME, extra_metadata=meta):
+            enqueued_count += 1
 
-    if not ids:
-        return 0
-
-    try:
-        with acquire_chroma_write_lock(timeout=60.0):
-            col = chroma_rag.get_or_create_collection(TAG_COLLECTION_NAME)
-            # Batch upsert in chunks of 250
-            batch_size = 250
-            for i in range(0, len(ids), batch_size):
-                b_ids = ids[i:i + batch_size]
-                b_docs = docs[i:i + batch_size]
-                b_meta = metadatas[i:i + batch_size]
-                col.upsert(ids=b_ids, documents=b_docs, metadatas=b_meta)
-        return len(ids)
-    except Exception as e:
-        print(f"[TAG LIBRARIAN] Bulk Chroma tag sync failed: {e}")
-        return 0
+    return enqueued_count
 
 
 def retrieve_candidate_tags_for_document(
