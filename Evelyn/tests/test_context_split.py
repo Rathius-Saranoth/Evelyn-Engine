@@ -1,5 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
+# date modified: 2026-08-19 19:01:31
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import unittest
@@ -25,6 +26,20 @@ class TestContextSplit(unittest.TestCase):
 
     def setUp(self):
         memory_db.init_db()
+        self.created_entry_ids = []
+        self.created_proposal_ids = []
+
+    def tearDown(self):
+        import sqlite3
+        import evelyn_config as cfg
+        conn = sqlite3.connect(cfg.MEMORY_DB_PATH)
+        cur = conn.cursor()
+        if self.created_entry_ids:
+            cur.execute(f"DELETE FROM context_entries WHERE id IN ({','.join(map(str, self.created_entry_ids))})")
+        if self.created_proposal_ids:
+            cur.execute(f"DELETE FROM proposals WHERE id IN ({','.join(map(str, self.created_proposal_ids))})")
+        conn.commit()
+        conn.close()
 
     def test_memory_db_split_entry(self):
         """Verify memory_db.split_entry atomically soft-deletes parent and inserts children."""
@@ -35,6 +50,7 @@ class TestContextSplit(unittest.TestCase):
             tags="Home/Coffee, Tech/HomeLab",
             status="live"
         )
+        self.created_entry_ids.append(parent_id)
 
         child_entries = [
             {
@@ -54,6 +70,7 @@ class TestContextSplit(unittest.TestCase):
         ]
 
         new_ids = memory_db.split_entry(parent_id, child_entries)
+        self.created_entry_ids.extend(new_ids)
         self.assertEqual(len(new_ids), 2)
 
         # Parent should be soft-deleted
@@ -101,8 +118,17 @@ entries:
 
     def test_generate_split_proposal_in_consolidator(self):
         """Verify consolidator generates a split proposal for bloated entries."""
+        test_source_id = memory_db.insert_entry(
+            category="Cat05-R",
+            subject="Ricky",
+            observation="Enjoys dark roast coffee every morning and builds mechanical keyboards with tactile switches and lubed stabilizers.",
+            tags="Home/Coffee, Tech/Keyboards",
+            status="live"
+        )
+        self.created_entry_ids.append(test_source_id)
+
         record = {
-            "id": 999,
+            "id": test_source_id,
             "category": "Cat05-R",
             "subject": "Ricky",
             "summary": "Enjoys dark roast coffee every morning and builds mechanical keyboards with tactile switches and lubed stabilizers."
@@ -126,12 +152,14 @@ entries:
         with patch("Evelyn.tools.fact_consolidator._call_ollama", return_value=mock_llm_response):
             pid_str = asyncio_run(fact_consolidator.generate_split_proposal(record, "Cat00 Index"))
             self.assertIsNotNone(pid_str)
+            self.created_proposal_ids.append(int(pid_str))
 
             proposals = memory_db.get_pending_proposals()
             split_prop = next((p for p in proposals if p["id"] == int(pid_str)), None)
             self.assertIsNotNone(split_prop)
             self.assertEqual(split_prop["type"], "split")
-            self.assertEqual(split_prop["source_ids"], [999])
+            self.assertEqual(split_prop["source_ids"], [test_source_id])
+
 
 
 def asyncio_run(coro):

@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-07-30 20:46:52
+# date modified: 2026-08-19 19:46:33
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -145,6 +145,22 @@ def init_db() -> None:
         )
     """)
 
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS chroma_sync_queue (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            action              TEXT NOT NULL,
+            source_path         TEXT NOT NULL,
+            collection_name     TEXT NOT NULL DEFAULT 'evelyn_memory',
+            content             TEXT,
+            extra_metadata_json TEXT,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            retry_count         INTEGER NOT NULL DEFAULT 0,
+            error_msg           TEXT,
+            created_at          REAL NOT NULL,
+            updated_at          REAL NOT NULL
+        )
+    """)
+
     # Indexes — IF NOT EXISTS prevents errors on re-init
     for stmt in [
         "CREATE INDEX IF NOT EXISTS idx_ce_category ON context_entries(category)",
@@ -154,6 +170,8 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_proposals_type ON proposals(type)",
         "CREATE INDEX IF NOT EXISTS idx_proc_status ON procedures(status)",
         "CREATE INDEX IF NOT EXISTS idx_proc_trigger ON procedures(trigger_pattern)",
+        "CREATE INDEX IF NOT EXISTS idx_csq_status ON chroma_sync_queue(status)",
+        "CREATE INDEX IF NOT EXISTS idx_csq_source ON chroma_sync_queue(source_path, collection_name)",
     ]:
         con.execute(stmt)
 
@@ -427,6 +445,9 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
     default_subject = source.get("subject", "Ricky")
     default_date = source.get("date")
     default_status = source.get("status", "live")
+    parent_first_obs = source.get("first_observed") or source.get("created_at") or time.time()
+    parent_last_obs = source.get("last_observed") or time.time()
+    parent_obs_count = source.get("observed_count") or 1
     now = time.time()
 
     new_ids = []
@@ -438,7 +459,7 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
             (now, source_entry_id),
         )
 
-        # 2. Insert new child entries
+        # 2. Insert new child entries (inheriting temporal lineage from parent)
         for item in new_entries:
             cat = item.get("category") or source.get("category", "Cat05-R")
             subj = item.get("subject") or default_subject
@@ -449,13 +470,16 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
             tags = item.get("tags")
             entry_date = item.get("date") or default_date
             status = item.get("status") or default_status
+            first_obs = item.get("first_observed") or parent_first_obs
+            last_obs = item.get("last_observed") or parent_last_obs
+            obs_cnt = item.get("observed_count") or parent_obs_count
 
             cur = con.execute(
                 """INSERT INTO context_entries
                    (category, subject, observation, confidence, source, status,
                     date, tags, created_at, first_observed, last_observed, observed_count)
-                   VALUES (?, ?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, 1)""",
-                (cat, subj, obs, conf, status, entry_date, tags, now, now, now),
+                   VALUES (?, ?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, ?)""",
+                (cat, subj, obs, conf, status, entry_date, tags, now, first_obs, last_obs, obs_cnt),
             )
             new_ids.append(cur.lastrowid)
 

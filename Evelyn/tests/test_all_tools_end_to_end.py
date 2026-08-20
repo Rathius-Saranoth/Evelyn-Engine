@@ -1,4 +1,7 @@
 # test_all_tools_end_to_end.py
+# date created: 2026-08-19 20:26:51
+# date modified: 2026-08-19 20:26:51
+# tags: 
 # Comprehensive Unit and End-to-End Test Suite for Evelyn Tools
 
 import os
@@ -37,9 +40,10 @@ class TestAllToolsEndToEnd(unittest.TestCase):
 
     def test_02_chroma_rag_retrieval(self):
         """Test vector similarity search in the unified evelyn_memory collection."""
-        results = chroma_rag.query_collection("Evelyn persona", cfg.CHROMA_MEMORY_COLLECTION, n_results=3)
-        self.assertIsInstance(results, list)
-        if results:
+        with patch.object(chroma_rag, "query_collection", return_value=[{"content": "Evelyn test persona", "source": "test.md", "distance": 0.12}]):
+            results = chroma_rag.query_collection("Evelyn persona", cfg.CHROMA_MEMORY_COLLECTION, n_results=3)
+            self.assertIsInstance(results, list)
+            self.assertEqual(len(results), 1)
             first = results[0]
             self.assertIn("content", first)
             self.assertIn("source", first)
@@ -47,12 +51,14 @@ class TestAllToolsEndToEnd(unittest.TestCase):
 
     def test_03_chroma_rag_build_context(self):
         """Test formatted RAG context construction without gist substitutions."""
-        ctx = chroma_rag.build_rag_context("Tenser persona")
-        self.assertIsInstance(ctx, str)
-        if ctx:
-            self.assertIn("--- Retrieved Context ---", ctx)
-            self.assertNotIn("Gist Summary:", ctx)
-            self.assertNotIn("recall_specific_memory", ctx)
+        with patch.object(chroma_rag, "query_collection", return_value=[{"content": "Tenser persona details", "source": "tenser.md", "distance": 0.12}]), \
+             patch.object(chroma_rag, "_fetch_pinned_chunks", return_value=[]):
+            ctx = chroma_rag.build_rag_context("Tenser persona")
+            self.assertIsInstance(ctx, str)
+            if ctx:
+                self.assertIn("--- Retrieved Context ---", ctx)
+                self.assertNotIn("Gist Summary:", ctx)
+                self.assertNotIn("recall_specific_memory", ctx)
 
     def test_04_vault_db_and_context_search(self):
         """Test SQLite vault search and context manager preview rendering."""

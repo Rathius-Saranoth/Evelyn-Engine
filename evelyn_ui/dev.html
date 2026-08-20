@@ -1850,7 +1850,7 @@
               ${s.id ? `
               <div style="display: flex; gap: 4px; flex-shrink: 0;">
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openSplitModal(${s.id}, 'source', ${item.id})">✂️ Split</button>
-                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: var(--surface);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id})">Unlink</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
               </div>` : ''}
@@ -1865,7 +1865,7 @@
               <div style="display: flex; gap: 8px; align-items: center;">
                 <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id})">Save</button>
-                <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
+                <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
               </div>
             </div>` : ''}
           </div>
@@ -1877,27 +1877,46 @@
             const raw = item.merged_observation || '';
             const match = raw.match(/```(?:yaml)?\s*\n(.*?)```/s);
             const textToParse = match ? match[1] : raw;
-            // Parse simple YAML or JSON entries
             const lines = textToParse.split('\n');
             let cur = null;
-            for (const line of lines) {
-              if (line.trim().startsWith('- category:') || line.trim().startsWith('category:')) {
-                if (cur) splitEntries.push(cur);
+            let activeField = null;
+
+            for (let i = 0; i < lines.length; i++) {
+              const rawLine = lines[i];
+              const trimmed = rawLine.trim();
+              if (!trimmed || trimmed.startsWith('#')) continue;
+
+              if (trimmed.startsWith('- ') || (trimmed.startsWith('category:') && (!cur || cur.category))) {
+                if (cur && (cur.observation || cur.category)) splitEntries.push(cur);
                 cur = { category: '', subject: 'Ricky', tags: '', observation: '' };
-                const m = line.match(/category:\s*(.*)/);
-                if (m) cur.category = m[1].replace(/["']/g, '').trim();
-              } else if (cur && line.trim().startsWith('subject:')) {
-                const m = line.match(/subject:\s*(.*)/);
-                if (m) cur.subject = m[1].replace(/["']/g, '').trim();
-              } else if (cur && line.trim().startsWith('tags:')) {
-                const m = line.match(/tags:\s*(.*)/);
-                if (m) cur.tags = m[1].replace(/["']/g, '').trim();
-              } else if (cur && line.trim().startsWith('observation:')) {
-                const m = line.match(/observation:\s*(.*)/);
-                if (m) cur.observation = m[1].replace(/^["']|["']$/g, '').trim();
+                activeField = null;
+              }
+
+              if (!cur) cur = { category: '', subject: 'Ricky', tags: '', observation: '' };
+
+              let lineContent = trimmed;
+              if (lineContent.startsWith('- ')) {
+                lineContent = lineContent.substring(2).trim();
+              }
+
+              if (lineContent.startsWith('category:')) {
+                cur.category = lineContent.substring(9).replace(/["']/g, '').trim();
+                activeField = 'category';
+              } else if (lineContent.startsWith('subject:')) {
+                cur.subject = lineContent.substring(8).replace(/["']/g, '').trim();
+                activeField = 'subject';
+              } else if (lineContent.startsWith('tags:')) {
+                cur.tags = lineContent.substring(5).replace(/["']/g, '').trim();
+                activeField = 'tags';
+              } else if (lineContent.startsWith('observation:')) {
+                cur.observation = lineContent.substring(12).replace(/^["']|["']$/g, '').trim();
+                activeField = 'observation';
+              } else if (activeField === 'observation' && (rawLine.startsWith('  ') || rawLine.startsWith('\t') || rawLine.startsWith('    '))) {
+                const addStr = trimmed.replace(/^["']|["']$/g, '');
+                cur.observation = cur.observation ? (cur.observation + ' ' + addStr) : addStr;
               }
             }
-            if (cur) splitEntries.push(cur);
+            if (cur && (cur.observation || cur.category)) splitEntries.push(cur);
           } catch (e) {
             splitEntries = [];
           }
@@ -2052,7 +2071,8 @@
                 ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
               </div>
               <div style="display: flex; gap: 4px; flex-shrink: 0;">
-                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: var(--surface2);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="openSplitModal(${s.id}, 'source', ${item.id})">✂️ Split</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id})">Unlink</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
               </div>
@@ -2066,7 +2086,7 @@
               <div style="display: flex; gap: 8px; align-items: center;">
                 <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id})">Save</button>
-                <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
+                <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
               </div>
             </div>
           </div>
@@ -2393,32 +2413,13 @@
       }
     }
 
-    // Keyboard shortcuts for review tab
+    // Close modals on Escape
     document.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
-      if (currentTab !== 'triage') return;
-
-      let filteredItems = unifiedItems;
-      if (triageFilter !== 'all') {
-        filteredItems = unifiedItems.filter(i => i.item_type === triageFilter);
+      if (e.key === 'Escape') {
+        closeModal();
+        if (typeof closeGuidanceModal === 'function') closeGuidanceModal();
+        if (typeof closeSplitModal === 'function') closeSplitModal();
       }
-      if (filteredItems.length === 0) return;
-      
-      const firstItem = filteredItems[0];
-      if (e.key.toLowerCase() === 'a') {
-        if (firstItem.item_type === 'extraction') handleAction('extractions', firstItem.id, 'approve');
-        else if (firstItem.item_type === 'proposal' || firstItem.item_type === 'profile_update') handleAction('proposals', firstItem.id, 'approve');
-        else if (firstItem.item_type === 'procedure') handleProcedureAction(firstItem.id, 'approve');
-      } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'd') {
-        if (firstItem.item_type === 'extraction') handleAction('extractions', firstItem.id, 'delete');
-        else if (firstItem.item_type === 'proposal' || firstItem.item_type === 'profile_update') handleAction('proposals', firstItem.id, 'deny');
-        else if (firstItem.item_type === 'procedure') handleProcedureAction(firstItem.id, 'deny');
-      }
-    });
-
-    // Close modal on Escape
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeModal();
     });
 
     // Init

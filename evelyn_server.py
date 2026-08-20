@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-17 19:22:40
+# date modified: 2026-08-19 19:49:52
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1689,13 +1689,22 @@ def pause_all_active_research():
 
 
 def clean_shutdown_all_tasks():
-    """Cleanly pause all research tasks and cancel in-flight background worker tasks."""
+    """Cleanly terminate child processes, pause active research, and drain in-flight Chroma queue items."""
     print("[SERVER SHUTDOWN] Gracefully shutting down all tasks...", flush=True)
+    import Evelyn.tools.task_manager as task_manager
+    import Evelyn.tools.chroma_rag as chroma_rag
+
+    # 1. Terminate write producers (subprocesses/tasks) first so no new rows are created
+    try:
+        task_manager.terminate_all_subprocesses(grace_period=3.0)
+    except Exception as e:
+        print(f"[SERVER SHUTDOWN ERROR] Subprocess termination failed: {e}", flush=True)
+
     try:
         pause_all_active_research()
     except Exception as e:
         print(f"[SERVER SHUTDOWN ERROR] Research pause failed: {e}", flush=True)
-        
+
     try:
         cancel_pending_consolidation()
         cancel_pending_procedure_consolidation()
@@ -1703,6 +1712,14 @@ def clean_shutdown_all_tasks():
         cancel_pending_evolution()
     except Exception as e:
         print(f"[SERVER SHUTDOWN ERROR] Background task cancellation failed: {e}", flush=True)
+
+    # 2. Bounded final Chroma queue drain (budget: 5.0s maximum)
+    print("[SERVER SHUTDOWN] Performing bounded final Chroma queue drain (budget: 5.0s)...", flush=True)
+    try:
+        chroma_rag.flush_sync_queue(timeout=5.0)
+    except Exception as e:
+        print(f"[SERVER SHUTDOWN] Final queue flush notice: {e}", flush=True)
+    print("[SERVER SHUTDOWN] Clean shutdown complete. Exiting.", flush=True)
 
 
 
@@ -1835,6 +1852,35 @@ async def lifespan(app: FastAPI):
 
     init_db()
     import Evelyn.tools.task_manager as task_manager
+    import Evelyn.tools.chroma_rag as chroma_rag
+
+    # 1. Startup Sanitization & Process Reaper
+    reap_res = task_manager.reap_orphaned_processes()
+    print(f"  {_GRN}Process Reaper:{_RST} Swept {len(reap_res['reaped_pids'])} orphaned processes, cleared {len(reap_res['cleaned_locks'])} stale locks.")
+
+    # 2. Chroma Vector DB Health Probe & Auto-Repair
+    health = chroma_rag.check_chroma_health()
+    if health["status"] == "healthy":
+        print(f"  {_GRN}Chroma Vector DB:{_RST} Health probe passed ({health['count']} documents indexed).")
+    else:
+        print(f"  {_RED}[WARNING] Chroma Vector DB corrupted:{_RST} {health['error']}. Initiating auto-repair...", flush=True)
+        chroma_rag.repair_corrupted_chroma(background=True)
+
+    # 3. Single Custodian Chroma Sync Queue Drain Loop
+    async def _chroma_queue_drain_loop():
+        """Continuous background worker that drains the SQLite Chroma staging queue."""
+        while True:
+            try:
+                drained = await asyncio.to_thread(chroma_rag.drain_sync_queue, 50)
+                if drained > 0:
+                    dlog(f"[CHROMA DRAIN] Processed {drained} queued records.")
+            except Exception as e:
+                print(f"[CHROMA DRAIN ERROR] {e}", flush=True)
+            await asyncio.sleep(1.5)
+
+    asyncio.create_task(_chroma_queue_drain_loop())
+    print(f"  {_GRN}Chroma Custodian:{_RST} Started single-writer drain worker (interval=1.5s).")
+
     task_manager.load_persistent_state()
     asyncio.create_task(task_manager.start_watchdog())
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")

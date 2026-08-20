@@ -1,7 +1,7 @@
 
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-06-27 09:16:06
+# date modified: 2026-08-19 20:27:07
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 # Chroma Rag.py
@@ -31,10 +31,15 @@ Priority/Pinning: rag_priority multiplier adjusts cosine distance before thresho
 """
 
 
+import sys
 import os
 import re
 import time
 import fcntl
+import json
+import sqlite3
+import shutil
+import subprocess
 from contextlib import contextmanager
 import chromadb
 from chromadb.utils import embedding_functions
@@ -43,6 +48,16 @@ import evelyn_config as cfg
 
 _CHROMA_DIR = getattr(cfg, "CHROMA_DB_PATH", r"/home/rathius/evelyn/data/chroma_db")
 CHROMA_LOCK_FILE = os.path.join(_CHROMA_DIR, ".chroma_write.lock")
+_MEMORY_DB_PATH = getattr(cfg, "MEMORY_DB_PATH", r"/home/rathius/evelyn/data/evelyn_memory.db")
+
+
+def _get_queue_db() -> sqlite3.Connection:
+    """Return a WAL-mode SQLite connection for chroma_sync_queue operations."""
+    con = sqlite3.connect(_MEMORY_DB_PATH, timeout=20.0)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    return con
+
 
 
 @contextmanager
@@ -191,53 +206,365 @@ def get_or_create_collection(name: str) -> chromadb.Collection:
 
 
 # ---------------------------------------------------------------------------
-# Ingest
+# Staging Queue & Direct Ingest Operations
 # ---------------------------------------------------------------------------
 
-def ingest_markdown_file(file_path: str, content: str, collection_name: str,
-                          extra_metadata: dict = None) -> bool:
-    """Upsert a markdown file into a Chroma collection, split into chunks.
+def enqueue_upsert(source_path: str, content: str, collection_name: str = "evelyn_memory",
+                   extra_metadata: dict | None = None) -> bool:
+    """Enqueue a document or context entry for asynchronous insertion/update in ChromaDB.
 
-    Guarded by exclusive cross-process write lock.
+    Uses SQLite WAL mode with coalescing: if an update for (source_path, collection_name)
+    is already pending, it updates the existing row with the latest content to eliminate
+    redundant embedding computation.
 
     Args:
-        file_path: Absolute path — used as the document ID prefix.
+        source_path: Absolute file path or sqlite URI (e.g. 'sqlite::context_entry::123').
+        content: Raw markdown text or context observation.
+        collection_name: Target Chroma collection name.
+        extra_metadata: Optional dictionary of metadata attributes.
+
+    Returns:
+        bool: True on successful enqueue, False on failure.
+    """
+    now = time.time()
+    meta_json = json.dumps(extra_metadata) if extra_metadata else None
+    con = _get_queue_db()
+    try:
+        cur = con.cursor()
+        # Coalescing: check if a pending row exists for this source and collection
+        cur.execute(
+            """SELECT id FROM chroma_sync_queue
+               WHERE source_path = ? AND collection_name = ? AND status = 'pending'""",
+            (source_path, collection_name),
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute(
+                """UPDATE chroma_sync_queue
+                   SET action = 'upsert', content = ?, extra_metadata_json = ?,
+                       updated_at = ?, retry_count = 0, error_msg = NULL
+                   WHERE id = ?""",
+                (content, meta_json, now, row["id"]),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO chroma_sync_queue
+                   (action, source_path, collection_name, content, extra_metadata_json,
+                    status, retry_count, created_at, updated_at)
+                   VALUES ('upsert', ?, ?, ?, ?, 'pending', 0, ?, ?)""",
+                (source_path, collection_name, content, meta_json, now, now),
+            )
+        con.commit()
+        return True
+    except Exception as e:
+        print(f"[chroma_rag] enqueue_upsert error for {source_path}: {e}", flush=True)
+        return False
+    finally:
+        con.close()
+
+
+def enqueue_delete(source_path: str, collection_name: str = "evelyn_memory") -> bool:
+    """Enqueue a document for deletion from ChromaDB.
+
+    Coalesces with any pending upserts for the same source document.
+
+    Args:
+        source_path: The document source path or context entry URI to remove.
+        collection_name: Target Chroma collection name.
+
+    Returns:
+        bool: True on successful enqueue, False on failure.
+    """
+    now = time.time()
+    con = _get_queue_db()
+    try:
+        cur = con.cursor()
+        cur.execute(
+            """SELECT id FROM chroma_sync_queue
+               WHERE source_path = ? AND collection_name = ? AND status = 'pending'""",
+            (source_path, collection_name),
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute(
+                """UPDATE chroma_sync_queue
+                   SET action = 'delete', content = NULL, extra_metadata_json = NULL,
+                       updated_at = ?, retry_count = 0, error_msg = NULL
+                   WHERE id = ?""",
+                (now, row["id"]),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO chroma_sync_queue
+                   (action, source_path, collection_name, content, extra_metadata_json,
+                    status, retry_count, created_at, updated_at)
+                   VALUES ('delete', ?, ?, NULL, NULL, 'pending', 0, ?, ?)""",
+                (source_path, collection_name, now, now),
+            )
+        con.commit()
+        return True
+    except Exception as e:
+        print(f"[chroma_rag] enqueue_delete error for {source_path}: {e}", flush=True)
+        return False
+    finally:
+        con.close()
+
+
+def direct_upsert(file_path: str, content: str, collection_name: str,
+                  extra_metadata: dict | None = None) -> bool:
+    """Directly chunk and upsert a document into ChromaDB (single custodian / drainer execution).
+
+    Args:
+        file_path: Document source path or URI.
         content: Text content to embed and store.
-        collection_name: Target collection (defaults to evelyn_memory).
-        extra_metadata: Optional extra fields stored alongside each chunk.
+        collection_name: Target collection name.
+        extra_metadata: Optional dictionary of metadata attributes.
 
     Returns:
         bool: True on success, False on failure.
     """
     try:
-        with acquire_chroma_write_lock(timeout=60.0):
-            col = get_or_create_collection(collection_name)
+        col = get_or_create_collection(collection_name)
+        _delete_chunks_by_source(col, file_path)
 
-            # Remove old chunks for this file before upserting the new set
-            _delete_chunks_by_source(col, file_path)
+        clean_content = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
+        chunks = chunk_text(clean_content)
+        ids = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
+        metadatas = []
+        for i in range(len(chunks)):
+            meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
+            if extra_metadata:
+                meta.update(extra_metadata)
+            meta.setdefault("rag_priority", "normal")
+            meta.setdefault("rag_pinned", False)
+            meta.setdefault("aliases", "")
+            metadatas.append(meta)
 
-            # Strip YAML frontmatter before chunking — metadata is already
-            # extracted by the ingestion scripts and stored via extra_metadata.
-            clean_content = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
-
-            chunks = chunk_text(clean_content)
-            ids       = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
-            metadatas = []
-            for i in range(len(chunks)):
-                meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
-                if extra_metadata:
-                    meta.update(extra_metadata)
-                # Defaults so the fields always exist for query-time inspection
-                meta.setdefault("rag_priority", "normal")
-                meta.setdefault("rag_pinned", False)
-                meta.setdefault("aliases", "")
-                metadatas.append(meta)
-
-            col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
-            return True
+        col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
+        return True
     except Exception as e:
-        print(f"[chroma_rag] ingest failed for {file_path}: {e}")
-        return False
+        print(f"[chroma_rag] direct_upsert failed for {file_path}: {e}", flush=True)
+        raise e
+
+
+def direct_delete(file_path: str, collection_name: str) -> bool:
+    """Directly delete a document's chunks from ChromaDB (single custodian / drainer execution).
+
+    Args:
+        file_path: Document source path or URI.
+        collection_name: Target collection name.
+
+    Returns:
+        bool: True on success, False on failure.
+    """
+    try:
+        col = get_or_create_collection(collection_name)
+        _delete_chunks_by_source(col, file_path)
+        return True
+    except Exception as e:
+        print(f"[chroma_rag] direct_delete failed for {file_path}: {e}", flush=True)
+        raise e
+
+
+def drain_sync_queue(batch_size: int = 50, source_prefix: str = "") -> int:
+    """Drain and process pending items from chroma_sync_queue in batch.
+
+    Isolates dead-letter failures so malformed payloads retry up to 3 times
+    before transitioning to status='error' without stalling the queue.
+
+    Args:
+        batch_size: Maximum number of records to process in one drain cycle.
+        source_prefix: Optional source_path prefix filter (e.g. 'test::' for unit tests).
+
+    Returns:
+        int: Number of items successfully processed.
+    """
+    con = _get_queue_db()
+    processed_count = 0
+    try:
+        cur = con.cursor()
+        if source_prefix:
+            cur.execute(
+                """SELECT id, action, source_path, collection_name, content,
+                          extra_metadata_json, retry_count
+                   FROM chroma_sync_queue
+                   WHERE status = 'pending' AND source_path LIKE ?
+                   ORDER BY id ASC
+                   LIMIT ?""",
+                (f"{source_prefix}%", batch_size),
+            )
+        else:
+            cur.execute(
+                """SELECT id, action, source_path, collection_name, content,
+                          extra_metadata_json, retry_count
+                   FROM chroma_sync_queue
+                   WHERE status = 'pending'
+                   ORDER BY id ASC
+                   LIMIT ?""",
+                (batch_size,),
+            )
+        rows = cur.fetchall()
+        if not rows:
+            return 0
+
+        # Mark selected rows as 'processing'
+        ids = [r["id"] for r in rows]
+        cur.execute(
+            f"UPDATE chroma_sync_queue SET status = 'processing', updated_at = ? WHERE id IN ({','.join(map(str, ids))})",
+            (time.time(),),
+        )
+        con.commit()
+
+        # Process each item with individual failure isolation
+        for r in rows:
+            item_id = r["id"]
+            action = r["action"]
+            src = r["source_path"]
+            col_name = r["collection_name"]
+            content = r["content"] or ""
+            retries = r["retry_count"] or 0
+            extra_meta = None
+            if r["extra_metadata_json"]:
+                try:
+                    extra_meta = json.loads(r["extra_metadata_json"])
+                except Exception:
+                    extra_meta = None
+
+            try:
+                if action == "upsert":
+                    direct_upsert(src, content, col_name, extra_meta)
+                elif action == "delete":
+                    direct_delete(src, col_name)
+                else:
+                    raise ValueError(f"Unknown staging queue action: {action}")
+
+                # Success: mark done
+                cur.execute(
+                    "UPDATE chroma_sync_queue SET status = 'done', updated_at = ? WHERE id = ?",
+                    (time.time(), item_id),
+                )
+                processed_count += 1
+            except Exception as e:
+                new_retries = retries + 1
+                if new_retries >= 3:
+                    # Dead-letter: mark error so queue is never blocked
+                    print(f"[chroma_rag] Dead-letter poison pill on item #{item_id} ({src}): {e}", flush=True)
+                    cur.execute(
+                        """UPDATE chroma_sync_queue
+                           SET status = 'error', retry_count = ?, error_msg = ?, updated_at = ?
+                           WHERE id = ?""",
+                        (new_retries, str(e), time.time(), item_id),
+                    )
+                else:
+                    # Re-queue for next retry
+                    cur.execute(
+                        """UPDATE chroma_sync_queue
+                           SET status = 'pending', retry_count = ?, error_msg = ?, updated_at = ?
+                           WHERE id = ?""",
+                        (new_retries, str(e), time.time(), item_id),
+                    )
+            con.commit()
+
+        return processed_count
+    finally:
+        con.close()
+
+
+def flush_sync_queue(timeout: float = 5.0, source_prefix: str = "") -> bool:
+    """Synchronously drain pending items from chroma_sync_queue until empty or timeout.
+
+    Guarantees read-your-own-writes consistency for immediate RAG turns.
+
+    Args:
+        timeout: Maximum seconds to wait for the queue to completely drain.
+        source_prefix: Optional source_path prefix filter (e.g. 'test::').
+
+    Returns:
+        bool: True if queue was completely emptied, False if timeout reached.
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        drained = drain_sync_queue(batch_size=100, source_prefix=source_prefix)
+        if drained == 0:
+            # Check if any pending items remain
+            con = _get_queue_db()
+            try:
+                cur = con.cursor()
+                if source_prefix:
+                    cur.execute(
+                        "SELECT COUNT(*) AS cnt FROM chroma_sync_queue WHERE status = 'pending' AND source_path LIKE ?",
+                        (f"{source_prefix}%",),
+                    )
+                else:
+                    cur.execute("SELECT COUNT(*) AS cnt FROM chroma_sync_queue WHERE status = 'pending'")
+                rem = cur.fetchone()["cnt"]
+                if rem == 0:
+                    return True
+            finally:
+                con.close()
+            time.sleep(0.05)
+    return False
+
+
+def check_chroma_health() -> dict:
+    """Run an active canary probe query against ChromaDB to verify index & segment integrity.
+
+    Returns:
+        dict: {"status": "healthy" | "corrupt", "error": str | None, "count": int}
+    """
+    try:
+        col = get_or_create_collection(cfg.CHROMA_MEMORY_COLLECTION)
+        doc_count = col.count()
+        # Probe query: test cosine similarity and HNSW segment reader
+        col.query(query_texts=["system health probe canary"], n_results=min(1, max(1, doc_count)))
+        return {"status": "healthy", "error": None, "count": doc_count}
+    except Exception as e:
+        err_msg = str(e)
+        print(f"[chroma_rag] HEALTH PROBE FAILED: {err_msg}", flush=True)
+        return {"status": "corrupt", "error": err_msg, "count": 0}
+
+
+def repair_corrupted_chroma(background: bool = True) -> None:
+    """Purge corrupted vector database segments and launch an automated full-vault migration.
+
+    Args:
+        background: If True, spawns sync_full_vault_to_chroma.py detached in background.
+    """
+    global _client
+    print(f"[chroma_rag] Initiating ChromaDB self-healing repair at: {_CHROMA_DIR}...", flush=True)
+    _client = None
+
+    if os.path.exists(_CHROMA_DIR):
+        try:
+            shutil.rmtree(_CHROMA_DIR, ignore_errors=True)
+        except Exception as e:
+            print(f"[chroma_rag] Warning: Could not purge {_CHROMA_DIR}: {e}", flush=True)
+
+    # Clear state files
+    for state_path in [
+        getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json"),
+        getattr(cfg, "GIST_SYNC_STATE", r"/home/rathius/evelyn/data/gist_sync_state.json"),
+    ]:
+        if os.path.exists(state_path):
+            try:
+                os.remove(state_path)
+            except Exception:
+                pass
+
+    script_path = os.path.join(cfg.BASE_DIR if hasattr(cfg, "BASE_DIR") else "/home/rathius/evelyn", "scripts", "sync_full_vault_to_chroma.py")
+    py_bin = sys.executable
+    if background:
+        subprocess.Popen([py_bin, script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[chroma_rag] Dispatched background sync_full_vault_to_chroma.py repair.", flush=True)
+    else:
+        subprocess.run([py_bin, script_path], check=False)
+        print("[chroma_rag] Synchronous sync_full_vault_to_chroma.py repair finished.", flush=True)
+
+
+def ingest_markdown_file(file_path: str, content: str, collection_name: str,
+                         extra_metadata: dict | None = None) -> bool:
+    """Compatibility wrapper: enqueues markdown file for ingestion via staging queue."""
+    return enqueue_upsert(file_path, content, collection_name, extra_metadata)
 
 
 def _delete_chunks_by_source(col: chromadb.Collection, file_path: str):
@@ -257,25 +584,8 @@ def _delete_chunks_by_source(col: chromadb.Collection, file_path: str):
 
 
 def delete_document(file_path: str, collection_name: str) -> bool:
-    """Remove all chunks for a document from a collection by source path.
-
-    Guarded by exclusive cross-process write lock.
-
-    Args:
-        file_path: The source path of the document to delete.
-        collection_name: The name of the collection.
-
-    Returns:
-        bool: True if deletion was successful, False otherwise.
-    """
-    try:
-        with acquire_chroma_write_lock(timeout=60.0):
-            col = get_or_create_collection(collection_name)
-            _delete_chunks_by_source(col, file_path)
-            return True
-    except Exception as e:
-        print(f"[chroma_rag] delete failed for {file_path}: {e}")
-        return False
+    """Compatibility wrapper: enqueues document for deletion via staging queue."""
+    return enqueue_delete(file_path, collection_name)
 
 
 # ---------------------------------------------------------------------------
@@ -336,9 +646,11 @@ def _apply_priority_boost(chunks: list[dict]) -> list[dict]:
     """
     multipliers = getattr(cfg, "RAG_PRIORITY_MULTIPLIERS", {"high": 0.75, "normal": 1.0, "low": 1.25})
     for c in chunks:
-        priority = c["metadata"].get("rag_priority", "normal")
-        c["distance"] = c["distance"] * multipliers.get(priority, 1.0)
-    chunks.sort(key=lambda x: x["distance"])
+        meta = c.get("metadata") or {}
+        priority = meta.get("rag_priority", "normal") if isinstance(meta, dict) else "normal"
+        dist = c.get("distance", 1.0)
+        c["distance"] = dist * multipliers.get(priority, 1.0)
+    chunks.sort(key=lambda x: x.get("distance", 1.0))
     return chunks
 
 
@@ -459,8 +771,10 @@ def build_rag_context(query: str) -> str:
     Returns:
         str: A formatted context block of retrieved/pinned chunks, or empty string.
     """
-    # Step 0: Query reformulation — extract search keywords from conversational text
-    from query_reformulator import reformulate_query
+    try:
+        from Evelyn.tools.query_reformulator import reformulate_query
+    except ImportError:
+        from query_reformulator import reformulate_query
     search_query = reformulate_query(query)
 
     # Step 1: Pinned guaranteed chunks (uses ORIGINAL query for alias substring matching)
@@ -512,10 +826,11 @@ def build_rag_context(query: str) -> str:
     # Step 6: Assemble Context
     all_context = pinned_chunks + relevant
 
-    # Retrieve procedures (matches user conversational trigger keywords)
-    matching_procedures = []
     try:
-        import memory_db as _memory_db
+        try:
+            import memory_db as _memory_db
+        except ImportError:
+            import Evelyn.tools.memory_db as _memory_db
         matching_procedures = _memory_db.search_procedures_by_trigger(query, status="live")[:3]
         for proc in matching_procedures:
             _memory_db.touch_procedure_retrieved(proc["id"])
@@ -529,7 +844,10 @@ def build_rag_context(query: str) -> str:
     # These have synthetic source paths: "sqlite::context_entry::{id}".
     # Fire-and-forget — a tracking failure must never affect context delivery.
     try:
-        import memory_db as _memory_db
+        try:
+            import memory_db as _memory_db
+        except ImportError:
+            import Evelyn.tools.memory_db as _memory_db
         for _chunk in all_context:
             _src = _chunk.get("source", "")
             if _src.startswith("sqlite::context_entry::"):
