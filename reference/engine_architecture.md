@@ -312,4 +312,50 @@ The HPE ProLiant DL360 Gen10 server (*Sanctum*) features a **Dual-Socket Intel X
 3. **Thread Pool Limits**:
    - Environment variables (`OMP_NUM_THREADS=16/24`, `MKL_NUM_THREADS=16`, `OPENBLAS_NUM_THREADS=16`, `ONNXRUNTIME_NUM_THREADS=16`, `KMP_AFFINITY=granularity=fine,compact,1,0`) bound OpenMP/MKL thread pools within single sockets, preventing 96-thread unpinned CPU thrashing.
 
+---
+
+## 7. Chroma Single-Writer Staging Queue & Lifecycle Architecture
+
+To eliminate vector index corruption and cross-process Rust/C++ HNSW segment file-lock collisions in a multi-process environment, all writes to ChromaDB are serialized through a SQLite WAL-backed staging queue.
+
+```mermaid
+graph TD
+    subgraph Producers [Concurrent Write Producers]
+        Watcher["[[obsidian_vault_watcher.py]]"]
+        Extractor["[[fact_extractor.py]]"]
+        Consolidator["[[fact_consolidator.py]]"]
+        Splitter["Context Splitter"]
+        Librarian["[[tag_librarian.py]]"]
+        Ingest["[[ingest_obsidian_knowledge.py]]"]
+    end
+
+    subgraph StagingQueue [SQLite WAL Staging Layer]
+        QueueTable[("evelyn_memory.db<br>chroma_sync_queue")]
+    end
+
+    subgraph SingleCustodian [Persistent Single Custodian]
+        Server["[[evelyn_server.py]]<br>(PersistentClient Singleton)"]
+        DrainWorker["Queue Drain Loop<br>(interval=1.5s, batch=50)"]
+        HealthProbe["Canary Health Probe<br>(Startup Vector Probe)"]
+        StartupReaper["Process & Lock Reaper<br>(Startup Sanitation)"]
+        ChromaStore[("chroma_db/<br>Unified Vector Store")]
+    end
+
+    Producers -->|enqueue_upsert / enqueue_delete<br>(Non-blocking SQLite WAL Insert)| QueueTable
+    Server --> StartupReaper
+    Server --> HealthProbe
+    Server --> DrainWorker
+    DrainWorker <-->|Drain Batch & Mark Done / Error| QueueTable
+    DrainWorker -->|direct_upsert / direct_delete| ChromaStore
+```
+
+### 7.1 Key Architectural Guarantees
+1. **Single Custodian**: `evelyn_server.py` is the sole process maintaining a persistent `chromadb.PersistentClient` handle during live operation.
+2. **Row Coalescing**: Pending rows matching `(source_path, collection_name)` are updated in place, preventing redundant vector embedding computations.
+3. **Dead-Letter Poison Pill Protection**: Each queued item is drained with individual try/except failure isolation. If an item fails 3 times, its status transitions to `'error'` with full traceback recorded in `error_msg`. Valid items in the batch continue processing without stalling the pipeline.
+4. **Startup Sanitation Reaper**: On boot, sweeps orphaned child/worker processes, cleans stale `.lock` files, and auto-reconciles interrupted tasks to `idle`.
+5. **Canary Health Probes & Self-Healing**: Runs an active vector similarity canary query on startup. If index corruption is detected, logs an alert and triggers automatic background rebuild.
+6. **Bounded Graceful Teardown**: On server shutdown (`systemctl restart evelyn`), producers are reaped first via `terminate_all_subprocesses(grace_period=3.0)`, background tasks are paused, and up to 5.0 seconds is spent draining in-flight items. Any remaining items stay safely queued in SQLite for the next boot.
+
+
 

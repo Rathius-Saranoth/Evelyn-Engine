@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-15 11:54:52
+# date modified: 2026-08-19 19:49:06
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -28,10 +28,13 @@ Exports:
     get_status(name)          — Return current status string for a named task.
 """
 
+import os
+import signal
+import subprocess
 import sys
 import time
 from typing import Optional
-
+import psutil
 
 # ---------------------------------------------------------------------------
 # Heavy task key definitions
@@ -65,9 +68,150 @@ DEFAULT_SOFT_TIMEOUTS = {
     "tag_librarian": 600.0,          # 10 minutes
 }
 
-# Active Python task/thread handles for handle-reconciliation
+# Active Python task/thread handles and subprocesses for lifecycle tracking
 _active_handles: dict = {}
+_spawned_subprocesses: list = []
 _watchdog_task = None
+
+
+def register_subprocess(proc: subprocess.Popen) -> None:
+    """Track a spawned subprocess for graceful teardown upon server shutdown."""
+    if proc not in _spawned_subprocesses:
+        _spawned_subprocesses.append(proc)
+
+
+def unregister_subprocess(proc: subprocess.Popen) -> None:
+    """Remove a finished subprocess from the tracking registry."""
+    if proc in _spawned_subprocesses:
+        _spawned_subprocesses.remove(proc)
+
+
+def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
+    """Gracefully terminate all spawned child processes and cancel in-flight async tasks.
+
+    Sends SIGTERM first, waits up to grace_period, then issues SIGKILL to any remaining processes.
+
+    Args:
+        grace_period: Seconds to wait after SIGTERM before escalating to SIGKILL.
+    """
+    import asyncio
+
+    print(f"[TASK MANAGER] Terminating all {len(_spawned_subprocesses)} registered subprocesses...", flush=True)
+
+    # 1. Cancel in-memory asyncio task handles
+    for name, handle in list(_active_handles.items()):
+        if isinstance(handle, asyncio.Task) and not handle.done():
+            handle.cancel()
+
+    # 2. Send SIGTERM to all subprocesses
+    alive_procs = []
+    for proc in list(_spawned_subprocesses):
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                alive_procs.append(proc)
+        except Exception:
+            pass
+
+    if not alive_procs:
+        _spawned_subprocesses.clear()
+        return
+
+    # Wait for grace period
+    start = time.time()
+    while time.time() - start < grace_period:
+        alive_procs = [p for p in alive_procs if p.poll() is None]
+        if not alive_procs:
+            break
+        time.sleep(0.1)
+
+    # Escalation to SIGKILL if still alive
+    for proc in alive_procs:
+        try:
+            if proc.poll() is None:
+                print(f"[TASK MANAGER] Process PID {proc.pid} unresponsive; sending SIGKILL.", flush=True)
+                proc.kill()
+        except Exception:
+            pass
+
+    _spawned_subprocesses.clear()
+
+
+def reap_orphaned_processes() -> dict:
+    """Startup sanitization: sweep orphaned background processes, stale locks, and interrupted states.
+
+    Returns:
+        dict: Summary of reaped PIDs and cleaned locks.
+    """
+    reaped = []
+    cleaned_locks = []
+    my_pid = os.getpid()
+
+    # Known background worker script names
+    target_scripts = {
+        "obsidian_vault_watcher.py",
+        "refresh_memory.py",
+        "ingest_obsidian_knowledge.py",
+        "sync_full_vault_to_chroma.py",
+        "tag_librarian.py",
+        "fact_extractor.py",
+        "fact_consolidator.py",
+    }
+
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                pid = proc.info["pid"]
+                if pid == my_pid:
+                    continue
+                cmdline = proc.info["cmdline"] or []
+                cmd_str = " ".join(cmdline)
+                if any(script in cmd_str for script in target_scripts):
+                    print(f"[STARTUP REAPER] Found orphaned process PID {pid}: {cmd_str[:80]}", flush=True)
+                    try:
+                        p = psutil.Process(pid)
+                        p.terminate()
+                        try:
+                            p.wait(timeout=1.5)
+                        except psutil.TimeoutExpired:
+                            p.kill()
+                        reaped.append(pid)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception as e:
+        print(f"[STARTUP REAPER] Warning during process scan: {e}", flush=True)
+
+    # Clean up stale .lock files
+    data_dir = r"/home/rathius/evelyn/data"
+    for root, _, files in os.walk(data_dir):
+        for file in files:
+            if file.endswith(".lock") or file.startswith(".chroma_write.lock"):
+                lock_path = os.path.join(root, file)
+                try:
+                    # Remove lock file unconditionally during server startup
+                    os.remove(lock_path)
+                    cleaned_locks.append(lock_path)
+                    print(f"[STARTUP REAPER] Removed stale lock file: {lock_path}", flush=True)
+                except Exception:
+                    pass
+
+    # Normalize heavy_tasks_state.json if tasks were interrupted
+    tasks = _get_background_tasks()
+    if tasks:
+        modified = False
+        for name, info in list(tasks.items()):
+            if isinstance(info, dict) and info.get("status") in RUNNING_STATUSES:
+                print(f"[STARTUP REAPER] Normalizing interrupted task '{name}' from '{info.get('status')}' to 'idle'", flush=True)
+                info["status"] = "idle"
+                info["summary"] = "Reset to idle during server startup sanitization"
+                modified = True
+        if modified:
+            save_persistent_state()
+
+    return {"reaped_pids": reaped, "cleaned_locks": cleaned_locks}
+
 
 
 # ---------------------------------------------------------------------------
