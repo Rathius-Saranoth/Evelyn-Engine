@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-08-15 11:30:39
+# date modified: 2026-08-19 19:14:21
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -1487,7 +1487,8 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
         return None
 
     import memory_db
-    constructed_yaml = yaml.dump({"entries": valid_entries}, default_flow_style=False)
+    constructed_yaml = yaml.dump({"entries": valid_entries}, default_flow_style=False, width=10000)
+
 
     pid = memory_db.insert_proposal(
         type="split",
