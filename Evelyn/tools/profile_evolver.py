@@ -82,7 +82,8 @@ DOCUMENT_RULES = {
             "- Direct the AI's behavior in the second person.\n"
             "- Refer to Ricky in the third person.\n"
             "- Example 1 (AI instruction): 'Evelyn should respond casually' -> 'You respond in natural conversational form.'\n"
-            "- Example 2 (Ricky's habit): 'Ricky Sunday routine is laundry' -> 'You recognize Ricky's Sunday routine of laundry.'"
+            "- Example 2 (Ricky's habit): 'Ricky Sunday routine is laundry' -> 'You recognize Ricky's Sunday routine of laundry.'\n"
+            "- Must always preserve the anti-drafting constraint: AI must never draft, outline, or rehearse responses inside <think> tags."
         ),
     },
 }
