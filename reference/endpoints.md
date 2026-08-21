@@ -35,6 +35,12 @@ This document is the single source of truth for the custom REST and Server-Sent 
 * **Payload**: JSON object `{"message": "<updated text>"}`
 * **Returns**: Streamed SSE assistant message.
 
+### `POST /chat/stop`
+* **Purpose**: Safely stops an active in-flight chat generation session, aborting model inference and terminating tool child processes.
+* **Payload**: Optional JSON object `{"stream_id": "<optional stream id>"}` (defaults to currently active stream).
+* **Returns**: JSON object `{"status": "stopped" | "noop", "stream_id": "<id>"}`
+
+
 ### `GET /chat/stream/{stream_id}`
 * **Purpose**: Reconnects to an in-memory streaming session (`ActiveStreamSession`) with cursor replay.
 * **Parameters**: Query parameter `after` (integer, default `-1`).
