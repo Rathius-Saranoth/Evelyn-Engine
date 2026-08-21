@@ -648,6 +648,12 @@ def start_research(
                         pass
                 
                 if proc:
+                    try:
+                        import task_manager
+                        task_manager.register_subprocess(proc)
+                        task_manager._active_handles[task_id] = proc
+                    except Exception:
+                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
@@ -655,6 +661,12 @@ def start_research(
                             
                     returncode = proc.wait()
                     
+                    try:
+                        import task_manager
+                        task_manager.unregister_subprocess(proc)
+                        task_manager._active_handles.pop(task_id, None)
+                    except Exception:
+                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
@@ -813,6 +825,12 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                         pass
                 
                 if proc:
+                    try:
+                        import task_manager
+                        task_manager.register_subprocess(proc)
+                        task_manager._active_handles[task_id] = proc
+                    except Exception:
+                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
@@ -820,6 +838,12 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                             
                     returncode = proc.wait()
                     
+                    try:
+                        import task_manager
+                        task_manager.unregister_subprocess(proc)
+                        task_manager._active_handles.pop(task_id, None)
+                    except Exception:
+                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:

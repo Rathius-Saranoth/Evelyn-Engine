@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-19 19:49:06
+# date modified: 2026-08-21 18:36:50
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -26,6 +26,7 @@ Exports:
     set_running(name)         — Mark a task as running in the server registry.
     clear_running(name)       — Remove a task from the running set.
     get_status(name)          — Return current status string for a named task.
+    terminate_task_subprocess(name) — Forcefully terminate subprocess and clean PID locks for a task.
 """
 
 import os
@@ -84,6 +85,111 @@ def unregister_subprocess(proc: subprocess.Popen) -> None:
     """Remove a finished subprocess from the tracking registry."""
     if proc in _spawned_subprocesses:
         _spawned_subprocesses.remove(proc)
+
+
+def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
+    """Immediately terminate any active subprocess associated with a named task (e.g. task_* research).
+
+    Performs a defense-in-depth teardown:
+      1. Cancels/terminates in-memory process handle from _active_handles or server's _active_research_processes.
+      2. Calls evelyn_server.terminate_research_process(name) if available.
+      3. Scans for on-disk engine.pid, terminates the matching PID via psutil, and deletes the lock file.
+      4. Synchronizes task status in state.json on disk to 'timed_out' so server loops do not revive it.
+
+    Args:
+        name: Task key (e.g., 'task_1787311024_e75fcde1').
+        grace_period: Seconds to wait for SIGTERM before escalating to SIGKILL.
+    """
+    print(f"[TASK MANAGER] Terminating subprocess for task '{name}'...", flush=True)
+
+    # 1. In-memory handle check from _active_handles
+    handle = _active_handles.pop(name, None)
+    if handle is not None and hasattr(handle, "terminate") and callable(getattr(handle, "terminate", None)):
+        try:
+            poll_fn = getattr(handle, "poll", None)
+            is_alive = poll_fn() is None if callable(poll_fn) else True
+            if is_alive:
+                handle.terminate()
+                wait_fn = getattr(handle, "wait", None)
+                if callable(wait_fn):
+                    try:
+                        wait_fn(timeout=grace_period)
+                    except Exception:
+                        kill_fn = getattr(handle, "kill", None)
+                        if callable(kill_fn):
+                            try:
+                                kill_fn()
+                            except Exception:
+                                pass
+        except Exception as e:
+            print(f"[TASK MANAGER] Error terminating handle for {name}: {e}", flush=True)
+        unregister_subprocess(handle)
+
+    # 2. Delegate to server's terminate_research_process if available
+    for mod_name in ("evelyn_server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod:
+            term_fn = getattr(mod, "terminate_research_process", None)
+            if callable(term_fn):
+                try:
+                    term_fn(name)
+                except Exception as e:
+                    print(f"[TASK MANAGER] Error in server.terminate_research_process for {name}: {e}", flush=True)
+                break
+
+    # 3. Direct PID check via engine.pid and disk state update for research tasks
+    if name.startswith("task_"):
+        try:
+            try:
+                import evelyn_config as cfg
+                base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
+                task_dir = os.path.join(base_dir, "data", "research", name)
+            except Exception:
+                task_dir = os.path.join(r"/home/rathius/evelyn/data/research", name)
+
+            pid_path = os.path.join(task_dir, "engine.pid")
+            if os.path.exists(pid_path):
+                try:
+                    with open(pid_path, "r", encoding="utf-8") as f:
+                        pid = int(f.read().strip())
+                    if psutil.pid_exists(pid):
+                        p = psutil.Process(pid)
+                        cmdline = p.cmdline() or []
+                        if any("research_engine.py" in arg for arg in cmdline):
+                            print(f"[TASK MANAGER] Killing process PID {pid} for task {name}", flush=True)
+                            p.terminate()
+                            try:
+                                p.wait(timeout=grace_period)
+                            except Exception:
+                                try:
+                                    p.kill()
+                                except Exception:
+                                    pass
+                except Exception as e:
+                    print(f"[TASK MANAGER] Error killing PID from {pid_path}: {e}", flush=True)
+                finally:
+                    try:
+                        os.remove(pid_path)
+                    except OSError:
+                        pass
+
+            # 4. Synchronize on-disk state.json to prevent resurrection by idle research loop
+            state_path = os.path.join(task_dir, "state.json")
+            if os.path.exists(state_path):
+                try:
+                    import json
+                    with open(state_path, "r", encoding="utf-8") as f:
+                        disk_state = json.load(f)
+                    if isinstance(disk_state, dict):
+                        disk_state["status"] = "timed_out"
+                        disk_state["error"] = "Task terminated: Exceeded watchdog runtime threshold"
+                        disk_state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                        with open(state_path, "w", encoding="utf-8") as f:
+                            json.dump(disk_state, f, indent=2)
+                except Exception as e:
+                    print(f"[TASK MANAGER] Error updating disk state for {name}: {e}", flush=True)
+        except Exception as e:
+            print(f"[TASK MANAGER] Subprocess termination error for {name}: {e}", flush=True)
 
 
 def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
@@ -740,6 +846,8 @@ def _reconcile_orphaned_tasks() -> None:
             is_done = handle.done()
         elif isinstance(handle, threading.Thread):
             is_done = not handle.is_alive()
+        elif hasattr(handle, "poll") and callable(getattr(handle, "poll", None)):
+            is_done = handle.poll() is not None
 
         if is_done:
             print(
@@ -784,6 +892,10 @@ def _check_soft_timeouts() -> None:
             handle = _active_handles.get(name)
             if isinstance(handle, asyncio.Task) and not handle.done():
                 handle.cancel()
+
+            # Terminate subprocess if this is a research task or subprocess-backed task
+            if name.startswith("task_") or (handle is not None and hasattr(handle, "terminate")):
+                terminate_task_subprocess(name)
 
             # Clear status in registry
             clear_running(
