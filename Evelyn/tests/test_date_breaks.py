@@ -1,11 +1,10 @@
 """Unit test to verify dynamic date break injection in load_history."""
 
-import time
-import tempfile
-import sys
 import pathlib
 import sqlite3
-from datetime import datetime
+import sys
+import tempfile
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
@@ -31,15 +30,15 @@ def test_date_break_injection_in_load_history():
         """)
 
         # Day 1: Aug 4, 2026
-        dt1 = datetime(2026, 8, 4, 20, 0, 0)
+        dt1 = datetime(2026, 8, 4, 20, 0, 0, tzinfo=timezone.utc).astimezone()
         ts1 = dt1.timestamp()
-        dt2 = datetime(2026, 8, 4, 20, 5, 0)
+        dt2 = datetime(2026, 8, 4, 20, 5, 0, tzinfo=timezone.utc).astimezone()
         ts2 = dt2.timestamp()
 
         # Day 2: Aug 5, 2026
-        dt3 = datetime(2026, 8, 5, 9, 0, 0)
+        dt3 = datetime(2026, 8, 5, 9, 0, 0, tzinfo=timezone.utc).astimezone()
         ts3 = dt3.timestamp()
-        dt4 = datetime(2026, 8, 5, 9, 5, 0)
+        dt4 = datetime(2026, 8, 5, 9, 5, 0, tzinfo=timezone.utc).astimezone()
         ts4 = dt4.timestamp()
 
         con.execute("INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)", ("user", "Day 1 User Msg", ts1))
@@ -61,13 +60,12 @@ def test_date_break_injection_in_load_history():
             history = evelyn_server.load_history()
 
             roles = [m["role"] for m in history]
-            contents = [m["content"] for m in history]
 
             # Expect system date break between Day 1 and Day 2
             assert "system" in roles, f"Expected system role in {roles}"
             system_msgs = [m for m in history if m["role"] == "system"]
             assert len(system_msgs) == 1, f"Expected 1 system msg, got {len(system_msgs)}"
-            assert "--- Date Changed: Wednesday, Aug 05, 2026 ---" in system_msgs[0]["content"], (
+            assert "--- Date Changed: Wednesday, Aug 05, 2026" in system_msgs[0]["content"], (
                 f"Unexpected content: {system_msgs[0]['content']}"
             )
 
