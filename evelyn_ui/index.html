@@ -878,6 +878,14 @@
         background: var(--border);
         cursor: not-allowed;
       }
+      #send-btn.btn-stop {
+        background: #dc3545;
+        color: #fff;
+        font-size: 14px;
+      }
+      #send-btn.btn-stop:hover {
+        background: #c82333;
+      }
       .input-hint {
         font-size: 11px;
         color: var(--text-dim);
@@ -1932,13 +1940,85 @@
         isDone: false,
       };
 
+      function startStreamingUI(statusText = "Thinking…") {
+        isStreaming = true;
+        stopResponsePoll();
+        const sendBtn = document.getElementById("send-btn");
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.classList.add("btn-stop");
+          sendBtn.textContent = "■";
+          sendBtn.title = "Stop generating";
+        }
+        document.querySelector(".avatar").classList.add("active");
+        setStatus(statusText);
+      }
+
       function finishStreamingUI() {
         isStreaming = false;
-        document.getElementById("send-btn").disabled = false;
+        const sendBtn = document.getElementById("send-btn");
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.classList.remove("btn-stop");
+          sendBtn.textContent = "↑";
+          sendBtn.title = "Send";
+        }
         document.querySelector(".avatar").classList.remove("active");
         const input = document.getElementById("input");
         if (input) input.focus();
         updateDevUIBadge();
+      }
+
+      async function stopGeneration() {
+        if (!isStreaming) return;
+        const sendBtn = document.getElementById("send-btn");
+        if (sendBtn) {
+          sendBtn.disabled = true;
+          sendBtn.textContent = "…";
+        }
+        setStatus("Stopping…");
+
+        const streamId = currentStream.id || sessionStorage.getItem("active_stream_id");
+
+        // Abort client-side fetch reader
+        if (currentStream.abortController) {
+          try {
+            currentStream.abortController.abort();
+          } catch {}
+        }
+
+        // Request backend cancellation
+        try {
+          await fetch(`${API_BASE}/chat/stop`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ stream_id: streamId }),
+          });
+        } catch (err) {
+          console.warn("Error calling /chat/stop:", err);
+        }
+
+        // Finalize UI state
+        if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
+        if (currentStream.removeActivity) currentStream.removeActivity();
+        if (currentStream.cursorEl) currentStream.cursorEl.remove();
+
+        if (!currentStream.bubble) {
+          currentStream.bubble = document.createElement("div");
+          currentStream.bubble.className = "bubble";
+          if (currentStream.wrap) currentStream.wrap.appendChild(currentStream.bubble);
+        }
+        currentStream.bubble.innerHTML = renderMarkdown("[Response interrupted -- please try again.]");
+
+        if (currentStream.userMsgDiv) {
+          addRegenToUserMsg(currentStream.userMsgDiv);
+        }
+
+        currentStream.isDone = true;
+        sessionStorage.removeItem("active_stream_id");
+        setStatus("Ready");
+        finishStreamingUI();
+        scrollBottom();
       }
 
       function handleStreamEvent(evt, chunkId) {
@@ -2027,11 +2107,32 @@
           return;
         }
 
+        if (evt.type === "stopped") {
+          if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
+          if (currentStream.removeActivity) currentStream.removeActivity();
+          if (currentStream.cursorEl) currentStream.cursorEl.remove();
+          if (!currentStream.bubble) {
+            currentStream.bubble = document.createElement("div");
+            currentStream.bubble.className = "bubble";
+            if (currentStream.wrap) currentStream.wrap.appendChild(currentStream.bubble);
+          }
+          currentStream.bubble.innerHTML = renderMarkdown("[Response interrupted -- please try again.]");
+          if (currentStream.userMsgDiv) {
+            addRegenToUserMsg(currentStream.userMsgDiv);
+          }
+          currentStream.isDone = true;
+          sessionStorage.removeItem("active_stream_id");
+          setStatus("Ready");
+          finishStreamingUI();
+          scrollBottom();
+          return;
+        }
+
         if (evt.type === "done") {
           if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
           if (currentStream.cursorEl) currentStream.cursorEl.remove();
           if (currentStream.bubble) currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
-          
+
           if (currentStream.wrap) {
             const actions = document.createElement("div");
             actions.className = "msg-actions";
@@ -2278,11 +2379,7 @@
       }
 
       async function executeChatTurn(text) {
-        isStreaming = true;
-        stopResponsePoll();
-        document.getElementById("send-btn").disabled = true;
-        document.querySelector(".avatar").classList.add("active");
-        setStatus("Thinking…");
+        startStreamingUI("Thinking…");
 
         const sentAt = Date.now() / 1000;
         const userMsgDiv = appendUserMessage(text, sentAt);
@@ -2742,10 +2839,7 @@
         const oldActions = userMsgDiv.querySelector(".msg-actions");
         if (oldActions) oldActions.remove();
 
-        isStreaming = true;
-        document.getElementById("send-btn").disabled = true;
-        document.querySelector(".avatar").classList.add("active");
-        setStatus("Editing message…");
+        startStreamingUI("Editing message…");
 
         const wrap = createAssistantMessage();
         const actLog = document.createElement("div");
@@ -2846,10 +2940,7 @@
         const oldBtn = userMsgDiv.querySelector(".btn-regen");
         if (oldBtn) oldBtn.remove();
 
-        isStreaming = true;
-        document.getElementById("send-btn").disabled = true;
-        document.querySelector(".avatar").classList.add("active");
-        setStatus("Regenerating…");
+        startStreamingUI("Regenerating…");
 
         const wrap = createAssistantMessage();
         const actLog = document.createElement("div");
@@ -3072,7 +3163,13 @@
         this.style.height = "auto";
         this.style.height = Math.min(this.scrollHeight, 150) + "px";
       });
-      document.getElementById("send-btn").addEventListener("click", sendMessage);
+      document.getElementById("send-btn").addEventListener("click", () => {
+        if (isStreaming) {
+          stopGeneration();
+        } else {
+          sendMessage();
+        }
+      });
 
       // ---------------------------------------------------------------------------
       // Visibility recovery — reconnect active stream or pull missed history
@@ -3182,10 +3279,7 @@
 
           const thinkingHandler = createThinkingHandler(wrap, () => currentStream.bubble, addActivity);
 
-          isStreaming = true;
-          document.getElementById("send-btn").disabled = true;
-          document.querySelector(".avatar").classList.add("active");
-          setStatus("Streaming…");
+          startStreamingUI("Streaming…");
 
           currentStream = {
             id: streamIdToResume,

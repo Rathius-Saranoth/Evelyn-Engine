@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-19 19:49:52
+# date modified: 2026-08-20 19:09:10
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -91,11 +91,13 @@ class ActiveStreamSession:
     def __init__(self, stream_id: str):
         self.stream_id: str = stream_id
         self.chunks: list[dict] = []  # [{"id": int, "event": str}]
-        self.status: str = "running"  # "running", "completed", "error"
+        self.status: str = "running"  # "running", "completed", "stopped", "error"
         self.event_notify: asyncio.Event = asyncio.Event()
         self.created_at: float = time.time()
         self.completed_at: float | None = None
         self.error_msg: str | None = None
+        self.task: asyncio.Task | None = None
+        self.is_cancelled: bool = False
 
     def push_chunk(self, raw_event_str: str):
         """Append an event chunk and wake all awaiting listeners without race conditions."""
@@ -108,12 +110,14 @@ class ActiveStreamSession:
         self.event_notify = asyncio.Event()
         old_event.set()
 
-    def mark_complete(self, error: str | None = None):
-        """Mark stream complete or error and wake all listeners."""
-        if error:
+    def mark_complete(self, error: str | None = None, status: str | None = None):
+        """Mark stream complete, error, or stopped and wake all listeners."""
+        if status:
+            self.status = status
+        elif error:
             self.status = "error"
             self.error_msg = error
-        else:
+        elif self.status != "stopped":
             self.status = "completed"
         self.completed_at = time.time()
         old_event = self.event_notify
@@ -176,7 +180,7 @@ async def stream_session_events(
                 cursor += 1
 
             # 2. If finished and caught up, exit cleanly
-            if session.status in ("completed", "error") and cursor >= len(session.chunks):
+            if session.status in ("completed", "error", "stopped") and cursor >= len(session.chunks):
                 break
 
             # 3. Check client disconnect
@@ -186,7 +190,7 @@ async def stream_session_events(
             # 4. Wait for new chunk or timeout (for keep-alive heartbeat)
             if cursor >= len(session.chunks):
                 current_event = session.event_notify
-                if cursor < len(session.chunks) or session.status in ("completed", "error"):
+                if cursor < len(session.chunks) or session.status in ("completed", "error", "stopped"):
                     continue
                 try:
                     await asyncio.wait_for(current_event.wait(), timeout=1.0)
@@ -1256,7 +1260,8 @@ async def _stream_content(msgs: list[dict], think_effort=None):
 
     except BaseException as exc:
         print(f"{_RED}[PASS2 STREAM ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
-        feeder.cancel()
+        if not feeder.done():
+            feeder.cancel()
         raise
     finally:
         if not feeder.done():
@@ -1279,6 +1284,11 @@ class ChatRequest(BaseModel):
 class EditRequest(BaseModel):
     """Pydantic model representing an incoming edit message request from the user."""
     message: str
+
+
+class StopChatRequest(BaseModel):
+    """Pydantic model representing a stop chat request."""
+    stream_id: str | None = None
 
 
 
@@ -1579,41 +1589,56 @@ async def _process_chat_background(
             metrics_dict["think_effort"] = str(think_effort)
             metrics_dict["think_source"] = think_source
 
-            # Final streaming response after tool loop
-            has_prior_thinking = bool(thinking_buf.strip())
-            await drain_stream(_stream_content(messages, think_effort=think_effort),
-                               response_label=has_prior_thinking)
-
+    except asyncio.CancelledError:
+        dlog(f"Chat background task cancelled for session {session.stream_id}")
+        session.is_cancelled = True
+        raise
+    except Exception as exc:
+        print(f"{_RED}[CHAT BACKGROUND ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
+        session.mark_complete(error=str(exc))
     finally:
-        # Always commit to DB — independent of whether SSE pipe is alive
-        final_content = content_buf.strip()
+        # Always commit to DB inside shielded block — independent of whether task is cancelled
         tools_str = ",".join(tools_used_list) if tools_used_list else None
         tools_meta_str = json.dumps(tool_metadata_list) if tool_metadata_list else None
-        if final_content:
+
+        if session.is_cancelled or session.status == "stopped":
             update_message(
                 assistant_row_id,
-                final_content,
+                "[Response interrupted -- please try again.]",
                 thinking=thinking_buf.strip() if thinking_buf.strip() else None,
                 tools_used=tools_str,
-                tool_metadata=tools_meta_str
+                tool_metadata=tools_meta_str,
             )
-            save_message_metrics(assistant_row_id, metrics_dict)
+            session.push_chunk(f"data: {json.dumps({'type': 'stopped'})}\n\n")
+            session.mark_complete(status="stopped")
+            dlog(f"Chat session {session.stream_id} stopped cleanly")
         else:
-            update_message(
-                assistant_row_id, "[Response interrupted -- please try again.]"
-            )
-            dlog(
-                "WARNING: empty assistant response. thinking len:",
-                len(thinking_buf),
-                "tools fired:",
-                bool(tool_calls),
-            )
+            final_content = content_buf.strip()
+            if final_content:
+                update_message(
+                    assistant_row_id,
+                    final_content,
+                    thinking=thinking_buf.strip() if thinking_buf.strip() else None,
+                    tools_used=tools_str,
+                    tool_metadata=tools_meta_str
+                )
+                save_message_metrics(assistant_row_id, metrics_dict)
+            else:
+                update_message(
+                    assistant_row_id, "[Response interrupted -- please try again.]"
+                )
+                dlog(
+                    "WARNING: empty assistant response. thinking len:",
+                    len(thinking_buf),
+                    "tools fired:",
+                    bool(tool_calls),
+                )
 
-        dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
+            dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
 
-        # Signal SSE pipe to close cleanly
-        session.push_chunk(f"data: {json.dumps({'type': 'done'})}\n\n")
-        session.mark_complete()
+            # Signal SSE pipe to close cleanly
+            session.push_chunk(f"data: {json.dumps({'type': 'done'})}\n\n")
+            session.mark_complete()
 
 def pause_all_active_research():
     """Immediately pause any currently running background research tasks to prevent Ollama blockage."""
@@ -1773,12 +1798,13 @@ async def chat_stream(user_message: str, is_regenerate: bool = False,
     stream_id = f"stream_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
     session = stream_registry.create(stream_id)
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         _process_chat_background(
             user_message, is_regenerate, time_ctx, assistant_row_id, session,
             think_effort=resolved_effort, ui_override=ui_override,
         )
     )
+    session.task = task
     print(f"{_CYN}[CHAT]{_RST} Background task started for session {stream_id} — SSE pipe open", flush=True)
 
     # Replay/stream chunks from the session buffer
@@ -2406,6 +2432,31 @@ async def edit_message(req: EditRequest, request: Request, _: None = Depends(che
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/chat/stop")
+async def stop_chat(req: StopChatRequest = None, _: None = Depends(check_auth)):
+    """Safely stop an active chat generation session."""
+    stream_id = req.stream_id if req else None
+    session = stream_registry.get(stream_id) if stream_id else stream_registry.get_active()
+    if not session or session.status != "running":
+        return {"status": "noop", "message": "No active running stream to stop"}
+
+    session.is_cancelled = True
+    session.status = "stopped"
+    if session.task and not session.task.done():
+        session.task.cancel()
+
+    # Subprocess termination cascade: terminate any active tool child processes
+    try:
+        from Evelyn.tools import task_manager
+        task_manager.terminate_all_subprocesses(grace_period=1.0)
+    except Exception as e:
+        dlog(f"Subprocess termination notice on stop: {e}")
+
+    session.push_chunk(f'data: {json.dumps({"type": "stopped"})}\n\n')
+    session.mark_complete(status="stopped")
+    return {"status": "stopped", "stream_id": session.stream_id}
 
 
 @app.get("/chat/stream/{stream_id}")
