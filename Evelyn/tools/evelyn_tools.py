@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-08-17 19:07:50
+# date modified: 2026-08-20 20:49:45
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -1209,71 +1209,162 @@ def check_new_research(**kwargs) -> str:
 
 def search_history(
     query: str = "",
-    max_results: int = 8,
+    date: str = None,
     date_from: str = None,
     date_to: str = None,
+    limit: int = 8,
+    order: str = "desc",
+    offset: int = 0,
+    message_id: int = None,
+    window: int = 0,
     **kwargs,
 ) -> str:
-    """Search the full chat history using FTS5 full-text search.
+    """Search and retrieve past chat history between Ricky and Evelyn across all eras.
 
-    Applies a query-reformulation pre-pass to handle fuzzy, conversational queries
-    (e.g. 'when we were tired') before executing the FTS5 keyword match. An optional
-    date range constrains results to messages within a specific window.
+    Supports multiple retrieval modes:
+      1. By Date: Retrieve all messages from a specific date ('YYYY-MM-DD') chronologically.
+      2. By Date Range: Filter messages between date_from and date_to.
+      3. Chronological Browsing: Retrieve earliest (order='asc') or latest (order='desc') messages.
+      4. Message Context Window: Retrieve surrounding messages around a specific message_id.
+      5. Keyword Search: Full-text search (FTS5) for specific topics or phrases.
 
     Args:
-        query: The search terms or phrase to look for in past messages.
-               Supports FTS5 MATCH syntax (e.g. 'python AND error' or '"exact phrase"').
-               Conversational phrasing is also accepted — it will be reformulated.
-        max_results: Maximum number of matching messages to return. Defaults to 8.
-        date_from: Optional ISO date string 'YYYY-MM-DD'. Only messages on or after
-                   this date are returned.
-        date_to: Optional ISO date string 'YYYY-MM-DD'. Only messages on or before
-                 this date are returned.
+        query: Optional search term, keyword, or phrase. Omit when searching by date or browsing chronologically.
+        date: Specific date string 'YYYY-MM-DD' (e.g. '2025-03-12') to retrieve all messages from that day.
+        date_from: Optional start date string 'YYYY-MM-DD'.
+        date_to: Optional end date string 'YYYY-MM-DD'.
+        limit: Maximum number of messages to return. Defaults to 8 (max 50).
+        order: 'asc' for chronological order (earliest first), or 'desc' for latest first.
+               Defaults to 'asc' when querying a specific date or earliest history, 'desc' otherwise.
+        offset: Number of messages to skip (for pagination). Defaults to 0.
+        message_id: Specific message ID to inspect.
+        window: When message_id is provided, number of messages before and after to return for context.
+        **kwargs: Flexible keyword arguments for alternative parameter names.
 
     Returns:
-        str: Formatted list of matching message snippets with metadata,
-             or a message indicating no results were found.
+        str: Formatted list of messages with timestamps, IDs, and speakers, or a status message.
     """
     import sqlite3
-    import evelyn_config as cfg
-    from datetime import datetime
-
-    # --- Tweak 3: Lossy search — reformulate the query into FTS5-friendly keywords ---
-    try:
-        from query_reformulator import reformulate_query
-        fts_query = reformulate_query(query)
-    except Exception:
-        fts_query = query  # Graceful degradation — FTS5 still runs on the raw query
-
     import re
-    def sanitize_fts5(q: str) -> str:
-        if not q or not q.strip():
-            return ""
-        tokens = q.strip().split()
-        cleaned = []
-        for t in tokens:
-            if re.search(r'[&*:()"\-+]', t) or t.upper() in ("AND", "OR", "NOT"):
-                cleaned.append(f'"{t.replace('"', '""')}"')
-            else:
-                cleaned.append(t)
-        return " ".join(cleaned)
+    from datetime import datetime, timedelta
+    import evelyn_config as cfg
 
-    fts_query = sanitize_fts5(fts_query)
+    # --- Kwargs fallback & normalization ---
+    raw_query = str(
+        query
+        or kwargs.get("q")
+        or kwargs.get("search")
+        or kwargs.get("keyword")
+        or kwargs.get("keywords")
+        or kwargs.get("term")
+        or kwargs.get("phrase")
+        or kwargs.get("text")
+        or ""
+    ).strip()
 
-    # --- Tweak 1: Date-range filtering — convert YYYY-MM-DD strings to Unix timestamps ---
+    raw_date = (
+        date
+        or kwargs.get("target_date")
+        or kwargs.get("day")
+        or kwargs.get("on_date")
+        or kwargs.get("exact_date")
+    )
+    if raw_date:
+        raw_date = str(raw_date).strip()
+
+    raw_date_from = (
+        date_from
+        or kwargs.get("start_date")
+        or kwargs.get("from_date")
+        or kwargs.get("after")
+        or kwargs.get("since")
+    )
+    if raw_date_from:
+        raw_date_from = str(raw_date_from).strip()
+
+    raw_date_to = (
+        date_to
+        or kwargs.get("end_date")
+        or kwargs.get("to_date")
+        or kwargs.get("before")
+        or kwargs.get("until")
+    )
+    if raw_date_to:
+        raw_date_to = str(raw_date_to).strip()
+
+    limit_val = kwargs.get("max_results") or kwargs.get("limit") or kwargs.get("n") or kwargs.get("count") or kwargs.get("num_results") or limit or 8
+    try:
+        limit_val = max(1, min(int(limit_val), 50))
+    except (ValueError, TypeError):
+        limit_val = 8
+
+    offset_val = kwargs.get("offset") or kwargs.get("skip") or offset or 0
+    try:
+        offset_val = max(0, int(offset_val))
+    except (ValueError, TypeError):
+        offset_val = 0
+
+    order_param = kwargs.get("order") or kwargs.get("sort") or kwargs.get("direction") or kwargs.get("ordering") or order
+    order_val = str(order_param or "desc").strip().lower()
+
+    # If single date is provided and caller didn't explicitly request 'desc', default to 'asc' (chronological)
+    if raw_date and "order" not in kwargs and order == "desc":
+        order_val = "asc"
+
+    mid_val = kwargs.get("message_id") or kwargs.get("msg_id") or kwargs.get("id") or message_id
+    msg_id = None
+    if mid_val is not None:
+        try:
+            msg_id = int(mid_val)
+        except (ValueError, TypeError):
+            msg_id = None
+
+    win_val = kwargs.get("window") or kwargs.get("context_window") or kwargs.get("around") or kwargs.get("surrounding") or window or 0
+    try:
+        win_val = max(0, int(win_val))
+    except (ValueError, TypeError):
+        win_val = 0
+
+    sort_dir = "ASC" if order_val in ("asc", "ascending", "chronological", "earliest", "first", "forward") else "DESC"
+
+    # --- Parse date boundaries ---
     ts_from: float | None = None
     ts_to: float | None = None
-    try:
-        if date_from:
-            ts_from = datetime.strptime(date_from, "%Y-%m-%d").timestamp()
-        if date_to:
-            # Include the full end day by advancing to the start of the next day
-            from datetime import timedelta
-            ts_to = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)).timestamp()
-    except ValueError as e:
-        return f"History search failed: invalid date format ({e}). Use YYYY-MM-DD."
 
-    # Build the SQL predicate for date filtering (appended only when dates are provided)
+    def _parse_iso_date(ds: str) -> datetime | None:
+        if not ds:
+            return None
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", ds)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%Y-%m-%d")
+            except ValueError:
+                pass
+        return None
+
+    if raw_date:
+        dt = _parse_iso_date(raw_date)
+        if dt:
+            ts_from = dt.timestamp()
+            ts_to = (dt + timedelta(days=1)).timestamp()
+        else:
+            return f"History search failed: invalid date format {raw_date!r}. Use YYYY-MM-DD."
+
+    if raw_date_from:
+        dt_from = _parse_iso_date(raw_date_from)
+        if dt_from:
+            ts_from = dt_from.timestamp()
+        else:
+            return f"History search failed: invalid date_from format {raw_date_from!r}. Use YYYY-MM-DD."
+
+    if raw_date_to:
+        dt_to = _parse_iso_date(raw_date_to)
+        if dt_to:
+            ts_to = (dt_to + timedelta(days=1)).timestamp()
+        else:
+            return f"History search failed: invalid date_to format {raw_date_to!r}. Use YYYY-MM-DD."
+
+    # Build date SQL clause & params
     date_clause = ""
     date_params: list = []
     if ts_from is not None:
@@ -1283,61 +1374,179 @@ def search_history(
         date_clause += " AND m.ts < ?"
         date_params.append(ts_to)
 
-    try:
-        con = sqlite3.connect(cfg.CHAT_DB_PATH)
-        con.row_factory = sqlite3.Row
-        sql = f"""
-            SELECT
-                m.id,
-                m.role,
-                m.ts,
-                snippet(messages_fts, 0, '[', ']', '...', 32) AS snippet
-            FROM messages_fts
-            JOIN messages m ON m.id = messages_fts.rowid
-            WHERE messages_fts MATCH ?
-              AND m.content NOT IN ('[THREAD_BREAK]')
-              {date_clause}
-            ORDER BY bm25(messages_fts)
-            LIMIT ?
-        """
+    db_path = getattr(cfg, "CHAT_DB_PATH", "/home/rathius/evelyn/data/evelyn_chat.db")
+
+    # =========================================================================
+    # Mode 1: Message ID / Context Window Lookup
+    # =========================================================================
+    if msg_id is not None:
         try:
-            rows = con.execute(sql, (fts_query, *date_params, max_results)).fetchall()
-        except sqlite3.OperationalError:
-            quoted_q = f'"{query.replace('"', '""')}"'
-            try:
-                rows = con.execute(sql, (quoted_q, *date_params, max_results)).fetchall()
-            except sqlite3.OperationalError:
-                like_sql = f"""
-                    SELECT m.id, m.role, m.ts, m.content AS snippet
+            con = sqlite3.connect(db_path)
+            con.row_factory = sqlite3.Row
+            if win_val > 0:
+                min_id = max(1, msg_id - win_val)
+                max_id = msg_id + win_val
+                sql = """
+                    SELECT m.id, m.role, m.ts, m.content
                     FROM messages m
-                    WHERE m.content LIKE ? AND m.content NOT IN ('[THREAD_BREAK]')
-                    {date_clause}
-                    ORDER BY m.id DESC LIMIT ?
+                    WHERE m.id BETWEEN ? AND ? AND m.content NOT IN ('[THREAD_BREAK]')
+                    ORDER BY m.id ASC
                 """
-                rows = con.execute(like_sql, (f"%{query}%", *date_params, max_results)).fetchall()
+                rows = con.execute(sql, (min_id, max_id)).fetchall()
+                header = f"Conversation context around Message ID {msg_id} (IDs {min_id} → {max_id}):"
+            else:
+                sql = """
+                    SELECT m.id, m.role, m.ts, m.content
+                    FROM messages m
+                    WHERE m.id = ? AND m.content NOT IN ('[THREAD_BREAK]')
+                """
+                rows = con.execute(sql, (msg_id,)).fetchall()
+                header = f"Message ID {msg_id}:"
+            con.close()
+        except Exception as e:
+            return f"History search failed on message lookup: {e}"
+
+        if not rows:
+            return f"No message found with ID {msg_id}."
+
+        lines = [header + "\n"]
+        for row in rows:
+            ts_val = row["ts"]
+            ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+            role_label = "Ricky" if row["role"] == "user" else "Evelyn"
+            marker = " [TARGET]" if row["id"] == msg_id and win_val > 0 else ""
+            lines.append(f"[ID: {row['id']}]{marker} [{ts_str}] {role_label}:\n{row['content']}\n")
+        return "\n".join(lines).strip()
+
+    # =========================================================================
+    # Mode 2: Pure Date / Date-Range / Chronological Browsing (No Query)
+    # =========================================================================
+    if not raw_query:
+        try:
+            con = sqlite3.connect(db_path)
+            con.row_factory = sqlite3.Row
+            sql = f"""
+                SELECT m.id, m.role, m.ts, m.content
+                FROM messages m
+                WHERE m.content NOT IN ('[THREAD_BREAK]')
+                  {date_clause}
+                ORDER BY m.ts {sort_dir}, m.id {sort_dir}
+                LIMIT ? OFFSET ?
+            """
+            rows = con.execute(sql, (*date_params, limit_val, offset_val)).fetchall()
+            con.close()
+        except Exception as e:
+            return f"History retrieval failed: {e}"
+
+        if not rows:
+            date_info = f" on date {raw_date}" if raw_date else (f" in date range [{raw_date_from or '...'} → {raw_date_to or '...'}]" if (raw_date_from or raw_date_to) else "")
+            return f"No chat history messages found{date_info}."
+
+        if raw_date:
+            header = f"Chat history for date {raw_date} ({len(rows)} messages, order={sort_dir}):"
+        elif raw_date_from or raw_date_to:
+            header = f"Chat history for range [{raw_date_from or '...'} → {raw_date_to or '...'}] ({len(rows)} messages, order={sort_dir}):"
+        elif sort_dir == "ASC":
+            header = f"Earliest chat history messages ({len(rows)} messages, starting from beginning):"
+        else:
+            header = f"Recent chat history messages ({len(rows)} messages):"
+
+        lines = [header + "\n"]
+        for row in rows:
+            ts_val = row["ts"]
+            ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+            role_label = "Ricky" if row["role"] == "user" else "Evelyn"
+            lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
+        return "\n".join(lines).strip()
+
+    # =========================================================================
+    # Mode 3: Keyword / FTS5 Full-Text Search
+    # =========================================================================
+    # Reformulate lossy conversational query into keywords
+    try:
+        from query_reformulator import reformulate_query
+        fts_query = reformulate_query(raw_query)
+    except Exception:
+        fts_query = raw_query
+
+    def sanitize_fts5(q: str) -> str:
+        if not q or not q.strip():
+            return ""
+        tokens = q.strip().split()
+        cleaned = []
+        for t in tokens:
+            if re.search(r'[&*:()"\-+]', t) or t.upper() in ("AND", "OR", "NOT"):
+                escaped = t.replace('"', '""')
+                cleaned.append(f'"{escaped}"')
+            else:
+                cleaned.append(t)
+        return " ".join(cleaned)
+
+    clean_fts = sanitize_fts5(fts_query)
+    rows = []
+
+    try:
+        con = sqlite3.connect(db_path)
+        con.row_factory = sqlite3.Row
+
+        # Try FTS5 Match
+        if clean_fts:
+            sql_fts = f"""
+                SELECT
+                    m.id,
+                    m.role,
+                    m.ts,
+                    m.content
+                FROM messages_fts
+                JOIN messages m ON m.id = messages_fts.rowid
+                WHERE messages_fts MATCH ?
+                  AND m.content NOT IN ('[THREAD_BREAK]')
+                  {date_clause}
+                ORDER BY bm25(messages_fts)
+                LIMIT ? OFFSET ?
+            """
+            try:
+                rows = con.execute(sql_fts, (clean_fts, *date_params, limit_val, offset_val)).fetchall()
+            except sqlite3.OperationalError:
+                # Quoted exact fallback
+                escaped_q = raw_query.replace('"', '""')
+                quoted_q = f'"{escaped_q}"'
+                try:
+                    rows = con.execute(sql_fts, (quoted_q, *date_params, limit_val, offset_val)).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+        # Fallback to LIKE if FTS produced nothing or errored
+        if not rows:
+            like_sql = f"""
+                SELECT m.id, m.role, m.ts, m.content
+                FROM messages m
+                WHERE m.content LIKE ? AND m.content NOT IN ('[THREAD_BREAK]')
+                  {date_clause}
+                ORDER BY m.ts {sort_dir}, m.id {sort_dir}
+                LIMIT ? OFFSET ?
+            """
+            rows = con.execute(like_sql, (f"%{raw_query}%", *date_params, limit_val, offset_val)).fetchall()
+
         con.close()
     except Exception as e:
-        return f"History search failed: {e}"
+        return f"History keyword search failed: {e}"
 
     if not rows:
-        # If reformulation changed the query and found nothing, surface both for debugging
-        note = f" (reformulated to: {fts_query!r})" if fts_query != query else ""
-        return f"No messages found in chat history matching: {query!r}{note}"
+        date_range_label = f" [{raw_date or raw_date_from or '...'} → {raw_date or raw_date_to or '...'}]" if (raw_date or raw_date_from or raw_date_to) else ""
+        note = f" (reformulated to: {fts_query!r})" if fts_query != raw_query else ""
+        return f"No messages found in chat history matching {raw_query!r}{date_range_label}{note}."
 
-    date_range_label = ""
-    if date_from or date_to:
-        date_range_label = f" [{date_from or '...'} → {date_to or '...'}]"
-    lines = [f"Chat history search results for: {query!r}{date_range_label}\n"]
+    date_range_label = f" [{raw_date or raw_date_from or '...'} → {raw_date or raw_date_to or '...'}]" if (raw_date or raw_date_from or raw_date_to) else ""
+    header = f"Chat history search results for {raw_query!r}{date_range_label} ({len(rows)} matches):"
+    lines = [header + "\n"]
     for row in rows:
-        ts_str = (
-            datetime.fromtimestamp(row["ts"]).strftime("%a %b %d %Y, %I:%M %p")
-            if row["ts"]
-            else "unknown time"
-        )
+        ts_val = row["ts"]
+        ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
         role_label = "Ricky" if row["role"] == "user" else "Evelyn"
-        lines.append(f"[{ts_str}] {role_label}: {row['snippet']}")
+        lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
 
-    return "\n".join(lines)
+    return "\n".join(lines).strip()
 
 
 def create_calendar_event(
@@ -1850,19 +2059,19 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "search_history",
             "description": (
-                "Search Evelyn's full chat history using full-text search (FTS5). "
-                "Use when Ricky asks 'did we talk about X?' or 'what did I say about Y?'."
+                "Search and retrieve past chat history between Ricky and Evelyn across all eras (including early 2025 Replika/Gemini imports and live engine messages). "
+                "Use to look up conversations by date (e.g. date='2025-03-12'), browse earliest/first messages exchanged (order='asc'), search by keywords/topics (query='...'), or inspect conversation context around a specific message ID."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search term, phrase, or conversational description. Reformulated into keywords automatically.",
+                        "description": "Optional search term, topic, keyword, or phrase. Omit when looking up by date or browsing earliest messages.",
                     },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum matching snippets to return. Default 8.",
+                    "date": {
+                        "type": "string",
+                        "description": "Optional specific date in 'YYYY-MM-DD' format (e.g. '2025-03-12') to retrieve all messages from that day chronologically.",
                     },
                     "date_from": {
                         "type": "string",
@@ -1872,8 +2081,24 @@ MODEL_TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Optional end date filter in 'YYYY-MM-DD' format.",
                     },
+                    "order": {
+                        "type": "string",
+                        "description": "'asc' for chronological order (earliest first, ideal for reading a day's conversation or the very first messages in history), or 'desc' for latest first (default).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of messages to return. Default 8 (max 50).",
+                    },
+                    "message_id": {
+                        "type": "integer",
+                        "description": "Optional specific message ID to retrieve.",
+                    },
+                    "window": {
+                        "type": "integer",
+                        "description": "Optional number of messages before and after message_id to include for conversational context (e.g. window=3 returns 7 messages centered on message_id).",
+                    },
                 },
-                "required": ["query"],
+                "required": [],
             },
         },
     },

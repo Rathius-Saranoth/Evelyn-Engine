@@ -1588,6 +1588,9 @@ async def _process_chat_background(
 
             metrics_dict["think_effort"] = str(think_effort)
             metrics_dict["think_source"] = think_source
+            has_prior_thinking = bool(thinking_buf and cfg.SHOW_TOOL_LOOP_THINKING)
+            await drain_stream(_stream_content(messages, think_effort=think_effort),
+                                response_label=has_prior_thinking)
 
     except asyncio.CancelledError:
         dlog(f"Chat background task cancelled for session {session.stream_id}")
