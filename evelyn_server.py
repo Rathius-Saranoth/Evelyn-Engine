@@ -2091,7 +2091,7 @@ async def lifespan(app: FastAPI):
                     prev_status = _background_tasks.get(tid, {}).get("status")
                     print(f"[RESEARCH SYNC] Task {tid} completed or changed status on disk to '{disk_status}' — updating server memory.", flush=True)
                     _background_tasks[tid]["status"] = disk_status
-                    if disk_status in ("done", "error", "cancelled"):
+                    if disk_status in ("done", "error", "cancelled", "timed_out"):
                         _background_tasks[tid]["finished_at"] = time.time()
                     if disk_status == "done" and prev_status in ("running", "searching", "synthesizing"):
                         print(f"[RESEARCH REFRESH] Research task {tid} finished — triggering automatic memory refresh.", flush=True)
