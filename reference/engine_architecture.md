@@ -178,6 +178,12 @@ FastAPI and remote inference services designed to isolate heavy model weights an
 
 ### 2.7 The Frontend User Interface
 The presentation and interaction layout loaded by the client browser. Connects directly to server APIs for state management and model inference.
+
+### 2.8 Multimodal Visual Memory & Attachment Ingestion
+Handles the end-to-end direct ingestion, metadata extraction, and vector indexing of user-provided media files (images, audio memos, documents).
+* **[[media_db.py]]**: Dedicated SQLite interface for `evelyn_media.db`. Manages binary asset storage in `data/attachments/`, SHA-256 deduplication, monotonic prefix GUID generation (`med_img_*`), message junction mapping (`chat_media_links`), and pre-downscale Pillow EXIF/GPS coordinate extraction.
+* **[[visual_indexer.py]]**: Asynchronous visual comprehension and taxonomy indexing pipeline. Drains `vision_indexing_queue` during server idle time to extract structured captions, OCR text, domain classifications, and hashtags via local Ollama vision models with user conversational context injection. Enqueues upserts to ChromaDB vector collection `evelyn_media`.
+
 * **`evelyn_ui/index.html`**: The main user-facing dashboard. Renders the interactive companion panel, maintains Tailscale CORS setups, triggers dynamic TTS playback, drives background task polling, and supports in-place user message editing (✏️) and message regeneration (🔄). Implements a full GitHub Flavored Markdown (GFM) renderer using vendored **`marked.js`** and **`DOMPurify`** (`evelyn_ui/vendor/`) with zero Node.js/build-tool dependencies: responsive GFM tables with horizontal scrolling, typography heading hierarchy (`h1`–`h4`), ordered/unordered and interactive task lists (`- [ ]`/`- [x]`), blockquotes, custom YAML frontmatter metadata cards, and fenced code blocks with CSS syntax highlighting and copy-to-clipboard buttons. `renderFullMarkdown` (used for research/journal modals) shares the same unified renderer.
   * *API Bridges*: Communicates via [[endpoints.md]] §1 (streaming prompts), §2 (memory refreshes), and §3 (speech generation).
 * **`evelyn_ui/dev.html`**: The developer and review dashboard console. Displays a visual triaging interface for reviewing staged observations, consolidation proposals, and heavy background tasks, powered by the same unified client-side `marked.js` + `DOMPurify` pipeline.
@@ -202,6 +208,7 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **[[update_frontmatter.py]]**: Structural metadata utility running automatically on document edits.
 * **[[add_titles.py]]**: Retroactive title block scanner.
 * **[[benchmark_rag.py]]**: Diagnostic pipeline query testing framework.
+* **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
 * **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
 
 ---
