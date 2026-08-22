@@ -42,6 +42,8 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Standalone Media Gallery (`/ui/gallery.html`)**: Build a dedicated media management dashboard with timeline views, category filtering, lightbox inspection, and visual RAG search.
 - [ ] **Google Photos Bulk Ingestion**: Build Google Takeout ingestion pipeline preserving unredacted GPS, native timestamps, and JSON sidecars into `evelyn_media.db` for lifelong visual memory.
 - [ ] **Unified Multimodal Affective & VAD Engine**: Real-time prosody/audio emotion extraction and 3D VAD (Valence-Arousal-Dominance) tracking across chat and journal memory.
+- [ ] **Geospatial & Location Awareness**: Ingest mobile GPS telemetry with geofencing (home, work, contacts) and travel-state detection for localized queries.
+- [ ] **Message Biometrics & State Mapping**: Asynchronously map message IDs to timestamped physiological metrics (Oura/Health HRV, stress) for retroactive wellbeing inquiry without prompt clutter.
 
 ### Agency & Tools
 - [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search (DuckDuckGo), intent framing, atomic query generation, source evaluation, and Obsidian Vault synthesis.
@@ -68,6 +70,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Idle Tag Librarian**: Incremental background process auditing vault notes against a Master Tag Taxonomy using Vector RAG and cosine novelty scoring.
 - [ ] **Obsidian Related Documents Plugin**: Vault sidebar plugin displaying semantically related notes based on Master Tag Taxonomy overlap without runtime LLM overhead.
 - [ ] **Ghost Link Manifestation**: Automated stub note generator for high-frequency unresolved wiki-links in the Obsidian vault.
+- [ ] **Conversational Feedback & Adaptive Preference Tuning**: Interactive response rating (upvote/downvote) feedback loop with dynamic persona weight adjustments.
 - [ ] **Multi-Node Distributed Expansion**: Split inference workloads across network nodes (Sanctum primary host, workstation GPU sidecars).
 
 ---
