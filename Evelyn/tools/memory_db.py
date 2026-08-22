@@ -161,6 +161,16 @@ def init_db() -> None:
         )
     """)
 
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS split_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id   INTEGER NOT NULL UNIQUE,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+    """)
+
     # Indexes — IF NOT EXISTS prevents errors on re-init
     for stmt in [
         "CREATE INDEX IF NOT EXISTS idx_ce_category ON context_entries(category)",
@@ -172,6 +182,7 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_proc_trigger ON procedures(trigger_pattern)",
         "CREATE INDEX IF NOT EXISTS idx_csq_status ON chroma_sync_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_csq_source ON chroma_sync_queue(source_path, collection_name)",
+        "CREATE INDEX IF NOT EXISTS idx_sq_status ON split_queue(status)",
     ]:
         con.execute(stmt)
 
@@ -527,6 +538,81 @@ def count_entries_by_category() -> dict[str, int]:
     ).fetchall()
     con.close()
     return {r["category"]: r["cnt"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Split queue support (for prioritized consolidator splitting)
+# ---------------------------------------------------------------------------
+
+
+def enqueue_split(entry_id: int) -> bool:
+    """Enqueue a context entry to be evaluated for splitting during the next consolidation run.
+
+    Args:
+        entry_id: Row ID of the context entry to queue.
+
+    Returns:
+        bool: True if queued successfully.
+    """
+    con = get_db()
+    now = time.time()
+    try:
+        con.execute(
+            """INSERT INTO split_queue (entry_id, status, created_at, updated_at)
+               VALUES (?, 'pending', ?, ?)
+               ON CONFLICT(entry_id) DO UPDATE SET status = 'pending', updated_at = ?""",
+            (entry_id, now, now, now),
+        )
+        con.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        con.close()
+
+
+def get_split_queue(status: str = "pending") -> list[dict]:
+    """Retrieve all context entries currently in the split review queue.
+
+    Args:
+        status: Filter by queue status ('pending', 'completed', etc.). Default 'pending'.
+
+    Returns:
+        list[dict]: List of queue record dicts.
+    """
+    con = get_db()
+    rows = con.execute(
+        "SELECT id, entry_id, status, created_at, updated_at FROM split_queue WHERE status = ? ORDER BY created_at ASC",
+        (status,),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def dequeue_split(entry_id: int) -> bool:
+    """Remove or mark completed a context entry in the split review queue.
+
+    Args:
+        entry_id: Row ID of the context entry.
+
+    Returns:
+        bool: True if deleted or marked.
+    """
+    con = get_db()
+    try:
+        cur = con.execute("DELETE FROM split_queue WHERE entry_id = ?", (entry_id,))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def get_all_queued_split_entry_ids() -> set[int]:
+    """Return a set of all entry IDs currently pending in the split review queue."""
+    con = get_db()
+    rows = con.execute("SELECT entry_id FROM split_queue WHERE status = 'pending'").fetchall()
+    con.close()
+    return {r["entry_id"] for r in rows}
 
 
 # ---------------------------------------------------------------------------

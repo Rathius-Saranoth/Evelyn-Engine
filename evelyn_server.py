@@ -4086,11 +4086,13 @@ async def get_unified_review(_: None = Depends(check_auth)):
     """
     import Evelyn.tools.memory_db as memory_db
     unified_items = []
+    queued_split_ids = memory_db.get_all_queued_split_entry_ids()
 
     # 1. Extractions
     raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
     for item in raw_extractions:
         item["item_type"] = "extraction"
+        item["is_split_queued"] = item["id"] in queued_split_ids
         unified_items.append(_enrich_extraction_with_taxonomy(item))
 
     # 2. Proposals
@@ -4103,11 +4105,13 @@ async def get_unified_review(_: None = Depends(check_auth)):
                 if proc:
                     source_entries.append({
                         "category": "procedure",
-                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}..."
+                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}...",
+                        "is_split_queued": False
                     })
             else:
                 entry = memory_db.get_entry(eid)
                 if entry:
+                    entry["is_split_queued"] = eid in queued_split_ids
                     source_entries.append(entry)
         p["source_entries"] = source_entries
 
@@ -4236,6 +4240,11 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
     import Evelyn.tools.memory_db as memory_db
     if action == "deny":
         memory_db.reject_proposal(id)
+        return {"status": "ok"}
+    elif action == "edit":
+        if not req or req.modified_text is None:
+            raise HTTPException(status_code=400, detail="edit requires modified_text in request body")
+        memory_db.update_proposal(id, merged_observation=req.modified_text)
         return {"status": "ok"}
     elif action == "unlink_source":
         if not req or req.source_id is None:
@@ -4480,6 +4489,19 @@ async def apply_context_split(req: SplitApplyRequest, _: None = Depends(check_au
     new_ids = memory_db.split_entry(req.source_id, req.entries)
     await start_refresh_memory_internal()
     return {"status": "ok", "new_ids": new_ids}
+
+
+@app.post("/api/context/{id}/queue_split")
+async def queue_context_split(id: int, _: None = Depends(check_auth)):
+    """Queue a context entry for split evaluation in the next consolidation run."""
+    import Evelyn.tools.memory_db as memory_db
+    entry = memory_db.get_entry(id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Context entry not found")
+    success = memory_db.enqueue_split(id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to enqueue context entry for split")
+    return {"status": "ok", "entry_id": id, "queued": True}
 
 
 
