@@ -150,6 +150,8 @@ GIST_SYNC_STATE = r"/home/rathius/evelyn/data/gist_sync_state.json" # [[gist_syn
 CHROMA_DB_PATH = r"/home/rathius/evelyn/data/chroma_db" # [[chroma_db]]
 CHAT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_chat.db" # [[evelyn_chat.db]]
 MEMORY_DB_PATH = r"/home/rathius/evelyn/data/evelyn_memory.db" # [[evelyn_memory.db]]
+MEDIA_DB_PATH = r"/home/rathius/evelyn/data/evelyn_media.db" # [[evelyn_media.db]]
+ATTACHMENTS_DIR = r"/home/rathius/evelyn/data/attachments" # [[attachments]]
 PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
 GCAL_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gcal_credentials.json"
 GCAL_TOKEN_PATH = r"/home/rathius/evelyn/data/gcal_token.json"
@@ -609,6 +611,7 @@ TAG_LIBRARIAN_FORMAT_RULES = {
 
 # Chroma Vector Tag Taxonomy Settings (Tag RAG)
 CHROMA_TAG_COLLECTION = "evelyn_tag_taxonomy"
+CHROMA_MEDIA_COLLECTION = "evelyn_media"
 TAG_LIBRARIAN_TOP_K_TAGS = 35           # Max semantically matched master tags to retrieve
 TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55   # Cosine distance above which a note domain is deemed novel
 

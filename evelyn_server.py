@@ -20,6 +20,7 @@ Run: python evelyn_server.py
 """
 
 import asyncio
+import base64
 import json
 import importlib
 import os
@@ -1280,6 +1281,7 @@ class ChatRequest(BaseModel):
     """Pydantic model representing an incoming chat request from the user."""
     message: str
     think: str | bool | None = None  # UI override: "low"/"medium"/"high"/"max"/False/None
+    images: list[str | dict] = []  # Base64 strings or attachment objects with metadata
 
 
 class EditRequest(BaseModel):
@@ -1299,6 +1301,7 @@ async def _process_chat_background(
     time_ctx: str | None,
     assistant_row_id: int,
     session: ActiveStreamSession,
+    images: list[str] | None = None,
     think_effort: str | bool = "medium",
     ui_override: bool = False,
 ):
@@ -1398,7 +1401,10 @@ async def _process_chat_background(
         if research_ctx:
             messages.append({"role": "system", "content": research_ctx})
             
-        messages.append({"role": "user", "content": user_msg_for_model})
+        user_turn = {"role": "user", "content": user_msg_for_model}
+        if images:
+            user_turn["images"] = images
+        messages.append(user_turn)
 
         await put("status", msg="Querying model...")
 
@@ -1754,13 +1760,19 @@ def clean_shutdown_all_tasks():
 
 
 
-async def chat_stream(user_message: str, is_regenerate: bool = False,
-                      think_effort=None, ui_override: bool = False,
-                      request: Request | None = None):
+async def chat_stream(
+    user_message: str,
+    images: list[str] | None = None,
+    is_regenerate: bool = False,
+    think_effort=None,
+    ui_override: bool = False,
+    request: Request | None = None,
+):
     """Open an SSE connection to stream the generated chat response.
 
     Args:
         user_message: The text of the user's incoming chat message.
+        images: Optional list of base64-encoded image strings or data URIs.
         is_regenerate: True if regenerating the last assistant response.
         think_effort: Resolved thinking effort level for this turn.
         ui_override: True when think_effort came from the UI chip (skips
@@ -1782,11 +1794,56 @@ async def chat_stream(user_message: str, is_regenerate: bool = False,
     cancel_pending_extraction()
     cancel_pending_evolution()
 
+    clean_b64_images = []
     if not is_regenerate:
         time_ctx = get_time_gap_context()
         if time_ctx:
             dlog("Time-gap annotation:", time_ctx)
-        save_message("user", user_message)
+        user_row_id = save_message_get_id("user", user_message)
+
+        if images:
+            from Evelyn.tools import media_db
+            from Evelyn.tools.visual_indexer import vision_indexing_queue
+
+            for img_item in images:
+                if not img_item:
+                    continue
+                orig_name = None
+                client_meta = None
+                if isinstance(img_item, dict):
+                    raw_str = img_item.get("data", "")
+                    orig_name = img_item.get("name")
+                    client_meta = img_item.get("metadata")
+                else:
+                    raw_str = str(img_item)
+
+                mime = "image/png"
+                b64_payload = raw_str
+                if raw_str.startswith("data:") and ";base64," in raw_str:
+                    header, b64_payload = raw_str.split(";base64,", 1)
+                    mime = header.replace("data:", "").strip() or "image/png"
+
+                try:
+                    raw_bytes = base64.b64decode(b64_payload)
+                    asset = media_db.store_or_get_media_asset(
+                        data=raw_bytes,
+                        mime_type=mime,
+                        source_msg_id=user_row_id,
+                        original_name=orig_name,
+                        metadata=client_meta,
+                        media_type="image",
+                    )
+                    clean_b64_images.append(b64_payload)
+                    if asset.get("is_new"):
+                        vision_indexing_queue.put_nowait(
+                            {
+                                "guid": asset["id"],
+                                "base64": b64_payload,
+                                "user_context": user_message,
+                            }
+                        )
+                except Exception as exc:
+                    print(f"[MEDIA ERROR] Failed processing image attachment: {exc}", flush=True)
     else:
         time_ctx = None
         dlog("Regenerating last response")
@@ -1804,8 +1861,14 @@ async def chat_stream(user_message: str, is_regenerate: bool = False,
 
     task = asyncio.create_task(
         _process_chat_background(
-            user_message, is_regenerate, time_ctx, assistant_row_id, session,
-            think_effort=resolved_effort, ui_override=ui_override,
+            user_message,
+            is_regenerate,
+            time_ctx,
+            assistant_row_id,
+            session,
+            images=clean_b64_images if clean_b64_images else None,
+            think_effort=resolved_effort,
+            ui_override=ui_override,
         )
     )
     session.task = task
@@ -1910,6 +1973,17 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_chroma_queue_drain_loop())
     print(f"  {_GRN}Chroma Custodian:{_RST} Started single-writer drain worker (interval=1.5s).")
+
+    # 4. Media DB & Visual Memory Indexer
+    import Evelyn.tools.media_db as media_db
+    import Evelyn.tools.visual_indexer as visual_indexer
+    media_db.init_media_db()
+    asyncio.create_task(
+        visual_indexer.visual_indexing_worker_loop(
+            is_busy_predicate=lambda: bool(stream_registry.get_active() or is_any_heavy_task_running())
+        )
+    )
+    print(f"  {_GRN}Visual Indexer:{_RST} Started background media extraction queue worker.")
 
     task_manager.load_persistent_state()
     asyncio.create_task(task_manager.start_watchdog())
@@ -2366,6 +2440,10 @@ if UI_DIR.exists():
 # Serve generated images directly via the main server
 app.mount("/images", StaticFiles(directory=cfg.IMAGE_OUTPUT_DIR), name="images")
 
+# Serve media attachments directly via the main server
+os.makedirs(cfg.ATTACHMENTS_DIR, exist_ok=True)
+app.mount("/attachments", StaticFiles(directory=cfg.ATTACHMENTS_DIR), name="attachments")
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -2385,12 +2463,123 @@ async def status(_: None = Depends(check_auth)):
     }
 
 
+class MediaUpdateRequest(BaseModel):
+    """Payload for updating user metadata and tags on a media asset."""
+    description: str | None = None
+    tags: list[str] | str | None = None
+    taxonomy_domain: str | None = None
+
+
+@app.get("/api/media/{guid}")
+async def get_media_endpoint(guid: str, _: None = Depends(check_auth)):
+    """Fetch metadata and paths for a media asset by GUID."""
+    from Evelyn.tools import media_db
+    asset = media_db.get_media_asset(guid)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return asset
+
+
+@app.patch("/api/media/{guid}")
+@app.post("/api/media/{guid}")
+async def update_media_endpoint(guid: str, req: MediaUpdateRequest, _: None = Depends(check_auth)):
+    """Update description, tags, domain for a media asset and re-index into ChromaDB."""
+    from Evelyn.tools import media_db, chroma_rag
+    import evelyn_config as cfg
+
+    asset = media_db.get_media_asset(guid)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    tags_list = None
+    if req.tags is not None:
+        if isinstance(req.tags, list):
+            tags_list = req.tags
+        elif isinstance(req.tags, str):
+            tags_list = [t.strip() for t in req.tags.split(",") if t.strip()]
+
+    desc = req.description if req.description is not None else asset.get("description")
+    domain = req.taxonomy_domain if req.taxonomy_domain is not None else asset.get("taxonomy_domain")
+
+    media_db.update_media_metadata(
+        guid=guid,
+        description=desc,
+        tags=tags_list if tags_list is not None else asset.get("tags"),
+        taxonomy_domain=domain,
+    )
+
+    # Re-fetch updated asset to sync with ChromaDB
+    updated = media_db.get_media_asset(guid)
+    if updated:
+        tags_str = ", ".join(updated.get("tags", []))
+        ocr_text = updated.get("extracted_text") or ""
+        ocr_snippet = (ocr_text[:200] + "...") if len(ocr_text) > 200 else ocr_text
+
+        doc_text = (
+            f"[Image Asset: {guid}]\n"
+            f"Domain: {updated.get('taxonomy_domain', 'General/Media')}\n"
+            f"Tags: {tags_str}\n"
+            f"Description: {updated.get('description', '')}"
+        )
+        if ocr_snippet:
+            doc_text += f"\nVisible Text: {ocr_snippet}"
+
+        meta_json = updated.get("metadata_json") or {}
+        if isinstance(meta_json, str):
+            try:
+                meta_json = json.loads(meta_json)
+            except Exception:
+                meta_json = {}
+
+        exif_details = []
+        if meta_json.get("datetimeoriginal") or meta_json.get("datetime"):
+            dt = meta_json.get("datetimeoriginal") or meta_json.get("datetime")
+            exif_details.append(f"Taken: {dt}")
+        if meta_json.get("camera_make") or meta_json.get("camera_model"):
+            cam = f"{meta_json.get('camera_make', '')} {meta_json.get('camera_model', '')}".strip()
+            exif_details.append(f"Camera: {cam}")
+        if meta_json.get("gps") and isinstance(meta_json["gps"], dict):
+            gps = meta_json["gps"]
+            lat = gps.get("latitude")
+            lon = gps.get("longitude")
+            if lat is not None and lon is not None and (lat != 0 or lon != 0):
+                exif_details.append(f"GPS: ({lat}, {lon})")
+
+        if exif_details:
+            doc_text += f"\nEXIF: {', '.join(exif_details)}"
+
+        extra_meta = {
+            "guid": guid,
+            "media_type": updated.get("media_type", "image"),
+            "file_path": updated.get("file_path", ""),
+            "domain": updated.get("taxonomy_domain", "General/Media"),
+            "created_ts": updated.get("created_ts", 0),
+        }
+        if meta_json.get("gps") and isinstance(meta_json["gps"], dict):
+            gps = meta_json["gps"]
+            if "latitude" in gps and "longitude" in gps:
+                lat_f = float(gps["latitude"])
+                lon_f = float(gps["longitude"])
+                if lat_f != 0 or lon_f != 0:
+                    extra_meta["latitude"] = lat_f
+                    extra_meta["longitude"] = lon_f
+
+        chroma_rag.enqueue_upsert(
+            source_path=f"media::{guid}",
+            content=doc_text,
+            extra_metadata=extra_meta,
+            collection_name=cfg.CHROMA_MEDIA_COLLECTION,
+        )
+
+    return {"status": "ok", "asset": updated}
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest, request: Request, _: None = Depends(check_auth)):
     """Accept a user message and return a Server-Sent Events stream of the response.
 
     Args:
-        req: The chat request object containing the user message.
+        req: The chat request object containing the user message and optional image attachments.
         request: FastAPI Request object for disconnect detection.
         _: Authentication dependency placeholder.
 
@@ -2400,7 +2589,13 @@ async def chat(req: ChatRequest, request: Request, _: None = Depends(check_auth)
     ui_override = req.think is not None
     think_effort = req.think if ui_override else classify_message_effort(req.message)
     return StreamingResponse(
-        chat_stream(req.message, think_effort=think_effort, ui_override=ui_override, request=request),
+        chat_stream(
+            req.message,
+            images=req.images,
+            think_effort=think_effort,
+            ui_override=ui_override,
+            request=request,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -2542,7 +2737,17 @@ async def get_history(
     con.close()
     # Rows come back newest-first from DESC; reverse to chronological
     rows = list(reversed(rows))
-    return [dict(r) for r in rows]
+    
+    from Evelyn.tools import media_db
+    messages_out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["attachments"] = media_db.get_media_for_message(d["id"])
+        except Exception:
+            d["attachments"] = []
+        messages_out.append(d)
+    return messages_out
 
 
 @app.delete("/history")
