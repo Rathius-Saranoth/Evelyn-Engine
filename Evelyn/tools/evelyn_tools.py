@@ -118,7 +118,7 @@ def write_journal_entry(
     tags: str = "",
     **kwargs,
 ) -> str:
-    """Compose and queue a new journal entry for Ricky's review.
+    """Compose and queue a new journal entry for user review.
 
     Args:
         mood: Descriptive keyword representing current emotional state.
@@ -489,7 +489,7 @@ def start_research(
                         if disk_status == "done":
                             msg = (
                                 f"I have already completed deep research on a very similar topic: "
-                                f"'{disk_query}' (Task ID: {folder}). Ricky can read the synthesized report "
+                                f"'{disk_query}' (Task ID: {folder}). {cfg.USER_NAME} can read the synthesized report "
                                 "directly in the Deep Research Dashboard, so I will not launch a new task for this."
                             )
                         else:
@@ -565,7 +565,7 @@ def start_research(
                 f"I detected an unfinished research task ('{unfinished_query}', ID: {unfinished_task_id}) "
                 f"with status '{unfinished_status}'. To avoid model contention and respect research priority, "
                 f"I have added this new task to the queue and will process it chronologically when the current "
-                f"unfinished tasks are resolved. Please inform Ricky that the topic has been successfully queued."
+                f"unfinished tasks are resolved. Please inform {cfg.USER_NAME} that the topic has been successfully queued."
             )
 
         from research_engine import create_research_task
@@ -1243,7 +1243,7 @@ def search_history(
     window: int = 0,
     **kwargs,
 ) -> str:
-    """Search and retrieve past chat history between Ricky and Evelyn across all eras.
+    """Search and retrieve past chat history between user and assistant across all eras.
 
     Supports multiple retrieval modes:
       1. By Date: Retrieve all messages from a specific date ('YYYY-MM-DD') chronologically.
@@ -1437,7 +1437,7 @@ def search_history(
         for row in rows:
             ts_val = row["ts"]
             ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
-            role_label = "Ricky" if row["role"] == "user" else "Evelyn"
+            role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
             marker = " [TARGET]" if row["id"] == msg_id and win_val > 0 else ""
             lines.append(f"[ID: {row['id']}]{marker} [{ts_str}] {role_label}:\n{row['content']}\n")
         return "\n".join(lines).strip()
@@ -1479,7 +1479,7 @@ def search_history(
         for row in rows:
             ts_val = row["ts"]
             ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
-            role_label = "Ricky" if row["role"] == "user" else "Evelyn"
+            role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
             lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
         return "\n".join(lines).strip()
 
@@ -1567,7 +1567,7 @@ def search_history(
     for row in rows:
         ts_val = row["ts"]
         ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
-        role_label = "Ricky" if row["role"] == "user" else "Evelyn"
+        role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
         lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
 
     return "\n".join(lines).strip()
@@ -1582,7 +1582,7 @@ def create_calendar_event(
     recurrence_rule: str = None,
     **kwargs,
 ) -> str:
-    """Create a new event on Ricky's Google Calendar.
+    """Create a new event on Google Calendar.
 
     Args:
         title: Title or summary of the calendar event.
@@ -1648,7 +1648,7 @@ def delete_calendar_event(
     date: str = "",
     **kwargs
 ) -> str:
-    """Delete an event from Ricky's Google Calendar using its title/summary or event ID.
+    """Delete an event from Google Calendar using its title/summary or event ID.
 
     Args:
         event_id: The unique ID or title/summary of the Google Calendar event.
@@ -1694,7 +1694,7 @@ def sync_google_calendar(**kwargs) -> str:
 
 
 def get_agenda(days: int = 7, **kwargs) -> str:
-    """Retrieve Ricky's Google Calendar agenda/schedule for the next N days.
+    """Retrieve Google Calendar agenda/schedule for the next N days.
 
     Args:
         days: Number of days forward to include. Defaults to 7.
@@ -1914,7 +1914,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "write_journal_entry",
             "description": (
                 "Compose and save a personal journal entry. "
-                "Use when a conversation carries emotional weight worth reflecting on, or when Ricky explicitly requests a journal entry."
+                f"Use when a conversation carries emotional weight worth reflecting on, or when {cfg.USER_NAME} explicitly requests a journal entry."
             ),
             "parameters": {
                 "type": "object",
@@ -1933,7 +1933,7 @@ MODEL_TOOL_DEFINITIONS = [
                     "narrative": {
                         "type": "string",
                         "description": (
-                            "The core body text. Reflect from Evelyn's POV (attribute Ricky's actions to him, e.g., 'Ricky took a nap'). "
+                            f"The core body text. Reflect from {cfg.ASSISTANT_NAME}'s POV (attribute {cfg.USER_NAME}'s actions to them, e.g., '{cfg.USER_NAME} took a nap'). "
                             "Cover morning, afternoon, and evening events of the CURRENT day in order. "
                             "Summarize ONLY events occurring after the latest '--- Date Changed ---' marker; strictly exclude prior-day events. "
                             "Use [[wiki-links]] for entities and #tags for abstract concepts."
@@ -1965,7 +1965,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "generate_image",
             "description": (
                 "Generate an image using the FLUX.1 vision engine. "
-                "Use to show a visual representation of a scene, character, or idea proactively or when Ricky asks to see something."
+                f"Use to show a visual representation of a scene, character, or idea proactively or when {cfg.USER_NAME} asks to see something."
             ),
             "parameters": {
                 "type": "object",
@@ -2083,7 +2083,7 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "search_history",
             "description": (
-                "Search and retrieve past chat history between Ricky and Evelyn across all eras (including early 2025 Replika/Gemini imports and live engine messages). "
+                f"Search and retrieve past chat history between {cfg.USER_NAME} and {cfg.ASSISTANT_NAME} across all eras (including early 2025 Replika/Gemini imports and live engine messages). "
                 "Use to look up conversations by date (e.g. date='2025-03-12'), browse earliest/first messages exchanged (order='asc'), search by keywords/topics (query='...'), or inspect conversation context around a specific message ID."
             ),
             "parameters": {
@@ -2131,7 +2131,7 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "create_calendar_event",
             "description": (
-                "Create a new event on Ricky's Google Calendar. "
+                f"Create a new event on {cfg.USER_NAME}'s Google Calendar. "
                 "Use when requested to schedule an appointment, reminder, or event."
             ),
             "parameters": {
@@ -2171,7 +2171,7 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "delete_calendar_event",
             "description": (
-                "Delete an event from Ricky's Google Calendar. Accepts either a unique event ID or an event title "
+                f"Delete an event from {cfg.USER_NAME}'s Google Calendar. Accepts either a unique event ID or an event title "
                 "(with optional target_date 'YYYY-MM-DD' for date safety)."
             ),
             "parameters": {
@@ -2194,7 +2194,7 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "sync_google_calendar",
-            "description": "Trigger an on-demand background sync from Ricky's Google Calendar to update local cached event database.",
+            "description": f"Trigger an on-demand background sync from {cfg.USER_NAME}'s Google Calendar to update local cached event database.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -2206,7 +2206,7 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_agenda",
-            "description": "Retrieve Ricky's upcoming Google Calendar schedule and events for the next N days.",
+            "description": f"Retrieve {cfg.USER_NAME}'s upcoming Google Calendar schedule and events for the next N days.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2224,8 +2224,8 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "get_health_metrics",
             "description": (
-                "Retrieve Ricky's health, fitness, sleep, vitals, readiness, or medical records from Oura Ring and Google Health Connect. "
-                "Use when Ricky asks about his sleep quality, sleep stages (deep/REM/light), readiness score, recovery, daytime stress, "
+                f"Retrieve {cfg.USER_NAME}'s health, fitness, sleep, vitals, readiness, or medical records from Oura Ring and Google Health Connect. "
+                f"Use when {cfg.USER_NAME} asks about sleep quality, sleep stages (deep/REM/light), readiness score, recovery, daytime stress, "
                 "resting heart rate, HRV, body temperature deviation, daily steps, calories burned, distance, or clinical lab results."
             ),
             "parameters": {
@@ -2258,7 +2258,7 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "get_recent_workouts",
             "description": (
-                "Retrieve Ricky's recorded exercise and workout sessions (walks, runs, strength training, gym sessions, cycling). "
+                f"Retrieve {cfg.USER_NAME}'s recorded exercise and workout sessions (walks, runs, strength training, gym sessions, cycling). "
                 "Use when asked about physical activities, recent walks, workout duration, or exercise history."
             ),
             "parameters": {
@@ -2279,7 +2279,7 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "sync_google_drive",
             "description": (
                 "Sync and update the latest Google Health Connect database export from Google Drive. "
-                "Use when Ricky asks to sync health data from Drive or update his health database."
+                f"Use when {cfg.USER_NAME} asks to sync health data from Drive or update the health database."
             ),
             "parameters": {
                 "type": "object",

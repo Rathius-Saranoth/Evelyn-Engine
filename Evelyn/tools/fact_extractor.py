@@ -488,7 +488,7 @@ def _format_messages_for_extraction(messages: list[dict]) -> str:
     import datetime as dt
     lines = []
     for msg in messages:
-        role_label = "Ricky" if msg["role"] == "user" else "Evelyn"
+        role_label = cfg.USER_NAME if msg["role"] == "user" else cfg.ASSISTANT_NAME
         content = msg["content"]
         if len(content) > 600:
             content = content[:597] + "..."
@@ -694,7 +694,7 @@ def _build_extraction_prompt(
     return (
         "You are a precise, highly observant personal memory extractor. "
         "Analyze the following conversation and extract ONLY concrete, durable personal facts "
-        "about Ricky (the user) or Evelyn (the AI).\n"
+        f"about {cfg.USER_NAME} (the user) or {cfg.ASSISTANT_NAME} (the AI).\n"
         "Extract: preferences, physical traits, relationships, goals, beliefs, skills, events, "
         "opinions, habits, routines, or any detail worth remembering long-term.\n"
         "DO NOT extract: greetings, small talk, questions without answers, or hypotheticals.\n"
@@ -708,16 +708,16 @@ def _build_extraction_prompt(
         "instead write 'Prefers dark roast pour-over coffee with a splash of oat milk in the morning, avoiding sugar').\n"
         "2. MULTI-TIER DOMAIN TAXONOMY: Structure tags as hierarchical domain trees (e.g. `Tech/Python/FastAPI`, "
         "`Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`). "
-        "Use TitleCase with underscores for named entities (`Ricky_Sekulich`, `FastAPI`).\n"
+        "Use TitleCase with underscores for named entities (`John_Smith`, `FastAPI`).\n"
         "3. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
         "Do NOT inject Category Reference titles into the observation text.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no durable facts are found, output an empty list.\n\n"
         "```facts\n"
         "facts:\n"
-        "  - subject: Ricky          # or Evelyn\n"
-        "    category: Cat05-R        # best matching Cat##-E or Cat##-R code\n"
-        "    tags: \"Tech/Python/FastAPI, Ricky_Sekulich\"  # comma-separated hierarchical domain tags\n"
+        f"  - subject: {cfg.USER_NAME}          # or {cfg.ASSISTANT_NAME}\n"
+        f"    category: Cat05-{cfg.SUBJECT_CODE_USER}        # best matching Cat##-{cfg.SUBJECT_CODE_ASSISTANT} or Cat##-{cfg.SUBJECT_CODE_USER} code\n"
+        "    tags: \"Tech/Python/FastAPI, John_Smith\"  # comma-separated hierarchical domain tags\n"
         "    summary: \"Exact, specific, contextualized observation.\"  # full substantive statement\n"
         "    confidence: high         # high / medium / low\n"
         "    date: \"2025-03-15\"      # date this was discussed (from message timestamps)\n"
@@ -789,8 +789,8 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         if cat_base not in valid_cats:
             print(f"[EXTRACTOR] Skipping fact — unknown category: {cat}", flush=True)
             continue
-        if not cat.endswith("-E") and not cat.endswith("-R"):
-            suffix = "-R" if subj.lower() == "ricky" else "-E"
+        if not cat.endswith(f"-{cfg.SUBJECT_CODE_ASSISTANT}") and not cat.endswith(f"-{cfg.SUBJECT_CODE_USER}"):
+            suffix = f"-{cfg.SUBJECT_CODE_USER}" if subj.lower() == cfg.USER_NAME.lower() else f"-{cfg.SUBJECT_CODE_ASSISTANT}"
             cat = cat_base + suffix
             print(f"[EXTRACTOR] Inferred category suffix -> {cat}", flush=True)
 
@@ -830,7 +830,7 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
     return (
         "You are a precise procedure extractor for a personal memory system. "
         "Analyze the following conversation and extract ONLY concrete, repeatable procedural knowledge, "
-        "instructions, workflows, rules, or guidelines that Ricky (the user) asks Evelyn (the AI) to follow. "
+        f"instructions, workflows, rules, or guidelines that {cfg.USER_NAME} (the user) asks {cfg.ASSISTANT_NAME} (the AI) to follow. "
         "Specifically look for patterns like: 'When X happens, do Y, watch out for Z' or 'If I ask for A, do B'. "
         "Ignore standard factual statements, preferences, small talk, and general chat. \n\n"
         "Output ONLY a fenced YAML block in this exact format. "

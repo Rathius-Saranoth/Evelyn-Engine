@@ -13,6 +13,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import Evelyn.tools.fact_extractor as fact_extractor
 import Evelyn.tools.memory_db as memory_db
+import evelyn_config as cfg
 import evelyn_server
 
 
@@ -99,11 +100,11 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
 
     def test_parse_facts_yaml_with_hierarchical_tags(self):
         """Verify YAML facts block parsing normalizes multi-tier domain tags and TitleCase entities."""
-        raw_yaml = """
+        raw_yaml = f"""
 ```facts
 facts:
-  - subject: Ricky
-    category: Cat05-R
+  - subject: {cfg.USER_NAME}
+    category: Cat05-{cfg.SUBJECT_CODE_USER}
     tags: "tech/python/fastapi, Ricky_Sekulich, 3d-printing/slicing"
     summary: "Configured multi-tier domain taxonomies for memory extraction."
     confidence: high
@@ -113,8 +114,8 @@ facts:
         parsed = fact_extractor._parse_facts_yaml(raw_yaml, fallback_date="2026-08-19")
         self.assertEqual(len(parsed), 1)
         fact = parsed[0]
-        self.assertEqual(fact["subject"], "Ricky")
-        self.assertEqual(fact["category"], "Cat05-R")
+        self.assertEqual(fact["subject"], cfg.USER_NAME)
+        self.assertEqual(fact["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
         # Verify normalization
         self.assertEqual(fact["tags"], "tech/python/fastapi, Ricky_Sekulich, 3d-printing/slicing")
         self.assertEqual(fact["confidence"], "high")

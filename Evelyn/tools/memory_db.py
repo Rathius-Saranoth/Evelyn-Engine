@@ -453,7 +453,7 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
     if not source:
         return []
 
-    default_subject = source.get("subject", "Ricky")
+    default_subject = source.get("subject", getattr(cfg, "USER_NAME", "Ricky"))
     default_date = source.get("date")
     default_status = source.get("status", "live")
     parent_first_obs = source.get("first_observed") or source.get("created_at") or time.time()
@@ -668,7 +668,7 @@ def _extract_keywords(text: str) -> set[str]:
     Returns:
         set[str]: Set of lowercase keyword strings.
     """
-    _STOPWORDS = {
+    _STATIC_STOPWORDS = {
         "the", "and", "for", "are", "but", "not", "you", "all", "can",
         "had", "her", "was", "one", "our", "out", "has", "his", "how",
         "its", "may", "new", "now", "old", "see", "way", "who", "did",
@@ -680,13 +680,17 @@ def _extract_keywords(text: str) -> set[str]:
         "only", "over", "such", "take", "their", "well", "were", "which",
         "about", "after", "being", "could", "every", "first", "other",
         "since", "still", "those", "under", "where", "while", "would",
-        "these", "there", "should", "really", "ricky", "evelyn",
+        "these", "there", "should", "really",
+    }
+    stopwords = _STATIC_STOPWORDS | {
+        getattr(cfg, "USER_NAME", "Ricky").lower(),
+        getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower(),
     }
     words = set()
     for word in text.lower().split():
         # Strip punctuation from edges
         clean = word.strip(".,;:!?\"'()[]{}—–-")
-        if len(clean) >= 3 and clean not in _STOPWORDS:
+        if len(clean) >= 3 and clean not in stopwords:
             words.add(clean)
     return words
 

@@ -20,7 +20,7 @@ git status
 ```
 
 > [!WARNING]
-> If you see `Ricky_Narrative_Profile.md` or any `.env` files in "Untracked files", DO NOT PROCEED. Update `.gitignore` first.
+> If you see personal profile files (`*_Narrative_Profile.md`, `Evelyn/persona/`), `scripts/personal/`, or any `.env` files in "Untracked files", DO NOT PROCEED. Update `.gitignore` first.
 
 ## 2. Stage and Commit Changes
 
