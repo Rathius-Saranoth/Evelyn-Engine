@@ -20,3 +20,7 @@
   - `memory`: `/home/rathius/evelyn/data/evelyn_memory.db`
   - `vault`: `/home/rathius/evelyn/data/evelyn_vault.db`
   - `health`: `/home/rathius/evelyn/data/health/health_connect.db`
+
+## 3. Documentation & Roadmap Maintenance
+- **ROADMAP.md**: Single source of truth for milestones. Keep entries concise and milestone-oriented (1–2 sentences). Do NOT append verbose changelogs, function trace dumps, or commit logs (Git history serves as the detailed log). Keep completed tasks (`- [x]`) grouped at the top of each section and pending items (`- [ ]`) at the bottom.
+- **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, and `requirements.txt` in sync whenever code contracts change.
