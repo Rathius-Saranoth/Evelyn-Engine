@@ -5,25 +5,25 @@ Unit and integration tests for Evelyn Versioning & DB Migration Framework.
 import os
 import sqlite3
 import tempfile
+
 import pytest
 
-from Evelyn.version import (
-    __version__,
-    parse_version,
-    format_version,
-    compare_versions,
-    is_valid_version,
-    normalize_version,
-)
 from Evelyn.tools.db_migrator import (
+    DatabaseSchemaMismatchError,
     Migration,
+    MigrationExecutionError,
+    apply_pending_migrations,
+    check_all_dbs_status,
     ensure_tracking_table,
     get_applied_migrations,
-    apply_pending_migrations,
     validate_db_schemas_or_raise,
-    DatabaseSchemaMismatchError,
-    MigrationExecutionError,
-    check_all_dbs_status,
+)
+from Evelyn.version import (
+    compare_versions,
+    format_version,
+    is_valid_version,
+    normalize_version,
+    parse_version,
 )
 
 
@@ -155,3 +155,93 @@ class TestDatabaseMigrator:
 
         applied = get_applied_migrations(temp_db)
         assert "000.001.000" not in applied
+
+    def test_strip_legacy_kw_tags_from_memory(self, temp_db, monkeypatch):
+        from Evelyn.tools.db_migrator import strip_legacy_kw_tags_from_memory
+
+        with sqlite3.connect(temp_db) as conn:
+            conn.execute("""
+                CREATE TABLE context_entries (
+                    id INTEGER PRIMARY KEY,
+                    tags TEXT,
+                    observation TEXT
+                );
+            """)
+            conn.execute("""
+                CREATE TABLE proposals (
+                    id INTEGER PRIMARY KEY,
+                    merged_tags TEXT,
+                    merged_observation TEXT
+                );
+            """)
+            # Insert test records
+            conn.execute(
+                "INSERT INTO context_entries VALUES (1, ?, 'obs 1')",
+                ("CY-2025/03/12, kw/new-beginnings, kw/Ricky_Sekulich, ctx/personal-growth",)
+            )
+            conn.execute(
+                "INSERT INTO context_entries VALUES (2, ?, 'obs 2')",
+                ("kw/plain-tag",)
+            )
+            conn.execute(
+                "INSERT INTO context_entries VALUES (3, NULL, 'obs 3')"
+            )
+            conn.execute(
+                "INSERT INTO proposals VALUES (1, ?, 'prop 1')",
+                ("kw/alpha-tag, kw/BetaTag, ctx/gamma-tag",)
+            )
+            conn.commit()
+
+        # Run migration function directly
+        with sqlite3.connect(temp_db) as conn:
+            strip_legacy_kw_tags_from_memory(conn, {"memory": temp_db}, None)
+            conn.commit()
+
+        with sqlite3.connect(temp_db) as conn:
+            ce_rows = conn.execute("SELECT id, tags FROM context_entries ORDER BY id").fetchall()
+            assert ce_rows[0] == (1, "CY-2025/03/12, new-beginnings, Ricky_Sekulich, personal-growth")
+            assert ce_rows[1] == (2, "plain-tag")
+            assert ce_rows[2] == (3, None)
+
+            p_rows = conn.execute("SELECT id, merged_tags FROM proposals ORDER BY id").fetchall()
+            assert p_rows[0] == (1, "alpha-tag, Beta_Tag, gamma-tag")
+
+    def test_check_all_dbs_status_with_multi_versions(self, temp_db, monkeypatch):
+        # Create schema_migrations tracking table in temp_db
+        ensure_tracking_table(temp_db)
+        with sqlite3.connect(temp_db) as conn:
+            conn.execute("""
+                INSERT INTO schema_migrations VALUES ('000.004.000', 'baseline', '2026-08-22T00:00:00Z', 10, 'success');
+            """)
+            conn.commit()
+
+        monkeypatch.setattr("Evelyn.tools.db_migrator.DB_MAP", {"chat": temp_db, "memory": temp_db})
+        monkeypatch.setattr("Evelyn.tools.db_migrator.MIGRATIONS", [
+            Migration(target_db="chat", version="000.004.000", name="chat_base", up_sql="SELECT 1;"),
+            Migration(target_db="memory", version="000.004.000", name="memory_base", up_sql="SELECT 1;"),
+            Migration(target_db="memory", version="000.004.002", name="memory_v2", up_sql="SELECT 1;"),
+        ])
+
+        # At target 000.004.002, chat is up to date (no pending migrations), memory is pending 000.004.002
+        status = check_all_dbs_status(target_version="000.004.002")
+        assert status["chat"]["is_up_to_date"] is True
+        assert status["memory"]["is_up_to_date"] is False
+        assert status["memory"]["pending_count"] == 1
+
+        monkeypatch.setattr("Evelyn.tools.db_migrator.__version__", "000.004.002")
+        with pytest.raises(DatabaseSchemaMismatchError):
+            validate_db_schemas_or_raise()
+
+        # Apply migration for memory
+        with sqlite3.connect(temp_db) as conn:
+            conn.execute("""
+                INSERT INTO schema_migrations VALUES ('000.004.002', 'memory_v2', '2026-08-22T00:00:00Z', 10, 'success');
+            """)
+            conn.commit()
+
+        status_after = check_all_dbs_status(target_version="000.004.002")
+        assert status_after["chat"]["is_up_to_date"] is True
+        assert status_after["memory"]["is_up_to_date"] is True
+        # Now validation passes without error
+        validate_db_schemas_or_raise()
+

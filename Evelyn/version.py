@@ -11,9 +11,10 @@ Provides the single source of truth for engine versioning, zero-padded formattin
 """
 
 from __future__ import annotations
+
 import re
 
-__version__ = "000.004.001"
+__version__ = "000.004.002"
 VERSION_NAME = "Sanctum Architecture & Guardrails"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
