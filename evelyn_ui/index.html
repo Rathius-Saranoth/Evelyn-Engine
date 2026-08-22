@@ -886,6 +886,258 @@
       #send-btn.btn-stop:hover {
         background: #c82333;
       }
+      .attach-btn {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 18px;
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        transition: color 0.15s, background 0.15s;
+        flex-shrink: 0;
+      }
+      .attach-btn:hover {
+        color: var(--text);
+        background: var(--surface);
+      }
+      .attachment-preview-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        max-width: 760px;
+        margin: 0 auto 8px auto;
+        padding: 4px 0;
+      }
+      .attachment-chip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 12px;
+        color: var(--text);
+        position: relative;
+        animation: fadeIn 0.15s ease-in-out;
+      }
+      .attachment-chip img {
+        width: 28px;
+        height: 28px;
+        object-fit: cover;
+        border-radius: 4px;
+      }
+      .attachment-chip .remove-btn {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 13px;
+        padding: 0 2px;
+        transition: color 0.15s;
+      }
+      .attachment-chip .remove-btn:hover {
+        color: #ff6666;
+      }
+      .msg-attachments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .msg-attachment-thumb {
+        width: 140px;
+        height: 140px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: transform 0.15s, border-color 0.15s;
+        background: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .msg-attachment-thumb:hover {
+        transform: scale(1.02);
+        border-color: var(--accent);
+      }
+      .msg-attachment-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .lightbox-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      .lightbox-modal.active {
+        display: flex;
+      }
+      .lightbox-dialog {
+        display: flex;
+        flex-direction: row;
+        background: #141416;
+        border: 1px solid #27272a;
+        border-radius: 12px;
+        max-width: 1080px;
+        max-height: 88vh;
+        width: 100%;
+        overflow: hidden;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+      }
+      @media (max-width: 800px) {
+        .lightbox-dialog {
+          flex-direction: column;
+          max-height: 92vh;
+          overflow-y: auto;
+        }
+      }
+      .lightbox-img-pane {
+        flex: 1;
+        background: #09090b;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        min-width: 0;
+        position: relative;
+      }
+      .lightbox-img-pane img {
+        max-width: 100%;
+        max-height: 80vh;
+        object-fit: contain;
+        border-radius: 6px;
+      }
+      .lightbox-info-pane {
+        width: 360px;
+        background: #141416;
+        border-left: 1px solid #27272a;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+      }
+      @media (max-width: 800px) {
+        .lightbox-info-pane {
+          width: 100%;
+          border-left: none;
+          border-top: 1px solid #27272a;
+        }
+      }
+      .lightbox-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .lightbox-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #e4e4e7;
+      }
+      .lightbox-close {
+        background: transparent;
+        border: none;
+        color: #a1a1aa;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 4px;
+        line-height: 1;
+        border-radius: 4px;
+      }
+      .lightbox-close:hover {
+        color: #fff;
+        background: #27272a;
+      }
+      .lightbox-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .lightbox-field label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #a1a1aa;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .lightbox-field input,
+      .lightbox-field textarea {
+        background: #09090b;
+        border: 1px solid #27272a;
+        border-radius: 6px;
+        color: #f4f4f5;
+        font-size: 13px;
+        padding: 8px 10px;
+        font-family: inherit;
+        outline: none;
+        transition: border-color 0.15s;
+        resize: vertical;
+      }
+      .lightbox-field input:focus,
+      .lightbox-field textarea:focus {
+        border-color: #6366f1;
+      }
+      .lightbox-meta-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        background: #0d0d0f;
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid #1f1f23;
+        font-size: 11px;
+        color: #71717a;
+      }
+      .lightbox-meta-item strong {
+        color: #e4e4e7;
+        font-weight: 500;
+        display: block;
+        word-break: break-all;
+      }
+      .lightbox-save-btn {
+        background: #6366f1;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 9px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      .lightbox-save-btn:hover {
+        background: #4f46e5;
+      }
+      .lightbox-status {
+        font-size: 12px;
+        min-height: 16px;
+        text-align: center;
+        color: #10b981;
+      }
+      .drag-over {
+        border-color: var(--accent) !important;
+        background: rgba(120, 160, 255, 0.08) !important;
+      }
       .input-hint {
         font-size: 11px;
         color: var(--text-dim);
@@ -1077,7 +1329,10 @@
     <div id="messages"></div>
 
     <footer>
+      <div id="attachment-preview-bar" class="attachment-preview-bar" style="display: none;"></div>
       <div class="input-row">
+        <input type="file" id="media-file-input" accept="*/*" multiple style="display: none;" onchange="stageFiles(this.files)" />
+        <button class="attach-btn" id="attach-btn" title="Attach file" type="button" onclick="document.getElementById('media-file-input').click()">📎</button>
         <textarea id="input" rows="1" placeholder="Message Evelyn…" autofocus></textarea>
         <button id="send-btn" title="Send">↑</button>
       </div>
@@ -1453,7 +1708,7 @@
       // ---------------------------------------------------------------------------
       // Message rendering
       // ---------------------------------------------------------------------------
-      function appendUserMessage(text, ts) {
+      function appendUserMessage(text, ts, attachments = []) {
         const isSystem = text.startsWith("[System:");
         const div = document.createElement("div");
         div.className = isSystem ? "msg system" : "msg user";
@@ -1463,7 +1718,26 @@
         meta.textContent = isSystem ? `System · ${formatTime(ts)}` : `You · ${formatTime(ts)}`;
         const bubble = document.createElement("div");
         bubble.className = "bubble";
-        bubble.innerHTML = renderMarkdown(text);
+        if (text) {
+          bubble.innerHTML = renderMarkdown(text);
+        }
+        if (attachments && attachments.length > 0) {
+          const gallery = document.createElement("div");
+          gallery.className = "msg-attachments";
+          attachments.forEach((att) => {
+            const thumb = document.createElement("div");
+            thumb.className = "msg-attachment-thumb";
+            const img = document.createElement("img");
+            const src = att.dataUrl || (att.file_path ? `/${att.file_path}` : "");
+            img.src = src;
+            img.alt = att.description || "Image attachment";
+            img.title = "Click to enlarge";
+            thumb.onclick = () => openLightbox(src, att);
+            thumb.appendChild(img);
+            gallery.appendChild(thumb);
+          });
+          bubble.appendChild(gallery);
+        }
         div.appendChild(meta);
         div.appendChild(bubble);
         document.getElementById("messages").appendChild(div);
@@ -2306,14 +2580,461 @@
         // Telemetry context counter removed from footer per user request
       }
 
+      // ---------------------------------------------------------------------------
+      // Media / Attachment Handling & Pre-flight Canvas Downscaling
+      // ---------------------------------------------------------------------------
+      let stagedAttachments = [];
+
+      async function extractExifMetadata(file) {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const buffer = e.target.result;
+              const view = new DataView(buffer);
+              if (view.byteLength < 4 || view.getUint16(0, false) !== 0xffd8) {
+                return resolve({});
+              }
+              let offset = 2;
+              let exifOffset = -1;
+              while (offset < view.byteLength) {
+                if (view.getUint8(offset) !== 0xff) break;
+                const marker = view.getUint8(offset + 1);
+                if (marker === 0xe1) {
+                  exifOffset = offset + 4;
+                  break;
+                }
+                const len = view.getUint16(offset + 2, false);
+                offset += 2 + len;
+              }
+
+              if (exifOffset === -1 || exifOffset + 6 > view.byteLength) {
+                return resolve({});
+              }
+
+              const exifHeader = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
+              for (let i = 0; i < 6; i++) {
+                if (view.getUint8(exifOffset + i) !== exifHeader[i]) return resolve({});
+              }
+
+              const tiffOffset = exifOffset + 6;
+              const endianMarker = view.getUint16(tiffOffset, false);
+              const littleEndian = endianMarker === 0x4949;
+
+              if (endianMarker !== 0x4949 && endianMarker !== 0x4d4d) return resolve({});
+              if (view.getUint16(tiffOffset + 2, littleEndian) !== 0x002a) return resolve({});
+
+              const ifd0Offset = tiffOffset + view.getUint32(tiffOffset + 4, littleEndian);
+              if (ifd0Offset + 2 > view.byteLength) return resolve({});
+
+              const out = {};
+              let exifSubIFDOffset = -1;
+              let gpsIFDOffset = -1;
+
+              function readString(strOffset, count) {
+                let s = "";
+                for (let i = 0; i < count - 1; i++) {
+                  if (strOffset + i >= view.byteLength) break;
+                  const c = view.getUint8(strOffset + i);
+                  if (c === 0) break;
+                  s += String.fromCharCode(c);
+                }
+                return s.trim();
+              }
+
+              function readRational(rOffset) {
+                if (rOffset + 8 > view.byteLength) return 0;
+                const num = view.getUint32(rOffset, littleEndian);
+                const den = view.getUint32(rOffset + 4, littleEndian);
+                return den === 0 ? 0 : num / den;
+              }
+
+              const numEntries = view.getUint16(ifd0Offset, littleEndian);
+              for (let i = 0; i < numEntries; i++) {
+                const entryOffset = ifd0Offset + 2 + i * 12;
+                if (entryOffset + 12 > view.byteLength) break;
+                const tag = view.getUint16(entryOffset, littleEndian);
+                const type = view.getUint16(entryOffset + 2, littleEndian);
+                const count = view.getUint32(entryOffset + 4, littleEndian);
+                const valOffset = tiffOffset + view.getUint32(entryOffset + 8, littleEndian);
+
+                if (tag === 0x010f && type === 2) out.camera_make = readString(valOffset, count);
+                if (tag === 0x0110 && type === 2) out.camera_model = readString(valOffset, count);
+                if (tag === 0x0132 && type === 2) out.datetime = readString(valOffset, count);
+                if (tag === 0x8769 && type === 4)
+                  exifSubIFDOffset = tiffOffset + view.getUint32(entryOffset + 8, littleEndian);
+                if (tag === 0x8825 && type === 4)
+                  gpsIFDOffset = tiffOffset + view.getUint32(entryOffset + 8, littleEndian);
+              }
+
+              if (exifSubIFDOffset > 0 && exifSubIFDOffset + 2 <= view.byteLength) {
+                const subEntries = view.getUint16(exifSubIFDOffset, littleEndian);
+                for (let i = 0; i < subEntries; i++) {
+                  const entryOffset = exifSubIFDOffset + 2 + i * 12;
+                  if (entryOffset + 12 > view.byteLength) break;
+                  const tag = view.getUint16(entryOffset, littleEndian);
+                  const type = view.getUint16(entryOffset + 2, littleEndian);
+                  const count = view.getUint32(entryOffset + 4, littleEndian);
+                  const valOffset = tiffOffset + view.getUint32(entryOffset + 8, littleEndian);
+
+                  if (tag === 0x9003 && type === 2) out.datetimeoriginal = readString(valOffset, count);
+                  if (tag === 0xa434 && type === 2) out.lensmodel = readString(valOffset, count);
+                }
+              }
+
+              if (gpsIFDOffset > 0 && gpsIFDOffset + 2 <= view.byteLength) {
+                const gpsEntries = view.getUint16(gpsIFDOffset, littleEndian);
+                let latRef = "N",
+                  lonRef = "E";
+                let latVals = [],
+                  lonVals = [];
+                let altVal = null;
+
+                for (let i = 0; i < gpsEntries; i++) {
+                  const entryOffset = gpsIFDOffset + 2 + i * 12;
+                  if (entryOffset + 12 > view.byteLength) break;
+                  const tag = view.getUint16(entryOffset, littleEndian);
+                  const type = view.getUint16(entryOffset + 2, littleEndian);
+                  const valOffset = tiffOffset + view.getUint32(entryOffset + 8, littleEndian);
+
+                  if (tag === 0x0001 && type === 2)
+                    latRef = String.fromCharCode(view.getUint8(entryOffset + 8)).toUpperCase();
+                  if (tag === 0x0003 && type === 2)
+                    lonRef = String.fromCharCode(view.getUint8(entryOffset + 8)).toUpperCase();
+                  if (tag === 0x0002 && type === 5) {
+                    latVals = [
+                      readRational(valOffset),
+                      readRational(valOffset + 8),
+                      readRational(valOffset + 16),
+                    ];
+                  }
+                  if (tag === 0x0004 && type === 5) {
+                    lonVals = [
+                      readRational(valOffset),
+                      readRational(valOffset + 8),
+                      readRational(valOffset + 16),
+                    ];
+                  }
+                  if (tag === 0x0006 && type === 5) {
+                    altVal = readRational(valOffset);
+                  }
+                }
+
+                if (latVals.length === 3 && lonVals.length === 3) {
+                  let lat = latVals[0] + latVals[1] / 60 + latVals[2] / 3600;
+                  if (latRef === "S") lat = -lat;
+                  let lon = lonVals[0] + lonVals[1] / 60 + lonVals[2] / 3600;
+                  if (lonRef === "W") lon = -lon;
+
+                  if (lat !== 0 || lon !== 0) {
+                    out.gps = {
+                      latitude: parseFloat(lat.toFixed(6)),
+                      longitude: parseFloat(lon.toFixed(6)),
+                    };
+                    if (altVal !== null) {
+                      out.gps.altitude_m = parseFloat(altVal.toFixed(2));
+                    }
+                  }
+                }
+              }
+
+              resolve(out);
+            } catch (err) {
+              console.debug("EXIF extraction error:", err);
+              resolve({});
+            }
+          };
+          reader.onerror = () => resolve({});
+          reader.readAsArrayBuffer(file);
+        });
+      }
+
+      async function processImageFile(file) {
+        const exifMeta = await extractExifMetadata(file);
+
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+              const maxDim = 2048;
+              let width = img.width;
+              let height = img.height;
+
+              if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                  height = Math.round((height * maxDim) / width);
+                  width = maxDim;
+                } else {
+                  width = Math.round((width * maxDim) / height);
+                  height = maxDim;
+                }
+              }
+
+              const canvas = document.createElement("canvas");
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0, width, height);
+
+              const outputMime =
+                file.type === "image/png" && file.size < 2000000 ? "image/png" : "image/jpeg";
+              const dataUrl = canvas.toDataURL(outputMime, 0.9);
+
+              resolve({
+                id: "staged_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9),
+                name: file.name || "Pasted image",
+                size: Math.round(dataUrl.length * 0.75),
+                mime: outputMime,
+                dataUrl: dataUrl,
+                metadata: exifMeta,
+              });
+            };
+            img.onerror = () => reject(new Error("Failed loading image for processing"));
+            img.src = e.target.result;
+          };
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function stageFiles(files) {
+        for (const file of files) {
+          if (file.type.startsWith("image/")) {
+            try {
+              const item = await processImageFile(file);
+              stagedAttachments.push(item);
+            } catch (err) {
+              console.warn("Could not stage image attachment:", err);
+            }
+          }
+        }
+        const fileInput = document.getElementById("media-file-input");
+        if (fileInput) fileInput.value = "";
+        renderAttachmentPreviews();
+      }
+
+      function removeAttachment(index) {
+        stagedAttachments.splice(index, 1);
+        renderAttachmentPreviews();
+      }
+
+      function clearAttachments() {
+        stagedAttachments = [];
+        renderAttachmentPreviews();
+      }
+
+      function renderAttachmentPreviews() {
+        const bar = document.getElementById("attachment-preview-bar");
+        if (!bar) return;
+        if (stagedAttachments.length === 0) {
+          bar.style.display = "none";
+          bar.innerHTML = "";
+          return;
+        }
+
+        bar.style.display = "flex";
+        bar.innerHTML = "";
+        stagedAttachments.forEach((att, idx) => {
+          const chip = document.createElement("div");
+          chip.className = "attachment-chip";
+          chip.innerHTML = `
+            <img src="${att.dataUrl}" alt="Preview" />
+            <span style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(att.name)}</span>
+            <button class="remove-btn" title="Remove" type="button" onclick="removeAttachment(${idx})">✕</button>
+          `;
+          bar.appendChild(chip);
+        });
+      }
+
+      let activeLightboxGuid = null;
+      let activeLightboxAttRef = null;
+
+      async function openLightbox(src, att = null) {
+        const modal = document.getElementById("lightbox-modal");
+        const img = document.getElementById("lightbox-img");
+        if (!modal || !img) return;
+
+        img.src = src;
+        activeLightboxAttRef = att;
+        activeLightboxGuid = att ? (att.id || null) : null;
+
+        const descEl = document.getElementById("media-edit-desc");
+        const tagsEl = document.getElementById("media-edit-tags");
+        const domainEl = document.getElementById("media-edit-domain");
+        const guidEl = document.getElementById("media-meta-guid");
+        const resEl = document.getElementById("media-meta-res");
+        const dateEl = document.getElementById("media-meta-date");
+        const camEl = document.getElementById("media-meta-camera");
+        const statusEl = document.getElementById("media-save-status");
+        if (statusEl) statusEl.textContent = "";
+
+        // Pre-fill from att if present
+        if (descEl) descEl.value = att?.description || "";
+        if (tagsEl) {
+          const tags = att?.tags || [];
+          tagsEl.value = Array.isArray(tags) ? tags.join(", ") : (tags || "");
+        }
+        if (domainEl) domainEl.value = att?.taxonomy_domain || "Personal/Photo";
+        if (guidEl) guidEl.textContent = activeLightboxGuid ? activeLightboxGuid.slice(0, 16) + "…" : "Local";
+        if (resEl) resEl.textContent = (att?.width && att?.height) ? `${att.width}×${att.height}` : "-";
+        
+        let meta = att?.metadata || att?.metadata_json;
+        if (typeof meta === "string") {
+          try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+        }
+        meta = meta || {};
+
+        if (dateEl) dateEl.textContent = meta.datetimeoriginal || meta.datetime || "-";
+        if (camEl) camEl.textContent = (meta.camera_make || meta.camera_model) ? `${meta.camera_make || ""} ${meta.camera_model || ""}`.trim() : "-";
+
+        modal.classList.add("active");
+
+        // Fetch authoritative metadata from API if GUID is present
+        if (activeLightboxGuid) {
+          try {
+            const resp = await fetch(`${API_BASE}/api/media/${activeLightboxGuid}`, { headers: headers() });
+            if (resp.ok) {
+              const live = await resp.json();
+              if (descEl && live.description) descEl.value = live.description;
+              if (tagsEl && live.tags) {
+                tagsEl.value = Array.isArray(live.tags) ? live.tags.join(", ") : (live.tags || "");
+              }
+              if (domainEl && live.taxonomy_domain) domainEl.value = live.taxonomy_domain;
+              if (resEl && live.width && live.height) resEl.textContent = `${live.width}×${live.height}`;
+              
+              let liveMeta = live.metadata || live.metadata_json;
+              if (typeof liveMeta === "string") {
+                try { liveMeta = JSON.parse(liveMeta); } catch(e) { liveMeta = {}; }
+              }
+              liveMeta = liveMeta || {};
+              if (dateEl) dateEl.textContent = liveMeta.datetimeoriginal || liveMeta.datetime || "-";
+              if (camEl) camEl.textContent = (liveMeta.camera_make || liveMeta.camera_model) ? `${liveMeta.camera_make || ""} ${liveMeta.camera_model || ""}`.trim() : "-";
+            }
+          } catch (err) {
+            console.debug("Could not fetch live media metadata:", err);
+          }
+        }
+      }
+
+      function closeLightbox() {
+        const modal = document.getElementById("lightbox-modal");
+        if (modal) modal.classList.remove("active");
+        activeLightboxGuid = null;
+        activeLightboxAttRef = null;
+      }
+
+      function onLightboxBackdropClick(event) {
+        if (event.target.id === "lightbox-modal") {
+          closeLightbox();
+        }
+      }
+
+      async function saveMediaMetadata() {
+        if (!activeLightboxGuid) {
+          const statusEl = document.getElementById("media-save-status");
+          if (statusEl) {
+            statusEl.textContent = "Cannot save: Image is local only.";
+            statusEl.style.color = "#f87171";
+          }
+          return;
+        }
+
+        const desc = document.getElementById("media-edit-desc")?.value || "";
+        const tagsRaw = document.getElementById("media-edit-tags")?.value || "";
+        const domain = document.getElementById("media-edit-domain")?.value || "";
+        const statusEl = document.getElementById("media-save-status");
+        const btn = document.getElementById("media-save-btn");
+
+        const tags = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
+
+        if (statusEl) {
+          statusEl.textContent = "Saving & indexing…";
+          statusEl.style.color = "#a1a1aa";
+        }
+        if (btn) btn.disabled = true;
+
+        try {
+          const resp = await fetch(`${API_BASE}/api/media/${activeLightboxGuid}`, {
+            method: "PATCH",
+            headers: {
+              ...headers(),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              description: desc,
+              tags: tags,
+              taxonomy_domain: domain,
+            }),
+          });
+
+          if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
+          const resData = await resp.json();
+
+          if (activeLightboxAttRef) {
+            activeLightboxAttRef.description = desc;
+            activeLightboxAttRef.tags = tags;
+            activeLightboxAttRef.taxonomy_domain = domain;
+          }
+
+          if (statusEl) {
+            statusEl.textContent = "Saved & indexed into memory! ✓";
+            statusEl.style.color = "#10b981";
+            setTimeout(() => {
+              if (statusEl && statusEl.textContent.includes("Saved")) statusEl.textContent = "";
+            }, 3000);
+          }
+        } catch (err) {
+          console.error("Save media error:", err);
+          if (statusEl) {
+            statusEl.textContent = "Error saving changes.";
+            statusEl.style.color = "#f87171";
+          }
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      }
+
+      window.addEventListener("paste", (e) => {
+        const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+        if (!items) return;
+        const imageFiles = [];
+        for (const item of items) {
+          if (item.type.indexOf("image") !== -1) {
+            const blob = item.getAsFile();
+            if (blob) imageFiles.push(blob);
+          }
+        }
+        if (imageFiles.length > 0) {
+          stageFiles(imageFiles);
+        }
+      });
+
+      document.body.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        document.querySelector(".input-row")?.classList.add("drag-over");
+      });
+      document.body.addEventListener("dragleave", (e) => {
+        document.querySelector(".input-row")?.classList.remove("drag-over");
+      });
+      document.body.addEventListener("drop", (e) => {
+        e.preventDefault();
+        document.querySelector(".input-row")?.classList.remove("drag-over");
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          stageFiles(e.dataTransfer.files);
+        }
+      });
+
       async function sendMessage() {
         const input = document.getElementById("input");
         const text = input.value.trim();
-        if (!text || isStreaming) return;
+        const attachments = [...stagedAttachments];
+        if ((!text && attachments.length === 0) || isStreaming) return;
 
         input.value = "";
         input.style.height = "auto";
-        await executeChatTurn(text);
+        clearAttachments();
+        await executeChatTurn(text, attachments);
       }
 
       async function sendSystemMessage(text) {
@@ -2378,11 +3099,11 @@
         }
       }
 
-      async function executeChatTurn(text) {
+      async function executeChatTurn(text, attachments = []) {
         startStreamingUI("Thinking…");
 
         const sentAt = Date.now() / 1000;
-        const userMsgDiv = appendUserMessage(text, sentAt);
+        const userMsgDiv = appendUserMessage(text, sentAt, attachments);
 
         // Build assistant message container with activity log
         const wrap = createAssistantMessage();
@@ -2438,6 +3159,13 @@
           if (selectedEffort !== null) {
             chatPayload.think = selectedEffort;
           }
+          if (attachments && attachments.length > 0) {
+            chatPayload.images = attachments.map((a) => ({
+              data: a.dataUrl,
+              name: a.name,
+              metadata: a.metadata || {},
+            }));
+          }
           const resp = await fetch(`${API_BASE}/chat`, {
             method: "POST",
             headers: headers(),
@@ -2485,7 +3213,7 @@
 
       function renderMessageToContainer(m, container) {
         if (m.role === "user") {
-          appendUserMessage(m.content, m.ts);
+          appendUserMessage(m.content, m.ts, m.attachments || []);
         } else if (m.content === "[THREAD_BREAK]") {
           const divider = document.createElement("div");
           divider.className = "thread-divider";
@@ -3401,5 +4129,57 @@
       }
       updateDevUIBadge();
     </script>
+    <div id="lightbox-modal" class="lightbox-modal" onclick="onLightboxBackdropClick(event)">
+      <div class="lightbox-dialog" onclick="event.stopPropagation()">
+        <div class="lightbox-img-pane">
+          <img id="lightbox-img" src="" alt="Enlarged Image" />
+        </div>
+        <div class="lightbox-info-pane">
+          <div class="lightbox-header">
+            <span class="lightbox-title">Media Inspector</span>
+            <button class="lightbox-close" type="button" onclick="closeLightbox()" title="Close">✕</button>
+          </div>
+          
+          <div class="lightbox-field">
+            <label for="media-edit-desc">Description / Caption</label>
+            <textarea id="media-edit-desc" rows="3" placeholder="Image description..."></textarea>
+          </div>
+
+          <div class="lightbox-field">
+            <label for="media-edit-tags">Tags (comma-separated or #tags)</label>
+            <input id="media-edit-tags" type="text" placeholder="#cat, #Fox, #pets/Fox" />
+          </div>
+
+          <div class="lightbox-field">
+            <label for="media-edit-domain">Taxonomy Domain</label>
+            <input id="media-edit-domain" type="text" placeholder="Personal/Photo" />
+          </div>
+
+          <div class="lightbox-meta-grid" id="lightbox-meta-grid">
+            <div class="lightbox-meta-item">
+              GUID
+              <strong id="media-meta-guid">-</strong>
+            </div>
+            <div class="lightbox-meta-item">
+              Resolution
+              <strong id="media-meta-res">-</strong>
+            </div>
+            <div class="lightbox-meta-item">
+              Taken
+              <strong id="media-meta-date">-</strong>
+            </div>
+            <div class="lightbox-meta-item">
+              Camera
+              <strong id="media-meta-camera">-</strong>
+            </div>
+          </div>
+
+          <button id="media-save-btn" class="lightbox-save-btn" type="button" onclick="saveMediaMetadata()">
+            Save Metadata
+          </button>
+          <div id="media-save-status" class="lightbox-status"></div>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

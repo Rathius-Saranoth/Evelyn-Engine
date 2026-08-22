@@ -16,4 +16,6 @@ html2text>=2024.2            # Fallback HTML to text/markdown parser
 google-api-python-client>=2.100.0 # Google Drive, Docs, Sheets & Tasks client
 google-auth-oauthlib>=1.2.0  # Google OAuth2 InstalledAppFlow
 google-auth-httplib2>=0.2.0  # Google HTTP transport auth
+mcp>=2.0.0                   # Model Context Protocol SDK — scripts/sqlite_mcp_server.py
+Pillow>=10.0.0               # Image processing & EXIF/GPS extraction — media_db.py
 

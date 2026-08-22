@@ -65,6 +65,7 @@ pip install -r requirements.txt
 | `google-api-python-client`  | ≥2.100  | Google Drive, Docs, Sheets & Tasks API client — `gdrive_sync.py`, `gdrive_knowledge_importer.py` |
 | `google-auth-oauthlib`      | ≥1.2    | Google OAuth 2.0 InstalledAppFlow client credential management                             |
 | `google-auth-httplib2`      | ≥0.2    | Google HTTP transport authentication layer                                                 |
+| `mcp`                       | ≥2.0    | Model Context Protocol SDK for workspace database and vector inspection — `sqlite_mcp_server.py` |
 
 ### Standard Library (No Install Needed)
 

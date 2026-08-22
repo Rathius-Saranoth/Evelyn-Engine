@@ -248,6 +248,20 @@ Endpoints driving the background research engine and the interactive developer d
 * **Payload**: `{"ids": ["id1", "id2", ...]}`
 * **Response**: A JSON object mapping each requested approval ID to its current status details (status, type, metadata), excluding the raw file content payloads.
 
+---
+
+## 7. Media & Visual Memory Endpoints
+
+### `GET /api/media/{guid}`
+* **Purpose**: Fetch detailed metadata, hardware EXIF, dimensions, file paths, and tags for an indexed media asset by GUID.
+* **Returns**: JSON object containing asset properties (`id`, `description`, `tags`, `taxonomy_domain`, `metadata_json`, `file_path`, `width`, `height`, `file_size_bytes`).
+
+### `PATCH /api/media/{guid}` & `POST /api/media/{guid}`
+* **Purpose**: Update user-defined descriptions, tags, and domain taxonomy for an image asset, and trigger immediate re-indexing into the ChromaDB `evelyn_media` vector collection.
+* **Payload**: `{"description": "optional string", "tags": ["#tag1", "#tag2"] | "tag1, tag2", "taxonomy_domain": "optional string"}`
+* **Returns**: `{"status": "ok", "asset": {...}}`
+
+
 
 [evelyn_server.py]: ../evelyn_server.py "evelyn_server.py"
 [query_reformulator.py]: ../Evelyn/tools/query_reformulator.py "query_reformulator.py"
