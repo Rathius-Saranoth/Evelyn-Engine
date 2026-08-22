@@ -25,8 +25,8 @@ import datetime
 import importlib
 import evelyn_config as cfg # [[evelyn_config.py]]
 
-JOURNAL_DIR = getattr(cfg, "JOURNAL_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Evelyn", "Evelyn's Journal"))
-PENDING_DIR = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Evelyn", "Pending_Approvals", "Journal")
+JOURNAL_DIR = getattr(cfg, "JOURNAL_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), f"{getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}'s Journal"))
+PENDING_DIR = os.path.join(getattr(cfg, "PENDING_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), "Pending_Approvals")), "Journal")
 
 
 def _resolve_journal_filepath(date_str: str) -> str | None:

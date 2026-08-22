@@ -32,13 +32,13 @@ FOLDER_MAP = {
     "Prompt Lab": "Notes/Prompt Lab",
     "Pets": "Notes/Pets",
     "Recipes": "Notes/Recipes",
-    "Financial": "Alex/Financial",
-    "Professional": "Alex/Professional",
-    "Medical": "Alex/Medical",
+    "Financial": f"{getattr(cfg, 'USER_NAME', 'Alex')}/Financial",
+    "Professional": f"{getattr(cfg, 'USER_NAME', 'Alex')}/Professional",
+    "Medical": f"{getattr(cfg, 'USER_NAME', 'Alex')}/Medical",
     "Genealogy": "Genealogy",
     "Talonesti": "Projects/Talonesti",
     "Jordan": "Jordan",
-    "Evelyn": "Evelyn",
+    getattr(cfg, "ASSISTANT_NAME", "Evelyn"): getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
     "Art Institute": "Projects/Art Institute"
 }
 
