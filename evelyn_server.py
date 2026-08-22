@@ -1939,6 +1939,22 @@ async def lifespan(app: FastAPI):
 
     asyncio.get_event_loop().set_exception_handler(_suppress_connection_reset)
 
+    # 0. Engine Version & Database Schema Validation
+    print(f"\n{_CYN}🌌 Evelyn Engine v{cfg.__version__} ({cfg.VERSION_NAME}){_RST}\n")
+    import Evelyn.tools.db_migrator as db_migrator
+
+    if getattr(cfg, "AUTO_MIGRATE_ON_BOOT", False):
+        migrated = db_migrator.apply_pending_migrations()
+        if migrated:
+            print(f"  {_GRN}DB Migrator:{_RST} Applied {len(migrated)} pending database migration(s).")
+    else:
+        try:
+            db_migrator.validate_db_schemas_or_raise()
+            print(f"  {_GRN}DB Schemas:{_RST} All databases verified up to date (v{cfg.__version__}).")
+        except db_migrator.DatabaseSchemaMismatchError as e:
+            print(f"  {_RED}{e}{_RST}", flush=True)
+            raise e
+
     init_db()
     import Evelyn.tools.task_manager as task_manager
     import Evelyn.tools.chroma_rag as chroma_rag
@@ -2447,9 +2463,13 @@ app.mount("/attachments", StaticFiles(directory=cfg.ATTACHMENTS_DIR), name="atta
 
 @app.get("/status")
 async def status(_: None = Depends(check_auth)):
-    """Return server health and active config (model, context size, think mode)."""
+    """Return server health and active config (model, context size, think mode, engine version)."""
+    import Evelyn.tools.db_migrator as db_migrator
     return {
         "status": "ok",
+        "engine_version": getattr(cfg, "__version__", "000.004.000"),
+        "version_name": getattr(cfg, "VERSION_NAME", "Sanctum Architecture & Guardrails"),
+        "db_versions": {k: db_migrator.get_db_version(k) for k in db_migrator.DB_MAP},
         "model": cfg.MODEL_NAME,
         "think": cfg.THINK,
         "think_tool_loop": cfg.THINK_TOOL_LOOP,

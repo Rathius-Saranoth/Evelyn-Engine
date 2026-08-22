@@ -15,10 +15,11 @@ This skill outlines how to inspect, query, and debug Evelyn's SQLite databases c
 
 | Alias | Full Path | Primary Tables | Purpose |
 | :--- | :--- | :--- | :--- |
-| `chat` | `/home/rathius/evelyn/data/evelyn_chat.db` | `messages`, `calendar_events`, `message_metrics` | Chat history, assistant thinking traces, active conversation context |
-| `memory` | `/home/rathius/evelyn/data/evelyn_memory.db` | `context_entries`, `proposals`, `evolution_state` | Extracted facts, profile evolution proposals, consolidation history |
-| `vault` | `/home/rathius/evelyn/data/evelyn_vault.db` | `vault_files`, `vault_tags`, `vault_fts` | Indexed Obsidian vault notes, tags, and document vectors |
-| `health` | `/home/rathius/evelyn/data/health/health_connect.db` | `sleep_sessions`, `daily_metrics`, `heart_rate` | Health Connect & Oura Ring biometric data |
+| `chat` | `data/evelyn_chat.db` | `messages`, `calendar_events`, `message_metrics` | Chat history, assistant thinking traces, active conversation context |
+| `memory` | `data/evelyn_memory.db` | `context_entries`, `proposals`, `procedures`, `schema_migrations` | Extracted facts, profile evolution proposals, consolidation history |
+| `vault` | `data/evelyn_vault.db` | `vault_documents`, `master_tag_taxonomy`, `schema_migrations` | Indexed Obsidian vault notes, tag taxonomy, and metadata hashes |
+| `media` | `data/evelyn_media.db` | `media_assets`, `chat_media_links`, `schema_migrations` | Binary media attachments, EXIF metadata, visual OCR captions |
+| `health` | `data/health/health_connect.db` | `sleep_sessions`, `daily_metrics`, `heart_rate` | Health Connect & Oura Ring biometric data |
 
 > [!NOTE]
 > **Fast Memory Taxonomy**: Context entries use category codes `Cat##-U` for User facts (e.g. `Cat01-U` to `Cat16-U`) and `Cat##-A` for Assistant facts (e.g. `Cat01-A` to `Cat16-A`). The `subject` column stores the entity name dynamically configured in `evelyn_config.py`.

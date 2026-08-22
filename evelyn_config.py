@@ -12,6 +12,12 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 
 import os
 import time
+from Evelyn.version import __version__, VERSION_NAME
+
+# Engine Version & Boot Migration Policy
+# Set AUTO_MIGRATE_ON_BOOT to True if you want the server to automatically apply pending
+# migrations on boot instead of failing fast and asking for CLI migration.
+AUTO_MIGRATE_ON_BOOT = False
 
 # User Timezone (America/Chicago for Central Time)
 USER_TIMEZONE = "America/Chicago"
@@ -162,22 +168,24 @@ SUMMARY_MODEL_OVERRIDE = "default"
 # =============================================================================
 # Paths
 # =============================================================================
-BASE_DIR = r"/home/rathius/evelyn"
-TOOLS_DIR = r"/home/rathius/evelyn/Evelyn/tools"
-VAULT_BASE_DIR = r"/home/rathius/obsidian_vault" # [[Obsidian_Vault]]
-PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
-VAULT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_vault.db" # [[evelyn_vault.db]]
-VAULT_SYNC_STATE = r"/home/rathius/evelyn/data/vault_sync_state.json" # [[vault_sync_state.json]]
-GIST_SYNC_STATE = r"/home/rathius/evelyn/data/gist_sync_state.json" # [[gist_sync_state.json]]
-CHROMA_DB_PATH = r"/home/rathius/evelyn/data/chroma_db" # [[chroma_db]]
-CHAT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_chat.db" # [[evelyn_chat.db]]
-MEMORY_DB_PATH = r"/home/rathius/evelyn/data/evelyn_memory.db" # [[evelyn_memory.db]]
-MEDIA_DB_PATH = r"/home/rathius/evelyn/data/evelyn_media.db" # [[evelyn_media.db]]
-ATTACHMENTS_DIR = r"/home/rathius/evelyn/data/attachments" # [[attachments]]
-GCAL_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gcal_credentials.json"
-GCAL_TOKEN_PATH = r"/home/rathius/evelyn/data/gcal_token.json"
-GDRIVE_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gdrive_credentials.json"
-GDRIVE_TOKEN_PATH = r"/home/rathius/evelyn/data/gdrive_token.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+TOOLS_DIR = os.path.join(BASE_DIR, "Evelyn", "tools")
+VAULT_BASE_DIR = os.path.expanduser("~/obsidian_vault") # [[Obsidian_Vault]]
+PERSONA_DIR = os.path.join(BASE_DIR, "Evelyn", "persona") # [[persona]]
+
+VAULT_DB_PATH = os.path.join(DATA_DIR, "evelyn_vault.db") # [[evelyn_vault.db]]
+VAULT_SYNC_STATE = os.path.join(DATA_DIR, "vault_sync_state.json") # [[vault_sync_state.json]]
+GIST_SYNC_STATE = os.path.join(DATA_DIR, "gist_sync_state.json") # [[gist_sync_state.json]]
+CHROMA_DB_PATH = os.path.join(DATA_DIR, "chroma_db") # [[chroma_db]]
+CHAT_DB_PATH = os.path.join(DATA_DIR, "evelyn_chat.db") # [[evelyn_chat.db]]
+MEMORY_DB_PATH = os.path.join(DATA_DIR, "evelyn_memory.db") # [[evelyn_memory.db]]
+MEDIA_DB_PATH = os.path.join(DATA_DIR, "evelyn_media.db") # [[evelyn_media.db]]
+ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments") # [[attachments]]
+GCAL_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gcal_credentials.json")
+GCAL_TOKEN_PATH = os.path.join(DATA_DIR, "gcal_token.json")
+GDRIVE_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gdrive_credentials.json")
+GDRIVE_TOKEN_PATH = os.path.join(DATA_DIR, "gdrive_token.json")
 
 # =============================================================================
 # Vault Write Paths & Access Control
@@ -219,10 +227,10 @@ VAULT_WRITE_IGNORE = [
 ]
 
 # Health Connect & Oura Ring Configuration
-HEALTH_DATA_DIR = r"/home/rathius/evelyn/data/health"
-HEALTH_DB_PATH = r"/home/rathius/evelyn/data/health/health_connect.db"
-HEALTH_SYNC_STATE_PATH = r"/home/rathius/evelyn/data/health_sync_state.json"
-OURA_TOKEN_PATH = r"/home/rathius/evelyn/data/oura_token.json"
+HEALTH_DATA_DIR = os.path.join(DATA_DIR, "health")
+HEALTH_DB_PATH = os.path.join(HEALTH_DATA_DIR, "health_connect.db")
+HEALTH_SYNC_STATE_PATH = os.path.join(DATA_DIR, "health_sync_state.json")
+OURA_TOKEN_PATH = os.path.join(DATA_DIR, "oura_token.json")
 
 # SQLite PRAGMAs — tuned per hardware tier.
 # Power Tier  (64GB+ RAM, server):  mmap=2GB,  cache=64MB
@@ -517,24 +525,31 @@ RESEARCH_MODEL_OVERRIDE = "default"
 RESEARCH_SELF_INITIATE = True
 
 # Maximum queued self-initiated topics. Prevents runaway queue growth.
-RESEARCH_MAX_QUEUE_SIZE = 5
+# Minimum confidence score (0.0 - 1.0) required to consider a research question answered.
+# Questions scoring below this threshold trigger gap analysis and follow-up searches.
+RESEARCH_CONFIDENCE_THRESHOLD = 0.5
 
-# Active-hours window for research task execution (local time, 24-hour clock).
-# Research tasks will only START or RESUME within this window.
-# Any task already mid-step at window close will finish that step cleanly, then
-# pause at the step boundary — no hard kills. Set both to 0 to disable windowing
-# (research runs any hour).
+# Model name used by the research engine for extraction and synthesis.
+# "default" uses MODEL_NAME. Set to a specific model to use a different one for research.
+RESEARCH_MODEL = "default"
+
+# Circadian window for Deep Research tasks.
+# Research tasks only run between these hours (local time, defined by USER_TIMEZONE).
+# Outside this window, tasks pause cleanly at the next step boundary and resume in the morning.
 # Intention: reserve overnight hours for evolution/consolidation tasks, mimicking
 # a human sleep/dream cycle where memory consolidation happens during rest.
 RESEARCH_ACTIVE_HOURS_START = 6   # 06:00 local time
 RESEARCH_ACTIVE_HOURS_END   = 21  # 21:00 local time
 
+# Maximum queued self-initiated topics. Prevents runaway queue growth.
+RESEARCH_MAX_QUEUE_SIZE = 5
+
 # =============================================================================
 # Services
 # =============================================================================
 TTS_SERVER_URL = "http://localhost:5050"  # Chatterbox TTS server
-IMAGE_SERVER_URL = "http://image-host.internal.net:5055"  # FLUX.1 [schnell] Image server (or http://localhost:5055)
-IMAGE_OUTPUT_DIR = r"/home/rathius/evelyn/services/image/output"
+IMAGE_SERVER_URL = "http://localhost:5055"  # FLUX.1 [schnell] Image server
+IMAGE_OUTPUT_DIR = os.path.join(BASE_DIR, "services", "image", "output")
 
 # =============================================================================
 # Server
@@ -546,12 +561,13 @@ BIND_HOST = "0.0.0.0"  # Reachable over Tailscale / LAN
 # or override the default below (not recommended for committed code)
 API_KEY = os.environ.get("EVELYN_API_KEY", "")
 
-# CORS origins — defaults to localhost. Add your Tailscale/LAN hostnames below.
-# Example Tailscale: "https://my-server.tail12345.ts.net:7860"
-# Example LAN:       "https://192.168.1.100:7860"
+# Tailscale hostname or IP for the Evelyn server.
+# Used by mobile/remote clients to connect back to the server.
+SERVER_HOST = "localhost"
+
+# Allowed CORS origins for browser access (e.g. tablet, phone).
+# Tailscale IPs/magicDNS names and localhost are allowed.
 ALLOWED_ORIGINS = [
-    f"http://localhost:{SERVER_PORT}",
-    f"https://localhost:{SERVER_PORT}",
     f"http://127.0.0.1:{SERVER_PORT}",
     f"https://127.0.0.1:{SERVER_PORT}",
     # --- Tailscale & LAN Origins ---
@@ -626,9 +642,9 @@ PROFILE_EVOLUTION_LIMITS = {
 TERMINAL_ENABLED = True
 
 TERMINAL_ALLOWED_PATHS = [
-    "/home/rathius/evelyn",
+    BASE_DIR,
     "/tmp",
-    "/home/rathius/obsidian_vault",
+    VAULT_BASE_DIR,
 ]
 
 TERMINAL_DEFAULT_TIMEOUT = 30      # seconds
