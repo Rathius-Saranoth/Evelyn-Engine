@@ -1,9 +1,27 @@
+---
+title: CHANGELOG.md
+date created: 2026-08-22 15:53:28
+date modified: 2026-08-22 15:53:28
+tags: 
+---
 # 📜 Changelog
 
 All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+---
+
+## [000.004.001] - 2026-08-22 — *Research Watchdog & Scope Dynamic Timeouts*
+
+### Fixed
+- **Deep Research Watchdog Timeout Premature Abort**:
+  - Added dedicated soft timeout baselines for research scopes (`research_quick`: 2,400s / 40m, `research_standard`: 9,000s / 2.5h, `research_deep`: 32,400s / 9h) in `task_manager.py:DEFAULT_SOFT_TIMEOUTS`.
+  - Updated `task_manager.get_dynamic_timeout()` to dynamically resolve task scope and `wall_clock_timeout` directly from the server task registry or on-disk `state.json` (`max(wall_clock_timeout + 1800, wall_clock_timeout * 1.25)`).
+  - Resolved dynamic statistical historical aggregation for research tasks using wildcard matching (`WHERE task_name LIKE 'task_%'`) in SQLite `heavy_task_history`.
+- **Heavy Task Registry Synchronization**:
+  - Registered `tag_librarian` in `task_manager.HEAVY_TASK_KEYS` and synchronized known heavy tasks in `reference/engine_architecture.md`.
 
 ---
 

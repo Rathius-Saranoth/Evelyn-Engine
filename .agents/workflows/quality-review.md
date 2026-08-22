@@ -2,7 +2,7 @@
 description: A structured self-review checklist based on the "Notes to Live By" engineering standards
 title: quality-review.md
 date created: 2026-04-26 10:18:20
-date modified: 2026-05-28 14:58:20
+date modified: 2026-08-22 15:53:52
 tags: quality, review, guidelines, standards, checklist
 ---
 
@@ -48,6 +48,8 @@ Walk through each gate for the code you just wrote or modified:
 - [ ] **API Endpoints (`reference/endpoints.md`)** — Have any endpoint contracts, parameter signatures, or return payloads been modified or added? Is the endpoint reference document updated to match exactly?
 - [ ] **Engine Architecture Map (`reference/engine_architecture.md`)** — Have any core scripts, background workers, or storage components been introduced or refactored? Is the structural blueprint and Mermaid diagram updated to reflect the new state?
 - [ ] **Google API & Scopes Reference (`reference/google_access.md`)** — Have any Google APIs or OAuth scopes been added, removed, or changed? Is `reference/google_access.md` updated to match the active scopes configured in setup scripts?
+- [ ] **Versioning (`Evelyn/version.py`)** — Has `__version__` been incremented using strict 3-digit zero-padded format (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`)?
+- [ ] **Changelog (`CHANGELOG.md`)** — Is there a matching version heading (`## [000.004.00X] - YYYY-MM-DD`) documenting all added capabilities, bugfixes, behavioral changes, or database migrations?
 - [ ] **Dependency files** — `requirements.txt` and/or `REQUIREMENTS.md` updated if applicable?
 
 ## 6. Verdict

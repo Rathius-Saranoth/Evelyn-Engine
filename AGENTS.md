@@ -1,3 +1,9 @@
+---
+title: AGENTS.md
+date created: 2026-08-22 15:53:58
+date modified: 2026-08-22 15:53:58
+tags: 
+---
 # Evelyn Workspace Agent Rules
 
 ## 1. Python Environment & Execution
@@ -35,4 +41,4 @@
 - **Database Migration Framework**: All database schema changes (table creation, column additions, indexes) and structural data transformations (field splitting, backfills, cross-database data moves) must be registered as a versioned migration step in `Evelyn/tools/db_migrator.py` (`MIGRATIONS` registry) and executed via `scripts/migrate_db.py`.
 - **Immutability Rule**: Once a migration version (`000.004.00X`) is committed and applied, its migration code and SQL are **strictly immutable**. Any corrective schema changes, data patches, or structural adjustments must be registered in a **new, incremented migration step** (`000.004.00X+1`).
 - **No Out-of-Band Schema Mutations**: Modifying production database schemas or transforming database structures ad-hoc via inline scripts or unversioned queries is strictly forbidden.
-- **Changelog Maintenance**: Major and Minor version milestones (`000.X00.000`) require a documented entry in `CHANGELOG.md` detailing added capabilities, changed behaviors, architectural milestones, and migrations applied. Keep `ROADMAP.md` concise and milestone-oriented.
+- **Changelog & Versioning Maintenance**: Every functional code modification (features, bugfixes, architectural adjustments, database migrations) requires an incremented canonical version in `Evelyn/version.py` (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`) and a documented entry in `CHANGELOG.md` detailing added capabilities, fixed issues, changed behaviors, and migrations applied. Keep `ROADMAP.md` concise and milestone-oriented.
