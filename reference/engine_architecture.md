@@ -208,8 +208,10 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **[[update_frontmatter.py]]**: Structural metadata utility running automatically on document edits.
 * **[[add_titles.py]]**: Retroactive title block scanner.
 * **`evelyn_setup.py`**: Interactive CLI setup and identity configuration wizard for provisioning assistant names, operator names, vault paths, and starter templates.
+* **`Evelyn/tools/db_migrator.py`**: Multi-database migration framework with transactional DDL, Python data transform callables, and per-database tracking tables (`schema_migrations`).
+* **`scripts/migrate_db.py`**: Standalone CLI migration manager supporting status inspection, execution, dry-runs, and automated Git release tagging.
 * **`scripts/migrate_subject_codes.py`**: Strict taxonomy migration utility converting database context entries and proposals from `-R`/`-E` to `-U`/`-A`.
-* **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
+* **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `media`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
 * **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
 * **`templates/`**: Generic persona, profile, directive, and physical description example templates for open-source distributions.
 
@@ -217,16 +219,16 @@ Evelyn Engine operations are codified inside interactive workflow files:
 
 ## 4. Related Workspace Paths & Integrations
 
-The Evelyn ecosystem operates in tandem with external environments and local system processes. Refer to the following standardized directory mappings:
+The Evelyn ecosystem operates in tandem with external environments and local system processes. Paths are derived dynamically from `BASE_DIR` in `evelyn_config.py`:
 
 ### 4.1 Development Workspaces
-* **Evelyn Root**: `/home/rathius/evelyn` (Main custom server and companion repository)
-* **Scripts / Automation**: `/home/rathius/evelyn/scripts` (General utility and maintenance tools)
+* **Evelyn Root (`BASE_DIR`)**: `.` (Repository root containing server, config, and web UI)
+* **Evelyn Tools (`TOOLS_DIR`)**: `Evelyn/tools` (Sub-pipelines and executable runtime actions)
+* **Scripts / Automation**: `scripts/` (General utility and maintenance tools)
 
 ### 4.2 Resource & Data Directories
-* **Obsidian Vault Base**: `/home/rathius/obsidian_vault` (Core vault hosting personal knowledge bases, prompts, and notes)
-* **Evelyn Tools**: `/home/rathius/evelyn/Evelyn/tools` (Sub-pipelines and executable runtime actions)
-* **SQLite Data Base & Approvals**: `/home/rathius/evelyn/data` (Persistent databases, index hashes, Chroma vectors, and staged terminal approvals JSON)
+* **Obsidian Vault Base (`VAULT_BASE_DIR`)**: `~/obsidian_vault` (Core vault hosting personal knowledge bases, prompts, and notes)
+* **SQLite Data Base (`DATA_DIR`)**: `data/` (Persistent databases: `chat`, `memory`, `vault`, `media`, `health`, Chroma vectors, and backups)
 * **Ollama Data**: `~/.ollama/models` (Local model weights and parameters)
 
 ---

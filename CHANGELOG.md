@@ -1,0 +1,79 @@
+# 📜 Changelog
+
+All notable changes to the Evelyn Engine are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+---
+
+## [000.004.000] - 2026-08-22 — *Sanctum Architecture & Guardrails*
+
+### Added
+- **Zero-Padded Versioning & Migration Framework**:
+  - Centralized version definition `__version__ = "000.004.000"` with parsing and comparison utilities in `Evelyn/version.py`.
+  - Built `Evelyn/tools/db_migrator.py` with transactional DDL execution, Python callable data transforms, per-database tracking tables (`schema_migrations`), safety snapshots (`data/backups/`), and post-migration Chroma/Vault synchronization hooks.
+  - Implemented standalone CLI migration manager `scripts/migrate_db.py` supporting `--status`, `--execute`, `--dry-run`, and automated Git release tagging (`--tag`).
+  - Added fail-fast boot validation to `evelyn_server.py` with an optional `AUTO_MIGRATE_ON_BOOT` configuration toggle.
+- **Repository Documentation**:
+  - Published comprehensive, modern repository `README.md` with system overview, architecture diagrams, and AI-collaboration & human-architecting disclosures.
+  - Created formal `CHANGELOG.md`.
+
+### Changed
+- **Open-Source Sanitization & Persona Parameterization**:
+  - Extracted hardcoded persona, user identity, and vault path variables into parameterized configurations in `evelyn_config.py`.
+  - Migrated Fast Memory taxonomy codes from `-R`/`-E` to abstract `-U` (User) and `-A` (Assistant).
+  - Deployed generic persona, user profile, and system directive templates in `templates/` with an interactive setup wizard (`evelyn_setup.py`).
+
+### Architectural & Resilience
+- **Centralized Task Mutual Exclusion (`task_manager.py`)**:
+  - Unified heavy task registry and watchdog preventing concurrent CPU/GPU resource thrashing across research, fact extraction, and profile evolution.
+- **ChromaDB Single-Writer Custodian**:
+  - SQLite WAL-backed staging queue (`chroma_sync_queue`) with single-process custodial writes to eliminate HNSW vector index corruption and file-lock collisions.
+- **Dual-Socket NUMA Partitioning**:
+  - Node 0 CPU/GPU pinning for core LLM inference and SQLite I/O; Node 1 isolation for Chatterbox TTS speech synthesis.
+
+### Database Migrations
+- Baseline migration `000.004.000` registered and applied across `chat`, `memory`, `vault`, and `media` databases.
+
+---
+
+## [000.003.000] - 2026-07-15 — *Senses, Tools & Agency*
+
+### Added
+- **Autonomous Deep Research Subsystem**:
+  - Background multi-step search engine with Trafilatura crawling, atomic query generation, evidence synthesis, discovered technical alias expansion, and direct Markdown compilation into Obsidian.
+- **Chatterbox Speech Synthesis (F5-TTS/Matcha)**:
+  - Streaming low-latency neural TTS server with sentence chunking and dynamic emotion tags.
+- **Multimodal Visual Memory & Attachment Indexing**:
+  - SQLite media asset registry (`evelyn_media.db`), EXIF/GPS coordinate parsing, and local vision indexing pipeline.
+- **Agentic Health & Life Tracking**:
+  - Oura Ring Cloud API v2 integration (sleep/readiness/stress metrics) and Google Drive Health Connect database synchronization.
+- **Developer Triage & Review Console**:
+  - Touch-optimized web dashboard (`evelyn_ui/dev.html`) with real-time heavy task monitoring and proposal review queues.
+
+---
+
+## [000.002.000] - 2026-05-15 — *Long-Term Memory & Vector RAG*
+
+### Added
+- **Persistent SQLite Memory Storage**:
+  - Introduced `evelyn_memory.db` for categorized context entries, consolidation proposals, and procedural workflows.
+  - Introduced `evelyn_vault.db` for incremental file mapping, link graphs, and backlink resolution.
+- **Semantic ChromaDB RAG Vector Store**:
+  - Full-vault vector embeddings using `BAAI/bge-large-en-v1.5` with priority boosting.
+- **Autonomous Memory Extraction & Consolidation**:
+  - Background fact extractor and deduplication engines running during server idle periods.
+
+---
+
+## [000.001.000] - 2026-03-25 — *Persona & Brain Core*
+
+### Added
+- **Custom FastAPI Server (`evelyn_server.py`)**:
+  - Standalone server replacing OpenWebUI/Modelfile runtime for sub-millisecond overhead.
+  - Streaming SSE chat completions, regeneration, message editing, and history endpoints.
+- **Ollama Local LLM Integration**:
+  - Optimized system prompt assembly, dynamic context window budgeting, and temperature tuning.
+- **Interactive Chat Interface**:
+  - Clean HTML/CSS companion chat client with offline Markdown rendering (`marked.js` + `DOMPurify`).
