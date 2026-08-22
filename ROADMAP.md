@@ -85,11 +85,11 @@ This roadmap is the primary source of truth for project milestones and future di
 
 ---
 
-## Phase 6: Open Source & Community (Future)
+## Phase 6: Open Source & Architecture Reference
 
 *Goal: Share the Evelyn Engine as a clean, extensible framework for hyper-personalized local AI companions.*
 
 - [x] **Privacy Guardrails**: Strict boundary enforcement separating personal data ("Soul") from codebase ("Engine").
 - [x] **Template Sanitization**: Parameterized persona and operator identity in config, migrated Fast Memory subject codes (-U/-A), and shipped starter templates with setup wizard.
-- [ ] **Architectural Documentation**: Publish comprehensive setup and developer guides.
-- [ ] **Public GitHub Repository**: Initial open-source release of the Evelyn Engine framework.
+- [x] **Architectural Documentation**: Published comprehensive setup, architecture, and developer reference guides.
+- [x] **Public GitHub Repository**: Initial public release of the Evelyn Engine framework with zero-padded versioning and database migration tooling.
