@@ -20,6 +20,9 @@ This skill outlines how to inspect, query, and debug Evelyn's SQLite databases c
 | `vault` | `/home/rathius/evelyn/data/evelyn_vault.db` | `vault_files`, `vault_tags`, `vault_fts` | Indexed Obsidian vault notes, tags, and document vectors |
 | `health` | `/home/rathius/evelyn/data/health/health_connect.db` | `sleep_sessions`, `daily_metrics`, `heart_rate` | Health Connect & Oura Ring biometric data |
 
+> [!NOTE]
+> **Fast Memory Taxonomy**: Context entries use category codes `Cat##-U` for User facts (e.g. `Cat01-U` to `Cat16-U`) and `Cat##-A` for Assistant facts (e.g. `Cat01-A` to `Cat16-A`). The `subject` column stores the entity name dynamically configured in `evelyn_config.py`.
+
 ---
 
 ## 2. Using the `evelyn-sqlite` MCP Server

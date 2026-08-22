@@ -207,9 +207,11 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **[[debug-chat-db.md]]**: Inspecting chat history logs and troubleshooting SQLite events.
 * **[[update_frontmatter.py]]**: Structural metadata utility running automatically on document edits.
 * **[[add_titles.py]]**: Retroactive title block scanner.
-* **[[benchmark_rag.py]]**: Diagnostic pipeline query testing framework.
+* **`evelyn_setup.py`**: Interactive CLI setup and identity configuration wizard for provisioning assistant names, operator names, vault paths, and starter templates.
+* **`scripts/migrate_subject_codes.py`**: Strict taxonomy migration utility converting database context entries and proposals from `-R`/`-E` to `-U`/`-A`.
 * **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
 * **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
+* **`templates/`**: Generic persona, profile, directive, and physical description example templates for open-source distributions.
 
 ---
 
