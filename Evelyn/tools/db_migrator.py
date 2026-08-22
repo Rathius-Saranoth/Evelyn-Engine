@@ -284,6 +284,50 @@ CREATE INDEX IF NOT EXISTS idx_links_media ON chat_media_links(media_id);
 """
 
 # Master Migration Registry
+def strip_legacy_kw_tags_from_memory(conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object) -> None:
+    """Migration 000.004.002: Sanitize legacy kw/ and ctx/ noise prefixes from context_entries and proposals."""
+    from Evelyn.tools.tag_librarian import normalize_tag_format
+
+    def clean_tag_list(raw_tags: str | None) -> str:
+        if not raw_tags:
+            return ""
+        parts = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        normalized = [normalize_tag_format(p) for p in parts if p]
+        # Remove duplicates while preserving order
+        seen = set()
+        deduped = []
+        for t in normalized:
+            if t and t not in seen:
+                seen.add(t)
+                deduped.append(t)
+        return ", ".join(deduped)
+
+    # 1. Clean context_entries
+    cursor = conn.cursor()
+    rows = cursor.execute("SELECT id, tags FROM context_entries WHERE tags IS NOT NULL AND tags != ''").fetchall()
+    ce_updated = 0
+    for row_id, tags in rows:
+        if not tags:
+            continue
+        cleaned = clean_tag_list(tags)
+        if cleaned != tags:
+            cursor.execute("UPDATE context_entries SET tags = ? WHERE id = ?", (cleaned, row_id))
+            ce_updated += 1
+
+    # 2. Clean proposals
+    p_rows = cursor.execute("SELECT id, merged_tags FROM proposals WHERE merged_tags IS NOT NULL AND merged_tags != ''").fetchall()
+    p_updated = 0
+    for row_id, mtags in p_rows:
+        if not mtags:
+            continue
+        cleaned = clean_tag_list(mtags)
+        if cleaned != mtags:
+            cursor.execute("UPDATE proposals SET merged_tags = ? WHERE id = ?", (cleaned, row_id))
+            p_updated += 1
+
+    logger.info("Migration 000.004.002 sanitized %d context_entries and %d proposals.", ce_updated, p_updated)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -309,6 +353,12 @@ MIGRATIONS: list[Migration] = [
         name="baseline_media_schema",
         up_sql=BASELINE_MEDIA_SQL
     ),
+    Migration(
+        target_db="memory",
+        version="000.004.002",
+        name="strip_legacy_kw_tags_from_memory",
+        up_fn=strip_legacy_kw_tags_from_memory,
+    ),
 ]
 
 
@@ -325,7 +375,8 @@ def ensure_backup_dir() -> str:
 def ensure_tracking_table(db_path: str) -> None:
     """Ensure the schema_migrations table exists inside the target database."""
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version           TEXT PRIMARY KEY,
@@ -336,6 +387,8 @@ def ensure_tracking_table(db_path: str) -> None:
             );
         """)
         conn.commit()
+    finally:
+        conn.close()
 
 
 def get_applied_migrations(db_path: str) -> dict[str, dict]:
@@ -343,11 +396,14 @@ def get_applied_migrations(db_path: str) -> dict[str, dict]:
     if not os.path.exists(db_path):
         return {}
     ensure_tracking_table(db_path)
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute("SELECT version, name, applied_at, execution_time_ms, status FROM schema_migrations ORDER BY version ASC").fetchall()
         return {row["version"]: dict(row) for row in rows}
+    finally:
+        conn.close()
 
 
 def get_db_version(db_name: str) -> str | None:
@@ -392,7 +448,7 @@ def check_all_dbs_status(target_version: str | None = None) -> dict[str, dict]:
         pending = [m for m in db_migrations if m.version not in applied]
         
         current_v = get_db_version(db_name)
-        is_up_to_date = len(pending) == 0 and (current_v is not None and compare_versions(current_v, target) >= 0 or len(db_migrations) == 0)
+        is_up_to_date = len(pending) == 0 and (len(db_migrations) == 0 or current_v is not None)
 
         status_report[db_name] = {
             "db_path": db_path,
@@ -498,28 +554,27 @@ def apply_pending_migrations(
                 print(f"[DB Migrator] Created safety snapshot: {backup_path}")
 
         start_time = time.perf_counter()
+        conn = sqlite3.connect(db_path, timeout=30.0)
         try:
-            with sqlite3.connect(db_path) as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                
-                # Execute SQL DDL if present
-                if migration.up_sql:
-                    conn.executescript(migration.up_sql)
-                
-                # Execute Python transform callable if present
-                if migration.up_fn:
-                    migration.up_fn(conn, DB_MAP, cfg)
+            conn.execute("BEGIN IMMEDIATE")
+            
+            # Execute SQL DDL if present
+            if migration.up_sql:
+                conn.executescript(migration.up_sql)
+            
+            # Execute Python transform callable if present
+            if migration.up_fn:
+                migration.up_fn(conn, DB_MAP, cfg)
 
-                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-                applied_at = datetime.now(timezone.utc).isoformat()
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            applied_at = datetime.now(timezone.utc).isoformat()
 
-                conn.execute("""
-                    INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, execution_time_ms, status)
-                    VALUES (?, ?, ?, ?, 'success')
-                """, (migration.version, migration.name, applied_at, elapsed_ms))
-                
-                conn.commit()
-
+            conn.execute("""
+                INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, execution_time_ms, status)
+                VALUES (?, ?, ?, ?, 'success')
+            """, (migration.version, migration.name, applied_at, elapsed_ms))
+            
+            conn.commit()
             print(f"[DB Migrator] Successfully applied [{migration.target_db}] v{migration.version} in {elapsed_ms}ms.")
 
             # Run non-SQLite post hooks
@@ -535,12 +590,15 @@ def apply_pending_migrations(
             })
 
         except Exception as e:
+            conn.rollback()
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             print(f"[DB Migrator] [ERROR] Migration failed for [{migration.target_db}] v{migration.version}: {e}")
             raise MigrationExecutionError(
                 f"Failed to execute migration {migration.version} ({migration.name}) on {migration.target_db}: {e}\n"
                 f"Safety snapshot preserved at: {backup_path}"
             ) from e
+        finally:
+            conn.close()
 
     return executed_records
 

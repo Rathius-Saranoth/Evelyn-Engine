@@ -13,6 +13,18 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
 
 ---
 
+## [000.004.002] - 2026-08-22 — *Memory Tag Taxonomy Sanitization & DB Status Fix*
+
+### Fixed
+- **Database Migration Framework Up-To-Date Evaluation**:
+  - Fixed `check_all_dbs_status()` in `Evelyn/tools/db_migrator.py` so databases without pending migrations correctly evaluate as up-to-date when engine version advances.
+
+### Database Migrations
+- **Memory Tag Sanitization (`000.004.002`)**:
+  - Registered and executed migration `strip_legacy_kw_tags_from_memory` to strip redundant `kw/` and `ctx/` noise prefixes from `context_entries.tags` and `proposals.merged_tags` in `data/evelyn_memory.db`.
+
+---
+
 ## [000.004.001] - 2026-08-22 — *Research Watchdog & Scope Dynamic Timeouts*
 
 ### Fixed
