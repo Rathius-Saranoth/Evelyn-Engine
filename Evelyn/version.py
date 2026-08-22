@@ -1,3 +1,8 @@
+# version.py
+# date created: 2026-08-22 15:53:23
+# date modified: 2026-08-22 15:53:23
+# tags: 
+
 """
 Evelyn Engine Version System.
 
@@ -8,7 +13,7 @@ Provides the single source of truth for engine versioning, zero-padded formattin
 from __future__ import annotations
 import re
 
-__version__ = "000.004.000"
+__version__ = "000.004.001"
 VERSION_NAME = "Sanctum Architecture & Guardrails"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
