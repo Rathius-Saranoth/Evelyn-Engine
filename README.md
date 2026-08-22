@@ -1,3 +1,7 @@
+> [!NOTE]
+> **Project Status: Personal / As-Is**  
+> This project is tailored to personal workflows and hardware configurations. It is shared publicly as an architectural reference and portfolio project, not as a managed open-source product. No official support, feature requests, or troubleshooting are provided.
+
 # 🌌 Evelyn Engine
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
@@ -11,7 +15,7 @@
 > **A sovereign, privacy-first, locally-hosted AI companion and autonomous cognitive assistant.**  
 > Built for deep memory retention, bidirectional Obsidian vault synchronization, autonomous research, and multi-modal intelligence — completely offline and on your own hardware.
 >
-> *Heavily AI-created through iterative agentic pair programming, guided by human system architecture, hardware profiling, and rigorous code review.*
+> *Heavily AI-created through iterative agentic pair programming, guided by human system architecture, hardware profiling, and code review.*
 
 ---
 
@@ -140,6 +144,7 @@ PYTHONPATH=. ./venv/bin/pytest Evelyn/tests
 - 📐 **[Engine Architecture Blueprint](reference/engine_architecture.md)** — Deep-dive system topology, NUMA thread pinning, and Chroma synchronization queues.
 - 📋 **[Full System Requirements](REQUIREMENTS.md)** — Complete hardware specs, Python packages, and external dependency matrices.
 - 🗺️ **[Development Roadmap](ROADMAP.md)** — Milestones, completed features, and active enhancements.
+- 🛡️ **[Support Policy](SUPPORT.md)** — Project status, support boundaries, and personal portfolio scope.
 
 ---
 
