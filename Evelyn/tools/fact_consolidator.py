@@ -1734,10 +1734,46 @@ async def _do_consolidation():
     splits_written = 0
     if getattr(cfg, "CONSOLIDATION_SPLIT_ENABLED", True):
         threshold = getattr(cfg, "CONSOLIDATION_SPLIT_WORD_THRESHOLD", 35)
-        # Find candidates with high word count
+
+        # 5a. Prioritize explicitly user-queued split review requests
+        queued_items = memory_db.get_split_queue(status="pending")
+        processed_ids = set()
+        for q_item in queued_items:
+            entry_id = q_item["entry_id"]
+            if memory_db.has_pending_proposal_for([entry_id]):
+                memory_db.dequeue_split(entry_id)
+                continue
+            entry = memory_db.get_entry(entry_id)
+            if entry and entry.get("status") == "live":
+                rec = {
+                    "id": entry["id"],
+                    "category": entry["category"],
+                    "subject": entry.get("subject", "Ricky"),
+                    "summary": entry.get("observation", ""),
+                    "tags": entry.get("tags") or "",
+                    "date": entry.get("date") or "",
+                }
+                _set_status_in_server(
+                    "running",
+                    phase=f"splitting_queued_{rec['category']}",
+                    sub_status={
+                        "active_category": rec["category"],
+                        "splitting_record": rec["id"],
+                        "proposals_written": proposals_written + splits_written,
+                    },
+                )
+                s_res = await generate_split_proposal(rec, cat00)
+                if s_res:
+                    splits_written += 1
+                    proposals_written += 1
+                processed_ids.add(entry_id)
+            memory_db.dequeue_split(entry_id)
+
+        # 5b. Find candidates with high word count
         candidate_records = [
             r for r in records
-            if len(r.get("summary", "").split()) >= threshold
+            if r["id"] not in processed_ids
+            and len(r.get("summary", "").split()) >= threshold
             and not memory_db.has_pending_proposal_for([r["id"]])
         ]
         for c_rec in candidate_records[:3]:  # Cap at 3 per consolidation run

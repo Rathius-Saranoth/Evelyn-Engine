@@ -160,6 +160,63 @@ entries:
             self.assertEqual(split_prop["type"], "split")
             self.assertEqual(split_prop["source_ids"], [test_source_id])
 
+    def test_split_queue_operations(self):
+        """Test enqueueing, listing, and dequeueing split review requests."""
+        test_id = memory_db.insert_entry(
+            category="Cat05-R",
+            subject="Ricky",
+            observation="Test compound observation for split queue.",
+            tags="Test",
+            status="live"
+        )
+        self.created_entry_ids.append(test_id)
+
+        # Enqueue
+        success = memory_db.enqueue_split(test_id)
+        self.assertTrue(success)
+
+        queued_ids = memory_db.get_all_queued_split_entry_ids()
+        self.assertIn(test_id, queued_ids)
+
+        queue = memory_db.get_split_queue()
+        matching = [item for item in queue if item["entry_id"] == test_id]
+        self.assertEqual(len(matching), 1)
+
+        # Dequeue
+        dequeued = memory_db.dequeue_split(test_id)
+        self.assertTrue(dequeued)
+        queued_ids_after = memory_db.get_all_queued_split_entry_ids()
+        self.assertNotIn(test_id, queued_ids_after)
+
+    def test_queue_split_endpoint(self):
+        """Test POST /api/context/{id}/queue_split endpoint."""
+        from fastapi.testclient import TestClient
+        client = TestClient(evelyn_server.app)
+
+        test_id = memory_db.insert_entry(
+            category="Cat05-R",
+            subject="Ricky",
+            observation="Test observation for queue endpoint.",
+            tags="Test",
+            status="live"
+        )
+        self.created_entry_ids.append(test_id)
+
+        headers = {"X-Admin-Token": "test"}
+        with patch("evelyn_server.check_auth", return_value=None):
+            resp = client.post(f"/api/context/{test_id}/queue_split")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data.get("status"), "ok")
+            self.assertTrue(data.get("queued"))
+            self.assertEqual(data.get("entry_id"), test_id)
+
+            queued_ids = memory_db.get_all_queued_split_entry_ids()
+            self.assertIn(test_id, queued_ids)
+
+            # Cleanup queue
+            memory_db.dequeue_split(test_id)
+
 
 
 def asyncio_run(coro):
