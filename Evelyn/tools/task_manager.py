@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-21 18:36:50
+# date modified: 2026-08-22 15:44:12
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -51,6 +51,7 @@ HEAVY_TASK_KEYS = frozenset({
     "refresh_memory",
     "sync",
     "vault_map",
+    "tag_librarian",
     # Research subprocess tasks are keyed as "task_<id>" — handled by prefix check.
 })
 
@@ -67,6 +68,10 @@ DEFAULT_SOFT_TIMEOUTS = {
     "vault_map": 600.0,              # 10 minutes
     "sync": 1800.0,                  # 30 minutes
     "tag_librarian": 600.0,          # 10 minutes
+    "research_quick": 2400.0,        # 40 minutes (wall_clock is 1800s + grace buffer)
+    "research_standard": 9000.0,     # 2.5 hours (wall_clock is 7200s + grace buffer)
+    "research_deep": 32400.0,        # 9 hours (wall_clock is 28800s + grace buffer)
+    "research": 9000.0,              # 2.5 hours default research fallback
 }
 
 # Active Python task/thread handles and subprocesses for lifecycle tracking
@@ -410,23 +415,66 @@ def get_dynamic_timeout(name: str) -> float:
     """Calculate the soft maximum runtime timeout for a task using historical statistics (mean + 3 * std_dev).
 
     Args:
-        name: The task key (e.g. 'extractor', 'profile_evolver').
+        name: The task key (e.g. 'extractor', 'profile_evolver', 'task_1787429513_0876a6e7').
 
     Returns:
         float: Soft timeout threshold in seconds.
     """
-    baseline = DEFAULT_SOFT_TIMEOUTS.get(name, 1800.0)
+    import json
+
+    baseline = DEFAULT_SOFT_TIMEOUTS.get(name)
+    if baseline is None:
+        if name.startswith("task_"):
+            scope = None
+            wc_timeout = None
+            tasks = _get_background_tasks()
+            if tasks and name in tasks:
+                scope = tasks[name].get("scope")
+
+            try:
+                import evelyn_config as cfg
+                res_dir = getattr(cfg, "RESEARCH_DATA_DIR", "/home/rathius/evelyn/data/research")
+            except Exception:
+                res_dir = "/home/rathius/evelyn/data/research"
+            state_file = os.path.join(res_dir, name, "state.json")
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        state_data = json.load(f)
+                        if not scope:
+                            scope = state_data.get("scope")
+                        wc_timeout = state_data.get("wall_clock_timeout")
+                except Exception:
+                    pass
+
+            if wc_timeout:
+                baseline = max(float(wc_timeout) + 1800.0, float(wc_timeout) * 1.25)
+            else:
+                scope_key = f"research_{scope}" if scope else "research"
+                baseline = DEFAULT_SOFT_TIMEOUTS.get(scope_key, DEFAULT_SOFT_TIMEOUTS.get("research", 9000.0))
+        else:
+            baseline = 1800.0
+
     try:
         _init_history_db()
         conn = _get_db_connection()
-        rows = conn.execute(
-            """
-            SELECT elapsed_seconds FROM heavy_task_history
-            WHERE task_name = ? AND status IN ('idle', 'done', 'success')
-            ORDER BY id DESC LIMIT 50
-            """,
-            (name,),
-        ).fetchall()
+        if name.startswith("task_"):
+            rows = conn.execute(
+                """
+                SELECT elapsed_seconds FROM heavy_task_history
+                WHERE task_name LIKE 'task_%' AND status IN ('idle', 'done', 'success')
+                ORDER BY id DESC LIMIT 50
+                """,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT elapsed_seconds FROM heavy_task_history
+                WHERE task_name = ? AND status IN ('idle', 'done', 'success')
+                ORDER BY id DESC LIMIT 50
+                """,
+                (name,),
+            ).fetchall()
         conn.close()
 
         if len(rows) >= 5:

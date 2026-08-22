@@ -1,5 +1,6 @@
 # test_task_manager_watchdog.py
 # date created: 2026-08-11
+# date modified: 2026-08-22 15:39:35
 # tags: #test, #task_manager, #watchdog, #history
 
 import asyncio
@@ -117,7 +118,7 @@ class TestTaskManagerWatchdog(unittest.TestCase):
         tasks_dict = {
             "task_slow_research": {
                 "status": "running",
-                "started_at": time.time() - 3600.0,
+                "started_at": time.time() - 15000.0,
             }
         }
         orig_get_bg = task_manager._get_background_tasks
@@ -136,6 +137,48 @@ class TestTaskManagerWatchdog(unittest.TestCase):
         finally:
             task_manager._get_background_tasks = orig_get_bg
             task_manager._active_handles.pop("task_slow_research", None)
+
+    def test_research_task_dynamic_timeouts(self):
+        """Test that get_dynamic_timeout properly sizes research tasks by scope and state.json."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            import evelyn_config as cfg
+            orig_base = getattr(cfg, "BASE_DIR", None)
+            orig_res = getattr(cfg, "RESEARCH_DATA_DIR", None)
+            cfg.BASE_DIR = tmp_dir
+            cfg.RESEARCH_DATA_DIR = os.path.join(tmp_dir, "data", "research")
+
+            try:
+                # 1. Default research baseline without state.json or server registration
+                dyn_default = task_manager.get_dynamic_timeout("task_random_unknown")
+                self.assertEqual(dyn_default, 9000.0)
+
+                # 2. Scope from background_tasks registry
+                tasks_dict = {
+                    "task_deep_run": {"status": "running", "scope": "deep"},
+                    "task_quick_run": {"status": "running", "scope": "quick"},
+                }
+                orig_get_bg = task_manager._get_background_tasks
+                task_manager._get_background_tasks = lambda: tasks_dict
+                try:
+                    self.assertEqual(task_manager.get_dynamic_timeout("task_deep_run"), 32400.0)
+                    self.assertEqual(task_manager.get_dynamic_timeout("task_quick_run"), 2400.0)
+                finally:
+                    task_manager._get_background_tasks = orig_get_bg
+
+                # 3. Scope and wall_clock_timeout loaded from state.json on disk
+                task_id = "task_disk_configured"
+                task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
+                os.makedirs(task_dir, exist_ok=True)
+                with open(os.path.join(task_dir, "state.json"), "w", encoding="utf-8") as f:
+                    json.dump({"status": "running", "scope": "standard", "wall_clock_timeout": 7200}, f)
+
+                dyn_disk = task_manager.get_dynamic_timeout(task_id)
+                self.assertEqual(dyn_disk, 9000.0)  # max(7200 + 1800, 7200 * 1.25)
+            finally:
+                if orig_base:
+                    cfg.BASE_DIR = orig_base
+                if orig_res:
+                    cfg.RESEARCH_DATA_DIR = orig_res
 
     def test_terminate_task_subprocess_cleans_engine_pid_and_updates_state(self):
         """Test that terminate_task_subprocess cleans engine.pid and writes timed_out to state.json."""
@@ -170,3 +213,4 @@ class TestTaskManagerWatchdog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-16 13:54:51
+date modified: 2026-08-22 15:46:07
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -286,6 +286,7 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 | `refresh_memory` | `evelyn_server.py` | asyncio subprocess |
 | `sync` | `evelyn_server.py` | daemon thread |
 | `vault_map` | `evelyn_server.py` | daemon thread |
+| `tag_librarian` | `tag_librarian.py` | asyncio coroutine |
 
 > [!CAUTION]
 > *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED. Adding a new heavy task without routing it through `task_manager` is a bug, not a feature. New tasks must: (1) call `task_manager.set_running()` at start, (2) call `task_manager.clear_running()` in `finally`, (3) check `task_manager.is_any_running()` before beginning work.*
