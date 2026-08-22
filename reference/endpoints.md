@@ -157,6 +157,10 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 * **Payload**: `SplitApplyRequest` JSON: `{"source_id": 123, "entries": [{"category": "Cat05-R", "subject": "Ricky", "observation": "...", "tags": "..."}]}`.
 * **Response**: `{"status": "ok", "new_ids": [124, 125]}`. Triggers a background memory refresh automatically.
 
+### `POST /api/context/{id}/queue_split`
+* **Purpose**: Enqueue a context entry for prioritized asynchronous splitting by the Fact Consolidator on its next cycle.
+* **Response**: `{"status": "ok", "entry_id": 123, "queued": true}`.
+
 ### `GET /api/review/procedures`
 * **Purpose**: Retrieves all extracted procedures staged in `evelyn_memory.db` by [[fact_extractor.py]] that are pending review (`status='extracted'`).
 
