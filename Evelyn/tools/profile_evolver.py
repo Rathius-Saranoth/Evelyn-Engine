@@ -39,14 +39,25 @@ import memory_db
 # Category-to-document mapping
 # ---------------------------------------------------------------------------
 DOCUMENT_CATEGORIES = {
-    "Evelyn_Narrative_Persona.md": [
-        "Cat01-E", "Cat02-E", "Cat03-E", "Cat04-E", "Cat10-E",
+    cfg.PERSONA_FILE_ASSISTANT: [
+        f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
     ],
-    "Ricky_Narrative_Profile.md": [
-        "Cat01-R", "Cat03-R", "Cat04-R", "Cat06-R", "Cat09-R", "Cat12-R",
+    cfg.PERSONA_FILE_USER: [
+        f"Cat01-{cfg.SUBJECT_CODE_USER}",
+        f"Cat03-{cfg.SUBJECT_CODE_USER}",
+        f"Cat04-{cfg.SUBJECT_CODE_USER}",
+        f"Cat06-{cfg.SUBJECT_CODE_USER}",
+        f"Cat09-{cfg.SUBJECT_CODE_USER}",
+        f"Cat12-{cfg.SUBJECT_CODE_USER}",
     ],
-    "System_Directives.md": [
-        "Cat14-E", "Cat16-E", "Cat16-R",
+    cfg.PERSONA_FILE_DIRECTIVES: [
+        f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat16-{cfg.SUBJECT_CODE_USER}",
     ],
 }
 
@@ -54,35 +65,35 @@ DOCUMENT_CATEGORIES = {
 # Grammatical perspective rules per document to prevent viewpoint drift
 # ---------------------------------------------------------------------------
 DOCUMENT_RULES = {
-    "Evelyn_Narrative_Persona.md": {
-        "description": "Evelyn's own identity, narrative, archetype, and values.",
-        "perspective": "First-person singular (using 'I', 'me', 'my', 'myself'). Never refer to Evelyn as 'she', 'her', or 'Evelyn' in this document.",
+    cfg.PERSONA_FILE_ASSISTANT: {
+        "description": f"{cfg.ASSISTANT_NAME}'s own identity, narrative, archetype, and values.",
+        "perspective": f"First-person singular (using 'I', 'me', 'my', 'myself'). Never refer to {cfg.ASSISTANT_NAME} as 'she', 'her', or '{cfg.ASSISTANT_NAME}' in this document.",
         "guidelines": (
-            "- Write about Evelyn in the first person.\n"
-            "- Write about Ricky or others in the third person. Do NOT convert facts about Ricky into 'I' statements.\n"
-            "- Example 1 (Evelyn fact): 'Evelyn prefers quiet mornings' -> 'I value quiet mornings.'\n"
-            "- Example 2 (Ricky/Relationship fact): 'Ricky prefers small gifts' -> 'I know Ricky prefers small gifts.' or 'Ricky prefers small gifts.' (Do NOT write 'I prefer small gifts')"
+            f"- Write about {cfg.ASSISTANT_NAME} in the first person.\n"
+            f"- Write about {cfg.USER_NAME} or others in the third person. Do NOT convert facts about {cfg.USER_NAME} into 'I' statements.\n"
+            f"- Example 1 ({cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} prefers quiet mornings' -> 'I value quiet mornings.'\n"
+            f"- Example 2 ({cfg.USER_NAME}/Relationship fact): '{cfg.USER_NAME} prefers small gifts' -> 'I know {cfg.USER_NAME} prefers small gifts.' or '{cfg.USER_NAME} prefers small gifts.' (Do NOT write 'I prefer small gifts')"
         ),
     },
-    "Ricky_Narrative_Profile.md": {
-        "description": "Ricky's preferences, history, and traits.",
-        "perspective": "Third-person singular (using 'Ricky', 'he', 'him', 'his'). Never refer to Ricky in the first person ('I', 'me', 'my').",
+    cfg.PERSONA_FILE_USER: {
+        "description": f"{cfg.USER_NAME}'s preferences, history, and traits.",
+        "perspective": f"Third-person singular (using '{cfg.USER_NAME}', 'he', 'him', 'his'). Never refer to {cfg.USER_NAME} in the first person ('I', 'me', 'my').",
         "guidelines": (
-            "- Write about Ricky in the third person.\n"
-            "- Write about Evelyn in the third person (using 'Evelyn', 'she', 'her').\n"
-            "- Never use 'I', 'me', 'my', or 'you' in this document.\n"
-            "- Example 1 (Ricky fact): 'Ricky likes small gifts' -> 'He prefers small gifts.'\n"
-            "- Example 2 (Relationship/Evelyn fact): 'Evelyn values my feedback' -> 'Evelyn values his feedback.' (Translate 'my' to 'his')"
+            f"- Write about {cfg.USER_NAME} in the third person.\n"
+            f"- Write about {cfg.ASSISTANT_NAME} in the third person (using '{cfg.ASSISTANT_NAME}', 'she', 'her').\n"
+            f"- Never use 'I', 'me', 'my', or 'you' in this document.\n"
+            f"- Example 1 ({cfg.USER_NAME} fact): '{cfg.USER_NAME} likes small gifts' -> 'He prefers small gifts.'\n"
+            f"- Example 2 (Relationship/{cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} values my feedback' -> '{cfg.ASSISTANT_NAME} values his feedback.' (Translate 'my' to 'his')"
         ),
     },
-    "System_Directives.md": {
+    cfg.PERSONA_FILE_DIRECTIVES: {
         "description": "Behavioral constraints, routines, and instructions for the AI.",
         "perspective": "Second-person (using 'You', 'your', 'yours') addressing the AI.",
         "guidelines": (
             "- Direct the AI's behavior in the second person.\n"
-            "- Refer to Ricky in the third person.\n"
-            "- Example 1 (AI instruction): 'Evelyn should respond casually' -> 'You respond in natural conversational form.'\n"
-            "- Example 2 (Ricky's habit): 'Ricky Sunday routine is laundry' -> 'You recognize Ricky's Sunday routine of laundry.'\n"
+            f"- Refer to {cfg.USER_NAME} in the third person.\n"
+            f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should respond casually' -> 'You respond in natural conversational form.'\n"
+            f"- Example 2 ({cfg.USER_NAME}'s habit): '{cfg.USER_NAME} Sunday routine is laundry' -> 'You recognize {cfg.USER_NAME}\\'s Sunday routine of laundry.'\n"
             "- Must always preserve the anti-drafting constraint: AI must never draft, outline, or rehearse responses inside <think> tags."
         ),
     },

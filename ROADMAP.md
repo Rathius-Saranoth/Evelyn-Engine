@@ -90,6 +90,6 @@ This roadmap is the primary source of truth for project milestones and future di
 *Goal: Share the Evelyn Engine as a clean, extensible framework for hyper-personalized local AI companions.*
 
 - [x] **Privacy Guardrails**: Strict boundary enforcement separating personal data ("Soul") from codebase ("Engine").
-- [ ] **Template Sanitization**: Create generic persona and memory templates for open-source distribution.
+- [x] **Template Sanitization**: Parameterized persona and operator identity in config, migrated Fast Memory subject codes (-U/-A), and shipped starter templates with setup wizard.
 - [ ] **Architectural Documentation**: Publish comprehensive setup and developer guides.
 - [ ] **Public GitHub Repository**: Initial open-source release of the Evelyn Engine framework.

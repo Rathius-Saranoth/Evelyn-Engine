@@ -17,6 +17,10 @@ This document is the single source of truth for the custom REST and Server-Sent 
 * **Purpose**: Performs a quick health check on the server runtime and connection statuses of downstream local services (Ollama, TTS server, Image server).
 * **Returns**: JSON object showing service statuses, active model parameters, thinking effort settings (`think`, `think_tool_loop`, `think_self_elect`), and active context limit (`num_ctx`).
 
+### `GET /api/identity`
+* **Purpose**: Exposes dynamic engine identity parameters, operator names, subject codes, and configured persona markdown files.
+* **Returns**: JSON object `{"assistant_name": "Evelyn", "user_name": "Ricky", "subject_code_user": "U", "subject_code_assistant": "A", "persona_files": {"assistant": "...", "user": "...", "directives": "..."}}`.
+
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.
 * **Payload**: JSON object `{"message": "<user text>", "think": "<optional effort level>"}` where `think` can be `"low"`, `"medium"`, `"high"`, `"max"`, or `false` (overrides heuristic/self-election when provided).
@@ -150,11 +154,11 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 ### `POST /api/context/split_preview`
 * **Purpose**: Decompose a compound or over-merged context entry into atomic child entries with LLM assistance and Vector RAG taxonomy tagging.
 * **Payload**: `SplitPreviewRequest` JSON: `{"entry_id": int, "observation": "string", "category": "string", "subject": "string", "tags": "string"}`.
-* **Response**: `{"original": {...}, "splits": [{"category": "Cat05-R", "subject": "Ricky", "observation": "...", "tags": "...", "suggested_tags": [...], "alignment_label": "Aligned", "novelty_score": 0.22}, ...]}`.
+* **Response**: `{"original": {...}, "splits": [{"category": "Cat05-U", "subject": "Ricky", "observation": "...", "tags": "...", "suggested_tags": [...], "alignment_label": "Aligned", "novelty_score": 0.22}, ...]}`.
 
 ### `POST /api/context/split_apply`
 * **Purpose**: Atomically soft-delete a compound parent context entry and insert the verified atomic child entries.
-* **Payload**: `SplitApplyRequest` JSON: `{"source_id": 123, "entries": [{"category": "Cat05-R", "subject": "Ricky", "observation": "...", "tags": "..."}]}`.
+* **Payload**: `SplitApplyRequest` JSON: `{"source_id": 123, "entries": [{"category": "Cat05-U", "subject": "Ricky", "observation": "...", "tags": "..."}]}`.
 * **Response**: `{"status": "ok", "new_ids": [124, 125]}`. Triggers a background memory refresh automatically.
 
 ### `POST /api/context/{id}/queue_split`

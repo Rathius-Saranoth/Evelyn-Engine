@@ -23,4 +23,9 @@
 
 ## 3. Documentation & Roadmap Maintenance
 - **ROADMAP.md**: Single source of truth for milestones. Keep entries concise and milestone-oriented (1–2 sentences). Do NOT append verbose changelogs, function trace dumps, or commit logs (Git history serves as the detailed log). Keep completed tasks (`- [x]`) grouped at the top of each section and pending items (`- [ ]`) at the bottom.
-- **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, and `requirements.txt` in sync whenever code contracts change.
+- **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, `requirements.txt`, and `SETUP_GUIDE.md` in sync whenever code contracts change.
+
+## 4. Identity Parameterization & Memory Taxonomy
+- **Config as Single Source of Identity**: Identity variables (`ASSISTANT_NAME`, `USER_NAME`, `SUBJECT_CODE_USER = "U"`, `SUBJECT_CODE_ASSISTANT = "A"`) and vault write roots/boundaries live in `evelyn_config.py`. Never hardcode raw persona/operator names or absolute vault subtrees into engine tools, prompts, or tests.
+- **Fast Memory Taxonomy**: Categories strictly follow `Cat##-U` for User facts and `Cat##-A` for Assistant facts. The database `subject` column stores the configured entity name (`cfg.USER_NAME` / `cfg.ASSISTANT_NAME`).
+- **Templates & Private Scripts**: Generic open-source markdown templates reside in `templates/`. Private/machine-specific scripts belong in `scripts/personal/` (gitignored).

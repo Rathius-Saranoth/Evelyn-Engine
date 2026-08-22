@@ -273,14 +273,14 @@ def validate_and_normalize_category(
     # Fall back to subject context if suffix is ambiguous or missing
     if not suffix and subject:
         subj_lower = subject.lower()
-        if "ricky" in subj_lower:
-            suffix = "R"
-        elif "evelyn" in subj_lower:
-            suffix = "E"
+        if getattr(cfg, "USER_NAME", "Ricky").lower() in subj_lower:
+            suffix = getattr(cfg, "SUBJECT_CODE_USER", "U")
+        elif getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower() in subj_lower:
+            suffix = getattr(cfg, "SUBJECT_CODE_ASSISTANT", "A")
 
     # Final fallback for suffix if still undetermined
     if not suffix:
-        suffix = "R"
+        suffix = getattr(cfg, "SUBJECT_CODE_USER", "U")
 
     return f"{cat_base}-{suffix}"
 
@@ -1270,14 +1270,14 @@ TASK:
 4. THE EVENT EXCEPTION: If the entries represent discrete events, moods, or occurrences tied to different dates (State-Data vs Time-Series Data), they are a historical log. You MUST choose 'keep_both'.
 5. If verdict is 'keep_both', set merged_summary to an empty string.
 6. DATA PRESERVATION RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining them causes a loss of specific detail, you must choose 'keep_both'.
-7. MULTI-TIER DOMAIN TAXONOMY RULE: Format `merged_tags` using hierarchical domain trees (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`) and TitleCase with underscores for named entities (`Ricky_Sekulich`).
+7. MULTI-TIER DOMAIN TAXONOMY RULE: Format `merged_tags` using hierarchical domain trees (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`) and TitleCase with underscores for named entities (`John_Smith`).
 {cat_ref}
 
 Output ONLY a YAML block:
 ```yaml
 verdict: supersede   # supersede / merge / keep_both
 merged_summary: "The consolidated fact as a rich, substantive, clear sentence."
-merged_tags: "Tech/Python/FastAPI, Ricky_Sekulich"        # comma-separated hierarchical domain tags
+merged_tags: "Tech/Python/FastAPI, John_Smith"        # comma-separated hierarchical domain tags
 confidence: high     # high / medium / low
 reasoning: "Brief explanation of the verdict."
 ```\
@@ -1397,12 +1397,11 @@ def _parse_proposal_yaml(
     }
 
 
-
 async def generate_split_proposal(record: dict, cat00: str) -> str | None:
     """Evaluate a single long or compound context entry and generate a split proposal if it contains multiple atomic facts."""
     obs = record.get("summary", "")
-    cat = record.get("category", "Cat05-R")
-    subj = record.get("subject", "Ricky")
+    cat = record.get("category", f"Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}")
+    subj = record.get("subject", getattr(cfg, "USER_NAME", "Ricky"))
     record_id = record.get("id")
 
     prompt = (
@@ -1417,18 +1416,18 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
         "3. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "4. MULTI-TIER DOMAIN TAGS: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n\n"
+        "4. MULTI-TIER DOMAIN TAXONOMY: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n\n"
         "Output ONLY a YAML block:\n"
         "```yaml\n"
         "verdict: split   # split / atomic\n"
         "reasoning: \"Brief explanation why this entry needs splitting or is atomic.\"\n"
         "entries:\n"
-        "  - category: Cat05-R\n"
-        "    subject: Ricky\n"
+        f"  - category: Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
+        f"    subject: {getattr(cfg, 'USER_NAME', 'Ricky')}\n"
         "    tags: \"Tech/Python/FastAPI\"\n"
         "    observation: \"First clean, atomic fact with full specific detail.\"\n"
-        "  - category: Cat14-R\n"
-        "    subject: Ricky\n"
+        f"  - category: Cat14-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
+        f"    subject: {getattr(cfg, 'USER_NAME', 'Ricky')}\n"
         "    tags: \"Home/Server/ZWave\"\n"
         "    observation: \"Second clean, atomic fact with full specific detail.\"\n"
         "```"
@@ -1748,7 +1747,7 @@ async def _do_consolidation():
                 rec = {
                     "id": entry["id"],
                     "category": entry["category"],
-                    "subject": entry.get("subject", "Ricky"),
+                    "subject": entry.get("subject", cfg.USER_NAME),
                     "summary": entry.get("observation", ""),
                     "tags": entry.get("tags") or "",
                     "date": entry.get("date") or "",

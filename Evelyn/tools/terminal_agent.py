@@ -291,9 +291,9 @@ def resolve_file_path(file_path: str) -> str:
 
     # Check top-level folder names in Obsidian Vault
     known_vault_dirs = {
-        "notes", "projects", "ricky", "evelyn", "genealogy", "contacts",
+        "notes", "projects", cfg.USER_NAME.lower(), cfg.ASSISTANT_NAME.lower(), "genealogy", "contacts",
         "templates", "attachments", "bases", "dream journal", "dungeons & dragons",
-        "learning lab", "reference library", "schyler", "music", "pets",
+        "learning lab", "reference library", "music", "pets",
         "programs", "prompt lab", "recipes", "tech quick reference", "video games",
         "vault", "obsidian",
     }
@@ -411,7 +411,7 @@ def run_command(command: str, cwd: str = r"/home/rathius/evelyn", timeout: int =
             f"⚠️ This command requires approval before execution:\n"
             f"```\n{command}\n```\n"
             f"Approval ID: {approval_id}\n"
-            f"Waiting for Ricky to approve or deny this command."
+            f"Waiting for {cfg.USER_NAME} to approve or deny this command."
         )
 
     # 6. Execute safe/auto-approved command
@@ -546,7 +546,7 @@ def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
         f"**Mode:** {mode}\n"
         f"**Preview:**\n```\n{preview}\n```\n"
         f"Approval ID: {approval_id}\n"
-        f"Waiting for Ricky to approve or deny this file write."
+        f"Waiting for {cfg.USER_NAME} to approve or deny this file write."
     )
 
 

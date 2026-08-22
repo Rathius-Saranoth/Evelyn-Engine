@@ -6,8 +6,9 @@ secrets.json
 # --- Personal Memory & Soul (DO NOT SHARE) ---
 # These contain private conversations, journals, and identity data
 Evelyn/persona/
-reference/
 Update Logs/
+scripts/personal/
+reference/system/
 
 # --- Local Data & State ---
 # Centralized data directory (databases, Chroma vectors, sync states)
@@ -41,15 +42,8 @@ Thumbs.db
 evelyn_log_dump.txt
 reference/bugs/
 
-# --- Scratch folder (debug output only, reusable DB tools are committed) ---
-scratch/out/
+# --- Scratch & Temporary Debug ---
 scratch/
-!scratch/check_pending.py
-!scratch/db_recent.py
-!scratch/db_search.py
-!scratch/db_all_tools.py
-!scratch/db_tool_calls.py
-!scratch/find_bad_gists.py
 
 # --- Standalone Services (venvs, model weights, generated output) ---
 services/*/venv/

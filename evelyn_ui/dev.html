@@ -368,6 +368,18 @@
     let researchTasks = [];
     let heavyTasksData = { is_any_running: false, tasks: [], research_tasks: [] };
     let liveUpdatesTimer = null;
+    let currentIdentity = { assistant_name: 'Evelyn', user_name: 'Ricky', subject_code_user: 'U', subject_code_assistant: 'A' };
+
+    async function loadIdentity() {
+      try {
+        const res = await fetch(`${API_BASE}/api/identity`, { headers: headers() });
+        if (res.ok) {
+          currentIdentity = await res.json();
+        }
+      } catch (e) {
+        console.warn('Failed to load identity from server, using defaults', e);
+      }
+    }
 
     function checkUnauthorized(res) {
       if (res && res.status === 401) {
@@ -517,11 +529,11 @@
 
           if (trimmed.startsWith('- ') || (trimmed.startsWith('category:') && (!cur || cur.category))) {
             if (cur && (cur.observation || cur.category)) entries.push(cur);
-            cur = { category: '', subject: 'Ricky', tags: '', observation: '' };
+            cur = { category: '', subject: currentIdentity.user_name, tags: '', observation: '' };
             activeField = null;
           }
 
-          if (!cur) cur = { category: '', subject: 'Ricky', tags: '', observation: '' };
+          if (!cur) cur = { category: '', subject: currentIdentity.user_name, tags: '', observation: '' };
 
           let lineContent = trimmed;
           if (lineContent.startsWith('- ')) {
@@ -555,8 +567,8 @@
     function dumpSplitYaml(entries) {
       let lines = ['entries:'];
       for (const e of entries) {
-        const cat = (e.category || 'Cat05-R').trim();
-        const subj = (e.subject || 'Ricky').trim();
+        const cat = (e.category || `Cat05-${currentIdentity.subject_code_user}`).trim();
+        const subj = (e.subject || currentIdentity.user_name).trim();
         const tags = (e.tags || '').trim();
         const obs = (e.observation || '').trim();
         lines.push(`  - category: "${cat.replace(/"/g, '\\"')}"`);
@@ -702,6 +714,8 @@
 
         if (t.key === 'profile_evolver' && t.doc_statuses) {
           const docIcons = {
+            [`${currentIdentity.assistant_name}_Narrative_Persona.md`]: `👤 ${currentIdentity.assistant_name} Persona`,
+            [`${currentIdentity.user_name}_Narrative_Profile.md`]: `🙋‍♂️ ${currentIdentity.user_name} Profile`,
             'Evelyn_Narrative_Persona.md': '👤 Evelyn Persona',
             'Ricky_Narrative_Profile.md': '🙋‍♂️ Ricky Profile',
             'System_Directives.md': '⚙️ Directives',
@@ -1129,7 +1143,7 @@
       if (!entries[factIdx]) return;
 
       const cat = document.getElementById(`split-prop-cat-${proposalId}-${factIdx}`)?.value || entries[factIdx].category;
-      const subj = document.getElementById(`split-prop-subj-${proposalId}-${factIdx}`)?.value || entries[factIdx].subject || 'Ricky';
+      const subj = document.getElementById(`split-prop-subj-${proposalId}-${factIdx}`)?.value || entries[factIdx].subject || currentIdentity.user_name;
       const tags = document.getElementById(`split-prop-tags-${proposalId}-${factIdx}`)?.value ?? '';
       const obs = document.getElementById(`split-prop-obs-${proposalId}-${factIdx}`)?.value ?? '';
 
@@ -1183,7 +1197,7 @@
       if (!item) return;
       const entries = parseSplitYaml(item.merged_observation);
       const defaultCat = entries[0]?.category || item.suggested_category || 'Cat05-R';
-      const defaultSubj = entries[0]?.subject || 'Ricky';
+      const defaultSubj = entries[0]?.subject || currentIdentity.user_name;
       entries.push({ category: defaultCat, subject: defaultSubj, tags: '', observation: '' });
       const newYaml = dumpSplitYaml(entries);
       item.merged_observation = newYaml;
@@ -1576,9 +1590,9 @@
       if (!item) return;
       const obs = document.getElementById(`obs-${id}`)?.value ?? item.observation;
       const cat = document.getElementById(`ext-cat-${id}`)?.value ?? item.category;
-      const subj = document.getElementById(`ext-subj-${id}`)?.value ?? (item.subject || 'Ricky');
+      const subj = document.getElementById(`ext-subj-${id}`)?.value ?? (item.subject || currentIdentity.user_name);
       const tags = document.getElementById(`ext-tags-${id}`)?.value ?? (item.tags || '');
-      const isDirty = (obs !== item.observation || cat !== item.category || subj !== (item.subject || 'Ricky') || tags !== (item.tags || ''));
+      const isDirty = (obs !== item.observation || cat !== item.category || subj !== (item.subject || currentIdentity.user_name) || tags !== (item.tags || ''));
       
       const btnApprove = document.getElementById(`btn-approve-${id}`);
       const btnEdit = document.getElementById(`btn-edit-${id}`);
@@ -1615,7 +1629,7 @@
       const catInput = document.getElementById(`ext-cat-${id}`);
       if (catInput) catInput.value = item.category;
       const subjInput = document.getElementById(`ext-subj-${id}`);
-      if (subjInput) subjInput.value = item.subject || 'Ricky';
+      if (subjInput) subjInput.value = item.subject || currentIdentity.user_name;
       const tagsInput = document.getElementById(`ext-tags-${id}`);
       if (tagsInput) tagsInput.value = item.tags || '';
       handleEditInput(id);
@@ -1634,8 +1648,8 @@
       currentSplitDrafts = [];
 
       let origText = '';
-      let origCat = 'Cat05-R';
-      let origSubj = 'Ricky';
+      let origCat = `Cat05-${currentIdentity.subject_code_user}`;
+      let origSubj = currentIdentity.user_name;
       let origTags = '';
 
       if (sourceContext === 'extractions') {
@@ -1643,7 +1657,7 @@
         if (item) {
           origText = document.getElementById(`obs-${entryId}`)?.value || item.observation;
           origCat = document.getElementById(`ext-cat-${entryId}`)?.value || item.category;
-          origSubj = document.getElementById(`ext-subj-${entryId}`)?.value || item.subject || 'Ricky';
+          origSubj = document.getElementById(`ext-subj-${entryId}`)?.value || item.subject || currentIdentity.user_name;
           origTags = document.getElementById(`ext-tags-${entryId}`)?.value || item.tags || '';
         }
       } else if (sourceContext === 'source') {
@@ -1652,7 +1666,7 @@
         if (s) {
           origText = document.getElementById(`ce-obs-${entryId}`)?.value || s.observation;
           origCat = document.getElementById(`ce-cat-${entryId}`)?.value || s.category;
-          origSubj = document.getElementById(`ce-subj-${entryId}`)?.value || s.subject || 'Ricky';
+          origSubj = document.getElementById(`ce-subj-${entryId}`)?.value || s.subject || currentIdentity.user_name;
           origTags = document.getElementById(`ce-tags-${entryId}`)?.value || s.tags || '';
         }
       }
@@ -1741,8 +1755,8 @@
               <button class="btn btn-sm" style="font-size: 11px; padding: 2px 6px; background: rgba(239, 68, 68, 0.15); color: #f87171;" onclick="removeSplitDraft(${idx})">✕ Remove</button>
             </div>
             <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-              <input type="text" id="split-cat-${idx}" value="${escapeHtml(d.category || '')}" placeholder="Category (e.g. Cat05-R)" oninput="updateSplitDraft(${idx})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-              <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || 'Ricky')}" placeholder="Subject" oninput="updateSplitDraft(${idx})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-cat-${idx}" value="${escapeHtml(d.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="updateSplitDraft(${idx})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="updateSplitDraft(${idx})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" oninput="updateSplitDraft(${idx})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
             </div>
             <textarea id="split-obs-${idx}" oninput="updateSplitDraft(${idx})" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(d.observation || '')}</textarea>
@@ -1754,8 +1768,8 @@
 
     function addSplitDraft() {
       currentSplitDrafts.push({
-        category: currentSplitOriginal?.category || 'Cat05-R',
-        subject: currentSplitOriginal?.subject || 'Ricky',
+        category: currentSplitOriginal?.category || `Cat05-${currentIdentity.subject_code_user}`,
+        subject: currentSplitOriginal?.subject || currentIdentity.user_name,
         observation: '',
         tags: ''
       });
@@ -1774,7 +1788,7 @@
     function updateSplitDraft(idx) {
       if (!currentSplitDrafts[idx]) return;
       currentSplitDrafts[idx].category = document.getElementById(`split-cat-${idx}`)?.value || '';
-      currentSplitDrafts[idx].subject = document.getElementById(`split-subj-${idx}`)?.value || 'Ricky';
+      currentSplitDrafts[idx].subject = document.getElementById(`split-subj-${idx}`)?.value || currentIdentity.user_name;
       currentSplitDrafts[idx].tags = document.getElementById(`split-tags-${idx}`)?.value || '';
       currentSplitDrafts[idx].observation = document.getElementById(`split-obs-${idx}`)?.value || '';
     }
@@ -2037,9 +2051,9 @@
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 8px;">
               <div style="display: flex; gap: 8px;">
-                <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-R)" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || 'Ricky')}" placeholder="Subject" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI, Ricky_Sekulich)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI, General_Topic)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
               <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})" style="min-height: 70px; line-height: 1.4;">${escapeHtml(item.observation)}</textarea>
               ${suggestionsHTML}
@@ -2063,7 +2077,7 @@
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
               <div style="font-size: 13px; flex: 1;">
                 <span style="color: var(--accent); font-weight: 600;">[${escapeHtml(s.category)}]</span>
-                <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || 'R')})</span>
+                <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || currentIdentity.user_name)})</span>
                 <div style="color: var(--text); margin-top: 4px; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(s.observation)}</div>
                 ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
               </div>
@@ -2083,7 +2097,7 @@
             <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="ce-cat-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || 'R')}" placeholder="Subject" style="width: 80px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 80px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
               <textarea id="ce-obs-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px;">${escapeHtml(s.observation)}</textarea>
               <div style="display: flex; gap: 8px; align-items: center;">
@@ -2104,8 +2118,8 @@
                 <div class="split-fact-card" id="split-fact-${item.id}-${idx}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
                   <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
                     <div style="font-size: 13px; flex: 1;">
-                      <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;">Fact #${idx + 1}: ${escapeHtml(ce.category || 'Cat05-R')}</span>
-                      <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(ce.subject || 'Ricky')})</span>
+                      <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;">Fact #${idx + 1}: ${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}</span>
+                      <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(ce.subject || currentIdentity.user_name)})</span>
                       ${ce.tags ? `<span style="font-size: 11px; color: var(--accent); font-family: monospace; margin-left: 6px;">#${escapeHtml(ce.tags)}</span>` : ''}
                       <div style="font-size: 13px; line-height: 1.4; color: var(--text); margin-top: 4px; white-space: pre-wrap;">${escapeHtml(ce.observation || '')}</div>
                     </div>
@@ -2116,8 +2130,8 @@
                   </div>
                   <div id="edit-split-fact-${item.id}-${idx}" style="display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
                     <div style="display: flex; gap: 8px;">
-                      <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || 'Cat05-R')}" placeholder="Category (e.g. Cat05-R)" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                      <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || 'Ricky')}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                       <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                     </div>
                     <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
@@ -2635,7 +2649,7 @@
     if (initialTab) {
       switchTab(initialTab);
     }
-    loadData();
+    loadIdentity().then(() => loadData());
   </script>
 </body>
 </html>

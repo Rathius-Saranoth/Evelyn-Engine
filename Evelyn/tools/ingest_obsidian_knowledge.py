@@ -37,20 +37,10 @@ import memory_db   # noqa: E402
 
 # Paths
 VAULT_DIR          = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
-EVELYN_DIR         = os.path.join(VAULT_DIR, "Evelyn")
-PHYSICAL_DESC_FILE = os.path.join(VAULT_DIR, "Notes", "Prompt Lab", "Physical Descriptions", "Physical Description - Evelyn.md")
-EXCLUDED_SUBDIRS   = ["Archived", "Pending_Approvals", "Extracted", "Pending"]
+EVELYN_DIR         = getattr(cfg, "ASSISTANT_WRITE_DIR", os.path.join(VAULT_DIR, getattr(cfg, "ASSISTANT_NAME", "Evelyn")))
+EXCLUDED_SUBDIRS   = getattr(cfg, "VAULT_READ_IGNORE", ["Archived", "Pending_Approvals", "Extracted", "Pending"])
 SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json")
 COLLECTION_NAME    = "evelyn_memory"
-
-# Core identity files that receive rag_priority=high by default
-CORE_IDENTITY_FILES = [
-    os.path.join(VAULT_DIR, "Ricky", "Ricky - Psychological Blueprint.md"),
-    os.path.join(VAULT_DIR, "Ricky", "Ricky - Love Languages & Connection.md"),
-    os.path.join(VAULT_DIR, "Evelyn", "Evelyn Narrative Persona.md"),
-    os.path.join(VAULT_DIR, "Evelyn", "System Directives.md"),
-    PHYSICAL_DESC_FILE,
-]
 
 
 # ---------------------------------------------------------------------------
@@ -233,10 +223,10 @@ def main() -> None:
             print(f"Ingesting: {os.path.basename(file_path)}")
             rag_meta = parse_rag_frontmatter(content)
             
-            # Boost core identity files and extracted facts to rag_priority=high if not specified
+            # Boost extracted/context entries to rag_priority=high if not explicitly specified in frontmatter
             basename = os.path.basename(file_path)
             if rag_meta.get("rag_priority") == "normal":
-                if file_path in CORE_IDENTITY_FILES or basename.startswith("EX_") or basename.startswith("CE_"):
+                if basename.startswith("EX_") or basename.startswith("CE_"):
                     rag_meta["rag_priority"] = "high"
             
         if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,

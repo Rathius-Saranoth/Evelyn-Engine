@@ -2221,7 +2221,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             slug = re.sub(r"[-\s]+", "-", slug).strip("-_")
             vault_filename = f"{slug}.md"
             
-            vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", r"/home/rathius/obsidian_vault/Evelyn/Research")
+            vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), "Research"))
             os.makedirs(vault_dir, exist_ok=True)
             vault_file_path = os.path.join(vault_dir, vault_filename)
             
@@ -2508,12 +2508,12 @@ async def self_initiate_research_topics() -> None:
     for msg in history:
         history_text += f"{msg['role'].upper()}: {msg['content']}\n"
         
-    prompt = f"""You are Evelyn, an advanced AI research companion. Review the following recent conversation history between you and Ricky:
+    prompt = f"""You are {cfg.ASSISTANT_NAME}, an advanced AI research companion. Review the following recent conversation history between you and {cfg.USER_NAME}:
 
 {history_text}
 
 Identify 1 to 3 interesting, factual, or technical topics or open questions mentioned or implied in this chat that would be highly beneficial to research in-depth (e.g. detailed benchmarks, technology explanations, historical events, scientific developments, or project concepts).
-Do NOT include extremely broad topics, personal plans, or vague ideas. Do NOT include anything that was already directly and fully answered earlier in this same conversation -- if Ricky asked a question and got a complete answer, that topic is resolved and does not need a research task. Do NOT include simple, casual, or everyday questions that a short conversational answer already covers well (e.g. basic food storage/safety facts, common definitions, simple how-tos) -- these do not warrant a multi-source cited report. Focus on concrete, searchable questions that genuinely benefit from deeper investigation. Keep each query to one topic.
+Do NOT include extremely broad topics, personal plans, or vague ideas. Do NOT include anything that was already directly and fully answered earlier in this same conversation -- if {cfg.USER_NAME} asked a question and got a complete answer, that topic is resolved and does not need a research task. Do NOT include simple, casual, or everyday questions that a short conversational answer already covers well (e.g. basic food storage/safety facts, common definitions, simple how-tos) -- these do not warrant a multi-source cited report. Focus on concrete, searchable questions that genuinely benefit from deeper investigation. Keep each query to one topic.
 
 For each topic, also write a 2-3 sentence intent_frame: why this topic matters right now given the conversation context, and what kind of practical answer would help (not academic depth, but the actual use case and what will be done with the information).
 

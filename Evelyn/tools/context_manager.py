@@ -23,12 +23,10 @@ Key path constants:
 """
 
 import os
+import re
 import datetime
+import evelyn_config as cfg
 import json
-
-import evelyn_config as cfg # [[evelyn_config.py]]
-
-
 
 def append_context_log(
     category_code: str,
@@ -50,7 +48,7 @@ def append_context_log(
     
     # Determine subject from category code suffix
     subject_code = category_code[-1].upper() if category_code else ""
-    subject = "Evelyn" if subject_code == "E" else ("Ricky" if subject_code == "R" else "Unknown")
+    subject = cfg.ASSISTANT_NAME if subject_code == cfg.SUBJECT_CODE_ASSISTANT else (cfg.USER_NAME if subject_code == cfg.SUBJECT_CODE_USER else "Unknown")
 
     try:
         row_id = memory_db.insert_entry(
@@ -144,11 +142,11 @@ def update_context_log(target_filepaths: list, new_summary: str) -> str:
         pid = memory_db.insert_proposal(
             type="update_request",
             source_ids=source_ids,
-            reason="update requested by Evelyn",
+            reason=f"update requested by {cfg.ASSISTANT_NAME}",
             merged_observation=new_summary,
             status="pending"
         )
     except Exception as e:
         return f"Error creating update proposal: {e}"
 
-    return f"Update proposal created (ID: {pid}) for Ricky to review."
+    return f"Update proposal created (ID: {pid}) for {cfg.USER_NAME} to review."

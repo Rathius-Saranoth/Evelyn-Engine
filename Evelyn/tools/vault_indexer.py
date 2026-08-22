@@ -34,11 +34,7 @@ import vault_db
 
 OBSIDIAN_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
-EXCLUDE_DIRS = {
-    "evelyn/archived",
-    "evelyn/evelyn's context/context entries/extracted",
-    "evelyn/evelyn's context/context entries/pending",
-    "evelyn/pending_approvals",
+EXCLUDE_DIRS = {d.lower() for d in getattr(cfg, "VAULT_READ_IGNORE", [])} | {
     ".obsidian",
     "attachments",
     "bases",

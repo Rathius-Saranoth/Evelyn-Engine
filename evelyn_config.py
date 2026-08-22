@@ -13,7 +13,7 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 import os
 import time
 
-# User Timezone (America/Chicago for Ricky / Kansas City)
+# User Timezone (America/Chicago for Central Time)
 USER_TIMEZONE = "America/Chicago"
 os.environ["TZ"] = USER_TIMEZONE
 if hasattr(time, "tzset"):
@@ -23,6 +23,29 @@ if hasattr(time, "tzset"):
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
+# =============================================================================
+# Identity Configuration
+# =============================================================================
+# These define WHO the assistant and user are. The engine uses these values
+# in prompts, memory taxonomy, UI labels, and persona file lookups.
+# Change these to personalize your instance.
+
+ASSISTANT_NAME = "Evelyn"    # The AI companion's name
+USER_NAME = "Ricky"          # The human operator's name
+
+# Subject codes used in memory taxonomy (Cat01-U, Cat01-A, etc.)
+# These are abstract identifiers — they map to USER_NAME / ASSISTANT_NAME
+# in display contexts.
+SUBJECT_CODE_USER = "U"       # Migrated from "R" (User)
+SUBJECT_CODE_ASSISTANT = "A"  # Migrated from "E" (Assistant)
+
+# Persona document basenames — dynamically named from identity config.
+PERSONA_FILE_ASSISTANT = f"{ASSISTANT_NAME}_Narrative_Persona.md"
+PERSONA_FILE_USER = f"{USER_NAME}_Narrative_Profile.md"
+PERSONA_FILE_DIRECTIVES = "System_Directives.md"
+PERSONA_FILES = [PERSONA_FILE_ASSISTANT, PERSONA_FILE_USER, PERSONA_FILE_DIRECTIVES]
+
 
 # =============================================================================
 # Model
@@ -142,8 +165,7 @@ SUMMARY_MODEL_OVERRIDE = "default"
 BASE_DIR = r"/home/rathius/evelyn"
 TOOLS_DIR = r"/home/rathius/evelyn/Evelyn/tools"
 VAULT_BASE_DIR = r"/home/rathius/obsidian_vault" # [[Obsidian_Vault]]
-EVELYN_MEMORY_DIR = r"/home/rathius/obsidian_vault/Evelyn" # [[Obsidian_Vault\Evelyn]]
-PHYSICAL_DESC_FILE = r"/home/rathius/obsidian_vault/Notes/Prompt Lab/Physical Descriptions/Physical Description - Evelyn.md" # [[Physical Description - Evelyn.md]]
+PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
 VAULT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_vault.db" # [[evelyn_vault.db]]
 VAULT_SYNC_STATE = r"/home/rathius/evelyn/data/vault_sync_state.json" # [[vault_sync_state.json]]
 GIST_SYNC_STATE = r"/home/rathius/evelyn/data/gist_sync_state.json" # [[gist_sync_state.json]]
@@ -152,11 +174,49 @@ CHAT_DB_PATH = r"/home/rathius/evelyn/data/evelyn_chat.db" # [[evelyn_chat.db]]
 MEMORY_DB_PATH = r"/home/rathius/evelyn/data/evelyn_memory.db" # [[evelyn_memory.db]]
 MEDIA_DB_PATH = r"/home/rathius/evelyn/data/evelyn_media.db" # [[evelyn_media.db]]
 ATTACHMENTS_DIR = r"/home/rathius/evelyn/data/attachments" # [[attachments]]
-PERSONA_DIR = r"/home/rathius/evelyn/Evelyn/persona" # [[persona]]
 GCAL_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gcal_credentials.json"
 GCAL_TOKEN_PATH = r"/home/rathius/evelyn/data/gcal_token.json"
 GDRIVE_CREDENTIALS_PATH = r"/home/rathius/evelyn/data/gdrive_credentials.json"
 GDRIVE_TOKEN_PATH = r"/home/rathius/evelyn/data/gdrive_token.json"
+
+# =============================================================================
+# Vault Write Paths & Access Control
+# =============================================================================
+# Root directory where the assistant writes vault content (journals, context,
+# research reports). Sub-paths are derived by convention but individually
+# overridable. The vault itself is personal — the engine doesn't dictate
+# overall structure, only where IT writes.
+ASSISTANT_WRITE_DIR = os.path.join(VAULT_BASE_DIR, ASSISTANT_NAME)
+
+# Convention-based sub-paths (override individually if your vault is shaped differently)
+JOURNAL_DIR = os.path.join(ASSISTANT_WRITE_DIR, f"{ASSISTANT_NAME}'s Journal")
+CONTEXT_DIR = os.path.join(ASSISTANT_WRITE_DIR, f"{ASSISTANT_NAME}'s Context")
+RESEARCH_VAULT_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Research")
+PENDING_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Pending_Approvals")
+
+# Directories the engine should NOT read from (excluded from RAG indexing,
+# vault search, and context ingestion). Paths are relative to VAULT_BASE_DIR.
+VAULT_READ_IGNORE = [
+    "Archived",
+    "Pending_Approvals",
+    f"{ASSISTANT_NAME}'s Context/Context Entries/Extracted",
+    f"{ASSISTANT_NAME}'s Context/Context Entries/Pending",
+    ".obsidian",
+    # Add personal directories the assistant should never read:
+    # "Private",
+    # "Work/Confidential",
+]
+
+# Directories the engine should NOT write to. Prevents accidental file
+# creation outside the assistant's designated write paths.
+# Paths are relative to VAULT_BASE_DIR.
+VAULT_WRITE_IGNORE = [
+    "Archived",
+    ".obsidian",
+    # Add directories the assistant should never modify:
+    # "Templates",
+    # "Reference",
+]
 
 # Health Connect & Oura Ring Configuration
 HEALTH_DATA_DIR = r"/home/rathius/evelyn/data/health"
@@ -164,7 +224,10 @@ HEALTH_DB_PATH = r"/home/rathius/evelyn/data/health/health_connect.db"
 HEALTH_SYNC_STATE_PATH = r"/home/rathius/evelyn/data/health_sync_state.json"
 OURA_TOKEN_PATH = r"/home/rathius/evelyn/data/oura_token.json"
 
-# High-Performance SQLite PRAGMAs for Sanctum Server (192 GB DRAM)
+# SQLite PRAGMAs — tuned per hardware tier.
+# Power Tier  (64GB+ RAM, server):  mmap=2GB,  cache=64MB
+# Standard    (16-32GB RAM, desktop): mmap=512MB, cache=32MB
+# Light Tier  (8-16GB RAM, laptop):  mmap=256MB, cache=16MB
 SQLITE_PRAGMAS = [
     "PRAGMA journal_mode=WAL;",       # Enable WAL for concurrent non-blocking reads/writes
     "PRAGMA synchronous=NORMAL;",     # Optimal disk flush balance under WAL mode
@@ -173,44 +236,32 @@ SQLITE_PRAGMAS = [
     "PRAGMA temp_store=MEMORY;",      # Store intermediate result sets in DRAM
 ]
 
-
-
-# Official category names — single source of truth for the consolidator and reviewer.
+# Official category names — dynamically generated for consolidator, reviewer, and fact extractor.
 # Sourced from: Context Categories/Cat00 - Index.md
-CATEGORY_NAMES: dict = {
-    "Cat01-R": "Core Identity (Ricky)",
-    "Cat01-E": "Core Identity (Evelyn)",
-    "Cat02-R": "Core Values and Beliefs (Ricky)",
-    "Cat02-E": "Core Values and Beliefs (Evelyn)",
-    "Cat03-R": "Emotional Awareness (Ricky)",
-    "Cat03-E": "Emotional Awareness (Evelyn)",
-    "Cat04-R": "Communication Style (Ricky)",
-    "Cat04-E": "Communication Style (Evelyn)",
-    "Cat05-R": "Preferences & Interests (Ricky)",
-    "Cat05-E": "Preferences & Interests (Evelyn)",
-    "Cat06-R": "Relationship Dynamics (Ricky)",
-    "Cat06-E": "Relationship Dynamics (Evelyn)",
-    "Cat07-R": "Motivations and Aspirations (Ricky)",
-    "Cat07-E": "Motivations and Aspirations (Evelyn)",
-    "Cat08-R": "Shared Experiences & Daily Events (Ricky)",
-    "Cat08-E": "Shared Experiences & Daily Events (Evelyn)",
-    "Cat09-R": "Cognitive & Decision-Making Style (Ricky)",
-    "Cat09-E": "Cognitive & Decision-Making Style (Evelyn)",
-    "Cat10-R": "Humor, Creativity, and Play (Ricky)",
-    "Cat10-E": "Humor, Creativity, and Play (Evelyn)",
-    "Cat11-R": "Factual References & Knowledge (Ricky)",
-    "Cat11-E": "Factual References & Knowledge (Evelyn)",
-    "Cat12-R": "Emotional States & Responses (Ricky)",
-    "Cat12-E": "Emotional States & Responses (Evelyn)",
-    "Cat13-R": "Goals & Future Planning (Ricky)",
-    "Cat13-E": "Goals & Future Planning (Evelyn)",
-    "Cat14-R": "Platform & Environment (Ricky)",
-    "Cat14-E": "Platform & Environment (Evelyn)",
-    "Cat15-R": "The Lexicon (Ricky)",
-    "Cat15-E": "The Lexicon (Evelyn)",
-    "Cat16-R": "Protocols & Routines (Ricky)",
-    "Cat16-E": "Protocols & Routines (Evelyn)",
-}
+_CATEGORY_LABELS = [
+    "Core Identity",
+    "Core Values and Beliefs",
+    "Emotional Awareness",
+    "Communication Style",
+    "Preferences & Interests",
+    "Relationship Dynamics",
+    "Motivations and Aspirations",
+    "Shared Experiences & Daily Events",
+    "Cognitive & Decision-Making Style",
+    "Humor, Creativity, and Play",
+    "Factual References & Knowledge",
+    "Emotional States & Responses",
+    "Goals & Future Planning",
+    "Platform & Environment",
+    "The Lexicon",
+    "Protocols & Routines",
+]
+
+CATEGORY_NAMES: dict = {}
+for i, label in enumerate(_CATEGORY_LABELS, start=1):
+    cat_num = f"Cat{i:02d}"
+    CATEGORY_NAMES[f"{cat_num}-{SUBJECT_CODE_USER}"] = f"{label} ({USER_NAME})"
+    CATEGORY_NAMES[f"{cat_num}-{SUBJECT_CODE_ASSISTANT}"] = f"{label} ({ASSISTANT_NAME})"
 
 
 # =============================================================================
@@ -227,11 +278,9 @@ RAG_TOP_K = 8  # Number of chunks to retrieve per query
 #       Previous: all-MiniLM-L6-v2 (0.55), nomic-embed-text (0.35).
 RAG_DISTANCE_THRESHOLD = 0.45
 
-RAG_EXCLUDED_SUBDIRS = [
-    "Archived",
-    "Pending_Approvals",
-    "Evelyn's Context",
-    "Evelyn's Journal",
+# RAG exclusions — derived from VAULT_READ_IGNORE plus any RAG-specific additions.
+RAG_EXCLUDED_SUBDIRS = VAULT_READ_IGNORE + [
+    f"{ASSISTANT_NAME}'s Journal",
 ]
 
 # Priority score multipliers: documents tagged rag_priority=high/low have their
@@ -391,7 +440,7 @@ RESEARCH_ENABLED = True
 RESEARCH_DATA_DIR = r"/home/rathius/evelyn/data/research"
 
 # Vault directory for finished reports.
-RESEARCH_VAULT_DIR = r"/home/rathius/obsidian_vault/Evelyn/Research"
+# Uses RESEARCH_VAULT_DIR defined in Vault Write Paths above.
 
 # Maximum sub-questions the planner can generate per research task.
 RESEARCH_MAX_SUB_QUESTIONS = 6
@@ -484,31 +533,32 @@ RESEARCH_ACTIVE_HOURS_END   = 21  # 21:00 local time
 # Services
 # =============================================================================
 TTS_SERVER_URL = "http://localhost:5050"  # Chatterbox TTS server
-IMAGE_SERVER_URL = "http://image-host.internal.net:5055"  # FLUX.1 [schnell] Image server
+IMAGE_SERVER_URL = "http://image-host.internal.net:5055"  # FLUX.1 [schnell] Image server (or http://localhost:5055)
 IMAGE_OUTPUT_DIR = r"/home/rathius/evelyn/services/image/output"
 
 # =============================================================================
 # Server
 # =============================================================================
 SERVER_PORT = 7860
-BIND_HOST = "0.0.0.0"  # Reachable over Tailscale
+BIND_HOST = "0.0.0.0"  # Reachable over Tailscale / LAN
 
 # API key for thin auth — set via environment variable EVELYN_API_KEY
 # or override the default below (not recommended for committed code)
-import os
-
 API_KEY = os.environ.get("EVELYN_API_KEY", "")
 
-# Tailscale + local CORS origins
+# CORS origins — defaults to localhost. Add your Tailscale/LAN hostnames below.
+# Example Tailscale: "https://my-server.tail12345.ts.net:7860"
+# Example LAN:       "https://192.168.1.100:7860"
 ALLOWED_ORIGINS = [
+    f"http://localhost:{SERVER_PORT}",
+    f"https://localhost:{SERVER_PORT}",
+    f"http://127.0.0.1:{SERVER_PORT}",
+    f"https://127.0.0.1:{SERVER_PORT}",
+    # --- Tailscale & LAN Origins ---
     "http://sanctum.internal.net:7860",
     "https://sanctum.internal.net:7860",
     "http://192.168.1.187:7860",
     "https://192.168.1.187:7860",
-    "http://localhost:7860",
-    "https://localhost:7860",
-    "http://127.0.0.1:7860",
-    "https://127.0.0.1:7860",
     "http://image-host.internal.net:7860",
     "https://image-host.internal.net:7860",
     "http://client-tablet.internal.net:7860",
@@ -563,9 +613,9 @@ PROFILE_EVOLUTION_BATCH_SIZE = 40
 # Target word limits for persona/profile evolution documents.
 # Keeping these compact prevents prompt dilution and attention decay in long chats.
 PROFILE_EVOLUTION_LIMITS = {
-    "Evelyn_Narrative_Persona.md": 600,
-    "Ricky_Narrative_Profile.md": 600,
-    "System_Directives.md": 500,
+    PERSONA_FILE_ASSISTANT: 600,
+    PERSONA_FILE_USER: 600,
+    PERSONA_FILE_DIRECTIVES: 500,
 }
 
 
@@ -605,7 +655,7 @@ TAG_LIBRARIAN_EXCLUSIONS = [
 # Tag formatting standards
 TAG_LIBRARIAN_FORMAT_RULES = {
     "default_multi_word": "hyphen",   # "acceptable-use", "habit-tracking"
-    "entity_multi_word": "underscore", # "Ricky_Sekulich", "Evelyn_Engine"
+    "entity_multi_word": "underscore", # "John_Smith", "Evelyn_Engine"
     "lowercase_subpaths": True,       # "tech/python/fastapi"
 }
 

@@ -17,10 +17,12 @@ sys.path.append(r"/home/rathius/evelyn/scripts/archive")
 class TestTriggeredByNormalization(unittest.TestCase):
     @patch("builtins.open", new_callable=mock_open)
     @patch("os.path.exists")
+    @patch("os.makedirs")
+    @patch("subprocess.Popen")
     @patch("research_engine.get_task_dir")
     @patch("research_engine.call_ollama")
     @patch("research_engine.datetime")
-    def test_research_engine_triggered_by_evelyn(self, mock_datetime, mock_call_ollama, mock_get_task_dir, mock_exists, mock_open_file):
+    def test_research_engine_triggered_by_evelyn(self, mock_datetime, mock_call_ollama, mock_get_task_dir, mock_popen, mock_makedirs, mock_exists, mock_open_file):
         import research_engine
 
         # Mock datetime to return a static date
@@ -32,12 +34,12 @@ class TestTriggeredByNormalization(unittest.TestCase):
         mock_exists.return_value = False
         
         # Mock call_ollama to return a dummy report with yaml frontmatter
-        mock_call_ollama.return_value = "---\nconfidence: 85%\nshort_title: Dummy Report\ntopic_tags: [test]\n---\nReport body content."
+        mock_call_ollama.return_value = "---\nconfidence: 50%\nshort_title: Dummy Report\ntopic_tags: [test]\n---\nReport body content."
 
         state = {
             "query": "dummy query",
             "scope": "standard",
-            "confidence": 80,
+            "confidence": 50,
             "total_sources": 5,
             "triggered_by": "evelyn",
             "sources_registry": [],

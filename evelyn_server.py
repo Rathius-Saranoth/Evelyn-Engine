@@ -388,7 +388,7 @@ def get_research_context() -> str:
     if stalled_tasks:
         lines.append("\n=== STALLED / QUARANTINED RESEARCH TASKS ===")
         lines.append("You have active research tasks that are struggling to find relevant information or have been quarantined due to low confidence.")
-        lines.append("You should mention these to Ricky so he can provide guidance, or you can use the 'guide_research' tool to adjust the search terms yourself.")
+        lines.append(f"You should mention these to {cfg.USER_NAME} so he can provide guidance, or you can use the 'guide_research' tool to adjust the search terms yourself.")
         for t in stalled_tasks:
             query = t.get("query", "Unknown Topic")
             task_id = t.get("task_id", "")
@@ -400,7 +400,7 @@ def get_research_context() -> str:
             lines.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Status: {status}\n  Stuck on Sub-Question: {sq_query}\n")
 
     if unnotified_count > 0:
-        lines.append(f"\n(Context note: {unnotified_count} newly completed deep research task(s) are ready. You may call 'check_new_research' if relevant to Ricky's prompt.)")
+        lines.append(f"\n(Context note: {unnotified_count} newly completed deep research task(s) are ready. You may call 'check_new_research' if relevant to {cfg.USER_NAME}'s prompt.)")
             
     return "\n".join(lines)
 
@@ -422,7 +422,7 @@ def get_upcoming_agenda_prompt_context() -> str:
         
         lines = []
         if events:
-            lines.append(f"(Context note: Ricky has {len(events)} upcoming calendar event(s) in the next 24 hours. You may call 'get_agenda' if Ricky asks about his schedule.)")
+            lines.append(f"(Context note: {cfg.USER_NAME} has {len(events)} upcoming calendar event(s) in the next 24 hours. You may call 'get_agenda' if {cfg.USER_NAME} asks about the schedule.)")
         
         if lines:
             return "\n" + "\n".join(lines)
@@ -458,11 +458,7 @@ def load_system_prompt() -> str:
         "unnecessary, include {\"requested_effort\":\"low\"} instead. "
         "Do not include this marker in routine replies."
     )
-    for fname in [
-        "Evelyn_Narrative_Persona.md",
-        "Ricky_Narrative_Profile.md",
-        "System_Directives.md",
-    ]:
+    for fname in cfg.PERSONA_FILES:
         fpath = PERSONA_DIR / fname
         if fpath.exists():
             content = fpath.read_text(encoding="utf-8")
@@ -4188,10 +4184,26 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
         raise HTTPException(status_code=400, detail="Invalid action")
     return {"status": "ok"}
 
+@app.get("/api/identity")
+async def get_identity():
+    """Return configured identity parameters for client-side display."""
+    return {
+        "assistant_name": cfg.ASSISTANT_NAME,
+        "user_name": cfg.USER_NAME,
+        "subject_code_user": cfg.SUBJECT_CODE_USER,
+        "subject_code_assistant": cfg.SUBJECT_CODE_ASSISTANT,
+        "persona_files": {
+            "assistant": cfg.PERSONA_FILE_ASSISTANT,
+            "user": cfg.PERSONA_FILE_USER,
+            "directives": cfg.PERSONA_FILE_DIRECTIVES,
+        },
+    }
+
+
 @app.get("/api/persona/{filename}")
 async def get_persona_file(filename: str, _: None = Depends(check_auth)):
     """Read a persona file's current content for diff display."""
-    safe_names = {"Evelyn_Narrative_Persona.md", "Ricky_Narrative_Profile.md", "System_Directives.md"}
+    safe_names = set(cfg.PERSONA_FILES)
     if filename not in safe_names:
         raise HTTPException(status_code=400, detail="Invalid filename")
     fpath = PERSONA_DIR / filename
@@ -4407,24 +4419,24 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         "Analyze the following compound observation and decompose it into 2 or more atomic, self-contained, "
         "durable context facts. Each fact should represent exactly one coherent observation or preference.\n\n"
         f"COMPOUND OBSERVATION:\n{obs}\n\n"
-        f"SOURCE CATEGORY: {cat or 'Cat05-R'}\n"
-        f"SOURCE SUBJECT: {subj or 'Ricky'}\n"
+        f"SOURCE CATEGORY: {cat or f'Cat05-{cfg.SUBJECT_CODE_USER}'}\n"
+        f"SOURCE SUBJECT: {subj or cfg.USER_NAME}\n"
         f"SOURCE TAGS: {tags or ''}\n\n"
         f"CATEGORY REFERENCE:\n{cat00}\n\n"
         "RULES:\n"
         "1. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
         "2. MULTI-TIER DOMAIN TAGS: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, "
         "`Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n"
-        "3. Assign the most fitting Cat##-{E,R} code for each split entry.\n\n"
+        f"3. Assign the most fitting Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} code for each split entry.\n\n"
         "Output ONLY a fenced YAML block:\n"
         "```yaml\n"
         "entries:\n"
-        "  - category: Cat05-R\n"
-        "    subject: Ricky\n"
+        f"  - category: Cat05-{cfg.SUBJECT_CODE_USER}\n"
+        f"    subject: {cfg.USER_NAME}\n"
         "    tags: \"Tech/Python/FastAPI\"\n"
         "    observation: \"First clean, atomic fact with full specific detail.\"\n"
-        "  - category: Cat14-R\n"
-        "    subject: Ricky\n"
+        f"  - category: Cat14-{cfg.SUBJECT_CODE_USER}\n"
+        f"    subject: {cfg.USER_NAME}\n"
         "    tags: \"Home/Server/ZWave\"\n"
         "    observation: \"Second clean, atomic fact with full specific detail.\"\n"
         "```"
@@ -4454,8 +4466,8 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         c_obs = str(item.get("observation", "")).strip()
         if not c_obs:
             continue
-        c_cat = str(item.get("category", cat or "Cat05-R")).strip()
-        c_subj = str(item.get("subject", subj or "Ricky")).strip()
+        c_cat = str(item.get("category", cat or f"Cat05-{cfg.SUBJECT_CODE_USER}")).strip()
+        c_subj = str(item.get("subject", subj or cfg.USER_NAME)).strip()
         raw_t = str(item.get("tags", tags or "")).strip()
         norm_t = ", ".join([normalize_tag_format(t) for t in raw_t.split(",") if t.strip()])
 
@@ -4607,14 +4619,14 @@ if __name__ == "__main__":
     import uvicorn
     import os
 
-    SSL_KEY = "sanctum.internal.net.key"
-    SSL_CERT = "sanctum.internal.net.crt"
+    SSL_KEY = os.environ.get("EVELYN_SSL_KEY", "sanctum.internal.net.key" if os.path.exists("sanctum.internal.net.key") else "server.key")
+    SSL_CERT = os.environ.get("EVELYN_SSL_CERT", "sanctum.internal.net.crt" if os.path.exists("sanctum.internal.net.crt") else "server.crt")
     ssl_args = {}
     if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT):
         ssl_args = {"ssl_keyfile": SSL_KEY, "ssl_certfile": SSL_CERT}
-        print("SSL certs found -- starting with HTTPS")
+        print(f"SSL certs found ({SSL_CERT}) -- starting with HTTPS")
     else:
-        print("No SSL certs found -- starting with plain HTTP (fine for Tailscale)")
+        print("No SSL certs found -- starting with plain HTTP (fine for Tailscale / localhost)")
 
     uvicorn.run(
         "evelyn_server:app",
