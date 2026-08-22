@@ -44,7 +44,7 @@ Walk through each gate for the code you just wrote or modified:
 
 ## 5. Documentation Integrity
 
-- [ ] **ROADMAP.md** — Did you complete a milestone? Is it marked done with a date?
+- [ ] **ROADMAP.md** — Did you complete a milestone? Is it marked done (`- [x]`) concisely (1–2 sentences, no verbose changelogs/traces) and positioned in the completed section?
 - [ ] **API Endpoints (`reference/endpoints.md`)** — Have any endpoint contracts, parameter signatures, or return payloads been modified or added? Is the endpoint reference document updated to match exactly?
 - [ ] **Engine Architecture Map (`reference/engine_architecture.md`)** — Have any core scripts, background workers, or storage components been introduced or refactored? Is the structural blueprint and Mermaid diagram updated to reflect the new state?
 - [ ] **Google API & Scopes Reference (`reference/google_access.md`)** — Have any Google APIs or OAuth scopes been added, removed, or changed? Is `reference/google_access.md` updated to match the active scopes configured in setup scripts?
