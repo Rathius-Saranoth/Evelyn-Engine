@@ -30,7 +30,8 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-DATA_DIR = "/home/rathius/evelyn/data"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(ROOT_DIR, "data")
 CHROMA_DIR = os.path.join(DATA_DIR, "chroma_db")
 CHROMA_LOCK = os.path.join(CHROMA_DIR, ".chroma_write.lock")
 
@@ -38,6 +39,7 @@ DB_MAP = {
     "chat": os.path.join(DATA_DIR, "evelyn_chat.db"),
     "memory": os.path.join(DATA_DIR, "evelyn_memory.db"),
     "vault": os.path.join(DATA_DIR, "evelyn_vault.db"),
+    "media": os.path.join(DATA_DIR, "evelyn_media.db"),
     "health": os.path.join(DATA_DIR, "health", "health_connect.db"),
 }
 
