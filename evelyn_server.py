@@ -4120,9 +4120,17 @@ async def get_unified_review(_: None = Depends(check_auth)):
                 proc = memory_db.get_procedure(eid)
                 if proc:
                     source_entries.append({
+                        "id": proc["id"],
                         "category": "procedure",
-                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}...",
-                        "is_split_queued": False
+                        "subject": getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
+                        "trigger_pattern": proc.get("trigger_pattern", ""),
+                        "steps": proc.get("steps", ""),
+                        "pitfalls": proc.get("pitfalls", ""),
+                        "verification": proc.get("verification", ""),
+                        "observation": f"**Trigger:** {proc.get('trigger_pattern', '')}\n**Steps:**\n{proc.get('steps', '')}",
+                        "tags": proc.get("tags", ""),
+                        "is_split_queued": False,
+                        "is_procedure": True
                     })
             else:
                 entry = memory_db.get_entry(eid)
@@ -4250,8 +4258,17 @@ async def get_proposals(_: None = Depends(check_auth)):
                 proc = memory_db.get_procedure(eid)
                 if proc:
                     source_entries.append({
+                        "id": proc["id"],
                         "category": "procedure",
-                        "observation": f"[{proc['trigger_pattern']}] {proc['steps'][:120]}..."
+                        "subject": getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
+                        "trigger_pattern": proc.get("trigger_pattern", ""),
+                        "steps": proc.get("steps", ""),
+                        "pitfalls": proc.get("pitfalls", ""),
+                        "verification": proc.get("verification", ""),
+                        "observation": f"**Trigger:** {proc.get('trigger_pattern', '')}\n**Steps:**\n{proc.get('steps', '')}",
+                        "tags": proc.get("tags", ""),
+                        "is_split_queued": False,
+                        "is_procedure": True
                     })
             else:
                 entry = memory_db.get_entry(eid)
@@ -4567,8 +4584,26 @@ async def action_procedure(
         body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags.
     """
     import Evelyn.tools.memory_db as memory_db
-    if action == "deny":
-        memory_db.update_procedure(id, status="archived")
+    if action in ("deny", "delete"):
+        memory_db.delete_procedure(id)
+        return {"status": "ok"}
+    elif action == "edit":
+        update_fields = {}
+        if body:
+            if body.trigger_pattern is not None:
+                update_fields["trigger_pattern"] = body.trigger_pattern
+            if body.steps is not None:
+                update_fields["steps"] = body.steps
+            if body.pitfalls is not None:
+                update_fields["pitfalls"] = body.pitfalls
+            if body.verification is not None:
+                update_fields["verification"] = body.verification
+            if body.tags is not None:
+                update_fields["tags"] = body.tags
+
+        success = memory_db.update_procedure(id, **update_fields)
+        if not success:
+            raise HTTPException(status_code=404, detail="Procedure not found or not updated")
         return {"status": "ok"}
     elif action == "approve":
         update_fields = {}

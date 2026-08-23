@@ -13,6 +13,16 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.006] - 2026-08-23 — *Granular Source Entry Management for Merge Proposals*
+
+### Added
+- **Granular Source Item Editing & Unlinking in Proposals**:
+  - Added support for editing, unlinking, and deleting individual source procedures directly on `procedure_merge` proposal cards in [dev.html](file:///home/rathius/evelyn/evelyn_ui/dev.html).
+  - Extended `/api/review/procedures/{id}/{action}` in [evelyn_server.py](file:///home/rathius/evelyn/evelyn_server.py) to support `edit` and `delete` actions that commit changes immediately to the database.
+  - Unified `renderSourceEntriesList` across all proposal types (`procedure_merge`, `merge`, `supersede`, `split`, and `profile_update`) to allow instant inline edits to persist to the database regardless of whether the overarching proposal is approved, denied, or unlinked.
+
+---
+
 ## [000.005.005] - 2026-08-23 — *YAML Scalar Unquoting & Proposal Text Sanitization*
 
 ### Fixed
