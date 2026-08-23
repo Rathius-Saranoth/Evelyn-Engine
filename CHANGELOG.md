@@ -13,6 +13,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.005] - 2026-08-23 — *YAML Scalar Unquoting & Proposal Text Sanitization*
+
+### Fixed
+- **DevUI Proposal Text Rendering & YAML Escaping**:
+  - Implemented `cleanYamlScalar` in [dev.html](file:///home/rathius/evelyn/evelyn_ui/dev.html) to properly decode single-quoted, double-quoted, folded, and block YAML scalars.
+  - Resolved double apostrophe escaping (`''` to `'`) in quotes and contractions (`it's`, `AI's`) across proposed steps, trigger patterns, and split observations.
+  - Eliminated random mid-sentence line breaks caused by PyYAML 80-character line folding.
+  - Updated [procedure_consolidator.py](file:///home/rathius/evelyn/Evelyn/tools/procedure_consolidator.py) to dump YAML with `width=10000` to prevent line wrapping during proposal generation.
+  - Sanitized existing pending procedure merge proposals in `evelyn_memory.db`.
+
+---
+
 ## [000.005.004] - 2026-08-23 — *Environment Configuration & Network Parameterization*
 
 ### Added
