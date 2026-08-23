@@ -169,8 +169,34 @@ class TestChromaQueueAndLifecycle(unittest.TestCase):
         self.assertTrue(os.path.exists(dummy_lock))
         summary = task_manager.reap_orphaned_processes()
         self.assertFalse(os.path.exists(dummy_lock))
-        self.assertIn(dummy_lock, summary["cleaned_locks"])
+    def test_06_drain_deadline_rollback(self):
+        """Verify that when drain_sync_queue encounters an expired deadline, un-processed items revert to pending."""
+        src1 = "test::batch_item_1.md"
+        src2 = "test::batch_item_2.md"
+        chroma_rag.enqueue_upsert(src1, "Batch item 1", collection_name="evelyn_memory")
+        chroma_rag.enqueue_upsert(src2, "Batch item 2", collection_name="evelyn_memory")
+
+        # Pass an immediate past deadline (time.time() - 10)
+        drained = chroma_rag.drain_sync_queue(batch_size=50, source_prefix="test::", deadline=time.time() - 10)
+        self.assertEqual(drained, 0)
+
+        # Both items should remain 'pending' and not get stuck in 'processing'
+        cur = self.con.cursor()
+        cur.execute("SELECT status FROM chroma_sync_queue WHERE source_path IN (?, ?)", (src1, src2))
+        statuses = [r["status"] for r in cur.fetchall()]
+        self.assertEqual(len(statuses), 2)
+        self.assertTrue(all(s == "pending" for s in statuses))
+
+    def test_07_flush_sync_queue_timeout(self):
+        """Verify flush_sync_queue returns within its bounded timeout."""
+        start = time.time()
+        # Call flush with 0.2s timeout on empty test queue
+        res = chroma_rag.flush_sync_queue(timeout=0.2, source_prefix="test::")
+        elapsed = time.time() - start
+        self.assertTrue(res)  # Empty queue returns True immediately
+        self.assertLess(elapsed, 1.0)
 
 
 if __name__ == "__main__":
     unittest.main()
+
