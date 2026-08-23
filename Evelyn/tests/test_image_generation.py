@@ -26,7 +26,7 @@ class TestImageGenerationTool(unittest.TestCase):
 
     @patch("requests.post")
     @patch("requests.get")
-    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal.net:5055")
+    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal:5055")
     @patch("evelyn_config.IMAGE_OUTPUT_DIR", "/tmp/test_evelyn_image_output")
     def test_generate_image_success_with_remote_cache(self, mock_get, mock_post):
         # Mock POST /generate response from remote image server
@@ -56,7 +56,7 @@ class TestImageGenerationTool(unittest.TestCase):
 
         self.assertIn("Image generated successfully at /images/image_20260811_test_forest.png.", result)
         mock_post.assert_called_once_with(
-            "http://image-host.internal.net:5055/generate",
+            "http://image-host.internal:5055/generate",
             json={
                 "prompt": "A serene misty forest",
                 "aspect_ratio": "16:9",
@@ -66,7 +66,7 @@ class TestImageGenerationTool(unittest.TestCase):
             timeout=600
         )
         mock_get.assert_called_once_with(
-            "http://image-host.internal.net:5055/images/image_20260811_test_forest.png",
+            "http://image-host.internal:5055/images/image_20260811_test_forest.png",
             timeout=30
         )
 
@@ -81,7 +81,7 @@ class TestImageGenerationTool(unittest.TestCase):
             cached_path.unlink()
 
     @patch("requests.post")
-    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal.net:5055")
+    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal:5055")
     @patch("evelyn_config.IMAGE_OUTPUT_DIR", "/tmp/test_evelyn_image_output")
     def test_generate_image_parameter_aliases(self, mock_post):
         mock_post_resp = MagicMock()
@@ -103,7 +103,7 @@ class TestImageGenerationTool(unittest.TestCase):
 
             self.assertIn("Image generated successfully at /images/image_alias_test.png.", result)
             mock_post.assert_called_once_with(
-                "http://image-host.internal.net:5055/generate",
+                "http://image-host.internal:5055/generate",
                 json={
                     "prompt": "Futuristic cyberpunk neon skyline",
                     "aspect_ratio": "1:1",
@@ -117,7 +117,7 @@ class TestImageGenerationTool(unittest.TestCase):
         self.assertIn("Error: generate_image called with an empty prompt", result)
 
     @patch("requests.post")
-    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal.net:5055")
+    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal:5055")
     @patch("evelyn_config.IMAGE_OUTPUT_DIR", "/tmp/test_evelyn_image_output")
     def test_generate_image_server_error(self, mock_post):
         mock_post_resp = MagicMock()
@@ -129,11 +129,11 @@ class TestImageGenerationTool(unittest.TestCase):
         self.assertIn("Error from Image Engine: Internal CUDA Error", result)
 
     @patch("requests.post", side_effect=Exception("Connection refused"))
-    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal.net:5055")
+    @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal:5055")
     @patch("evelyn_config.IMAGE_OUTPUT_DIR", "/tmp/test_evelyn_image_output")
     def test_generate_image_connection_failure(self, mock_post):
         result = evelyn_tools.generate_image(prompt="Valid prompt")
-        self.assertIn("Failed to generate image via FLUX.1 server at http://image-host.internal.net:5055", result)
+        self.assertIn("Failed to generate image via FLUX.1 server at http://image-host.internal:5055", result)
 
 
 if __name__ == "__main__":

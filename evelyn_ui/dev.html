@@ -1760,10 +1760,10 @@
               </div>
               <button class="btn btn-sm" style="font-size: 11px; padding: 2px 6px; background: rgba(239, 68, 68, 0.15); color: #f87171;" onclick="removeSplitDraft(${idx})">✕ Remove</button>
             </div>
-            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
               <input type="text" id="split-cat-${idx}" value="${escapeHtml(d.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="updateSplitDraft(${idx})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="updateSplitDraft(${idx})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" oninput="updateSplitDraft(${idx})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" oninput="updateSplitDraft(${idx})" style="flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
             </div>
             <textarea id="split-obs-${idx}" oninput="updateSplitDraft(${idx})" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(d.observation || '')}</textarea>
             ${suggTags}
@@ -2079,16 +2079,14 @@
         `;
       } else if (item.item_type === 'proposal') {
         const sourcesHTML = (item.source_entries && item.source_entries.length > 0) ? item.source_entries.map(s => `
-          <div class="source-item-card" id="source-entry-${item.id}-${s.id || s.observation_id || ''}" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <div style="font-size: 13px; flex: 1;">
+          <div class="source-item-card" id="source-entry-${item.id}-${s.id || s.observation_id || ''}" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 13px;">
                 <span style="color: var(--accent); font-weight: 600;">[${escapeHtml(s.category)}]</span>
                 <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || currentIdentity.user_name)})</span>
-                <div style="color: var(--text); margin-top: 4px; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(s.observation)}</div>
-                ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
               </div>
               ${s.id ? `
-              <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center;">
+              <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center; flex-wrap: wrap;">
                 ${s.is_split_queued ? `
                   <span class="badge" style="font-size: 10px; padding: 2px 6px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">✂️ Queued</span>
                 ` : `
@@ -2099,15 +2097,17 @@
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
               </div>` : ''}
             </div>
+            <div style="font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap;">${escapeHtml(s.observation)}</div>
+            ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
             ${s.id ? `
-            <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
-              <div style="display: flex; gap: 8px;">
-                <input type="text" id="ce-cat-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 80px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+            <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <input type="text" id="ce-cat-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
-              <textarea id="ce-obs-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px;">${escapeHtml(s.observation)}</textarea>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <textarea id="ce-obs-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(s.observation)}</textarea>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id})">Save</button>
                 <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
               </div>
@@ -2122,23 +2122,23 @@
             <div style="display: flex; flex-direction: column; gap: 8px;">
               ${splitEntries.map((ce, idx) => `
                 <div class="split-fact-card" id="split-fact-${item.id}-${idx}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
-                  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-                    <div style="font-size: 13px; flex: 1;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                       <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;">Fact #${idx + 1}: ${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}</span>
-                      <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(ce.subject || currentIdentity.user_name)})</span>
-                      ${ce.tags ? `<span style="font-size: 11px; color: var(--accent); font-family: monospace; margin-left: 6px;">#${escapeHtml(ce.tags)}</span>` : ''}
-                      <div style="font-size: 13px; line-height: 1.4; color: var(--text); margin-top: 4px; white-space: pre-wrap;">${escapeHtml(ce.observation || '')}</div>
+                      <span style="color: var(--text-dim); font-size: 12px;">(${escapeHtml(ce.subject || currentIdentity.user_name)})</span>
+                      ${ce.tags ? `<span style="font-size: 11px; color: var(--accent); font-family: monospace;">#${escapeHtml(ce.tags)}</span>` : ''}
                     </div>
-                    <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                    <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center;">
                       <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSplitFact(${item.id}, ${idx})">Edit</button>
                       <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="removeSplitFact(${item.id}, ${idx})">✕ Remove</button>
                     </div>
                   </div>
-                  <div id="edit-split-fact-${item.id}-${idx}" style="display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
-                    <div style="display: flex; gap: 8px;">
+                  <div style="font-size: 13px; line-height: 1.4; color: var(--text); white-space: pre-wrap;">${escapeHtml(ce.observation || '')}</div>
+                  <div id="edit-split-fact-${item.id}-${idx}" style="display: none; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                       <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                       <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                      <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                     </div>
                     <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">
@@ -2285,15 +2285,13 @@
         `;
       } else if (item.item_type === 'profile_update') {
         const sourcesHTML = (item.source_entries && item.source_entries.length > 0) ? item.source_entries.map(s => `
-          <div class="source-item-card" id="source-entry-${item.id}-${s.id}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <div style="font-size: 13px; flex: 1;">
+          <div class="source-item-card" id="source-entry-${item.id}-${s.id}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 13px;">
                 <span style="color: var(--accent); font-weight: 600;">[${escapeHtml(s.category)}]</span>
-                <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || 'R')})</span>
-                <div style="color: var(--text); margin-top: 4px; line-height: 1.4;">${escapeHtml(s.observation)}</div>
-                ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
+                <span style="color: var(--text-dim); font-size: 12px; margin-left: 4px;">(${escapeHtml(s.subject || currentIdentity.user_name || 'R')})</span>
               </div>
-              <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center;">
+              <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center; flex-wrap: wrap;">
                 ${s.is_split_queued ? `
                   <span class="badge" style="font-size: 10px; padding: 2px 6px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">✂️ Queued</span>
                 ` : `
@@ -2304,14 +2302,16 @@
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
               </div>
             </div>
-            <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
-              <div style="display: flex; gap: 8px;">
-                <input type="text" id="ce-cat-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || 'R')}" placeholder="Subject" style="width: 80px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+            <div style="font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap;">${escapeHtml(s.observation)}</div>
+            ${s.tags ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Tags: ${escapeHtml(s.tags)}</div>` : ''}
+            <div id="edit-source-form-${item.id}-${s.id}" style="display: none; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <input type="text" id="ce-cat-${s.id}" value="${escapeHtml(s.category)}" placeholder="Category" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ce-subj-${s.id}" value="${escapeHtml(s.subject || currentIdentity.user_name || 'R')}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
-              <textarea id="ce-obs-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px;">${escapeHtml(s.observation)}</textarea>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <textarea id="ce-obs-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(s.observation)}</textarea>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="ce-tags-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id})">Save</button>
                 <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
               </div>
@@ -2769,7 +2769,7 @@
                 <label style="font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">
                   Ingestion Mode
                 </label>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
                   <label class="mode-card" style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
                     <input type="radio" name="ingest-mode" value="full" checked style="accent-color: var(--accent); margin-top: 3px;" />
                     <div>
@@ -2826,14 +2826,24 @@
             <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.5;">
               You can also drop PDF files directly into the vault filesystem via Syncthing or your file explorer:
             </p>
-            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
-              <div style="background: var(--surface2); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px;">
-                <strong style="color: #fff; font-family: monospace; font-size: 12px;">Attachments/Staging/Full_Extraction/</strong>
-                <span style="color: var(--text-dim);">→ Triggers full chapter extraction into target folder</span>
+            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px;">
+              <div style="background: var(--surface2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px; padding: 2px 6px;">Folder</span>
+                  <code style="color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; word-break: break-all;">Attachments/Staging/Full_Extraction/</code>
+                </div>
+                <div style="color: var(--text-dim); font-size: 12px; line-height: 1.4; padding-left: 2px;">
+                  Triggers full chapter extraction, table of contents, and vector indexing into the target domain folder.
+                </div>
               </div>
-              <div style="background: var(--surface2); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px;">
-                <strong style="color: #fff; font-family: monospace; font-size: 12px;">Attachments/Staging/Sidecar_Only/</strong>
-                <span style="color: var(--text-dim);">→ Triggers Sidecar note creation with embedded viewer</span>
+              <div style="background: var(--surface2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px; padding: 2px 6px;">Folder</span>
+                  <code style="color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; word-break: break-all;">Attachments/Staging/Sidecar_Only/</code>
+                </div>
+                <div style="color: var(--text-dim); font-size: 12px; line-height: 1.4; padding-left: 2px;">
+                  Triggers Sidecar note creation with embedded interactive viewer and tags, relocating source PDF to <code style="color:var(--accent);">Attachments/Source Material/</code>.
+                </div>
               </div>
             </div>
           </div>

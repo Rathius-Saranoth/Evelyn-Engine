@@ -1,17 +1,17 @@
 ---
 title: REQUIREMENTS_IMAGE_HOST.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-08-23 08:03:22
+date modified: 2026-08-23 15:00:00
 tags: service, image-generation, flux, requirements, gpu, setup, evelyn
 ---
 
-# Ricky-PC Standalone Image Generation Host Requirements & Restoration Guide
+# Standalone Image Generation Host Requirements & Restoration Guide
 
 > Navigation: [[README.md]] · [[engine_architecture.md]] · [[SETUP_GUIDE.md]] · [[REQUIREMENTS.md]]
 
-This document defines the system requirements, environment configuration, dependency installation, model setup, and service restoration procedures for the standalone **FLUX.1 [schnell] NF4 Image Generation Server** running on `image-host` (`image-host.internal.net:5055`).
+This document defines the system requirements, environment configuration, dependency installation, model setup, and service restoration procedures for the standalone **FLUX.1 [schnell] NF4 Image Generation Server** running on an auxiliary GPU host (e.g. `<image-host>.<tailnet>.ts.net:5055` or `<host-ip>:5055`).
 
-Use this guide if the environment on `image-host` is wiped, cleaned up, or needs to be reconfigured from scratch.
+Use this guide if the environment on your dedicated GPU host is wiped, cleaned up, or needs to be reconfigured from scratch.
 
 ---
 
@@ -19,18 +19,18 @@ Use this guide if the environment on `image-host` is wiped, cleaned up, or needs
 
 | Category | Requirement | Notes |
 | :--- | :--- | :--- |
-| **OS** | Windows 10/11 64-bit (or Linux x86_64) | Tested on Windows 11 host (`image-host`) |
-| **GPU** | NVIDIA GPU with ≥ 12 GB VRAM | Recommended: RTX 4070 or better |
+| **OS** | Windows 10/11 64-bit (or Linux x86_64) | Tested on Windows 11 and Ubuntu / Arch Linux |
+| **GPU** | NVIDIA GPU with ≥ 12 GB VRAM | Recommended: RTX 4070 / RTX 3080 or better |
 | **CUDA Driver** | NVIDIA Display Driver supporting CUDA 12.x | Run `nvidia-smi` to verify driver state |
 | **Python** | Python 3.10, 3.11, or 3.12 (64-bit) | Ensure `python` and `pip` are on PATH |
-| **Tailscale** | Tailscale network client logged into tailnet | Enables `image-host.internal.net` routing |
+| **Tailscale** | Tailscale network client logged into tailnet | Enables secure peer-to-peer remote inference routing |
 | **Disk Space** | ~15 GB free disk space | Required for PyTorch, HuggingFace model cache, and output images |
 
 ---
 
 ## 2. Directory Structure
 
-On `image-host`, place or clone the repository to your chosen project path (e.g. `C:\evelyn` or `%USERPROFILE%\evelyn`).
+On your GPU host, place or clone the repository to your chosen project path (e.g. `C:\evelyn`, `%USERPROFILE%\evelyn`, or `~/evelyn`).
 
 The image service files are located at:
 ```text
@@ -52,17 +52,26 @@ evelyn/
 ## 3. Environment Restoration Procedure
 
 ### Step 1: Create Virtual Environment
-Open PowerShell (or Command Prompt) on `image-host` and navigate to the project directory:
+Open PowerShell (or terminal) on the host machine and navigate to the project directory:
 
+**Windows (PowerShell):**
 ```powershell
 cd services\image
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
+**Linux:**
+```bash
+cd services/image
+python3 -m venv venv
+source venv/bin/activate
+```
+
 ### Step 2: Install PyTorch with CUDA Support
 Ensure PyTorch with CUDA support is installed before other dependencies:
 
+**Windows / Linux (CUDA 12.1):**
 ```powershell
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
@@ -91,7 +100,7 @@ pip install -r requirements.txt
 The server loads the model on demand from HuggingFace Hub:
 - Model ID: `magespace/FLUX.1-schnell-bnb-nf4`
 
-To pre-download the weights into the HuggingFace cache directory (`~/.cache/huggingface/hub` or `C:\Users\<user>\.cache\huggingface\hub`), run:
+To pre-download the weights into the HuggingFace cache directory (`~/.cache/huggingface/hub` or `C:\Users\<username>\.cache\huggingface\hub`), run:
 
 ```powershell
 python -c "from diffusers import DiffusionPipeline; import torch; DiffusionPipeline.from_pretrained('magespace/FLUX.1-schnell-bnb-nf4', torch_dtype=torch.bfloat16)"
@@ -101,15 +110,21 @@ python -c "from diffusers import DiffusionPipeline; import torch; DiffusionPipel
 
 ## 5. Network & Firewall Configuration
 
-1. **Tailscale Binding**:
-   - Ensure Tailscale is running and `image-host` is connected to the `internal.net` network.
-   - Verify `image-host` IP using `tailscale ip -4` (e.g. `100.127.160.114`).
+1. **Tailscale / Mesh Binding**:
+   - Ensure Tailscale is running and connected to your private network.
+   - Verify host IP using `tailscale ip -4` (e.g. `100.x.y.z`).
 
-2. **Windows Firewall Rule**:
+2. **Firewall Rule (Port 5055)**:
    Allow inbound TCP traffic on port `5055` for PowerShell / Python / Uvicorn:
 
+   **Windows PowerShell (Admin):**
    ```powershell
    New-NetFirewallRule -DisplayName "Evelyn Image Server (Port 5055)" -Direction Inbound -LocalPort 5055 -Protocol TCP -Action Allow
+   ```
+
+   **Linux (UFW):**
+   ```bash
+   sudo ufw allow 5055/tcp
    ```
 
 ---
@@ -125,8 +140,14 @@ python services\image\image_server.py
 ```
 
 ### Running via Provided Helper Script
+**Windows:**
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start_image_server.ps1
+```
+
+**Linux:**
+```bash
+./scripts/start_image_server.sh
 ```
 
 ---
@@ -135,7 +156,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_image_server.ps1
 
 1. **Health Check Endpoint**:
    ```bash
-   curl http://image-host.internal.net:5055/health
+   curl http://<image-host-ip-or-tailscale-domain>:5055/health
    ```
    *Expected Response:*
    ```json
@@ -151,7 +172,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start_image_server.ps1
 
 2. **Image Generation Test Endpoint**:
    ```bash
-   curl -X POST http://image-host.internal.net:5055/generate \
+   curl -X POST http://<image-host-ip-or-tailscale-domain>:5055/generate \
      -H "Content-Type: application/json" \
      -d '{"prompt": "A serene foggy pine forest at sunrise", "aspect_ratio": "16:9", "short_title": "test_forest"}'
    ```
@@ -161,8 +182,8 @@ powershell -ExecutionPolicy Bypass -File scripts\start_image_server.ps1
 ## 8. Troubleshooting
 
 - **Out of Memory (OOM) / CUDA Error**:
-  `image_server.py` implements CPU model offload (`_pipeline.enable_model_cpu_offload()`) and auto-unloads after 120s inactivity. If OOM occurs, verify no other heavy applications (e.g. game or local LLM server) are locking GPU memory.
+  `image_server.py` implements CPU model offload (`_pipeline.enable_model_cpu_offload()`) and auto-unloads after 120s inactivity. If OOM occurs, verify no other heavy applications (e.g. local LLM or games) are locking GPU memory.
 - **Connection Refused on Port 5055**:
-  Ensure `IMAGE_SERVER_HOST` is set to `"0.0.0.0"` in `image_server.py` (not `"127.0.0.1"`) and Windows Firewall rule allows inbound TCP port 5055.
+  Ensure `IMAGE_SERVER_HOST` is set to `"0.0.0.0"` in `image_server.py` (not `"127.0.0.1"`) and host firewall rules allow inbound TCP port 5055.
 - **Missing `bitsandbytes` CUDA libraries on Windows**:
-  Ensure `bitsandbytes>=0.43.0` is installed via `pip install bitsandbytes`. On Windows, PyTorch CUDA 12.x runtime libraries must be matching.
+  Ensure `bitsandbytes>=0.43.0` is installed via `pip install bitsandbytes`. On Windows, PyTorch CUDA 12.x runtime libraries must match the installed CUDA drivers.

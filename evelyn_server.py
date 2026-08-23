@@ -4708,8 +4708,8 @@ if __name__ == "__main__":
     import uvicorn
     import os
 
-    SSL_KEY = os.environ.get("EVELYN_SSL_KEY", "sanctum.internal.net.key" if os.path.exists("sanctum.internal.net.key") else "server.key")
-    SSL_CERT = os.environ.get("EVELYN_SSL_CERT", "sanctum.internal.net.crt" if os.path.exists("sanctum.internal.net.crt") else "server.crt")
+    SSL_KEY = getattr(cfg, "SSL_KEY", os.environ.get("EVELYN_SSL_KEY", "server.key"))
+    SSL_CERT = getattr(cfg, "SSL_CERT", os.environ.get("EVELYN_SSL_CERT", "server.crt"))
     ssl_args = {}
     if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT):
         ssl_args = {"ssl_keyfile": SSL_KEY, "ssl_certfile": SSL_CERT}

@@ -12,7 +12,33 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 
 import os
 import time
-from Evelyn.version import __version__, VERSION_NAME
+from Evelyn.version import VERSION_NAME, __version__
+
+__all__ = ["__version__", "VERSION_NAME"]
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_dotenv(filepath: str) -> None:
+    """Load key-value pairs from a local .env file into os.environ if not already set."""
+    if not os.path.isfile(filepath):
+        return
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except (OSError, UnicodeDecodeError):
+        pass
+
+
+_load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Engine Version & Boot Migration Policy
 # Set AUTO_MIGRATE_ON_BOOT to True if you want the server to automatically apply pending
@@ -547,40 +573,36 @@ RESEARCH_MAX_QUEUE_SIZE = 5
 # =============================================================================
 # Services
 # =============================================================================
-TTS_SERVER_URL = "http://localhost:5050"  # Chatterbox TTS server
-IMAGE_SERVER_URL = "http://localhost:5055"  # FLUX.1 [schnell] Image server
+TTS_SERVER_URL = os.environ.get("EVELYN_TTS_SERVER_URL", "http://localhost:5050")
+IMAGE_SERVER_URL = os.environ.get("EVELYN_IMAGE_SERVER_URL", "http://localhost:5055")
 IMAGE_OUTPUT_DIR = os.path.join(BASE_DIR, "services", "image", "output")
 
 # =============================================================================
 # Server
 # =============================================================================
-SERVER_PORT = 7860
-BIND_HOST = "0.0.0.0"  # Reachable over Tailscale / LAN
+SERVER_PORT = int(os.environ.get("EVELYN_PORT", "7860"))
+BIND_HOST = os.environ.get("EVELYN_BIND_HOST", "0.0.0.0")
 
 # API key for thin auth — set via environment variable EVELYN_API_KEY
-# or override the default below (not recommended for committed code)
+# or override in your local .env file (not committed to git)
 API_KEY = os.environ.get("EVELYN_API_KEY", "")
 
-# Tailscale hostname or IP for the Evelyn server.
-# Used by mobile/remote clients to connect back to the server.
-SERVER_HOST = "localhost"
+# Server hostname / domain
+SERVER_HOST = os.environ.get("EVELYN_SERVER_HOST", "localhost")
 
-# Allowed CORS origins for browser access (e.g. tablet, phone).
-# Tailscale IPs/magicDNS names and localhost are allowed.
+# SSL Certificate and Key paths
+SSL_CERT = os.environ.get("EVELYN_SSL_CERT", "server.crt")
+SSL_KEY = os.environ.get("EVELYN_SSL_KEY", "server.key")
+
+# Allowed CORS origins for browser access.
+# Includes local endpoints and any custom origins passed via EVELYN_ALLOWED_ORIGINS (comma-separated).
+_extra_origins = [o.strip() for o in os.environ.get("EVELYN_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 ALLOWED_ORIGINS = [
     f"http://127.0.0.1:{SERVER_PORT}",
     f"https://127.0.0.1:{SERVER_PORT}",
-    # --- Tailscale & LAN Origins ---
-    "http://sanctum.internal.net:7860",
-    "https://sanctum.internal.net:7860",
-    "http://192.168.1.187:7860",
-    "https://192.168.1.187:7860",
-    "http://image-host.internal.net:7860",
-    "https://image-host.internal.net:7860",
-    "http://client-tablet.internal.net:7860",
-    "https://client-tablet.internal.net:7860",
-    "http://client-phone.internal.net:7860",
-    "https://client-phone.internal.net:7860",
+    f"http://localhost:{SERVER_PORT}",
+    f"https://localhost:{SERVER_PORT}",
+    *_extra_origins
 ]
 
 # =============================================================================

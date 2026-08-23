@@ -107,7 +107,16 @@ ollama pull gemma4:12b
 | **Install** | https://tailscale.com/download                                         |
 | **Usage**   | `tailscale serve --bg 8080` — exposes the Evelyn server over Tailscale |
 
+### Image Generation Microservice (Optional — FLUX.1 Schnell NF4)
 
+| Detail         | Value                                                                             |
+| -------------- | --------------------------------------------------------------------------------- |
+| **What**       | Standalone FastAPI microservice running FLUX.1 [schnell] NF4 text-to-image pipeline |
+| **Hardware**   | Dedicated NVIDIA GPU with ≥ 12 GB VRAM (RTX 4070 / RTX 3080 or better)             |
+| **Model**      | `magespace/FLUX.1-schnell-bnb-nf4` (4-step distilled schnell with bitsandbytes NF4) |
+| **Location**   | `services/image/` (`services/image/image_server.py`)                              |
+| **Restoration**| See [[REQUIREMENTS_IMAGE_HOST.md]] for full setup, GPU drivers, and firewall guide|
+| **Startup**    | `python services/image/image_server.py` or `./scripts/start_image_server.sh`      |
 
 ### Obsidian (Optional — Knowledge Base UI)
 
@@ -116,7 +125,6 @@ ollama pull gemma4:12b
 | **What**       | Markdown knowledge base — Evelyn's "vault"|
 | **Install**    | https://obsidian.md                       |
 | **Vault Path** | `/home/rathius/obsidian_vault`            |
-
 
 ---
 

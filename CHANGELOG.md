@@ -13,6 +13,48 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.004] - 2026-08-23 — *Environment Configuration & Network Parameterization*
+
+### Added
+- **Local Environment Support (`.env`)**:
+  - Implemented automatic `.env` loader in [evelyn_config.py](file:///home/rathius/evelyn/evelyn_config.py) to read local network, port, SSL, and service endpoint overrides.
+  - Added clean, documented [.env.example](file:///home/rathius/evelyn/.env.example) template for version control and new environment provisioning.
+
+### Changed
+- **Network & Host Parameterization**:
+  - Parameterized CORS `ALLOWED_ORIGINS` to dynamically incorporate values from `EVELYN_ALLOWED_ORIGINS` alongside standard localhost origins.
+  - Parameterized `IMAGE_SERVER_URL` via `EVELYN_IMAGE_SERVER_URL` in [evelyn_config.py](file:///home/rathius/evelyn/evelyn_config.py) and [check_evelyn_status.sh](file:///home/rathius/evelyn/scripts/check_evelyn_status.sh).
+  - Parameterized SSL key/cert paths in [evelyn_server.py](file:///home/rathius/evelyn/evelyn_server.py).
+  - Generalized architecture diagrams and component topologies in [engine_architecture.md](file:///home/rathius/evelyn/reference/engine_architecture.md) and unit test mocks in [test_image_generation.py](file:///home/rathius/evelyn/Evelyn/tests/test_image_generation.py).
+
+---
+
+## [000.005.003] - 2026-08-23 — *Image Host Requirements Documentation & Sanitization*
+
+### Added
+- **Core Requirements Integration**:
+  - Incorporated the **FLUX.1 Schnell NF4 Image Generation Microservice** specifications and dependencies into [REQUIREMENTS.md](file:///home/rathius/evelyn/REQUIREMENTS.md) under External Services.
+
+### Changed
+- **Documentation Sanitization & Identity Parameterization**:
+  - Parameterized host-specific domains, IPs, and user directory paths in [REQUIREMENTS_IMAGE_HOST.md](file:///home/rathius/evelyn/services/image/REQUIREMENTS_IMAGE_HOST.md) into generic placeholders (`<image-host>`, `<tailnet>`, `<username>`).
+  - Added multi-platform (Windows & Linux) virtual environment and firewall configuration instructions.
+
+---
+
+## [000.005.002] - 2026-08-23 — *DevUI Split Proposal & Ingestion Layout Refinements*
+
+### Fixed
+- **DevUI Split & Proposal Card Layout**:
+  - Separated metadata/badges and action buttons (`Split`, `Edit`, `Unlink`, `Delete`, `Remove`) into a top header row across Source Compound Entry, Proposed Atomic Context Facts, and Profile Update cards in [dev.html](file:///home/rathius/evelyn/evelyn_ui/dev.html).
+  - Observation text content and domain tags now render on dedicated full-width rows rather than being squished into a narrow column alongside button groups.
+  - Added responsive `flex-wrap` and minimum widths to inline editing forms and Split Modal draft inputs.
+- **Document Ingestion Staging & Mode Layout**:
+  - Restructured **Direct Filesystem Staging** directory guide cards so folder paths and explanations sit on separate full-width rows instead of cramping horizontally.
+  - Made the **Ingestion Mode** radio card container responsive with `repeat(auto-fit, minmax(260px, 1fr))` for mobile and narrow viewports.
+
+---
+
 ## [000.005.001] - 2026-08-22 — *Tag Librarian Vault DB Audit Fix*
 
 ### Fixed
