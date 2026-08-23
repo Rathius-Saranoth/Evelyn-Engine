@@ -121,3 +121,37 @@ def test_chroma_direct_remap_and_queue(monkeypatch, tmp_path):
     assert row["source_path"] == old_src
     assert row["content"] == new_src
 
+
+def test_vault_db_update_document_tag_audit(monkeypatch, tmp_path):
+    """Verify vault_db.update_document_tag_audit records audit timestamps and updates tags."""
+    test_db = str(tmp_path / "test_vault_audit.db")
+    monkeypatch.setattr(vault_db, "DB_PATH", test_db)
+    vault_db.init_db()
+
+    doc_path = "Projects/AuditNote.md"
+    vault_db.upsert_document(
+        path=doc_path,
+        title="Audit Note",
+        mtime=time.time(),
+        tags="old-tag",
+    )
+
+    doc_before = vault_db.get_document(doc_path)
+    assert doc_before is not None
+    assert doc_before["last_tag_audit"] is None
+    assert doc_before["tags"] == "old-tag"
+
+    # Update audit without tags
+    vault_db.update_document_tag_audit(doc_path)
+    doc_after1 = vault_db.get_document(doc_path)
+    assert doc_after1["last_tag_audit"] is not None
+    assert doc_after1["last_tag_audit"] > 0
+    assert doc_after1["tags"] == "old-tag"
+
+    # Update audit with updated tags
+    vault_db.update_document_tag_audit(doc_path, tags="Tech/Python, Tech/AI")
+    doc_after2 = vault_db.get_document(doc_path)
+    assert doc_after2["last_tag_audit"] >= doc_after1["last_tag_audit"]
+    assert doc_after2["tags"] == "Tech/Python, Tech/AI"
+
+
