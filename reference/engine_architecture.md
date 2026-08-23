@@ -58,8 +58,8 @@ graph TD
         subgraph NUMANode1 [NUMA Node 1: Auxiliary Offload]
             TTS["[[tts_server.py]] (FastAPI)<br>(Chatterbox TTS Engine - CPUs 24-47, 72-95)"]
         end
-        subgraph RemoteHost [Remote Tailscale Host: image-host]
-            Image["FLUX.1 Schnell Image Host<br>(http://image-host.internal.net:5055)"]
+        subgraph RemoteHost [Remote GPU Host: image-host]
+            Image["FLUX.1 Schnell Image Host<br>(http://image-host.internal:5055)"]
         end
     end
     
@@ -102,9 +102,9 @@ graph TD
     
     %% External Ecosystem
     subgraph SyncMesh [Multi-Device Syncthing Mesh]
-        WinNode["Windows Node (workstation-pc)"]
-        MobileNode["Android Node (pixel-9-pro)"]
-        TabNode["Tablet Node (lenovo-tab)"]
+        WinNode["Workstation Node (workstation-pc)"]
+        MobileNode["Phone Node (client-phone)"]
+        TabNode["Tablet Node (client-tablet)"]
         SyncthingServer["Syncthing Daemon (sanctum:22000)"]
     end
     WinNode <== Tailscale P2P ==> SyncthingServer
@@ -187,7 +187,7 @@ Standalone background processes and tools loaded dynamically by the model during
 ### 2.6 Standalone Inference Services
 FastAPI and remote inference services designed to isolate heavy model weights and guarantee zero VRAM resource leakage.
 * **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech. Bound to **NUMA Node 1** (`CPUAffinity=24-47 72-95`, `numactl --cpunodebind=1 --membind=1`) with 24 physical cores and 96 GB DRAM isolated on Socket 1.
-* **[[image_server.py]]**: FLUX.1 [schnell] server running off-node on `image-host` over Tailscale (`http://image-host.internal.net:5055`) to leverage workstation GPU resources.
+* **[[image_server.py]]**: FLUX.1 [schnell] server running off-node on a dedicated GPU host over private network (`http://<image-host>.<tailnet>.ts.net:5055`) to leverage workstation GPU resources.
 
 ### 2.7 The Frontend User Interface
 The presentation and interaction layout loaded by the client browser. Connects directly to server APIs for state management and model inference.

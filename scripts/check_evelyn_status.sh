@@ -42,12 +42,21 @@ else
     ALL_CLEAR=false
 fi
 
-# 5. Check Remote FLUX Image Server on image-host
-IMAGE_URL="http://image-host.internal.net:5055/health"
+# 5. Check Remote FLUX Image Server
+if [ -f ".env" ]; then
+    # Source only EVELYN_IMAGE_SERVER_URL if present in .env
+    ENV_IMG_URL=$(grep "^EVELYN_IMAGE_SERVER_URL=" .env | cut -d '=' -f2- | tr -d '"' | tr -d "'")
+    if [ -n "$ENV_IMG_URL" ]; then
+        IMAGE_BASE_URL="$ENV_IMG_URL"
+    fi
+fi
+IMAGE_BASE_URL="${EVELYN_IMAGE_SERVER_URL:-${IMAGE_BASE_URL:-http://localhost:5055}}"
+IMAGE_URL="${IMAGE_BASE_URL%/}/health"
+
 if curl -s --max-time 3 "$IMAGE_URL" | grep -q "ok" > /dev/null 2>&1; then
-    echo -e "\033[0;32m✅ [Remote Image Host] FLUX.1 server reachable on image-host:5055.\033[0m"
+    echo -e "\033[0;32m✅ [Remote Image Host] FLUX.1 server reachable at $IMAGE_BASE_URL.\033[0m"
 else
-    echo -e "\033[0;33m⚠️  [Remote Image Host] FLUX.1 server on image-host:5055 unreachable or offline.\033[0m"
+    echo -e "\033[0;33m⚠️  [Remote Image Host] FLUX.1 server at $IMAGE_BASE_URL unreachable or offline.\033[0m"
 fi
 
 echo "------------------------------------------"
