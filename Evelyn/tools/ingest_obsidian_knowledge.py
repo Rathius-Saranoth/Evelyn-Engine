@@ -18,9 +18,10 @@ Run directly or imported via sync_context_memory() in evelyn_tools.py.
 """
 
 import os
-import sys
-import re
+import hashlib
 import json
+import re
+import sys
 import time
 from glob import glob
 
@@ -46,6 +47,11 @@ COLLECTION_NAME    = "evelyn_memory"
 # ---------------------------------------------------------------------------
 # State helpers
 # ---------------------------------------------------------------------------
+
+def compute_content_hash(content: str) -> str:
+    """Compute SHA-256 hash of document text content."""
+    return hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
+
 
 def load_state(state_file: str) -> dict:
     """Load sync state, auto-migrating old {path: float} format.
@@ -168,15 +174,16 @@ def main() -> None:
         print(f"Failed to query memory_db: {e}")
         sqlite_entries_map = {}
 
-    processed = skipped = cleaned = 0
+    processed = skipped = cleaned = remapped = 0
 
-    # Garbage collection
-    for stale_path in list(state.keys()):
-        if stale_path not in active_paths:
-            print(f"GC: {os.path.basename(stale_path)}")
-            chroma_rag.delete_document(stale_path, COLLECTION_NAME)
-            del state[stale_path]
-            cleaned += 1
+    # Build index of stale paths and their content hashes to detect file renames/moves
+    stale_hashes: dict[str, str] = {}
+    stale_paths = []
+    for path, data in state.items():
+        if path not in active_paths:
+            stale_paths.append(path)
+            if isinstance(data, dict) and "sha256" in data:
+                stale_hashes[data["sha256"]] = path
 
     print("Starting full vault memory sync...")
 
@@ -187,15 +194,17 @@ def main() -> None:
             if not row:
                 continue
             mtime = float(row.get("updated_at") or row.get("created_at") or 0)
-            
+            content = f"Date: {row['date'] or 'Unknown'}\nTags: {row.get('tags', '')}\nObservation: {row['observation']}"
+            chash = compute_content_hash(content)
+
             entry = state.get(file_path, {})
             stored_mtime = entry.get("mtime", 0) if isinstance(entry, dict) else float(entry)
+            stored_hash = entry.get("sha256", "") if isinstance(entry, dict) else ""
 
-            if stored_mtime >= mtime:
+            if stored_mtime >= mtime and (not stored_hash or stored_hash == chash):
                 skipped += 1
                 continue
 
-            content = f"Date: {row['date'] or 'Unknown'}\nTags: {row.get('tags', '')}\nObservation: {row['observation']}"
             rag_meta = {"rag_priority": "high", "rag_pinned": False, "aliases": ""}
             print(f"Ingesting DB Entry: {file_path}")
             
@@ -208,8 +217,10 @@ def main() -> None:
 
             entry = state.get(file_path, {})
             stored_mtime = entry.get("mtime", 0) if isinstance(entry, dict) else float(entry)
+            stored_hash = entry.get("sha256", "") if isinstance(entry, dict) else ""
 
-            if stored_mtime >= mtime:
+            # Quick check: if mtime unchanged and we already have a record, skip disk read
+            if stored_mtime >= mtime and stored_hash:
                 skipped += 1
                 continue
 
@@ -219,6 +230,25 @@ def main() -> None:
             except Exception as e:
                 print(f"Failed to read {file_path}: {e}")
                 continue
+
+            chash = compute_content_hash(content)
+
+            if stored_hash and stored_hash == chash and stored_mtime >= mtime:
+                skipped += 1
+                continue
+
+            # Check if this is a moved file (same content hash as a stale path)
+            if file_path not in state and chash in stale_hashes:
+                old_path = stale_hashes[chash]
+                print(f"Remapping moved note: {os.path.basename(old_path)} -> {os.path.basename(file_path)}")
+                if chroma_rag.remap_document(old_path, file_path, COLLECTION_NAME):
+                    state[file_path] = {"mtime": mtime, "sha256": chash}
+                    if old_path in state:
+                        del state[old_path]
+                    if old_path in stale_paths:
+                        stale_paths.remove(old_path)
+                    remapped += 1
+                    continue
 
             print(f"Ingesting: {os.path.basename(file_path)}")
             rag_meta = parse_rag_frontmatter(content)
@@ -231,19 +261,27 @@ def main() -> None:
             
         if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,
                                            extra_metadata=rag_meta):
-            state[file_path] = {"mtime": mtime}
+            state[file_path] = {"mtime": mtime, "sha256": chash}
             processed += 1
         else:
             print(f"Ingest failed for {os.path.basename(file_path)}")
 
         # Checkpoint every 25 files so progress survives a kill/crash
-        if (processed + skipped) % 25 == 0:
+        if (processed + skipped + remapped) % 25 == 0:
             save_state(state, SYNC_STATE_FILE)
 
         time.sleep(0.05)
 
+    # Garbage collection for remaining stale paths
+    for stale_path in stale_paths:
+        if stale_path in state:
+            print(f"GC: {os.path.basename(stale_path)}")
+            chroma_rag.delete_document(stale_path, COLLECTION_NAME)
+            del state[stale_path]
+            cleaned += 1
+
     save_state(state, SYNC_STATE_FILE)
-    print(f"Core memory sync complete. Processed: {processed}, Skipped: {skipped}, GC'd: {cleaned}")
+    print(f"Core memory sync complete. Processed: {processed}, Remapped: {remapped}, Skipped: {skipped}, GC'd: {cleaned}")
 
 
 if __name__ == "__main__":

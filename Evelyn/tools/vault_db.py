@@ -271,28 +271,53 @@ def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
     con.close()
     return dict(row) if row else None
 
-def update_document_tag_audit(path: str, tags: Optional[str] = None) -> None:
-    """Record that a document has completed a tag audit and optionally update its tags.
+def move_document(old_path: str, new_path: str) -> bool:
+    """Atomically update a document's relative path in the vault map on rename/move.
+
+    Preserves all existing metadata, gists, tags, aliases, and audit timestamps.
 
     Args:
-        path: Relative or absolute path of the document.
-        tags: Optional comma-separated updated tags string.
+        old_path: Original relative path of the document.
+        new_path: New relative path of the document.
+
+    Returns:
+        bool: True if an existing document was updated, False otherwise.
+    """
+    old_norm = old_path.replace('\\', '/')
+    new_norm = new_path.replace('\\', '/')
+    if old_norm == new_norm:
+        return True
+
+    init_db()
+    con = get_db()
+    # Remove any stale record at destination if present
+    con.execute("DELETE FROM vault_documents WHERE path = ?", (new_norm,))
+    cursor = con.execute("UPDATE vault_documents SET path = ? WHERE path = ?", (new_norm, old_norm))
+    updated = cursor.rowcount > 0
+    con.commit()
+    con.close()
+    return updated
+
+
+def get_all_entities() -> List[Dict[str, Any]]:
+    """Return all known vault note titles and aliases for entity linking.
+
+    Returns:
+        List[Dict[str, Any]]: List of dicts containing 'path', 'title', and 'aliases' (list of strings).
     """
     init_db()
     con = get_db()
-    now = time.time()
-    if tags is not None:
-        con.execute("""
-            UPDATE vault_documents
-            SET last_tag_audit = ?, tags = ?
-            WHERE path = ?
-        """, (now, tags, path))
-    else:
-        con.execute("""
-            UPDATE vault_documents
-            SET last_tag_audit = ?
-            WHERE path = ?
-        """, (now, path))
-    con.commit()
+    rows = con.execute("SELECT path, title, aliases FROM vault_documents WHERE title IS NOT NULL AND title != ''").fetchall()
     con.close()
+    entities = []
+    for r in rows:
+        title = r["title"].strip()
+        aliases_raw = r["aliases"] or ""
+        aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()]
+        entities.append({
+            "path": r["path"],
+            "title": title,
+            "aliases": aliases
+        })
+    return entities
 

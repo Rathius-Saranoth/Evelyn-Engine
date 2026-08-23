@@ -310,6 +310,53 @@ def enqueue_delete(source_path: str, collection_name: str = "evelyn_memory") -> 
         con.close()
 
 
+def enqueue_remap(old_source_path: str, new_source_path: str,
+                  collection_name: str = "evelyn_memory") -> bool:
+    """Enqueue a document source path remap for atomic transfer in ChromaDB without re-embedding.
+
+    Args:
+        old_source_path: The previous document path or URI.
+        new_source_path: The new document path or URI.
+        collection_name: Target Chroma collection name.
+
+    Returns:
+        bool: True on successful enqueue, False on failure.
+    """
+    now = time.time()
+    con = _get_queue_db()
+    try:
+        cur = con.cursor()
+        cur.execute(
+            """SELECT id FROM chroma_sync_queue
+               WHERE source_path = ? AND collection_name = ? AND status = 'pending'""",
+            (old_source_path, collection_name),
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute(
+                """UPDATE chroma_sync_queue
+                   SET action = 'remap', content = ?, extra_metadata_json = NULL,
+                       updated_at = ?, retry_count = 0, error_msg = NULL
+                   WHERE id = ?""",
+                (new_source_path, now, row["id"]),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO chroma_sync_queue
+                   (action, source_path, collection_name, content, extra_metadata_json,
+                    status, retry_count, created_at, updated_at)
+                   VALUES ('remap', ?, ?, ?, NULL, 'pending', 0, ?, ?)""",
+                (old_source_path, collection_name, new_source_path, now, now),
+            )
+        con.commit()
+        return True
+    except Exception as e:
+        print(f"[chroma_rag] enqueue_remap error from {old_source_path} to {new_source_path}: {e}", flush=True)
+        return False
+    finally:
+        con.close()
+
+
 def direct_upsert(file_path: str, content: str, collection_name: str,
                   extra_metadata: dict | None = None) -> bool:
     """Directly chunk and upsert a document into ChromaDB (single custodian / drainer execution).
@@ -352,7 +399,7 @@ def direct_delete(file_path: str, collection_name: str) -> bool:
 
     Args:
         file_path: Document source path or URI.
-        collection_name: Target collection name.
+        collection_name: Target Chroma collection name.
 
     Returns:
         bool: True on success, False on failure.
@@ -364,6 +411,61 @@ def direct_delete(file_path: str, collection_name: str) -> bool:
     except Exception as e:
         print(f"[chroma_rag] direct_delete failed for {file_path}: {e}", flush=True)
         raise e
+
+
+def direct_remap(old_source_path: str, new_source_path: str, collection_name: str = "evelyn_memory") -> bool:
+    """Remap existing document chunks from old_source_path to new_source_path in ChromaDB.
+
+    Transfers chunk texts, metadata, and precomputed embeddings without re-embedding.
+
+    Args:
+        old_source_path: Previous document path.
+        new_source_path: New document path.
+        collection_name: Target Chroma collection name.
+
+    Returns:
+        bool: True if chunks were successfully remapped, False otherwise.
+    """
+    try:
+        col = get_or_create_collection(collection_name)
+        results = col.get(where={"source": old_source_path}, include=["documents", "metadatas", "embeddings"])
+        old_ids = results.get("ids", [])
+        if not old_ids:
+            return False
+
+        docs = results.get("documents", [])
+        metas = results.get("metadatas", [])
+        embeddings = results.get("embeddings", [])
+
+        new_ids = []
+        new_metas = []
+        for i, meta in enumerate(metas):
+            chunk_num = meta.get("chunk", i)
+            new_ids.append(f"{new_source_path}::chunk-{chunk_num}")
+            updated_meta = dict(meta)
+            updated_meta["source"] = new_source_path
+            new_metas.append(updated_meta)
+
+        kwargs = {
+            "ids": new_ids,
+            "documents": docs,
+            "metadatas": new_metas,
+        }
+        if embeddings is not None and len(embeddings) == len(new_ids):
+            kwargs["embeddings"] = embeddings
+
+        col.upsert(**kwargs)
+        _delete_chunks_by_source(col, old_source_path)
+        return True
+    except Exception as e:
+        print(f"[chroma_rag] direct_remap failed from {old_source_path} to {new_source_path}: {e}", flush=True)
+        return False
+
+
+def remap_document(old_source_path: str, new_source_path: str, collection_name: str = "evelyn_memory") -> bool:
+    """Synchronously remap a document source path in Chroma without re-embedding."""
+    with acquire_chroma_write_lock():
+        return direct_remap(old_source_path, new_source_path, collection_name)
 
 
 def drain_sync_queue(batch_size: int = 50, source_prefix: str = "") -> int:
@@ -435,6 +537,8 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "") -> int:
                     direct_upsert(src, content, col_name, extra_meta)
                 elif action == "delete":
                     direct_delete(src, col_name)
+                elif action == "remap":
+                    direct_remap(src, content, col_name)
                 else:
                     raise ValueError(f"Unknown staging queue action: {action}")
 
@@ -444,6 +548,7 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "") -> int:
                     (time.time(), item_id),
                 )
                 processed_count += 1
+
             except Exception as e:
                 new_retries = retries + 1
                 if new_retries >= 3:
@@ -933,4 +1038,68 @@ def build_rag_context(query: str) -> str:
 
     parts.append("--- End Context ---")
     return "\n\n".join(parts)
+
+
+def find_semantic_neighbors(
+    query_or_text: str,
+    collection_name: str = "evelyn_memory",
+    limit: int = 3,
+    min_similarity: float = 0.65,
+    exclude_source: str = "",
+) -> list[dict]:
+    """Find the top semantically related vault notes for a given text snippet or document.
+
+    Args:
+        query_or_text: Search text snippet, gist, or summary.
+        collection_name: Chroma collection to query.
+        limit: Maximum number of distinct related notes to return.
+        min_similarity: Minimum cosine similarity threshold (0.0 to 1.0).
+        exclude_source: File path to exclude from the results (e.g. self).
+
+    Returns:
+        list[dict]: List of dicts with 'source', 'title', 'similarity', 'snippet', 'tags'.
+    """
+    if not query_or_text or not query_or_text.strip():
+        return []
+
+    # Query for extra raw chunks so we can deduplicate by source note
+    raw_chunks = query_collection(query_or_text, collection_name=collection_name, n_results=limit * 4)
+    if not raw_chunks:
+        return []
+
+    exclude_norm = exclude_source.replace('\\', '/').lower() if exclude_source else ""
+    by_source: dict[str, dict] = {}
+
+    for chunk in raw_chunks:
+        src = chunk.get("source", "")
+        if not src or src.startswith("sqlite::"):
+            continue
+        src_norm = src.replace('\\', '/').lower()
+        if exclude_norm and (exclude_norm in src_norm or src_norm in exclude_norm):
+            continue
+
+        dist = chunk.get("distance", 1.0)
+        # Cosine distance: 0 = identical, 1 = orthogonal, 2 = opposite
+        similarity = max(0.0, 1.0 - (dist / 2.0)) if dist > 1.0 else max(0.0, 1.0 - dist)
+        if similarity < min_similarity:
+            continue
+
+        if src not in by_source or by_source[src]["similarity"] < similarity:
+            meta = chunk.get("metadata") or {}
+            title = meta.get("title") or ""
+            if not title:
+                title = os.path.splitext(os.path.basename(src))[0]
+                title = re.sub(r"^(Ch\d+\s*[-_:]\s*|EX_\d+\s*[-_:]\s*)", "", title).strip()
+
+            tags = meta.get("tags") or ""
+            by_source[src] = {
+                "source": src,
+                "title": title,
+                "similarity": round(float(similarity), 3),
+                "snippet": chunk.get("content", "")[:300].strip(),
+                "tags": tags,
+            }
+
+    results = sorted(by_source.values(), key=lambda x: x["similarity"], reverse=True)
+    return results[:limit]
 

@@ -1,24 +1,27 @@
 # extract_pdf_library.py
 # date created: 2026-04-17 21:17:42
-# date modified: 2026-05-25 20:03:01
-# tags: #pdf, #extraction, #library, #parsing, #tools
+# date modified: 2026-08-22 19:16:00
+# tags: #pdf, #extraction, #library, #parsing, #sidecar, #normalization, #tools
 
 """
-extract_pdf_library.py — Extract PDFs into structured Obsidian-compatible markdown.
+extract_pdf_library.py — Extract PDFs into structured Obsidian markdown & Sidecar Index Cards.
 
 Standalone, reusable tool that:
   1. Reads a PDF and detects chapter/section boundaries via font-size heuristics
   2. Splits into one .md file per chapter/major section
-  3. Generates a _Index.md per book with a TOC and Ollama-generated gists
-  4. Writes to the Obsidian Vault (or custom output dir) for RAG integration
+  3. Normalizes concatenated filenames into clean Title Case and subtitle metadata
+  4. Generates rich Library Index Cards (.md Sidecars) with YAML frontmatter, attachment embeds, and semantic links
+  5. Relocates source binaries into Attachments/Source Material/<Domain>/ for clean graph rendering
+  6. Writes to the Obsidian Vault (or custom output dir) for RAG integration
 
 Usage:
-    python extract_pdf_library.py                             # All PDFs in C:\\Temp
-    python extract_pdf_library.py "C:\\path\\to\\file.pdf"      # Single file
-    python extract_pdf_library.py "C:\\path\\to\\folder"        # All PDFs in folder
-    python extract_pdf_library.py --output "G:\\custom\\path"   # Custom output dir
-    python extract_pdf_library.py --skip-gists                # Skip Ollama summarization
-    python extract_pdf_library.py --dry-run                   # Preview structure only
+    python extract_pdf_library.py                               # All PDFs in default drop dir
+    python extract_pdf_library.py "path/to/file.pdf"            # Single file
+    python extract_pdf_library.py "path/to/folder"              # All PDFs in folder
+    python extract_pdf_library.py --output "custom/path"        # Custom output dir
+    python extract_pdf_library.py --domain "AI" --move-source   # Relocate source PDF to Attachments/Source Material/AI/
+    python extract_pdf_library.py --skip-gists                  # Skip Ollama summarization
+    python extract_pdf_library.py --dry-run                     # Preview structure only
 
 Designed to plug into Evelyn's existing RAG pipeline:
   - Vault map generator discovers new .md files automatically
@@ -35,13 +38,24 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 
+# Anchor workspace roots for imports
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+TOOLS_DIR = os.path.join(ROOT_DIR, "Evelyn", "tools")
+for _p in (ROOT_DIR, TOOLS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import evelyn_config as cfg  # noqa: E402
 import fitz  # pymupdf
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DEFAULT_INPUT_DIR = r"/tmp"
-DEFAULT_OUTPUT_DIR = r"/home/rathius/obsidian_vault/Reference Library"
+DEFAULT_INPUT_DIR = getattr(cfg, "PDF_DROP_DIR", r"/tmp")
+DEFAULT_OUTPUT_DIR = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Reference Library")
+DEFAULT_ATTACHMENTS_DIR = os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), "Attachments", "Source Material")
+
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "gemma4:26b"  # Overridden by --model CLI arg
 
@@ -521,6 +535,14 @@ def group_into_chapters(sections: list[Section]) -> list[Section]:
     if not sections:
         return []
 
+    # Determine optimal split level: if only 0 or 1 section at level 1, split on level 2
+    level_1_count = sum(1 for s in sections if s.level <= 1)
+    split_level = 1
+    if level_1_count <= 1:
+        higher_levels = [s.level for s in sections if s.level > 1]
+        if higher_levels:
+            split_level = min(higher_levels)
+
     chapters = []
     current_chapter = None
     current_parts = []
@@ -529,10 +551,12 @@ def group_into_chapters(sections: list[Section]) -> list[Section]:
         nonlocal current_chapter
         if current_chapter is not None:
             current_chapter.content = "\n\n".join(current_parts).strip()
-            chapters.append(current_chapter)
+            # Only append if there is actual title or content
+            if current_chapter.title or current_chapter.content:
+                chapters.append(current_chapter)
 
     for section in sections:
-        if section.level <= 1:
+        if section.level <= split_level:
             flush_chapter()
             current_chapter = Section(
                 title=section.title,
@@ -551,16 +575,21 @@ def group_into_chapters(sections: list[Section]) -> list[Section]:
                 )
                 current_parts = []
 
-            heading_prefix = "#" * (section.level + 1)
+            heading_prefix = "#" * max(2, section.level - split_level + 2)
             current_parts.append(f"{heading_prefix} {section.title}")
             if section.content:
                 current_parts.append(section.content)
 
     flush_chapter()
 
+    # Filter out empty cover pages
+    valid_chapters = [ch for ch in chapters if len(ch.content) > 0 or len(chapters) == 1]
+    if not valid_chapters and chapters:
+        valid_chapters = chapters
+
     # Merge very short chapters into their predecessor
     merged = []
-    for ch in chapters:
+    for ch in valid_chapters:
         if len(ch.content) < MIN_CHAPTER_LEN and merged:
             merged[-1].content += f"\n\n## {ch.title}\n\n{ch.content}"
         else:
@@ -569,9 +598,189 @@ def group_into_chapters(sections: list[Section]) -> list[Section]:
     return merged
 
 
+
 # ---------------------------------------------------------------------------
-# Markdown output
+# Normalization & Sidecar Generation
 # ---------------------------------------------------------------------------
+
+TECH_TERM_MAP = {
+    "ai": "AI",
+    "ml": "ML",
+    "llm": "LLM",
+    "llms": "LLMs",
+    "llmops": "LLMOps",
+    "pytorch": "PyTorch",
+    "scikit-learn": "Scikit-Learn",
+    "langchain": "LangChain",
+    "rag": "RAG",
+    "nlp": "NLP",
+    "cuda": "CUDA",
+    "gpu": "GPU",
+    "gpus": "GPUs",
+    "api": "API",
+    "apis": "APIs",
+    "devops": "DevOps",
+    "multiagent": "Multi-Agent",
+    "multiagents": "Multi-Agents",
+}
+
+STOP_WORDS = {"a", "an", "the", "and", "or", "but", "for", "nor", "on", "at", "to", "from", "by", "with", "in", "of"}
+
+KNOWN_VOCABULARY = [
+    "building", "applications", "application", "designing", "implementing", "systems", "system",
+    "crafting", "engineering", "strategy", "thoughtful", "decisions", "solve", "solving", "complex",
+    "problems", "problem", "developers", "developer", "playbook", "models", "model", "security",
+    "executives", "executive", "primer", "impactful", "technical", "leadership", "generative",
+    "design", "patterns", "pattern", "hands-on", "machine", "learning", "coders", "coder",
+    "visualizing", "writes", "paints", "assists", "prompt", "prompts", "large", "language",
+    "understanding", "deep", "neural", "networks", "network", "reinforcement", "practical",
+    "foundations", "foundation", "advanced", "guide", "handbook", "cookbook", "reference",
+    "introduction", "mastering", "essential", "essentials", "architecture", "architectures",
+    "data", "science", "python", "javascript", "typescript", "rust", "cplusplus", "golang",
+    "docker", "kubernetes", "cloud", "aws", "gcp", "azure", "agent", "agents", "multiagent",
+    "multi", "ops", "llmops", "pytorch", "scikit-learn", "scikit", "learn", "langchain", "ai", "ml",
+    "augmented", "human", "emotional", "intelligence", "nonviolent", "communication", "love", "languages",
+    "cello", "first", "lessons", "method", "manual", "spec", "sheet",
+    "for", "with", "and", "in", "how", "what", "why", "the", "to", "of", "from", "on"
+]
+
+
+
+def segment_concatenated_words(text: str) -> str:
+    """Segment a lowercase concatenated string into separated words using dynamic programming."""
+    clean = text.lower().strip()
+    if not clean:
+        return ""
+
+    vocab = set(KNOWN_VOCABULARY) | set(TECH_TERM_MAP.keys()) | set(STOP_WORDS)
+    n = len(clean)
+
+
+    # dp[i] holds the best word list for clean[:i]
+    dp: dict[int, list[str]] = {0: []}
+    for i in range(1, n + 1):
+        best_match = None
+        for j in range(max(0, i - 25), i):
+            if j in dp:
+                word = clean[j:i]
+                if word in vocab:
+                    candidate = dp[j] + [word]
+                    # Fewer total words is preferred (greedier on longer vocab matches)
+                    if best_match is None or len(candidate) < len(best_match):
+                        best_match = candidate
+
+        if best_match is not None:
+            dp[i] = best_match
+        elif (i - 1) in dp:
+            dp[i] = dp[i - 1] + [clean[i - 1]]
+
+    words = dp.get(n, [clean])
+    # If the segmentation resulted in singleton characters (failed segmentation), keep original token
+    if any(len(w) == 1 and w.lower() not in {"a", "i"} for w in words):
+        return clean
+    return " ".join(words)
+
+
+
+
+def segment_text_with_hyphens(text: str) -> str:
+    """Segment a string that may contain hyphens or spaces while preserving hyphenated compounds."""
+    # Replace known compound hyphens like hands-on or scikit-learn
+    tokens = re.split(r'([-\s_]+)', text)
+    out = []
+    for tok in tokens:
+        if re.match(r'^[-\s_]+$', tok):
+            out.append(tok)
+        else:
+            out.append(segment_concatenated_words(tok))
+    return "".join(out)
+
+
+def title_case_phrase(phrase: str) -> str:
+    """Convert a space-separated phrase into proper Title Case respecting acronyms and stop words."""
+    tokens = phrase.replace("-", " - ").replace("_", " ").split()
+    result = []
+    for i, tok in enumerate(tokens):
+        if tok == "-":
+            result.append("-")
+            continue
+        tok_clean = tok.lower()
+        if tok_clean in TECH_TERM_MAP:
+            result.append(TECH_TERM_MAP[tok_clean])
+        elif i > 0 and tok_clean in STOP_WORDS:
+            result.append(tok_clean)
+        else:
+            result.append(tok.capitalize())
+
+    # Re-stitch hyphenated terms like "Hands - On" -> "Hands-On"
+    formatted = " ".join(result)
+    formatted = re.sub(r'\s+-\s+', '-', formatted)
+    return formatted
+
+
+def normalize_book_title(filename_or_path: str, doc_metadata: dict | None = None) -> tuple[str, str]:
+    """Normalize a messy PDF filename or metadata into a clean Title and Subtitle.
+
+    Args:
+        filename_or_path: The filename or absolute path of the PDF.
+        doc_metadata: Optional PyMuPDF doc.metadata dictionary.
+
+    Returns:
+        tuple[str, str]: (clean_title, subtitle)
+    """
+    raw_base = os.path.splitext(os.path.basename(filename_or_path))[0]
+
+    # Check for manual / specsheet prefixes
+    if re.match(r'^(manual|specsheet|spec sheet|guide)\s*-\s*', raw_base, re.IGNORECASE):
+        parts = re.split(r'\s*-\s*', raw_base, maxsplit=1)
+        prefix = parts[0].strip()
+        device_raw = parts[1].strip()
+        clean_title = device_raw
+        clean_sub = "Specification Sheet" if "spec" in prefix.lower() else "User Manual"
+        return clean_title, clean_sub
+
+    # Check if doc_metadata has a valid, readable title
+    if doc_metadata:
+        meta_title = (doc_metadata.get("title") or "").strip()
+        tokens = meta_title.split()
+        single_chars = sum(1 for t in tokens if len(t) == 1)
+        is_garbled = (len(tokens) > 2 and (single_chars / len(tokens)) > 0.3)
+        if meta_title and len(meta_title) >= 4 and not is_garbled and not meta_title.lower().startswith("untitled") and not meta_title.endswith(".pdf"):
+            if ":" in meta_title:
+                parts = meta_title.split(":", 1)
+                return parts[0].strip(), parts[1].strip()
+            elif " - " in meta_title:
+                parts = meta_title.split(" - ", 1)
+                return parts[0].strip(), parts[1].strip()
+            return meta_title, ""
+
+    # Split on underscore or colon if present
+    if "_" in raw_base:
+        parts = raw_base.split("_", 1)
+        title_raw = parts[0]
+        sub_raw = parts[1]
+    elif " - " in raw_base:
+        parts = raw_base.split(" - ", 1)
+        title_raw = parts[0]
+        sub_raw = parts[1]
+    else:
+        title_raw = raw_base
+        sub_raw = ""
+
+    # Segment and format title
+    title_segmented = segment_text_with_hyphens(title_raw)
+    clean_title = title_case_phrase(title_segmented)
+
+
+    # Segment and format subtitle
+    clean_sub = ""
+    if sub_raw:
+        sub_segmented = segment_text_with_hyphens(sub_raw)
+        clean_sub = title_case_phrase(sub_segmented)
+
+    return clean_title, clean_sub
+
+
 
 def sanitize_filename(name: str) -> str:
     """Make a string safe for use as a filename."""
@@ -582,10 +791,11 @@ def sanitize_filename(name: str) -> str:
     return name
 
 
-def format_chapter_filename(index: int, title: str) -> str:
-    """Generate a chapter filename like 'Ch01 - What Are Emotions For.md'."""
+def format_chapter_filename(index: int, title: str, total_count: int = 100) -> str:
+    """Generate a zero-padded section filename like '001 - What Are Emotions For.md'."""
     safe_title = sanitize_filename(title)
-    return f"Ch{index:02d} - {safe_title}.md"
+    pad_width = max(2, len(str(total_count)))
+    return f"{index:0{pad_width}d} - {safe_title}.md"
 
 
 def format_chapter_markdown(chapter: Section, book_title: str) -> str:
@@ -609,10 +819,124 @@ def sanitize_tag(text: str) -> str:
     return tag
 
 
+def generate_sidecar_card(
+    title: str,
+    subtitle: str = "",
+    author: str = "",
+    attachment_rel_path: str = "",
+    chapters: list[Section] | None = None,
+    gists: dict[str, str] | None = None,
+    overview_gist: str = "",
+    tags: list[str] | None = None,
+    aliases: list[str] | None = None,
+    semantic_neighbors: list[dict] | None = None,
+    referenced_entities: list[dict] | None = None,
+) -> str:
+    """Generate a rich Library Index Card (Sidecar Note) for a non-markdown asset.
+
+    Args:
+        title: Normalized book/document title.
+        subtitle: Optional subtitle.
+        author: Author string.
+        attachment_rel_path: Relative vault path to the binary attachment (e.g. 'Attachments/Source Material/AI/book.pdf').
+        chapters: Optional list of Section objects.
+        gists: Optional map of chapter title to summary gist.
+        overview_gist: 1-2 sentence overall summary of the document.
+        tags: List of normalized taxonomy tags.
+        aliases: List of alternative titles or keywords.
+        semantic_neighbors: List of dicts from chroma_rag.find_semantic_neighbors.
+        referenced_entities: List of dicts from vault_db.get_all_entities matched in the text.
+
+    Returns:
+        str: Fully formatted Obsidian markdown sidecar note.
+    """
+    all_tags = set(tags or [])
+    all_tags.add("literature/reference")
+    tag_lines = "\n".join(f"  - {t.lstrip('#')}" for t in sorted(all_tags))
+
+    alias_list = list(aliases or [])
+    if subtitle and subtitle not in alias_list:
+        alias_list.append(subtitle)
+    alias_lines = "\n".join(f"  - \"{a}\"" for a in alias_list) if alias_list else ""
+
+    fm_aliases_block = f"aliases:\n{alias_lines}\n" if alias_lines else ""
+    fm_source_block = f'source: "[[{attachment_rel_path}]]"\n' if attachment_rel_path else ""
+    fm_sub_block = f'subtitle: "{subtitle}"\n' if subtitle else ""
+    fm_author_block = f'authors: "{author}"\n' if author else ""
+
+    frontmatter = f"""---
+title: "{title}"
+{fm_sub_block}type: literature/card
+{fm_source_block}{fm_author_block}tags:
+{tag_lines}
+{fm_aliases_block}created: {time.strftime('%Y-%m-%d')}
+status: unread
+---
+
+"""
+    # Header & Overview Callout
+    header = f"# {title}\n"
+    if subtitle:
+        header += f"### *{subtitle}*\n\n"
+    else:
+        header += "\n"
+
+    if author:
+        header += f"**Author**: {author}  \n"
+    header += f"**Catalog Entry**: {time.strftime('%Y-%m-%d')}  \n\n"
+
+    if overview_gist:
+        overview_block = f"> [!summary] Evelyn Overview\n> {overview_gist}\n\n"
+    else:
+        overview_block = ""
+
+    # Source Material Embed
+    if attachment_rel_path:
+        source_block = f"## Source Document\n![[{attachment_rel_path}]]\n\n"
+    else:
+        source_block = ""
+
+    # Table of Contents
+    toc_block = ""
+    if chapters:
+        toc_block = "## Chapters & Sections\n\n| # | Chapter | Page | Summary |\n|---|---|---|---|\n"
+        gists_map = gists or {}
+        pad_width = max(2, len(str(len(chapters))))
+        for i, ch in enumerate(chapters, 1):
+            ch_filename = format_chapter_filename(i, ch.title, len(chapters)).replace(".md", "")
+            ch_gist = gists_map.get(ch.title, "_Summary pending_").replace("|", "—").replace("\n", " ")
+            toc_block += f"| {i:0{pad_width}d} | [[{ch_filename}\\|{ch.title}]] | p. {ch.page_num} | {ch_gist} |\n"
+        toc_block += "\n"
+
+
+    # Semantic Connections
+    sem_block = ""
+    if semantic_neighbors:
+        sem_block = "## Semantic Connections\n"
+        for n in semantic_neighbors:
+            n_title = n.get("title", "Related Note")
+            sim = n.get("similarity", 0.0)
+            snippet = n.get("snippet", "").replace("\n", " ")[:140]
+            sem_block += f"- [[{n_title}]] (Match: `{int(sim * 100)}%`) — {snippet}...\n"
+        sem_block += "\n"
+
+    # Referenced Entities
+    entity_block = ""
+    if referenced_entities:
+        entity_block = "## Referenced Vault Entities\n"
+        for ent in referenced_entities[:8]:
+            ent_title = ent.get("title", "")
+            if ent_title and ent_title != title:
+                entity_block += f"- [[{ent_title}]]\n"
+        entity_block += "\n"
+
+    return frontmatter + header + overview_block + source_block + toc_block + sem_block + entity_block
+
+
 def generate_index_markdown(book_title: str, author: str,
                              chapters: list[Section],
                              gists: dict[str, str]) -> str:
-    """Generate the _Index.md master TOC file."""
+    """Generate the _Index.md master TOC file (legacy compatibility)."""
     tag = sanitize_tag(book_title)
     frontmatter = f"""---
 tags: [reference-library, reference-index, {tag}]
@@ -639,6 +963,7 @@ type: reference-index
         toc += f"| {i} | [[{link_name}]] | {gist_safe} |\n"
 
     return frontmatter + header + toc
+
 
 
 # ---------------------------------------------------------------------------
@@ -718,16 +1043,29 @@ def extract_book_metadata(doc: fitz.Document, filepath: str) -> tuple[str, str]:
 # Main extraction pipeline
 # ---------------------------------------------------------------------------
 
-def extract_pdf(filepath: str, output_dir: str, skip_gists: bool = False,
-                dry_run: bool = False) -> dict:
-    """Extract a single PDF into structured markdown files."""
+def extract_pdf(
+    filepath: str,
+    output_dir: str,
+    skip_gists: bool = False,
+    dry_run: bool = False,
+    domain: str = "AI",
+    attachments_dir: str = "/home/rathius/obsidian_vault/Attachments/Source Material",
+    move_source: bool = False,
+    create_sidecar: bool = True,
+) -> dict:
+    """Extract a single PDF into structured markdown files and a rich Sidecar Index Card."""
     print(f"\n{'='*60}")
     print(f"Processing: {os.path.basename(filepath)}")
     print(f"{'='*60}")
 
     doc = fitz.open(filepath)
-    title, author = extract_book_metadata(doc, filepath)
-    print(f"  Title: {title}")
+    clean_title, subtitle = normalize_book_title(filepath, doc.metadata)
+    _, author = extract_book_metadata(doc, filepath)
+
+    full_display_title = f"{clean_title}: {subtitle}" if subtitle else clean_title
+    print(f"  Title: {clean_title}")
+    if subtitle:
+        print(f"  Subtitle: {subtitle}")
     print(f"  Author: {author or '(unknown)'}")
     print(f"  Pages: {len(doc)}")
 
@@ -737,77 +1075,167 @@ def extract_pdf(filepath: str, output_dir: str, skip_gists: bool = False,
     print(f"  Found {len(blocks)} text blocks")
 
     if not blocks:
-        print("  ERROR: No text blocks found. Skipping.")
-        doc.close()
-        return {"title": title, "chapters": 0, "error": "No text blocks"}
+        if create_sidecar:
+            print("  Notice: Scanned/raster document with no selectable text. Generating Sidecar Index Card with embedded viewer.")
+            chapters = []
+        else:
+            print("  ERROR: No text blocks found. Skipping.")
+            doc.close()
+            return {"title": clean_title, "chapters": 0, "error": "No text blocks"}
+    else:
+        # Step 2: Determine body text font size
+        body_size = determine_body_font_size(blocks)
+        print(f"  Body text font size: {body_size}")
 
-    # Step 2: Determine body text font size
-    body_size = determine_body_font_size(blocks)
-    print(f"  Body text font size: {body_size}")
+        # Step 3: Detect where front matter ends
+        content_start = detect_front_matter_end(blocks, body_size)
+        if content_start > 0:
+            print(f"  Content starts at block {content_start} (page {blocks[content_start].page_num})")
 
-    # Step 3: Detect where front matter ends
-    content_start = detect_front_matter_end(blocks, body_size)
-    if content_start > 0:
-        print(f"  Content starts at block {content_start} (page {blocks[content_start].page_num})")
+        # Step 4: Build section hierarchy
+        print("  Building section hierarchy...")
+        sections = build_sections(blocks, body_size, start_idx=content_start)
+        print(f"  Found {len(sections)} raw sections")
 
-    # Step 4: Build section hierarchy
-    print("  Building section hierarchy...")
-    sections = build_sections(blocks, body_size, start_idx=content_start)
-    print(f"  Found {len(sections)} raw sections")
+        # Step 5: Group into chapters
+        chapters = group_into_chapters(sections)
+        print(f"  Grouped into {len(chapters)} chapters")
 
-    # Step 5: Group into chapters
-    chapters = group_into_chapters(sections)
-    print(f"  Grouped into {len(chapters)} chapters")
 
-    if not chapters:
+    if not chapters and not (create_sidecar and not blocks):
         print("  ERROR: No chapters detected. Skipping.")
         doc.close()
-        return {"title": title, "chapters": 0, "error": "No chapters detected"}
+        return {"title": clean_title, "chapters": 0, "error": "No chapters detected"}
 
     # Preview chapter structure
-    print("\n  Chapter structure:")
-    for i, ch in enumerate(chapters, 1):
-        content_len = len(ch.content)
-        print(f"    {i:2d}. {ch.title} ({content_len:,} chars, page {ch.page_num})")
+    if chapters:
+        print("\n  Chapter structure:")
+        for i, ch in enumerate(chapters, 1):
+            content_len = len(ch.content)
+            print(f"    {i:2d}. {ch.title} ({content_len:,} chars, page {ch.page_num})")
 
     if dry_run:
         print("\n  [DRY RUN] Skipping file output.")
         doc.close()
-        return {"title": title, "chapters": len(chapters), "dry_run": True}
+        return {"title": clean_title, "chapters": len(chapters), "dry_run": True}
 
-    # Step 6: Create output directory
-    book_dir = os.path.join(output_dir, sanitize_filename(title))
+
+    # Step 6: Create output directory for chapters
+    safe_folder_name = sanitize_filename(clean_title)
+    book_dir = os.path.join(output_dir, safe_folder_name)
     os.makedirs(book_dir, exist_ok=True)
     print(f"\n  Output dir: {book_dir}")
 
-    # Step 7: Generate gists and write chapter files
+    # Step 7: Handle Source Relocation to Attachments
+    rel_attachment_path = ""
+    if move_source:
+        domain_att_dir = os.path.join(attachments_dir, domain)
+        os.makedirs(domain_att_dir, exist_ok=True)
+        dest_pdf_path = os.path.join(domain_att_dir, os.path.basename(filepath))
+        if os.path.abspath(filepath) != os.path.abspath(dest_pdf_path):
+            import shutil
+            shutil.copy2(filepath, dest_pdf_path)
+            print(f"  Copied source PDF -> {dest_pdf_path}")
+        rel_attachment_path = os.path.relpath(dest_pdf_path, getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault")).replace("\\", "/")
+    else:
+        # Reference in-place
+        rel_attachment_path = os.path.relpath(filepath, getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault")).replace("\\", "/")
+
+    # Step 8: Generate gists and write chapter files
     gists = {}
+    sample_text_for_overview = ""
     for i, chapter in enumerate(chapters, 1):
-        filename = format_chapter_filename(i, chapter.title)
+        filename = format_chapter_filename(i, chapter.title, len(chapters))
         filepath_out = os.path.join(book_dir, filename)
 
         if not skip_gists and chapter.content:
+            if not sample_text_for_overview and len(chapter.content) > 300:
+                sample_text_for_overview = chapter.content[:4000]
             print(f"  Generating gist for: {chapter.title}...")
-            gist = generate_gist(chapter.content, chapter.title, title)
+            gist = generate_gist(chapter.content, chapter.title, clean_title)
             gists[chapter.title] = gist
             print(f"    -> {gist[:100]}{'...' if len(gist) > 100 else ''}")
 
-        md_content = format_chapter_markdown(chapter, title)
+        md_content = format_chapter_markdown(chapter, clean_title)
         with open(filepath_out, "w", encoding="utf-8") as f:
             f.write(md_content)
         print(f"  Wrote: {filename}")
 
-    # Step 8: Write _Index.md
-    index_content = generate_index_markdown(title, author, chapters, gists)
-    index_path = os.path.join(book_dir, "_Index.md")
-    with open(index_path, "w", encoding="utf-8") as f:
-        f.write(index_content)
-    print(f"  Wrote: _Index.md")
+    # Step 9: Generate Overview Gist
+    overview_gist = ""
+    if not skip_gists and sample_text_for_overview:
+        overview_gist = generate_gist(sample_text_for_overview, "Overview", full_display_title)
+
+    # Step 10: Semantic Neighbors & Vault Entity Resolution
+    semantic_neighbors = []
+    referenced_entities = []
+    try:
+        import chroma_rag
+        search_snippet = overview_gist or f"{clean_title} {subtitle}"
+        semantic_neighbors = chroma_rag.find_semantic_neighbors(search_snippet, limit=3, min_similarity=0.60)
+    except Exception as e:
+        print(f"  [WARN] Semantic neighbor lookup skipped: {e}")
+
+    try:
+        import vault_db
+        all_entities = vault_db.get_all_entities()
+        full_text_sample = " ".join([ch.content[:500] for ch in chapters[:5]])
+        for ent in all_entities:
+            ent_title = ent.get("title", "")
+            if ent_title and len(ent_title) > 3 and ent_title.lower() in full_text_sample.lower():
+                referenced_entities.append(ent)
+    except Exception as e:
+        print(f"  [WARN] Entity resolution skipped: {e}")
+
+    # Step 11: Write Rich Sidecar Index Card (<Title>_index.md)
+    index_filename = f"{clean_title}_index.md"
+    index_path = os.path.join(book_dir, index_filename)
+    if create_sidecar:
+        domain_tag = f"Tech/{domain}" if domain in {"AI", "Engineering", "Architecture", "Python"} else f"Topic/{domain}"
+        aliases_list = [clean_title, f"{clean_title}_index", f"{clean_title}_Index"]
+        if subtitle and subtitle not in aliases_list:
+            aliases_list.append(subtitle)
+        if full_display_title and full_display_title not in aliases_list:
+            aliases_list.append(full_display_title)
+
+        sidecar_content = generate_sidecar_card(
+            title=clean_title,
+            subtitle=subtitle,
+            author=author,
+            attachment_rel_path=rel_attachment_path,
+            chapters=chapters,
+            gists=gists,
+            overview_gist=overview_gist,
+            tags=[domain_tag],
+            aliases=aliases_list,
+            semantic_neighbors=semantic_neighbors,
+            referenced_entities=referenced_entities,
+        )
+        with open(index_path, "w", encoding="utf-8") as f:
+            f.write(sidecar_content)
+        print(f"  Wrote Sidecar Index Card: {index_filename}")
+    else:
+        index_content = generate_index_markdown(clean_title, author, chapters, gists)
+        with open(index_path, "w", encoding="utf-8") as f:
+            f.write(index_content)
+        print(f"  Wrote: {index_filename}")
+
 
     doc.close()
 
+
+    # If move_source was requested, remove the original unorganized file now that doc is closed
+    if move_source and os.path.abspath(filepath) != os.path.abspath(dest_pdf_path):
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"  Cleaned up source from: {filepath}")
+        except Exception as e:
+            print(f"  [WARN] Could not remove original source file {filepath}: {e}")
+
     stats = {
-        "title": title,
+        "title": clean_title,
+        "subtitle": subtitle,
         "author": author,
         "chapters": len(chapters),
         "total_chars": sum(len(ch.content) for ch in chapters),
@@ -815,6 +1243,8 @@ def extract_pdf(filepath: str, output_dir: str, skip_gists: bool = False,
     }
     print(f"\n  [OK] Done: {len(chapters)} chapters, {stats['total_chars']:,} characters")
     return stats
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +1289,22 @@ Examples:
         help=f"Output directory (default: {DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
+        "--domain", "-d", default="AI",
+        help="Domain tag / folder classification (e.g. AI, Engineering, Health, DND) (default: AI)",
+    )
+    parser.add_argument(
+        "--attachments-dir", default=DEFAULT_ATTACHMENTS_DIR,
+        help=f"Attachments base directory (default: {DEFAULT_ATTACHMENTS_DIR})",
+    )
+    parser.add_argument(
+        "--move-source", action="store_true",
+        help="Copy/relocate source PDF to Attachments/Source Material/<domain>/",
+    )
+    parser.add_argument(
+        "--no-sidecar", action="store_true",
+        help="Skip generating rich Sidecar Index Card note",
+    )
+    parser.add_argument(
         "--skip-gists", action="store_true",
         help="Skip Ollama summarization (faster, no gists in _Index.md)",
     )
@@ -885,6 +1331,9 @@ Examples:
 
     print(f"Found {len(pdfs)} PDF(s) to process")
     print(f"Output directory: {args.output}")
+    print(f"Domain classification: {args.domain}")
+    if args.move_source:
+        print(f"Relocating sources to: {args.attachments_dir}/{args.domain}/")
     if args.skip_gists:
         print("Gist generation: SKIPPED")
     if args.dry_run:
@@ -900,8 +1349,13 @@ Examples:
                 args.output,
                 skip_gists=args.skip_gists,
                 dry_run=args.dry_run,
+                domain=args.domain,
+                attachments_dir=args.attachments_dir,
+                move_source=args.move_source,
+                create_sidecar=not args.no_sidecar,
             )
             all_stats.append(stats)
+
         except Exception as e:
             print(f"\n  ERROR processing {os.path.basename(pdf_path)}: {e}")
             import traceback

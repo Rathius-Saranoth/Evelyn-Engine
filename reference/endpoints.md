@@ -269,7 +269,18 @@ Endpoints driving the background research engine and the interactive developer d
 * **Payload**: `{"description": "optional string", "tags": ["#tag1", "#tag2"] | "tag1, tag2", "taxonomy_domain": "optional string"}`
 * **Returns**: `{"status": "ok", "asset": {...}}`
 
+---
 
+## 8. Vault Staging & Document Ingestion Endpoints
+
+### `GET /api/vault/domains`
+* **Purpose**: Returns the list of standard destination domains, folder paths, and human-readable labels for staged document routing.
+* **Returns**: `{"domains": [{"label": "...", "path": "...", "domain": "..."}]}`
+
+### `POST /api/vault/upload_staging`
+* **Purpose**: Accepts multipart PDF uploads, creates `.meta.json` sidecar routing tags, places the file in `Attachments/Staging/Full_Extraction` or `Attachments/Staging/Sidecar_Only`, and enqueues processing via `pdf_staging_worker.py` under Task Manager supervision.
+* **Form Parameters**: `file` (PDF UploadFile), `mode` (`"full"` or `"card"`), `domain_path` (target relative directory), `domain_name` (taxonomy domain tag).
+* **Returns**: `{"status": "queued", "filename": "...", "mode": "...", "domain_path": "...", "staging_file": "..."}`
 
 [evelyn_server.py]: ../evelyn_server.py "evelyn_server.py"
 [query_reformulator.py]: ../Evelyn/tools/query_reformulator.py "query_reformulator.py"
