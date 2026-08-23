@@ -1,13 +1,15 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-15 17:32:45
+date modified: 2026-08-23 08:02:56
 tags: api, endpoints, routing, backend, local_server, evelyn
 ---
 
 # Evelyn Server API Endpoints
 
-This document is the single source of truth for the custom REST and Server-Sent Events (SSE) API endpoints exposed by the **Evelyn Engine** backend ([[evelyn_server.py]]). All legacy Open WebUI pathways have been completely retired.
+> Navigation: [[README.md]] · [[engine_architecture.md]] · [[SETUP_GUIDE.md]] · [[google_access.md]]
+
+This document is the single source of truth for the custom REST and Server-Sent Events (SSE) API endpoints exposed by the **Evelyn Engine** backend (`evelyn_server.py`). All legacy Open WebUI pathways have been completely retired.
 
 ---
 

@@ -138,13 +138,32 @@ PYTHONPATH=. ./venv/bin/pytest Evelyn/tests
 
 ---
 
-## 📚 Documentation
+## 📚 Documentation & Knowledge Graph
 
-- 📖 **[Setup & Installation Guide](SETUP_GUIDE.md)** — Step-by-step Linux installation, hardware tiers, and systemd service scripts.
-- 📐 **[Engine Architecture Blueprint](reference/engine_architecture.md)** — Deep-dive system topology, NUMA thread pinning, and Chroma synchronization queues.
-- 📋 **[Full System Requirements](REQUIREMENTS.md)** — Complete hardware specs, Python packages, and external dependency matrices.
-- 🗺️ **[Development Roadmap](ROADMAP.md)** — Milestones, completed features, and active enhancements.
-- 🛡️ **[Support Policy](SUPPORT.md)** — Project status, support boundaries, and personal portfolio scope.
+The workspace is fully structured for [Foam](https://foambubble.github.io/foam/) and Obsidian knowledge graph visualization.
+
+### Core Architecture & API
+- 📐 **[[engine_architecture.md]]** — Master structural blueprint, system topology, and background pipelines.
+- 🔌 **[[endpoints.md]]** — Single source of truth for FastAPI REST & SSE endpoints.
+- 🔑 **[[google_access.md]]** — Google Cloud OAuth scopes, tokens, and service mappings.
+- 📝 **[[docstring_guide.md]]** — Google-style docstrings and background pipeline architecture notes.
+
+### Deployment & Specifications
+- 📖 **[[SETUP_GUIDE.md]]** — Step-by-step Linux installation, hardware tiers, and systemd service scripts.
+- 📋 **[[REQUIREMENTS.md]]** — Full runtime environment, Python dependencies, and system packages.
+- 🖥️ **[[system_specs.md]]** & **[[HPE Server Specs.md]]** — Hardware profiling, NUMA pinning, and VRAM budgeting.
+- 🖼️ **[[REQUIREMENTS_IMAGE_HOST.md]]** — FLUX.1 image generation microservice requirements and setup.
+
+### Operations, Governance & Workflows
+- 🗺️ **[[ROADMAP.md]]** — Milestones, completed capabilities, and active enhancements.
+- 📜 **[[CHANGELOG.md]]** — Zero-padded version history and migration audit log.
+- 🤖 **[[AGENTS.md]]** & **[[.ai-instructions.md]]** — Operational rules, coding standards, and AI contracts.
+- 🛡️ **[[SUPPORT.md]]** & **[[ROLLBACK.md]]** — Support boundaries and pre-sanitization disaster recovery.
+- 🚀 **Workflows**: **[[start-services.md]]** · **[[debug-chat-db.md]]** · **[[backup-to-github.md]]** · **[[quality-review.md]]**
+
+### Persona & Starter Templates
+- 🧠 **Active Persona**: **[[System_Directives.md]]** · **[[Evelyn_Narrative_Persona.md]]** · **[[Ricky_Narrative_Profile.md]]**
+- 📄 **Starter Templates**: **[[System_Directives.example.md]]** · **[[Assistant_Persona.example.md]]** · **[[User_Profile.example.md]]** · **[[Physical_Description.example.md]]**
 
 ---
 

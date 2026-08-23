@@ -1,5 +1,7 @@
 # 🛡️ Support Policy
 
+> Navigation: [[README.md]]
+
 > **Personal Portfolio & Architecture Reference**  
 > This repository is published purely for reference, learning, and personal experimentation.
 

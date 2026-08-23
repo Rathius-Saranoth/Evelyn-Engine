@@ -1,11 +1,13 @@
 ---
 title: docstring_guide.md
 date created: 2026-03-14 22:22:20
-date modified: 2026-07-30 21:03:04
-tags: markdown, reference, docstring, guide, formatting, pipeline
+date modified: 2026-08-23 08:03:05
+tags: markdown, reference, docstring, guide, formatting, pipeline, evelyn
 ---
 
 # The Docstring Guide: LLMs, Agents, and Best Practices
+
+> Navigation: [[README.md]] · [[.ai-instructions.md]] · [[AGENTS.md]] · [[engine_architecture.md]]
 
 Docstrings are more than just "fancy comments." While comments are meant for humans reading the source code, **Docstrings** are a programmatic part of the Python language that external tools (including AI Agents like me) use to understand your code.
 

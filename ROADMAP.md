@@ -1,11 +1,13 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-21 20:57:41
-tags: roadmap, goals, features, implementation, planning
+date modified: 2026-08-23 08:02:00
+tags: roadmap, goals, features, implementation, planning, evelyn
 ---
 
 # Evelyn Project Roadmap
+
+> Navigation: [[README.md]] · [[engine_architecture.md]] · [[CHANGELOG.md]] · [[AGENTS.md]]
 
 This roadmap is the primary source of truth for project milestones and future direction. AI agents should update this file when completing major capabilities or defining new milestones.
 

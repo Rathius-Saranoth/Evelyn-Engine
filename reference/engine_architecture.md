@@ -1,13 +1,27 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-22 15:46:07
+date modified: 2026-08-23 08:05:18
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
 # Evelyn Engine Architecture Map
 
+> Navigation: [[README.md]] · [[endpoints.md]] · [[system_specs.md]] · [[SETUP_GUIDE.md]] · [[ROADMAP.md]] · [[AGENTS.md]]
+
 This document serves as the master structural blueprint of the **Evelyn Engine** ecosystem. It maps every core script, database component, and background service to its functional layer, creating a fully connected knowledge hub for both humans and AI agents.
+
+### Master Documentation & Subsystem Map
+
+| Subsystem Domain | Core Specifications & Guides |
+| :--- | :--- |
+| **API & Integrations** | [[endpoints.md]] · [[google_access.md]] |
+| **Hardware & Environment** | [[system_specs.md]] · [[HPE Server Specs.md]] · [[REQUIREMENTS.md]] · [[SETUP_GUIDE.md]] |
+| **Microservices & Vision** | [[REQUIREMENTS_IMAGE_HOST.md]] |
+| **Persona & Behavior** | [[System_Directives.md]] · [[Evelyn_Narrative_Persona.md]] · [[Ricky_Narrative_Profile.md]] |
+| **Templates & Scaffolding** | [[System_Directives.example.md]] · [[Assistant_Persona.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
+| **Standards & Workflows** | [[AGENTS.md]] · [[.ai-instructions.md]] · [[docstring_guide.md]] · [[quality-review.md]] · [[start-services.md]] · [[debug-chat-db.md]] · [[backup-to-github.md]] |
+| **Roadmap & History** | [[ROADMAP.md]] · [[CHANGELOG.md]] · [[ROLLBACK.md]] · [[SUPPORT.md]] |
 
 ---
 
@@ -164,7 +178,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[fact_consolidator.py]]**: Idle-time database cleaner and consolidator. Scans context databases for duplicate, compound, or superseded facts. Generates merge, supersede, recategorize, and split/decomposition proposals for bloated compound entries.
 * **[[procedure_consolidator.py]]**: Idle-time procedure consolidation engine. Merges overlapping procedural rules into unified specifications.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. **Draft persistence**: accumulated working document and cursor are saved to disk after each successful pass so interrupted runs resume from the last completed batch rather than restarting.
-* **[[pipeline_internals.md]]**: Detailed reference document containing function indexes, architectural flows, and configuration scopes for the background pipelines.
+* **[[docstring_guide.md]] §7**: Detailed reference containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[terminal_agent.py]]**: Manages shell command execution and file write safety checks, staging operations for user approval and persisting approvals to disk to survive server restarts.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.

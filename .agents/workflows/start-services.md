@@ -2,11 +2,13 @@
 description: How to check and start the core services for the Evelyn ecosystem
 title: start-services.md
 date created: 2026-03-14 22:28:48
-date modified: 2026-08-10 19:53:30
-tags: services, startup, launch, ecosystem, guide
+date modified: 2026-08-23 08:04:42
+tags: services, startup, launch, ecosystem, guide, workflow, evelyn
 ---
 
 # Service Startup Workflow
+
+> Navigation: [[SETUP_GUIDE.md]] · [[engine_architecture.md]] · [[system_specs.md]] · [[README.md]]
 
 This workflow describes how to initialize and check the required backends for Evelyn's functionality on Sanctum (`sanctum.internal.net`).
 

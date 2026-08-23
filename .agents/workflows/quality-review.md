@@ -2,11 +2,13 @@
 description: A structured self-review checklist based on the "Notes to Live By" engineering standards
 title: quality-review.md
 date created: 2026-04-26 10:18:20
-date modified: 2026-08-22 15:53:52
-tags: quality, review, guidelines, standards, checklist
+date modified: 2026-08-23 08:04:26
+tags: quality, review, guidelines, standards, checklist, workflow, evelyn
 ---
 
 # Quality Review Workflow
+
+> Navigation: [[AGENTS.md]] · [[.ai-instructions.md]] · [[engine_architecture.md]] · [[README.md]]
 
 Run this after completing any significant feature or refactor. This review is performed **after** Phase C (Verify) and **before** Phase D (Document) of the Operation Protocol (`.ai-instructions.md` §0).
 
