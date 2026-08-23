@@ -1,4 +1,13 @@
+---
+title: REQUIREMENTS_IMAGE_HOST.md
+date created: 2026-08-22 15:00:00
+date modified: 2026-08-23 08:03:22
+tags: service, image-generation, flux, requirements, gpu, setup, evelyn
+---
+
 # Ricky-PC Standalone Image Generation Host Requirements & Restoration Guide
+
+> Navigation: [[README.md]] · [[engine_architecture.md]] · [[SETUP_GUIDE.md]] · [[REQUIREMENTS.md]]
 
 This document defines the system requirements, environment configuration, dependency installation, model setup, and service restoration procedures for the standalone **FLUX.1 [schnell] NF4 Image Generation Server** running on `image-host` (`image-host.internal.net:5055`).
 

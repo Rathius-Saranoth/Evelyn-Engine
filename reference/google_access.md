@@ -1,11 +1,13 @@
 ---
 title: google_access.md
 date created: 2026-08-16 12:55:00
-date modified: 2026-08-16 12:58:00
-tags: google, oauth, scopes, permissions, gdrive, gcal, tasks, docs, sheets, reference
+date modified: 2026-08-23 08:03:00
+tags: google, oauth, scopes, permissions, gdrive, gcal, tasks, docs, sheets, reference, evelyn
 ---
 
 # Google API Access & OAuth Scopes Reference
+
+> Navigation: [[README.md]] · [[engine_architecture.md]] · [[endpoints.md]]
 
 This document tracks all authorized Google Cloud OAuth 2.0 API scopes and credentials configured for the **Evelyn Engine**. 
 

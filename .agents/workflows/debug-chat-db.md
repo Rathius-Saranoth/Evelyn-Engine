@@ -2,11 +2,13 @@
 description: How to inspect Evelyn's chat history and debug conversation issues
 title: debug-chat-db.md
 date created: 2026-03-25 19:11:00
-date modified: 2026-04-04 20:05:10
-tags: sqlite, debug, database, query, workflow
+date modified: 2026-08-23 08:04:31
+tags: sqlite, debug, database, query, workflow, operations, evelyn
 ---
 
 # Evelyn Chat Debug Workflow
+
+> Navigation: [[engine_architecture.md]] · [[SKILL.md|evelyn-db-ops]] · [[AGENTS.md]] · [[README.md]]
 
 When troubleshooting Evelyn's responses, conversation history, or tool calls, **go directly to the SQLite database**. Do NOT rely on `evelyn_server.log` or console output — they are often garbled or incomplete.
 

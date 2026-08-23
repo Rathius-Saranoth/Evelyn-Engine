@@ -1,10 +1,12 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-22 15:53:58
-tags: 
+date modified: 2026-08-23 08:01:55
+tags: agent-rules, guidelines, operations, protocol, evelyn
 ---
 # Evelyn Workspace Agent Rules
+
+> Navigation: [[README.md]] · [[.ai-instructions.md]] · [[engine_architecture.md]] · [[quality-review.md]] · [[ROADMAP.md]] · [[CHANGELOG.md]]
 
 ## 1. Python Environment & Execution
 - **Virtual Environment**: Always use the project virtual environment at `/home/rathius/evelyn/venv/bin/python` and `/home/rathius/evelyn/venv/bin/pytest`. Never invoke `/usr/bin/python3` directly for workspace tasks or test runs.

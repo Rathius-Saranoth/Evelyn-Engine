@@ -1,15 +1,17 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-07-03 18:33:54
-tags: requirements, dependencies, system, hardware, environment
+date modified: 2026-08-23 08:05:33
+tags: requirements, dependencies, system, hardware, environment, evelyn
 ---
 
 # Evelyn Engine — Full System Requirements
 
+> Navigation: [[README.md]] · [[SETUP_GUIDE.md]] · [[system_specs.md]] · [[engine_architecture.md]]
+
 > [!IMPORTANT]
 > This document covers **all** dependencies — not just Python packages.
-> For Python-only installs, see [[requirements.txt]]
+> For Python-only installs, see `requirements.txt` / [[SETUP_GUIDE.md]].
 
 ---
 
@@ -183,7 +185,7 @@ External data path:
 git clone https://github.com/Rathius-Saranoth/Evelyn-Engine.git /home/rathius/evelyn
 
 # 2. Install Python dependencies
-pip install -r requirements.txt # [[python_requirements.md]]
+pip install -r requirements.txt
 
 # 3. Pull active LLM model
 ollama pull gemma4:12b
@@ -200,5 +202,4 @@ sudo systemctl start ollama evelyn evelyn-tts
 # 6. Open in browser
 # http://localhost:7860
 ```
-[python_requirements.md]: python_requirements.md "python_requirements.md"
 [system_specs.md]: reference/system/system_specs.md "Sanctum System Specifications"

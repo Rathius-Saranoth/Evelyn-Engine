@@ -1,10 +1,12 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-22 15:53:28
-tags: 
+date modified: 2026-08-23 08:01:50
+tags: changelog, versioning, history, release-notes, evelyn
 ---
 # 📜 Changelog
+
+> Navigation: [[README.md]] · [[ROADMAP.md]] · [[AGENTS.md]] · [[engine_architecture.md]]
 
 All notable changes to the Evelyn Engine are documented in this file.
 

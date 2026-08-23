@@ -1,4 +1,13 @@
+---
+title: SETUP_GUIDE.md
+date created: 2026-08-22 15:00:00
+date modified: 2026-08-23 08:02:11
+tags: setup, guide, installation, configuration, deployment, evelyn
+---
+
 # Evelyn Engine — Full Setup & Installation Guide
+
+> Navigation: [[README.md]] · [[REQUIREMENTS.md]] · [[engine_architecture.md]] · [[start-services.md]] · [[REQUIREMENTS_IMAGE_HOST.md]]
 
 This guide walks through deploying the **Evelyn Engine** on a fresh Linux system (Ubuntu / Debian / Arch Linux), including OS prerequisites, local LLM runtime, Python dependencies, the interactive setup wizard, and system services.
 

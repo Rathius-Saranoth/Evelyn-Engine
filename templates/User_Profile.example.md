@@ -1,13 +1,14 @@
 ---
-title: User Profile & Preferences
+title: User_Profile.example.md
 rag_priority: high
-tags:
-  - profile
-  - user
-  - core
+tags: template, profile, user, core, evelyn
+date created: 2026-08-23 08:04:09
+date modified: 2026-08-23 08:04:09
 ---
 
 # User Profile & Background
+
+> Navigation: [[Assistant_Persona.example.md]] · [[System_Directives.example.md]] · [[Physical_Description.example.md]] · [[README.md]]
 
 ## Overview
 - **Name**: Operator

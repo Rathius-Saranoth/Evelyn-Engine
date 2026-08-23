@@ -2,11 +2,13 @@
 description: A protective workflow for backing up the project to GitHub while ensuring private data remains local
 title: backup-to-github.md
 date created: 2026-03-14 22:50:31
-date modified: 2026-03-14 22:50:40
-tags: git, github, backup, workflow, command
+date modified: 2026-08-23 08:04:47
+tags: git, github, backup, workflow, command, maintenance, evelyn
 ---
 
 # Safe Backup Workflow
+
+> Navigation: [[AGENTS.md]] · [[ROLLBACK.md]] · [[README.md]]
 
 This workflow ensures your code "Engine" is backed up to GitHub while your private "Soul" data stays safely on your local machine.
 

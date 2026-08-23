@@ -1,4 +1,13 @@
+---
+title: ROLLBACK.md
+date created: 2026-08-22 15:00:00
+date modified: 2026-08-23 08:02:35
+tags: rollback, recovery, maintenance, snapshot, evelyn
+---
+
 # Rollback Instructions (Pre-Sanitization Snapshot)
+
+> Navigation: [[README.md]] · [[engine_architecture.md]] · [[backup-to-github.md]]
 
 If anything fails or requires a complete reversion to the state prior to Template Sanitization:
 
