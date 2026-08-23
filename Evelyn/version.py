@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.000"
+__version__ = "000.005.001"
 VERSION_NAME = "Vault Document Ingestion Subsystem & Sidecar Architecture"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

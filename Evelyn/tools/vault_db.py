@@ -271,6 +271,37 @@ def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
     con.close()
     return dict(row) if row else None
 
+
+def update_document_tag_audit(path: str, tags: Optional[str] = None) -> None:
+    """Update the last_tag_audit timestamp (and optionally tags) for a vault document.
+
+    Args:
+        path: Relative or absolute path of the document.
+        tags: Optional updated comma-separated tags string.
+    """
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    norm_path = path.replace('\\', '/')
+    norm_vault = vault_base.replace('\\', '/').rstrip('/')
+    if norm_path.startswith(norm_vault + "/"):
+        norm_path = norm_path[len(norm_vault) + 1:]
+
+    init_db()
+    con = get_db()
+    now = time.time()
+    if tags is not None:
+        con.execute(
+            "UPDATE vault_documents SET last_tag_audit = ?, tags = ? WHERE path = ?",
+            (now, tags, norm_path)
+        )
+    else:
+        con.execute(
+            "UPDATE vault_documents SET last_tag_audit = ? WHERE path = ?",
+            (now, norm_path)
+        )
+    con.commit()
+    con.close()
+
+
 def move_document(old_path: str, new_path: str) -> bool:
     """Atomically update a document's relative path in the vault map on rename/move.
 
