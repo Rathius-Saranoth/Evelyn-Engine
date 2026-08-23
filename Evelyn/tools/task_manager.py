@@ -499,14 +499,17 @@ def get_dynamic_timeout(name: str) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _get_background_tasks() -> Optional[dict]:
-    """Return the server's _background_tasks dict, or None if not importable.
+_local_background_tasks: dict = {}
+
+
+def _get_background_tasks() -> dict:
+    """Return the server's _background_tasks dict, or local fallback if standalone.
 
     Walks the two module name candidates the existing codebase already uses,
     so this works whether the server is the main module or an imported one.
 
     Returns:
-        Optional[dict]: The _background_tasks dict, or None.
+        dict: The _background_tasks dict (or local fallback).
     """
     for mod_name in ("evelyn_server", "__main__"):
         mod = sys.modules.get(mod_name)
@@ -514,7 +517,8 @@ def _get_background_tasks() -> Optional[dict]:
             tasks = getattr(mod, "_background_tasks", None)
             if isinstance(tasks, dict):
                 return tasks
-    return None
+    return _local_background_tasks
+
 
 
 # ---------------------------------------------------------------------------

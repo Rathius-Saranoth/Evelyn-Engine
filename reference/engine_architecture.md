@@ -141,6 +141,7 @@ Responsible for semantic vector indexing, context fact assemblies, and exact ent
 Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Vault into the local RAG database.
 * **[[refresh_memory.py]]**: Master process orchestrator. Triggers vault mapping (`VaultIndexer`) and full-vault knowledge ingestion (`ingest_obsidian_knowledge.py`).
 * **[[ingest_obsidian_knowledge.py]]**: Full-vault full-text memory ingestion engine. Recursively scans `/home/rathius/obsidian_vault` (1,202 files), enforcing 1,600-character chunking and automatic `rag_priority: high` for core identity files (`Ricky - Psychological Blueprint.md`, `Evelyn Narrative Persona.md`, `System Directives.md`, `CE_*.md`, `EX_*.md`).
+* **[[pdf_staging_worker.py]]**: Automated PDF staging scanner and queue worker. Monitors `Attachments/Staging/Full_Extraction/` and `Attachments/Staging/Sidecar_Only/` to extract multi-chapter literature or generate interactive Sidecar cards under Task Manager mutual exclusion.
 * **`ingest_gists.py`**: *(Removed)* Gist summaries and legacy `evelyn_gists` collection have been fully eliminated in favor of direct full-text vector indexing in `evelyn_memory`.
 * **[[sync_full_vault_to_chroma.py]]**: Dedicated CLI reset and migration script that purges old vector caches and executes a clean full-vault re-indexing pass.
 * **[[vault_indexer.py]]**: Scans directory tree files and generates incremental database relationships (hashes, links, backlinks) inside SQLite.
@@ -168,8 +169,6 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
 * **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
 * **[[undo_thread.py]]**: Interactive debugging script to safely rollback transactions in memory files.
-
-
 
 ### 2.6 Standalone Inference Services
 FastAPI and remote inference services designed to isolate heavy model weights and guarantee zero VRAM resource leakage.
@@ -211,6 +210,8 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **`Evelyn/tools/db_migrator.py`**: Multi-database migration framework with transactional DDL, Python data transform callables, and per-database tracking tables (`schema_migrations`).
 * **`scripts/migrate_db.py`**: Standalone CLI migration manager supporting status inspection, execution, dry-runs, and automated Git release tagging.
 * **`scripts/migrate_subject_codes.py`**: Strict taxonomy migration utility converting database context entries and proposals from `-R`/`-E` to `-U`/`-A`.
+* **`scripts/extract_pdf_library.py`**: High-fidelity PDF extraction engine featuring PyMuPDF section hierarchy detection, DP title segmentation, dynamic zero-padded chapter generation, Sidecar Index Card synthesis, and nearest-neighbor vector RAG cross-linking.
+* **`scripts/relocate_vault_pdfs.py`**: Vault attachment normalization utility migrating non-markdown documents to `Attachments/Source Material/<Domain>/` while creating interactive Sidecar Note viewers.
 * **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `media`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
 * **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
 * **`templates/`**: Generic persona, profile, directive, and physical description example templates for open-source distributions.
@@ -362,12 +363,34 @@ graph TD
 ```
 
 ### 7.1 Key Architectural Guarantees
-1. **Single Custodian**: `evelyn_server.py` is the sole process maintaining a persistent `chromadb.PersistentClient` handle during live operation.
-2. **Row Coalescing**: Pending rows matching `(source_path, collection_name)` are updated in place, preventing redundant vector embedding computations.
-3. **Dead-Letter Poison Pill Protection**: Each queued item is drained with individual try/except failure isolation. If an item fails 3 times, its status transitions to `'error'` with full traceback recorded in `error_msg`. Valid items in the batch continue processing without stalling the pipeline.
-4. **Startup Sanitation Reaper**: On boot, sweeps orphaned child/worker processes, cleans stale `.lock` files, and auto-reconciles interrupted tasks to `idle`.
-5. **Canary Health Probes & Self-Healing**: Runs an active vector similarity canary query on startup. If index corruption is detected, logs an alert and triggers automatic background rebuild.
-6. **Bounded Graceful Teardown**: On server shutdown (`systemctl restart evelyn`), producers are reaped first via `terminate_all_subprocesses(grace_period=3.0)`, background tasks are paused, and up to 5.0 seconds is spent draining in-flight items. Any remaining items stay safely queued in SQLite for the next boot.
+---
 
+## 8. Vault Maintenance, Sidecar Index Cards & Zero-Overhead Reorganization
 
+To make non-markdown documents (PDFs, media) first-class nodes in Obsidian's knowledge graph without creating massive hub notes or redundant ingestion passes:
 
+```mermaid
+graph TD
+    PDF["Source PDF<br>(e.g. drop dir or raw folder)"] --> Splitter["extract_pdf_library.py<br>(Word Segmentation & TitleCase Normalization)"]
+    Splitter --> Move["Attachments/Source Material/<Domain>/<br>(Relocated Binary Asset)"]
+    Splitter --> Sidecar["Reference Library/<Domain>/<br><Title>.md (Sidecar Index Card)"]
+    Splitter --> Chapters["Reference Library/<Domain>/<Folder>/<br>Chapter_##.md Notes"]
+    
+    Sidecar --> Frontmatter["YAML Frontmatter<br>(title, subtitle, source embed, tags, aliases)"]
+    Sidecar --> Embed["![[Attachments/Source Material/...]]<br>(Obsidian PDF Embed)"]
+    Sidecar --> TOC["Chapter & Section Navigation Table"]
+    Sidecar --> Semantics["## Semantic Connections<br>(Nearest Neighbors via chroma_rag.find_semantic_neighbors)"]
+    Sidecar --> Entities["## Referenced Vault Entities<br>(Cross-links via vault_db.get_all_entities)"]
+
+    subgraph ZeroOverheadReorg [Zero-Overhead Reorganization]
+        Watcher["obsidian_vault_watcher.py<br>(on_moved event)"] --> FastMove["vault_db.move_document()<br>(<1ms SQLite Path Update)"]
+        Watcher --> ChromaRemap["chroma_rag.direct_remap()<br>(0-Embedding Vector ID Transfer)"]
+        Ingest["ingest_obsidian_knowledge.py"] --> SHA256["SHA-256 Hash Matching<br>(Detects Moves Across Sync Passes)"]
+        SHA256 --> ChromaRemap
+    end
+```
+
+### 8.1 Architectural Guarantees
+1. **Dynamic Programming Title Normalization**: Converts unspaced or concatenated filenames into clean Title Case and subtitle metadata, applying custom maps for technical terminology (`AI`, `ML`, `PyTorch`, `Scikit-Learn`, `Multi-Agent`).
+2. **First-Class Sidecar Index Cards**: Each non-markdown document receives a dedicated `.md` note that embeds the binary asset from `Attachments/Source Material/<Domain>/` and provides structured TOCs, summary gists, nearest-neighbor semantic connections, and referenced vault entities.
+3. **Zero-Embedding Path Remapping**: Moving or reorganizing notes across vault directories executes atomic path updates in `vault_documents` ($<1\text{ms}$) and transfers precomputed vector chunks in ChromaDB without running GPU/CPU embedding inference.

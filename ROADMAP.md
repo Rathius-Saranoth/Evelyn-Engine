@@ -68,8 +68,10 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Cross-Session History Search**: SQLite FTS5 full-text indexing with query reformulation and date filtering across all 29k+ historical messages (Replika, Gemini, and Local eras).
 - [x] **Developer Web UI**: Touch-optimized web dashboard (`dev.html`) with live Heavy Task telemetry, Unified Triage Queue (extractions, proposals, procedures), and Deep Research monitor.
 - [x] **Idle Tag Librarian**: Incremental background process auditing vault notes against a Master Tag Taxonomy using Vector RAG and cosine novelty scoring.
-- [ ] **Obsidian Related Documents Plugin**: Vault sidebar plugin displaying semantically related notes based on Master Tag Taxonomy overlap without runtime LLM overhead.
-- [ ] **Ghost Link Manifestation**: Automated stub note generator for high-frequency unresolved wiki-links in the Obsidian vault.
+- [x] **Vault Maintenance & Sidecar Index Cards**: Automated PDF title normalization, rich library index cards with frontmatter, attachments relocation (`Attachments/Source Material/`), and nearest-neighbor semantic cross-linking.
+- [x] **Zero-Overhead Vault Reorganization**: Content-hash (SHA-256) tracking and atomic SQLite/Chroma path remapping on note moves and renames to eliminate redundant GPU embedding passes.
+- [x] **Automated PDF Staging Pipeline & DevUI Ingestion**: Dual staging queues (`Attachments/Staging/Full_Extraction/`, `Attachments/Staging/Sidecar_Only/`) supervised by Task Manager with DevUI upload card and automated domain routing.
+
 - [ ] **Conversational Feedback & Adaptive Preference Tuning**: Interactive response rating (upvote/downvote) feedback loop with dynamic persona weight adjustments.
 - [ ] **Multi-Node Distributed Expansion**: Split inference workloads across network nodes (Sanctum primary host, workstation GPU sidecars).
 

@@ -6,7 +6,7 @@ import sys
 import os
 import unittest
 import asyncio
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch, mock_open, MagicMock, AsyncMock
 
 # Add directories to path
 sys.path.append(r"/home/rathius/evelyn")
@@ -20,7 +20,7 @@ class TestTriggeredByNormalization(unittest.TestCase):
     @patch("os.makedirs")
     @patch("subprocess.Popen")
     @patch("research_engine.get_task_dir")
-    @patch("research_engine.call_ollama")
+    @patch("research_engine.call_ollama", new_callable=AsyncMock)
     @patch("research_engine.datetime")
     def test_research_engine_triggered_by_evelyn(self, mock_datetime, mock_call_ollama, mock_get_task_dir, mock_popen, mock_makedirs, mock_exists, mock_open_file):
         import research_engine
@@ -62,9 +62,11 @@ class TestTriggeredByNormalization(unittest.TestCase):
         self.assertIn("triggered_by: Evelyn", written_content)
         self.assertNotIn("triggered_by: evelyn\n", written_content)
 
+    @patch("migrate_research_headers.query_llm_for_metadata", new_callable=AsyncMock)
     @patch("migrate_research_headers.parse_existing_file")
-    def test_migrate_research_headers_triggered_by_evelyn(self, mock_parse):
+    def test_migrate_research_headers_triggered_by_evelyn(self, mock_parse, mock_query_llm):
         import migrate_research_headers
+        mock_query_llm.return_value = ("Test Short Title", ["tag1", "tag2"])
 
         metadata = {
             "title": "Test Report",

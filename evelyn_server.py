@@ -32,7 +32,7 @@ import httpx
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -4634,7 +4634,76 @@ async def deny_terminal_command(approval_id: str, _: None = Depends(check_auth))
     return {"status": "ok"}
 
 
+# ---------------------------------------------------------------------------
+# Vault PDF Staging & Document Ingestion Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/vault/domains")
+async def get_vault_domains(_: None = Depends(check_auth)):
+    """Return available vault domain options for document staging."""
+    import Evelyn.tools.pdf_staging_worker as pdf_staging_worker
+    return {"domains": pdf_staging_worker.get_available_domains()}
+
+
+@app.post("/api/vault/upload_staging")
+async def upload_document_staging(
+    file: UploadFile = File(...),
+    mode: str = Form("full"),
+    domain_path: str = Form(""),
+    domain_name: str = Form(""),
+    _: None = Depends(check_auth),
+):
+    """
+    Upload a document (PDF) to the vault staging queue.
+    Modes:
+      - 'full': Extracts chapters, markdown TOC, embedded viewer, and indexes to Chroma.
+      - 'card': Generates a sidecar index card with embedded viewer and relocates source.
+    """
+    import Evelyn.tools.pdf_staging_worker as pdf_staging_worker
+
+    filename = os.path.basename(file.filename or "uploaded_document.pdf")
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF documents are supported for staging ingestion.")
+
+    staging_dir = pdf_staging_worker.FULL_EXTRACTION_STAGING if mode == "full" else pdf_staging_worker.SIDECAR_ONLY_STAGING
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    target_path = staging_dir / filename
+
+    # Save uploaded file
+    with open(target_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    # Save metadata JSON sidecar for destination domain
+    meta_path = staging_dir / f"{filename}.meta.json"
+    meta_info = {
+        "target_path": domain_path or "Notes",
+        "domain": domain_name or "General",
+        "mode": mode,
+        "uploaded_at": time.time(),
+    }
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta_info, f, indent=2)
+
+    # Trigger background staging worker in async task if task manager is idle
+    try:
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, pdf_staging_worker.process_staging_queue)
+    except Exception as e:
+        print(f"[SERVER WARNING] Failed to trigger async staging worker: {e}", flush=True)
+
+    return {
+        "status": "queued",
+        "filename": filename,
+        "mode": mode,
+        "domain_path": domain_path or "Notes",
+        "domain_name": domain_name or "General",
+        "staging_file": str(target_path),
+    }
+
+
 if __name__ == "__main__":
+
 
     import uvicorn
     import os

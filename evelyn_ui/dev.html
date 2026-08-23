@@ -291,7 +291,9 @@
   <div class="tabs">
     <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
+    <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
   </div>
+
   
   <main id="container">
     <div class="empty-state">Loading...</div>
@@ -962,13 +964,17 @@
 
       document.getElementById('tab-triage').classList.toggle('active', currentTab === 'triage');
       document.getElementById('tab-research').classList.toggle('active', currentTab === 'research');
+      const ingestTabBtn = document.getElementById('tab-ingest');
+      if (ingestTabBtn) ingestTabBtn.classList.toggle('active', currentTab === 'ingest');
       
       const title = document.getElementById('header-title');
       if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
-      else title.textContent = 'Deep Research Dashboard';
+      else if (currentTab === 'research') title.textContent = 'Deep Research Dashboard';
+      else if (currentTab === 'ingest') title.textContent = 'Document Ingestion & Staging';
 
       render();
     }
+
 
     function setTriageFilter(filter) {
       triageFilter = filter;
@@ -2631,7 +2637,209 @@
             `;
           }).join('');
         }
+      } else if (currentTab === 'ingest') {
+        container.innerHTML = renderIngestionDashboard();
       }
+    }
+
+    let availableDomains = [];
+    let uploadStatusMessage = '';
+    let uploadStatusType = 'info';
+    let isUploading = false;
+
+    async function loadVaultDomains() {
+      try {
+        const resp = await fetch('/api/vault/domains');
+        if (resp.ok) {
+          const data = await resp.json();
+          availableDomains = data.domains || [];
+        }
+      } catch (e) {
+        console.warn('Failed to load vault domains:', e);
+      }
+    }
+
+    function handleFileSelected(input) {
+      const preview = document.getElementById('selected-file-name');
+      if (input.files && input.files[0]) {
+        if (preview) preview.textContent = `Selected: ${input.files[0].name} (${(input.files[0].size / 1024 / 1024).toFixed(2)} MB)`;
+      } else {
+        if (preview) preview.textContent = 'Supports single or multi-page PDF files';
+      }
+    }
+
+    async function submitStagedUpload(e) {
+      if (e) e.preventDefault();
+      const fileInput = document.getElementById('ingest-file-input');
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        alert('Please select a PDF file to upload.');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
+        alert('Only PDF documents are supported for staging.');
+        return;
+      }
+
+      const mode = document.querySelector('input[name="ingest-mode"]:checked')?.value || 'full';
+      const domainSelect = document.getElementById('ingest-domain-select');
+      const selectedOption = domainSelect ? domainSelect.options[domainSelect.selectedIndex] : null;
+      const domainPath = selectedOption ? selectedOption.value : '';
+      const domainName = selectedOption ? selectedOption.getAttribute('data-domain') || '' : '';
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mode', mode);
+      formData.append('domain_path', domainPath);
+      formData.append('domain_name', domainName);
+
+      isUploading = true;
+      uploadStatusMessage = `Uploading "${file.name}" to staging...`;
+      uploadStatusType = 'info';
+      render();
+
+      try {
+        const resp = await fetch('/api/vault/upload_staging', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (resp.ok) {
+          const result = await resp.json();
+          uploadStatusMessage = `✅ Uploaded "${result.filename}". Queued for ${mode === 'full' ? 'Full Chapter Extraction' : 'Sidecar Card Generation'} targeting "${result.domain_path}". Task Manager will process when idle.`;
+          uploadStatusType = 'success';
+          fileInput.value = '';
+          const preview = document.getElementById('selected-file-name');
+          if (preview) preview.textContent = 'Supports single or multi-page PDF files';
+        } else {
+          const err = await resp.json();
+          uploadStatusMessage = `❌ Upload failed: ${err.detail || resp.statusText}`;
+          uploadStatusType = 'error';
+        }
+      } catch (err) {
+        uploadStatusMessage = `❌ Upload error: ${err.message}`;
+        uploadStatusType = 'error';
+      } finally {
+        isUploading = false;
+        render();
+      }
+    }
+
+    function renderIngestionDashboard() {
+      const domainsHtml = (availableDomains.length > 0 ? availableDomains : [
+        {label: "Notes (Inbox / Default)", path: "Notes", domain: "General"},
+        {label: "Reference Library (AI & Tech)", path: "Reference Library", domain: "AI"},
+        {label: "Owner's Manuals & Hardware Specs", path: "Reference Library/Owner's Manuals", domain: "Hardware"},
+        {label: "Medical Records (Ricky)", path: "Ricky/Medical", domain: "Medical"},
+        {label: "Financial & Taxes (Ricky)", path: "Ricky/Financial", domain: "Financial"},
+        {label: "Professional & Career (Ricky)", path: "Ricky/Professional", domain: "Professional"},
+        {label: "Family & Legal (Schyler)", path: "Schyler", domain: "Family/Schyler"},
+        {label: "Genealogy & Ancestry", path: "Genealogy", domain: "Genealogy"},
+        {label: "Creative & Projects", path: "Projects", domain: "Creative"},
+        {label: "D&D Campaigns", path: "Dungeons & Dragons", domain: "DnD"}
+      ]).map(d => `
+        <option value="${escapeHtml(d.path)}" data-domain="${escapeHtml(d.domain)}">${escapeHtml(d.label)} (${escapeHtml(d.path)})</option>
+      `).join('');
+
+      return `
+        <div style="max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+          
+          <!-- Upload Form Card -->
+          <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px;">
+            <h2 style="font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+              <span>📄 Document & PDF Ingestion</span>
+            </h2>
+            <p style="font-size: 14px; color: var(--text-dim); margin-bottom: 20px; line-height: 1.5;">
+              Stage incoming books, manuals, and records into Evelyn's automated ingestion pipeline. Uploaded files are supervised by Task Manager and deposited directly into their target domain folder.
+            </p>
+
+            <form onsubmit="submitStagedUpload(event)">
+              
+              <!-- Drag & Drop Zone -->
+              <div class="drop-zone" id="ingest-drop-zone" onclick="document.getElementById('ingest-file-input').click()" style="border: 2px dashed var(--border); border-radius: 12px; padding: 28px 20px; text-align: center; background: var(--surface2); cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 20px;">
+                <input type="file" id="ingest-file-input" accept=".pdf" style="display: none;" onchange="handleFileSelected(this)" />
+                <div style="font-size: 32px; margin-bottom: 8px;">📥</div>
+                <div style="font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 4px;">Click to select or drag & drop a PDF document</div>
+                <div style="font-size: 13px; color: var(--text-dim);" id="selected-file-name">Supports single or multi-page PDF files</div>
+              </div>
+
+              <!-- Ingestion Mode Selector -->
+              <div style="margin-bottom: 20px;">
+                <label style="font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">
+                  Ingestion Mode
+                </label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <label class="mode-card" style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+                    <input type="radio" name="ingest-mode" value="full" checked style="accent-color: var(--accent); margin-top: 3px;" />
+                    <div>
+                      <div style="font-weight: 600; color: #fff; font-size: 14px;">📚 Full Extraction</div>
+                      <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.4;">
+                        Extracts text hierarchy into Markdown chapter notes, creates <code style="color:var(--accent);">&lt;Title&gt;_index.md</code>, generates TOC, embeds PDF viewer, and enqueues to ChromaDB vector search.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label class="mode-card" style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+                    <input type="radio" name="ingest-mode" value="card" style="accent-color: var(--accent); margin-top: 3px;" />
+                    <div>
+                      <div style="font-weight: 600; color: #fff; font-size: 14px;">📇 Sidecar Card Only</div>
+                      <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.4;">
+                        Generates a rich Sidecar note with interactive embedded PDF viewer and tags, relocating the source PDF to <code style="color:var(--accent);">Attachments/Source Material/</code>.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Destination Domain Selector -->
+              <div style="margin-bottom: 24px;">
+                <label for="ingest-domain-select" style="font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">
+                  Destination Domain Folder
+                </label>
+                <select id="ingest-domain-select" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: #fff; padding: 10px 14px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;">
+                  ${domainsHtml}
+                </select>
+                <div style="font-size: 12px; color: var(--text-dim); margin-top: 6px;">
+                  💡 <em>You can also move the generated notes anywhere in your vault later — Zero-Overhead Reorganization automatically updates vectors in &lt;1ms.</em>
+                </div>
+              </div>
+
+              <!-- Submit Button & Feedback -->
+              <button type="submit" class="btn btn-action" style="width: 100%; padding: 12px; font-size: 15px; font-weight: 600; background: var(--accent); border: none; border-radius: 8px; color: #fff; cursor: pointer;" ${isUploading ? 'disabled' : ''}>
+                ${isUploading ? '⏳ Uploading & Staging...' : '🚀 Stage & Process Document'}
+              </button>
+            </form>
+
+            ${uploadStatusMessage ? `
+              <div style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.5; ${uploadStatusType === 'success' ? 'background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); color: #4ade80;' : uploadStatusType === 'error' ? 'background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;' : 'background: rgba(124, 106, 247, 0.1); border: 1px solid rgba(124, 106, 247, 0.3); color: #c084fc;'}">
+                ${uploadStatusMessage}
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Staging Folders Information Box -->
+          <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;">
+            <h3 style="font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+              <span>📁 Direct Filesystem Staging</span>
+            </h3>
+            <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.5;">
+              You can also drop PDF files directly into the vault filesystem via Syncthing or your file explorer:
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+              <div style="background: var(--surface2); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px;">
+                <strong style="color: #fff; font-family: monospace; font-size: 12px;">Attachments/Staging/Full_Extraction/</strong>
+                <span style="color: var(--text-dim);">→ Triggers full chapter extraction into target folder</span>
+              </div>
+              <div style="background: var(--surface2); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px;">
+                <strong style="color: #fff; font-family: monospace; font-size: 12px;">Attachments/Staging/Sidecar_Only/</strong>
+                <span style="color: var(--text-dim);">→ Triggers Sidecar note creation with embedded viewer</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      `;
     }
 
     // Close modals on Escape
@@ -2649,7 +2857,9 @@
     if (initialTab) {
       switchTab(initialTab);
     }
+    loadVaultDomains();
     loadIdentity().then(() => loadData());
   </script>
 </body>
+
 </html>

@@ -134,9 +134,27 @@ def quick_extract_metadata(file_path: str) -> dict | None:
     }
 
 
-def update_sqlite_for_changed_files(changed_files: set[str], deleted_files: set[str]) -> None:
-    """Update SQLite database for modified and deleted notes."""
+def update_sqlite_for_changed_files(
+    changed_files: set[str],
+    deleted_files: set[str],
+    moved_files: dict[str, str] | None = None,
+) -> None:
+    """Incrementally synchronize SQLite metadata and tags for modified, deleted, and moved files."""
     vault_db.init_db()
+
+    # 1. Handle atomic moves first
+    if moved_files:
+        for full_src, full_dest in moved_files.items():
+            rel_src = os.path.relpath(full_src, VAULT_DIR)
+            rel_dest = os.path.relpath(full_dest, VAULT_DIR)
+            try:
+                vault_db.move_document(rel_src, rel_dest)
+                chroma_rag.enqueue_remap(full_src, full_dest, "evelyn_memory")
+                print(f"[WATCHER] Atomic move: {rel_src} -> {rel_dest}", flush=True)
+            except Exception as e:
+                print(f"[WATCHER] Move failed for {rel_src} -> {rel_dest}: {e}", flush=True)
+
+    # 2. Handle modifications/creations
     for full_path in changed_files:
         if not os.path.exists(full_path):
             continue
@@ -158,6 +176,7 @@ def update_sqlite_for_changed_files(changed_files: set[str], deleted_files: set[
             except Exception as e:
                 print(f"[WATCHER] SQLite update failed for {rel_path}: {e}", flush=True)
 
+    # 3. Handle deletions
     for full_path in deleted_files:
         rel_path = os.path.relpath(full_path, VAULT_DIR)
         try:
@@ -174,12 +193,24 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
         self.debounce_interval = debounce_interval
         self.last_event_time = 0.0
         self.pending = False
+        self.pending_staging = False
         self.changed_files: set[str] = set()
         self.deleted_files: set[str] = set()
+        self.moved_files: dict[str, str] = {}
 
     def _record_event(self, src_path: str, is_deletion: bool = False):
         if is_ignored(src_path):
             return
+
+        # Detect PDF drops into staging directories
+        norm_path = src_path.replace("\\", "/")
+        if "/attachments/staging/" in norm_path.lower() and norm_path.lower().endswith(".pdf"):
+            if not is_deletion:
+                self.pending_staging = True
+                self.last_event_time = time.time()
+                self.pending = True
+            return
+
         if not src_path.endswith(".md"):
             return
 
@@ -206,9 +237,34 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
             self._record_event(event.src_path, is_deletion=True)
 
     def on_moved(self, event):
-        if not event.is_directory:
-            self._record_event(event.src_path, is_deletion=True)
-            self._record_event(event.dest_path, is_deletion=False)
+        if event.is_directory:
+            return
+
+        src = event.src_path
+        dest = event.dest_path
+
+        if is_ignored(src) and is_ignored(dest):
+            return
+
+        # Check if moved into staging
+        norm_dest = dest.replace("\\", "/")
+        if "/attachments/staging/" in norm_dest.lower() and norm_dest.lower().endswith(".pdf"):
+            self.pending_staging = True
+            self.last_event_time = time.time()
+            self.pending = True
+            return
+
+        if src.endswith(".md") and dest.endswith(".md") and not is_ignored(src) and not is_ignored(dest):
+            self.last_event_time = time.time()
+            self.pending = True
+            self.moved_files[src] = dest
+            self.changed_files.discard(src)
+            self.changed_files.discard(dest)
+            self.deleted_files.discard(src)
+            self.deleted_files.discard(dest)
+        else:
+            self._record_event(src, is_deletion=True)
+            self._record_event(dest, is_deletion=False)
 
     def check_and_run(self):
         """If debounce window has elapsed, execute ingestion pipeline."""
@@ -220,21 +276,36 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
             self.pending = False
             files_to_sync = set(self.changed_files)
             files_to_del = set(self.deleted_files)
+            files_to_move = dict(self.moved_files)
+            has_staged = self.pending_staging
+            self.pending_staging = False
             self.changed_files.clear()
             self.deleted_files.clear()
+            self.moved_files.clear()
 
             print(
                 f"\n[WATCHER] Vault activity stabilized ({len(files_to_sync)} changed, "
-                f"{len(files_to_del)} deleted). Starting ingestion pipeline...",
+                f"{len(files_to_del)} deleted, {len(files_to_move)} moved, staged={has_staged}). Starting ingestion pipeline...",
                 flush=True,
             )
 
             start_t = time.time()
             try:
-                # 1. Update SQLite fast metadata index
-                update_sqlite_for_changed_files(files_to_sync, files_to_del)
+                # 1. Process any pending staged PDFs (Full Extraction or Sidecar Only)
+                if has_staged:
+                    try:
+                        import pdf_staging_worker
+                        staged_results = pdf_staging_worker.process_staging_queue()
+                        if staged_results:
+                            print(f"[WATCHER] Ingested {len(staged_results)} staged document(s): {staged_results}", flush=True)
+                    except Exception as e:
+                        print(f"[WATCHER ERROR] Staging ingestion failed: {e}", file=sys.stderr, flush=True)
 
-                # 2. Incremental ChromaDB Vector Sync via staging queue
+                # 2. Update SQLite fast metadata index
+                if files_to_sync or files_to_del or files_to_move:
+                    update_sqlite_for_changed_files(files_to_sync, files_to_del, files_to_move)
+
+                # 3. Incremental ChromaDB Vector Sync via staging queue
                 if task_manager.is_any_running():
                     print("[WATCHER] Heavy background task is active; skipping immediate Chroma vector sync.", flush=True)
                 else:
@@ -244,6 +315,7 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
                 print(f"[WATCHER] Ingestion completed successfully in {duration:.2f}s.\n", flush=True)
             except Exception as e:
                 print(f"[WATCHER ERROR] Ingestion failed: {e}", file=sys.stderr, flush=True)
+
 
 
 def main():
