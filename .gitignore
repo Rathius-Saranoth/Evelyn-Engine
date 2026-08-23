@@ -9,6 +9,8 @@ Evelyn/persona/
 Update Logs/
 scripts/personal/
 reference/system/
+MAINTENANCE_CHECKLIST.md
+*.local.md
 
 # --- Local Data & State ---
 # Centralized data directory (databases, Chroma vectors, sync states)
