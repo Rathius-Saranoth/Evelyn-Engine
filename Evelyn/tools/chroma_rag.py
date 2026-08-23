@@ -468,15 +468,18 @@ def remap_document(old_source_path: str, new_source_path: str, collection_name: 
         return direct_remap(old_source_path, new_source_path, collection_name)
 
 
-def drain_sync_queue(batch_size: int = 50, source_prefix: str = "") -> int:
+def drain_sync_queue(batch_size: int = 50, source_prefix: str = "", deadline: float | None = None) -> int:
     """Drain and process pending items from chroma_sync_queue in batch.
 
     Isolates dead-letter failures so malformed payloads retry up to 3 times
     before transitioning to status='error' without stalling the queue.
+    Supports an optional deadline timestamp; if exceeded mid-batch, remaining
+    unprocessed records are reverted from 'processing' to 'pending'.
 
     Args:
         batch_size: Maximum number of records to process in one drain cycle.
         source_prefix: Optional source_path prefix filter (e.g. 'test::' for unit tests).
+        deadline: Optional monotonic/epoch timestamp deadline. If exceeded, batch halts.
 
     Returns:
         int: Number of items successfully processed.
@@ -517,8 +520,20 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "") -> int:
         )
         con.commit()
 
-        # Process each item with individual failure isolation
-        for r in rows:
+        # Process each item with individual failure isolation and deadline guard
+        for idx, r in enumerate(rows):
+            # Check deadline before processing current item
+            if deadline is not None and time.time() >= deadline:
+                # Deadline exceeded: revert remaining unprocessed rows in this batch to 'pending'
+                unprocessed_ids = [row["id"] for row in rows[idx:]]
+                if unprocessed_ids:
+                    cur.execute(
+                        f"UPDATE chroma_sync_queue SET status = 'pending', updated_at = ? WHERE id IN ({','.join(map(str, unprocessed_ids))})",
+                        (time.time(),),
+                    )
+                    con.commit()
+                break
+
             item_id = r["id"]
             action = r["action"]
             src = r["source_path"]
@@ -588,8 +603,9 @@ def flush_sync_queue(timeout: float = 5.0, source_prefix: str = "") -> bool:
         bool: True if queue was completely emptied, False if timeout reached.
     """
     start = time.time()
-    while time.time() - start < timeout:
-        drained = drain_sync_queue(batch_size=100, source_prefix=source_prefix)
+    deadline = start + max(0.1, timeout)
+    while time.time() < deadline:
+        drained = drain_sync_queue(batch_size=50, source_prefix=source_prefix, deadline=deadline)
         if drained == 0:
             # Check if any pending items remain
             con = _get_queue_db()

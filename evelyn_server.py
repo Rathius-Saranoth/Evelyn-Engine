@@ -1971,6 +1971,8 @@ async def lifespan(app: FastAPI):
         print(f"  {_RED}[WARNING] Chroma Vector DB corrupted:{_RST} {health['error']}. Initiating auto-repair...", flush=True)
         chroma_rag.repair_corrupted_chroma(background=True)
 
+    _lifespan_tasks: list[asyncio.Task] = []
+
     # 3. Single Custodian Chroma Sync Queue Drain Loop
     async def _chroma_queue_drain_loop():
         """Continuous background worker that drains the SQLite Chroma staging queue."""
@@ -1979,26 +1981,30 @@ async def lifespan(app: FastAPI):
                 drained = await asyncio.to_thread(chroma_rag.drain_sync_queue, 50)
                 if drained > 0:
                     dlog(f"[CHROMA DRAIN] Processed {drained} queued records.")
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 print(f"[CHROMA DRAIN ERROR] {e}", flush=True)
             await asyncio.sleep(1.5)
 
-    asyncio.create_task(_chroma_queue_drain_loop())
+    _lifespan_tasks.append(asyncio.create_task(_chroma_queue_drain_loop()))
     print(f"  {_GRN}Chroma Custodian:{_RST} Started single-writer drain worker (interval=1.5s).")
 
     # 4. Media DB & Visual Memory Indexer
     import Evelyn.tools.media_db as media_db
     import Evelyn.tools.visual_indexer as visual_indexer
     media_db.init_media_db()
-    asyncio.create_task(
-        visual_indexer.visual_indexing_worker_loop(
-            is_busy_predicate=lambda: bool(stream_registry.get_active() or is_any_heavy_task_running())
+    _lifespan_tasks.append(
+        asyncio.create_task(
+            visual_indexer.visual_indexing_worker_loop(
+                is_busy_predicate=lambda: bool(stream_registry.get_active() or is_any_heavy_task_running())
+            )
         )
     )
     print(f"  {_GRN}Visual Indexer:{_RST} Started background media extraction queue worker.")
 
     task_manager.load_persistent_state()
-    asyncio.create_task(task_manager.start_watchdog())
+    _lifespan_tasks.append(asyncio.create_task(task_manager.start_watchdog()))
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
@@ -2031,7 +2037,7 @@ async def lifespan(app: FastAPI):
                 print(f"{_MAG}[CONSOLIDATOR]{_RST} Consolidation pass completed — triggering automatic memory refresh.", flush=True)
                 await start_refresh_memory_internal()
 
-    asyncio.create_task(_idle_consolidation_loop())
+    _lifespan_tasks.append(asyncio.create_task(_idle_consolidation_loop()))
     print(
         f"  {_GRN}Consolidator:{_RST} idle loop started "
         f"(threshold={cfg.CONSOLIDATION_IDLE_THRESHOLD // 60}m, "
@@ -2059,7 +2065,7 @@ async def lifespan(app: FastAPI):
                 import fact_extractor
                 fact_extractor._extraction_task = asyncio.create_task(run_extraction())
 
-    asyncio.create_task(_idle_extraction_loop())
+    _lifespan_tasks.append(asyncio.create_task(_idle_extraction_loop()))
     print(
         f"  {_GRN}Extractor:{_RST}   idle loop started "
         f"(threshold={cfg.FACT_EXTRACTION_IDLE_THRESHOLD // 60}m, "
@@ -2282,7 +2288,7 @@ async def lifespan(app: FastAPI):
                         # _background_tasks before the next iteration's active-task check.
                         await asyncio.sleep(30)
 
-    asyncio.create_task(_idle_research_loop())
+    _lifespan_tasks.append(asyncio.create_task(_idle_research_loop()))
     print(
         f"  {_GRN}Deep Research:{_RST} idle loop started "
         f"(threshold={getattr(cfg, 'RESEARCH_IDLE_THRESHOLD', 1800) // 60}m)"
@@ -2306,7 +2312,7 @@ async def lifespan(app: FastAPI):
                         await start_refresh_memory_internal()
                         last_run_time = time.time()
 
-    asyncio.create_task(_idle_memory_refresh_loop())
+    _lifespan_tasks.append(asyncio.create_task(_idle_memory_refresh_loop()))
     print(f"  {_GRN}Mem Refresher:{_RST} idle loop started (threshold=45m, limit=2h)")
 
     # Idle-time profile evolution loop (Hermes Tier 3 #12)
@@ -2326,7 +2332,7 @@ async def lifespan(app: FastAPI):
                     print(f"{_GRN}[PROFILE EVOLVER]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background profile evolution check.", flush=True)
                     asyncio.create_task(run_profile_evolution())
 
-    asyncio.create_task(_idle_profile_evolution_loop())
+    _lifespan_tasks.append(asyncio.create_task(_idle_profile_evolution_loop()))
     print(f"  {_GRN}Profile Evolver:{_RST} idle loop started (threshold=60m, cooldown=24h/doc)")
 
     # Idle-time Tag Librarian loop
@@ -2373,7 +2379,7 @@ async def lifespan(app: FastAPI):
                     print(f"{_GRN}[TAG LIBRARIAN]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background tag librarian audit.", flush=True)
                     asyncio.create_task(run_tag_librarian_task())
 
-    asyncio.create_task(_idle_tag_librarian_loop())
+    _lifespan_tasks.append(asyncio.create_task(_idle_tag_librarian_loop()))
     print(f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=45m, limit=1 doc/run)")
 
 
@@ -2399,7 +2405,7 @@ async def lifespan(app: FastAPI):
             # Run every 30 minutes
             await asyncio.sleep(1800)
 
-    asyncio.create_task(_gcal_sync_loop())
+    _lifespan_tasks.append(asyncio.create_task(_gcal_sync_loop()))
     print(f"  {_GRN}GCal Syncer:{_RST} periodic loop started (interval=30m)")
 
     # Periodic Google Drive & Health Connect auto-sync loop
@@ -2426,11 +2432,18 @@ async def lifespan(app: FastAPI):
             # Check every 2 hours (7200s)
             await asyncio.sleep(7200)
 
-    asyncio.create_task(_gdrive_sync_loop())
+    _lifespan_tasks.append(asyncio.create_task(_gdrive_sync_loop()))
     print(f"  {_GRN}GDrive Syncer:{_RST} periodic loop started (interval=2h)")
 
     yield
-    # Shutdown phase: pause all active research and cancel background tasks cleanly
+
+    # Shutdown phase: cancel all background async tasks cleanly before shutting down tasks
+    print(f"[SERVER SHUTDOWN] Cancelling {len(_lifespan_tasks)} background lifespan task(s)...", flush=True)
+    for t in _lifespan_tasks:
+        t.cancel()
+    if _lifespan_tasks:
+        await asyncio.gather(*_lifespan_tasks, return_exceptions=True)
+
     clean_shutdown_all_tasks()
 
 

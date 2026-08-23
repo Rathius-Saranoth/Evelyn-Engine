@@ -13,6 +13,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.007] - 2026-08-23 — *Graceful Service Shutdown Lifecycle & UPS Integration*
+
+### Added
+- **Graceful Stop Script & Workflow**:
+  - Enhanced [scripts/stop_evelyn_services.sh](file:///home/rathius/evelyn/scripts/stop_evelyn_services.sh) with `--all`/`--with-ollama` and `--checkpoint-wal`/`--flush-wal` options for clean teardown.
+  - Added dedicated workflow guide in [.agents/workflows/stop-services.md](file:///home/rathius/evelyn/.agents/workflows/stop-services.md) (`/stop-services`).
+  - Added "Stop All Services (with Ollama & WAL flush)" task in [.vscode/tasks.json](file:///home/rathius/evelyn/.vscode/tasks.json).
+- **Physical Environment UPS Hook (Sanctum)**:
+  - Created `scripts/personal/ups_shutdown_hook.sh` and registered symlinks in `/etc/apcupsd/` (`doshutdown`, `failing`, `timeout`, `loadlimit`, `runlimit`, `emergency`) to safely stop services and checkpoint SQLite WAL journals when UPS signals power failure.
+
+### Fixed
+- **ChromaDB Queue Drain Deadline Hardening**:
+  - Added strict per-item `deadline` parameter and checking to `drain_sync_queue()` and `flush_sync_queue()` in [chroma_rag.py](file:///home/rathius/evelyn/Evelyn/tools/chroma_rag.py).
+  - Implemented automatic transaction rollback from `'processing'` to `'pending'` for unprocessed items when deadline expires mid-batch, preventing shutdown hangs.
+- **FastAPI Lifespan Background Task Cancellation**:
+  - Tracked all background `asyncio.Task` instances in [evelyn_server.py](file:///home/rathius/evelyn/evelyn_server.py) lifespan and cleanly cancelled/gathered them before calling `clean_shutdown_all_tasks()`.
+- **Systemd Timeout Tuning**:
+  - Tuned `TimeoutStopSec=15` in `/etc/systemd/system/evelyn.service`.
+
+---
+
 ## [000.005.006] - 2026-08-23 — *Granular Source Entry Management for Merge Proposals*
 
 ### Added

@@ -10,7 +10,13 @@
         {
             "label": "Stop Evelyn Services",
             "type": "shell",
-            "command": "sudo systemctl stop evelyn evelyn-tts",
+            "command": "bash scripts/stop_evelyn_services.sh",
+            "problemMatcher": []
+        },
+        {
+            "label": "Stop All Services (with Ollama & WAL flush)",
+            "type": "shell",
+            "command": "bash scripts/stop_evelyn_services.sh --all --checkpoint-wal",
             "problemMatcher": []
         },
         {
