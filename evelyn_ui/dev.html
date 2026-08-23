@@ -497,20 +497,122 @@
       return frontmatterHtml + html;
     }
 
+    function cleanYamlScalar(val) {
+      if (val === undefined || val === null) return '';
+      let s = String(val).trim();
+      if (!s) return '';
+
+      // Case A: Block scalar: starts with | or >
+      if (s.startsWith('|') || s.startsWith('>')) {
+        const isFolded = s.startsWith('>');
+        const lines = s.split(/\r?\n/).slice(1);
+        if (lines.length === 0) return '';
+        const indents = lines.filter(l => l.trim().length > 0).map(l => l.match(/^(\s*)/)[1].length);
+        const minIndent = indents.length > 0 ? Math.min(...indents) : 0;
+        const strippedLines = lines.map(l => l.slice(minIndent));
+        if (isFolded) {
+          let res = '';
+          for (let i = 0; i < strippedLines.length; i++) {
+            const l = strippedLines[i];
+            if (!l.trim()) {
+              res += '\n\n';
+            } else {
+              if (res && !res.endsWith('\n') && !res.endsWith(' ')) res += ' ';
+              res += l.trim();
+            }
+          }
+          return res.replace(/\n{3,}/g, '\n\n').replace(/''/g, "'").trim();
+        }
+        return strippedLines.join('\n').replace(/''/g, "'").trim();
+      }
+
+      // Case B: Single-quoted scalar (e.g. 'steps content with ''quotes'' and line wraps')
+      if (s.startsWith("'") && s.endsWith("'") && s.length >= 2) {
+        let content = s.slice(1, -1).replace(/\r/g, '');
+        // In single-quoted YAML scalars:
+        // Multiple consecutive newlines with indentation indicate paragraph/item separation
+        content = content.replace(/\n\s*\n\s*/g, '___YAML_PARA_BREAK___');
+        // Single newline with indentation is a folded line wrap within the sentence -> replace with single space
+        content = content.replace(/\n\s*/g, ' ');
+        // Restore double newlines
+        content = content.replace(/___YAML_PARA_BREAK___/g, '\n\n');
+        // Unescape doubled single quotes (PyYAML escaping)
+        content = content.replace(/''/g, "'");
+        return content.trim();
+      }
+
+      // Case C: Double-quoted scalar (e.g. "steps content with \"quotes\"")
+      if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+        let content = s.slice(1, -1).replace(/\r/g, '');
+        content = content.replace(/\n\s*\n\s*/g, '___YAML_PARA_BREAK___');
+        content = content.replace(/\n\s*/g, ' ');
+        content = content.replace(/___YAML_PARA_BREAK___/g, '\n\n');
+        try {
+          content = JSON.parse('"' + content.replace(/\\"/g, '"').replace(/"/g, '\\"') + '"');
+        } catch (_) {
+          content = content.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+        }
+        content = content.replace(/''/g, "'");
+        return content.trim();
+      }
+
+      // Case D: Plain unquoted scalar or multiline block
+      let content = s.replace(/\r/g, '');
+      const rawLines = content.split('\n');
+      const isList = rawLines.some(l => /^\s*(\d+\.|\-|\*)\s+/.test(l));
+      if (!isList && rawLines.length > 1) {
+        content = content.replace(/\n\s*\n\s*/g, '___YAML_PARA_BREAK___');
+        content = content.replace(/\n\s*/g, ' ');
+        content = content.replace(/___YAML_PARA_BREAK___/g, '\n\n');
+      } else if (isList) {
+        let folded = [];
+        for (let l of rawLines) {
+          if (/^\s*(\d+\.|\-|\*)\s+/.test(l) || !l.trim()) {
+            folded.push(l.trim());
+          } else if (folded.length > 0) {
+            folded[folded.length - 1] += ' ' + l.trim();
+          } else {
+            folded.push(l.trim());
+          }
+        }
+        content = folded.join('\n');
+      }
+      content = content.replace(/''/g, "'");
+      return content.trim();
+    }
+
     function parseProcedureYaml(yamlStr) {
       if (!yamlStr) return {};
       const res = {};
       const mTrigger = yamlStr.match(/trigger_pattern:\s*([\s\S]*?)(?=\nsteps:|\npitfalls:|\nverification:|\ntags:|$)/i);
-      if (mTrigger) res.trigger_pattern = mTrigger[1].trim().replace(/^['"]|['"]$/g, '');
+      if (mTrigger) res.trigger_pattern = cleanYamlScalar(mTrigger[1]);
       const mSteps = yamlStr.match(/steps:\s*([\s\S]*?)(?=\npitfalls:|\nverification:|\ntags:|$)/i);
-      if (mSteps) res.steps = mSteps[1].trim().replace(/^['"]|['"]$/g, '');
+      if (mSteps) res.steps = cleanYamlScalar(mSteps[1]);
       const mPitfalls = yamlStr.match(/pitfalls:\s*([\s\S]*?)(?=\nverification:|\ntags:|$)/i);
-      if (mPitfalls) res.pitfalls = mPitfalls[1].trim().replace(/^['"]|['"]$/g, '');
+      if (mPitfalls) res.pitfalls = cleanYamlScalar(mPitfalls[1]);
       const mVerif = yamlStr.match(/verification:\s*([\s\S]*?)(?=\ntags:|$)/i);
-      if (mVerif) res.verification = mVerif[1].trim().replace(/^['"]|['"]$/g, '');
+      if (mVerif) res.verification = cleanYamlScalar(mVerif[1]);
       const mTags = yamlStr.match(/tags:\s*([\s\S]*?)$/i);
-      if (mTags) res.tags = mTags[1].trim().replace(/^['"]|['"]$/g, '');
+      if (mTags) res.tags = cleanYamlScalar(mTags[1]);
       return res;
+    }
+
+    function dumpProcedureYaml(proc) {
+      let lines = [];
+      lines.push(`trigger_pattern: ${JSON.stringify(proc.trigger_pattern || '')}`);
+      const steps = (proc.steps || '').trim();
+      if (steps.includes('\n')) {
+        lines.push(`steps: |`);
+        for (const l of steps.split('\n')) {
+          lines.push(`  ${l}`);
+        }
+      } else {
+        lines.push(`steps: ${JSON.stringify(steps)}`);
+      }
+      lines.push(`pitfalls: ${JSON.stringify(proc.pitfalls || '')}`);
+      lines.push(`verification: ${JSON.stringify(proc.verification || '')}`);
+      lines.push(`tags: ${JSON.stringify(proc.tags || 'procedure, merged')}`);
+      return lines.join('\n');
     }
 
     function parseSplitYaml(yamlStr) {
@@ -530,7 +632,13 @@
           if (trimmed === 'entries:') continue;
 
           if (trimmed.startsWith('- ') || (trimmed.startsWith('category:') && (!cur || cur.category))) {
-            if (cur && (cur.observation || cur.category)) entries.push(cur);
+            if (cur && (cur.observation || cur.category)) {
+              cur.observation = cleanYamlScalar(cur.observation);
+              cur.category = cleanYamlScalar(cur.category);
+              cur.subject = cleanYamlScalar(cur.subject);
+              cur.tags = cleanYamlScalar(cur.tags);
+              entries.push(cur);
+            }
             cur = { category: '', subject: currentIdentity.user_name, tags: '', observation: '' };
             activeField = null;
           }
@@ -543,23 +651,28 @@
           }
 
           if (lineContent.startsWith('category:')) {
-            cur.category = lineContent.substring(9).replace(/^["']|["']$/g, '').trim();
+            cur.category = lineContent.substring(9).trim();
             activeField = 'category';
           } else if (lineContent.startsWith('subject:')) {
-            cur.subject = lineContent.substring(8).replace(/^["']|["']$/g, '').trim();
+            cur.subject = lineContent.substring(8).trim();
             activeField = 'subject';
           } else if (lineContent.startsWith('tags:')) {
-            cur.tags = lineContent.substring(5).replace(/^["']|["']$/g, '').trim();
+            cur.tags = lineContent.substring(5).trim();
             activeField = 'tags';
           } else if (lineContent.startsWith('observation:')) {
-            cur.observation = lineContent.substring(12).replace(/^["']|["']$/g, '').trim();
+            cur.observation = lineContent.substring(12).trim();
             activeField = 'observation';
           } else if (activeField === 'observation' && (rawLine.startsWith('  ') || rawLine.startsWith('\t') || rawLine.startsWith('    '))) {
-            const addStr = trimmed.replace(/^["']|["']$/g, '');
-            cur.observation = cur.observation ? (cur.observation + ' ' + addStr) : addStr;
+            cur.observation = cur.observation ? (cur.observation + '\n' + rawLine) : rawLine;
           }
         }
-        if (cur && (cur.observation || cur.category)) entries.push(cur);
+        if (cur && (cur.observation || cur.category)) {
+          cur.observation = cleanYamlScalar(cur.observation);
+          cur.category = cleanYamlScalar(cur.category);
+          cur.subject = cleanYamlScalar(cur.subject);
+          cur.tags = cleanYamlScalar(cur.tags);
+          entries.push(cur);
+        }
         return entries;
       } catch (e) {
         return [];
@@ -573,16 +686,16 @@
         const subj = (e.subject || currentIdentity.user_name).trim();
         const tags = (e.tags || '').trim();
         const obs = (e.observation || '').trim();
-        lines.push(`  - category: "${cat.replace(/"/g, '\\"')}"`);
-        lines.push(`    subject: "${subj.replace(/"/g, '\\"')}"`);
-        lines.push(`    tags: "${tags.replace(/"/g, '\\"')}"`);
+        lines.push(`  - category: ${JSON.stringify(cat)}`);
+        lines.push(`    subject: ${JSON.stringify(subj)}`);
+        lines.push(`    tags: ${JSON.stringify(tags)}`);
         if (obs.includes('\n')) {
           lines.push(`    observation: |`);
           for (const obsLine of obs.split('\n')) {
             lines.push(`      ${obsLine}`);
           }
         } else {
-          lines.push(`    observation: "${obs.replace(/"/g, '\\"')}"`);
+          lines.push(`    observation: ${JSON.stringify(obs)}`);
         }
       }
       return lines.join('\n');
@@ -1004,8 +1117,13 @@
           const pitfalls = document.getElementById(`proc-merge-pitfalls-${id}`)?.value || '';
           const verification = document.getElementById(`proc-merge-verification-${id}`)?.value || '';
           const tags = document.getElementById(`proc-merge-tags-${id}`)?.value || '';
-          const stepsIndented = steps.split('\n').map(l => '  ' + l).join('\n');
-          const constructedYaml = `trigger_pattern: ${trigger}\nsteps: |\n${stepsIndented}\npitfalls: ${pitfalls}\nverification: ${verification}\ntags: ${tags}`;
+          const constructedYaml = dumpProcedureYaml({
+            trigger_pattern: trigger,
+            steps: steps,
+            pitfalls: pitfalls,
+            verification: verification,
+            tags: tags
+          });
           body = JSON.stringify({ modified_text: constructedYaml });
         } else if (item && item.type === 'split') {
           const currentFacts = parseSplitYaml(item.merged_observation);

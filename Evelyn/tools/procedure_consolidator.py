@@ -317,7 +317,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
             "verification": parsed.get("verification", ""),
             "tags": "procedure, merged"
         }
-        merged_obs_yaml = yaml.dump(merged_dict, sort_keys=False)
+        merged_obs_yaml = yaml.dump(merged_dict, sort_keys=False, default_flow_style=False, width=10000)
 
         prop_id = memory_db.insert_proposal(
             type="procedure_merge",
