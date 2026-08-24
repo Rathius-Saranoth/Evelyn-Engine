@@ -81,6 +81,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **RAG & Context Telemetry Logging**: Interceptor logging persistent retrieval events (source notes, similarity scores, taxonomy tags) to measure knowledge utilization and retrieval frequency across conversations.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard**: Comprehensive metrics dashboard to track engine usage, prompt sentiment/volume, evaluation regressions, RAG/vault knowledge utilization, research outcomes, VAD telemetry, and tool/procedure frequency with time-range drill-downs.
+- [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 
 ---
 
