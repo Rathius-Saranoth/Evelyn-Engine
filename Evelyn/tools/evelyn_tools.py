@@ -19,7 +19,7 @@ All tool logic uses standard function signatures for Ollama's function-calling A
 import sys
 import os
 import importlib
-from typing import Optional
+from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +81,8 @@ import journal_manager # [[journal_manager.py]]
 import context_manager # [[context_manager.py]]
 import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
 import gcal_sync
+import gtasks_sync
+import vault_list_manager
 import terminal_agent
 import gdrive_sync
 import health_manager
@@ -89,11 +91,15 @@ import oura_client
 
 def _reload():
     """Hot-reload all backing modules so live edits take effect without restarting."""
+    if os.environ.get("PYTEST_CURRENT_TEST") or getattr(cfg, "DISABLE_HOT_RELOAD", False):
+        return
     for mod in (
         "journal_manager",
         "context_manager",
         "ingest_obsidian_knowledge",
         "gcal_sync",
+        "gtasks_sync",
+        "vault_list_manager",
         "terminal_agent",
         "gdrive_sync",
         "health_manager",
@@ -1683,6 +1689,7 @@ def sync_google_calendar(**kwargs) -> str:
     Returns:
         str: Outcome details of the sync run.
     """
+    _reload()
     try:
         result = gcal_sync.sync_gcal_events()
         if result["status"] == "success":
@@ -1693,36 +1700,257 @@ def sync_google_calendar(**kwargs) -> str:
         return f"Error syncing Google Calendar: {e}"
 
 
+def create_task(
+    title: str = "",
+    due_at: str = None,
+    notes: str = None,
+    **kwargs,
+) -> str:
+    """Create a new task on Google Tasks.
+
+    Args:
+        title: Brief title/summary of the task.
+        due_at: Optional due date/time ('YYYY-MM-DD', 'YYYY-MM-DD HH:MM:SS', or ISO-8601).
+        notes: Optional description or notes for the task.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Success or failure message.
+    """
+    _reload()
+    try:
+        title = title or str(kwargs.get("task_title") or kwargs.get("name") or kwargs.get("summary") or "")
+        due_at = due_at or kwargs.get("due") or kwargs.get("date") or kwargs.get("due_date")
+        notes = notes or kwargs.get("description") or kwargs.get("details")
+        if not title:
+            return "Error: create_task requires a title."
+        result = gtasks_sync.create_gtask(title=title, due=due_at, notes=notes)
+        if result.get("status") == "success":
+            due_lbl = f"\n- Due: {due_at}" if due_at else ""
+            return (
+                f"Successfully created task on Google Tasks:\n"
+                f"- ID: {result['task_id']}\n"
+                f"- Title: {title}{due_lbl}"
+            )
+        else:
+            return f"Failed to create task: {result.get('message')}"
+    except Exception as e:
+        return f"Error creating task: {e}"
+
+
+def complete_task(task_id: str = "", **kwargs) -> str:
+    """Mark a task as completed on Google Tasks.
+
+    Args:
+        task_id: The unique ID of the Google Task.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Success or failure message.
+    """
+    _reload()
+    try:
+        task_id = task_id or str(kwargs.get("id") or "")
+        if not task_id:
+            return "Error: complete_task requires a task_id."
+        result = gtasks_sync.complete_gtask(task_id)
+        if result.get("status") == "success":
+            return f"Successfully marked task {task_id} as completed."
+        else:
+            return f"Failed to complete task: {result.get('message')}"
+    except Exception as e:
+        return f"Error completing task: {e}"
+
+
+def delete_task(task_id: str = "", **kwargs) -> str:
+    """Delete a task from Google Tasks.
+
+    Args:
+        task_id: The unique ID of the Google Task to delete.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Success or failure message.
+    """
+    _reload()
+    try:
+        task_id = task_id or str(kwargs.get("id") or "")
+        if not task_id:
+            return "Error: delete_task requires a task_id."
+        result = gtasks_sync.delete_gtask(task_id)
+        if result.get("status") == "success":
+            return f"Successfully deleted task {task_id} from Google Tasks."
+        else:
+            return f"Failed to delete task: {result.get('message')}"
+    except Exception as e:
+        return f"Error deleting task: {e}"
+
+
+def list_tasks(include_completed: bool = False, due_within_days: Optional[int] = None, **kwargs) -> str:
+    """List Google Tasks from the local cache / Google Tasks.
+
+    Args:
+        include_completed: Whether to include completed tasks (defaults to False).
+        due_within_days: Optional filter for tasks due within the next N days.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Formatted list of tasks.
+    """
+    _reload()
+    try:
+        try:
+            if "completed" in kwargs:
+                include_completed = bool(kwargs.get("completed"))
+            if "days" in kwargs:
+                due_within_days = int(kwargs.get("days"))
+        except (ValueError, TypeError):
+            pass
+
+        tasks = gtasks_sync.get_cached_tasks(include_completed=include_completed, due_within_days=due_within_days)
+        if not tasks:
+            return "No tasks found."
+        lines = ["Google Tasks:\n"]
+        for t in tasks:
+            due_str = t.get("due_at") or "No due date"
+            if "T" in due_str:
+                due_str = due_str.replace("T", " ").split(".")[0].replace("Z", "")
+            status_str = f"[{t.get('status')}]"
+            notes_str = f" - {t.get('notes')}" if t.get("notes") else ""
+            lines.append(f"- (ID: {t.get('id')}) {status_str} {t.get('title')} (Due: {due_str}){notes_str}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing tasks: {e}"
+
+
+def sync_google_tasks(**kwargs) -> str:
+    """Manually trigger a sync with Google Tasks to update the local cached tasks.
+
+    Returns:
+        str: Outcome details of the sync run.
+    """
+    _reload()
+    try:
+        result = gtasks_sync.sync_gtasks()
+        if result.get("status") == "success":
+            return f"Google Tasks sync successful: {result.get('message')}"
+        else:
+            return f"Google Tasks sync notice: {result.get('message')}"
+    except Exception as e:
+        return f"Error syncing Google Tasks: {e}"
+
+
 def get_agenda(days: int = 7, **kwargs) -> str:
-    """Retrieve Google Calendar agenda/schedule for the next N days.
+    """Retrieve Google Calendar agenda and Google Tasks for the next N days.
 
     Args:
         days: Number of days forward to include. Defaults to 7.
         **kwargs: Flexible keyword arguments.
 
     Returns:
-        str: Formatted agenda schedule list.
+        str: Formatted agenda schedule and task list.
     """
+    _reload()
     try:
         try:
             days = int(days or kwargs.get("num_days") or kwargs.get("days_forward") or 7)
         except (ValueError, TypeError):
             days = 7
         events = gcal_sync.get_cached_gcal_events(days_back=1, days_forward=days)
-        if not events:
-            return f"Your agenda is clear for the next {days} days."
-        
-        lines = [f"Upcoming Calendar Agenda (next {days} days):\n"]
-        for event in events:
-            time_str = event["start_at"].replace("T", " ").split("+")[0].split("Z")[0]
-            desc_part = f" - {event['description']}" if event.get("description") else ""
-            loc_str = f" @ {event['location']}" if event.get("location") else ""
-            lines.append(f"- [{time_str}] [CALENDAR] (ID: {event['id']}) {event['summary']}{loc_str}{desc_part}")
-                
-        return "\n".join(lines)
+        tasks = gtasks_sync.get_cached_tasks(include_completed=False, due_within_days=days)
+
+        if not events and not tasks:
+            return f"Your agenda and task list are clear for the next {days} days."
+
+        sections = []
+        if events:
+            lines = [f"Upcoming Calendar Events (next {days} days):"]
+            for event in events:
+                time_str = event["start_at"].replace("T", " ").split("+")[0].split("Z")[0]
+                desc_part = f" - {event['description']}" if event.get("description") else ""
+                loc_str = f" @ {event['location']}" if event.get("location") else ""
+                lines.append(f"- [{time_str}] [CALENDAR] (ID: {event['id']}) {event['summary']}{loc_str}{desc_part}")
+            sections.append("\n".join(lines))
+
+        if tasks:
+            lines = ["Upcoming / Pending Tasks:"]
+            for task in tasks:
+                due_val = task.get("due_at")
+                if due_val and "T" in due_val:
+                    due_str = due_val.replace("T", " ").split(".")[0].replace("Z", "")
+                else:
+                    due_str = "No due date"
+                desc_part = f" - {task['notes']}" if task.get("notes") else ""
+                lines.append(f"- [{due_str}] [TASK] (ID: {task['id']}) {task['title']}{desc_part}")
+            sections.append("\n".join(lines))
+
+        return "\n\n".join(sections)
     except Exception as e:
         return f"Error fetching agenda: {e}"
 
+
+
+def manage_vault_list(
+    name: str = "Groceries",
+    action: str = "read",
+    items: Any = None,
+    category: str = None,
+    **kwargs,
+) -> str:
+    """Read, add, check, uncheck, or remove items from an Obsidian Vault checklist note.
+
+    Args:
+        name: Name of the list (e.g. 'Groceries', 'Packing', 'Hardware'). Defaults to 'Groceries'.
+        action: Action to perform ('read', 'add', 'check', 'complete', 'uncheck', 'remove', 'delete', 'clear_completed', 'list_all').
+        items: List of items or structured item objects with name, quantity, unit, category.
+        category: Default category/section header (e.g. 'Produce', 'Dairy', 'Pantry').
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Human-readable outcome message or list contents.
+    """
+    _reload()
+    try:
+        name = name or str(kwargs.get("list_name") or kwargs.get("title") or "Groceries")
+        action = str(action or kwargs.get("operation") or "read").strip().lower()
+        items = items if items is not None else kwargs.get("item") or kwargs.get("entries") or kwargs.get("item_list")
+        category = category or kwargs.get("section")
+
+        if action in ("read", "view", "get", "show"):
+            res = vault_list_manager.read_list(name)
+            return res.get("summary") or f"List '{name}' is empty."
+
+        elif action in ("add", "insert", "append"):
+            res = vault_list_manager.add_to_list(name=name, items=items, category=category)
+            return res.get("message") or "Items added to list."
+
+        elif action in ("check", "complete", "done", "finish"):
+            res = vault_list_manager.toggle_list_items(name=name, items=items, completed=True)
+            return res.get("message") or "Items marked as completed."
+
+        elif action in ("uncheck", "reopen", "active", "todo"):
+            res = vault_list_manager.toggle_list_items(name=name, items=items, completed=False)
+            return res.get("message") or "Items unchecked."
+
+        elif action in ("remove", "delete", "erase"):
+            res = vault_list_manager.remove_from_list(name=name, items=items)
+            return res.get("message") or "Items removed from list."
+
+        elif action in ("clear_completed", "clean", "purge"):
+            res = vault_list_manager.clear_completed_items(name=name)
+            return res.get("message") or "Cleared completed items."
+
+        elif action in ("list_all", "all_lists", "lists"):
+            all_lists = vault_list_manager.list_all_lists()
+            if not all_lists:
+                return "No lists found in vault Lists directory."
+            return f"Obsidian Vault Lists ({len(all_lists)}):\n- " + "\n- ".join(all_lists)
+
+        else:
+            return f"Unknown list action: '{action}'. Supported actions: read, add, check, uncheck, remove, clear_completed, list_all."
+
+    except Exception as e:
+        return f"Error managing vault list '{name}': {e}"
 
 
 def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: int = 30, **kwargs) -> str:
@@ -2205,8 +2433,103 @@ MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "create_task",
+            "description": (
+                f"Create a new task on {cfg.USER_NAME}'s Google Tasks list. "
+                "Use when requested to add a to-do, task, or reminder item."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Brief title or summary of the task.",
+                    },
+                    "due_at": {
+                        "type": "string",
+                        "description": "Optional due date/time ('YYYY-MM-DD', 'YYYY-MM-DD HH:MM:SS', or ISO-8601).",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional details or notes for the task.",
+                    },
+                },
+                "required": ["title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": f"Mark an existing task on {cfg.USER_NAME}'s Google Tasks list as completed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The unique Google Tasks ID of the task to complete.",
+                    },
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_task",
+            "description": f"Delete a task from {cfg.USER_NAME}'s Google Tasks list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The unique Google Tasks ID of the task to delete.",
+                    },
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tasks",
+            "description": f"Retrieve and list tasks from {cfg.USER_NAME}'s Google Tasks (local cache).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "include_completed": {
+                        "type": "boolean",
+                        "description": "Whether to include completed tasks. Defaults to false.",
+                    },
+                    "due_within_days": {
+                        "type": "integer",
+                        "description": "Optional filter for tasks due within the next N days.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_google_tasks",
+            "description": f"Trigger an on-demand sync from {cfg.USER_NAME}'s Google Tasks to update the local cached tasks database.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_agenda",
-            "description": f"Retrieve {cfg.USER_NAME}'s upcoming Google Calendar schedule and events for the next N days.",
+            "description": f"Retrieve {cfg.USER_NAME}'s upcoming schedule (Google Calendar events and Google Tasks) for the next N days.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2374,6 +2697,55 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_vault_list",
+            "description": (
+                f"Manage markdown checklists and lists in {cfg.USER_NAME}'s Obsidian Vault (e.g. Groceries, Packing, To-Dos, Hardware). "
+                "Supports reading items, adding new items with quantity/unit and category sections (e.g. Produce, Dairy, Pantry), "
+                "checking/completing items, unchecking, removing items, and clearing completed items."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the list note (e.g. 'Groceries', 'Packing', 'Hardware'). Defaults to 'Groceries'.",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["read", "add", "check", "uncheck", "remove", "clear_completed", "list_all"],
+                        "description": "Action to perform on the list.",
+                    },
+                    "items": {
+                        "type": "array",
+                        "description": (
+                            "List of item objects or strings to add/check/remove. "
+                            "For 'add', each item object can specify 'name', optional 'quantity', 'unit', and 'category'. "
+                            "Example: [{'name': 'Whole Milk', 'quantity': 1, 'unit': 'gal', 'category': 'Dairy & Refrigerated'}, {'name': 'Spinach', 'category': 'Produce'}]. "
+                            "Can also be simple strings: ['Whole Milk', 'Spinach']."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Item name"},
+                                "quantity": {"type": "number", "description": "Quantity count/amount"},
+                                "unit": {"type": "string", "description": "Measurement unit (e.g. 'gal', 'boxes', 'lbs', 'bunch')"},
+                                "category": {"type": "string", "description": "Category or section header in the note (e.g. 'Produce', 'Dairy & Refrigerated', 'Pantry')"}
+                            },
+                            "required": ["name"]
+                        }
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Default category/section header for added items if not specified per item.",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 
@@ -2398,7 +2770,13 @@ TOOL_FUNCTIONS = {
     "create_calendar_event": create_calendar_event,
     "delete_calendar_event": delete_calendar_event,
     "sync_google_calendar": sync_google_calendar,
+    "create_task": create_task,
+    "complete_task": complete_task,
+    "delete_task": delete_task,
+    "list_tasks": list_tasks,
+    "sync_google_tasks": sync_google_tasks,
     "get_agenda": get_agenda,
+    "manage_vault_list": manage_vault_list,
     "get_health_metrics": get_health_metrics,
     "get_recent_workouts": get_recent_workouts,
     "sync_google_drive": sync_google_drive,

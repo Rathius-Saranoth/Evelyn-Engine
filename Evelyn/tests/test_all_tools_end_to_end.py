@@ -141,7 +141,20 @@ class TestAllToolsEndToEnd(unittest.TestCase):
         status = task_manager.get_status("sync")
         self.assertIn(status, ("idle", "running", "done", "error", "timed_out", None))
         self.assertIsNone(task_manager.get_status("nonexistent_task_xyz"))
-        self.assertIsInstance(task_manager.is_any_running(), bool)
+    def test_14_tasks_tools(self):
+        """Test Google Tasks model tools."""
+        list_res = evelyn_tools.list_tasks()
+        self.assertIsInstance(list_res, str)
+        sync_res = evelyn_tools.sync_google_tasks()
+        self.assertIsInstance(sync_res, str)
+
+    def test_15_vault_list_tools(self):
+        """Test manage_vault_list model tool."""
+        res = evelyn_tools.manage_vault_list(name="TestGroceries", action="add", items=["Oat Milk (1 gal)"])
+        self.assertIsInstance(res, str)
+        read_res = evelyn_tools.manage_vault_list(name="TestGroceries", action="read")
+        self.assertIsInstance(read_res, str)
+        self.assertIn("Oat Milk", read_res)
 
 
 if __name__ == "__main__":

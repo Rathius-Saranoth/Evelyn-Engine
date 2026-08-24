@@ -212,6 +212,8 @@ GCAL_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gcal_credentials.json")
 GCAL_TOKEN_PATH = os.path.join(DATA_DIR, "gcal_token.json")
 GDRIVE_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gdrive_credentials.json")
 GDRIVE_TOKEN_PATH = os.path.join(DATA_DIR, "gdrive_token.json")
+GTASKS_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gtasks_credentials.json")
+GTASKS_TOKEN_PATH = os.path.join(DATA_DIR, "gtasks_token.json")
 
 # =============================================================================
 # Vault Write Paths & Access Control
@@ -227,6 +229,7 @@ JOURNAL_DIR = os.path.join(ASSISTANT_WRITE_DIR, f"{ASSISTANT_NAME}'s Journal")
 CONTEXT_DIR = os.path.join(ASSISTANT_WRITE_DIR, f"{ASSISTANT_NAME}'s Context")
 RESEARCH_VAULT_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Research")
 PENDING_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Pending_Approvals")
+LISTS_DIR = os.path.join(VAULT_BASE_DIR, "Lists")
 
 # Directories the engine should NOT read from (excluded from RAG indexing,
 # vault search, and context ingestion). Paths are relative to VAULT_BASE_DIR.

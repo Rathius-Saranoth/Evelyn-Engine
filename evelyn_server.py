@@ -406,9 +406,9 @@ def get_research_context() -> str:
 
 
 def get_upcoming_agenda_prompt_context() -> str:
-    """Fetch a high-level summary notification of upcoming Google Calendar events to inject into the system prompt.
+    """Fetch a high-level summary notification of upcoming Google Calendar events and Google Tasks to inject into the system prompt.
 
-    Avoids token bloat by notifying about counts and only listing urgent pending events.
+    Avoids token bloat by notifying about counts and only listing urgent pending items.
     """
     try:
         import sys
@@ -416,13 +416,18 @@ def get_upcoming_agenda_prompt_context() -> str:
         if TOOLS_DIR not in sys.path:
             sys.path.append(TOOLS_DIR)
         import gcal_sync
+        import gtasks_sync
         
         # 1. Fetch upcoming calendar events for the next 24 hours (days_back=0, days_forward=1)
         events = gcal_sync.get_cached_gcal_events(days_back=0, days_forward=1)
+        # 2. Fetch pending tasks due within the next 24 hours
+        tasks = gtasks_sync.get_cached_tasks(include_completed=False, due_within_days=1)
         
         lines = []
         if events:
             lines.append(f"(Context note: {cfg.USER_NAME} has {len(events)} upcoming calendar event(s) in the next 24 hours. You may call 'get_agenda' if {cfg.USER_NAME} asks about the schedule.)")
+        if tasks:
+            lines.append(f"(Context note: {cfg.USER_NAME} has {len(tasks)} pending task(s) due soon or today. You may call 'list_tasks' or 'get_agenda' if {cfg.USER_NAME} asks about to-dos/tasks.)")
         
         if lines:
             return "\n" + "\n".join(lines)
@@ -655,6 +660,22 @@ def init_db():
             last_sync   TEXT NOT NULL
         )
     """)
+
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id           TEXT PRIMARY KEY,
+            tasklist_id  TEXT NOT NULL DEFAULT '@default',
+            title        TEXT NOT NULL,
+            notes        TEXT,
+            due_at       TEXT,
+            status       TEXT NOT NULL DEFAULT 'needsAction',
+            completed_at TEXT,
+            source       TEXT NOT NULL DEFAULT 'google',
+            last_sync    TEXT NOT NULL
+        )
+    """)
+    con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at)")
 
     # FTS5 full-text search index (Hermes Tier 2 #6)
     _init_fts5_index(con)
@@ -2407,6 +2428,30 @@ async def lifespan(app: FastAPI):
 
     _lifespan_tasks.append(asyncio.create_task(_gcal_sync_loop()))
     print(f"  {_GRN}GCal Syncer:{_RST} periodic loop started (interval=30m)")
+
+    # Periodic Google Tasks auto-sync loop
+    async def _gtasks_sync_loop():
+        """Periodic background task that pulls tasks from Google Tasks and caches them.
+        Runs on startup and then every 30 minutes.
+        """
+        await asyncio.sleep(12)  # Brief warm-up delay on startup
+        while True:
+            try:
+                import gtasks_sync
+                result = await asyncio.to_thread(gtasks_sync.sync_gtasks)
+                if result.get("status") == "success":
+                    print(f"{_GRN}[GTASKS SYNC]{_RST} Auto-sync successful: {result['message']}", flush=True)
+                elif result.get("status") == "offline":
+                    if cfg.DEBUG_LOGGING:
+                        print(f"{_GRN}[GTASKS SYNC]{_RST} Auto-sync fallback to cache: {result['message']}", flush=True)
+            except Exception as e:
+                print(f"{_RED}[GTASKS SYNC ERROR]{_RST} {e}", flush=True)
+
+            # Run every 30 minutes
+            await asyncio.sleep(1800)
+
+    _lifespan_tasks.append(asyncio.create_task(_gtasks_sync_loop()))
+    print(f"  {_GRN}GTasks Syncer:{_RST} periodic loop started (interval=30m)")
 
     # Periodic Google Drive & Health Connect auto-sync loop
     async def _gdrive_sync_loop():
