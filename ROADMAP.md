@@ -53,7 +53,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
 - [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with pre-approval editing and live diff panels in DevUI.
 - [x] **Procedural Knowledge Capture**: Background pipeline that extracts operational rules, workflows, and pitfalls from chat history into searchable procedural memory.
-- [x] **Workspace & Health Integrations**: Integrated Google Calendar (read/write scheduling), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, and Oura Ring Cloud API v2 vitals.
+- [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, and Oura Ring Cloud API v2 vitals.
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
 - [ ] **System-Event Prompting Flow**: Inject proactive notifications into conversation turns for background triggers (agenda alerts, completed research, health anomalies).
 - [ ] **Always-On Functionality**: Day/night circadian awareness, proactive check-ins, and ambient background agency.

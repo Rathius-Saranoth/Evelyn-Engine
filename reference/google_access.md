@@ -43,7 +43,7 @@ Sensitive scopes request access to private personal user data across Google Cale
 | **Google Docs** | `https://www.googleapis.com/auth/documents.readonly` | See all your Google Docs documents | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/gdrive_knowledge_importer.py` |
 | **Google Drive** | `https://www.googleapis.com/auth/drive.apps.readonly` | View your Google Drive connected apps | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py` |
 | **Google Sheets** | `https://www.googleapis.com/auth/spreadsheets.readonly` | See all your Google Sheets spreadsheets | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/gdrive_knowledge_importer.py` |
-| **Google Tasks** | `https://www.googleapis.com/auth/tasks` | Create, edit, organize, and delete all your tasks | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py` |
+| **Google Tasks** | `https://www.googleapis.com/auth/tasks` | Create, edit, organize, and delete all your tasks | `scripts/setup_gtasks.py`, `scripts/setup_gdrive.py`, `Evelyn/tools/gtasks_sync.py`, `Evelyn/tools/evelyn_tools.py` |
 
 ---
 
@@ -63,8 +63,9 @@ Restricted scopes request access to sensitive user files and communications.
 
 All OAuth credentials and generated refresh tokens are stored locally in the isolated `data/` directory (git-ignored):
 
-- **Client OAuth ID & Secret**: [`data/gcal_credentials.json`](file:///home/rathius/evelyn/data/gcal_credentials.json) / [`data/gdrive_credentials.json`](file:///home/rathius/evelyn/data/gdrive_credentials.json)
+- **Client OAuth ID & Secret**: [`data/gcal_credentials.json`](file:///home/rathius/evelyn/data/gcal_credentials.json) / [`data/gdrive_credentials.json`](file:///home/rathius/evelyn/data/gdrive_credentials.json) / [`data/gtasks_credentials.json`](file:///home/rathius/evelyn/data/gtasks_credentials.json)
 - **Google Calendar Token**: [`data/gcal_token.json`](file:///home/rathius/evelyn/data/gcal_token.json)
+- **Google Tasks Token**: [`data/gtasks_token.json`](file:///home/rathius/evelyn/data/gtasks_token.json)
 - **Google Drive & Workspace Token**: [`data/gdrive_token.json`](file:///home/rathius/evelyn/data/gdrive_token.json)
 
 ---
@@ -77,6 +78,9 @@ To refresh or regenerate OAuth tokens with active scopes:
 # Calendar Setup
 /home/rathius/evelyn/venv/bin/python3 scripts/setup_gcal.py
 
-# Drive, Docs, Sheets & Tasks Setup
+# Google Tasks Setup
+/home/rathius/evelyn/venv/bin/python3 scripts/setup_gtasks.py
+
+# Drive, Docs & Sheets Setup
 /home/rathius/evelyn/venv/bin/python3 scripts/setup_gdrive.py
 ```

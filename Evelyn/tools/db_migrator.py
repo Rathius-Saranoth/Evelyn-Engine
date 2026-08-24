@@ -328,6 +328,23 @@ def strip_legacy_kw_tags_from_memory(conn: sqlite3.Connection, db_paths: dict[st
     logger.info("Migration 000.004.002 sanitized %d context_entries and %d proposals.", ce_updated, p_updated)
 
 
+CREATE_TASKS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS tasks (
+    id           TEXT PRIMARY KEY,
+    tasklist_id  TEXT NOT NULL DEFAULT '@default',
+    title        TEXT NOT NULL,
+    notes        TEXT,
+    due_at       TEXT,
+    status       TEXT NOT NULL DEFAULT 'needsAction',
+    completed_at TEXT,
+    source       TEXT NOT NULL DEFAULT 'google',
+    last_sync    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at);
+"""
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -358,6 +375,12 @@ MIGRATIONS: list[Migration] = [
         version="000.004.002",
         name="strip_legacy_kw_tags_from_memory",
         up_fn=strip_legacy_kw_tags_from_memory,
+    ),
+    Migration(
+        target_db="chat",
+        version="000.005.008",
+        name="create_tasks_table",
+        up_sql=CREATE_TASKS_TABLE_SQL,
     ),
 ]
 

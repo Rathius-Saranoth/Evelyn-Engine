@@ -13,6 +13,37 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.009] - 2026-08-23 — *Obsidian Vault List & Checklist Management System*
+
+### Added
+- **Obsidian Vault List Manager (`vault_list_manager.py`)**:
+  - Implemented [Evelyn/tools/vault_list_manager.py](file:///home/rathius/evelyn/Evelyn/tools/vault_list_manager.py) providing offline-first list and checklist operations directly on markdown notes in the Obsidian Vault (`vault.root/Lists/`).
+  - Added template-driven initialization supporting category templates ([templates/lists/groceries.md](file:///home/rathius/evelyn/templates/lists/groceries.md)) and generic lists ([templates/list_template.md](file:///home/rathius/evelyn/templates/list_template.md)).
+  - Implemented item-first presentation format (`Item (Qty Unit)` / `Item (2x)`), category-aware section routing, intelligent quantity incrementing on existing items, fuzzy checkbox toggling (`- [ ]` $\leftrightarrow$ `- [x]`), item removal, and completed cleanup.
+- **Model Function Calling Tool**:
+  - Registered `manage_vault_list` in [Evelyn/tools/evelyn_tools.py](file:///home/rathius/evelyn/Evelyn/tools/evelyn_tools.py) `MODEL_TOOL_DEFINITIONS` and `TOOL_FUNCTIONS` supporting structured item objects, string lists, and flexible actions (`read`, `add`, `check`, `uncheck`, `remove`, `clear_completed`, `list_all`).
+- **Configuration**:
+  - Added `LISTS_DIR` path in [evelyn_config.py](file:///home/rathius/evelyn/evelyn_config.py).
+
+---
+
+## [000.005.008] - 2026-08-23 — *Google Tasks Integration & Dedicated Task Synchronizer*
+
+### Added
+- **Google Tasks Dedicated Synchronizer (`gtasks_sync.py`)**:
+  - Implemented [Evelyn/tools/gtasks_sync.py](file:///home/rathius/evelyn/Evelyn/tools/gtasks_sync.py) providing offline-first task synchronization, SQLite caching, OAuth credential loading/refreshing, and full CRUD operations (`sync_gtasks`, `get_cached_tasks`, `create_gtask`, `complete_gtask`, `delete_gtask`).
+  - Added [scripts/setup_gtasks.py](file:///home/rathius/evelyn/scripts/setup_gtasks.py) for interactive OAuth2 setup with automatic fallback to existing Google credentials.
+- **Model Function Calling Tools**:
+  - Registered `create_task`, `complete_task`, `delete_task`, `list_tasks`, and `sync_google_tasks` in [Evelyn/tools/evelyn_tools.py](file:///home/rathius/evelyn/Evelyn/tools/evelyn_tools.py) `MODEL_TOOL_DEFINITIONS` and `TOOL_FUNCTIONS`.
+  - Updated `get_agenda` to present a unified schedule displaying both Google Calendar events and pending Google Tasks.
+- **Server Background Sync & System Context**:
+  - Added periodic background `_gtasks_sync_loop()` in [evelyn_server.py](file:///home/rathius/evelyn/evelyn_server.py) (running every 30 minutes).
+  - Updated `get_upcoming_agenda_prompt_context()` in [evelyn_server.py](file:///home/rathius/evelyn/evelyn_server.py) to inject pending task notifications into the system prompt.
+- **Database Schema Migration**:
+  - Registered migration `000.005.008` (`create_tasks_table`) in [Evelyn/tools/db_migrator.py](file:///home/rathius/evelyn/Evelyn/tools/db_migrator.py) creating the `tasks` SQLite cache table in `evelyn_chat.db`.
+
+---
+
 ## [000.005.007] - 2026-08-23 — *Graceful Service Shutdown Lifecycle & UPS Integration*
 
 ### Added
