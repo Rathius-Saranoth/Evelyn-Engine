@@ -818,11 +818,15 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
                     aliases.append(stem_clean)
                     pinned_sources[src] = aliases
 
-            # Check which pinned docs' aliases appear in the query
+            # Check which pinned docs' aliases appear in the query (using word boundaries)
             for src, aliases in pinned_sources.items():
                 if src in seen_sources:
                     continue
-                matched = any(alias in query_lower for alias in aliases if alias)
+                matched = any(
+                    bool(re.search(rf"\b{re.escape(alias)}\b", query_lower))
+                    for alias in aliases
+                    if alias
+                )
                 if not matched:
                     continue
 
@@ -843,7 +847,10 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
                     })
                 seen_sources.add(src)
                 if cfg.DEBUG_LOGGING:
-                    matched_alias = next((a for a in aliases if a and a in query_lower), "?")
+                    matched_alias = next(
+                        (a for a in aliases if a and re.search(rf"\b{re.escape(a)}\b", query_lower)),
+                        "?"
+                    )
                     chunks_injected = min(len(docs), max_chunks)
                     print(
                         f"[RAG] PINNED src={os.path.basename(src)}"
@@ -971,19 +978,31 @@ def log_rag_retrieval(
         return None
 
 
-def get_recent_rag_telemetry(limit: int = 50, offset: int = 0) -> list[dict]:
+def get_recent_rag_telemetry(limit: int = 50, offset: int = 0, days: float | None = None) -> list[dict]:
     """Retrieve recent RAG retrieval events from rag_retrieval_log."""
     con = _get_queue_db()
     try:
         cur = con.cursor()
-        rows = cur.execute(
-            """SELECT id, message_id, query, search_query, total_retrieved,
-                      total_kept, total_pinned, chunks_json, created_at
-               FROM rag_retrieval_log
-               ORDER BY id DESC
-               LIMIT ? OFFSET ?""",
-            (limit, offset),
-        ).fetchall()
+        if days is not None and days > 0:
+            cutoff = time.time() - (days * 86400.0)
+            rows = cur.execute(
+                """SELECT id, message_id, query, search_query, total_retrieved,
+                          total_kept, total_pinned, chunks_json, created_at
+                   FROM rag_retrieval_log
+                   WHERE created_at >= ?
+                   ORDER BY id DESC
+                   LIMIT ? OFFSET ?""",
+                (cutoff, limit, offset),
+            ).fetchall()
+        else:
+            rows = cur.execute(
+                """SELECT id, message_id, query, search_query, total_retrieved,
+                          total_kept, total_pinned, chunks_json, created_at
+                   FROM rag_retrieval_log
+                   ORDER BY id DESC
+                   LIMIT ? OFFSET ?""",
+                (limit, offset),
+            ).fetchall()
         results = []
         for r in rows:
             d = dict(r)

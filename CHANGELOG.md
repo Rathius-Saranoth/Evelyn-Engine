@@ -13,6 +13,34 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.015] - 2026-08-26 — *Pinned Alias Word Boundaries & Client-Side Chunk Highlighting*
+
+### Fixed & Enhanced
+- **Word-Boundary Matching on Pinned Aliases (`chroma_rag.py`)**:
+  - Replaced naive substring matching with regex word boundaries (`\b`) when scanning query text for pinned vault note aliases.
+  - Eliminated false positives where common words (e.g. `"same"`, `"sample"`) inadvertently triggered pinned notes for aliases like `"Sam"`.
+- **Client-Side Chunk Highlighting & De-Emphasis (`dev.html`)**:
+  - Implemented zero-database-overhead chunk extraction in `dev.html` (`splitDocumentIntoChunks` and `formatChunkHighlightInDoc`).
+  - When expanding a retrieved chunk, the viewer highlights the exact section injected into the LLM prompt with a luminous accent border while smoothly de-emphasizing non-referenced surrounding document sections.
+  - Added automated unit test coverage in `Evelyn/tests/test_feedback_and_rag_telemetry.py`.
+
+---
+
+## [000.005.014] - 2026-08-26 — *Analytics & Feedback Filter Controls with 1-Day Default Windowing*
+
+### Added & Enhanced
+- **Analytics & Feedback Filter Controls (`dev.html`)**:
+  - Implemented independent **Time Range Quick Pickers** (`1 Day`, `1 Week`, `1 Month`, `All Time`) with active pill highlights.
+  - Implemented independent **Type Filter** selector (`All Analytics Types`, `Conversational Feedback`, `RAG Context Retrieval Log`) allowing targeted visibility without resetting time range.
+  - Added a **Reset Filters** button returning state to the optimized 1-day all-types view.
+  - Set default view on tab switch to **1 Day** (`days=1`), drastically cutting initial payload sizes and preventing unnecessary full-history database scans on load.
+- **Server-Side Time Windowing (`evelyn_server.py` & `chroma_rag.py`)**:
+  - Enhanced `GET /telemetry/feedback` and `GET /telemetry/rag` to accept an optional `days: float` query parameter.
+  - Filtered feedback counts (`total_rated`, `upvotes`, `downvotes`, `satisfaction_rate`) and recent records dynamically based on `created_at >= cutoff`.
+  - Added test coverage in `Evelyn/tests/test_feedback_and_rag_telemetry.py` for time-range windowing and API responses.
+
+---
+
 ## [000.005.013] - 2026-08-25 — *Consolidator Scan Continuity & Fast Exact Deduplication*
 
 ### Fixed & Enhanced
