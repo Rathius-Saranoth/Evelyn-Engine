@@ -13,6 +13,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.016] - 2026-08-26 — *Chat UI Stream Lifecycle & Reconciler Consolidation*
+
+### Fixed & Enhanced
+- **Consolidated Chat Streaming Architecture (`index.html`)**:
+  - Implemented unified `setupAssistantStreamContext()` and `executeChatStream()` across message sends, message edits, and response regenerations.
+  - Replaced legacy `recoverFromConnectionDrop()` and blind 2-minute `startResponsePoll()` timers with an authoritative, coordinated `reconcileStreamFailure()` routine.
+  - Eliminated race conditions between visibility recovery and background fetch promises when reconnecting active streams or pulling missed history.
+  - Synchronized `initApp()` startup sequence to smoothly catch up on in-flight stream sessions without UI jitter or duplicate message bubbles.
+
+---
+
 ## [000.005.015] - 2026-08-26 — *Pinned Alias Word Boundaries & Client-Side Chunk Highlighting*
 
 ### Fixed & Enhanced
