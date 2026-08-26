@@ -292,6 +292,7 @@
     <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
     <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
+    <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Telemetry & Feedback</button>
   </div>
 
   
@@ -324,6 +325,9 @@
         <button class="btn btn-reject" onclick="closeGuidanceModal()">Cancel</button>
         <button class="btn btn-action" id="guidance-finalize-btn" style="max-width: 250px;">Finalize & Queue Task</button>
       </div>
+    </div>
+  </div>
+
   <!-- Modal for Context Entry Splitting -->
   <div class="modal" id="split-modal">
     <div class="modal-content" style="max-width: 850px; max-height: 90vh; display: flex; flex-direction: column;">
@@ -353,6 +357,46 @@
         <button class="btn btn-reject" onclick="closeSplitModal()">Cancel</button>
         <button class="btn btn-edit" onclick="reDecomposeSplit()">Re-Analyze with LLM</button>
         <button class="btn btn-approve" id="btn-apply-split" onclick="applySplitModal()">Apply Split</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Feedback Comment Editing -->
+  <div class="modal" id="feedback-comment-modal">
+    <div class="modal-content" style="max-width: 650px; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <span class="modal-title" id="fb-comment-modal-title">💬 Feedback Explanation & Comment</span>
+        <button class="close-btn" onclick="closeFeedbackCommentModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div id="fb-comment-msg-preview" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 13px; color: var(--text-dim); max-height: 80px; overflow-y: auto; white-space: pre-wrap;"></div>
+        <label style="font-size: 13px; font-weight: 600; color: #fff;">Explanation / Context Note:</label>
+        <textarea id="fb-comment-textarea" placeholder="Explain why you rated this message (e.g. what was accurate, what was missing, or how to improve)..." style="width: 100%; min-height: 120px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: #fff; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; box-sizing: border-box;"></textarea>
+      </div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-reject" onclick="closeFeedbackCommentModal()">Cancel</button>
+        <button class="btn btn-action" onclick="saveFeedbackCommentModal()">💾 Save Comment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Vault Note Editing -->
+  <div class="modal" id="vault-note-modal">
+    <div class="modal-content" style="max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <span class="modal-title" id="vault-note-modal-title">✏️ Edit Vault Note</span>
+        <button class="close-btn" onclick="closeVaultNoteModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-dim);">
+          <div>Source Path: <code id="vault-note-path-display" style="color: var(--accent); font-weight: 600;"></code></div>
+          <div style="font-size: 11px;">Changes will be saved to vault and re-indexed into vector memory</div>
+        </div>
+        <textarea id="vault-note-textarea" style="width: 100%; flex: 1; min-height: 380px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: #fff; padding: 14px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; resize: none; box-sizing: border-box;"></textarea>
+      </div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-reject" onclick="closeVaultNoteModal()">Cancel</button>
+        <button class="btn btn-approve" id="btn-save-vault-note" onclick="saveVaultNoteModal()">💾 Save & Re-index Note</button>
       </div>
     </div>
   </div>
@@ -1079,11 +1123,17 @@
       document.getElementById('tab-research').classList.toggle('active', currentTab === 'research');
       const ingestTabBtn = document.getElementById('tab-ingest');
       if (ingestTabBtn) ingestTabBtn.classList.toggle('active', currentTab === 'ingest');
+      const telemetryTabBtn = document.getElementById('tab-telemetry');
+      if (telemetryTabBtn) telemetryTabBtn.classList.toggle('active', currentTab === 'telemetry');
       
       const title = document.getElementById('header-title');
       if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
       else if (currentTab === 'research') title.textContent = 'Deep Research Dashboard';
       else if (currentTab === 'ingest') title.textContent = 'Document Ingestion & Staging';
+      else if (currentTab === 'telemetry') {
+        title.textContent = 'Telemetry & Conversational Feedback';
+        loadTelemetryData();
+      }
 
       render();
     }
@@ -2849,6 +2899,8 @@
         }
       } else if (currentTab === 'ingest') {
         container.innerHTML = renderIngestionDashboard();
+      } else if (currentTab === 'telemetry') {
+        renderTelemetryDashboard();
       }
     }
 
@@ -3062,12 +3114,400 @@
       `;
     }
 
+    let telemetryRagData = [];
+    let telemetryFeedbackData = null;
+    let isLoadingTelemetry = false;
+
+    async function loadTelemetryData() {
+      isLoadingTelemetry = true;
+      if (currentTab === 'telemetry') render();
+      try {
+        const [ragRes, fbRes] = await Promise.all([
+          fetch(`${API_BASE}/telemetry/rag?limit=50`, { headers: headers() }),
+          fetch(`${API_BASE}/telemetry/feedback?limit=50`, { headers: headers() }),
+        ]);
+        if (ragRes.ok) {
+          const d = await ragRes.json();
+          telemetryRagData = d.events || [];
+        }
+        if (fbRes.ok) {
+          telemetryFeedbackData = await fbRes.json();
+        }
+      } catch (err) {
+        console.error('Failed to load telemetry:', err);
+      } finally {
+        isLoadingTelemetry = false;
+        if (currentTab === 'telemetry') render();
+      }
+    }
+
+    function escapeJs(str) {
+      if (!str) return '';
+      return String(str).replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    }
+
+    let activeFeedbackMsgId = null;
+    let activeFeedbackRating = 1;
+    let activeVaultNotePath = null;
+
+    function openFeedbackCommentModal(msgId, currentComment, rating) {
+      activeFeedbackMsgId = msgId;
+      activeFeedbackRating = rating || 1;
+      document.getElementById('fb-comment-modal-title').textContent = `💬 Feedback Comment (Msg #${msgId})`;
+      document.getElementById('fb-comment-textarea').value = currentComment || '';
+      
+      const card = (telemetryFeedbackData?.recent_ratings || []).find(r => r.message_id === msgId);
+      const previewEl = document.getElementById('fb-comment-msg-preview');
+      if (card && card.content) {
+        previewEl.style.display = 'block';
+        previewEl.textContent = `Response: "${card.content.slice(0, 180)}..."`;
+      } else {
+        previewEl.style.display = 'none';
+      }
+
+      document.getElementById('feedback-comment-modal').style.display = 'flex';
+      setTimeout(() => document.getElementById('fb-comment-textarea').focus(), 100);
+    }
+
+    function closeFeedbackCommentModal() {
+      document.getElementById('feedback-comment-modal').style.display = 'none';
+      activeFeedbackMsgId = null;
+    }
+
+    async function saveFeedbackCommentModal() {
+      if (!activeFeedbackMsgId) return;
+      const comment = document.getElementById('fb-comment-textarea').value.trim();
+      try {
+        const res = await fetch(`${API_BASE}/chat/feedback`, {
+          method: 'POST',
+          headers: { ...headers(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message_id: activeFeedbackMsgId, rating: activeFeedbackRating, feedback: comment })
+        });
+        if (res.ok) {
+          closeFeedbackCommentModal();
+          loadTelemetryData();
+        } else {
+          alert('Failed to save feedback comment.');
+        }
+      } catch (err) {
+        console.error('Error saving feedback comment:', err);
+        alert('Error connecting to server.');
+      }
+    }
+
+    async function openVaultNoteEditor(sourcePath) {
+      if (!sourcePath || sourcePath.startsWith('procedure::')) {
+        alert('This entry is a system procedure, not a vault note or context fact.');
+        return;
+      }
+      activeVaultNotePath = sourcePath;
+      const isContextFact = sourcePath.startsWith('sqlite::context_entry::') || sourcePath.startsWith('sqlite::fact::');
+      const titleLabel = isContextFact ? `✏️ Edit Context Fact #${sourcePath.split('::').pop()}` : `✏️ Edit Vault Note — ${sourcePath}`;
+      document.getElementById('vault-note-modal-title').textContent = titleLabel;
+      document.getElementById('vault-note-path-display').textContent = isContextFact ? `Memory DB -> ${sourcePath}` : `Vault -> ${sourcePath}`;
+      const ta = document.getElementById('vault-note-textarea');
+      ta.value = 'Loading content...';
+      ta.disabled = true;
+      document.getElementById('vault-note-modal').style.display = 'flex';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/vault/note?path=${encodeURIComponent(sourcePath)}`, { headers: headers() });
+        if (res.ok) {
+          const data = await res.json();
+          ta.value = data.content || '';
+          ta.disabled = false;
+          ta.focus();
+        } else {
+          ta.value = `# Error loading entry: ${res.statusText} (${res.status})\nSource: ${sourcePath}`;
+          ta.disabled = true;
+        }
+      } catch (err) {
+        console.error('Error loading entry:', err);
+        ta.value = `# Network Error loading entry: ${err.message}`;
+        ta.disabled = true;
+      }
+    }
+
+    function closeVaultNoteModal() {
+      document.getElementById('vault-note-modal').style.display = 'none';
+      activeVaultNotePath = null;
+    }
+
+    async function saveVaultNoteModal() {
+      if (!activeVaultNotePath) return;
+      const btn = document.getElementById('btn-save-vault-note');
+      const content = document.getElementById('vault-note-textarea').value;
+      btn.disabled = true;
+      btn.textContent = 'Saving & Re-indexing...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/vault/note`, {
+          method: 'POST',
+          headers: { ...headers(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: activeVaultNotePath, content: content })
+        });
+        if (res.ok) {
+          btn.textContent = '✅ Saved!';
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '💾 Save & Re-index Note';
+            closeVaultNoteModal();
+            loadTelemetryData();
+          }, 800);
+        } else {
+          alert('Failed to save entry.');
+          btn.disabled = false;
+          btn.textContent = '💾 Save & Re-index Note';
+        }
+      } catch (err) {
+        console.error('Error saving entry:', err);
+        alert('Network error saving entry.');
+        btn.disabled = false;
+        btn.textContent = '💾 Save & Re-index Note';
+      }
+    }
+
+    function toggleFeedbackExpand(id) {
+      const prevEl = document.getElementById(`fb-prev-${id}`);
+      const fullEl = document.getElementById(`fb-full-${id}`);
+      const btn = document.getElementById(`fb-btn-${id}`);
+      if (!prevEl || !fullEl || !btn) return;
+      const isExpanded = fullEl.style.display !== 'none';
+      if (isExpanded) {
+        fullEl.style.display = 'none';
+        prevEl.style.display = 'block';
+        btn.textContent = '📖 Expand Full Response';
+      } else {
+        fullEl.style.display = 'block';
+        prevEl.style.display = 'none';
+        btn.textContent = '🔼 Collapse Response';
+      }
+    }
+
+    async function toggleChunkExpand(chunkKey, sourcePath) {
+      const prevEl = document.getElementById(`chunk-prev-${chunkKey}`);
+      const fullEl = document.getElementById(`chunk-full-${chunkKey}`);
+      const btn = document.getElementById(`chunk-btn-${chunkKey}`);
+      if (!prevEl || !fullEl || !btn) return;
+      const isExpanded = fullEl.style.display !== 'none';
+      if (isExpanded) {
+        fullEl.style.display = 'none';
+        prevEl.style.display = 'block';
+        btn.textContent = '↕️ Expand Full Chunk';
+      } else {
+        fullEl.style.display = 'block';
+        prevEl.style.display = 'none';
+        btn.textContent = '🔼 Collapse Chunk';
+
+        if (fullEl.getAttribute('data-loaded') !== 'true' && sourcePath && !sourcePath.startsWith('procedure::')) {
+          fullEl.textContent = 'Loading live content from source...';
+          try {
+            const res = await fetch(`${API_BASE}/api/vault/note?path=${encodeURIComponent(sourcePath)}`, { headers: headers() });
+            if (res.ok) {
+              const data = await res.json();
+              fullEl.textContent = data.content || prevEl.textContent;
+              fullEl.setAttribute('data-loaded', 'true');
+            } else {
+              fullEl.textContent = prevEl.textContent;
+            }
+          } catch (err) {
+            console.error('Error fetching live content:', err);
+            fullEl.textContent = prevEl.textContent;
+          }
+        }
+      }
+    }
+
+    function renderTelemetryDashboard() {
+      const container = document.getElementById('container');
+      if (isLoadingTelemetry && !telemetryFeedbackData && telemetryRagData.length === 0) {
+        container.innerHTML = '<div class="empty-state">Loading telemetry and feedback...</div>';
+        return;
+      }
+
+      const fb = telemetryFeedbackData || { total_rated: 0, upvotes: 0, downvotes: 0, satisfaction_rate: null, recent_ratings: [] };
+      const satRate = fb.satisfaction_rate !== null ? `${fb.satisfaction_rate}%` : 'N/A';
+
+      const fbSummaryHtml = `
+        <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <h2 style="font-size: 16px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
+              <span>💬 Conversational Feedback</span>
+            </h2>
+            <button class="btn btn-action" onclick="loadTelemetryData()" style="padding: 6px 12px; font-size: 13px;">🔄 Refresh Telemetry</button>
+          </div>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px;">
+            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Total Rated</div>
+              <div style="font-size: 22px; font-weight: 700; color: #fff; margin-top: 4px;">${fb.total_rated}</div>
+            </div>
+            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Upvotes 👍</div>
+              <div style="font-size: 22px; font-weight: 700; color: var(--success); margin-top: 4px;">${fb.upvotes}</div>
+            </div>
+            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Downvotes 👎</div>
+              <div style="font-size: 22px; font-weight: 700; color: var(--danger); margin-top: 4px;">${fb.downvotes}</div>
+            </div>
+            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Satisfaction</div>
+              <div style="font-size: 22px; font-weight: 700; color: var(--accent); margin-top: 4px;">${satRate}</div>
+            </div>
+          </div>
+
+          ${fb.recent_ratings && fb.recent_ratings.length > 0 ? `
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-dim); margin-bottom: 8px;">Recent Rated Responses (${fb.recent_ratings.length})</div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              ${fb.recent_ratings.map(r => {
+                const hasComment = Boolean(r.feedback && r.feedback.trim());
+                return `
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="badge" style="background: ${r.rating > 0 ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)'}; color: ${r.rating > 0 ? 'var(--success)' : 'var(--danger)'};">
+                          ${r.rating > 0 ? '👍 Upvoted (+1)' : '👎 Downvoted (-1)'}
+                        </span>
+                        ${r.think_effort ? `
+                          <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px;">
+                            🧠 ${r.think_effort} (${r.think_source || 'default'})
+                          </span>
+                        ` : ''}
+                      </div>
+                      <span style="color: var(--text-dim); font-size: 11px;">${new Date(r.created_at * 1000).toLocaleString()} (Msg #${r.message_id})</span>
+                    </div>
+
+                    <!-- Message text preview vs expanded -->
+                    <div id="fb-prev-${r.id}" style="color: var(--text); font-size: 13px; line-height: 1.5; max-height: 56px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(r.content || '')}</div>
+                    <div id="fb-full-${r.id}" style="display: none; color: var(--text); font-size: 13px; line-height: 1.5; white-space: pre-wrap; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; max-height: 350px; overflow-y: auto;">${escapeHtml(r.content || '')}</div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px;">
+                      <button class="btn btn-sm" id="fb-btn-${r.id}" onclick="toggleFeedbackExpand(${r.id})" style="padding: 3px 8px; font-size: 11px; background: none; border: 1px solid var(--border); color: var(--accent);">📖 Expand Full Response</button>
+                      <button class="btn btn-sm" onclick="openFeedbackCommentModal(${r.message_id}, \`${escapeJs(r.feedback || '')}\`, ${r.rating})" style="padding: 3px 10px; font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: #fff;">
+                        ${hasComment ? '✏️ Edit Comment' : '💬 Add Comment'}
+                      </button>
+                    </div>
+
+                    <!-- Comment Note Display -->
+                    ${hasComment ? `
+                      <div style="background: rgba(124, 106, 247, 0.1); border-left: 3px solid var(--accent); border-radius: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.4; color: #fff;">
+                        <strong style="color: #c084fc;">💬 User Explanation:</strong> ${escapeHtml(r.feedback)}
+                      </div>
+                    ` : ''}
+
+                    <!-- Thinking Trace Accordion if present -->
+                    ${r.thinking ? `
+                      <details style="margin-top: 4px; font-size: 12px;">
+                        <summary style="cursor: pointer; color: var(--text-dim); font-weight: 500;">
+                          🧠 View Thinking Trace (${r.thinking.length} chars)
+                        </summary>
+                        <div style="margin-top: 6px; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.4; color: var(--text-dim); white-space: pre-wrap; max-height: 250px; overflow-y: auto;">${escapeHtml(r.thinking)}</div>
+                      </details>
+                    ` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          ` : '<div style="color: var(--text-dim); font-size: 13px; font-style: italic;">No feedback recorded yet. Rate responses in the Chat UI to see metrics here.</div>'}
+        </div>
+      `;
+
+      const ragHtml = `
+        <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;">
+          <h2 style="font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+            <span>🔍 RAG Context Retrieval Log (${telemetryRagData.length} events)</span>
+          </h2>
+          <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;">
+            Real-time interceptor logs tracking query reformulations, similarity distances, kept vs dropped thresholds, and source notes injected into context.
+          </p>
+
+          ${telemetryRagData.length > 0 ? `
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              ${telemetryRagData.map(evt => {
+                const tsStr = evt.created_at ? new Date(evt.created_at * 1000).toLocaleString() : '';
+                return `
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
+                      <div style="font-weight: 600; color: #fff; font-size: 14px;">
+                        "${escapeHtml(evt.query)}"
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc;">Kept: ${evt.total_kept}</span>
+                        ${evt.total_pinned > 0 ? `<span class="badge" style="background: rgba(251, 191, 36, 0.15); color: #fbbf24;">Pinned: ${evt.total_pinned}</span>` : ''}
+                        <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-dim);">Retrieved: ${evt.total_retrieved}</span>
+                        <span style="color: var(--text-dim); font-size: 11px; margin-left: 4px;">${tsStr}</span>
+                      </div>
+                    </div>
+
+                    ${evt.search_query && evt.search_query !== evt.query ? `
+                      <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">
+                        <strong>Reformulated Query:</strong> <code>${escapeHtml(evt.search_query)}</code>
+                      </div>
+                    ` : ''}
+
+                    <details style="margin-top: 8px; font-size: 12px;">
+                      <summary style="cursor: pointer; color: var(--accent); font-weight: 500;">
+                        Inspect Retrieved Chunks (${(evt.chunks || []).length})
+                      </summary>
+                      <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+                        ${(evt.chunks || []).map((c, cIdx) => {
+                          const chunkKey = `${evt.id}-${cIdx}`;
+                          const statusBg = c.status === 'kept' ? 'rgba(52, 211, 153, 0.15)' : (c.status === 'pinned' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(248, 113, 113, 0.1)');
+                          const statusColor = c.status === 'kept' ? 'var(--success)' : (c.status === 'pinned' ? '#fbbf24' : 'var(--text-dim)');
+                          const isEditable = c.source && !c.source.startsWith('procedure::');
+                          const fullContent = c.content || c.preview || '';
+
+                          return `
+                            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;">
+                              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+                                <div style="font-weight: 500; color: #fff; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                  <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 10px; text-transform: uppercase;">${c.status}</span>
+                                  <code style="color: #c084fc;">${escapeHtml(c.source)}</code>
+                                  <span style="color: var(--text-dim); font-size: 11px;">[chunk ${c.chunk}/${c.total_chunks}]</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                  <div style="color: var(--text-dim); font-size: 11px;">
+                                    Dist: <strong style="color: ${c.distance <= 0.4 ? 'var(--success)' : 'var(--text-dim)'};">${c.distance}</strong> | Pri: ${c.priority}
+                                  </div>
+                                  ${isEditable ? `
+                                    <button class="btn btn-sm" onclick="openVaultNoteEditor(\`${escapeJs(c.source)}\`)" style="padding: 2px 8px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent);">
+                                      ✏️ Edit Note
+                                    </button>
+                                  ` : ''}
+                                </div>
+                              </div>
+
+                              <!-- Chunk preview vs expanded -->
+                              <div id="chunk-prev-${chunkKey}" style="color: var(--text-dim); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.18); padding: 6px 8px; border-radius: 4px; line-height: 1.4; max-height: 48px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(c.preview || fullContent.slice(0, 150))}</div>
+                              <div id="chunk-full-${chunkKey}" style="display: none; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; max-height: 350px; overflow-y: auto;">${escapeHtml(fullContent)}</div>
+
+                              <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}', \`${escapeJs(c.source)}\`)" style="padding: 2px 6px; font-size: 10px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim);">
+                                ↕️ Expand Full Chunk
+                              </button>
+                            </div>
+                          `;
+                        }).join('')}
+                      </div>
+                    </details>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          ` : '<div style="color: var(--text-dim); font-size: 13px; font-style: italic;">No RAG retrieval events logged yet. Ask questions in the Chat UI to see retrieval telemetry.</div>'}
+        </div>
+      `;
+
+      container.innerHTML = fbSummaryHtml + ragHtml;
+    }
+
     // Close modals on Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeModal();
         if (typeof closeGuidanceModal === 'function') closeGuidanceModal();
         if (typeof closeSplitModal === 'function') closeSplitModal();
+        if (typeof closeFeedbackCommentModal === 'function') closeFeedbackCommentModal();
+        if (typeof closeVaultNoteModal === 'function') closeVaultNoteModal();
       }
     });
 

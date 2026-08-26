@@ -444,6 +444,36 @@
       .btn-tts:hover {
         color: var(--accent);
       }
+      .btn-feedback {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-dim);
+        font-size: 14px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        transition: all 0.15s ease;
+        opacity: 0.7;
+      }
+      .btn-feedback:hover {
+        opacity: 1;
+        transform: scale(1.15);
+      }
+      .btn-feedback.upvote:hover,
+      .btn-feedback.upvote.active {
+        color: var(--success, #34d399);
+        opacity: 1;
+      }
+      .btn-feedback.downvote:hover,
+      .btn-feedback.downvote.active {
+        color: var(--danger, #f87171);
+        opacity: 1;
+      }
+      .btn-feedback.comment:hover,
+      .btn-feedback.comment.active {
+        color: var(--accent, #7c6af7);
+        opacity: 1;
+      }
       .btn-regen,
       .btn-edit {
         background: none;
@@ -1866,6 +1896,82 @@
         }
       }
 
+      function createMessageActions(msgId, contentText, feedbackObj) {
+        const actions = document.createElement("div");
+        actions.className = "msg-actions";
+
+        // TTS Button
+        const ttsBtn = document.createElement("button");
+        ttsBtn.className = "btn-tts";
+        ttsBtn.textContent = "🔊";
+        ttsBtn.title = "Play TTS";
+        ttsBtn.onclick = () => playTTS(contentText, ttsBtn);
+        actions.appendChild(ttsBtn);
+
+        // Feedback Buttons (only if we have a valid message ID)
+        if (msgId) {
+          const upBtn = document.createElement("button");
+          upBtn.className = "btn-feedback upvote";
+          upBtn.innerHTML = "👍";
+          upBtn.title = "Good response";
+
+          const downBtn = document.createElement("button");
+          downBtn.className = "btn-feedback downvote";
+          downBtn.innerHTML = "👎";
+          downBtn.title = "Poor response";
+
+          const commentBtn = document.createElement("button");
+          commentBtn.className = "btn-feedback comment";
+          commentBtn.innerHTML = "💬";
+          commentBtn.title = "Add explanation / comment";
+
+          let currentRating = feedbackObj ? feedbackObj.rating : 0;
+          let currentComment = feedbackObj ? (feedbackObj.feedback || "") : "";
+
+          if (currentRating > 0) upBtn.classList.add("active");
+          if (currentRating < 0) downBtn.classList.add("active");
+          if (currentComment) commentBtn.classList.add("active");
+
+          const sendFeedback = async (newRating, newFeedback) => {
+            if (newRating !== undefined) {
+              currentRating = (currentRating === newRating) ? 0 : newRating;
+            }
+            if (newFeedback !== undefined) {
+              currentComment = newFeedback;
+            }
+
+            upBtn.classList.toggle("active", currentRating > 0);
+            downBtn.classList.toggle("active", currentRating < 0);
+            commentBtn.classList.toggle("active", Boolean(currentComment));
+
+            try {
+              await fetch(`${API_BASE}/chat/feedback`, {
+                method: "POST",
+                headers: { ...headers(), "Content-Type": "application/json" },
+                body: JSON.stringify({ message_id: msgId, rating: currentRating, feedback: currentComment })
+              });
+            } catch (err) {
+              console.error("Failed to send feedback:", err);
+            }
+          };
+
+          upBtn.onclick = () => sendFeedback(1);
+          downBtn.onclick = () => sendFeedback(-1);
+          commentBtn.onclick = async () => {
+            const userNote = prompt("Feedback comment / explanation for this response:", currentComment);
+            if (userNote !== null) {
+              await sendFeedback(currentRating || 1, userNote.trim());
+            }
+          };
+
+          actions.appendChild(upBtn);
+          actions.appendChild(downBtn);
+          actions.appendChild(commentBtn);
+        }
+
+        return { actions, ttsBtn };
+      }
+
       // ---------------------------------------------------------------------------
       // Write-tool tracking — tools that create/edit files
       // ---------------------------------------------------------------------------
@@ -2408,18 +2514,10 @@
           if (currentStream.bubble) currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
 
           if (currentStream.wrap) {
-            const actions = document.createElement("div");
-            actions.className = "msg-actions";
-            const ttsBtn = document.createElement("button");
-            ttsBtn.className = "btn-tts";
-            ttsBtn.textContent = "🔊";
-            ttsBtn.title = "Play TTS";
-            const captured = currentStream.contentText;
-            ttsBtn.onclick = () => playTTS(captured, ttsBtn);
-            actions.appendChild(ttsBtn);
+            const { actions, ttsBtn } = createMessageActions(evt.message_id || null, currentStream.contentText, null);
             currentStream.wrap.appendChild(actions);
             addWriteBadges(currentStream.wrap, currentStream.usedTools, currentStream.contentText);
-            if (_autoSpeech) playTTS(captured, ttsBtn);
+            if (_autoSpeech) playTTS(currentStream.contentText, ttsBtn);
           }
 
           if (currentStream.userMsgDiv) {
@@ -3249,14 +3347,7 @@
           b.className = "bubble";
           b.innerHTML = renderMarkdown(m.content);
           wrap.appendChild(b);
-          const actions = document.createElement("div");
-          actions.className = "msg-actions";
-          const ttsBtn = document.createElement("button");
-          ttsBtn.className = "btn-tts";
-          ttsBtn.textContent = "🔊";
-          const captured = m.content;
-          ttsBtn.onclick = () => playTTS(captured, ttsBtn);
-          actions.appendChild(ttsBtn);
+          const { actions } = createMessageActions(m.id, m.content, m.feedback);
           wrap.appendChild(actions);
           if (m.tools_used) {
             addWriteBadges(wrap, m.tools_used.split(","), m.content);

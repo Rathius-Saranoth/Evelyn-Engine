@@ -75,10 +75,10 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Zero-Overhead Vault Reorganization**: Content-hash (SHA-256) tracking and atomic SQLite/Chroma path remapping on note moves and renames to eliminate redundant GPU embedding passes.
 - [x] **Automated PDF Staging Pipeline & DevUI Ingestion**: Dual staging queues (`Attachments/Staging/Full_Extraction/`, `Attachments/Staging/Sidecar_Only/`) supervised by Task Manager with DevUI upload card and automated domain routing.
 - [x] **Multi-Node Distributed Expansion**: Distributed inference and service workloads across dedicated infrastructure (dual CPU host allocation and dedicated remote FLUX.1 image generation host for maximum GPU throughput).
+- [x] **Conversational Feedback & Adaptive Preference Tuning**: Interactive response rating (upvote/downvote) feedback loop with dynamic persona weight adjustments.
+- [x] **RAG & Context Telemetry Logging**: Interceptor logging persistent retrieval events (source notes, similarity scores, taxonomy tags) to measure knowledge utilization and retrieval frequency across conversations.
 
-- [ ] **Conversational Feedback & Adaptive Preference Tuning**: Interactive response rating (upvote/downvote) feedback loop with dynamic persona weight adjustments.
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
-- [ ] **RAG & Context Telemetry Logging**: Interceptor logging persistent retrieval events (source notes, similarity scores, taxonomy tags) to measure knowledge utilization and retrieval frequency across conversations.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard**: Comprehensive metrics dashboard to track engine usage, prompt sentiment/volume, evaluation regressions, RAG/vault knowledge utilization, research outcomes, VAD telemetry, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.

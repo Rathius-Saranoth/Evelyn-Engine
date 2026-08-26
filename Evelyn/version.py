@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.009"
-VERSION_NAME = "Obsidian Vault List & Checklist Management System"
+__version__ = "000.005.013"
+VERSION_NAME = "Consolidator Scan Continuity & Fast Exact Deduplication"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

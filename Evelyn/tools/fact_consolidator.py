@@ -41,10 +41,9 @@ import yaml
 
 import evelyn_config as cfg # [[evelyn_config.py]]
 from Evelyn.tools.tag_librarian import normalize_tag_format
-
-# Import full module so we can read fact_extractor._extracting for mutual exclusion.
-import fact_extractor # [[fact_extractor.py]]
-from fact_extractor import load_cat00_index
+from Evelyn.tools import fact_extractor
+from Evelyn.tools.fact_extractor import load_cat00_index
+from Evelyn.tools import memory_db, chroma_rag
 
 
 
@@ -291,39 +290,39 @@ def remediate_database_categories() -> None:
     Ensures that any existing invalid category strings (e.g. Ca16, cad09) are
     corrected in place in context_entries and proposals.
     """
-    import memory_db
+    from Evelyn.tools import memory_db
     try:
         con = memory_db.get_db()
-        
-        # 1. Remediate context_entries
-        rows = con.execute("SELECT id, category, subject FROM context_entries").fetchall()
+
+        # 1. Remediate context_entries (only inspect non-standard category strings)
+        rows = con.execute("SELECT id, category, subject FROM context_entries WHERE category NOT GLOB 'Cat[0-9][0-9]-[ERUA]'").fetchall()
         corrected_entries = 0
         for row in rows:
             entry_id = row["id"]
             cat = row["category"]
             subject = row["subject"]
-            
+
             normalized = validate_and_normalize_category(cat, subject)
             if normalized and normalized != cat:
                 con.execute(
                     "UPDATE context_entries SET category = ?, recategorized_at = ? WHERE id = ?",
-                    (normalized, time.time(), entry_id)
+                    (normalized, time.time(), entry_id),
                 )
                 corrected_entries += 1
                 print(f"[REMEDIATION] Corrected context entry {entry_id} category: '{cat}' -> '{normalized}'", flush=True)
-                
-        # 2. Remediate proposals (excluding profile updates which store target filenames in suggested_category)
-        rows = con.execute("SELECT id, suggested_category FROM proposals WHERE suggested_category IS NOT NULL AND type != 'profile_update'").fetchall()
+
+        # 2. Remediate proposals (excluding profile updates and standard category strings)
+        rows = con.execute("SELECT id, suggested_category FROM proposals WHERE suggested_category IS NOT NULL AND type != 'profile_update' AND suggested_category NOT GLOB 'Cat[0-9][0-9]-[ERUA]'").fetchall()
         corrected_proposals = 0
         for row in rows:
             prop_id = row["id"]
             cat = row["suggested_category"]
-            
+
             normalized = validate_and_normalize_category(cat)
             if normalized and normalized != cat:
                 con.execute(
                     "UPDATE proposals SET suggested_category = ? WHERE id = ?",
-                    (normalized, prop_id)
+                    (normalized, prop_id),
                 )
                 corrected_proposals += 1
                 print(f"[REMEDIATION] Corrected proposal {prop_id} suggested_category: '{cat}' -> '{normalized}'", flush=True)
@@ -555,7 +554,7 @@ def scan_context_entries() -> list[dict]:
     Returns:
         list[dict]: A list of FactRecord dictionaries, sorted chronologically.
     """
-    import memory_db
+    from Evelyn.tools import memory_db
     import datetime
 
     # Get live entries (and optionally extracted ones if configured)
@@ -758,17 +757,13 @@ def _get_anchor_batch(
 
     state = _category_scan_state.get(category, {"anchor": 0, "offset": 0, "n": n})
 
-    # Reset if the number of entries changed (extractor wrote new files).
+    # Clamp anchor if the number of entries changed instead of resetting to index 0
     if state.get("n", n) != n:
-        print(
-            f"[CONSOLIDATOR] {category}: entry count changed "
-            f"({state.get('n')} → {n}) — resetting scan state.",
-            flush=True,
-        )
-        state = {"anchor": 0, "offset": 0, "n": n}
+        anchor_idx = (state.get("anchor", 0) % n) if n > 0 else 0
+        state = {"anchor": anchor_idx, "offset": 0, "n": n}
         _category_scan_state[category] = state
 
-    anchor_idx = state["anchor"] % n
+    anchor_idx = state["anchor"] % n if n > 0 else 0
     offset = state["offset"]
 
     anchor_record = records[anchor_idx]
@@ -1485,7 +1480,7 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
     if len(valid_entries) < 2:
         return None
 
-    import memory_db
+    from Evelyn.tools import memory_db
     constructed_yaml = yaml.dump({"entries": valid_entries}, default_flow_style=False, width=10000)
 
 
@@ -1513,7 +1508,7 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     Returns:
         Proposal ID string, or None on write failure.
     """
-    import memory_db
+    from Evelyn.tools import memory_db
     
     category = cluster["category"]
     topic = cluster["topic"]
@@ -1602,7 +1597,7 @@ def _write_recategorization_proposal(
     Returns:
         str | None: The proposal database ID string, or None if it fails.
     """
-    import memory_db
+    from Evelyn.tools import memory_db
 
     record = recat_item["record"]
     suggested = recat_item["suggested_category"]
@@ -1625,6 +1620,78 @@ def _write_recategorization_proposal(
     except Exception as e:
         print(f"[CONSOLIDATOR] Failed to auto-apply recategorization: {e}", flush=True)
         return None
+
+
+def fast_deduplicate_exact_matches() -> int:
+    """Detect and automatically collapse exact / whitespace-normalized duplicate context entries.
+
+    Returns:
+        int: Number of redundant duplicate entries removed.
+    """
+    from Evelyn.tools import memory_db
+    from Evelyn.tools import chroma_rag
+
+    deleted_ids: list[int] = []
+    con = memory_db.get_db()
+    try:
+        cur = con.cursor()
+        rows = cur.execute(
+            "SELECT id, category, subject, observation, date, tags, observed_count, created_at FROM context_entries WHERE status = 'live' ORDER BY id ASC"
+        ).fetchall()
+
+        seen: dict[tuple[str, str, str], dict] = {}
+
+        for row in rows:
+            r = dict(row)
+            clean_obs = re.sub(r"\s+", " ", r["observation"].strip().lower()).rstrip(".").strip()
+            key = (r["category"], r["subject"], clean_obs)
+
+            if key not in seen:
+                seen[key] = r
+            else:
+                primary = seen[key]
+                dup_id = r["id"]
+                primary_id = primary["id"]
+
+                # Merge metadata into primary
+                merged_count = (primary.get("observed_count") or 1) + (r.get("observed_count") or 1)
+
+                # Union tags
+                t1 = {t.strip() for t in (primary.get("tags") or "").split(",") if t.strip()}
+                t2 = {t.strip() for t in (r.get("tags") or "").split(",") if t.strip()}
+                merged_tags = ", ".join(sorted(t1 | t2)) if (t1 | t2) else None
+
+                best_date = primary.get("date") or r.get("date")
+
+                cur.execute(
+                    "UPDATE context_entries SET observed_count = ?, tags = ?, date = ?, updated_at = ? WHERE id = ?",
+                    (merged_count, merged_tags, best_date, time.time(), primary_id),
+                )
+
+                cur.execute("DELETE FROM context_entries WHERE id = ?", (dup_id,))
+                deleted_ids.append(dup_id)
+                print(f"[CONSOLIDATOR] Fast deduplication merged duplicate #{dup_id} into primary #{primary_id}", flush=True)
+
+        con.commit()
+    except Exception as e:
+        print(f"[CONSOLIDATOR] Fast deduplication error (non-fatal): {e}", flush=True)
+        return 0
+    finally:
+        con.close()
+
+    # Enqueue chroma deletions after closing memory DB connection
+    for dup_id in deleted_ids:
+        try:
+            chroma_rag.enqueue_delete(
+                source_path=f"sqlite::context_entry::{dup_id}",
+                collection_name=cfg.CHROMA_MEMORY_COLLECTION,
+            )
+        except Exception:
+            pass
+
+    if deleted_ids:
+        print(f"[CONSOLIDATOR] Fast deduplication removed {len(deleted_ids)} exact duplicate entry/ies.", flush=True)
+    return len(deleted_ids)
 
 
 # ============================================================================
@@ -1663,7 +1730,7 @@ def _backup_memory_db() -> None:
 async def _do_consolidation():
     """Execute the core consolidation pipeline steps sequentially."""
     importlib.reload(cfg)
-    import memory_db
+    from Evelyn.tools import memory_db
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)
     start = time.time()
 

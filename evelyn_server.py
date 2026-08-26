@@ -907,6 +907,61 @@ def save_message_metrics(message_id: int, metrics: dict):
     con.close()
 
 
+def save_or_update_feedback(message_id: int, rating: int, feedback: str | None = None) -> dict:
+    """Save or update user feedback (+1 / -1 / 0) for a message.
+
+    If rating == 0, removes feedback for that message.
+    """
+    con = get_db()
+    try:
+        now = time.time()
+        if rating == 0:
+            con.execute("DELETE FROM message_feedback WHERE message_id = ?", (message_id,))
+            con.commit()
+            return {"message_id": message_id, "rating": 0, "feedback": None}
+
+        cur = con.cursor()
+        cur.execute("SELECT id FROM message_feedback WHERE message_id = ?", (message_id,))
+        row = cur.fetchone()
+        if row:
+            con.execute(
+                "UPDATE message_feedback SET rating = ?, feedback = ?, updated_at = ? WHERE message_id = ?",
+                (rating, feedback, now, message_id),
+            )
+        else:
+            con.execute(
+                "INSERT INTO message_feedback (message_id, rating, feedback, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (message_id, rating, feedback, now, now),
+            )
+        con.commit()
+        return {"message_id": message_id, "rating": rating, "feedback": feedback}
+    finally:
+        con.close()
+
+
+def get_feedback_for_messages(message_ids: list[int]) -> dict[int, dict]:
+    """Retrieve feedback dicts keyed by message_id for a batch of messages."""
+    if not message_ids:
+        return {}
+    con = get_db()
+    try:
+        placeholders = ",".join("?" for _ in message_ids)
+        rows = con.execute(
+            f"SELECT message_id, rating, feedback, created_at FROM message_feedback WHERE message_id IN ({placeholders})",
+            message_ids,
+        ).fetchall()
+        return {
+            r["message_id"]: {
+                "rating": r["rating"],
+                "feedback": r["feedback"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        }
+    finally:
+        con.close()
+
+
 def clear_history():
     """Delete all rows from the messages table (full conversation reset)."""
     con = get_db()
@@ -1311,6 +1366,13 @@ class StopChatRequest(BaseModel):
     stream_id: str | None = None
 
 
+class FeedbackRequest(BaseModel):
+    """Pydantic model representing user rating feedback on an assistant message."""
+    message_id: int
+    rating: int  # 1 for upvote, -1 for downvote, 0 for clear
+    feedback: str | None = None
+
+
 
 async def _process_chat_background(
     user_message: str,
@@ -1392,7 +1454,7 @@ async def _process_chat_background(
         await put("status", msg="Processing...")
 
         # RAG + system prompt + history (fast synchronous work)
-        rag_context = await asyncio.to_thread(build_rag_context, user_message)
+        rag_context = await asyncio.to_thread(build_rag_context, user_message, assistant_row_id)
         system = load_system_prompt()
         if rag_context:
             system += f"\n\n{rag_context}"
@@ -1664,7 +1726,7 @@ async def _process_chat_background(
             dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
 
             # Signal SSE pipe to close cleanly
-            session.push_chunk(f"data: {json.dumps({'type': 'done'})}\n\n")
+            session.push_chunk(f"data: {json.dumps({'type': 'done', 'message_id': assistant_row_id})}\n\n")
             session.mark_complete()
 
 def pause_all_active_research():
@@ -2789,7 +2851,8 @@ async def get_history(
     if before:
         rows = con.execute(
             """
-            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count, mm.eval_count
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts,
+                   mm.prompt_eval_count, mm.eval_count, mm.think_effort, mm.think_source
             FROM messages m
             LEFT JOIN message_metrics mm ON m.id = mm.message_id
             WHERE m.id < ? AND m.content != ''
@@ -2800,7 +2863,8 @@ async def get_history(
     else:
         rows = con.execute(
             """
-            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts, mm.prompt_eval_count, mm.eval_count
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts,
+                   mm.prompt_eval_count, mm.eval_count, mm.think_effort, mm.think_source
             FROM messages m
             LEFT JOIN message_metrics mm ON m.id = mm.message_id
             WHERE m.content != ''
@@ -2813,15 +2877,139 @@ async def get_history(
     rows = list(reversed(rows))
     
     from Evelyn.tools import media_db
+    msg_ids = [r["id"] for r in rows]
+    feedback_map = get_feedback_for_messages(msg_ids)
     messages_out = []
     for r in rows:
         d = dict(r)
+        d["feedback"] = feedback_map.get(d["id"])
         try:
             d["attachments"] = media_db.get_media_for_message(d["id"])
         except Exception:
             d["attachments"] = []
         messages_out.append(d)
     return messages_out
+
+
+@app.post("/chat/feedback")
+async def post_chat_feedback(req: FeedbackRequest, _: None = Depends(check_auth)):
+    """Save or update user upvote/downvote rating on a message."""
+    result = save_or_update_feedback(req.message_id, req.rating, req.feedback)
+    return {"status": "ok", "feedback": result}
+
+
+@app.get("/chat/feedback/{message_id}")
+async def get_chat_feedback(message_id: int, _: None = Depends(check_auth)):
+    """Get user feedback for a specific message."""
+    feedbacks = get_feedback_for_messages([message_id])
+    return {"message_id": message_id, "feedback": feedbacks.get(message_id)}
+
+
+@app.get("/telemetry/rag")
+async def get_rag_telemetry(
+    limit: int = 50,
+    offset: int = 0,
+    _: None = Depends(check_auth)
+):
+    """Get recent RAG retrieval events with similarity scores and source paths."""
+    from Evelyn.tools.chroma_rag import get_recent_rag_telemetry
+    events = await asyncio.to_thread(get_recent_rag_telemetry, limit, offset)
+    return {"status": "ok", "count": len(events), "events": events}
+
+
+@app.get("/telemetry/feedback")
+async def get_feedback_telemetry(limit: int = 50, _: None = Depends(check_auth)):
+    """Get aggregate feedback metrics and recent rated messages."""
+    con = get_db()
+    try:
+        cur = con.cursor()
+        total_rated = cur.execute("SELECT COUNT(*) FROM message_feedback").fetchone()[0]
+        upvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating > 0").fetchone()[0]
+        downvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating < 0").fetchone()[0]
+
+        recent_rows = cur.execute(
+            """
+            SELECT mf.id, mf.message_id, mf.rating, mf.feedback, mf.created_at, mf.updated_at,
+                   m.content, m.thinking, m.ts, m.tools_used,
+                   mm.think_effort, mm.think_source
+            FROM message_feedback mf
+            JOIN messages m ON mf.message_id = m.id
+            LEFT JOIN message_metrics mm ON mf.message_id = mm.message_id
+            ORDER BY mf.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        satisfaction_pct = round((upvotes / total_rated * 100), 1) if total_rated > 0 else None
+
+        return {
+            "status": "ok",
+            "total_rated": total_rated,
+            "upvotes": upvotes,
+            "downvotes": downvotes,
+            "satisfaction_rate": satisfaction_pct,
+            "recent_ratings": [dict(r) for r in recent_rows],
+        }
+    finally:
+        con.close()
+
+
+@app.get("/telemetry/thinking")
+async def get_thinking_telemetry(limit: int = 50, _: None = Depends(check_auth)):
+    """Get thinking effort metrics, distribution breakdown, and recent resolution records."""
+    con = get_db()
+    try:
+        cur = con.cursor()
+        total_tracked = cur.execute(
+            "SELECT COUNT(*) FROM message_metrics WHERE think_effort IS NOT NULL"
+        ).fetchone()[0]
+
+        effort_counts = dict(
+            cur.execute(
+                """
+                SELECT think_effort, COUNT(*)
+                FROM message_metrics
+                WHERE think_effort IS NOT NULL
+                GROUP BY think_effort
+                """
+            ).fetchall()
+        )
+
+        source_counts = dict(
+            cur.execute(
+                """
+                SELECT think_source, COUNT(*)
+                FROM message_metrics
+                WHERE think_source IS NOT NULL
+                GROUP BY think_source
+                """
+            ).fetchall()
+        )
+
+        recent_records = cur.execute(
+            """
+            SELECT mm.id, mm.message_id, mm.think_effort, mm.think_source,
+                   mm.prompt_eval_count, mm.eval_count, mm.eval_duration, mm.total_duration,
+                   m.role, m.content, m.ts, m.tools_used
+            FROM message_metrics mm
+            JOIN messages m ON mm.message_id = m.id
+            WHERE mm.think_effort IS NOT NULL
+            ORDER BY mm.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        return {
+            "status": "ok",
+            "total_tracked": total_tracked,
+            "effort_breakdown": effort_counts,
+            "source_breakdown": source_counts,
+            "recent_records": [dict(r) for r in recent_records],
+        }
+    finally:
+        con.close()
 
 
 @app.delete("/history")
@@ -4793,6 +4981,119 @@ async def upload_document_staging(
         "domain_name": domain_name or "General",
         "staging_file": str(target_path),
     }
+
+
+# ---------------------------------------------------------------------------
+# Vault Note Reading & Editing Endpoints
+# ---------------------------------------------------------------------------
+
+class VaultNoteUpdateRequest(BaseModel):
+    path: str
+    content: str
+
+
+@app.get("/api/vault/note")
+async def get_vault_note(path: str, _: None = Depends(check_auth)):
+    """Read markdown content of a note within the Obsidian Vault or an SQLite context entry."""
+    clean_path = path.replace("\\", "/").lstrip("/")
+
+    # Handle SQLite Context Fact Entries (e.g. sqlite::context_entry::2650)
+    if clean_path.startswith("sqlite::context_entry::") or clean_path.startswith("sqlite::fact::"):
+        try:
+            entry_id = int(clean_path.split("::")[-1])
+            from Evelyn.tools import memory_db
+            entry = memory_db.get_entry(entry_id)
+            if not entry:
+                raise HTTPException(status_code=404, detail=f"Context entry #{entry_id} not found in memory database")
+            
+            lines = [
+                f"Date: {entry.get('date') or 'N/A'}",
+                f"Category: {entry.get('category') or 'N/A'}",
+                f"Subject: {entry.get('subject') or 'N/A'}",
+                f"Tags: {entry.get('tags') or 'None'}",
+                f"Confidence: {entry.get('confidence') or 'medium'}",
+                f"Status: {entry.get('status') or 'live'}",
+                "",
+                "Observation:",
+                entry.get('observation') or '',
+            ]
+            return {
+                "status": "ok",
+                "path": clean_path,
+                "content": "\n".join(lines),
+                "is_context_entry": True,
+                "entry": entry
+            }
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid context entry ID")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, clean_path))
+    vault_base = os.path.abspath(cfg.VAULT_BASE_DIR)
+    if not (full_path == vault_base or full_path.startswith(vault_base + os.sep)):
+        raise HTTPException(status_code=403, detail="Path outside vault boundaries")
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="Vault note not found")
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"status": "ok", "path": clean_path, "content": content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/vault/note")
+async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check_auth)):
+    """Update markdown content of a note in the Obsidian Vault or an SQLite context entry, and queue vector re-indexing."""
+    clean_path = req.path.replace("\\", "/").lstrip("/")
+
+    # Handle SQLite Context Fact Entries
+    if clean_path.startswith("sqlite::context_entry::") or clean_path.startswith("sqlite::fact::"):
+        try:
+            entry_id = int(clean_path.split("::")[-1])
+            from Evelyn.tools import memory_db, chroma_rag
+            raw_content = req.content.strip()
+            obs = raw_content
+            if "Observation:\n" in raw_content:
+                obs = raw_content.split("Observation:\n", 1)[1].strip()
+            elif "Observation:" in raw_content:
+                obs = raw_content.split("Observation:", 1)[1].strip()
+
+            success = memory_db.update_entry(entry_id, observation=obs)
+            if not success:
+                raise HTTPException(status_code=404, detail=f"Context entry #{entry_id} could not be updated")
+            
+            # Enqueue Chroma vector re-indexing
+            chroma_rag.enqueue_upsert(source_path=clean_path, collection_name=cfg.CHROMA_MEMORY_COLLECTION, content=obs)
+            return {"status": "ok", "path": clean_path}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid context entry ID")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, clean_path))
+    vault_base = os.path.abspath(cfg.VAULT_BASE_DIR)
+    if not (full_path == vault_base or full_path.startswith(vault_base + os.sep)):
+        raise HTTPException(status_code=403, detail="Path outside vault boundaries")
+    try:
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(req.content)
+        # Update SQLite vault database
+        from Evelyn.tools import vault_db, chroma_rag
+        mtime = os.path.getmtime(full_path)
+        title = os.path.splitext(os.path.basename(clean_path))[0]
+        vault_db.upsert_document(path=clean_path, title=title, mtime=mtime)
+        # Enqueue Chroma vector re-indexing
+        chroma_rag.enqueue_upsert(source_path=clean_path, collection_name=cfg.CHROMA_MEMORY_COLLECTION, content=req.content)
+        return {"status": "ok", "path": clean_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

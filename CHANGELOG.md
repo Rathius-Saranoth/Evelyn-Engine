@@ -13,6 +13,73 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.013] - 2026-08-25 — *Consolidator Scan Continuity & Fast Exact Deduplication*
+
+### Fixed & Enhanced
+- **Consolidator Scan Continuity (`fact_consolidator.py`)**:
+  - Fixed an issue where `_get_anchor_batch` reset the scan anchor pointer to `0` whenever a new fact modified category entry count `len(records)`. The pointer now wraps continuously (`anchor = anchor % n`) across consolidation passes.
+  - Optimized `remediate_database_categories` to use SQL `NOT GLOB` filtering to avoid loading hundreds of thousands of historical proposal records into memory.
+- **Fast Deterministic Deduplication Pre-Pass**:
+  - Implemented `fast_deduplicate_exact_matches()` to detect and collapse exact and whitespace-normalized duplicate context entries into primary records, merging metadata and enqueuing vector deletions.
+- **Targeted Cluster Consolidation**:
+  - Merged 8 fragmented, redundant *Dungeon Crawler Carl* context facts in `Cat05-U` (IDs 2310, 2313, 2391, 2407, 2548, 2563, 2565, 2650) into a single, unified evolved entry (`#3972`), recorded proposal `#176816`, and updated Chroma vector embeddings.
+
+---
+
+## [000.005.012] - 2026-08-25 — *Interactive Feedback Comments & Vault Note Editor in DevUI*
+
+### Added
+- **Vault Note Reader & Editor API (`evelyn_server.py`)**:
+  - Added `GET /api/vault/note` to retrieve full markdown content of any note within vault boundaries with path traversal protection.
+  - Added `POST /api/vault/note` to write note edits directly to disk, update `vault_db`, and enqueue custodial re-indexing into `chroma_sync_queue`.
+- **RAG Telemetry Content & Expandable Chunks**:
+  - Captured full chunk content in `chroma_rag.py` retrieval logs (`rag_retrieval_log`).
+  - Added expandable full chunk viewing and inline `✏️ Edit Note` buttons in `dev.html` telemetry inspector.
+  - Added dedicated Vault Note Editor Modal in `dev.html` with in-browser editing and re-indexing.
+- **Feedback Comments & Expandable Responses (`dev.html` & `index.html`)**:
+  - Added `💬 Add/Edit Comment` action to `index.html` chat message actions.
+  - Added expandable full response and thinking trace toggles to feedback cards in `dev.html`.
+  - Added Feedback Explanation & Comment modal in `dev.html` for reviewing and amending ratings.
+- **Automated Tests**:
+  - Added `test_vault_note_endpoints` in [Evelyn/tests/test_feedback_and_rag_telemetry.py](file:///home/rathius/evelyn/Evelyn/tests/test_feedback_and_rag_telemetry.py).
+
+---
+
+## [000.005.011] - 2026-08-25 — *Thinking Level Telemetry & Metrics Exposure*
+
+### Added
+- **Thinking Effort & Source Exposure in Telemetry APIs (`evelyn_server.py`)**:
+  - Added `GET /telemetry/thinking` endpoint providing aggregate counts of resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `self_elected`, `tool_escalation`, `ui_override`), and recent message thinking audit logs.
+  - Linked `think_effort` and `think_source` from `message_metrics` into `GET /history` and `GET /telemetry/feedback` payloads for review.
+- **Automated Tests**:
+  - Expanded [Evelyn/tests/test_feedback_and_rag_telemetry.py](file:///home/rathius/evelyn/Evelyn/tests/test_feedback_and_rag_telemetry.py) to assert thinking level telemetry collection and endpoint accuracy.
+
+---
+
+## [000.005.010] - 2026-08-25 — *Conversational Feedback & RAG Telemetry Logging System*
+
+### Added
+- **Database Schema Migrations (`000.005.010`)**:
+  - Registered migration `000.005.010` in [Evelyn/tools/db_migrator.py](file:///home/rathius/evelyn/Evelyn/tools/db_migrator.py) creating `message_feedback` table in `evelyn_chat.db` (for 👍/👎 user rating and comments per assistant message).
+  - Registered migration `000.005.010` creating `rag_retrieval_log` table in `evelyn_memory.db` (for real-time tracking of vector retrieval events, similarity distances, kept vs dropped threshold status, and source note paths).
+- **RAG Telemetry Logging Interceptor (`chroma_rag.py`)**:
+  - Implemented `log_rag_retrieval()`, `get_recent_rag_telemetry()`, and `link_rag_telemetry_to_message()` in [Evelyn/tools/chroma_rag.py](file:///home/rathius/evelyn/Evelyn/tools/chroma_rag.py).
+  - Wired telemetry logging directly into `build_rag_context()` with fire-and-forget execution and zero added latency.
+- **Server Feedback & Telemetry Endpoints (`evelyn_server.py`)**:
+  - Added `save_or_update_feedback()` and `get_feedback_for_messages()` database helpers.
+  - Added `POST /chat/feedback` (upsert user ratings), `GET /chat/feedback/{message_id}`, `GET /telemetry/rag` (recent retrieval logs), and `GET /telemetry/feedback` (feedback counts and satisfaction ratios).
+  - Hydrated feedback state into `GET /history` messages payload.
+  - Emitted `message_id` inside the final SSE `done` event chunk for immediate UI feedback binding.
+- **Chat UI Feedback Toolbar (`index.html`)**:
+  - Added interactive 👍 / 👎 buttons with toggle animation and active color states inside `.msg-actions` for assistant messages.
+  - Restores saved feedback state upon loading conversation history.
+- **DevUI Telemetry Dashboard (`dev.html`)**:
+  - Added **📊 Telemetry & Feedback** dashboard tab displaying total ratings, upvote/downvote satisfaction rate, recent rated responses, and expandable RAG context retrieval inspection logs.
+- **Automated Tests**:
+  - Added test suite in [Evelyn/tests/test_feedback_and_rag_telemetry.py](file:///home/rathius/evelyn/Evelyn/tests/test_feedback_and_rag_telemetry.py) covering CRUD feedback operations, RAG telemetry logging, and API endpoints.
+
+---
+
 ## [000.005.009] - 2026-08-23 — *Obsidian Vault List & Checklist Management System*
 
 ### Added
