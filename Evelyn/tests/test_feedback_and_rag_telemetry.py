@@ -5,6 +5,7 @@ and server endpoints within an isolated temporary sandbox.
 """
 
 import os
+import re
 import sqlite3
 import tempfile
 import pytest
@@ -160,6 +161,11 @@ def test_rag_telemetry_logging():
     assert logged_event["total_pinned"] == 1
     assert len(logged_event["chunks"]) == 4  # 1 pinned + 2 queried + 1 procedure
 
+    # Test get_recent_rag_telemetry with days filtering
+    recent_1d = get_recent_rag_telemetry(limit=10, days=1.0)
+    assert len(recent_1d) >= 1
+    assert any(e["id"] == log_id for e in recent_1d)
+
     # Test link to message ID
     link_rag_telemetry_to_message(log_id, message_id=999)
     recent_after = get_recent_rag_telemetry(limit=10)
@@ -188,20 +194,22 @@ def test_server_feedback_and_telemetry_endpoints(client):
     get_data = get_resp.json()
     assert get_data["feedback"]["rating"] == 1
 
-    # 4. Get RAG telemetry via API
-    rag_resp = client.get("/telemetry/rag?limit=5")
+    # 4. Get RAG telemetry via API (with and without days)
+    rag_resp = client.get("/telemetry/rag?limit=5&days=1")
     assert rag_resp.status_code == 200
     rag_data = rag_resp.json()
     assert rag_data["status"] == "ok"
     assert isinstance(rag_data["events"], list)
+    assert rag_data["days"] == 1.0
 
-    # 5. Get Feedback telemetry summary via API
-    fb_resp = client.get("/telemetry/feedback")
+    # 5. Get Feedback telemetry summary via API (with and without days)
+    fb_resp = client.get("/telemetry/feedback?days=1")
     assert fb_resp.status_code == 200
     fb_data = fb_resp.json()
     assert fb_data["status"] == "ok"
     assert fb_data["total_rated"] >= 1
     assert fb_data["upvotes"] >= 1
+    assert fb_data["days"] == 1.0
 
     # 6. Save message metrics with thinking effort and verify GET /telemetry/thinking
     from evelyn_server import save_message_metrics
@@ -271,3 +279,25 @@ def test_vault_note_endpoints(client):
 
         finally:
             cfg.VAULT_BASE_DIR = orig_vault
+
+
+def test_pinned_alias_word_boundary_matching():
+    """Verify that pinned alias matching uses word boundaries and avoids substring false positives."""
+    aliases = ["sam", "fox"]
+
+    # "same" should NOT match "sam"
+    q_negative = "it was a stressful day at the same time though"
+    assert not any(bool(re.search(rf"\b{re.escape(a)}\b", q_negative.lower())) for a in aliases)
+
+    # "Sam" as a standalone word SHOULD match
+    q_positive_1 = "Hey Sam, how are you doing today?"
+    assert any(bool(re.search(rf"\b{re.escape(a)}\b", q_positive_1.lower())) for a in aliases)
+
+    # "Sam's" with apostrophe SHOULD match
+    q_positive_2 = "We are heading over to Sam's house later."
+    assert any(bool(re.search(rf"\b{re.escape(a)}\b", q_positive_2.lower())) for a in aliases)
+
+    # "foxes" vs "fox"
+    q_fox_standalone = "Just the two of us and Fox."
+    assert any(bool(re.search(rf"\b{re.escape(a)}\b", q_fox_standalone.lower())) for a in aliases)
+

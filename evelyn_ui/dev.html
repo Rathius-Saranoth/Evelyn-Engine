@@ -292,7 +292,7 @@
     <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
     <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
-    <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Telemetry & Feedback</button>
+    <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
   </div>
 
   
@@ -1131,7 +1131,7 @@
       else if (currentTab === 'research') title.textContent = 'Deep Research Dashboard';
       else if (currentTab === 'ingest') title.textContent = 'Document Ingestion & Staging';
       else if (currentTab === 'telemetry') {
-        title.textContent = 'Telemetry & Conversational Feedback';
+        title.textContent = 'Analytics & Feedback';
         loadTelemetryData();
       }
 
@@ -3117,14 +3117,24 @@
     let telemetryRagData = [];
     let telemetryFeedbackData = null;
     let isLoadingTelemetry = false;
+    let analyticsTimeFilter = '1d'; // '1d' | '7d' | '30d' | 'all'
+    let analyticsTypeFilter = 'all'; // 'all' | 'feedback' | 'rag'
 
-    async function loadTelemetryData() {
+    async function loadTelemetryData(timeFilter = analyticsTimeFilter) {
+      analyticsTimeFilter = timeFilter;
       isLoadingTelemetry = true;
       if (currentTab === 'telemetry') render();
+
+      let daysParam = '';
+      if (analyticsTimeFilter === '1d') daysParam = '&days=1';
+      else if (analyticsTimeFilter === '7d') daysParam = '&days=7';
+      else if (analyticsTimeFilter === '30d') daysParam = '&days=30';
+      // 'all' passes no daysParam to fetch all available records up to limit
+
       try {
         const [ragRes, fbRes] = await Promise.all([
-          fetch(`${API_BASE}/telemetry/rag?limit=50`, { headers: headers() }),
-          fetch(`${API_BASE}/telemetry/feedback?limit=50`, { headers: headers() }),
+          fetch(`${API_BASE}/telemetry/rag?limit=100${daysParam}`, { headers: headers() }),
+          fetch(`${API_BASE}/telemetry/feedback?limit=100${daysParam}`, { headers: headers() }),
         ]);
         if (ragRes.ok) {
           const d = await ragRes.json();
@@ -3137,6 +3147,27 @@
         console.error('Failed to load telemetry:', err);
       } finally {
         isLoadingTelemetry = false;
+        if (currentTab === 'telemetry') render();
+      }
+    }
+
+    function setAnalyticsTimeFilter(filter) {
+      if (analyticsTimeFilter === filter) return;
+      analyticsTimeFilter = filter;
+      loadTelemetryData(filter);
+    }
+
+    function setAnalyticsTypeFilter(type) {
+      analyticsTypeFilter = type;
+      if (currentTab === 'telemetry') render();
+    }
+
+    function resetAnalyticsFilters() {
+      analyticsTypeFilter = 'all';
+      if (analyticsTimeFilter !== '1d') {
+        analyticsTimeFilter = '1d';
+        loadTelemetryData('1d');
+      } else {
         if (currentTab === 'telemetry') render();
       }
     }
@@ -3284,7 +3315,102 @@
       }
     }
 
-    async function toggleChunkExpand(chunkKey, sourcePath) {
+    function splitDocumentIntoChunks(content) {
+      const CHUNK_SIZE = 1600;
+      const CHUNK_OVERLAP = 200;
+      if (!content || content.length <= CHUNK_SIZE) {
+        return [content ? content : "(empty)"];
+      }
+      const chunks = [];
+      const paragraphs = content.split("\n\n");
+      let current = "";
+      for (const para of paragraphs) {
+        const candidate = current ? (current + "\n\n" + para).replace(/^\s+/, '') : para;
+        if (candidate.length <= CHUNK_SIZE) {
+          current = candidate;
+        } else {
+          if (current) chunks.push(current);
+          if (para.length > CHUNK_SIZE) {
+            for (let i = 0; i < para.length; i += (CHUNK_SIZE - CHUNK_OVERLAP)) {
+              const part = para.slice(i, i + CHUNK_SIZE);
+              if (part.trim()) chunks.push(part);
+            }
+            current = "";
+          } else {
+            current = para;
+          }
+        }
+      }
+      if (current) chunks.push(current);
+      return chunks.filter(c => c.trim().length > 0);
+    }
+
+    function formatChunkHighlightInDoc(fullDoc, chunkIdx, totalChunks, previewText) {
+      if (!fullDoc) return '<div style="color:var(--text-dim); font-style:italic;">(No content found)</div>';
+      
+      if (totalChunks <= 1 && fullDoc.length <= 1800) {
+        return `
+          <div style="font-size: 11px; color: var(--accent); margin-bottom: 6px; font-weight: 600;">
+            <span>🎯 Injected Note Content (1 of 1)</span>
+          </div>
+          <div style="background: rgba(124, 106, 247, 0.12); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff;">${escapeHtml(fullDoc)}</div>
+        `;
+      }
+      
+      let chunkStart = -1;
+      let chunkEnd = -1;
+
+      // 1. Try finding the exact preview snippet in fullDoc
+      if (previewText && previewText.length >= 20) {
+        const cleanPreview = previewText.slice(0, 70).trim();
+        const idx = fullDoc.indexOf(cleanPreview);
+        if (idx !== -1) {
+          chunkStart = idx;
+          const chunks = splitDocumentIntoChunks(fullDoc);
+          const expectedLen = (chunks[chunkIdx] || '').length || 1600;
+          chunkEnd = Math.min(fullDoc.length, chunkStart + expectedLen);
+        }
+      }
+
+      // 2. If not located via preview, use chunk index from splitDocumentIntoChunks
+      if (chunkStart === -1) {
+        const chunks = splitDocumentIntoChunks(fullDoc);
+        if (chunks.length > 0) {
+          const target = chunks[Math.min(chunkIdx, chunks.length - 1)];
+          const sample = target.slice(0, 50).trim();
+          const pos = fullDoc.indexOf(sample);
+          if (pos !== -1) {
+            chunkStart = pos;
+            chunkEnd = Math.min(fullDoc.length, chunkStart + target.length);
+          }
+        }
+      }
+
+      if (chunkStart === -1 || chunkEnd <= chunkStart) {
+        return `
+          <div style="font-size: 11px; color: var(--accent); margin-bottom: 6px; font-weight: 600;">
+            <span>🎯 Injected Document Content</span>
+          </div>
+          <div style="background: rgba(124, 106, 247, 0.12); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff;">${escapeHtml(fullDoc)}</div>
+        `;
+      }
+
+      const prefix = fullDoc.slice(0, chunkStart);
+      const targetChunk = fullDoc.slice(chunkStart, chunkEnd);
+      const suffix = fullDoc.slice(chunkEnd);
+
+      return `
+        <div style="font-size: 11px; color: var(--accent); margin-bottom: 8px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+          <span>🎯 Referenced Chunk ${chunkIdx + 1} of ${totalChunks}</span>
+          <span style="color: var(--text-dim); font-size: 10px; font-weight: normal;">(Highlighted section was injected into prompt; other sections de-emphasized)</span>
+        </div>
+        ${prefix ? `<div style="opacity: 0.35; font-size: 11px; margin-bottom: 6px; user-select: text;">${escapeHtml(prefix)}</div>` : ''}
+        <div style="background: rgba(124, 106, 247, 0.15); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff; margin: 6px 0; box-shadow: 0 0 10px rgba(124, 106, 247, 0.08); user-select: text;">${escapeHtml(targetChunk)}</div>
+        ${suffix ? `<div style="opacity: 0.35; font-size: 11px; margin-top: 6px; user-select: text;">${escapeHtml(suffix)}</div>` : ''}
+      `;
+    }
+
+    async function toggleChunkExpand(chunkKey, sourcePath, chunkIdx = 0, totalChunks = 1, previewText = '') {
       const prevEl = document.getElementById(`chunk-prev-${chunkKey}`);
       const fullEl = document.getElementById(`chunk-full-${chunkKey}`);
       const btn = document.getElementById(`chunk-btn-${chunkKey}`);
@@ -3293,19 +3419,20 @@
       if (isExpanded) {
         fullEl.style.display = 'none';
         prevEl.style.display = 'block';
-        btn.textContent = '↕️ Expand Full Chunk';
+        btn.textContent = '↕️ Expand Chunk in Document';
       } else {
         fullEl.style.display = 'block';
         prevEl.style.display = 'none';
         btn.textContent = '🔼 Collapse Chunk';
 
         if (fullEl.getAttribute('data-loaded') !== 'true' && sourcePath && !sourcePath.startsWith('procedure::')) {
-          fullEl.textContent = 'Loading live content from source...';
+          fullEl.innerHTML = '<span style="color:var(--text-dim); font-style:italic;">⏳ Loading and highlighting chunk from source note...</span>';
           try {
             const res = await fetch(`${API_BASE}/api/vault/note?path=${encodeURIComponent(sourcePath)}`, { headers: headers() });
             if (res.ok) {
               const data = await res.json();
-              fullEl.textContent = data.content || prevEl.textContent;
+              const fullDoc = data.content || '';
+              fullEl.innerHTML = formatChunkHighlightInDoc(fullDoc, chunkIdx, totalChunks, previewText);
               fullEl.setAttribute('data-loaded', 'true');
             } else {
               fullEl.textContent = prevEl.textContent;
@@ -3320,184 +3447,247 @@
 
     function renderTelemetryDashboard() {
       const container = document.getElementById('container');
-      if (isLoadingTelemetry && !telemetryFeedbackData && telemetryRagData.length === 0) {
-        container.innerHTML = '<div class="empty-state">Loading telemetry and feedback...</div>';
-        return;
-      }
+      
+      const rangeLabels = {
+        '1d': 'Past 24 Hours (1 Day)',
+        '7d': 'Past 7 Days (1 Week)',
+        '30d': 'Past 30 Days (1 Month)',
+        'all': 'All Available History'
+      };
+      const activeRangeLabel = rangeLabels[analyticsTimeFilter] || 'Past 24 Hours (1 Day)';
+
+      const showFeedback = analyticsTypeFilter === 'all' || analyticsTypeFilter === 'feedback';
+      const showRag = analyticsTypeFilter === 'all' || analyticsTypeFilter === 'rag';
 
       const fb = telemetryFeedbackData || { total_rated: 0, upvotes: 0, downvotes: 0, satisfaction_rate: null, recent_ratings: [] };
       const satRate = fb.satisfaction_rate !== null ? `${fb.satisfaction_rate}%` : 'N/A';
+      const recentRatingsCount = (fb.recent_ratings || []).length;
+      const ragCount = (telemetryRagData || []).length;
 
-      const fbSummaryHtml = `
-        <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-            <h2 style="font-size: 16px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
-              <span>💬 Conversational Feedback</span>
-            </h2>
-            <button class="btn btn-action" onclick="loadTelemetryData()" style="padding: 6px 12px; font-size: 13px;">🔄 Refresh Telemetry</button>
-          </div>
-          
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px;">
-            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
-              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Total Rated</div>
-              <div style="font-size: 22px; font-weight: 700; color: #fff; margin-top: 4px;">${fb.total_rated}</div>
+      // Filter Toolbar
+      const filterToolbarHtml = `
+        <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+            
+            <!-- Type Filter Selector -->
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Type:</span>
+              <select id="analytics-type-select" onchange="setAnalyticsTypeFilter(this.value)" style="background: var(--surface2); border: 1px solid var(--border); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; cursor: pointer;">
+                <option value="all" ${analyticsTypeFilter === 'all' ? 'selected' : ''}>All Analytics Types</option>
+                <option value="feedback" ${analyticsTypeFilter === 'feedback' ? 'selected' : ''}>💬 Conversational Feedback</option>
+                <option value="rag" ${analyticsTypeFilter === 'rag' ? 'selected' : ''}>🔍 RAG Context Retrieval Log</option>
+              </select>
             </div>
-            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
-              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Upvotes 👍</div>
-              <div style="font-size: 22px; font-weight: 700; color: var(--success); margin-top: 4px;">${fb.upvotes}</div>
+
+            <!-- Time Range Quick Pickers -->
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;">Time Range:</span>
+              <div style="display: inline-flex; gap: 4px; background: var(--surface2); padding: 3px; border-radius: 20px; border: 1px solid var(--border);">
+                <button class="filter-pill ${analyticsTimeFilter === '1d' ? 'active' : ''}" onclick="setAnalyticsTimeFilter('1d')" style="padding: 3px 10px; font-size: 12px; border-radius: 16px; border: none;">1 Day</button>
+                <button class="filter-pill ${analyticsTimeFilter === '7d' ? 'active' : ''}" onclick="setAnalyticsTimeFilter('7d')" style="padding: 3px 10px; font-size: 12px; border-radius: 16px; border: none;">1 Week</button>
+                <button class="filter-pill ${analyticsTimeFilter === '30d' ? 'active' : ''}" onclick="setAnalyticsTimeFilter('30d')" style="padding: 3px 10px; font-size: 12px; border-radius: 16px; border: none;">1 Month</button>
+                <button class="filter-pill ${analyticsTimeFilter === 'all' ? 'active' : ''}" onclick="setAnalyticsTimeFilter('all')" style="padding: 3px 10px; font-size: 12px; border-radius: 16px; border: none;">All Time</button>
+              </div>
             </div>
-            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
-              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Downvotes 👎</div>
-              <div style="font-size: 22px; font-weight: 700; color: var(--danger); margin-top: 4px;">${fb.downvotes}</div>
-            </div>
-            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
-              <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Satisfaction</div>
-              <div style="font-size: 22px; font-weight: 700; color: var(--accent); margin-top: 4px;">${satRate}</div>
+
+            <!-- Controls: Reset & Refresh -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="btn btn-sm" onclick="resetAnalyticsFilters()" title="Reset to default 1-day all-types view" style="padding: 6px 12px; font-size: 12px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim);">↺ Reset Filters</button>
+              <button class="btn btn-action" onclick="loadTelemetryData()" style="padding: 6px 12px; font-size: 12px;">🔄 Refresh</button>
             </div>
           </div>
 
-          ${fb.recent_ratings && fb.recent_ratings.length > 0 ? `
-            <div style="font-size: 13px; font-weight: 600; color: var(--text-dim); margin-bottom: 8px;">Recent Rated Responses (${fb.recent_ratings.length})</div>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-              ${fb.recent_ratings.map(r => {
-                const hasComment = Boolean(r.feedback && r.feedback.trim());
-                return `
-                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <span class="badge" style="background: ${r.rating > 0 ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)'}; color: ${r.rating > 0 ? 'var(--success)' : 'var(--danger)'};">
-                          ${r.rating > 0 ? '👍 Upvoted (+1)' : '👎 Downvoted (-1)'}
-                        </span>
-                        ${r.think_effort ? `
-                          <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px;">
-                            🧠 ${r.think_effort} (${r.think_source || 'default'})
+          <div style="margin-top: 10px; font-size: 12px; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+            <span>Filtering for <strong>${escapeHtml(activeRangeLabel)}</strong> — Showing <strong>${recentRatingsCount}</strong> feedback records & <strong>${ragCount}</strong> RAG retrieval events.</span>
+            ${isLoadingTelemetry ? '<span style="color: var(--accent); font-weight: 500;">⏳ Updating telemetry...</span>' : ''}
+          </div>
+        </div>
+      `;
+
+      if (isLoadingTelemetry && !telemetryFeedbackData && telemetryRagData.length === 0) {
+        container.innerHTML = filterToolbarHtml + '<div class="empty-state">Loading telemetry and feedback...</div>';
+        return;
+      }
+
+      let fbSummaryHtml = '';
+      if (showFeedback) {
+        fbSummaryHtml = `
+          <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+              <h2 style="font-size: 16px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
+                <span>💬 Conversational Feedback</span>
+                <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px;">${escapeHtml(activeRangeLabel)}</span>
+              </h2>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px;">
+              <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Total Rated</div>
+                <div style="font-size: 22px; font-weight: 700; color: #fff; margin-top: 4px;">${fb.total_rated}</div>
+              </div>
+              <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Upvotes 👍</div>
+                <div style="font-size: 22px; font-weight: 700; color: var(--success); margin-top: 4px;">${fb.upvotes}</div>
+              </div>
+              <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Downvotes 👎</div>
+                <div style="font-size: 22px; font-weight: 700; color: var(--danger); margin-top: 4px;">${fb.downvotes}</div>
+              </div>
+              <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Satisfaction</div>
+                <div style="font-size: 22px; font-weight: 700; color: var(--accent); margin-top: 4px;">${satRate}</div>
+              </div>
+            </div>
+
+            ${fb.recent_ratings && fb.recent_ratings.length > 0 ? `
+              <div style="font-size: 13px; font-weight: 600; color: var(--text-dim); margin-bottom: 8px;">Recent Rated Responses (${fb.recent_ratings.length})</div>
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                ${fb.recent_ratings.map(r => {
+                  const hasComment = Boolean(r.feedback && r.feedback.trim());
+                  return `
+                    <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span class="badge" style="background: ${r.rating > 0 ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)'}; color: ${r.rating > 0 ? 'var(--success)' : 'var(--danger)'};">
+                            ${r.rating > 0 ? '👍 Upvoted (+1)' : '👎 Downvoted (-1)'}
                           </span>
-                        ` : ''}
+                          ${r.think_effort ? `
+                            <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px;">
+                              🧠 ${r.think_effort} (${r.think_source || 'default'})
+                            </span>
+                          ` : ''}
+                        </div>
+                        <span style="color: var(--text-dim); font-size: 11px;">${new Date(r.created_at * 1000).toLocaleString()} (Msg #${r.message_id})</span>
                       </div>
-                      <span style="color: var(--text-dim); font-size: 11px;">${new Date(r.created_at * 1000).toLocaleString()} (Msg #${r.message_id})</span>
-                    </div>
 
-                    <!-- Message text preview vs expanded -->
-                    <div id="fb-prev-${r.id}" style="color: var(--text); font-size: 13px; line-height: 1.5; max-height: 56px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(r.content || '')}</div>
-                    <div id="fb-full-${r.id}" style="display: none; color: var(--text); font-size: 13px; line-height: 1.5; white-space: pre-wrap; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; max-height: 350px; overflow-y: auto;">${escapeHtml(r.content || '')}</div>
+                      <!-- Message text preview vs expanded -->
+                      <div id="fb-prev-${r.id}" style="color: var(--text); font-size: 13px; line-height: 1.5; max-height: 56px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(r.content || '')}</div>
+                      <div id="fb-full-${r.id}" style="display: none; color: var(--text); font-size: 13px; line-height: 1.5; white-space: pre-wrap; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; max-height: 350px; overflow-y: auto;">${escapeHtml(r.content || '')}</div>
 
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px;">
-                      <button class="btn btn-sm" id="fb-btn-${r.id}" onclick="toggleFeedbackExpand(${r.id})" style="padding: 3px 8px; font-size: 11px; background: none; border: 1px solid var(--border); color: var(--accent);">📖 Expand Full Response</button>
-                      <button class="btn btn-sm" onclick="openFeedbackCommentModal(${r.message_id}, \`${escapeJs(r.feedback || '')}\`, ${r.rating})" style="padding: 3px 10px; font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: #fff;">
-                        ${hasComment ? '✏️ Edit Comment' : '💬 Add Comment'}
-                      </button>
-                    </div>
-
-                    <!-- Comment Note Display -->
-                    ${hasComment ? `
-                      <div style="background: rgba(124, 106, 247, 0.1); border-left: 3px solid var(--accent); border-radius: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.4; color: #fff;">
-                        <strong style="color: #c084fc;">💬 User Explanation:</strong> ${escapeHtml(r.feedback)}
+                      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px;">
+                        <button class="btn btn-sm" id="fb-btn-${r.id}" onclick="toggleFeedbackExpand(${r.id})" style="padding: 3px 8px; font-size: 11px; background: none; border: 1px solid var(--border); color: var(--accent);">📖 Expand Full Response</button>
+                        <button class="btn btn-sm" onclick="openFeedbackCommentModal(${r.message_id}, \`${escapeJs(r.feedback || '')}\`, ${r.rating})" style="padding: 3px 10px; font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: #fff;">
+                          ${hasComment ? '✏️ Edit Comment' : '💬 Add Comment'}
+                        </button>
                       </div>
-                    ` : ''}
 
-                    <!-- Thinking Trace Accordion if present -->
-                    ${r.thinking ? `
-                      <details style="margin-top: 4px; font-size: 12px;">
-                        <summary style="cursor: pointer; color: var(--text-dim); font-weight: 500;">
-                          🧠 View Thinking Trace (${r.thinking.length} chars)
+                      <!-- Comment Note Display -->
+                      ${hasComment ? `
+                        <div style="background: rgba(124, 106, 247, 0.1); border-left: 3px solid var(--accent); border-radius: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.4; color: #fff;">
+                          <strong style="color: #c084fc;">💬 User Explanation:</strong> ${escapeHtml(r.feedback)}
+                        </div>
+                      ` : ''}
+
+                      <!-- Thinking Trace Accordion if present -->
+                      ${r.thinking ? `
+                        <details style="margin-top: 4px; font-size: 12px;">
+                          <summary style="cursor: pointer; color: var(--text-dim); font-weight: 500;">
+                            🧠 View Thinking Trace (${r.thinking.length} chars)
+                          </summary>
+                          <div style="margin-top: 6px; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.4; color: var(--text-dim); white-space: pre-wrap; max-height: 250px; overflow-y: auto;">${escapeHtml(r.thinking)}</div>
+                        </details>
+                      ` : ''}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : `<div style="color: var(--text-dim); font-size: 13px; font-style: italic;">No feedback recorded for ${escapeHtml(activeRangeLabel.toLowerCase())}. Rate responses in the Chat UI to see metrics here.</div>`}
+          </div>
+        `;
+      }
+
+      let ragHtml = '';
+      if (showRag) {
+        ragHtml = `
+          <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <h2 style="font-size: 16px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
+                <span>🔍 RAG Context Retrieval Log (${telemetryRagData.length} events)</span>
+                <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc; font-size: 11px;">${escapeHtml(activeRangeLabel)}</span>
+              </h2>
+            </div>
+            <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;">
+              Real-time interceptor logs tracking query reformulations, similarity distances, kept vs dropped thresholds, and source notes injected into context.
+            </p>
+
+            ${telemetryRagData.length > 0 ? `
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                ${telemetryRagData.map(evt => {
+                  const tsStr = evt.created_at ? new Date(evt.created_at * 1000).toLocaleString() : '';
+                  return `
+                    <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+                      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
+                        <div style="font-weight: 600; color: #fff; font-size: 14px;">
+                          "${escapeHtml(evt.query)}"
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                          <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc;">Kept: ${evt.total_kept}</span>
+                          ${evt.total_pinned > 0 ? `<span class="badge" style="background: rgba(251, 191, 36, 0.15); color: #fbbf24;">Pinned: ${evt.total_pinned}</span>` : ''}
+                          <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-dim);">Retrieved: ${evt.total_retrieved}</span>
+                          <span style="color: var(--text-dim); font-size: 11px; margin-left: 4px;">${tsStr}</span>
+                        </div>
+                      </div>
+
+                      ${evt.search_query && evt.search_query !== evt.query ? `
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">
+                          <strong>Reformulated Query:</strong> <code>${escapeHtml(evt.search_query)}</code>
+                        </div>
+                      ` : ''}
+
+                      <details style="margin-top: 8px; font-size: 12px;">
+                        <summary style="cursor: pointer; color: var(--accent); font-weight: 500;">
+                          Inspect Retrieved Chunks (${(evt.chunks || []).length})
                         </summary>
-                        <div style="margin-top: 6px; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.4; color: var(--text-dim); white-space: pre-wrap; max-height: 250px; overflow-y: auto;">${escapeHtml(r.thinking)}</div>
-                      </details>
-                    ` : ''}
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          ` : '<div style="color: var(--text-dim); font-size: 13px; font-style: italic;">No feedback recorded yet. Rate responses in the Chat UI to see metrics here.</div>'}
-        </div>
-      `;
+                        <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+                          ${(evt.chunks || []).map((c, cIdx) => {
+                            const chunkKey = `${evt.id}-${cIdx}`;
+                            const statusBg = c.status === 'kept' ? 'rgba(52, 211, 153, 0.15)' : (c.status === 'pinned' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(248, 113, 113, 0.1)');
+                            const statusColor = c.status === 'kept' ? 'var(--success)' : (c.status === 'pinned' ? '#fbbf24' : 'var(--text-dim)');
+                            const isEditable = c.source && !c.source.startsWith('procedure::');
+                            const fullContent = c.content || c.preview || '';
 
-      const ragHtml = `
-        <div class="card" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;">
-          <h2 style="font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-            <span>🔍 RAG Context Retrieval Log (${telemetryRagData.length} events)</span>
-          </h2>
-          <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;">
-            Real-time interceptor logs tracking query reformulations, similarity distances, kept vs dropped thresholds, and source notes injected into context.
-          </p>
-
-          ${telemetryRagData.length > 0 ? `
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-              ${telemetryRagData.map(evt => {
-                const tsStr = evt.created_at ? new Date(evt.created_at * 1000).toLocaleString() : '';
-                return `
-                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
-                      <div style="font-weight: 600; color: #fff; font-size: 14px;">
-                        "${escapeHtml(evt.query)}"
-                      </div>
-                      <div style="display: flex; align-items: center; gap: 6px;">
-                        <span class="badge" style="background: rgba(124, 106, 247, 0.15); color: #c084fc;">Kept: ${evt.total_kept}</span>
-                        ${evt.total_pinned > 0 ? `<span class="badge" style="background: rgba(251, 191, 36, 0.15); color: #fbbf24;">Pinned: ${evt.total_pinned}</span>` : ''}
-                        <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-dim);">Retrieved: ${evt.total_retrieved}</span>
-                        <span style="color: var(--text-dim); font-size: 11px; margin-left: 4px;">${tsStr}</span>
-                      </div>
-                    </div>
-
-                    ${evt.search_query && evt.search_query !== evt.query ? `
-                      <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">
-                        <strong>Reformulated Query:</strong> <code>${escapeHtml(evt.search_query)}</code>
-                      </div>
-                    ` : ''}
-
-                    <details style="margin-top: 8px; font-size: 12px;">
-                      <summary style="cursor: pointer; color: var(--accent); font-weight: 500;">
-                        Inspect Retrieved Chunks (${(evt.chunks || []).length})
-                      </summary>
-                      <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
-                        ${(evt.chunks || []).map((c, cIdx) => {
-                          const chunkKey = `${evt.id}-${cIdx}`;
-                          const statusBg = c.status === 'kept' ? 'rgba(52, 211, 153, 0.15)' : (c.status === 'pinned' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(248, 113, 113, 0.1)');
-                          const statusColor = c.status === 'kept' ? 'var(--success)' : (c.status === 'pinned' ? '#fbbf24' : 'var(--text-dim)');
-                          const isEditable = c.source && !c.source.startsWith('procedure::');
-                          const fullContent = c.content || c.preview || '';
-
-                          return `
-                            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;">
-                              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
-                                <div style="font-weight: 500; color: #fff; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                  <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 10px; text-transform: uppercase;">${c.status}</span>
-                                  <code style="color: #c084fc;">${escapeHtml(c.source)}</code>
-                                  <span style="color: var(--text-dim); font-size: 11px;">[chunk ${c.chunk}/${c.total_chunks}]</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                  <div style="color: var(--text-dim); font-size: 11px;">
-                                    Dist: <strong style="color: ${c.distance <= 0.4 ? 'var(--success)' : 'var(--text-dim)'};">${c.distance}</strong> | Pri: ${c.priority}
+                            return `
+                              <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+                                  <div style="font-weight: 500; color: #fff; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                    <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 10px; text-transform: uppercase;">${c.status}</span>
+                                    <code style="color: #c084fc;">${escapeHtml(c.source)}</code>
+                                    <span style="color: var(--text-dim); font-size: 11px;">[chunk ${c.chunk}/${c.total_chunks}]</span>
                                   </div>
-                                  ${isEditable ? `
-                                    <button class="btn btn-sm" onclick="openVaultNoteEditor(\`${escapeJs(c.source)}\`)" style="padding: 2px 8px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent);">
-                                      ✏️ Edit Note
-                                    </button>
-                                  ` : ''}
+                                  <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="color: var(--text-dim); font-size: 11px;">
+                                      Dist: <strong style="color: ${c.distance <= 0.4 ? 'var(--success)' : 'var(--text-dim)'};">${c.distance}</strong> | Pri: ${c.priority}
+                                    </div>
+                                    ${isEditable ? `
+                                      <button class="btn btn-sm" onclick="openVaultNoteEditor(\`${escapeJs(c.source)}\`)" style="padding: 2px 8px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent);">
+                                        ✏️ Edit Note
+                                      </button>
+                                    ` : ''}
+                                  </div>
                                 </div>
+
+                                <!-- Chunk preview vs expanded -->
+                                <div id="chunk-prev-${chunkKey}" style="color: var(--text-dim); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.18); padding: 6px 8px; border-radius: 4px; line-height: 1.4; max-height: 48px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(c.preview || fullContent.slice(0, 150))}</div>
+                                <div id="chunk-full-${chunkKey}" style="display: none; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; max-height: 350px; overflow-y: auto;">${escapeHtml(fullContent)}</div>
+
+                                <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}', \`${escapeJs(c.source)}\`, ${c.chunk || 0}, ${c.total_chunks || 1}, \`${escapeJs(c.preview || '')}\`)" style="padding: 2px 6px; font-size: 10px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim);">
+                                  ↕️ Expand Chunk in Document
+                                </button>
                               </div>
+                            `;
+                          }).join('')}
+                        </div>
+                      </details>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : `<div style="color: var(--text-dim); font-size: 13px; font-style: italic;">No RAG retrieval events logged for ${escapeHtml(activeRangeLabel.toLowerCase())}. Ask questions in the Chat UI to see retrieval telemetry.</div>`}
+          </div>
+        `;
+      }
 
-                              <!-- Chunk preview vs expanded -->
-                              <div id="chunk-prev-${chunkKey}" style="color: var(--text-dim); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.18); padding: 6px 8px; border-radius: 4px; line-height: 1.4; max-height: 48px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(c.preview || fullContent.slice(0, 150))}</div>
-                              <div id="chunk-full-${chunkKey}" style="display: none; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; max-height: 350px; overflow-y: auto;">${escapeHtml(fullContent)}</div>
-
-                              <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}', \`${escapeJs(c.source)}\`)" style="padding: 2px 6px; font-size: 10px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim);">
-                                ↕️ Expand Full Chunk
-                              </button>
-                            </div>
-                          `;
-                        }).join('')}
-                      </div>
-                    </details>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          ` : '<div style="color: var(--text-dim); font-size: 13px; font-style: italic;">No RAG retrieval events logged yet. Ask questions in the Chat UI to see retrieval telemetry.</div>'}
-        </div>
-      `;
-
-      container.innerHTML = fbSummaryHtml + ragHtml;
+      container.innerHTML = filterToolbarHtml + fbSummaryHtml + ragHtml;
     }
 
     // Close modals on Escape

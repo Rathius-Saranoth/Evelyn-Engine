@@ -290,7 +290,8 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `GET /telemetry/feedback`
 * **Purpose**: Fetches aggregate user feedback statistics (positive count, negative count, positive percentage) and detailed feedback review logs joined dynamically with message text and metrics.
-* **Returns**: `{"summary": {"total_ratings": N, "thumbs_up": N, "thumbs_down": N, "positive_pct": 100.0}, "reviews": [...]}`
+* **Query Parameters**: `limit` (int, default 50), `days` (float, optional time window cutoff e.g. `1` for past 24 hours).
+* **Returns**: `{"status": "ok", "total_rated": N, "upvotes": N, "downvotes": N, "satisfaction_rate": 100.0, "recent_ratings": [...], "days": 1.0}`
 
 ### `POST /telemetry/feedback`
 * **Purpose**: Records or updates a user rating (`1` for 👍, `-1` for 👎) and an optional textual explanation comment for a specific message.
@@ -299,7 +300,8 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `GET /telemetry/rag`
 * **Purpose**: Returns recent RAG retrieval audit events from `rag_retrieval_log` in `evelyn_memory.db` with chunk metadata pointers, query reformulations, similarity distances, and retrieval summaries.
-* **Returns**: `{"events": [...]}`
+* **Query Parameters**: `limit` (int, default 50), `offset` (int, default 0), `days` (float, optional time window cutoff e.g. `1` for past 24 hours).
+* **Returns**: `{"status": "ok", "count": N, "events": [...], "days": 1.0}`
 
 ### `GET /telemetry/thinking`
 * **Purpose**: Returns aggregate statistics on resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `self_elected`, `tool_escalation`, `ui_override`), and recent message audit traces.

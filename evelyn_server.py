@@ -2909,37 +2909,63 @@ async def get_chat_feedback(message_id: int, _: None = Depends(check_auth)):
 async def get_rag_telemetry(
     limit: int = 50,
     offset: int = 0,
+    days: float | None = None,
     _: None = Depends(check_auth)
 ):
     """Get recent RAG retrieval events with similarity scores and source paths."""
     from Evelyn.tools.chroma_rag import get_recent_rag_telemetry
-    events = await asyncio.to_thread(get_recent_rag_telemetry, limit, offset)
-    return {"status": "ok", "count": len(events), "events": events}
+    events = await asyncio.to_thread(get_recent_rag_telemetry, limit, offset, days)
+    return {"status": "ok", "count": len(events), "events": events, "days": days}
 
 
 @app.get("/telemetry/feedback")
-async def get_feedback_telemetry(limit: int = 50, _: None = Depends(check_auth)):
+async def get_feedback_telemetry(
+    limit: int = 50,
+    days: float | None = None,
+    _: None = Depends(check_auth)
+):
     """Get aggregate feedback metrics and recent rated messages."""
     con = get_db()
     try:
         cur = con.cursor()
-        total_rated = cur.execute("SELECT COUNT(*) FROM message_feedback").fetchone()[0]
-        upvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating > 0").fetchone()[0]
-        downvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating < 0").fetchone()[0]
+        if days is not None and days > 0:
+            cutoff = time.time() - (days * 86400.0)
+            total_rated = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE created_at >= ?", (cutoff,)).fetchone()[0]
+            upvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating > 0 AND created_at >= ?", (cutoff,)).fetchone()[0]
+            downvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating < 0 AND created_at >= ?", (cutoff,)).fetchone()[0]
 
-        recent_rows = cur.execute(
-            """
-            SELECT mf.id, mf.message_id, mf.rating, mf.feedback, mf.created_at, mf.updated_at,
-                   m.content, m.thinking, m.ts, m.tools_used,
-                   mm.think_effort, mm.think_source
-            FROM message_feedback mf
-            JOIN messages m ON mf.message_id = m.id
-            LEFT JOIN message_metrics mm ON mf.message_id = mm.message_id
-            ORDER BY mf.id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+            recent_rows = cur.execute(
+                """
+                SELECT mf.id, mf.message_id, mf.rating, mf.feedback, mf.created_at, mf.updated_at,
+                       m.content, m.thinking, m.ts, m.tools_used,
+                       mm.think_effort, mm.think_source
+                FROM message_feedback mf
+                JOIN messages m ON mf.message_id = m.id
+                LEFT JOIN message_metrics mm ON mf.message_id = mm.message_id
+                WHERE mf.created_at >= ?
+                ORDER BY mf.id DESC
+                LIMIT ?
+                """,
+                (cutoff, limit),
+            ).fetchall()
+        else:
+            total_rated = cur.execute("SELECT COUNT(*) FROM message_feedback").fetchone()[0]
+            upvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating > 0").fetchone()[0]
+            downvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating < 0").fetchone()[0]
+
+            recent_rows = cur.execute(
+                """
+                SELECT mf.id, mf.message_id, mf.rating, mf.feedback, mf.created_at, mf.updated_at,
+                       m.content, m.thinking, m.ts, m.tools_used,
+                       mm.think_effort, mm.think_source
+                FROM message_feedback mf
+                JOIN messages m ON mf.message_id = m.id
+                LEFT JOIN message_metrics mm ON mf.message_id = mm.message_id
+                ORDER BY mf.id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
 
         satisfaction_pct = round((upvotes / total_rated * 100), 1) if total_rated > 0 else None
 
@@ -2950,6 +2976,7 @@ async def get_feedback_telemetry(limit: int = 50, _: None = Depends(check_auth))
             "downvotes": downvotes,
             "satisfaction_rate": satisfaction_pct,
             "recent_ratings": [dict(r) for r in recent_rows],
+            "days": days,
         }
     finally:
         con.close()

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.013"
-VERSION_NAME = "Consolidator Scan Continuity & Fast Exact Deduplication"
+__version__ = "000.005.015"
+VERSION_NAME = "Pinned Alias Word Boundaries & Client-Side Chunk Highlighting"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
