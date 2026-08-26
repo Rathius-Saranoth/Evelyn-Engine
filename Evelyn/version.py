@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.015"
-VERSION_NAME = "Pinned Alias Word Boundaries & Client-Side Chunk Highlighting"
+__version__ = "000.005.016"
+VERSION_NAME = "Chat UI Stream Lifecycle & Reconciler Consolidation"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

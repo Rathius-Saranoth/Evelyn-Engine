@@ -56,6 +56,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, and Oura Ring Cloud API v2 vitals.
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
 - [ ] **System-Event Prompting Flow**: Inject proactive notifications into conversation turns for background triggers (agenda alerts, completed research, health anomalies).
+- [ ] **Spell Breaker (Focus Check-In Timer)**: Reverse "Do Not Disturb" timer in Chat UI that dispatches a proactive system event to Evelyn when a project timer expires, prompting an autonomous break or check-in response.
 - [ ] **Always-On Functionality**: Day/night circadian awareness, proactive check-ins, and ambient background agency.
 
 ---
