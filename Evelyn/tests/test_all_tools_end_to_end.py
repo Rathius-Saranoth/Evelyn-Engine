@@ -52,13 +52,15 @@ class TestAllToolsEndToEnd(unittest.TestCase):
     def test_03_chroma_rag_build_context(self):
         """Test formatted RAG context construction without gist substitutions."""
         with patch.object(chroma_rag, "query_collection", return_value=[{"content": "Tenser persona details", "source": "tenser.md", "distance": 0.12}]), \
-             patch.object(chroma_rag, "_fetch_pinned_chunks", return_value=[]):
+             patch.object(chroma_rag, "_fetch_pinned_chunks", return_value=[]), \
+             patch.object(chroma_rag, "log_rag_retrieval") as mock_log:
             ctx = chroma_rag.build_rag_context("Tenser persona")
             self.assertIsInstance(ctx, str)
             if ctx:
                 self.assertIn("--- Retrieved Context ---", ctx)
                 self.assertNotIn("Gist Summary:", ctx)
                 self.assertNotIn("recall_specific_memory", ctx)
+            mock_log.assert_called_once()
 
     def test_04_vault_db_and_context_search(self):
         """Test SQLite vault search and context manager preview rendering."""
@@ -149,12 +151,21 @@ class TestAllToolsEndToEnd(unittest.TestCase):
         self.assertIsInstance(sync_res, str)
 
     def test_15_vault_list_tools(self):
-        """Test manage_vault_list model tool."""
-        res = evelyn_tools.manage_vault_list(name="TestGroceries", action="add", items=["Oat Milk (1 gal)"])
-        self.assertIsInstance(res, str)
-        read_res = evelyn_tools.manage_vault_list(name="TestGroceries", action="read")
-        self.assertIsInstance(read_res, str)
-        self.assertIn("Oat Milk", read_res)
+        """Test manage_vault_list model tool with isolated temporary lists dir."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            orig_lists_dir = getattr(cfg, "LISTS_DIR", None)
+            cfg.LISTS_DIR = os.path.join(temp_dir, "Lists")
+            os.makedirs(cfg.LISTS_DIR, exist_ok=True)
+            try:
+                res = evelyn_tools.manage_vault_list(name="TestGroceries", action="add", items=["Oat Milk (1 gal)"])
+                self.assertIsInstance(res, str)
+                read_res = evelyn_tools.manage_vault_list(name="TestGroceries", action="read")
+                self.assertIsInstance(read_res, str)
+                self.assertIn("Oat Milk", read_res)
+            finally:
+                if orig_lists_dir:
+                    cfg.LISTS_DIR = orig_lists_dir
 
 
 if __name__ == "__main__":

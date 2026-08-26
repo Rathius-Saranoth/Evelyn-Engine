@@ -284,6 +284,39 @@ Endpoints driving the background research engine and the interactive developer d
 * **Form Parameters**: `file` (PDF UploadFile), `mode` (`"full"` or `"card"`), `domain_path` (target relative directory), `domain_name` (taxonomy domain tag).
 * **Returns**: `{"status": "queued", "filename": "...", "mode": "...", "domain_path": "...", "staging_file": "..."}`
 
+---
+
+## 9. Telemetry, Feedback & Live Note Endpoints
+
+### `GET /telemetry/feedback`
+* **Purpose**: Fetches aggregate user feedback statistics (positive count, negative count, positive percentage) and detailed feedback review logs joined dynamically with message text and metrics.
+* **Returns**: `{"summary": {"total_ratings": N, "thumbs_up": N, "thumbs_down": N, "positive_pct": 100.0}, "reviews": [...]}`
+
+### `POST /telemetry/feedback`
+* **Purpose**: Records or updates a user rating (`1` for 👍, `-1` for 👎) and an optional textual explanation comment for a specific message.
+* **Payload**: `{"message_id": 123, "rating": 1, "feedback": "Optional comment"}`
+* **Returns**: `{"status": "ok", "message_id": 123, "rating": 1}`
+
+### `GET /telemetry/rag`
+* **Purpose**: Returns recent RAG retrieval audit events from `rag_retrieval_log` in `evelyn_memory.db` with chunk metadata pointers, query reformulations, similarity distances, and retrieval summaries.
+* **Returns**: `{"events": [...]}`
+
+### `GET /telemetry/thinking`
+* **Purpose**: Returns aggregate statistics on resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `self_elected`, `tool_escalation`, `ui_override`), and recent message audit traces.
+* **Returns**: `{"effort_counts": {...}, "source_counts": {...}, "recent_logs": [...]}`
+
+### `GET /api/vault/note`
+* **Purpose**: Reads raw markdown content of a note inside the Obsidian Vault or resolves an SQLite context entry (`sqlite::context_entry::<id>`).
+* **Query Parameters**: `path` (relative vault path or `sqlite::context_entry::<id>`)
+* **Returns**: `{"status": "ok", "path": "...", "content": "..."}`
+
+### `POST /api/vault/note`
+* **Purpose**: Updates the markdown content of a vault note on disk or updates a context entry observation in `context_entries`, and triggers immediate vector re-indexing into ChromaDB.
+* **Payload**: `{"path": "...", "content": "..."}`
+* **Returns**: `{"status": "ok", "path": "..."}`
+
+---
+
 [evelyn_server.py]: ../evelyn_server.py "evelyn_server.py"
 [query_reformulator.py]: ../Evelyn/tools/query_reformulator.py "query_reformulator.py"
 [chroma_rag.py]: ../Evelyn/tools/chroma_rag.py "chroma_rag.py"

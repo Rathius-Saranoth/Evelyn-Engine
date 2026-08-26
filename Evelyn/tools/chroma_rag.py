@@ -883,11 +883,140 @@ def get_vault_relative_path(path: str) -> str:
         return path.replace('\\', '/')
 
 
-def build_rag_context(query: str) -> str:
+def log_rag_retrieval(
+    query: str,
+    search_query: str,
+    pinned_chunks: list[dict],
+    all_chunks: list[dict],
+    relevant: list[dict],
+    matching_procedures: list[dict] | None = None,
+    message_id: int | None = None,
+) -> int | None:
+    """Log a RAG retrieval event into rag_retrieval_log in evelyn_memory.db.
+
+    Fire-and-forget, exception-shielded.
+    """
+    try:
+        pinned_sources = {c["source"] for c in pinned_chunks} if pinned_chunks else set()
+        threshold = cfg.RAG_DISTANCE_THRESHOLD
+
+        chunk_records = []
+        # Add pinned chunks
+        for c in (pinned_chunks or []):
+            chunk_records.append({
+                "source": get_vault_relative_path(c.get("source", "")),
+                "chunk": c.get("metadata", {}).get("chunk", 0),
+                "total_chunks": c.get("metadata", {}).get("total_chunks", 1),
+                "distance": 0.0,
+                "priority": c.get("metadata", {}).get("rag_priority", "pinned"),
+                "status": "pinned",
+                "preview": (c.get("content") or "")[:120],
+                "tags": c.get("metadata", {}).get("tags", ""),
+            })
+
+        # Add queried vector chunks
+        for c in (all_chunks or []):
+            src = c.get("source", "")
+            is_pinned = src in pinned_sources
+            dist = c.get("distance", 1.0)
+            status = "pinned_duplicate" if is_pinned else ("kept" if dist <= threshold else "dropped")
+            chunk_records.append({
+                "source": get_vault_relative_path(src),
+                "chunk": c.get("metadata", {}).get("chunk", 0),
+                "total_chunks": c.get("metadata", {}).get("total_chunks", 1),
+                "distance": round(dist, 4) if isinstance(dist, (int, float)) else dist,
+                "priority": c.get("metadata", {}).get("rag_priority", "normal"),
+                "status": status,
+                "preview": (c.get("content") or "")[:120],
+                "tags": c.get("metadata", {}).get("tags", ""),
+            })
+
+        # Add procedures if any
+        for p in (matching_procedures or []):
+            chunk_records.append({
+                "source": f"procedure::{p.get('id', '')}",
+                "chunk": 0,
+                "total_chunks": 1,
+                "distance": 0.0,
+                "priority": "procedure",
+                "status": "procedure",
+                "preview": f"Trigger: {p.get('trigger_pattern', '')}",
+                "tags": p.get("tags", ""),
+            })
+
+        con = _get_queue_db()
+        cur = con.cursor()
+        cur.execute(
+            """INSERT INTO rag_retrieval_log
+               (message_id, query, search_query, total_retrieved, total_kept, total_pinned, chunks_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                message_id,
+                query,
+                search_query,
+                len(all_chunks or []),
+                len(relevant or []),
+                len(pinned_chunks or []),
+                json.dumps(chunk_records),
+                time.time(),
+            ),
+        )
+        row_id = cur.lastrowid
+        con.commit()
+        con.close()
+        return row_id
+    except Exception as exc:
+        if cfg.DEBUG_LOGGING:
+            print(f"[RAG] Warning: telemetry logging failed: {exc}", flush=True)
+        return None
+
+
+def get_recent_rag_telemetry(limit: int = 50, offset: int = 0) -> list[dict]:
+    """Retrieve recent RAG retrieval events from rag_retrieval_log."""
+    con = _get_queue_db()
+    try:
+        cur = con.cursor()
+        rows = cur.execute(
+            """SELECT id, message_id, query, search_query, total_retrieved,
+                      total_kept, total_pinned, chunks_json, created_at
+               FROM rag_retrieval_log
+               ORDER BY id DESC
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get("chunks_json"):
+                try:
+                    d["chunks"] = json.loads(d["chunks_json"])
+                except Exception:
+                    d["chunks"] = []
+            else:
+                d["chunks"] = []
+            results.append(d)
+        return results
+    finally:
+        con.close()
+
+
+def link_rag_telemetry_to_message(telemetry_id: int, message_id: int) -> None:
+    """Link an existing rag_retrieval_log entry to an assistant or user message_id."""
+    try:
+        con = _get_queue_db()
+        con.execute("UPDATE rag_retrieval_log SET message_id = ? WHERE id = ?", (message_id, telemetry_id))
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+
+
+def build_rag_context(query: str, message_id: int | None = None) -> str:
     """Query Chroma vector store and return a formatted context block.
 
     Args:
         query: The raw incoming query string.
+        message_id: Optional message ID to associate with the retrieval log.
 
     Returns:
         str: A formatted context block of retrieved/pinned chunks, or empty string.
@@ -947,6 +1076,7 @@ def build_rag_context(query: str) -> str:
     # Step 6: Assemble Context
     all_context = pinned_chunks + relevant
 
+    matching_procedures = []
     try:
         try:
             import memory_db as _memory_db
@@ -957,6 +1087,17 @@ def build_rag_context(query: str) -> str:
             _memory_db.touch_procedure_retrieved(proc["id"])
     except Exception as e:
         print(f"[RAG] Warning: procedure search failed: {e}", flush=True)
+
+    # Telemetry logging (fire-and-forget)
+    log_rag_retrieval(
+        query=query,
+        search_query=search_query,
+        pinned_chunks=pinned_chunks,
+        all_chunks=all_chunks,
+        relevant=relevant,
+        matching_procedures=matching_procedures,
+        message_id=message_id,
+    )
 
     if not all_context and not matching_procedures:
         return ""

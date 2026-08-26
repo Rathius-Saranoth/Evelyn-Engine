@@ -344,6 +344,35 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at);
 """
 
+CREATE_MESSAGE_FEEDBACK_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS message_feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id  INTEGER NOT NULL,
+    rating      INTEGER NOT NULL,
+    feedback    TEXT,
+    created_at  REAL NOT NULL,
+    updated_at  REAL,
+    FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_mf_message_id ON message_feedback(message_id);
+"""
+
+CREATE_RAG_RETRIEVAL_LOG_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS rag_retrieval_log (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id        INTEGER,
+    query             TEXT NOT NULL,
+    search_query      TEXT,
+    total_retrieved   INTEGER NOT NULL DEFAULT 0,
+    total_kept        INTEGER NOT NULL DEFAULT 0,
+    total_pinned      INTEGER NOT NULL DEFAULT 0,
+    chunks_json       TEXT,
+    created_at        REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rrl_created ON rag_retrieval_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_rrl_msg_id ON rag_retrieval_log(message_id);
+"""
+
 
 MIGRATIONS: list[Migration] = [
     Migration(
@@ -381,6 +410,18 @@ MIGRATIONS: list[Migration] = [
         version="000.005.008",
         name="create_tasks_table",
         up_sql=CREATE_TASKS_TABLE_SQL,
+    ),
+    Migration(
+        target_db="chat",
+        version="000.005.010",
+        name="create_message_feedback_table",
+        up_sql=CREATE_MESSAGE_FEEDBACK_TABLE_SQL,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.005.010",
+        name="create_rag_retrieval_log_table",
+        up_sql=CREATE_RAG_RETRIEVAL_LOG_TABLE_SQL,
     ),
 ]
 
