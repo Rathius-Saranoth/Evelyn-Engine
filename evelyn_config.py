@@ -168,8 +168,8 @@ MAX_TOOL_ROUNDS = 5
 THINK_TOOL_LOOP = "low"
 
 # Token budget for each tool-loop reasoning round. Needs sufficient headroom
-# for Gemma 4 native thinking tokens plus tool call generation.
-TOOL_LOOP_NUM_PREDICT = 2048
+# for Gemma 4 native thinking tokens plus tool call generation (large write_file payloads).
+TOOL_LOOP_NUM_PREDICT = 8192
 
 # When True, intermediate thinking from each tool-loop round is forwarded to
 # the client as thinking SSE events. Useful for seeing Evelyn's decision chain

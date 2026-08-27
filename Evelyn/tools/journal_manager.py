@@ -104,7 +104,7 @@ def create_journal_entry(
 
     # Determine write target based on config
     importlib.reload(cfg)
-    target_dir = JOURNAL_DIR if cfg.JOURNAL_DIRECT_WRITE else PENDING_DIR
+    target_dir = JOURNAL_DIR
     filepath = os.path.join(target_dir, filename)
 
     if tags is None:
@@ -138,23 +138,11 @@ tags: [{", ".join(clean_tags)}]
 *{message_in_a_bottle}*
 """
 
-    # Try append first
-    try:
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir, exist_ok=True)
-
-        if os.path.exists(filepath):
-            with open(filepath, "a", encoding="utf-8") as f:
-                f.write(append_content)
-            dest = "journal" if cfg.JOURNAL_DIRECT_WRITE else "pending"
-            return f"Appended to existing {dest} entry: {filename}"
-        else:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(file_content)
-            dest = "journal" if cfg.JOURNAL_DIRECT_WRITE else "pending"
-            return f"Created new {dest} entry: {filename}"
-    except OSError as e:
-        return f"Error writing journal entry — is Google Drive available? Details: {e}"
+    import Evelyn.tools.terminal_agent as terminal_agent
+    if os.path.exists(filepath):
+        return terminal_agent.write_file(filepath, append_content, mode="append")
+    else:
+        return terminal_agent.write_file(filepath, file_content, mode="overwrite")
 
 
 def read_journal_entry(date_str: str = None) -> str:

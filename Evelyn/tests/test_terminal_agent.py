@@ -247,6 +247,23 @@ class TestTerminalAgent(unittest.TestCase):
         # "recent_pending" should remain pending
         self.assertEqual(updated["recent_pending"]["status"], "pending")
 
+    def test_get_approval_details(self):
+        """Verify get_approval_details returns full record including content."""
+        res = terminal_agent.write_file("test_preview.md", "# Heading\nDetailed content for preview", mode="overwrite")
+        approval_id = res.split("Approval ID: ")[1].split("\n")[0]
+
+        # Status should strip content
+        status = terminal_agent.get_approval_status(approval_id)
+        self.assertEqual(status["status"], "pending")
+        self.assertNotIn("content", status)
+
+        # Details should include full content
+        details = terminal_agent.get_approval_details(approval_id)
+        self.assertIsNotNone(details)
+        self.assertEqual(details["id"], approval_id)
+        self.assertEqual(details["content"], "# Heading\nDetailed content for preview")
+        self.assertEqual(details["mode"], "overwrite")
+
 
 if __name__ == "__main__":
     unittest.main()

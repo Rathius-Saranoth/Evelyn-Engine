@@ -210,8 +210,33 @@ def run_review():
                             verification=parsed_proc.get("verification"),
                             source="consolidated",
                             status="live",
-                            tags=parsed_proc.get("tags")
+                            tags=parsed_proc.get("tags"),
+                            suggested_tools=parsed_proc.get("suggested_tools"),
                         )
+                    memory_db.apply_proposal(prop["id"])
+
+                elif prop["type"] == "procedure_split":
+                    # Apply procedure_split
+                    import yaml
+                    for eid in source_ids:
+                        memory_db.delete_procedure(eid)
+                    try:
+                        parsed_data = yaml.safe_load(prop["merged_observation"])
+                        child_procs = parsed_data.get("procedures", []) if isinstance(parsed_data, dict) else (parsed_data if isinstance(parsed_data, list) else [])
+                    except Exception:
+                        child_procs = []
+                    for cp in child_procs:
+                        if isinstance(cp, dict) and "trigger_pattern" in cp:
+                            memory_db.insert_procedure(
+                                trigger_pattern=cp["trigger_pattern"],
+                                steps=cp.get("steps", ""),
+                                pitfalls=cp.get("pitfalls"),
+                                verification=cp.get("verification"),
+                                source="split",
+                                status="live",
+                                tags=cp.get("tags"),
+                                suggested_tools=cp.get("suggested_tools"),
+                            )
                     memory_db.apply_proposal(prop["id"])
                     
                 elif prop["type"] in ("merge", "supersede"):

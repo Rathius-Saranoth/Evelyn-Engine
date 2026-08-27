@@ -1165,15 +1165,21 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     if matching_procedures:
         proc_blocks = []
         for proc in matching_procedures:
+            tools_str = f"\nSuggested Tool(s): {proc['suggested_tools']}" if proc.get("suggested_tools") else ""
             pitfalls_str = f"\nPitfalls to Avoid: {proc['pitfalls']}" if proc.get("pitfalls") else ""
             verif_str = f"\nVerification: {proc['verification']}" if proc.get("verification") else ""
             proc_blocks.append(
-                f"[Procedure: {proc['trigger_pattern']}]\n"
+                f"[Operational Protocol: {proc['trigger_pattern']}]\n"
                 f"Steps:\n{proc['steps']}"
+                f"{tools_str}"
                 f"{pitfalls_str}"
                 f"{verif_str}"
             )
-        parts.append("--- Relevant Procedures ---\n" + "\n\n".join(proc_blocks))
+        parts.append(
+            "--- Active Operational Protocols (Actionable Instructions) ---\n"
+            "When the user's request matches a protocol below, you MUST execute these steps and use the suggested tools:\n\n"
+            + "\n\n".join(proc_blocks)
+        )
 
     # 1. Pinned (Primary Source) Documents: Show full content of matching chunks in order
     for src, chunks in pinned_by_source.items():

@@ -2141,8 +2141,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_journal_entry",
             "description": (
-                "Compose and save a personal journal entry. "
-                f"Use when a conversation carries emotional weight worth reflecting on, or when {cfg.USER_NAME} explicitly requests a journal entry."
+                f"Compose and save {cfg.ASSISTANT_NAME}'s personal daily reflection journal entry (covers morning, afternoon, and evening reflections from {cfg.ASSISTANT_NAME}'s POV with vibe check and message in a bottle). "
+                f"Use ONLY at the end of the day or when {cfg.USER_NAME} asks for {cfg.ASSISTANT_NAME}'s personal daily journal recap. "
+                f"STRICT RULE: NEVER use this tool for {cfg.USER_NAME}'s dream journal entries, personal notes, research reports, or general vault documents — use write_file for all user-authored vault documents."
             ),
             "parameters": {
                 "type": "object",
@@ -2674,8 +2675,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_file",
             "description": (
-                "Write content to a file in the workspace or Obsidian Vault. "
-                "Use for creating scripts, updating configurations, or creating/updating vault notes (e.g. 'Notes/Features/...'). System directories (.obsidian, .git) are protected. Requires approval."
+                f"Write content to a file in the workspace or {cfg.USER_NAME}'s Obsidian Vault. "
+                f"Use for creating or updating user dream journal entries (e.g. 'Dream Journal/Dream Entries/Dream Entry YYYY-MM-DD.md'), feature ideas, vault notes, scripts, or configuration files. "
+                "System directories (.obsidian, .git) are protected. Requires approval."
             ),
             "parameters": {
                 "type": "object",

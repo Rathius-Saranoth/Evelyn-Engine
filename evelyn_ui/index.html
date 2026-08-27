@@ -2059,18 +2059,7 @@
             }
             badge.className = "write-badge";
             badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
-          } else if (t.name === "write_journal_entry") {
-            let docId = t.data;
-            if (docId) {
-              badge = document.createElement("button");
-              badge.onclick = () => openModal("journal", docId);
-              badge.style.cursor = "pointer";
-            } else {
-              badge = document.createElement("span");
-            }
-            badge.className = "write-badge";
-            badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
-          } else if (t.name === "run_command" || t.name === "write_file") {
+          } else if (t.name === "run_command" || t.name === "write_file" || (t.name === "write_journal_entry" && t.data && (t.data.startsWith("write_") || t.data.startsWith("cmd_")))) {
             if (!t.data) continue;
             const statusItem = approvalStatuses[t.data];
             const status = statusItem ? statusItem.status : "unknown";
@@ -2127,26 +2116,36 @@
               const btnsDiv = document.createElement("div");
               btnsDiv.style.display = "flex";
               btnsDiv.style.gap = "8px";
+              btnsDiv.style.flexWrap = "wrap";
+
+              const inspectBtn = document.createElement("button");
+              inspectBtn.className = "btn-ghost";
+              inspectBtn.style.color = "var(--text)";
+              inspectBtn.innerHTML = "👁️ Preview & Review";
+              inspectBtn.onclick = () => openModal("approval", t.data);
 
               const approveBtn = document.createElement("button");
               approveBtn.className = "btn-ghost";
               approveBtn.style.borderColor = "var(--tool-border)";
               approveBtn.style.color = "var(--tool-text)";
-              approveBtn.textContent = "Approve";
+              approveBtn.textContent = statusItem.type === "write" ? "Approve & Write" : "Approve";
               approveBtn.onclick = () => handleApproval(t.data, true);
 
               const denyBtn = document.createElement("button");
               denyBtn.className = "btn-ghost danger";
               denyBtn.textContent = "Deny";
-              denyBtn.onclick = () => handleApproval(t.data, false);
+              denyBtn.onclick = () => promptAndDenyApproval(t.data);
 
+              btnsDiv.appendChild(inspectBtn);
               btnsDiv.appendChild(approveBtn);
               btnsDiv.appendChild(denyBtn);
               badge.appendChild(btnsDiv);
             } else if (status === "approved") {
-              badge = document.createElement("span");
+              badge = document.createElement("button");
               badge.className = "write-badge success";
               badge.textContent = `✓ ${WRITE_TOOLS[t.name].label}`;
+              badge.onclick = () => openModal("approval", t.data);
+              badge.style.cursor = "pointer";
             } else if (status === "denied") {
               badge = document.createElement("span");
               badge.className = "write-badge danger";
@@ -2241,7 +2240,93 @@
           } catch (err) {
             content.innerHTML = `<div style="color:#ff6666;">Error: ${err.message}</div>`;
           }
+        } else if (type === "approval") {
+          try {
+            const resp = await fetch(
+              `${API_BASE}/api/terminal/details/${encodeURIComponent(id)}`,
+              { headers: headers() }
+            );
+            if (!resp.ok) throw new Error("Failed to load approval details");
+            const data = await resp.json();
+
+            const isPending = data.status === "pending";
+            if (data.type === "write") {
+              title.textContent = `💾 File Write: ${data.file_path || id}`;
+              let bodyPreview = "";
+              if (data.content) {
+                if (data.file_path && (data.file_path.endsWith(".md") || data.file_path.endsWith(".markdown"))) {
+                  bodyPreview = renderFullMarkdown(data.content);
+                } else {
+                  bodyPreview = `<pre style="background: rgba(0,0,0,0.4); padding: 14px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow-x: auto; white-space: pre-wrap; line-height: 1.4;"><code>${escapeHtml(data.content)}</code></pre>`;
+                }
+              } else {
+                bodyPreview = '<div style="color: var(--text-dim); padding: 16px;">No file content available.</div>';
+              }
+
+              let actionBar = "";
+              if (isPending) {
+                actionBar = `
+                  <div id="approval-modal-bar-${id}" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; padding: 14px; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                      <span style="font-size: 13px; color: #fbbf24; font-weight: 600;">
+                        Target: <code>${escapeHtml(data.file_path || "")}</code> (Mode: ${escapeHtml(data.mode || "overwrite")})
+                      </span>
+                      <div style="display: flex; gap: 8px;">
+                        <button class="write-badge" style="cursor: pointer; background: #34d399; color: #000; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px;" onclick="handleApproval('${id}', true); closeModal();">✓ Approve & Write</button>
+                        <button class="write-badge danger" style="cursor: pointer; padding: 6px 14px; font-weight: 600; border-radius: 6px;" onclick="promptAndDenyApproval('${id}')">✗ Deny</button>
+                      </div>
+                    </div>
+                  </div>
+                `;
+              } else {
+                const statusColor = data.status === "approved" ? "#34d399" : "#f87171";
+                const statusLabel = data.status === "approved" ? "✓ Approved and Written" : `✗ ${data.status}`;
+                actionBar = `
+                  <div style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 4px 10px; background: rgba(52,211,153,0.1); border: 1px solid ${statusColor}; border-radius: 6px; font-size: 12px; color: ${statusColor}; font-weight: 600;">
+                    ${statusLabel} (Path: <code>${escapeHtml(data.file_path || "")}</code>)
+                  </div>
+                `;
+              }
+              content.innerHTML = actionBar + bodyPreview;
+            } else {
+              title.textContent = "💻 Command Approval Required";
+              let cmdHTML = `
+                <div style="margin-bottom: 12px;">
+                  <label style="font-size: 12px; color: var(--text-dim); display: block; margin-bottom: 4px;">Command:</label>
+                  <pre style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px; white-space: pre-wrap;"><code>${escapeHtml(data.command || "")}</code></pre>
+                  <div style="font-size: 12px; color: var(--text-dim); margin-top: 6px;">Directory: <code>${escapeHtml(data.cwd || "")}</code></div>
+                </div>
+              `;
+              let actionBar = "";
+              if (isPending) {
+                actionBar = `
+                  <div id="approval-modal-bar-${id}" style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px;">
+                    <button class="write-badge" style="cursor: pointer; background: #34d399; color: #000; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: none; font-size: 13px;" onclick="handleApproval('${id}', true); closeModal();">✓ Run Command</button>
+                    <button class="write-badge danger" style="cursor: pointer; padding: 6px 14px; font-weight: 600; border-radius: 6px;" onclick="promptAndDenyApproval('${id}')">✗ Deny</button>
+                  </div>
+                `;
+              } else {
+                const statusColor = data.status === "approved" ? "#34d399" : "#f87171";
+                const statusLabel = data.status === "approved" ? "✓ Approved and Executed" : `✗ ${data.status}`;
+                actionBar = `
+                  <div style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 4px 10px; background: rgba(52,211,153,0.1); border: 1px solid ${statusColor}; border-radius: 6px; font-size: 12px; color: ${statusColor}; font-weight: 600;">
+                    ${statusLabel}
+                  </div>
+                `;
+              }
+              content.innerHTML = actionBar + cmdHTML;
+            }
+          } catch (err) {
+            content.innerHTML = `<div style="color:#ff6666; padding: 20px;">Error: ${err.message}</div>`;
+          }
         }
+      }
+
+      async function promptAndDenyApproval(approvalId) {
+        const reason = prompt("Optional: Enter a reason for denying this action (sent as feedback to Evelyn):");
+        if (reason === null) return; // User pressed Cancel
+        closeModal();
+        await handleApproval(approvalId, false, reason.trim());
       }
 
       function closeModal(e) {
@@ -3231,11 +3316,11 @@
         await executeChatTurn(text);
       }
 
-      async function handleApproval(approvalId, approve) {
+      async function handleApproval(approvalId, approve, reason = "") {
         const card = document.getElementById(`approval-card-${approvalId}`);
-        if (!card) return;
-
-        card.querySelectorAll("button").forEach((btn) => (btn.disabled = true));
+        if (card) {
+          card.querySelectorAll("button").forEach((btn) => (btn.disabled = true));
+        }
 
         const action = approve ? "approve" : "deny";
         try {
@@ -3246,6 +3331,9 @@
 
           if (resp.ok) {
             const data = await resp.json();
+            const statusItem = approvalStatuses[approvalId];
+            const itemType = statusItem ? statusItem.type : "command";
+
             if (approvalStatuses[approvalId]) {
               approvalStatuses[approvalId].status = approve ? "approved" : "denied";
             } else {
@@ -3255,36 +3343,50 @@
               };
             }
 
-            if (approve) {
-              card.style.borderColor = "var(--tool-border)";
-              card.style.background = "rgba(102,187,119,0.05)";
-              card.innerHTML = `
-          <div style="font-size: 13px; font-weight: 600; color: var(--tool-text);">
-            ✓ Approved and Executed
-          </div>
-        `;
-              const resultText = data.result || "[Success]";
-              sendSystemMessage(`[System: Command output:\n${resultText}]`);
-            } else {
-              card.style.borderColor = "var(--border)";
-              card.style.background = "transparent";
-              card.innerHTML = `
-          <div style="font-size: 13px; font-weight: 600; color: var(--text-dim);">
-            ✗ Denied
-          </div>
-        `;
+            if (card) {
+              if (approve) {
+                card.style.borderColor = "var(--tool-border)";
+                card.style.background = "rgba(102,187,119,0.05)";
+                card.innerHTML = `
+                  <div style="font-size: 13px; font-weight: 600; color: var(--tool-text); cursor: pointer;" onclick="openModal('approval', '${approvalId}')">
+                    ✓ ${itemType === "write" ? "File Written & Saved" : "Approved and Executed"} (Click to view)
+                  </div>
+                `;
+              } else {
+                card.style.borderColor = "var(--border)";
+                card.style.background = "transparent";
+                const reasonText = reason ? ` — Reason: "${escapeHtml(reason)}"` : "";
+                card.innerHTML = `
+                  <div style="font-size: 13px; font-weight: 600; color: var(--text-dim);">
+                    ✗ Denied${reasonText}
+                  </div>
+                `;
+              }
             }
+
             if (pendingApprovals) {
               pendingApprovals = pendingApprovals.filter((item) => item.id !== approvalId);
+            }
+
+            if (approve) {
+              // Only send system output for command tools, NOT silent file writes
+              if (itemType !== "write" && data.result) {
+                sendSystemMessage(`[System: Command output:\n${data.result}]`);
+              }
+            } else {
+              // If user provided a denial reason, send it to Evelyn so she can course-correct
+              if (reason) {
+                sendSystemMessage(`[${itemType === "write" ? "File write" : "Command"} denied by user: ${reason}]`);
+              }
             }
           } else {
             const err = await resp.text();
             alert(`Failed to ${action}: ${err}`);
-            card.querySelectorAll("button").forEach((btn) => (btn.disabled = false));
+            if (card) card.querySelectorAll("button").forEach((btn) => (btn.disabled = false));
           }
         } catch (err) {
           alert(`Error: ${err.message}`);
-          card.querySelectorAll("button").forEach((btn) => (btn.disabled = false));
+          if (card) card.querySelectorAll("button").forEach((btn) => (btn.disabled = false));
         }
       }
 
