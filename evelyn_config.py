@@ -394,11 +394,19 @@ FACT_EXTRACTION_BATCH_SIZE = 20
 FACT_EXTRACTION_TIMEOUT = 180
 
 # Maximum number of sequential batches allowed per continuous idle session.
-# Caps worst-case extraction time to ~N × (2 × timeout) so a large backlog
-# can't consume an entire overnight idle period. Resets when a new chat
-# request arrives (i.e., when cancel_pending_extraction() is called).
-# 5 batches × 20 msgs × ~5-8 min/batch ≈ 25-40 minutes maximum.
-FACT_EXTRACTION_MAX_BATCHES_PER_SESSION = 5
+# 0 = unlimited / continuous backlog drain while the system is idle.
+# The cooperative idle queue yields between batches if another task is waiting.
+FACT_EXTRACTION_MAX_BATCHES_PER_SESSION = 0
+
+# Seconds to pause between consecutive batches when draining a backlog in idle time.
+FACT_EXTRACTION_BACKLOG_DELAY = 5
+
+# Seconds of startup warm-up grace period before idle tasks can be dispatched.
+# Prevents heavy tasks and deep research from firing immediately upon reboot.
+IDLE_STARTUP_GRACE_PERIOD = 60
+
+# Persistent task queue state file
+TASK_QUEUE_STATE_FILE = os.path.join(DATA_DIR, "evelyn_task_queue.json")
 
 # Starting DB message ID for the high-water mark.
 # 0 = process all history on first run (default).
