@@ -459,38 +459,280 @@ def get_stress_summary(date_str: Optional[str] = None) -> dict:
         return {"status": "error", "message": f"Error querying stress: {e}"}
 
 
-def get_recent_workouts(days: int = 7) -> list:
-    """Retrieve recorded workout and exercise sessions for the past N days."""
+def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) -> dict:
+    """Retrieve high-resolution live heart rate readings and statistics for the last N hours.
+
+    Queries live Oura Ring API for timestamped 5-second/minute samples, falling back to Health Connect.
+    """
+    now_local = datetime.now()
+    try:
+        raw_series = oura_client.get_heart_rate_series(hours=hours)
+        if raw_series:
+            valid_points = [p for p in raw_series if isinstance(p.get("bpm"), (int, float)) and p["bpm"] > 0]
+            if valid_points:
+                bpms = [p["bpm"] for p in valid_points]
+                min_bpm = min(bpms)
+                max_bpm = max(bpms)
+                avg_bpm = round(sum(bpms) / len(bpms), 1)
+                latest_point = valid_points[-1]
+
+                # Breakdown by source
+                sources: dict[str, list[int]] = {}
+                for p in valid_points:
+                    src = p.get("source", "awake")
+                    if src not in sources:
+                        sources[src] = []
+                    sources[src].append(p["bpm"])
+
+                source_summary = {
+                    src: {
+                        "samples": len(pts),
+                        "avg_bpm": round(sum(pts) / len(pts), 1),
+                        "min_bpm": min(pts),
+                        "max_bpm": max(pts),
+                    }
+                    for src, pts in sources.items()
+                }
+
+                # Sample timeline downsampled to 15-minute windows for clear LLM context
+                bucket_map: dict[str, dict] = {}
+                for p in valid_points:
+                    ts_str = p.get("timestamp", "")
+                    if ts_str:
+                        try:
+                            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone()
+                            minute = (dt.minute // 15) * 15
+                            bucket_label = f"{dt.hour:02d}:{minute:02d}"
+                            if bucket_label not in bucket_map:
+                                bucket_map[bucket_label] = {"bpms": [], "sources": set()}
+                            bucket_map[bucket_label]["bpms"].append(p["bpm"])
+                            bucket_map[bucket_label]["sources"].add(p.get("source", "awake"))
+                        except Exception:
+                            pass
+
+                timeline_15m = []
+                for blk, data in sorted(bucket_map.items()):
+                    b_bpms = data["bpms"]
+                    timeline_15m.append({
+                        "time_window": blk,
+                        "avg_bpm": round(sum(b_bpms) / len(b_bpms), 1),
+                        "min_bpm": min(b_bpms),
+                        "max_bpm": max(b_bpms),
+                        "activity": sorted(list(data["sources"])),
+                    })
+
+                start_dt = now_local - timedelta(hours=hours)
+                return {
+                    "status": "success",
+                    "source": "Oura Ring API (Live)",
+                    "window_hours": hours,
+                    "start_time": start_dt.strftime("%Y-%m-%d %H:%M"),
+                    "end_time": now_local.strftime("%Y-%m-%d %H:%M"),
+                    "total_samples": len(valid_points),
+                    "current_latest_bpm": latest_point.get("bpm"),
+                    "current_latest_time": latest_point.get("timestamp"),
+                    "min_bpm": min_bpm,
+                    "max_bpm": max_bpm,
+                    "avg_bpm": avg_bpm,
+                    "activity_breakdown": source_summary,
+                    "timeline_15m": timeline_15m,
+                }
+    except Exception as e:
+        print(f"[Health Manager] Error querying live Oura heart rate: {e}", flush=True)
+
+    # Fallback to Health Connect SQLite DB
     conn = _get_connection()
     if not conn:
-        return []
+        return {"status": "error", "message": "Health database not found and Oura live query failed."}
 
-    cutoff_dt = datetime.now() - timedelta(days=days)
-    cutoff_ms = int(cutoff_dt.timestamp() * 1000)
-
+    cutoff_ms = int((now_local - timedelta(hours=hours)).timestamp() * 1000)
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT row_id, exercise_type, title, notes, start_time, end_time FROM exercise_session_record_table WHERE start_time >= ? ORDER BY start_time DESC",
+            "SELECT beats_per_minute, start_time FROM heart_rate_record_series_table WHERE start_time >= ? ORDER BY start_time ASC",
             (cutoff_ms,),
         )
-        results = []
-        for r in cursor.fetchall():
-            dur_mins = round((r["end_time"] - r["start_time"]) / 60000.0, 1)
-            type_name = EXERCISE_TYPE_MAP.get(r["exercise_type"], f"Exercise ({r['exercise_type']})")
-            results.append({
-                "type": type_name,
-                "title": r["title"] or type_name,
-                "notes": r["notes"],
-                "duration_minutes": dur_mins,
-                "date": datetime.fromtimestamp(r["start_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
-            })
+        rows = cursor.fetchall()
+        if not rows:
+            cursor.execute(
+                "SELECT beats_per_minute, time FROM resting_heart_rate_record_table WHERE time >= ? ORDER BY time ASC",
+                (cutoff_ms,),
+            )
+            rows = cursor.fetchall()
+
         conn.close()
-        return results
+        if not rows:
+            return {
+                "status": "success",
+                "source": "Health Connect Database (Local)",
+                "window_hours": hours,
+                "message": f"No heart rate readings recorded in the last {hours} hours.",
+            }
+
+        bpms = [r[0] for r in rows if r[0] is not None]
+        return {
+            "status": "success",
+            "source": "Health Connect Database (Local)",
+            "window_hours": hours,
+            "total_samples": len(bpms),
+            "min_bpm": min(bpms),
+            "max_bpm": max(bpms),
+            "avg_bpm": round(sum(bpms) / len(bpms), 1),
+            "latest_bpm": bpms[-1] if bpms else None,
+        }
     except Exception as e:
         conn.close()
-        print(f"[Health Manager] Error getting recent workouts: {e}", flush=True)
-        return []
+        return {"status": "error", "message": f"Error querying local heart rate records: {e}"}
+
+
+def get_intraday_activity(hours: float = 2.0) -> dict:
+    """Retrieve steps, distance, active calories, and workouts for the last N hours."""
+    now_local = datetime.now()
+    cutoff_ms = int((now_local - timedelta(hours=hours)).timestamp() * 1000)
+    start_str = (now_local - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
+    end_str = now_local.strftime("%Y-%m-%d %H:%M")
+
+    recent_workouts = get_recent_workouts(days=1, hours=hours)
+
+    conn = _get_connection()
+    if not conn:
+        return {
+            "status": "success",
+            "source": "Oura Ring (Live)",
+            "window_hours": hours,
+            "start_time": start_str,
+            "end_time": end_str,
+            "workouts": recent_workouts,
+        }
+
+    cursor = conn.cursor()
+    try:
+        # Steps
+        cursor.execute(
+            "SELECT SUM(count) FROM steps_record_table WHERE start_time >= ?",
+            (cutoff_ms,),
+        )
+        steps = cursor.fetchone()[0] or 0
+
+        # Distance
+        cursor.execute(
+            "SELECT SUM(distance) FROM distance_record_table WHERE start_time >= ?",
+            (cutoff_ms,),
+        )
+        dist_m = cursor.fetchone()[0] or 0.0
+
+        # Active Calories
+        cursor.execute(
+            "SELECT SUM(energy) FROM active_calories_burned_record_table WHERE start_time >= ?",
+            (cutoff_ms,),
+        )
+        active_j = cursor.fetchone()[0] or 0.0
+
+        conn.close()
+        return {
+            "status": "success",
+            "source": "Health Connect Database & Oura (Live)",
+            "window_hours": hours,
+            "start_time": start_str,
+            "end_time": end_str,
+            "steps": int(steps),
+            "distance_miles": round(dist_m * 0.000621371, 2),
+            "distance_km": round(dist_m / 1000.0, 2),
+            "active_calories_kcal": round(active_j / 4184.0, 1),
+            "workouts": recent_workouts,
+        }
+    except Exception as e:
+        conn.close()
+        return {"status": "error", "message": f"Error querying intraday activity: {e}"}
+
+
+def get_recent_workouts(days: int = 7, hours: Optional[float] = None) -> list:
+    """Retrieve recorded workout and exercise sessions for the past N days or N hours.
+
+    Merges live Oura workouts with Health Connect SQLite records.
+    """
+    now_local = datetime.now()
+    if hours is not None and hours > 0:
+        cutoff_dt = now_local - timedelta(hours=hours)
+        days_query = max(1, int(hours / 24) + 1)
+    else:
+        cutoff_dt = now_local - timedelta(days=days)
+        days_query = days
+
+    cutoff_ms = int(cutoff_dt.timestamp() * 1000)
+    workouts = []
+
+    # 1. Fetch live Oura workouts
+    try:
+        start_q = (now_local - timedelta(days=days_query)).strftime("%Y-%m-%d")
+        end_q = now_local.strftime("%Y-%m-%d")
+        oura_wks = oura_client.get_workouts(start_date=start_q, end_date=end_q)
+        for w in oura_wks:
+            st_str = w.get("start_datetime", "")
+            end_str = w.get("end_datetime", "")
+            if st_str:
+                try:
+                    dt = datetime.fromisoformat(st_str.replace("Z", "+00:00")).astimezone()
+                    if dt.timestamp() * 1000 >= cutoff_ms:
+                        dur_mins = None
+                        if end_str:
+                            end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00")).astimezone()
+                            dur_mins = round((end_dt - dt).total_seconds() / 60.0, 1)
+
+                        act_name = str(w.get("activity", "Workout")).replace("_", " ").title()
+                        workouts.append({
+                            "type": act_name,
+                            "title": act_name,
+                            "source": "Oura Ring (Live)",
+                            "calories_kcal": round(w.get("calories", 0) or 0, 1),
+                            "intensity": w.get("intensity", "moderate"),
+                            "duration_minutes": dur_mins,
+                            "date": dt.strftime("%Y-%m-%d %H:%M"),
+                            "timestamp_ms": int(dt.timestamp() * 1000),
+                        })
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[Health Manager] Oura workouts query error: {e}", flush=True)
+
+    # 2. Fetch Health Connect local workouts
+    conn = _get_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT row_id, exercise_type, title, notes, start_time, end_time FROM exercise_session_record_table WHERE start_time >= ? ORDER BY start_time DESC",
+                (cutoff_ms,),
+            )
+            for r in cursor.fetchall():
+                dur_mins = round((r["end_time"] - r["start_time"]) / 60000.0, 1)
+                type_name = EXERCISE_TYPE_MAP.get(r["exercise_type"], f"Exercise ({r['exercise_type']})")
+                workouts.append({
+                    "type": type_name,
+                    "title": r["title"] or type_name,
+                    "source": "Health Connect Database",
+                    "notes": r["notes"],
+                    "duration_minutes": dur_mins,
+                    "date": datetime.fromtimestamp(r["start_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
+                    "timestamp_ms": r["start_time"],
+                })
+            conn.close()
+        except Exception as e:
+            conn.close()
+            print(f"[Health Manager] Local workout query error: {e}", flush=True)
+
+    # Deduplicate workouts occurring within 5 minutes of each other and sort descending
+    workouts.sort(key=lambda x: x.get("timestamp_ms", 0), reverse=True)
+    deduped = []
+    seen_times: list[int] = []
+    for w in workouts:
+        ts = w.get("timestamp_ms", 0)
+        if not any(abs(ts - st) < 300000 for st in seen_times):
+            seen_times.append(ts)
+            w_clean = {k: v for k, v in w.items() if k != "timestamp_ms"}
+            deduped.append(w_clean)
+
+    return deduped
 
 
 def get_vitals_trend(metric: str = "resting_heart_rate", days: int = 14) -> list:

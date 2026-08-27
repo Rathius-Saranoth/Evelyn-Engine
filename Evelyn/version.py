@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.000"
-VERSION_NAME = "Unified Single-Stream Agentic Architecture"
+__version__ = "000.006.001"
+VERSION_NAME = "High-Resolution Granular Biometrics & Intraday Health Queries"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
