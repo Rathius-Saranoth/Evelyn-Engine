@@ -184,42 +184,80 @@ def find_procedure_clusters() -> list[list[dict]]:
 
 
 async def _do_procedure_consolidation() -> dict:
-    """Internal implementation for finding procedure clusters and creating proposals."""
+    """Internal implementation for processing manual queues and finding procedure clusters."""
     import memory_db
     import task_manager
     live_procs = memory_db.get_all_procedures(status="live")
     total_procs = len(live_procs)
-
-    clusters = find_procedure_clusters()
-    if not clusters:
-        print("[PROC_CONSOLIDATOR] No procedure clusters found for consolidation.", flush=True)
-        return {
-            "status": "success",
-            "proposals_created": 0,
-            "total_procedures": total_procs,
-            "sub_status": {
-                "total_procedures": total_procs,
-                "clusters_found": 0,
-                "proposals_created": 0,
-            },
-        }
-
     proposals_created = 0
-    print(f"[PROC_CONSOLIDATOR] Found {len(clusters)} procedure cluster(s) to consolidate.", flush=True)
 
-    for idx, cluster in enumerate(clusters):
-        task_manager.set_running(
-            "procedure_consolidator",
-            phase=f"Merging cluster {idx + 1}/{len(clusters)} ({len(cluster)} procedures)",
-            sub_status={
-                "total_procedures": total_procs,
-                "clusters_found": len(clusters),
-                "proposals_created": proposals_created,
-            },
-        )
-        proposal_id = await generate_procedure_merge_proposal(cluster)
-        if proposal_id:
-            proposals_created += 1
+    # 1. Process manually queued procedure merges
+    merge_queue = memory_db.get_procedure_merge_queue(status="pending")
+    if merge_queue:
+        print(f"[PROC_CONSOLIDATOR] Found {len(merge_queue)} manual procedure merge request(s) in queue.", flush=True)
+        for q_item in merge_queue:
+            task_manager.set_running(
+                "procedure_consolidator",
+                phase=f"Processing manual merge for procedures: {q_item.get('proc_ids')}",
+                sub_status={
+                    "total_procedures": total_procs,
+                    "manual_merges_queued": len(merge_queue),
+                    "proposals_created": proposals_created,
+                },
+            )
+            cluster = []
+            for pid in q_item.get("proc_id_list", []):
+                proc = memory_db.get_procedure(pid)
+                if proc and proc.get("status") == "live":
+                    cluster.append(proc)
+
+            if len(cluster) >= 2:
+                prop_id = await generate_procedure_merge_proposal(cluster)
+                if prop_id:
+                    proposals_created += 1
+
+            memory_db.dequeue_procedure_merge(q_item["id"])
+
+    # 2. Process manually queued procedure splits
+    split_queue = memory_db.get_procedure_split_queue(status="pending")
+    if split_queue:
+        print(f"[PROC_CONSOLIDATOR] Found {len(split_queue)} manual procedure split request(s) in queue.", flush=True)
+        for s_item in split_queue:
+            pid = s_item["proc_id"]
+            proc = memory_db.get_procedure(pid)
+            if proc and proc.get("status") == "live":
+                task_manager.set_running(
+                    "procedure_consolidator",
+                    phase=f"Processing manual split for procedure #{pid}",
+                    sub_status={
+                        "total_procedures": total_procs,
+                        "manual_splits_queued": len(split_queue),
+                        "proposals_created": proposals_created,
+                    },
+                )
+                prop_id = await generate_procedure_split_proposal(proc)
+                if prop_id:
+                    proposals_created += 1
+
+            memory_db.dequeue_procedure_split(pid)
+
+    # 3. Process automatic clustering on remaining procedures
+    clusters = find_procedure_clusters()
+    if clusters:
+        print(f"[PROC_CONSOLIDATOR] Found {len(clusters)} automated procedure cluster(s) to consolidate.", flush=True)
+        for idx, cluster in enumerate(clusters):
+            task_manager.set_running(
+                "procedure_consolidator",
+                phase=f"Merging cluster {idx + 1}/{len(clusters)} ({len(cluster)} procedures)",
+                sub_status={
+                    "total_procedures": total_procs,
+                    "clusters_found": len(clusters),
+                    "proposals_created": proposals_created,
+                },
+            )
+            proposal_id = await generate_procedure_merge_proposal(cluster)
+            if proposal_id:
+                proposals_created += 1
 
     return {
         "status": "success",
@@ -227,7 +265,7 @@ async def _do_procedure_consolidation() -> dict:
         "total_procedures": total_procs,
         "sub_status": {
             "total_procedures": total_procs,
-            "clusters_found": len(clusters),
+            "clusters_found": len(clusters) if clusters else 0,
             "proposals_created": proposals_created,
         },
     }
@@ -249,8 +287,10 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
             f"Procedure ID #{p['id']}:\n"
             f"  Trigger: {p['trigger_pattern']}\n"
             f"  Steps:\n{p['steps']}\n"
-            f"  Pitfalls: {p.get('pitfalls', 'None')}\n"
-            f"  Verification: {p.get('verification', 'None')}"
+            f"  Suggested Tools: {p.get('suggested_tools') or 'None'}\n"
+            f"  Pitfalls: {p.get('pitfalls') or 'None'}\n"
+            f"  Verification: {p.get('verification') or 'None'}\n"
+            f"  Tags: {p.get('tags') or 'None'}"
         )
 
     formatted_procs = "\n\n".join(proc_texts)
@@ -258,11 +298,15 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
     prompt = (
         "You are an expert systems archivist consolidating duplicate AI companion procedures.\n"
         "Analyze the following overlapping procedure rules and merge them into ONE single, master procedure.\n\n"
+        "Active Tools: write_file, read_file, write_journal_entry, create_task, complete_task, list_tasks, "
+        "get_agenda, get_health_metrics, get_recent_workouts, manage_vault_list, run_command, web_search, start_research, generate_image.\n"
+        "Note: Use 'write_file' for creating/updating notes, dream journals, and vault files. Reserve 'write_journal_entry' ONLY for daily narrative reflections.\n\n"
         "Requirements:\n"
         "1. Create a single 'trigger_pattern' that clearly encompasses all trigger phrases.\n"
         "2. Merge the 'steps' logically without losing important details or verification checks.\n"
-        "3. Keep tone and constraints intact.\n"
-        "4. Output ONLY a YAML block in this exact structure:\n\n"
+        "3. Select or combine the accurate 'suggested_tools' (comma-separated if multiple, or None).\n"
+        "4. Keep tone and constraints intact.\n"
+        "5. Output ONLY a YAML block in this exact structure:\n\n"
         "```yaml\n"
         "topic: \"Unified Evening Journaling Procedure\"\n"
         "reason: \"Consolidated duplicate evening and journaling procedure entries into one master rule.\"\n"
@@ -270,8 +314,10 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         "steps: |\n"
         "  1. Step one\n"
         "  2. Step two\n"
+        "suggested_tools: \"write_journal_entry\"\n"
         "pitfalls: \"Common mistakes to avoid\"\n"
         "verification: \"How to verify execution\"\n"
+        "tags: \"procedure, merged\"\n"
         "```\n\n"
         f"PROCEDURES TO MERGE:\n{formatted_procs}"
     )
@@ -309,13 +355,20 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         topic = parsed.get("topic", f"Merged Procedures {proc_ids}")
         reason = parsed.get("reason", f"Consolidated procedures {proc_ids} into a single master rule.")
         
+        tools_val = parsed.get("suggested_tools") or ""
+        if isinstance(tools_val, list):
+            tools_val = ", ".join([str(t).strip() for t in tools_val if str(t).strip()])
+        else:
+            tools_val = str(tools_val).strip()
+
         # Build merged procedure dict for storage as JSON/YAML in merged_observation
         merged_dict = {
             "trigger_pattern": parsed.get("trigger_pattern", ""),
             "steps": parsed.get("steps", ""),
-            "pitfalls": parsed.get("pitfalls", ""),
-            "verification": parsed.get("verification", ""),
-            "tags": "procedure, merged"
+            "suggested_tools": tools_val,
+            "pitfalls": parsed.get("pitfalls") or "",
+            "verification": parsed.get("verification") or "",
+            "tags": parsed.get("tags") or "procedure, merged"
         }
         merged_obs_yaml = yaml.dump(merged_dict, sort_keys=False, default_flow_style=False, width=10000)
 
@@ -335,3 +388,109 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
     except Exception as e:
         print(f"[PROC_CONSOLIDATOR ERROR] Failed to generate procedure merge proposal: {e}", flush=True)
         return None
+
+
+async def generate_procedure_split_proposal(proc: dict) -> Optional[int]:
+    """Call Ollama to split a compound procedure into multiple focused atomic procedures.
+
+    Args:
+        proc: Single procedure record dict.
+
+    Returns:
+        Optional[int]: Row ID of created proposal, or None on failure.
+    """
+    proc_id = proc["id"]
+    prompt = (
+        "You are an expert systems archivist refining AI companion operational procedures.\n"
+        "Analyze the following compound procedure rule and split it into TWO or more focused, atomic, distinct procedures.\n\n"
+        "Active Tools: write_file, read_file, write_journal_entry, create_task, complete_task, list_tasks, "
+        "get_agenda, get_health_metrics, get_recent_workouts, manage_vault_list, run_command, web_search, start_research, generate_image.\n"
+        "Note: Use 'write_file' for creating/updating notes, dream journals, and vault files. Reserve 'write_journal_entry' ONLY for daily narrative reflections.\n\n"
+        "Output ONLY a YAML block in this exact structure:\n\n"
+        "```yaml\n"
+        f"topic: \"Split Procedure #{proc_id}\"\n"
+        "reason: \"Decomposed compound procedure into distinct atomic operational rules.\"\n"
+        "procedures:\n"
+        "  - trigger_pattern: \"When X happens\"\n"
+        "    steps: |\n"
+        "      1. First step.\n"
+        "    suggested_tools: \"write_file\"\n"
+        "    pitfalls: \"Common mistakes to avoid\"\n"
+        "    verification: \"Verification check\"\n"
+        "    tags: \"skill/x, procedure/y\"\n"
+        "  - trigger_pattern: \"When Y happens\"\n"
+        "    steps: |\n"
+        "      1. Step for second rule.\n"
+        "    suggested_tools: \"create_task\"\n"
+        "    pitfalls: \"None\"\n"
+        "    verification: \"Verification check\"\n"
+        "    tags: \"skill/z, procedure/w\"\n"
+        "```\n\n"
+        f"COMPOUND PROCEDURE TO SPLIT:\n"
+        f"Procedure ID #{proc_id}:\n"
+        f"  Trigger: {proc['trigger_pattern']}\n"
+        f"  Steps:\n{proc['steps']}\n"
+        f"  Suggested Tools: {proc.get('suggested_tools') or 'None'}\n"
+        f"  Pitfalls: {proc.get('pitfalls') or 'None'}\n"
+        f"  Verification: {proc.get('verification') or 'None'}\n"
+        f"  Tags: {proc.get('tags') or 'None'}"
+    )
+
+    messages = [
+        {"role": "system", "content": "You are a precise procedure archivist. Output ONLY the specified YAML block."},
+        {"role": "user", "content": prompt}
+    ]
+
+    try:
+        url = f"{cfg.OLLAMA_URL}/api/chat"
+        payload = {
+            "model": cfg.MODEL_NAME,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": 0.2, "num_ctx": cfg.NUM_CTX}
+        }
+
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                print(f"[PROC_CONSOLIDATOR ERROR] Ollama call failed with status {resp.status_code}", flush=True)
+                return None
+            data = resp.json()
+            content = data.get("message", {}).get("content", "")
+
+        yaml_match = re.search(r"```(?:yaml)?\s*\n(.*?)```", content, re.DOTALL | re.IGNORECASE)
+        yaml_text = yaml_match.group(1) if yaml_match else content
+
+        parsed = yaml.safe_load(yaml_text)
+        if not isinstance(parsed, dict) or "procedures" not in parsed:
+            print(f"[PROC_CONSOLIDATOR ERROR] Could not parse valid YAML procedures list from model response:\n{content[:200]}", flush=True)
+            return None
+
+        topic = parsed.get("topic", f"Split Procedure #{proc_id}")
+        reason = parsed.get("reason", f"Decomposed compound procedure #{proc_id} into distinct atomic operational rules.")
+
+        for p_item in parsed.get("procedures", []):
+            if isinstance(p_item, dict) and "suggested_tools" in p_item:
+                tools_val = p_item.get("suggested_tools") or ""
+                if isinstance(tools_val, list):
+                    p_item["suggested_tools"] = ", ".join([str(t).strip() for t in tools_val if str(t).strip()])
+                else:
+                    p_item["suggested_tools"] = str(tools_val).strip()
+
+        prop_id = memory_db.insert_proposal(
+            type="procedure_split",
+            source_ids=[proc_id],
+            merged_observation=yaml.dump(parsed, sort_keys=False, default_flow_style=False, width=10000),
+            suggested_category="procedures",
+            reason=reason,
+            topic=topic,
+            confidence="high"
+        )
+
+        print(f"[PROC_CONSOLIDATOR] Created procedure split proposal ID #{prop_id} for procedure #{proc_id}", flush=True)
+        return prop_id
+
+    except Exception as e:
+        print(f"[PROC_CONSOLIDATOR ERROR] Failed to generate procedure split proposal: {e}", flush=True)
+        return None
+

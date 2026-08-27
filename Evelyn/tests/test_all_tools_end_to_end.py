@@ -167,6 +167,43 @@ class TestAllToolsEndToEnd(unittest.TestCase):
                 if orig_lists_dir:
                     cfg.LISTS_DIR = orig_lists_dir
 
+    def test_16_write_journal_entry_unified_staging(self):
+        """Test write_journal_entry routes through unified terminal_agent staging."""
+        res = evelyn_tools.write_journal_entry(
+            mood="Reflective",
+            vibe_check="Testing unified staging pipeline.",
+            narrative="Verified journal writes stage without creating temp files.",
+            message_in_a_bottle="Keep files clean.",
+            tags="staging, test"
+        )
+        self.assertIn("Approval ID: write_", res)
+        self.assertIn("Journal Entry", res)
+
+    def test_17_load_recent_messages_tool_context(self):
+        """Test that load_recent_messages injects [Tools Executed: ...] for assistant turns."""
+        import evelyn_server
+        import sqlite3
+        import time
+        con = sqlite3.connect(cfg.CHAT_DB_PATH)
+        con.execute(
+            "INSERT INTO messages (role, content, thinking, ts, tools_used) VALUES (?, ?, ?, ?, ?)",
+            ("assistant", "Here is your file.", None, time.time(), "write_file[write_123_abc]")
+        )
+        msg_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        con.commit()
+        con.close()
+
+        try:
+            msgs = evelyn_server.load_history()
+            asst_msgs = [m for m in msgs if m["role"] == "assistant" and "write_file[write_123_abc]" in m["content"]]
+            self.assertTrue(len(asst_msgs) > 0)
+            self.assertIn("[Tools Executed: write_file[write_123_abc]]", asst_msgs[-1]["content"])
+        finally:
+            con = sqlite3.connect(cfg.CHAT_DB_PATH)
+            con.execute("DELETE FROM messages WHERE id = ?", (msg_id,))
+            con.commit()
+            con.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -695,8 +695,19 @@ THREAD_BREAK_MARKER = "[THREAD_BREAK]"
 _LEAKED_MODEL_TOKENS = [
     "thought\n",
     "<channel|>",
+    "<|channel|>",
     "lania_thought\n",
     "<tool_call|>",
+    "<|tool_call|>",
+    "<|thought|>",
+    "</|thought|>",
+    "◀channel▶",
+    "◀thought▶",
+    "◀/thought▶",
+    "◀call:",
+    "▶call",
+    "◀|",
+    "|▶",
 ]
 
 
@@ -751,7 +762,7 @@ def load_history() -> list[dict]:
 
     # 1. Fetch today's messages (newest first)
     today_rows = con.execute(
-        "SELECT role, content, ts FROM messages WHERE id > ? AND ts >= ? ORDER BY id DESC LIMIT ?",
+        "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts >= ? ORDER BY id DESC LIMIT ?",
         (after_id, today_start, limit),
     ).fetchall()
 
@@ -762,7 +773,7 @@ def load_history() -> list[dict]:
     prev_rows = []
     if prev_day_limit > 0:
         prev_rows = con.execute(
-            "SELECT role, content, ts FROM messages WHERE id > ? AND ts < ? ORDER BY id DESC LIMIT ?",
+            "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts < ? ORDER BY id DESC LIMIT ?",
             (after_id, today_start, prev_day_limit),
         ).fetchall()
 
@@ -798,13 +809,18 @@ def load_history() -> list[dict]:
             except (OSError, OverflowError, ValueError):
                 pass
 
+        role = r["role"]
+        content = r["content"]
+        if role == "user":
+            content = f"{_time_of_day_label(ts)}{content}"
+        elif role == "assistant" and r["tools_used"]:
+            tools_summary = r["tools_used"].strip()
+            if tools_summary:
+                content = f"{content}\n\n[Tools Executed: {tools_summary}]"
+
         messages.append({
-            "role": r["role"],
-            "content": (
-                f"{_time_of_day_label(ts)}{r['content']}"
-                if r["role"] == "user"
-                else r["content"]
-            ),
+            "role": role,
+            "content": content,
         })
 
     # Strip orphaned trailing user/system messages (no assistant response yet).
@@ -1587,14 +1603,7 @@ async def _process_chat_background(
                             tool_entry = f"{fn_name}[{m.group(1)}]"
                             meta_entry["data"] = {"path": m.group(1)}
                             await put("tool_data", name=fn_name, data=m.group(1))
-                    elif fn_name == "write_journal_entry":
-                        import re
-                        m = re.search(r'entry: (Journal Entry [^\.]+\.md)', result)
-                        if m:
-                            tool_entry = f"{fn_name}[{m.group(1)}]"
-                            meta_entry["data"] = {"id": m.group(1)}
-                            await put("tool_data", name=fn_name, data=m.group(1))
-                    elif fn_name in ("run_command", "write_file"):
+                    elif fn_name in ("run_command", "write_file", "write_journal_entry"):
                         import re
                         m = re.search(r'Approval ID:\s*(cmd_\w+|write_\w+)', result)
                         if m:
@@ -4633,8 +4642,32 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
                     verification=parsed_proc.get("verification"),
                     source="consolidated",
                     status="live",
-                    tags=parsed_proc.get("tags")
+                    tags=parsed_proc.get("tags"),
+                    suggested_tools=parsed_proc.get("suggested_tools"),
                 )
+            memory_db.apply_proposal(id)
+        elif prop["type"] == "procedure_split":
+            import yaml
+            source_ids = prop.get("source_ids", [])
+            for eid in source_ids:
+                memory_db.delete_procedure(eid)
+            try:
+                parsed_data = yaml.safe_load(final_text)
+                child_procs = parsed_data.get("procedures", []) if isinstance(parsed_data, dict) else (parsed_data if isinstance(parsed_data, list) else [])
+            except Exception:
+                child_procs = []
+            for cp in child_procs:
+                if isinstance(cp, dict) and "trigger_pattern" in cp:
+                    memory_db.insert_procedure(
+                        trigger_pattern=cp["trigger_pattern"],
+                        steps=cp.get("steps", ""),
+                        pitfalls=cp.get("pitfalls"),
+                        verification=cp.get("verification"),
+                        source="split",
+                        status="live",
+                        tags=cp.get("tags"),
+                        suggested_tools=cp.get("suggested_tools"),
+                    )
             memory_db.apply_proposal(id)
         elif prop["type"] == "split":
             import yaml
@@ -4833,6 +4866,21 @@ class ProcedureReviewBody(BaseModel):
     pitfalls: str | None = None
     verification: str | None = None
     tags: str | None = None
+    suggested_tools: str | None = None
+
+
+class ProcedureQueueMergeRequest(BaseModel):
+    proc_ids: list[int]
+
+
+class ProcedureUpdateRequest(BaseModel):
+    trigger_pattern: str | None = None
+    steps: str | None = None
+    pitfalls: str | None = None
+    verification: str | None = None
+    tags: str | None = None
+    suggested_tools: str | None = None
+    status: str | None = None
 
 
 @app.get("/api/review/procedures")
@@ -4853,8 +4901,8 @@ async def action_procedure(
 
     Args:
         id:     Procedure row ID.
-        action: "approve" | "deny".
-        body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags.
+        action: "approve" | "deny" | "edit".
+        body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags/suggested_tools.
     """
     import Evelyn.tools.memory_db as memory_db
     if action in ("deny", "delete"):
@@ -4873,6 +4921,8 @@ async def action_procedure(
                 update_fields["verification"] = body.verification
             if body.tags is not None:
                 update_fields["tags"] = body.tags
+            if body.suggested_tools is not None:
+                update_fields["suggested_tools"] = body.suggested_tools
 
         success = memory_db.update_procedure(id, **update_fields)
         if not success:
@@ -4891,6 +4941,8 @@ async def action_procedure(
                 update_fields["verification"] = body.verification
             if body.tags is not None:
                 update_fields["tags"] = body.tags
+            if body.suggested_tools is not None:
+                update_fields["suggested_tools"] = body.suggested_tools
 
         update_fields["status"] = "live"
         success = memory_db.update_procedure(id, **update_fields)
@@ -4899,6 +4951,81 @@ async def action_procedure(
         return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
+
+
+@app.get("/api/procedures")
+async def get_procedures(status: str | None = None, _: None = Depends(check_auth)):
+    """Return all procedures matching status ('live', 'extracted', 'archived', or 'all')."""
+    import Evelyn.tools.memory_db as memory_db
+    target_status = status if status and status != "all" else None
+    procs = memory_db.get_all_procedures(status=target_status)
+    merge_queued_ids = memory_db.get_all_queued_procedure_merge_ids()
+    split_queued_ids = memory_db.get_all_queued_procedure_split_ids()
+    for p in procs:
+        p["is_queued_merge"] = p["id"] in merge_queued_ids
+        p["is_queued_split"] = p["id"] in split_queued_ids
+    return procs
+
+
+@app.patch("/api/procedures/{id}")
+async def patch_procedure(id: int, body: ProcedureUpdateRequest, _: None = Depends(check_auth)):
+    """Update fields of an existing procedure."""
+    import Evelyn.tools.memory_db as memory_db
+    fields = {}
+    if body.trigger_pattern is not None:
+        fields["trigger_pattern"] = body.trigger_pattern
+    if body.steps is not None:
+        fields["steps"] = body.steps
+    if body.pitfalls is not None:
+        fields["pitfalls"] = body.pitfalls
+    if body.verification is not None:
+        fields["verification"] = body.verification
+    if body.tags is not None:
+        fields["tags"] = body.tags
+    if body.suggested_tools is not None:
+        fields["suggested_tools"] = body.suggested_tools
+    if body.status is not None:
+        fields["status"] = body.status
+
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+    success = memory_db.update_procedure(id, **fields)
+    if not success:
+        raise HTTPException(status_code=404, detail="Procedure not found")
+    return {"status": "ok"}
+
+
+@app.post("/api/procedures/queue_merge")
+async def queue_procedure_merge(req: ProcedureQueueMergeRequest, _: None = Depends(check_auth)):
+    """Enqueue multiple procedure IDs to be merged in the background."""
+    import Evelyn.tools.memory_db as memory_db
+    if len(req.proc_ids) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 procedure IDs are required to queue a merge")
+    queue_id = memory_db.enqueue_procedure_merge(req.proc_ids)
+    return {"status": "ok", "queue_id": queue_id}
+
+
+@app.post("/api/procedures/{id}/queue_split")
+async def queue_procedure_split(id: int, _: None = Depends(check_auth)):
+    """Enqueue a procedure ID to be evaluated for splitting in the background."""
+    import Evelyn.tools.memory_db as memory_db
+    proc = memory_db.get_procedure(id)
+    if not proc:
+        raise HTTPException(status_code=404, detail="Procedure not found")
+    success = memory_db.enqueue_procedure_split(id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to enqueue procedure split")
+    return {"status": "ok", "proc_id": id, "queued": True}
+
+
+@app.post("/api/procedures/{id}/archive")
+async def archive_procedure(id: int, _: None = Depends(check_auth)):
+    """Soft delete/archive a procedure."""
+    import Evelyn.tools.memory_db as memory_db
+    success = memory_db.delete_procedure(id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Procedure not found")
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -4924,6 +5051,16 @@ async def get_multiple_approvals_status(body: ApprovalStatusRequest, _: None = D
         approval_id: terminal_agent.get_approval_status(approval_id)
         for approval_id in body.ids
     }
+
+
+@app.get("/api/terminal/details/{approval_id}")
+async def get_approval_details(approval_id: str, _: None = Depends(check_auth)):
+    """Return full details including content for a specific approval ID."""
+    import Evelyn.tools.terminal_agent as terminal_agent
+    details = terminal_agent.get_approval_details(approval_id)
+    if not details:
+        raise HTTPException(status_code=404, detail="Approval request not found or expired")
+    return details
 
 
 @app.post("/api/terminal/approve/{approval_id}")

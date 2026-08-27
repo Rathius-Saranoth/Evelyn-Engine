@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.017"
-VERSION_NAME = "RAG Ingestion Boilerplate Filtering & YAML Exclusion Support"
+__version__ = "000.005.021"
+VERSION_NAME = "Tool Prediction Budget Expansion & Special Token Sanitization"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

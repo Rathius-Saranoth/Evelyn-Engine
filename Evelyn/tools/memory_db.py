@@ -936,7 +936,7 @@ def has_pending_proposal_for(entry_ids: list[int], type: Optional[str] = None) -
 
 
 # ===========================================================================
-# Procedures — CRUD
+# Procedures — CRUD & Queue Management
 # ===========================================================================
 
 def insert_procedure(
@@ -947,6 +947,7 @@ def insert_procedure(
     source: str = "extracted",
     status: str = "live",
     tags: Optional[str] = None,
+    suggested_tools: Optional[str] = None,
 ) -> int:
     """Insert a new procedure and return its row ID.
 
@@ -958,6 +959,7 @@ def insert_procedure(
         source: 'extracted', 'manual', or 'model'.
         status: 'live', 'extracted', or 'archived'.
         tags: Semantic tags.
+        suggested_tools: Comma-separated list of engine tool names (e.g. 'write_file, read_file').
 
     Returns:
         int: The database row ID of the new procedure.
@@ -966,10 +968,10 @@ def insert_procedure(
     cur = con.execute(
         """INSERT INTO procedures
            (trigger_pattern, steps, pitfalls, verification, source, status,
-            tags, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            tags, suggested_tools, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (trigger_pattern, steps, pitfalls, verification, source, status,
-         tags, time.time()),
+         tags, suggested_tools, time.time()),
     )
     row_id = cur.lastrowid
     con.commit()
@@ -994,20 +996,25 @@ def get_procedure(proc_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def get_all_procedures(status: str = "live") -> list[dict]:
-    """Fetch all procedures matching a given status.
+def get_all_procedures(status: Optional[str] = "live") -> list[dict]:
+    """Fetch all procedures matching a given status (or all if status is None or 'all').
 
     Args:
-        status: Status filter, e.g. 'live' or 'extracted'.
+        status: Status filter, e.g. 'live', 'extracted', 'archived', or None/'all'.
 
     Returns:
         list[dict]: A list of procedure dictionaries.
     """
     con = get_db()
-    rows = con.execute(
-        "SELECT * FROM procedures WHERE status = ? ORDER BY created_at DESC",
-        (status,),
-    ).fetchall()
+    if status and status != "all":
+        rows = con.execute(
+            "SELECT * FROM procedures WHERE status = ? ORDER BY created_at DESC",
+            (status,),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT * FROM procedures ORDER BY created_at DESC"
+        ).fetchall()
     con.close()
     return [dict(r) for r in rows]
 
@@ -1022,16 +1029,23 @@ def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]
     Returns:
         list[dict]: List of matching procedure dictionaries.
     """
-    # Simple word tokenization to build a search pattern
-    words = [w.strip(".,;:!?") for w in query.lower().split() if len(w) > 3]
-    if not words:
+    stopwords = {
+        "when", "what", "with", "that", "this", "your", "have", "from", "about",
+        "user", "says", "asks", "tells", "like", "will", "would", "could", "should",
+        "they", "them", "their", "there", "then", "into", "onto", "over", "under",
+        "make", "want", "need", "some", "time", "just", "also", "been", "were"
+    }
+    raw_words = [w.strip(".,;:!?\"'()[]{}") for w in query.lower().split()]
+    meaningful_words = [w for w in raw_words if len(w) > 3 and w not in stopwords]
+    if not meaningful_words:
+        meaningful_words = [w for w in raw_words if len(w) > 3]
+    if not meaningful_words:
         return []
 
     con = get_db()
-    # We do a direct LIKE check for the first few main keywords or direct match
     clauses = []
     params = [status]
-    for w in words[:4]:
+    for w in meaningful_words[:4]:
         clauses.append("trigger_pattern LIKE ?")
         params.append(f"%{w}%")
 
@@ -1074,7 +1088,7 @@ def update_procedure(proc_id: int, **fields) -> bool:
     """
     valid_cols = {
         "trigger_pattern", "steps", "pitfalls", "verification",
-        "source", "status", "tags", "last_retrieved_at", "retrieval_count",
+        "source", "status", "tags", "suggested_tools", "last_retrieved_at", "retrieval_count",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -1103,3 +1117,134 @@ def delete_procedure(proc_id: int) -> bool:
         bool: True if archived, False otherwise.
     """
     return update_procedure(proc_id, status="archived")
+
+
+# ---------------------------------------------------------------------------
+# Procedure Queue Management (Manual Merge & Split)
+# ---------------------------------------------------------------------------
+
+def enqueue_procedure_merge(proc_ids: list[int]) -> int:
+    """Enqueue a list of procedure IDs to be merged during the next consolidation pass.
+
+    Args:
+        proc_ids: List of procedure row IDs.
+
+    Returns:
+        int: Row ID of the created queue item.
+    """
+    con = get_db()
+    now = time.time()
+    ids_str = ",".join(str(i) for i in sorted(set(proc_ids)))
+    cur = con.execute(
+        """INSERT INTO procedure_merge_queue (proc_ids, status, created_at, updated_at)
+           VALUES (?, 'pending', ?, ?)""",
+        (ids_str, now, now),
+    )
+    queue_id = cur.lastrowid
+    con.commit()
+    con.close()
+    return queue_id
+
+
+def get_procedure_merge_queue(status: str = "pending") -> list[dict]:
+    """Retrieve all pending procedure merge queue items.
+
+    Args:
+        status: Filter by status ('pending', 'completed', etc.).
+
+    Returns:
+        list[dict]: Queue records with parsed 'proc_ids' list.
+    """
+    con = get_db()
+    rows = con.execute(
+        "SELECT id, proc_ids, status, created_at, updated_at FROM procedure_merge_queue WHERE status = ? ORDER BY created_at ASC",
+        (status,),
+    ).fetchall()
+    con.close()
+    results = []
+    for r in rows:
+        d = dict(r)
+        d["proc_id_list"] = [int(x) for x in d["proc_ids"].split(",") if x.strip().isdigit()]
+        results.append(d)
+    return results
+
+
+def dequeue_procedure_merge(queue_id: int) -> bool:
+    """Remove a merge queue item once processed.
+
+    Args:
+        queue_id: Row ID of the queue item.
+
+    Returns:
+        bool: True if deleted.
+    """
+    con = get_db()
+    try:
+        cur = con.execute("DELETE FROM procedure_merge_queue WHERE id = ?", (queue_id,))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def get_all_queued_procedure_merge_ids() -> set[int]:
+    """Return a set of all procedure IDs currently waiting in the merge queue."""
+    queued = get_procedure_merge_queue(status="pending")
+    all_ids = set()
+    for item in queued:
+        all_ids.update(item.get("proc_id_list", []))
+    return all_ids
+
+
+def enqueue_procedure_split(proc_id: int) -> bool:
+    """Enqueue a procedure to be evaluated for splitting during the next consolidation pass.
+
+    Args:
+        proc_id: Row ID of the procedure.
+
+    Returns:
+        bool: True if enqueued.
+    """
+    con = get_db()
+    now = time.time()
+    try:
+        con.execute(
+            """INSERT INTO procedure_split_queue (proc_id, status, created_at, updated_at)
+               VALUES (?, 'pending', ?, ?)
+               ON CONFLICT(proc_id) DO UPDATE SET status = 'pending', updated_at = ?""",
+            (proc_id, now, now, now),
+        )
+        con.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        con.close()
+
+
+def get_procedure_split_queue(status: str = "pending") -> list[dict]:
+    """Retrieve all procedures currently in the split queue."""
+    con = get_db()
+    rows = con.execute(
+        "SELECT id, proc_id, status, created_at, updated_at FROM procedure_split_queue WHERE status = ? ORDER BY created_at ASC",
+        (status,),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def dequeue_procedure_split(proc_id: int) -> bool:
+    """Remove a procedure from the split queue once processed."""
+    con = get_db()
+    try:
+        cur = con.execute("DELETE FROM procedure_split_queue WHERE proc_id = ?", (proc_id,))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def get_all_queued_procedure_split_ids() -> set[int]:
+    """Return a set of procedure IDs currently waiting in the split queue."""
+    items = get_procedure_split_queue(status="pending")
+    return {item["proc_id"] for item in items}

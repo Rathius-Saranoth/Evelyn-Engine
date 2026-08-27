@@ -290,6 +290,7 @@
 
   <div class="tabs">
     <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
+    <button class="tab-btn" id="tab-procedures" onclick="switchTab('procedures-mgmt')">⚙️ Procedures (<span id="count-all-proc">0</span>)</button>
     <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
     <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
     <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
@@ -411,6 +412,10 @@
     let extractions = [];
     let proposals = [];
     let procedures = [];
+    let allProcedures = [];
+    let procMgmtFilter = 'all';
+    let procMgmtSearch = '';
+    let selectedProcIds = new Set();
     let researchTasks = [];
     let heavyTasksData = { is_any_running: false, tasks: [], research_tasks: [] };
     let liveUpdatesTimer = null;
@@ -779,11 +784,27 @@
         if (resRes.ok) researchTasks = await resRes.json();
         if (resTasks.ok) heavyTasksData = await resTasks.json();
 
+        await loadAllProcedures();
+
         updateCounts();
         renderHeavyTasks();
         render();
       } catch (e) {
         document.getElementById('container').innerHTML = `<div class="empty-state">Error loading data.</div>`;
+      }
+    }
+
+    async function loadAllProcedures() {
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures`, { headers: headers() });
+        checkUnauthorized(res);
+        if (res.ok) {
+          allProcedures = await res.json();
+          const procCountEl = document.getElementById('count-all-proc');
+          if (procCountEl) procCountEl.textContent = allProcedures.length;
+        }
+      } catch (e) {
+        console.error('Error loading all procedures:', e);
       }
     }
 
@@ -1097,6 +1118,8 @@
 
       document.getElementById('count-triage').textContent = unifiedItems.length;
       document.getElementById('count-res').textContent = researchTasks.length;
+      const allProcEl = document.getElementById('count-all-proc');
+      if (allProcEl) allProcEl.textContent = allProcedures.length;
 
       const filterExt = document.getElementById('count-filter-ext');
       if (filterExt) filterExt.textContent = extCount;
@@ -1120,6 +1143,8 @@
       }
 
       document.getElementById('tab-triage').classList.toggle('active', currentTab === 'triage');
+      const procTabBtn = document.getElementById('tab-procedures');
+      if (procTabBtn) procTabBtn.classList.toggle('active', currentTab === 'procedures-mgmt');
       document.getElementById('tab-research').classList.toggle('active', currentTab === 'research');
       const ingestTabBtn = document.getElementById('tab-ingest');
       if (ingestTabBtn) ingestTabBtn.classList.toggle('active', currentTab === 'ingest');
@@ -1128,6 +1153,10 @@
       
       const title = document.getElementById('header-title');
       if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
+      else if (currentTab === 'procedures-mgmt') {
+        title.textContent = '⚙️ Operational Procedures Management';
+        loadAllProcedures();
+      }
       else if (currentTab === 'research') title.textContent = 'Deep Research Dashboard';
       else if (currentTab === 'ingest') title.textContent = 'Document Ingestion & Staging';
       else if (currentTab === 'telemetry') {
@@ -1470,13 +1499,15 @@
         const pitfalls = document.getElementById(`proc-pitfalls-${id}`).value.trim();
         const verification = document.getElementById(`proc-verification-${id}`).value.trim();
         const tags = document.getElementById(`proc-tags-${id}`).value.trim();
+        const suggestedTools = document.getElementById(`proc-tools-${id}`) ? document.getElementById(`proc-tools-${id}`).value.trim() : null;
         
         body = JSON.stringify({
           trigger_pattern: trigger,
           steps: steps,
           pitfalls: pitfalls || null,
           verification: verification || null,
-          tags: tags || null
+          tags: tags || null,
+          suggested_tools: suggestedTools || null
         });
       }
       
@@ -1488,6 +1519,7 @@
         });
         if (res.ok) {
           unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          await loadAllProcedures();
           updateCounts();
           render();
         } else {
@@ -2633,6 +2665,10 @@
                 <input type="text" id="proc-trigger-${item.id}" value="${escapeHtml(item.trigger_pattern)}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
               <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
+                <input type="text" id="proc-tools-${item.id}" value="${escapeHtml(item.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+              <div>
                 <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">STEPS (Markdown list of operations)</label>
                 <textarea id="proc-steps-${item.id}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 100px;">${escapeHtml(item.steps)}</textarea>
               </div>
@@ -2696,6 +2732,8 @@
           updateLiveDiff(item.id);
         });
 
+      } else if (currentTab === 'procedures-mgmt') {
+        renderProceduresManagement();
       } else if (currentTab === 'research') {
         const hasForm = !!document.getElementById('research-query');
         
@@ -2902,6 +2940,288 @@
       } else if (currentTab === 'telemetry') {
         renderTelemetryDashboard();
       }
+    }
+
+    function setProcMgmtFilter(filter) {
+      procMgmtFilter = filter;
+      render();
+    }
+
+    function toggleProcSelection(id) {
+      if (selectedProcIds.has(id)) {
+        selectedProcIds.delete(id);
+      } else {
+        selectedProcIds.add(id);
+      }
+      render();
+    }
+
+    function selectAllVisibleProcedures(select) {
+      const queryVal = (document.getElementById('proc-mgmt-search') ? document.getElementById('proc-mgmt-search').value : procMgmtSearch).trim().toLowerCase();
+      let visible = allProcedures;
+      if (procMgmtFilter !== 'all') {
+        visible = visible.filter(p => p.status === procMgmtFilter);
+      }
+      if (queryVal) {
+        visible = visible.filter(p =>
+          (p.trigger_pattern && p.trigger_pattern.toLowerCase().includes(queryVal)) ||
+          (p.steps && p.steps.toLowerCase().includes(queryVal)) ||
+          (p.suggested_tools && p.suggested_tools.toLowerCase().includes(queryVal)) ||
+          (p.tags && p.tags.toLowerCase().includes(queryVal))
+        );
+      }
+      if (select) {
+        visible.forEach(p => selectedProcIds.add(p.id));
+      } else {
+        selectedProcIds.clear();
+      }
+      render();
+    }
+
+    async function queueSelectedProceduresMerge() {
+      const ids = Array.from(selectedProcIds);
+      if (ids.length < 2) {
+        alert('Please select at least 2 procedures to merge.');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures/queue_merge`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ proc_ids: ids })
+        });
+        if (res.ok) {
+          alert(`Successfully queued ${ids.length} procedures for background consolidation! The merge proposal will appear in the Triage Queue.`);
+          selectedProcIds.clear();
+          await loadAllProcedures();
+          await loadData();
+          render();
+        } else {
+          const err = await res.json();
+          alert(`Failed to queue merge: ${err.detail || 'Unknown error'}`);
+        }
+      } catch (e) {
+        alert(`Network error queuing merge: ${e.message}`);
+      }
+    }
+
+    async function queueSingleProcedureSplit(id) {
+      if (!confirm(`Queue procedure #${id} for splitting into distinct atomic procedures?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures/${id}/queue_split`, {
+          method: 'POST',
+          headers: headers()
+        });
+        if (res.ok) {
+          alert(`Procedure #${id} queued for background splitting! Decomposed proposal will appear in the Triage Queue.`);
+          await loadAllProcedures();
+          render();
+        } else {
+          const err = await res.json();
+          alert(`Failed to queue split: ${err.detail || 'Unknown error'}`);
+        }
+      } catch (e) {
+        alert(`Network error queuing split: ${e.message}`);
+      }
+    }
+
+    async function saveProcedureEdits(id) {
+      const trigger = document.getElementById(`proc-mgmt-trigger-${id}`)?.value.trim();
+      const tools = document.getElementById(`proc-mgmt-tools-${id}`)?.value.trim();
+      const steps = document.getElementById(`proc-mgmt-steps-${id}`)?.value.trim();
+      const pitfalls = document.getElementById(`proc-mgmt-pitfalls-${id}`)?.value.trim();
+      const verif = document.getElementById(`proc-mgmt-verif-${id}`)?.value.trim();
+      const tags = document.getElementById(`proc-mgmt-tags-${id}`)?.value.trim();
+
+      const body = {
+        trigger_pattern: trigger,
+        suggested_tools: tools || null,
+        steps: steps,
+        pitfalls: pitfalls || null,
+        verification: verif || null,
+        tags: tags || null
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures/${id}`, {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify(body)
+        });
+        if (res.ok) {
+          alert(`Procedure #${id} updated successfully.`);
+          await loadAllProcedures();
+          render();
+        } else {
+          const err = await res.json();
+          alert(`Failed to save procedure: ${err.detail || 'Unknown error'}`);
+        }
+      } catch (e) {
+        alert(`Network error saving procedure: ${e.message}`);
+      }
+    }
+
+    async function archiveProcedureItem(id) {
+      if (!confirm(`Archive procedure #${id}?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures/${id}/archive`, {
+          method: 'POST',
+          headers: headers()
+        });
+        if (res.ok) {
+          await loadAllProcedures();
+          render();
+        } else {
+          alert('Failed to archive procedure.');
+        }
+      } catch (e) {
+        alert('Network error archiving procedure.');
+      }
+    }
+
+    async function restoreProcedureItem(id) {
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures/${id}`, {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify({ status: 'live' })
+        });
+        if (res.ok) {
+          await loadAllProcedures();
+          render();
+        } else {
+          alert('Failed to restore procedure.');
+        }
+      } catch (e) {
+        alert('Network error restoring procedure.');
+      }
+    }
+
+    function renderProceduresManagement() {
+      const container = document.getElementById('container');
+      const liveCount = allProcedures.filter(p => p.status === 'live').length;
+      const extractedCount = allProcedures.filter(p => p.status === 'extracted').length;
+      const archivedCount = allProcedures.filter(p => p.status === 'archived').length;
+
+      let filtered = allProcedures;
+      if (procMgmtFilter !== 'all') {
+        filtered = filtered.filter(p => p.status === procMgmtFilter);
+      }
+
+      if (procMgmtSearch) {
+        const q = procMgmtSearch.toLowerCase();
+        filtered = filtered.filter(p =>
+          (p.trigger_pattern && p.trigger_pattern.toLowerCase().includes(q)) ||
+          (p.steps && p.steps.toLowerCase().includes(q)) ||
+          (p.suggested_tools && p.suggested_tools.toLowerCase().includes(q)) ||
+          (p.tags && p.tags.toLowerCase().includes(q))
+        );
+      }
+
+      let selectionBarHtml = '';
+      if (selectedProcIds.size > 0) {
+        selectionBarHtml = `
+          <div style="background: var(--surface2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div style="font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
+              <span>⚡ ${selectedProcIds.size} procedure(s) selected for consolidation</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-action" onclick="queueSelectedProceduresMerge()">Merge Selected (${selectedProcIds.size})</button>
+              <button class="btn btn-reject" onclick="selectAllVisibleProcedures(false)">Clear Selection</button>
+            </div>
+          </div>
+        `;
+      }
+
+      const filterBarHtml = `
+        <div class="filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px;">
+          <button class="filter-pill ${procMgmtFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtFilter('all')">All (${allProcedures.length})</button>
+          <button class="filter-pill ${procMgmtFilter === 'live' ? 'active' : ''}" onclick="setProcMgmtFilter('live')">Live (${liveCount})</button>
+          <button class="filter-pill ${procMgmtFilter === 'extracted' ? 'active' : ''}" onclick="setProcMgmtFilter('extracted')">Pending Review (${extractedCount})</button>
+          <button class="filter-pill ${procMgmtFilter === 'archived' ? 'active' : ''}" onclick="setProcMgmtFilter('archived')">Archived (${archivedCount})</button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+          <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures by trigger, steps, tools, or tags..." value="${escapeHtml(procMgmtSearch)}" oninput="procMgmtSearch = this.value; render();" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+          <button class="filter-pill" onclick="selectAllVisibleProcedures(true)">Select All Visible</button>
+        </div>
+        ${selectionBarHtml}
+      `;
+
+      if (filtered.length === 0) {
+        container.innerHTML = filterBarHtml + `<div class="empty-state">No procedures found matching your filter/search criteria.</div>`;
+        return;
+      }
+
+      const cardsHtml = filtered.map(p => {
+        const isSelected = selectedProcIds.has(p.id);
+        const statusBadge = p.status === 'live'
+          ? `<span class="badge" style="background: #10b981; color: #fff;">LIVE</span>`
+          : (p.status === 'extracted'
+            ? `<span class="badge" style="background: #f59e0b; color: #fff;">PENDING REVIEW</span>`
+            : `<span class="badge" style="background: #6b7280; color: #fff;">ARCHIVED</span>`);
+
+        const queuedBadge = p.is_queued_merge
+          ? `<span class="badge" style="background: #3b82f6; color: #fff;">⚡ QUEUED FOR MERGE</span>`
+          : (p.is_queued_split
+            ? `<span class="badge" style="background: #8b5cf6; color: #fff;">✂️ QUEUED FOR SPLIT</span>`
+            : '');
+
+        return `
+          <div class="card" style="border-left: ${isSelected ? '3px solid var(--accent)' : '1px solid var(--border)'};">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleProcSelection(${p.id})" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent);" />
+                <strong style="color: #fff;">Procedure #${p.id}</strong>
+                ${statusBadge}
+                ${queuedBadge}
+              </div>
+              <div style="font-size: 12px; color: var(--text-dim);">Source: ${escapeHtml(p.source || 'user')}</div>
+            </div>
+            <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TRIGGER PATTERN (Conversational query keyword)</label>
+                <input type="text" id="proc-mgmt-trigger-${p.id}" value="${escapeHtml(p.trigger_pattern || '')}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
+                <input type="text" id="proc-mgmt-tools-${p.id}" value="${escapeHtml(p.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">STEPS (Markdown list of operations)</label>
+                <textarea id="proc-mgmt-steps-${p.id}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 90px;">${escapeHtml(p.steps || '')}</textarea>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                  <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">PITFALLS / WHAT TO AVOID</label>
+                  <input type="text" id="proc-mgmt-pitfalls-${p.id}" value="${escapeHtml(p.pitfalls || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">VERIFICATION CHECKS</label>
+                  <input type="text" id="proc-mgmt-verif-${p.id}" value="${escapeHtml(p.verification || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+                </div>
+              </div>
+              <div>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TAGS (Comma separated)</label>
+                <input type="text" id="proc-mgmt-tags-${p.id}" value="${escapeHtml(p.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+              </div>
+            </div>
+            <div class="card-actions" style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-action" onclick="saveProcedureEdits(${p.id})">💾 Save Changes</button>
+                <button class="btn" style="background: var(--surface2); border: 1px solid var(--border); color: var(--text);" onclick="queueSingleProcedureSplit(${p.id})">✂️ Queue Split</button>
+              </div>
+              <div>
+                ${p.status === 'archived'
+                  ? `<button class="btn btn-approve" onclick="restoreProcedureItem(${p.id})">♻️ Restore to Live</button>`
+                  : `<button class="btn btn-reject" onclick="archiveProcedureItem(${p.id})">📦 Archive</button>`
+                }
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = filterBarHtml + cardsHtml;
     }
 
     let availableDomains = [];

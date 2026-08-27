@@ -833,6 +833,17 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
         f"instructions, workflows, rules, or guidelines that {cfg.USER_NAME} (the user) asks {cfg.ASSISTANT_NAME} (the AI) to follow. "
         "Specifically look for patterns like: 'When X happens, do Y, watch out for Z' or 'If I ask for A, do B'. "
         "Ignore standard factual statements, preferences, small talk, and general chat. \n\n"
+        "Active Engine Tools Available for Procedures:\n"
+        "- write_file: Write or update notes, dream journals, feature ideas, or vault documents (e.g. Dream Journal/...)\n"
+        "- read_file: Read files in workspace or vault notes\n"
+        "- write_journal_entry: Reserved EXCLUSIVELY for Evelyn's daily reflection / wrap-up journal entry (not dream journals)\n"
+        "- create_task, complete_task, list_tasks, get_agenda: Manage Google Tasks and schedule\n"
+        "- get_health_metrics, get_recent_workouts: Query Oura Ring and Health Connect data\n"
+        "- manage_vault_list: Manage checklists in vault (groceries, packing, hardware lists)\n"
+        "- run_command: Run shell commands or tests in terminal\n"
+        "- web_search, start_research: Web searches and multi-source research\n"
+        "- generate_image: FLUX image generation\n"
+        "- sync_google_tasks, sync_google_calendar, sync_google_drive: Cloud sync operations\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no procedural rules are found, output an empty list.\n\n"
         "```procedures\n"
@@ -841,6 +852,7 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
         "    steps: |\n"
         "      1. First step to take.\n"
         "      2. Second step to take.\n"
+        "    suggested_tools: \"write_file\" # comma-separated tool names if applicable, or None\n"
         "    pitfalls: \"Common mistakes or things to watch out for/avoid.\" # optional\n"
         "    verification: \"How to verify the action succeeded.\" # optional\n"
         "    tags: \"skill/x, procedure/y\" # comma-separated semantic tags starting with skill/ or procedure/\n"
@@ -890,9 +902,9 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
         steps = str(item.get("steps", "")).strip()
         pitfalls = item.get("pitfalls")
         verification = item.get("verification")
+        suggested_tools = item.get("suggested_tools")
         raw_tags = str(item.get("tags", "")).strip()
         tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
-
 
         # Sanitize trigger and steps against injection
         trigger = _sanitize_entry(trigger)
@@ -905,12 +917,18 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
             pitfalls = _sanitize_entry(str(pitfalls).strip())
         if verification:
             verification = _sanitize_entry(str(verification).strip())
+        if suggested_tools:
+            if isinstance(suggested_tools, list):
+                suggested_tools = ", ".join([_sanitize_entry(str(t).strip()) for t in suggested_tools if str(t).strip()])
+            else:
+                suggested_tools = _sanitize_entry(str(suggested_tools).strip())
 
         validated.append({
             "trigger_pattern": trigger,
             "steps": steps,
             "pitfalls": pitfalls,
             "verification": verification,
+            "suggested_tools": suggested_tools,
             "tags": tags
         })
 
@@ -1197,7 +1215,8 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
                 verification=proc.get("verification"),
                 source="extracted",
                 status="extracted", # Always start as extracted (pending review)
-                tags=proc.get("tags")
+                tags=proc.get("tags"),
+                suggested_tools=proc.get("suggested_tools"),
             )
             written += 1
         except Exception as e:

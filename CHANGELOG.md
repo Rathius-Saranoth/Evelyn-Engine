@@ -13,6 +13,62 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.021] - 2026-08-27 — *Tool Prediction Budget Expansion & Special Token Sanitization*
+
+### Fixed & Enhanced
+- **Tool Loop Prediction Budget (`evelyn_config.py`)**:
+  - Expanded `TOOL_LOOP_NUM_PREDICT` from `2048` to `8192` tokens. Previously, when generating long files (such as comprehensive dream journal entries or structured reports) along with chain-of-thought reasoning in Tool Round 0, the prediction exceeded 2048 tokens and truncated before the tool call payload was emitted, causing the turn to skip the tool loop and fall back into an ungrounded response pass.
+- **Gemma 4 Channel & Triangle Token Sanitization (`evelyn_server.py`)**:
+  - Added Gemma 4 special tokens (`◀channel▶`, `◀thought▶`, `◀/thought▶`, `◀call:`, `▶call`, `<|channel|>`, `<|thought|>`, `<|tool_call|>`, `◀|`, `|▶`) to `_LEAKED_MODEL_TOKENS` to ensure model internal channel transitions are filtered cleanly from user-facing streams and don't cause thinking or response stream anomalies.
+
+---
+
+## [000.005.020] - 2026-08-27 — *Unified Vault File Staging Pipeline & Tool Disambiguation*
+
+### Added & Enhanced
+- **Mutual Tool Schema Disambiguation (`evelyn_tools.py`)**:
+  - Sharpened the LLM schema docstring for `write_journal_entry` to exclusively cover Evelyn's personal daily reflection diary (vibe check, narrative recap, message in a bottle) and explicitly forbade its use for user-authored notes, dream journals, or general vault documents.
+  - Updated `write_file`'s schema to explicitly include dream journals (`Dream Journal/Dream Entries/Dream Entry YYYY-MM-DD.md`), feature ideas, user notes, and scripts.
+- **Unified Staging Pipeline for Journal Entries (`journal_manager.py`, `evelyn_server.py`, `index.html`)**:
+  - Re-routed `create_journal_entry()` through `terminal_agent.write_file()` targeting `JOURNAL_DIR` directly, completely eliminating temporary file creation in `_Pending Approvals/` or vault root.
+  - Unified journal entries with the terminal agency modal preview, allowing one-click `👁️ Preview & Review`, `✓ Approve & Write`, and guided denial feedback.
+- **Multi-Turn Tool Execution Context in Chat History (`evelyn_server.py`)**:
+  - Enhanced `load_history()` to append `[Tools Executed: ...]` for assistant turns with tool invocations, ensuring the model retains full multi-turn awareness of its past actions when receiving denial or approval feedback in subsequent turns.
+
+---
+
+## [000.005.019] - 2026-08-27 — *Terminal & File Write Modal Previews and Silent Approvals*
+
+### Added & Enhanced
+- **Terminal & File Write Modal Inspection (`index.html`, `terminal_agent.py`, `evelyn_server.py`)**:
+  - Implemented `get_approval_details(approval_id)` in `terminal_agent.py` and exposed `GET /api/terminal/details/{approval_id}` in `evelyn_server.py` to retrieve full un-truncated file content, write mode, command strings, and directory paths for pending and past approval requests.
+  - Added rich modal review (`openModal('approval', id)`) in `index.html` matching journal entries, rendering full markdown formatting for `.md` documents, code syntax previews for raw files, target path badges, and action bars.
+  - Added `👁️ Preview & Review` action button to in-chat approval cards and made approved badges clickable to reopen and view saved files.
+- **Silent Approvals & Guided Denial Feedback (`index.html`, `evelyn_server.py`)**:
+  - Configured `handleApproval` to execute `write_file` silently without dispatching redundant `[System: Command output: ...]` chat turns back to the agent loop, preserving natural conversation flow.
+  - Added guided rejection prompt on Deny, enabling users to submit concise feedback (e.g. format corrections or folder adjustments) that is cleanly passed as user input to guide Evelyn's subsequent turn.
+
+---
+
+## [000.005.018] - 2026-08-27 — *Procedures Tool Integration, Queue Pipeline & DevUI Management*
+
+### Added & Enhanced
+- **Procedure Tool Guidance & Disambiguation (`fact_extractor.py`, `chroma_rag.py`)**:
+  - Added `suggested_tools` column to the `procedures` table in `evelyn_memory.db` via database migration `000.005.018`.
+  - Updated procedure extraction prompt with the engine's canonical active tool palette, explicitly guiding the extractor to associate procedures with tools like `write_file` (for Dream Journals, feature ideas, and vault notes) while strictly reserving `write_journal_entry` for Evelyn's personal daily reflection recap.
+  - Enhanced RAG context assembly in `chroma_rag.py` to format retrieved procedures as actionable operational protocols (`[Operational Protocol: ...]`) with highlighted `Suggested Tool(s): <tools>`.
+- **Standardized Procedure Merge & Split Queues (`memory_db.py`, `procedure_consolidator.py`, `pending_reviewer.py`)**:
+  - Implemented `procedure_merge_queue` and `procedure_split_queue` tables in `evelyn_memory.db` with CRUD helper functions.
+  - Extended `procedure_consolidator.py` to process manually queued merge and split requests during background idle passes before running automated trigger clustering.
+  - Added `generate_procedure_split_proposal()` and updated proposal approval handlers in `pending_reviewer.py` and `evelyn_server.py` to support `procedure_split` proposals and preserve `suggested_tools`.
+- **Dedicated DevUI Procedures Management Tab (`dev.html`, `evelyn_server.py`)**:
+  - Added **⚙️ Procedures** tab in DevUI with live count, real-time search filter across triggers, steps, tools, and tags, and status filter pills (`All`, `Live`, `Pending Review`, `Archived`).
+  - Added floating multi-select merge action bar allowing one-click selection of multiple procedure cards to queue for background LLM consolidation.
+  - Added inline procedure editing (`Save Changes`), background split queuing (`Queue Split`), and soft archiving/restoration.
+  - Exposed REST endpoints in `evelyn_server.py`: `GET /api/procedures`, `PATCH /api/procedures/{id}`, `POST /api/procedures/queue_merge`, `POST /api/procedures/{id}/queue_split`, `POST /api/procedures/{id}/archive`.
+
+---
+
 ## [000.005.017] - 2026-08-26 — *RAG Ingestion Boilerplate Filtering & YAML Exclusion Support*
 
 ### Added & Enhanced

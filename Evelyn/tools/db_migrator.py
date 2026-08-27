@@ -374,6 +374,83 @@ CREATE INDEX IF NOT EXISTS idx_rrl_msg_id ON rag_retrieval_log(message_id);
 """
 
 
+def migrate_000_005_018_procedures_upgrade(conn: sqlite3.Connection, db_map: dict[str, str], cfg: object) -> None:
+    """Add suggested_tools column to procedures, create procedure queue tables, and backfill tools."""
+    cursor = conn.cursor()
+
+    # 1. Add suggested_tools column if not already present
+    proc_cols = [row[1] for row in cursor.execute("PRAGMA table_info(procedures)").fetchall()]
+    if "suggested_tools" not in proc_cols:
+        cursor.execute("ALTER TABLE procedures ADD COLUMN suggested_tools TEXT")
+
+    # 2. Create procedure_merge_queue table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS procedure_merge_queue (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            proc_ids    TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            created_at  REAL NOT NULL,
+            updated_at  REAL
+        );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pmq_status ON procedure_merge_queue(status);")
+
+    # 3. Create procedure_split_queue table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS procedure_split_queue (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            proc_id     INTEGER NOT NULL UNIQUE,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            created_at  REAL NOT NULL,
+            updated_at  REAL
+        );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_psq_status ON procedure_split_queue(status);")
+
+    # 4. Backfill suggested_tools on existing procedures
+    rows = cursor.execute("SELECT id, trigger_pattern, steps, pitfalls, verification, tags FROM procedures").fetchall()
+    for row_id, trigger, steps, pitfalls, verification, tags in rows:
+        combined = f"{trigger or ''} {steps or ''} {pitfalls or ''} {verification or ''} {tags or ''}".lower()
+        tools: list[str] = []
+
+        # Daily reflection vs dream journal/notes
+        if ("write_journal_entry" in combined or "daily wrap" in combined or "daily journal" in combined or "wind down for the night" in combined) and "dream" not in combined:
+            tools.append("write_journal_entry")
+
+        if ("dream" in combined or "note in the" in combined or "feature idea" in combined or "write a file" in combined or "creating or writing a file" in combined or "write action to create" in combined or "markdown document" in combined) and "write_file" not in tools:
+            tools.append("write_file")
+
+        if ("create_task" in combined or "google tasks" in combined) and "create_task" not in tools:
+            tools.append("create_task")
+
+        if ("health info" in combined or "oura" in combined or "health stats" in combined or "hrv" in combined) and "get_health_metrics" not in tools:
+            tools.append("get_health_metrics")
+
+        if "google drive" in combined and "sync_google_drive" not in tools:
+            tools.append("sync_google_drive")
+
+        if ("image" in combined or "prompt lab" in combined or "visual representation" in combined or "outfit" in combined) and "generate_image" not in tools:
+            tools.append("generate_image")
+
+        if ("read from a specific file" in combined or "locate the document" in combined or "reading tool" in combined) and "read_file" not in tools:
+            tools.append("read_file")
+
+        if ("search online" in combined or "web_search" in combined) and "web_search" not in tools:
+            tools.append("web_search")
+
+        if ("run tests" in combined or "terminal" in combined or "scripts before applying" in combined) and "run_command" not in tools:
+            tools.append("run_command")
+
+        if ("groceries" in combined or "vault_list" in combined or "manage_vault_list" in combined) and "manage_vault_list" not in tools:
+            tools.append("manage_vault_list")
+
+        if tools:
+            tools_str = ", ".join(tools)
+            cursor.execute("UPDATE procedures SET suggested_tools = ? WHERE id = ?", (tools_str, row_id))
+
+    logger.info("Migration 000.005.018 upgraded procedures table, created queue tables, and backfilled tools.")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -422,6 +499,12 @@ MIGRATIONS: list[Migration] = [
         version="000.005.010",
         name="create_rag_retrieval_log_table",
         up_sql=CREATE_RAG_RETRIEVAL_LOG_TABLE_SQL,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.005.018",
+        name="add_suggested_tools_and_procedure_queues",
+        up_fn=migrate_000_005_018_procedures_upgrade,
     ),
 ]
 

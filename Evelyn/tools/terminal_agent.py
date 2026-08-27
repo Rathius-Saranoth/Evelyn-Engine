@@ -253,6 +253,23 @@ def get_approval_status(approval_id: str) -> dict:
     }
 
 
+def get_approval_details(approval_id: str) -> dict | None:
+    """Retrieve full persistent details including raw content for a specific approval ID.
+
+    Args:
+        approval_id: The unique approval identifier.
+
+    Returns:
+        dict | None: The complete approval dict with 'id' injected, or None if not found.
+    """
+    cleanup_stale_approvals()
+    approvals = _load_approvals()
+    item = approvals.get(approval_id)
+    if not item:
+        return None
+    return {"id": approval_id, **item}
+
+
 def resolve_file_path(file_path: str) -> str:
     """Resolve a relative or absolute file path to its canonical target.
 

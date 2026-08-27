@@ -172,11 +172,33 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `POST /api/review/procedures/{id}/{action}`
 * **Purpose**: Action triage on a staged procedure.
-* **Payload**: Optional JSON body (`ProcedureReviewBody`) carrying edits to trigger pattern, steps, pitfalls, verification, or tags.
+* **Payload**: Optional JSON body (`ProcedureReviewBody`) carrying edits to trigger pattern, suggested tools, steps, pitfalls, verification, or tags.
 * **Actions**:
   * `approve`: Commits the procedure (optionally with edits) and marks it `status='live'` so it is active in the RAG retrieval pipeline.
   * `deny`: Soft-deletes the procedure by updating its status to `archived`.
 
+### `GET /api/procedures`
+* **Purpose**: Fetches all operational procedures from `evelyn_memory.db` across all statuses (`live`, `extracted`, `archived`) with joined `is_queued_merge` and `is_queued_split` queue status flags.
+* **Query Parameters**: `status` (optional filter: `'live'`, `'extracted'`, `'archived'`, or `'all'`).
+* **Returns**: JSON object `{"procedures": [...]}`.
+
+### `PATCH /api/procedures/{id}`
+* **Purpose**: Direct inline update for an operational procedure's fields, tool suggestions, steps, checks, or status.
+* **Payload**: `ProcedureUpdateBody` JSON: `{"trigger_pattern": "...", "suggested_tools": "...", "steps": "...", "pitfalls": "...", "verification": "...", "tags": "...", "status": "..."}`.
+* **Returns**: `{"status": "ok", "procedure": {...}}`.
+
+### `POST /api/procedures/queue_merge`
+* **Purpose**: Enqueues multiple procedure IDs into `procedure_merge_queue` for background consolidation by the Procedure Consolidator on its next idle pass.
+* **Payload**: `ProcedureMergeQueueRequest` JSON: `{"proc_ids": [12, 14, 18]}`.
+* **Returns**: `{"status": "ok", "queued": true, "queue_id": int}`.
+
+### `POST /api/procedures/{id}/queue_split`
+* **Purpose**: Enqueues a single compound procedure ID into `procedure_split_queue` for decomposition into distinct atomic procedures by the Procedure Consolidator on its next idle pass.
+* **Returns**: `{"status": "ok", "queued": true, "proc_id": id}`.
+
+### `POST /api/procedures/{id}/archive`
+* **Purpose**: Soft-archives a procedure (`status='archived'`), removing it from active RAG retrieval context while preserving historical audit logs.
+* **Returns**: `{"status": "ok", "archived": id}`.
 
 ---
 
@@ -257,6 +279,10 @@ Endpoints driving the background research engine and the interactive developer d
 * **Purpose**: Query the execution/approval status of multiple approval IDs in bulk.
 * **Payload**: `{"ids": ["id1", "id2", ...]}`
 * **Response**: A JSON object mapping each requested approval ID to its current status details (status, type, metadata), excluding the raw file content payloads.
+
+### `GET /api/terminal/details/{approval_id}`
+* **Purpose**: Retrieve full details including raw file content, syntax, and directory metadata for a specific approval ID to power modal inspections and previews.
+* **Response**: A JSON object containing all approval fields (`id`, `type`, `command`/`file_path`, `content`, `mode`, `cwd`, `status`, `created_at`).
 
 ---
 
