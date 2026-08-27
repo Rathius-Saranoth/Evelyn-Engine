@@ -78,6 +78,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Multi-Node Distributed Expansion**: Distributed inference and service workloads across dedicated infrastructure (dual CPU host allocation and dedicated remote FLUX.1 image generation host for maximum GPU throughput).
 - [x] **Conversational Feedback & Adaptive Preference Tuning**: Interactive response rating (upvote/downvote) feedback loop with dynamic persona weight adjustments.
 - [x] **RAG & Context Telemetry Logging**: Interceptor logging persistent retrieval events (source notes, similarity scores, taxonomy tags) to measure knowledge utilization and retrieval frequency across conversations.
+- [x] **Unified Single-Stream Agentic Architecture (v000.006.000)**: Decommissioned legacy 2-pass inference loop in favor of a unified streaming pipeline with live thinking deltas, intermediate tool execution, preamble quarantining, and frontend Activity Stepper.
 
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.

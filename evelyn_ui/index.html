@@ -262,7 +262,133 @@
         width: 100%;
       }
 
-      /* Thinking block */
+      /* Unified Agent Activity Stepper */
+      .agent-activity-trace {
+        border: 1px solid var(--think-border);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        background: var(--think-bg);
+        max-width: min(100%, 680px);
+        min-width: 0;
+        overflow: hidden;
+      }
+      .agent-activity-trace summary {
+        padding: 7px 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        font-size: 12px;
+        color: var(--think-text);
+        font-weight: 500;
+        border-bottom: 1px solid transparent;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+      .agent-activity-trace summary::-webkit-details-marker {
+        display: none;
+      }
+      .agent-activity-trace summary::marker {
+        display: none;
+      }
+      .agent-activity-trace[open] summary {
+        border-bottom-color: var(--think-border);
+      }
+      .agent-activity-trace summary:hover {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .trace-summary-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .trace-summary-meta {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--text-dim);
+      }
+      .trace-chevron {
+        font-size: 10px;
+        color: var(--text-dim);
+        transition: transform 0.2s;
+        margin-left: 6px;
+      }
+      .agent-activity-trace[open] .trace-chevron {
+        transform: rotate(180deg);
+      }
+      .trace-body {
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 380px;
+        overflow-y: auto;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .trace-step {
+        border-left: 2px solid var(--accent, #7c3aed);
+        padding-left: 10px;
+        margin-left: 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .trace-step-header {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent, #7c3aed);
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .trace-thought-body {
+        font-family: "JetBrains Mono", monospace;
+        color: var(--think-text);
+        font-size: 12px;
+        white-space: pre-wrap;
+        max-height: 220px;
+        overflow-y: auto;
+      }
+      .trace-tool-body {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .trace-tool-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        background: var(--surface2, #1e1e2e);
+        border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+        color: var(--text);
+        width: fit-content;
+      }
+      .trace-tool-chip .spinner {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 2px solid var(--text-dim);
+        border-top-color: var(--accent, #7c3aed);
+        animation: spin 0.8s linear infinite;
+      }
+      .trace-tool-chip.ok {
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #86efac;
+      }
+      .trace-tool-chip.error {
+        border-color: rgba(239, 68, 68, 0.4);
+        color: #fca5a5;
+      }
+
+      /* Legacy Thinking block */
       .think-block {
         border: 1px solid var(--think-border);
         border-radius: 8px;
@@ -339,7 +465,7 @@
         border-radius: 50%;
         border: 2px solid var(--tool-border);
         border-top-color: var(--tool-text);
-        animation: spin 0.7s linear infinite;
+        animation: spin 0.8s linear infinite;
       }
       @keyframes spin {
         to {
@@ -1638,81 +1764,203 @@
       }
 
       // ---------------------------------------------------------------------------
-      // Think block builder & multi-section streaming handler
+      // Activity Stepper & Trace Handler
       // ---------------------------------------------------------------------------
-      function createThinkBlock(label = "Thinking…") {
-        const wrap = document.createElement("div");
-        wrap.className = "think-block open";
-        wrap.innerHTML = `
-    <div class="think-header" onclick="this.parentElement.classList.toggle('open')">
-      <span class="think-icon">🧠</span>
-      <span class="think-label">${label}</span>
-      <span class="think-chevron">▼</span>
-    </div>
-    <div class="think-content"></div>`;
-        return wrap;
+      function renderActivityTraceBlock(thinkingText, toolsUsedStr) {
+        if (!thinkingText && !toolsUsedStr) return null;
+
+        const details = document.createElement("details");
+        details.className = "agent-activity-trace";
+
+        const toolsList = toolsUsedStr ? toolsUsedStr.split(",").filter(Boolean) : [];
+        const toolsMeta = toolsList.length > 0 ? `${toolsList.length} tool${toolsList.length > 1 ? "s" : ""} used` : "";
+
+        details.innerHTML = `
+          <summary class="trace-summary">
+            <span class="trace-summary-left">🧠 <span class="trace-summary-title">Thought process & actions</span></span>
+            <span class="trace-summary-meta">${toolsMeta}</span>
+            <span class="trace-chevron">▼</span>
+          </summary>
+          <div class="trace-body"></div>
+        `;
+
+        const body = details.querySelector(".trace-body");
+
+        if (thinkingText) {
+          const sections = thinkingText.split(/(?=\[(?:Initial|Round \d+|Tool \d+|Response)\]\n)/g);
+          if (sections.length > 1) {
+            sections.forEach((sec, idx) => {
+              const mLabel = sec.match(/^\[(Initial|Round \d+|Tool \d+|Response)\]\n([\s\S]*)$/);
+              const header = mLabel ? mLabel[1] : `Round ${idx + 1}`;
+              const content = mLabel ? mLabel[2].trim() : sec.trim();
+              if (content) {
+                const step = document.createElement("div");
+                step.className = "trace-step";
+                step.innerHTML = `
+                  <div class="trace-step-header">● ${header}</div>
+                  <div class="trace-thought-body">${escapeHtml(content)}</div>
+                `;
+                body.appendChild(step);
+              }
+            });
+          } else if (thinkingText.trim()) {
+            const step = document.createElement("div");
+            step.className = "trace-step";
+            step.innerHTML = `
+              <div class="trace-step-header">● Reasoning</div>
+              <div class="trace-thought-body">${escapeHtml(thinkingText.trim())}</div>
+            `;
+            body.appendChild(step);
+          }
+        }
+
+        if (toolsList.length > 0) {
+          const toolStep = document.createElement("div");
+          toolStep.className = "trace-step";
+          let chipsHtml = `<div class="trace-step-header">● Tools Executed</div><div class="trace-tool-body">`;
+          toolsList.forEach((t) => {
+            chipsHtml += `<div class="trace-tool-chip ok"><span>🛠️ ${escapeHtml(t)}</span></div>`;
+          });
+          chipsHtml += `</div>`;
+          toolStep.innerHTML = chipsHtml;
+          body.appendChild(toolStep);
+        }
+
+        return details;
       }
 
       function createThinkingHandler(wrap, getBubble, addActivity) {
-        const thinkSections = [];
-        let currentThinkSection = null;
+        let traceEl = null;
+        let traceBody = null;
+        let roundSteps = {};
+        let totalTools = 0;
+        let startTime = Date.now();
 
-        function handleDelta(delta) {
-          // Check if delta starts with a phase label: [Initial]\n, [Tool 1]\n, [Response]\n
-          const labelMatch = delta.match(/^\[(Initial|Tool \d+|Response)\]\n/);
-          if (labelMatch) {
-            const labelName = labelMatch[1];
-            if (addActivity) addActivity("🧠", `${labelName} thinking…`);
-            const block = createThinkBlock(labelName);
+        function ensureTrace() {
+          if (!traceEl) {
+            traceEl = document.createElement("details");
+            traceEl.className = "agent-activity-trace";
+            traceEl.open = true;
+            traceEl.innerHTML = `
+              <summary class="trace-summary">
+                <span class="trace-summary-left">🧠 <span class="trace-summary-title">Thinking & actions…</span></span>
+                <span class="trace-summary-meta"></span>
+                <span class="trace-chevron">▼</span>
+              </summary>
+              <div class="trace-body"></div>
+            `;
             const bubble = getBubble ? getBubble() : null;
             if (bubble) {
-              wrap.insertBefore(block, bubble);
+              wrap.insertBefore(traceEl, bubble);
             } else {
-              wrap.appendChild(block);
+              wrap.appendChild(traceEl);
             }
-            const content = block.querySelector(".think-content");
-            currentThinkSection = { label: labelName, block, content };
-            thinkSections.push(currentThinkSection);
+            traceBody = traceEl.querySelector(".trace-body");
+          }
+          return traceEl;
+        }
 
-            const rest = delta.slice(labelMatch[0].length);
-            if (rest) {
-              content.textContent += rest;
-              content.scrollTop = content.scrollHeight;
-            }
-          } else {
-            if (!currentThinkSection) {
-              if (addActivity) addActivity("🧠", "Model thinking…");
-              const block = createThinkBlock("Thinking…");
-              const bubble = getBubble ? getBubble() : null;
-              if (bubble) {
-                wrap.insertBefore(block, bubble);
-              } else {
-                wrap.appendChild(block);
-              }
-              const content = block.querySelector(".think-content");
-              currentThinkSection = { label: "Thinking…", block, content };
-              thinkSections.push(currentThinkSection);
-            }
-            currentThinkSection.content.textContent += delta;
-            currentThinkSection.content.scrollTop = currentThinkSection.content.scrollHeight;
+        function getOrCreateRound(roundNum) {
+          ensureTrace();
+          const rKey = roundNum || 1;
+          if (!roundSteps[rKey]) {
+            const step = document.createElement("div");
+            step.className = "trace-step";
+            step.dataset.round = rKey;
+            step.innerHTML = `
+              <div class="trace-step-header">● Round ${rKey}: Reasoning & Exploration</div>
+              <div class="trace-thought-body"></div>
+              <div class="trace-tool-body"></div>
+            `;
+            traceBody.appendChild(step);
+            roundSteps[rKey] = {
+              step,
+              thought: step.querySelector(".trace-thought-body"),
+              tools: step.querySelector(".trace-tool-body"),
+            };
+            if (addActivity) addActivity("🧠", `Round ${rKey} thinking…`);
+          }
+          return roundSteps[rKey];
+        }
+
+        function handleThinking(roundNum, delta) {
+          let r = roundNum;
+          const labelMatch = delta.match(/^\[(Initial|Round (\d+)|Tool (\d+)|Response)\]\n/);
+          let cleanDelta = delta;
+          if (labelMatch) {
+            if (labelMatch[2]) r = parseInt(labelMatch[2], 10);
+            else if (labelMatch[3]) r = parseInt(labelMatch[3], 10);
+            cleanDelta = delta.slice(labelMatch[0].length);
+          }
+          const rObj = getOrCreateRound(r);
+          if (cleanDelta) {
+            rObj.thought.textContent += cleanDelta;
+            rObj.thought.scrollTop = rObj.thought.scrollHeight;
+            traceBody.scrollTop = traceBody.scrollHeight;
           }
           scrollBottom();
         }
 
-        function finalize() {
-          thinkSections.forEach((sec) => {
-            const lbl = sec.block.querySelector(".think-label");
-            if (lbl) {
-              lbl.textContent = lbl.textContent.replace("…", "");
-              if (lbl.textContent === "Thinking") {
-                lbl.textContent = "Thought process";
-              }
-            }
-            sec.block.classList.remove("open");
-          });
+        function handleToolStart(roundNum, toolName, args) {
+          totalTools++;
+          const rObj = getOrCreateRound(roundNum);
+          const chip = document.createElement("div");
+          chip.className = "trace-tool-chip pending";
+          chip.dataset.tool = toolName;
+          chip.innerHTML = `<span class="spinner"></span><span>⚙️ ${escapeHtml(toolName)}…</span>`;
+          rObj.tools.appendChild(chip);
+          scrollBottom();
         }
 
-        return { handleDelta, finalize };
+        function handleToolEnd(roundNum, toolName, status, summary, data) {
+          const rObj = getOrCreateRound(roundNum);
+          const chip = rObj.tools.querySelector(`.trace-tool-chip[data-tool="${toolName}"].pending`) ||
+                       rObj.tools.querySelector(`.trace-tool-chip[data-tool="${toolName}"]`);
+          if (chip) {
+            chip.classList.remove("pending");
+            if (status === "error") {
+              chip.classList.add("error");
+              chip.innerHTML = `<span>⚠️ ${escapeHtml(toolName)} failed</span>`;
+            } else {
+              chip.classList.add("ok");
+              chip.innerHTML = `<span>🛠️ ${escapeHtml(toolName)} completed</span>`;
+            }
+          }
+          scrollBottom();
+        }
+
+        function finalize(metrics) {
+          if (traceEl) {
+            const titleEl = traceEl.querySelector(".trace-summary-title");
+            const metaEl = traceEl.querySelector(".trace-summary-meta");
+            if (titleEl) titleEl.textContent = "Thought process & actions";
+
+            let dur = "";
+            if (metrics && metrics.total_duration) {
+              dur = (metrics.total_duration / 1e9).toFixed(1) + "s";
+            } else {
+              dur = ((Date.now() - startTime) / 1000).toFixed(1) + "s";
+            }
+            const toolsText = totalTools > 0 ? ` • ${totalTools} tool${totalTools > 1 ? "s" : ""} used` : "";
+            if (metaEl) metaEl.textContent = `${dur}${toolsText}`;
+
+            // Auto-collapse when turn finishes
+            traceEl.open = false;
+          }
+        }
+
+        function handleDelta(delta) {
+          handleThinking(1, delta);
+        }
+
+        return {
+          handleThinking,
+          handleToolStart,
+          handleToolEnd,
+          handleDelta,
+          finalize,
+          getTraceElement: () => traceEl,
+        };
       }
 
       // ---------------------------------------------------------------------------
@@ -2505,31 +2753,35 @@
         }
 
         if (evt.type === "thinking") {
-          if (currentStream.thinkingHandler) currentStream.thinkingHandler.handleDelta(evt.delta);
+          if (currentStream.thinkingHandler) {
+            if (currentStream.thinkingHandler.handleThinking) {
+              currentStream.thinkingHandler.handleThinking(evt.round || 1, evt.delta);
+            } else {
+              currentStream.thinkingHandler.handleDelta(evt.delta);
+            }
+          }
           return;
         }
 
-        if (evt.type === "tool") {
-          const toolLabels = {
-            search_vault: "Searching vault",
-            recall_specific_memory: "Reading memory",
-            read_journal: "Reading journal",
-            read_journal_entry: "Reading journal",
-            read_recent_journal_entries: "Reviewing recent journal",
-            write_journal_entry: "Writing journal entry",
-            log_context_fact: "Logging context fact",
-            update_context_fact: "Updating context fact",
-            generate_image: "Generating image",
-            sync_context_memory: "Syncing memory",
-            run_command: "Running command",
-            read_file: "Reading file",
-            write_file: "Writing file",
-          };
-          if (currentStream.addActivity) {
-            currentStream.addActivity("⚙️", toolLabels[evt.name] || evt.name.replace(/_/g, " "));
+        if (evt.type === "tool_start" || evt.type === "tool") {
+          const toolName = evt.tool || evt.name || "unknown";
+          if (currentStream.thinkingHandler && currentStream.thinkingHandler.handleToolStart) {
+            currentStream.thinkingHandler.handleToolStart(evt.round || 1, toolName, evt.args);
           }
-          setStatus((toolLabels[evt.name] || evt.name) + "…");
-          currentStream.usedTools.push(evt.name);
+          if (currentStream.addActivity) {
+            currentStream.addActivity("⚙️", toolName.replace(/_/g, " "));
+          }
+          setStatus(`Running ${toolName.replace(/_/g, " ")}…`);
+          currentStream.usedTools.push(toolName);
+          scrollBottom();
+          return;
+        }
+
+        if (evt.type === "tool_end") {
+          const toolName = evt.tool || evt.name || "unknown";
+          if (currentStream.thinkingHandler && currentStream.thinkingHandler.handleToolEnd) {
+            currentStream.thinkingHandler.handleToolEnd(evt.round || 1, toolName, evt.status, evt.summary, evt.data);
+          }
           scrollBottom();
           return;
         }
@@ -2539,6 +2791,10 @@
           if (idx !== -1) {
             currentStream.usedTools[idx] = `${evt.name}[${evt.data}]`;
           }
+          return;
+        }
+
+        if (evt.type === "quarantine_preamble") {
           return;
         }
 
@@ -2558,7 +2814,6 @@
             currentStream.cursorEl.className = "cursor";
             currentStream.bubble.appendChild(currentStream.cursorEl);
             if (currentStream.wrap) currentStream.wrap.appendChild(currentStream.bubble);
-            if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
           }
           currentStream.contentText += evt.delta;
           currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
@@ -2595,7 +2850,7 @@
         }
 
         if (evt.type === "done") {
-          if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
+          if (currentStream.thinkingHandler) currentStream.thinkingHandler.finalize(evt.metrics);
           if (currentStream.cursorEl) currentStream.cursorEl.remove();
           if (currentStream.bubble) currentStream.bubble.innerHTML = renderMarkdown(currentStream.contentText);
 
@@ -3433,29 +3688,9 @@
           container.appendChild(divider);
         } else if (m.role === "assistant") {
           const wrap = createAssistantMessage(m.ts);
-          if (m.thinking) {
-            const sections = m.thinking.split(/(?=\[(?:Initial|Tool \d+|Response)\]\n)/g);
-            if (sections.length > 1) {
-              sections.forEach((sec) => {
-                const mLabel = sec.match(/^\[(Initial|Tool \d+|Response)\]\n([\s\S]*)$/);
-                if (mLabel) {
-                  const tb = createThinkBlock(mLabel[1]);
-                  tb.querySelector(".think-content").textContent = mLabel[2].trim();
-                  tb.classList.remove("open");
-                  wrap.appendChild(tb);
-                } else if (sec.trim()) {
-                  const tb = createThinkBlock("Thought process");
-                  tb.querySelector(".think-content").textContent = sec.trim();
-                  tb.classList.remove("open");
-                  wrap.appendChild(tb);
-                }
-              });
-            } else {
-              const tb = createThinkBlock("Thought process");
-              tb.querySelector(".think-content").textContent = m.thinking;
-              tb.classList.remove("open");
-              wrap.appendChild(tb);
-            }
+          const traceBlock = renderActivityTraceBlock(m.thinking, m.tools_used);
+          if (traceBlock) {
+            wrap.appendChild(traceBlock);
           }
           const b = document.createElement("div");
           b.className = "bubble";

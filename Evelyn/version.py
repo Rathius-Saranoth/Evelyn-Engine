@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.021"
-VERSION_NAME = "Tool Prediction Budget Expansion & Special Token Sanitization"
+__version__ = "000.006.000"
+VERSION_NAME = "Unified Single-Stream Agentic Architecture"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
