@@ -1207,157 +1207,292 @@ def dispatch_tool(name: str, args: dict) -> str:
         return f"Tool '{name}' raised an error: {e}"
 
 
-# ---------------------------------------------------------------------------
-# Streaming helper: parse & emit a content-only Ollama stream
-# ---------------------------------------------------------------------------
-
-
-async def _stream_content(msgs: list[dict], think_effort=None):
+async def _agentic_stream_loop(
+    msgs: list[dict],
+    think_effort=None,
+    ui_override: bool = False,
+):
     """
-    Stream the content follow-up pass (no tool definitions).
-    Handles native think field + inline <think> tag parsing.
-    Yields SSE data strings.
-    Returns final (content_buf, thinking_buf) via a _state sentinel event.
+    Unified agentic streaming loop.
+    Executes iterative streaming rounds with tools enabled (up to MAX_TOOL_ROUNDS).
+    Streams live thinking deltas, dispatches intermediate tool calls, and streams
+    the final synthesized response content in a single unified pipeline.
 
     Args:
-        msgs: Conversation messages to send to Ollama.
-        think_effort: Thinking effort level for this response pass. Forwarded
-            to call_ollama_stream. Defaults to cfg.THINK when None.
+        msgs: Conversation history messages to send to Ollama.
+        think_effort: Initial thinking effort ("low", "medium", "high", "max").
+        ui_override: True if user explicitly selected thinking effort in UI.
+
+    Yields:
+        str: SSE formatted JSON event lines.
     """
-    thinking_buf = ""
-    content_buf = ""
-    parse_buf = ""
-    metrics_dict = {}
-    in_think = False
+    accumulated_thinking = ""
+    final_content = ""
+    tools_used_list = []
+    tool_metadata_list = []
+
+    current_think_effort = think_effort if think_effort is not None else cfg.THINK
+    think_source = "ui_override" if ui_override else "heuristic"
+
+    aggregated_metrics = {
+        "prompt_eval_count": 0,
+        "eval_count": 0,
+        "prompt_eval_duration": 0,
+        "eval_duration": 0,
+        "total_duration": 0,
+        "load_duration": 0,
+        "think_effort": str(current_think_effort),
+        "think_source": think_source,
+    }
+
+    loop = asyncio.get_running_loop()
+    _SENTINEL = object()
     OPEN_TAG = "<think>"
     CLOSE_TAG = "</think>"
 
-    print(f"{_CYN}[PASS2]{_RST} Streaming content. Roles:", [m["role"] for m in msgs], flush=True)
+    for round_num in range(1, cfg.MAX_TOOL_ROUNDS + 1):
+        is_terminal_round = (round_num >= cfg.MAX_TOOL_ROUNDS)
+        tools_for_round = None if is_terminal_round else MODEL_TOOL_DEFINITIONS
 
-    _SENTINEL = object()
-    queue: asyncio.Queue = asyncio.Queue()
+        round_thinking = ""
+        round_content = ""
+        round_tool_calls = []
+        parse_buf = ""
+        in_think = False
 
-    async def _feed():
-        """Feed Ollama stream lines into the queue for the outer consumer."""
+        print(
+            f"{_CYN}[STREAM ROUND {round_num}/{cfg.MAX_TOOL_ROUNDS}]{_RST} "
+            f"think={current_think_effort}, tools={'None' if tools_for_round is None else len(tools_for_round)}. Roles:",
+            [m["role"] for m in msgs],
+            flush=True,
+        )
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def _feed(feed_msgs, feed_tools, feed_think):
+            try:
+                async for line in call_ollama_stream(feed_msgs, tools=feed_tools, think_effort=feed_think):
+                    await queue.put(("line", line))
+            except BaseException as exc:
+                await queue.put(("error", exc))
+                return
+            await queue.put(("done", _SENTINEL))
+
+        feeder = asyncio.create_task(_feed(msgs, tools_for_round, current_think_effort))
+
         try:
-            async for line in call_ollama_stream(msgs, tools=None, think_effort=think_effort):
-                await queue.put(("line", line))
-        except BaseException as exc:
-            await queue.put(("error", exc))
-            return
-        await queue.put(("done", _SENTINEL))
+            while True:
+                try:
+                    kind, item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    yield 'data: {"type":"heartbeat"}\n\n'
+                    continue
 
-    feeder = asyncio.create_task(_feed())
-    try:
-        while True:
-            try:
-                kind, item = await asyncio.wait_for(queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                yield 'data: {"type":"heartbeat"}\n\n'
-                continue
+                if kind == "error":
+                    print(f"{_RED}[STREAM ERROR R{round_num}]{_RST} {type(item).__name__}: {item}", flush=True)
+                    raise item
+                if kind == "done":
+                    break
 
-            if kind == "error":
-                print(f"{_RED}[PASS2 ERROR]{_RST} {type(item).__name__}: {item}", flush=True)
-                raise item
-            if kind == "done":
-                break
+                try:
+                    chunk = json.loads(item)
+                except Exception:
+                    continue
 
-            try:
-                chunk = json.loads(item)
-            except Exception:
-                continue
+                msg = chunk.get("message", {})
 
-            msg = chunk.get("message", {})
+                # 1. Native thinking field
+                native_think = msg.get("thinking", "")
+                if native_think:
+                    round_thinking += native_think
+                    yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': native_think})}\n\n"
 
-            # Native thinking field
-            native_think = msg.get("thinking", "")
-            if native_think:
-                thinking_buf += native_think
-                yield f"data: {json.dumps({'type': 'thinking', 'delta': native_think})}\n\n"
+                # 2. Tool calls (captured when emitted by model)
+                if msg.get("tool_calls"):
+                    round_tool_calls = msg.get("tool_calls")
 
-            # Content field -- strip leaked model tokens and self-elect hints,
-            # then route through inline-tag parser.
-            text_delta = msg.get("content", "")
-            if text_delta:
-                for _tok in _LEAKED_MODEL_TOKENS:
-                    text_delta = text_delta.replace(_tok, "")
-                # Belt-and-suspenders: strip self-election hints that escaped
-                # into the stream (pass1_content cleanup is the primary guard).
-                text_delta = _SELF_ELECT_RE.sub("", text_delta)
-                parse_buf += text_delta
-                while parse_buf:
-                    if in_think:
-                        ct_idx = parse_buf.find(CLOSE_TAG)
-                        if ct_idx == -1:
-                            safe = len(parse_buf) - len(CLOSE_TAG)
-                            if safe > 0:
-                                out = parse_buf[:safe]
-                                thinking_buf += out
-                                yield f"data: {json.dumps({'type': 'thinking', 'delta': out})}\n\n"
-                                parse_buf = parse_buf[safe:]
-                            break
+                # 3. Content field parsing
+                text_delta = msg.get("content", "")
+                if text_delta:
+                    for _tok in _LEAKED_MODEL_TOKENS:
+                        text_delta = text_delta.replace(_tok, "")
+
+                    # Self-election parsing in Round 1
+                    if round_num == 1 and cfg.THINK_SELF_ELECT and not ui_override:
+                        m_elect = _SELF_ELECT_RE.search(text_delta)
+                        if m_elect:
+                            elected = re.search(r'"requested_effort":\s*"(low|medium|high|max)"', m_elect.group(0), re.IGNORECASE)
+                            if elected:
+                                current_think_effort = elected.group(1)
+                                think_source = "self_elect"
+                                aggregated_metrics["think_effort"] = str(current_think_effort)
+                                aggregated_metrics["think_source"] = think_source
+                                dlog(f"Self-elected think effort: {current_think_effort}")
+
+                    text_delta = _SELF_ELECT_RE.sub("", text_delta)
+                    parse_buf += text_delta
+
+                    while parse_buf:
+                        if in_think:
+                            ct_idx = parse_buf.find(CLOSE_TAG)
+                            if ct_idx == -1:
+                                safe = len(parse_buf) - len(CLOSE_TAG)
+                                if safe > 0:
+                                    out = parse_buf[:safe]
+                                    round_thinking += out
+                                    yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': out})}\n\n"
+                                    parse_buf = parse_buf[safe:]
+                                break
+                            else:
+                                if ct_idx > 0:
+                                    out = parse_buf[:ct_idx]
+                                    round_thinking += out
+                                    yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': out})}\n\n"
+                                parse_buf = parse_buf[ct_idx + len(CLOSE_TAG):]
+                                in_think = False
                         else:
-                            if ct_idx > 0:
-                                out = parse_buf[:ct_idx]
-                                thinking_buf += out
-                                yield f"data: {json.dumps({'type': 'thinking', 'delta': out})}\n\n"
-                            parse_buf = parse_buf[ct_idx + len(CLOSE_TAG) :]
-                            in_think = False
-                    else:
-                        ot_idx = parse_buf.find(OPEN_TAG)
-                        if ot_idx == -1:
-                            found_partial = False
-                            for plen in range(len(OPEN_TAG) - 1, 0, -1):
-                                if parse_buf.endswith(OPEN_TAG[:plen]):
-                                    safe = len(parse_buf) - plen
-                                    if safe > 0:
-                                        out = parse_buf[:safe]
-                                        content_buf += out
-                                        yield f"data: {json.dumps({'type': 'text', 'delta': out})}\n\n"
-                                        parse_buf = parse_buf[safe:]
-                                    found_partial = True
-                                    break
-                            if not found_partial:
-                                content_buf += parse_buf
-                                yield f"data: {json.dumps({'type': 'text', 'delta': parse_buf})}\n\n"
-                                parse_buf = ""
-                            break
+                            ot_idx = parse_buf.find(OPEN_TAG)
+                            if ot_idx == -1:
+                                found_partial = False
+                                for plen in range(len(OPEN_TAG) - 1, 0, -1):
+                                    if parse_buf.endswith(OPEN_TAG[:plen]):
+                                        safe = len(parse_buf) - plen
+                                        if safe > 0:
+                                            out = parse_buf[:safe]
+                                            round_content += out
+                                            yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': out})}\n\n"
+                                            parse_buf = parse_buf[safe:]
+                                        found_partial = True
+                                        break
+                                if not found_partial:
+                                    round_content += parse_buf
+                                    yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': parse_buf})}\n\n"
+                                    parse_buf = ""
+                                break
+                            else:
+                                if ot_idx > 0:
+                                    out = parse_buf[:ot_idx]
+                                    round_content += out
+                                    yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': out})}\n\n"
+                                parse_buf = parse_buf[ot_idx + len(OPEN_TAG):]
+                                in_think = True
+
+                # 4. Stream completion metrics
+                if chunk.get("done"):
+                    for m_key in ("prompt_eval_count", "eval_count", "prompt_eval_duration", "eval_duration", "total_duration", "load_duration"):
+                        if chunk.get(m_key):
+                            aggregated_metrics[m_key] = aggregated_metrics.get(m_key, 0) + chunk[m_key]
+                    if parse_buf:
+                        if in_think:
+                            round_thinking += parse_buf
+                            yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': parse_buf})}\n\n"
                         else:
-                            if ot_idx > 0:
-                                out = parse_buf[:ot_idx]
-                                content_buf += out
-                                yield f"data: {json.dumps({'type': 'text', 'delta': out})}\n\n"
-                            parse_buf = parse_buf[ot_idx + len(OPEN_TAG) :]
-                            in_think = True
+                            round_content += parse_buf
+                            yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': parse_buf})}\n\n"
+                    break
+        finally:
+            if not feeder.done():
+                feeder.cancel()
 
-            if chunk.get("done"):
-                metrics_dict = {
-                    "prompt_eval_count": chunk.get("prompt_eval_count"),
-                    "prompt_eval_duration": chunk.get("prompt_eval_duration"),
-                    "eval_count": chunk.get("eval_count"),
-                    "eval_duration": chunk.get("eval_duration"),
-                    "total_duration": chunk.get("total_duration"),
-                    "load_duration": chunk.get("load_duration"),
-                }
-                if parse_buf:
-                    if in_think:
-                        thinking_buf += parse_buf
-                        yield f"data: {json.dumps({'type': 'thinking', 'delta': parse_buf})}\n\n"
-                    else:
-                        content_buf += parse_buf
-                        yield f"data: {json.dumps({'type': 'text', 'delta': parse_buf})}\n\n"
-                break
+        # Check round outcome
+        if round_tool_calls:
+            dlog(f"Round {round_num}: model emitted {len(round_tool_calls)} tool call(s)")
 
-    except BaseException as exc:
-        print(f"{_RED}[PASS2 STREAM ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
-        if not feeder.done():
-            feeder.cancel()
-        raise
-    finally:
-        if not feeder.done():
-            feeder.cancel()
+            # Preamble Quarantine: If text was streamed before/with tool calls,
+            # emit quarantine notification so UI doesn't render it in the response body
+            if round_content.strip():
+                yield f"data: {json.dumps({'type': 'quarantine_preamble', 'round': round_num, 'text': round_content})}\n\n"
 
-    yield f"data: {json.dumps({'type': '_state', 'content': content_buf, 'thinking': thinking_buf, 'metrics': metrics_dict})}\n\n"
+            if round_thinking.strip():
+                label = f"[Round {round_num}]\n"
+                accumulated_thinking += f"{label}{round_thinking.strip()}\n\n"
+
+            # Append assistant turn with tool calls
+            msgs.append({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": round_tool_calls,
+            })
+
+            for tc in round_tool_calls:
+                fn_name = tc.get("function", {}).get("name", "unknown")
+                fn_args = tc.get("function", {}).get("arguments", {})
+                if isinstance(fn_args, str):
+                    try:
+                        fn_args = json.loads(fn_args)
+                    except Exception:
+                        fn_args = {}
+
+                yield f"data: {json.dumps({'type': 'tool_start', 'round': round_num, 'tool': fn_name, 'args': fn_args})}\n\n"
+                dlog(f"Dispatching tool: {fn_name}({fn_args})")
+
+                tool_status = "ok"
+                try:
+                    result = await loop.run_in_executor(None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa))
+                except Exception as exc:
+                    result = f"Error executing {fn_name}: {exc}"
+                    tool_status = "error"
+
+                tool_entry = fn_name
+                meta_entry = {"name": fn_name, "data": None}
+                approval_id_or_data = None
+
+                if fn_name == "generate_image":
+                    m_img = re.search(r'(/images/[^\s\)]+)', str(result))
+                    if m_img:
+                        tool_entry = f"{fn_name}[{m_img.group(1)}]"
+                        meta_entry["data"] = {"path": m_img.group(1)}
+                        approval_id_or_data = m_img.group(1)
+                elif fn_name in ("run_command", "write_file", "write_journal_entry"):
+                    m_appr = re.search(r'Approval ID:\s*(cmd_\w+|write_\w+)', str(result))
+                    if m_appr:
+                        approval_id = m_appr.group(1)
+                        tool_entry = f"{fn_name}[{approval_id}]"
+                        meta_entry["data"] = {"id": approval_id, "type": "approval_required"}
+                        approval_id_or_data = approval_id
+                        yield f"data: {json.dumps({'type': 'approval_required', 'approval_id': approval_id, 'tool': fn_name, 'args': fn_args})}\n\n"
+
+                tools_used_list.append(tool_entry)
+                tool_metadata_list.append(meta_entry)
+
+                yield f"data: {json.dumps({'type': 'tool_end', 'round': round_num, 'tool': fn_name, 'status': tool_status, 'summary': str(result)[:300], 'data': approval_id_or_data})}\n\n"
+                if approval_id_or_data:
+                    yield f"data: {json.dumps({'type': 'tool_data', 'name': fn_name, 'data': approval_id_or_data})}\n\n"
+
+                msgs.append({
+                    "role": "tool",
+                    "content": str(result),
+                    "name": fn_name,
+                })
+
+            # Tool effort escalation for subsequent rounds if needed
+            if tools_used_list and not ui_override:
+                tool_names_used = [t.split("[")[0] for t in tools_used_list if t]
+                if tool_names_used:
+                    max_tool_effort = max(
+                        (TOOL_THINK_EFFORT.get(n, "medium") for n in tool_names_used),
+                        key=lambda e: _EFFORT_RANK.get(str(e).lower(), 1),
+                        default="medium",
+                    )
+                    curr_rank = _EFFORT_RANK.get(str(current_think_effort).lower(), 1)
+                    max_rank = _EFFORT_RANK.get(str(max_tool_effort).lower(), 1)
+                    if max_rank > curr_rank:
+                        current_think_effort = max_tool_effort
+                        aggregated_metrics["think_effort"] = str(current_think_effort)
+                        aggregated_metrics["think_source"] = "tool_escalation"
+
+            # Continue to next tool round
+            continue
+
+        else:
+            # Terminal response reached (no tool calls)
+            final_content = round_content
+            if round_thinking.strip():
+                label = f"[Round {round_num}]\n" if round_num > 1 or accumulated_thinking else ""
+                accumulated_thinking += f"{label}{round_thinking.strip()}\n\n"
+            break
+
+    yield f"data: {json.dumps({'type': '_state', 'content': final_content, 'thinking': accumulated_thinking.strip(), 'tools_used': tools_used_list, 'tool_metadata': tool_metadata_list, 'metrics': aggregated_metrics})}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1418,52 +1553,9 @@ async def _process_chat_background(
     tools_used_list = []
     tool_metadata_list = []
 
-    think_source = "ui_override" if ui_override else "heuristic"
-
     async def put(type_: str, **kw):
-        """Enqueue a serialized SSE event dictionary to the active stream session.
-
-        Args:
-            type_: The event type string.
-            **kw: Additional fields to serialize into the event payload.
-        """
+        """Enqueue a serialized SSE event dictionary to the active stream session."""
         session.push_chunk("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
-
-    async def drain_stream(stream, response_label: bool = False):
-        """Iterate _stream_content, buffer state, and forward events to session.
-
-        Args:
-            stream: The async generator from _stream_content.
-            response_label: When True, inject a [Response] thinking label before
-                the first thinking token. Set True when a tool loop preceded this
-                stream so the UI creates a distinct collapsable section.
-        """
-        nonlocal content_buf, thinking_buf, metrics_dict
-        _label_sent = not response_label  # if False, skip label entirely
-        async for event in stream:
-            if event.startswith("data: "):
-                try:
-                    d = json.loads(event[6:])
-                    if d.get("type") == "_state":
-                        content_buf = d["content"]
-                        thinking_buf = d.get("thinking", "")
-                        metrics_dict.update(d.get("metrics", {}))
-                        if metrics_dict:
-                            await put("metrics", **metrics_dict)
-                        continue          # _state is internal bookkeeping only
-                    if d.get("type") == "thinking" and not _label_sent:
-                        _label_sent = True
-                        thinking_buf += "[Response]\n"
-                        session.push_chunk(
-                            "data: " + json.dumps({"type": "thinking", "delta": "[Response]\n"}) + "\n\n"
-                        )
-                    if d.get("type") == "text":
-                        content_buf += d.get("delta", "")
-                    elif d.get("type") == "thinking":
-                        thinking_buf += d.get("delta", "")
-                except Exception:
-                    pass
-            session.push_chunk(event)
 
     try:
         session.push_chunk("data: " + json.dumps({"type": "stream_session", "stream_id": session.stream_id}) + "\n\n")
@@ -1480,22 +1572,19 @@ async def _process_chat_background(
 
         history = load_history()
 
-        # --- Tweak 2: Agenda as dynamic user-turn prefix (2026-06-21) ---
-        # Injected here rather than in load_system_prompt() so it is not
-        # frozen into the Gemma 4 KV-cache prefill. This refreshes on every
-        # request and costs tokens only when there is something to report.
+        # Agenda as dynamic user-turn prefix
         agenda_prefix = get_upcoming_agenda_prompt_context()
 
         user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
         if agenda_prefix:
             user_msg_for_model = f"{agenda_prefix}\n\n{user_msg_for_model}"
-        
+
         messages = [{"role": "system", "content": system}] + history
-        
+
         research_ctx = get_research_context()
         if research_ctx:
             messages.append({"role": "system", "content": research_ctx})
-            
+
         user_turn = {"role": "user", "content": user_msg_for_model}
         if images:
             user_turn["images"] = images
@@ -1503,189 +1592,27 @@ async def _process_chat_background(
 
         await put("status", msg="Querying model...")
 
-        # ------------------------------------------------------------------
-        # Tool Round 0: Non-streaming reasoning + tool detection
-        # ------------------------------------------------------------------
-        print(
-            f"{_CYN}[TOOL_ROUND_0]{_RST} Reasoning + tool detection. think={cfg.THINK_TOOL_LOOP}. Roles:",
-            [m["role"] for m in messages],
-            flush=True,
-        )
-
-        try:
-            pass1_resp = await call_ollama_full(
-                messages,
-                tools=MODEL_TOOL_DEFINITIONS,
-                num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
-            )
-        except Exception as exc:
-            print(f"{_RED}[TOOL_ROUND_0 ERROR]{_RST} {type(exc).__name__}: {exc}", flush=True)
-            # finally block will log the empty response and update DB
-            return
-
-        pass1_msg = pass1_resp.get("message", {})
-        tool_calls = pass1_msg.get("tool_calls") or []
-        pass1_content = pass1_msg.get("content") or ""
-        pass1_thinking = pass1_msg.get("thinking") or ""
-        dlog(
-            f"Tool round 0 — content: {len(pass1_content)} chars, "
-            f"thinking: {len(pass1_thinking)} chars, tools: {len(tool_calls)}"
-        )
-
-        if cfg.SHOW_TOOL_LOOP_THINKING and pass1_thinking:
-            await put("thinking", delta=f"[Initial]\n{pass1_thinking}")
-            thinking_buf += f"[Initial]\n{pass1_thinking}\n\n"
-
-        # Self-election: strip routing hint from content before it enters message
-        # history (primary leak-prevention; _stream_content has a belt-and-suspenders strip).
-        pass1_content_clean = _SELF_ELECT_RE.sub("", pass1_content).strip()
-        if cfg.THINK_SELF_ELECT and not ui_override:
-            m = _SELF_ELECT_RE.search(pass1_content)
-            if m:
-                elected = re.search(
-                    r'"requested_effort":\s*"(low|medium|high|max)"',
-                    m.group(0), re.IGNORECASE
-                )
-                if elected:
-                    think_effort = elected.group(1)
-                    think_source = "self_elect"
-                    dlog(f"Self-elected think effort: {think_effort}")
-        pass1_content = pass1_content_clean
-
-        if not tool_calls:
-            metrics_dict["think_effort"] = str(think_effort)
-            metrics_dict["think_source"] = think_source
-            has_prior_thinking = bool(pass1_thinking and cfg.SHOW_TOOL_LOOP_THINKING)
-            await drain_stream(_stream_content(messages, think_effort=think_effort),
-                               response_label=has_prior_thinking)
-
-        else:
-            # ------------------------------------------------------------------
-            # Agentic tool loop
-            # ------------------------------------------------------------------
-            loop = asyncio.get_running_loop()
-            current_tool_calls = tool_calls
-            current_content = pass1_content
-
-            for tool_round in range(1, cfg.MAX_TOOL_ROUNDS + 1):
-                dlog(f"Tool round {tool_round}/{cfg.MAX_TOOL_ROUNDS}: {len(current_tool_calls)} call(s)")
-                await put("status", msg=f"Tool round {tool_round}...")
-
-                messages.append({
-                    "role": "assistant",
-                    "content": "",  # Strip pre-tool reasoning — prevents Pass-2 echo of journal/tool content
-                    "tool_calls": current_tool_calls,
-                })
-
-                for tc in current_tool_calls:
-                    fn_name = tc["function"]["name"]
-                    fn_args = tc["function"].get("arguments", {})
-                    if isinstance(fn_args, str):
-                        try:
-                            fn_args = json.loads(fn_args)
-                        except Exception:
-                            fn_args = {}
-
-                    await put("tool", name=fn_name)
-                    dlog(f"Dispatching tool: {fn_name}({fn_args})")
-
-                    result = await loop.run_in_executor(
-                        None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
-                    )
-                    
-                    tool_entry = fn_name
-                    meta_entry = {"name": fn_name, "data": None}
-                    
-                    if fn_name == "generate_image":
-                        import re
-                        m = re.search(r'(/images/[^\s\)]+)', result)
-                        if m:
-                            tool_entry = f"{fn_name}[{m.group(1)}]"
-                            meta_entry["data"] = {"path": m.group(1)}
-                            await put("tool_data", name=fn_name, data=m.group(1))
-                    elif fn_name in ("run_command", "write_file", "write_journal_entry"):
-                        import re
-                        m = re.search(r'Approval ID:\s*(cmd_\w+|write_\w+)', result)
-                        if m:
-                            approval_id = m.group(1)
-                            tool_entry = f"{fn_name}[{approval_id}]"
-                            meta_entry["data"] = {"id": approval_id, "type": "approval_required"}
-                            await put("tool_data", name=fn_name, data=approval_id)
-                            
-                    tools_used_list.append(tool_entry)
-
-                    tool_metadata_list.append(meta_entry)
-                    if cfg.DEBUG_TOOL_FULL:
-                        print(
-                            f"{_YEL}[TOOL RESULT]{_RST} {fn_name}\n"
-                            f"{'─' * 60}\n{result}\n{'─' * 60}",
-                            flush=True,
-                        )
-                    else:
-                        dlog(f"Tool result preview: {str(result)[:200]}")
-                    messages.append({"role": "tool", "content": result, "name": fn_name})
-
-                if tool_round >= cfg.MAX_TOOL_ROUNDS:
-                    print(
-                        f"{_YEL}[TOOL LOOP]{_RST} Hit MAX_TOOL_ROUNDS ({cfg.MAX_TOOL_ROUNDS}). Forcing final response.",
-                        flush=True,
-                    )
-                    await put("status", msg="Generating response...")
-                    break
-
-                await put("status", msg="Thinking...")
-                print(
-                    f"{_YEL}[TOOL LOOP]{_RST} Round {tool_round} complete. Re-querying model. Roles:",
-                    [m["role"] for m in messages],
-                    flush=True,
-                )
-
-                followup_resp = await call_ollama_full(
-                    messages,
-                    tools=MODEL_TOOL_DEFINITIONS,
-                    num_predict_override=cfg.TOOL_LOOP_NUM_PREDICT,
-                )
-                followup_msg = followup_resp.get("message", {})
-                current_tool_calls = followup_msg.get("tool_calls") or []
-                current_content = followup_msg.get("content") or ""
-                followup_thinking = followup_msg.get("thinking") or ""
-
-                dlog(
-                    f"Tool round {tool_round} — content={len(current_content)} chars, "
-                    f"thinking={len(followup_thinking)} chars, tools={len(current_tool_calls)}"
-                )
-
-                if cfg.SHOW_TOOL_LOOP_THINKING and followup_thinking:
-                    await put("thinking", delta=f"[Tool {tool_round}]\n{followup_thinking}")
-                    thinking_buf += f"[Tool {tool_round}]\n{followup_thinking}\n\n"
-
-                if not current_tool_calls:
-                    dlog("Model produced no more tool calls. Exiting tool loop.")
-                    await put("status", msg="Generating response...")
-                    break
-
-            # Tool effort escalation: raise response effort if any invoked tool
-            # demands more depth than the heuristic/self-elected level.
-            if tools_used_list and not ui_override:
-                tool_names_used = [t.split("[")[0] for t in tools_used_list if t]
-                if tool_names_used:
-                    max_tool_effort = max(
-                        (TOOL_THINK_EFFORT.get(n, "medium") for n in tool_names_used),
-                        key=lambda e: _EFFORT_RANK.get(str(e).lower(), 1),
-                        default="medium",
-                    )
-                    curr_rank = _EFFORT_RANK.get(str(think_effort).lower(), 1)
-                    max_rank = _EFFORT_RANK.get(str(max_tool_effort).lower(), 1)
-                    if max_rank > curr_rank:
-                        dlog(f"Tool effort escalation: {think_effort} → {max_tool_effort} (tools: {tool_names_used})")
-                        think_effort = max_tool_effort
-                        think_source = "tool_escalation"
-
-            metrics_dict["think_effort"] = str(think_effort)
-            metrics_dict["think_source"] = think_source
-            has_prior_thinking = bool(thinking_buf and cfg.SHOW_TOOL_LOOP_THINKING)
-            await drain_stream(_stream_content(messages, think_effort=think_effort),
-                                response_label=has_prior_thinking)
+        # Unified Agentic Stream Loop
+        async for event in _agentic_stream_loop(messages, think_effort=think_effort, ui_override=ui_override):
+            if event.startswith("data: "):
+                try:
+                    d = json.loads(event[6:])
+                    if d.get("type") == "_state":
+                        content_buf = d.get("content", "")
+                        thinking_buf = d.get("thinking", "")
+                        tools_used_list = d.get("tools_used", [])
+                        tool_metadata_list = d.get("tool_metadata", [])
+                        metrics_dict.update(d.get("metrics", {}))
+                        if metrics_dict:
+                            await put("metrics", **metrics_dict)
+                        continue
+                    if d.get("type") == "text":
+                        content_buf += d.get("delta", "")
+                    elif d.get("type") == "thinking":
+                        thinking_buf += d.get("delta", "")
+                except Exception:
+                    pass
+            session.push_chunk(event)
 
     except asyncio.CancelledError:
         dlog(f"Chat background task cancelled for session {session.stream_id}")
@@ -1729,13 +1656,13 @@ async def _process_chat_background(
                     "WARNING: empty assistant response. thinking len:",
                     len(thinking_buf),
                     "tools fired:",
-                    bool(tool_calls),
+                    bool(tools_used_list),
                 )
 
             dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
 
             # Signal SSE pipe to close cleanly
-            session.push_chunk(f"data: {json.dumps({'type': 'done', 'message_id': assistant_row_id})}\n\n")
+            session.push_chunk(f"data: {json.dumps({'type': 'done', 'message_id': assistant_row_id, 'metrics': metrics_dict})}\n\n")
             session.mark_complete()
 
 def pause_all_active_research():

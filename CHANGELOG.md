@@ -13,6 +13,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.000] - 2026-08-27 — *Unified Single-Stream Agentic Architecture*
+
+### Added & Enhanced
+- **Unified Single-Stream Agentic Architecture (`evelyn_server.py`, `evelyn_config.py`)**:
+  - Completely decommissioned the legacy 2-pass inference pipeline (non-streaming tool detection Pass 1 followed by streaming text Pass 2).
+  - Implemented `_agentic_stream_loop()`, providing a single unified async generator where Ollama streams native thinking deltas in real-time and transitions seamlessly into tool execution or markdown synthesis in the same HTTP stream.
+  - Eliminated duplicate thinking latency on regular conversational turns, slashing response time by ~50% and cutting token overhead.
+  - Hardened with 6 production safeguards:
+    1. **Preamble Token Quarantining**: Quarantines pre-tool text deltas from Round 1 if tool calls are emitted, preventing content duplication in final responses.
+    2. **Exception-Safe Tool Feedback**: Catches all tool execution errors in try/except and formats structured feedback (`role: "tool"`), allowing the model to inspect errors and self-correct across rounds.
+    3. **Hard Terminal Round Enforcement**: Forces `tools=None` when reaching `MAX_TOOL_ROUNDS` to guarantee synthesis.
+    4. **Cumulative Metrics Accounting**: Aggregates token counts (`eval_count`, `prompt_eval_count`) and timing duration across all agentic sub-rounds.
+    5. **Async Interruption Safety**: Preserves `asyncio.CancelledError` safety with shielded SQLite commits for interrupted sessions.
+    6. **Tool Effort Escalation**: Automatically raises thinking depth across subsequent rounds when tools requiring deeper reasoning are invoked.
+- **Frontend Unified Activity Stepper (`index.html`)**:
+  - Replaced disconnected thinking accordion bars with a unified `<details class="agent-activity-trace">` component rendered at the top of assistant bubbles.
+  - Tracks discrete round steps (`● Round 1: Reasoning & Exploration`, `● Tools Executed`, `● Round 2: Synthesis`), displaying interactive tool chips with status spinners and failure badges.
+  - Auto-collapses cleanly upon stream completion into a compact summary header (`▾ Thought for 3.4s • 1 tool used`), keeping the conversation clean and readable.
+  - Added full retrospective support in `loadHistory()`, rendering historical thinking and tool execution chains into unified activity traces.
+- **Agentic Streaming Test Suite (`test_agentic_stream.py`)**:
+  - Added dedicated unit tests covering single-pass direct conversation, multi-round tool dispatch, preamble quarantine, tool error resilience, and terminal round enforcement.
+
+---
+
 ## [000.005.021] - 2026-08-27 — *Tool Prediction Budget Expansion & Special Token Sanitization*
 
 ### Fixed & Enhanced
