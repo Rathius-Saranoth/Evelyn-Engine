@@ -175,7 +175,8 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 * **Payload**: Optional JSON body (`ProcedureReviewBody`) carrying edits to trigger pattern, suggested tools, steps, pitfalls, verification, or tags.
 * **Actions**:
   * `approve`: Commits the procedure (optionally with edits) and marks it `status='live'` so it is active in the RAG retrieval pipeline.
-  * `deny`: Soft-deletes the procedure by updating its status to `archived`.
+  * `deny` / `archive`: Soft-deletes the procedure by updating its status to `archived`.
+  * `delete` / `hard_delete`: Permanently deletes the procedure row from `evelyn_memory.db` and purges any queued split/merge references.
 
 ### `GET /api/procedures`
 * **Purpose**: Fetches all operational procedures from `evelyn_memory.db` across all statuses (`live`, `extracted`, `archived`) with joined `is_queued_merge` and `is_queued_split` queue status flags.
@@ -199,6 +200,10 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 ### `POST /api/procedures/{id}/archive`
 * **Purpose**: Soft-archives a procedure (`status='archived'`), removing it from active RAG retrieval context while preserving historical audit logs.
 * **Returns**: `{"status": "ok", "archived": id}`.
+
+### `DELETE /api/procedures/{id}` & `POST /api/procedures/{id}/delete`
+* **Purpose**: Permanently deletes an operational procedure row from `evelyn_memory.db` and purges associated queued items.
+* **Returns**: `{"status": "ok"}`.
 
 ---
 

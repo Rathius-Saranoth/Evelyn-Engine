@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.002"
-VERSION_NAME = "Persistent FIFO Idle Task Queue & Cooperative Batch Catch-Up"
+__version__ = "000.006.004"
+VERSION_NAME = "Permanent Deletion Controls for Procedures & Triage Items"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

@@ -34,7 +34,7 @@ def test_procedure_crud_with_suggested_tools():
     assert proc_after["suggested_tools"] == "create_task"
 
     # Cleanup
-    memory_db.delete_procedure(proc_id)
+    memory_db.hard_delete_procedure(proc_id)
 
 
 def test_procedure_queues_lifecycle():
@@ -85,8 +85,8 @@ def test_procedure_queues_lifecycle():
         assert p1 not in queued_splits_after
 
     finally:
-        memory_db.delete_procedure(p1)
-        memory_db.delete_procedure(p2)
+        memory_db.hard_delete_procedure(p1)
+        memory_db.hard_delete_procedure(p2)
 
 
 def test_parse_procedures_yaml_with_suggested_tools():
@@ -150,6 +150,47 @@ def test_chroma_rag_procedure_formatting(monkeypatch):
         assert "Suggested Tool(s): write_file" in context
         assert "Pitfalls to Avoid: Never use write_journal_entry for dream records." in context
     finally:
-        memory_db.delete_procedure(proc_id)
+        memory_db.hard_delete_procedure(proc_id)
+
+
+def test_hard_deletion_primitives():
+    """Verify hard_delete_procedure, delete_proposal, and hard_delete_entry permanently remove rows."""
+    # 1. Procedure hard delete
+    p_id = memory_db.insert_procedure(
+        trigger_pattern="Dummy procedure to be hard deleted",
+        steps="1. Temporary step.",
+        status="live"
+    )
+    assert p_id > 0
+    assert memory_db.get_procedure(p_id) is not None
+    assert memory_db.hard_delete_procedure(p_id) is True
+    assert memory_db.get_procedure(p_id) is None
+
+    # 2. Context entry hard delete
+    e_id = memory_db.insert_entry(
+        category="Cat01-U",
+        subject="User",
+        observation="Temporary test entry for hard deletion",
+        status="extracted"
+    )
+    assert e_id > 0
+    assert memory_db.get_entry(e_id) is not None
+    assert memory_db.hard_delete_entry(e_id) is True
+    assert memory_db.get_entry(e_id) is None
+
+    # 3. Proposal hard delete
+    prop_id = memory_db.insert_proposal(
+        type="recategorize",
+        source_ids=[],
+        suggested_category="Cat02-U",
+        reason="Test recategorize proposal to delete"
+    )
+    assert prop_id > 0
+    props = memory_db.get_pending_proposals()
+    assert any(p["id"] == prop_id for p in props)
+    assert memory_db.delete_proposal(prop_id) is True
+    props_after = memory_db.get_pending_proposals()
+    assert not any(p["id"] == prop_id for p in props_after)
+
 
 

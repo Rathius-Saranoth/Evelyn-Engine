@@ -4447,9 +4447,8 @@ async def action_extraction(id: int, action: str, req: EditEntryRequest = None, 
     if action == "approve":
         memory_db.update_entry(id, status="live")
         await start_refresh_memory_internal()
-    elif action == "delete":
-        memory_db.delete_entry(id)
-        memory_db.remove_source_id_from_pending_proposals(id)
+    elif action in ("delete", "hard_delete"):
+        memory_db.hard_delete_entry(id)
     elif action == "edit" and req:
         fields = {}
         if req.category is not None:
@@ -4554,6 +4553,9 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
     import Evelyn.tools.memory_db as memory_db
     if action == "deny":
         memory_db.reject_proposal(id)
+        return {"status": "ok"}
+    elif action in ("delete", "hard_delete"):
+        memory_db.delete_proposal(id)
         return {"status": "ok"}
     elif action == "edit":
         if not req or req.modified_text is None:
@@ -4888,8 +4890,11 @@ async def action_procedure(
         body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags/suggested_tools.
     """
     import Evelyn.tools.memory_db as memory_db
-    if action in ("deny", "delete"):
+    if action in ("deny", "archive"):
         memory_db.delete_procedure(id)
+        return {"status": "ok"}
+    elif action in ("delete", "hard_delete"):
+        memory_db.hard_delete_procedure(id)
         return {"status": "ok"}
     elif action == "edit":
         update_fields = {}
@@ -5006,6 +5011,17 @@ async def archive_procedure(id: int, _: None = Depends(check_auth)):
     """Soft delete/archive a procedure."""
     import Evelyn.tools.memory_db as memory_db
     success = memory_db.delete_procedure(id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Procedure not found")
+    return {"status": "ok"}
+
+
+@app.delete("/api/procedures/{id}")
+@app.post("/api/procedures/{id}/delete")
+async def delete_procedure_endpoint(id: int, _: None = Depends(check_auth)):
+    """Permanently delete a procedure."""
+    import Evelyn.tools.memory_db as memory_db
+    success = memory_db.hard_delete_procedure(id)
     if not success:
         raise HTTPException(status_code=404, detail="Procedure not found")
     return {"status": "ok"}
