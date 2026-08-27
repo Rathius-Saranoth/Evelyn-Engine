@@ -13,6 +13,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.002] - 2026-08-27 — *Persistent FIFO Idle Task Queue & Cooperative Batch Catch-Up*
+
+### Added & Enhanced
+- **Persistent FIFO Idle Task Queue (`task_manager.py`, `evelyn_config.py`)**:
+  - Implemented centralized FIFO task queue (`_idle_queue`) in `task_manager.py` with disk persistence (`data/evelyn_task_queue.json`) and crash recovery.
+  - Interrupted running tasks upon reboot/server restart are automatically reconciled back to the front of the queue.
+  - Implemented `IDLE_STARTUP_GRACE_PERIOD` (default 60s) to prevent deep research and background tasks from prematurely firing upon boot.
+- **Cooperative Yield & Multi-Tool Batch Catch-Up (`fact_extractor.py`, `tag_librarian.py`, `evelyn_server.py`)**:
+  - Uncapped fact extraction with `FACT_EXTRACTION_MAX_BATCHES_PER_SESSION = 0` (unlimited idle drain) and added `FACT_EXTRACTION_BACKLOG_DELAY = 5`s.
+  - Refactored `fact_extractor.py` and `tag_librarian.py` to commit progress cursors to SQLite after each batch/item and check `task_manager.should_yield()`.
+  - When peer tasks are queued, the active tool yields cleanly and re-enqueues at the tail of the line; when the queue is empty, it continues draining its backlog.
+- **Zero-Delay Chat Preemption (`evelyn_server.py`, `task_manager.py`)**:
+  - Interactive user chat immediately sets `task_manager.set_chat_preemption(True)` and triggers `cancel_all_idle_tasks()`, releasing 100% of compute and GPU inference power to conversational turns.
+- **Centralized Idle Dispatcher (`evelyn_server.py`)**:
+  - Replaced isolated task execution loops with a central `_idle_task_dispatcher_loop()`, while individual timer loops enqueue their intent via `task_manager.enqueue_idle_task()`.
+- **Testing & Verification**:
+  - Added `Evelyn/tests/test_idle_task_queue.py` verifying FIFO queuing, persistence, crash recovery, cooperative yield/re-enqueue, and preemption.
+  - Full test suite passing at 144/144 tests.
+
+---
+
 ## [000.006.001] - 2026-08-27 — *High-Resolution Granular Biometrics & Intraday Health Queries*
 
 ### Added & Enhanced

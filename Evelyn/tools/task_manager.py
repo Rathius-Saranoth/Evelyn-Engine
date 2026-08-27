@@ -525,8 +525,228 @@ def _get_background_tasks() -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
-
 STATE_FILE = r"/home/rathius/evelyn/data/heavy_tasks_state.json"
+QUEUE_STATE_FILE = r"/home/rathius/evelyn/data/evelyn_task_queue.json"
+
+# ---------------------------------------------------------------------------
+# Idle Task Queue (Pure FIFO Sequential Scheduling)
+# ---------------------------------------------------------------------------
+
+_idle_queue: list[dict] = []
+_chat_preempted: bool = False
+_boot_ts: float = time.time()
+
+
+def get_boot_ts() -> float:
+    """Return the timestamp when the server or task manager was initialized."""
+    return _boot_ts
+
+
+def is_boot_grace_period_active() -> bool:
+    """Return True if the server startup grace period is currently active."""
+    try:
+        import evelyn_config as cfg
+        grace_period = getattr(cfg, "IDLE_STARTUP_GRACE_PERIOD", 60.0)
+    except Exception:
+        grace_period = 60.0
+    return (time.time() - _boot_ts) < grace_period
+
+
+def is_chat_preempted() -> bool:
+    """Return True if user chat is actively preempting idle tasks."""
+    return _chat_preempted
+
+
+def set_chat_preemption(active: bool) -> None:
+    """Set or clear the user chat preemption flag.
+
+    When active=True, immediately cancels in-flight idle tasks to grant
+    100% compute/GPU resources to the interactive user turn.
+
+    Args:
+        active: True to preempt idle tasks for chat, False when chat finishes.
+    """
+    global _chat_preempted
+    _chat_preempted = bool(active)
+    if _chat_preempted:
+        cancel_all_idle_tasks("chat_preemption")
+
+
+def is_task_queued(name: str) -> bool:
+    """Return True if a task with the given name is currently waiting in the idle queue.
+
+    Args:
+        name: The task key (e.g. 'extractor', 'consolidator').
+
+    Returns:
+        bool: True if already present in the queue.
+    """
+    return any(item.get("task") == name for item in _idle_queue)
+
+
+def get_idle_queue() -> list[dict]:
+    """Return a shallow copy of the current idle queue."""
+    return list(_idle_queue)
+
+
+def enqueue_idle_task(name: str, metadata: dict | None = None) -> bool:
+    """Enqueue a task at the tail of the FIFO idle queue.
+
+    Idempotent: Prevents duplicate queue entries if the task is already
+    waiting in _idle_queue or currently actively running.
+
+    Args:
+        name: The task key (e.g. 'extractor', 'consolidator', 'tag_librarian').
+        metadata: Optional metadata dictionary associated with the task run.
+
+    Returns:
+        bool: True if newly enqueued, False if already queued or running.
+    """
+    # 1. Check if already queued
+    if is_task_queued(name):
+        return False
+
+    # 2. Check if currently actively running
+    status = get_status(name)
+    if status in RUNNING_STATUSES or status == "running":
+        return False
+
+    entry = {
+        "task": name,
+        "enqueued_at": time.time(),
+        "metadata": metadata or {},
+    }
+    _idle_queue.append(entry)
+    save_persistent_queue()
+    print(f"[TASK QUEUE] Enqueued '{name}' at tail (queue size: {len(_idle_queue)}).", flush=True)
+    return True
+
+
+def acquire_next_idle_task() -> dict | None:
+    """Pop and return the next task from the front of the FIFO idle queue.
+
+    Returns:
+        dict | None: The popped queue item, or None if the queue is empty
+        or chat preemption is active.
+    """
+    if _chat_preempted or not _idle_queue:
+        return None
+
+    item = _idle_queue.pop(0)
+    save_persistent_queue()
+    print(f"[TASK QUEUE] Dispatched '{item.get('task')}' from front (remaining in queue: {len(_idle_queue)}).", flush=True)
+    return item
+
+
+def peek_next_idle_task() -> dict | None:
+    """Return the next task from the front of the queue without removing it."""
+    if not _idle_queue:
+        return None
+    return _idle_queue[0]
+
+
+def should_yield(name: str) -> bool:
+    """Check if the currently running batch task should yield runtime.
+
+    Returns True if:
+      - Chat preemption is active (_chat_preempted is True), OR
+      - Other peer tasks are waiting in the idle queue (len(_idle_queue) > 0).
+
+    Args:
+        name: The name of the currently running task.
+
+    Returns:
+        bool: True if the task should yield and commit its progress, False otherwise.
+    """
+    if _chat_preempted:
+        return True
+
+    # If other peer tasks are waiting in the queue, yield to let them execute
+    if len(_idle_queue) > 0:
+        return True
+
+    return False
+
+
+def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
+    """Cancel all active idle/background tasks to free resources immediately.
+
+    Used during user chat interaction or server shutdown.
+
+    Args:
+        reason: Description of why cancellation was triggered.
+    """
+    # 1. Cancel in-memory handles for idle tasks
+    for name, handle in list(_active_handles.items()):
+        if name.startswith("test_"):
+            continue
+        try:
+            if hasattr(handle, "cancel") and callable(handle.cancel) and not handle.done():
+                handle.cancel()
+                print(f"[TASK MANAGER] Cancelled active handle for '{name}' ({reason}).", flush=True)
+        except Exception as e:
+            print(f"[TASK MANAGER] Error cancelling handle for '{name}': {e}", flush=True)
+
+    # 2. Call tool-specific cancellation hooks if available
+    try:
+        import Evelyn.tools.fact_extractor as fact_extractor
+        fact_extractor.cancel_pending_extraction(reason=reason)
+    except Exception:
+        pass
+
+
+def save_persistent_queue() -> None:
+    """Persist the current idle task queue to disk."""
+    import json
+    import os
+    queue_file = QUEUE_STATE_FILE
+
+    try:
+        os.makedirs(os.path.dirname(queue_file), exist_ok=True)
+        with open(queue_file, "w", encoding="utf-8") as f:
+            json.dump(_idle_queue, f, indent=2)
+    except Exception as e:
+        print(f"[TASK MANAGER] Error saving persistent task queue: {e}", flush=True)
+
+
+def load_persistent_queue() -> None:
+    """Load persistent idle task queue from disk on startup and reconcile interrupted jobs."""
+    global _idle_queue
+    import json
+    import os
+    queue_file = QUEUE_STATE_FILE
+
+    loaded_queue = []
+    if os.path.exists(queue_file):
+        try:
+            with open(queue_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and "task" in item:
+                        loaded_queue.append(item)
+            print(f"[TASK MANAGER] Loaded persistent idle queue ({len(loaded_queue)} items).", flush=True)
+        except Exception as e:
+            print(f"[TASK MANAGER] Error loading persistent task queue: {e}", flush=True)
+
+    # Reconcile interrupted running tasks from persistent state:
+    # If a task was marked 'running' when the server stopped/crashed,
+    # re-enqueue it at the front of the queue so it resumes.
+    tasks = _get_background_tasks() or {}
+    for task_name, info in tasks.items():
+        if task_name.startswith("test_") or task_name.startswith("task_"):
+            continue
+        if isinstance(info, dict) and (info.get("status") in RUNNING_STATUSES or info.get("status") == "running"):
+            if not any(item.get("task") == task_name for item in loaded_queue):
+                loaded_queue.insert(0, {
+                    "task": task_name,
+                    "enqueued_at": time.time(),
+                    "metadata": {"resumed_from_crash": True},
+                })
+                print(f"[TASK MANAGER] Reconciled interrupted task '{task_name}' to front of idle queue.", flush=True)
+
+    _idle_queue = loaded_queue
+    save_persistent_queue()
 
 
 def save_persistent_state() -> None:

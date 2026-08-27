@@ -1556,6 +1556,10 @@ async def _process_chat_background(
         """Enqueue a serialized SSE event dictionary to the active stream session."""
         session.push_chunk("data: " + json.dumps({"type": type_, **kw}) + "\n\n")
 
+    import task_manager
+    task_manager.set_chat_preemption(True)
+    task_manager.cancel_all_idle_tasks("chat_request")
+
     try:
         session.push_chunk("data: " + json.dumps({"type": "stream_session", "stream_id": session.stream_id}) + "\n\n")
         await put("status", msg="Processing...")
@@ -1663,6 +1667,9 @@ async def _process_chat_background(
             # Signal SSE pipe to close cleanly
             session.push_chunk(f"data: {json.dumps({'type': 'done', 'message_id': assistant_row_id, 'metrics': metrics_dict})}\n\n")
             session.mark_complete()
+
+        task_manager.set_chat_preemption(False)
+        _last_activity_ts = time.time()
 
 def pause_all_active_research():
     """Immediately pause any currently running background research tasks to prevent Ollama blockage."""
@@ -2022,15 +2029,96 @@ async def lifespan(app: FastAPI):
     print(f"  {_GRN}Visual Indexer:{_RST} Started background media extraction queue worker.")
 
     task_manager.load_persistent_state()
+    task_manager.load_persistent_queue()
     _lifespan_tasks.append(asyncio.create_task(task_manager.start_watchdog()))
     print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
     print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
 
-    # Idle-time consolidation loop — wakes every CONSOLIDATION_IDLE_CHECK_INTERVAL
-    # seconds, checks inactivity, and runs run_consolidation() when idle long enough.
+    # Central Idle Task Dispatcher Loop (Pure FIFO Scheduling)
+    async def _idle_task_dispatcher_loop():
+        """Central worker that dispatches queued background tasks during idle periods."""
+        while True:
+            await asyncio.sleep(2.0)
+            importlib.reload(cfg)
+
+            # 1. Check startup boot grace period
+            if task_manager.is_boot_grace_period_active():
+                continue
+
+            # 2. Check chat preemption flag
+            if task_manager.is_chat_preempted():
+                continue
+
+            # 3. Check mutual exclusion — is another heavy task currently running?
+            if is_any_heavy_task_running():
+                continue
+
+            # 4. Check if any task is waiting in the idle queue
+            next_task_info = task_manager.peek_next_idle_task()
+            if not next_task_info:
+                continue
+
+            task_name = next_task_info.get("task")
+
+            # 5. Check task-specific idle time requirement
+            idle_seconds = time.time() - _last_activity_ts
+            required_idle = 60  # baseline fallback
+            if task_name == "extractor":
+                required_idle = getattr(cfg, "FACT_EXTRACTION_IDLE_THRESHOLD", 300)
+            elif task_name in ("consolidator", "procedure_consolidator"):
+                required_idle = getattr(cfg, "CONSOLIDATION_IDLE_THRESHOLD", 600)
+            elif task_name == "profile_evolver":
+                required_idle = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 3600)
+            elif task_name == "tag_librarian":
+                required_idle = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
+            elif task_name == "refresh_memory":
+                required_idle = 2700
+            elif task_name.startswith("task_"):
+                required_idle = getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
+
+            if idle_seconds < required_idle:
+                continue
+
+            # 6. Dequeue and dispatch the task
+            item = task_manager.acquire_next_idle_task()
+            if not item:
+                continue
+
+            dispatched_task = item.get("task")
+            print(f"{_CYN}[IDLE DISPATCHER]{_RST} Dispatched task '{dispatched_task}' (server idle for {idle_seconds / 60:.1f}m).", flush=True)
+
+            try:
+                if dispatched_task == "extractor":
+                    import fact_extractor
+                    fact_extractor._extraction_task = asyncio.create_task(run_extraction())
+                elif dispatched_task == "consolidator":
+                    import fact_consolidator
+                    import procedure_consolidator
+                    t1 = asyncio.create_task(run_consolidation())
+                    t2 = asyncio.create_task(run_procedure_consolidation())
+                    fact_consolidator._consolidation_task = t1
+                    procedure_consolidator._procedure_task = t2
+                elif dispatched_task == "procedure_consolidator":
+                    import procedure_consolidator
+                    procedure_consolidator._procedure_task = asyncio.create_task(run_procedure_consolidation())
+                elif dispatched_task == "profile_evolver":
+                    asyncio.create_task(run_profile_evolution())
+                elif dispatched_task == "tag_librarian":
+                    asyncio.create_task(run_tag_librarian_task())
+                elif dispatched_task == "refresh_memory":
+                    asyncio.create_task(start_refresh_memory_internal())
+                else:
+                    print(f"{_YEL}[IDLE DISPATCHER]{_RST} Unknown task '{dispatched_task}' in queue.", flush=True)
+            except Exception as e:
+                print(f"[IDLE DISPATCHER ERROR] Failed to dispatch '{dispatched_task}': {e}", flush=True)
+
+    _lifespan_tasks.append(asyncio.create_task(_idle_task_dispatcher_loop()))
+    print(f"  {_GRN}Idle Dispatcher:{_RST} started central FIFO queue worker (grace={getattr(cfg, 'IDLE_STARTUP_GRACE_PERIOD', 60)}s)")
+
+    # Idle-time consolidation loop — enqueues into central task queue
     async def _idle_consolidation_loop():
-        """Background loop that triggers fact consolidation during idle periods."""
+        """Background loop that periodically enqueues fact consolidation."""
         while True:
             await asyncio.sleep(cfg.CONSOLIDATION_IDLE_CHECK_INTERVAL)
             importlib.reload(cfg)
@@ -2038,34 +2126,18 @@ async def lifespan(app: FastAPI):
                 continue
             idle_seconds = time.time() - _last_activity_ts
             if idle_seconds >= cfg.CONSOLIDATION_IDLE_THRESHOLD:
-                if is_any_heavy_task_running():
-                    continue
-                print(
-                    f"{_MAG}[CONSOLIDATOR]{_RST} Idle for "
-                    f"{idle_seconds / 60:.1f}m — starting consolidation pass.",
-                    flush=True,
-                )
-                import fact_consolidator
-                import procedure_consolidator
-                t1 = asyncio.create_task(run_consolidation())
-                t2 = asyncio.create_task(run_procedure_consolidation())
-                fact_consolidator._consolidation_task = t1
-                procedure_consolidator._procedure_task = t2
-                await asyncio.gather(t1, t2, return_exceptions=True)
-                print(f"{_MAG}[CONSOLIDATOR]{_RST} Consolidation pass completed — triggering automatic memory refresh.", flush=True)
-                await start_refresh_memory_internal()
+                task_manager.enqueue_idle_task("consolidator")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_consolidation_loop()))
     print(
-        f"  {_GRN}Consolidator:{_RST} idle loop started "
+        f"  {_GRN}Consolidator:{_RST} idle timer started "
         f"(threshold={cfg.CONSOLIDATION_IDLE_THRESHOLD // 60}m, "
         f"check={cfg.CONSOLIDATION_IDLE_CHECK_INTERVAL // 60}m)"
     )
 
-    # Idle-time extraction loop — shorter threshold than consolidation.
-    # Reads new messages directly from the DB; no summarizer dependency.
+    # Idle-time extraction loop — enqueues into central task queue
     async def _idle_extraction_loop():
-        """Background loop that triggers fact extraction during idle periods."""
+        """Background loop that periodically enqueues fact extraction when new messages exist."""
         while True:
             await asyncio.sleep(cfg.FACT_EXTRACTION_IDLE_CHECK_INTERVAL)
             importlib.reload(cfg)
@@ -2073,19 +2145,11 @@ async def lifespan(app: FastAPI):
                 continue
             idle_seconds = time.time() - _last_activity_ts
             if idle_seconds >= cfg.FACT_EXTRACTION_IDLE_THRESHOLD:
-                if is_any_heavy_task_running():
-                    continue
-                print(
-                    f"{_CYN}[EXTRACTOR]{_RST} Idle for "
-                    f"{idle_seconds / 60:.1f}m — starting extraction pass.",
-                    flush=True,
-                )
-                import fact_extractor
-                fact_extractor._extraction_task = asyncio.create_task(run_extraction())
+                task_manager.enqueue_idle_task("extractor")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_extraction_loop()))
     print(
-        f"  {_GRN}Extractor:{_RST}   idle loop started "
+        f"  {_GRN}Extractor:{_RST}   idle timer started "
         f"(threshold={cfg.FACT_EXTRACTION_IDLE_THRESHOLD // 60}m, "
         f"check={cfg.FACT_EXTRACTION_IDLE_CHECK_INTERVAL // 60}m)"
     )
@@ -2258,7 +2322,7 @@ async def lifespan(app: FastAPI):
                         last_attempt = _error_resume_ts.get(target_task["task_id"], 0)
                         if time.time() - last_attempt < 600:
                             continue  # Cooldown active — skip silently
-                        _error_resume_ts[target_task["task_id"]] = time.time()
+                            _error_resume_ts[target_task["task_id"]] = time.time()
 
                     print(f"[RESEARCH AUTO-RECOVERY] Server idle for {idle_seconds:.1f}s — auto-resuming unfinished task {target_task['task_id']} (status: {target_task['status']})", flush=True)
                     from evelyn_tools import resume_research_task
@@ -2314,30 +2378,25 @@ async def lifespan(app: FastAPI):
 
     # Idle-time memory refresh loop - runs during deep idle periods (45m+)
     async def _idle_memory_refresh_loop():
-        """Background loop that triggers memory refresh during deep idle periods."""
-        last_run_time = 0
+        """Background loop that periodically enqueues memory refresh during deep idle periods."""
+        last_enqueued_time = 0
         while True:
-            await asyncio.sleep(300) # Check every 5 minutes
+            await asyncio.sleep(300)  # Check every 5 minutes
             importlib.reload(cfg)
-            
-            # Require at least 45 minutes of idle time
             idle_seconds = time.time() - _last_activity_ts
             if idle_seconds >= 2700:
-                # Limit running to once every 2 hours max
-                if time.time() - last_run_time >= 7200:
-                    if not is_any_heavy_task_running():
-                        print(f"{_GRN}[IDLE REFRESH]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background memory refresh.", flush=True)
-                        await start_refresh_memory_internal()
-                        last_run_time = time.time()
+                if time.time() - last_enqueued_time >= 7200:
+                    task_manager.enqueue_idle_task("refresh_memory")
+                    last_enqueued_time = time.time()
 
     _lifespan_tasks.append(asyncio.create_task(_idle_memory_refresh_loop()))
-    print(f"  {_GRN}Mem Refresher:{_RST} idle loop started (threshold=45m, limit=2h)")
+    print(f"  {_GRN}Mem Refresher:{_RST} idle timer started (threshold=45m, limit=2h)")
 
     # Idle-time profile evolution loop (Hermes Tier 3 #12)
     # Wakes every 10 minutes to check idle state. The per-document 24-hour
     # cooldown is enforced inside run_profile_evolution(), not here.
     async def _idle_profile_evolution_loop():
-        """Background loop that proposes persona file updates during deep idle."""
+        """Background loop that periodically enqueues persona profile evolution."""
         while True:
             await asyncio.sleep(600)  # Check every 10 minutes
             importlib.reload(cfg)
@@ -2346,12 +2405,10 @@ async def lifespan(app: FastAPI):
             idle_seconds = time.time() - _last_activity_ts
             threshold = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 3600)
             if idle_seconds >= threshold:
-                if not is_any_heavy_task_running():
-                    print(f"{_GRN}[PROFILE EVOLVER]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background profile evolution check.", flush=True)
-                    asyncio.create_task(run_profile_evolution())
+                task_manager.enqueue_idle_task("profile_evolver")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_profile_evolution_loop()))
-    print(f"  {_GRN}Profile Evolver:{_RST} idle loop started (threshold=60m, cooldown=24h/doc)")
+    print(f"  {_GRN}Profile Evolver:{_RST} idle timer started (threshold=60m, cooldown=24h/doc)")
 
     # Idle-time Tag Librarian loop
     async def run_tag_librarian_task():
@@ -2364,8 +2421,10 @@ async def lifespan(app: FastAPI):
             from Evelyn.tools import tag_librarian
             batch_size = getattr(cfg, "TAG_LIBRARIAN_BATCH_SIZE", 1)
             for i in range(batch_size):
-                if is_any_heavy_task_running("tag_librarian"):
-                    break  # Yield if another heavy task started
+                if task_manager.should_yield("tag_librarian"):
+                    print("[TAG LIBRARIAN] Yielding to peer task in queue.", flush=True)
+                    task_manager.enqueue_idle_task("tag_librarian")
+                    break
                 res = await asyncio.to_thread(tag_librarian.audit_single_document)
                 print(f"{_GRN}[TAG LIBRARIAN]{_RST} Audit pass {i+1}/{batch_size} result: {res}", flush=True)
                 if res.get("status") in ("empty", "error"):
@@ -2384,7 +2443,7 @@ async def lifespan(app: FastAPI):
 
 
     async def _idle_tag_librarian_loop():
-        """Background loop that triggers incremental tag auditing during idle periods."""
+        """Background loop that periodically enqueues Tag Librarian audit."""
         while True:
             await asyncio.sleep(600)  # Check every 10 minutes
             importlib.reload(cfg)
@@ -2393,9 +2452,7 @@ async def lifespan(app: FastAPI):
             idle_seconds = time.time() - _last_activity_ts
             threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
             if idle_seconds >= threshold:
-                if not is_any_heavy_task_running():
-                    print(f"{_GRN}[TAG LIBRARIAN]{_RST} Server idle for {idle_seconds / 60:.1f}m — triggering background tag librarian audit.", flush=True)
-                    asyncio.create_task(run_tag_librarian_task())
+                task_manager.enqueue_idle_task("tag_librarian")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_tag_librarian_loop()))
     print(f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=45m, limit=1 doc/run)")

@@ -248,7 +248,7 @@ def _heavy_tasks_running() -> bool:
     Returns:
         bool: True if another heavy background task is active, False otherwise.
     """
-    import task_manager
+    import Evelyn.tools.task_manager as task_manager
     return task_manager.is_any_running(exclude="extractor")
 
 
@@ -272,7 +272,7 @@ def _set_status_in_server(
         diagnostics: Optional diagnostic details dict.
         items_processed: Optional number of items processed.
     """
-    import task_manager
+    import Evelyn.tools.task_manager as task_manager
     if status == "running":
         task_manager.set_running("extractor", sub_status=sub_status, diagnostics=diagnostics)
     else:
@@ -306,8 +306,9 @@ def cancel_pending_extraction(reason: str = "chat_request"):
 async def run_extraction():
     """Run the idle-time extraction process to find new facts in the chat history.
 
-    Coordinates mutual exclusion, cooldowns, session-batch cap, and message
-    batching before triggering extraction.
+    Coordinates mutual exclusion, cooldowns, cooperative yield checks, and batching.
+    Processes consecutive batches during idle periods, yielding to peer tasks
+    in the FIFO idle queue after each batch.
     """
     global _extracting, _last_extracted_id, _session_batches_this_idle
     importlib.reload(cfg)
@@ -319,31 +320,7 @@ async def run_extraction():
         print("[EXTRACTOR] Already running — skipping.", flush=True)
         return
 
-    # Per-session batch cap: don't hammer Ollama with a large backlog in one
-    # idle window. Resets when cancel_pending_extraction() is called (new chat).
-    max_batches = getattr(cfg, "FACT_EXTRACTION_MAX_BATCHES_PER_SESSION", 5)
-    if _session_batches_this_idle >= max_batches:
-        print(
-            f"[EXTRACTOR] Session batch cap reached "
-            f"({_session_batches_this_idle}/{max_batches}) — deferring until next activity.",
-            flush=True,
-        )
-        return
-
-    # Defer if the consolidator is currently making an LLM call.
-    # Both share the same Ollama instance; running in parallel causes timeouts.
-    try:
-        import fact_consolidator
-        if fact_consolidator._consolidating:
-            print(
-                "[EXTRACTOR] Consolidator is running — deferring extraction.",
-                flush=True,
-            )
-            return
-    except ImportError:
-        pass
-
-    # Defer if any other heavy background task is running (research, consolidator, etc.).
+    # Defer if any other heavy background task is actively running.
     if _heavy_tasks_running():
         print(
             "[EXTRACTOR] Another heavy task is running — deferring extraction.",
@@ -351,7 +328,9 @@ async def run_extraction():
         )
         return
 
-    import task_manager
+    import Evelyn.tools.task_manager as task_manager
+
+    # Cooldown check (only on initial invocation if no backlog)
     _last_run_ts = task_manager.get_last_run_ts("extractor")
     now = time.time()
     if (now - _last_run_ts) < cfg.FACT_EXTRACTION_COOLDOWN:
@@ -362,27 +341,79 @@ async def run_extraction():
         )
         return
 
-    messages, max_id = _fetch_new_messages()
-    min_new = cfg.FACT_EXTRACTION_MIN_MESSAGES
-    if len(messages) < min_new:
-        print(
-            f"[EXTRACTOR] Only {len(messages)} new message(s) "
-            f"(need {min_new}). Skipping.",
-            flush=True,
-        )
-        return
-
     _extracting = True
-    success = False
-    _set_status_in_server(
-        "running",
-        sub_status={"last_extracted_id": _last_extracted_id, "unextracted_backlog": len(messages)},
-    )
+    max_batches = getattr(cfg, "FACT_EXTRACTION_MAX_BATCHES_PER_SESSION", 0)
+    backlog_delay = getattr(cfg, "FACT_EXTRACTION_BACKLOG_DELAY", 5.0)
+
     try:
-        await _do_extraction(messages)
-        success = True
+        while True:
+            # 1. Fetch next batch of unprocessed messages
+            messages, max_id = _fetch_new_messages()
+            min_new = cfg.FACT_EXTRACTION_MIN_MESSAGES
+            if len(messages) < min_new:
+                if _session_batches_this_idle == 0:
+                    print(
+                        f"[EXTRACTOR] Only {len(messages)} new message(s) (need {min_new}). Skipping.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[EXTRACTOR] Backlog caught up ({len(messages)} remaining < {min_new}). Finishing pass.",
+                        flush=True,
+                    )
+                break
+
+            # 2. Register running status in server registry
+            _set_status_in_server(
+                "running",
+                sub_status={"last_extracted_id": _last_extracted_id, "unextracted_backlog": len(messages)},
+            )
+
+            # 3. Perform LLM extraction
+            await _do_extraction(messages)
+
+            # 4. Commit progress cursor atomically to disk & state
+            _last_extracted_id = max_id
+            _session_batches_this_idle += 1
+            _update_last_run_ts()
+            _save_extraction_state(max_id)
+            _set_status_in_server(
+                "idle",
+                summary=f"Extracted {len(messages)} messages (up to id #{max_id})",
+                sub_status={"last_extracted_id": max_id, "unextracted_backlog": 0},
+                items_processed=len(messages),
+            )
+            print(
+                f"[EXTRACTOR] Batch {_session_batches_this_idle} complete — advanced to message id={max_id}.",
+                flush=True,
+            )
+
+            # 5. Check if more messages exist in the database
+            remaining_messages, _ = _fetch_new_messages()
+            if len(remaining_messages) < min_new:
+                print("[EXTRACTOR] Backlog fully processed.", flush=True)
+                break
+
+            # 6. Check for cooperative yield: if other peer tasks are waiting or chat arrived
+            if task_manager.should_yield("extractor"):
+                print("[EXTRACTOR] Cooperative yield requested (peer task queued or chat active). Re-enqueueing at tail.", flush=True)
+                task_manager.enqueue_idle_task("extractor")
+                break
+
+            # 7. Check optional session batch limit (if max_batches > 0)
+            if max_batches > 0 and _session_batches_this_idle >= max_batches:
+                print(
+                    f"[EXTRACTOR] Session batch cap reached ({_session_batches_this_idle}/{max_batches}) — yielding.",
+                    flush=True,
+                )
+                task_manager.enqueue_idle_task("extractor")
+                break
+
+            # 8. Brief pause between consecutive batches before next extraction
+            await asyncio.sleep(backlog_delay)
+
     except asyncio.CancelledError:
-        print("[EXTRACTOR] Cancelled — high-water mark not advanced.", flush=True)
+        print("[EXTRACTOR] Cancelled — current batch aborted.", flush=True)
         _set_status_in_server("cancelled")
     except Exception as e:
         err_cls = type(e).__name__
@@ -392,26 +423,12 @@ async def run_extraction():
         _set_status_in_server(
             "error",
             error=formatted_err,
-            sub_status={"last_extracted_id": _last_extracted_id, "unextracted_backlog": len(messages)},
+            sub_status={"last_extracted_id": _last_extracted_id},
         )
     finally:
         _extracting = False
-        if success:
-            _last_extracted_id = max_id
-            _session_batches_this_idle += 1
-            _update_last_run_ts()  # Updates _last_run_ts via task_manager
-            _save_extraction_state(max_id)  # Persists both id and ts
-            _set_status_in_server(
-                "idle",
-                summary=f"Extracted {len(messages)} messages (up to id #{max_id})",
-                sub_status={"last_extracted_id": max_id, "unextracted_backlog": 0},
-                items_processed=len(messages),
-            )
-            print(
-                f"[EXTRACTOR] High-water mark advanced to message id={max_id} "
-                f"(persisted). Session batch {_session_batches_this_idle}/{max_batches}.",
-                flush=True,
-            )
+        if task_manager.get_status("extractor") == "running":
+            _set_status_in_server("idle")
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +439,7 @@ async def run_extraction():
 def _update_last_run_ts():
     """Update the global background task last-run timestamp in task_manager."""
     global _last_run_ts
-    import task_manager
+    import Evelyn.tools.task_manager as task_manager
     _last_run_ts = task_manager.save_last_run_ts("extractor")
 
 
