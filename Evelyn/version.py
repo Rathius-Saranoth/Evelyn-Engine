@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.005.016"
-VERSION_NAME = "Chat UI Stream Lifecycle & Reconciler Consolidation"
+__version__ = "000.005.017"
+VERSION_NAME = "RAG Ingestion Boilerplate Filtering & YAML Exclusion Support"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
