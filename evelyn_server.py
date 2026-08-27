@@ -452,11 +452,10 @@ def load_system_prompt() -> str:
     parts.append(f"The current date and time is {date_str} - {time_str}.")
     parts.append(
         "Before responding, briefly verify any facts about people, relationships, or past events "
-        "from your knowledge. Use <think> tags for this verification step. For complex questions "
-        "requiring multi-step logic, use <think> tags for full reasoning. Keep thinking concise -- "
-        "you don't need lengthy chains for casual conversation. Never draft, simulate, outline, or rehearse "
-        "your response text inside <think> tags; use thinking strictly for internal analysis, fact verification, "
-        "logic, and tool selection -- never for generating draft dialogue or practicing phrasing. "
+        "from your knowledge. Use thinking for fact verification, logical analysis, and selecting "
+        "tools. Keep thinking concise -- you don't need lengthy chains for casual conversation. "
+        "Never draft, simulate, outline, or rehearse your response text inside thinking; use reasoning strictly "
+        "for internal analysis and tool selection. When actions or lookups are needed, call the tool directly. "
         "If a turn calls for unusually deep reflection (complex multi-step analysis, technical planning, "
         "or deep emotional nuance), you may include {\"requested_effort\":\"high\"} on its own line before "
         "your response. For brief acknowledgments or casual sign-offs where deep reasoning is "
