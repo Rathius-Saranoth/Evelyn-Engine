@@ -204,6 +204,24 @@ class TestAllToolsEndToEnd(unittest.TestCase):
             con.commit()
             con.close()
 
+    def test_18_health_metrics_granular_and_intraday(self):
+        """Test get_health_metrics and get_recent_workouts with hours and granular metrics."""
+        import json
+        hr_raw = evelyn_tools.get_health_metrics(metric="heart_rate", hours=2.0)
+        self.assertIsInstance(hr_raw, str)
+        hr_data = json.loads(hr_raw)
+        self.assertIn("status", hr_data)
+        self.assertEqual(hr_data.get("window_hours"), 2.0)
+
+        act_raw = evelyn_tools.get_health_metrics(metric="activity", hours=2.0)
+        self.assertIsInstance(act_raw, str)
+        act_data = json.loads(act_raw)
+        self.assertIn("status", act_data)
+        self.assertIn("steps", act_data)
+
+        wks_raw = evelyn_tools.get_recent_workouts(days=7, hours=24.0)
+        self.assertIsInstance(wks_raw, str)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,7 +30,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
   1. Runs [[query_reformulator.py]] for conversational keywords.
   2. Executes semantic vector search via [[chroma_rag.py]] across `evelyn_memory` full-text index using `BAAI/bge-large-en-v1.5` (1024-dim, 1,600-char chunks) with priority score boosting (`rag_priority: high` multiplier 0.75).
   3. Query matches dense facts from [[context_manager.py]].
-  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** with phase labels (`[Initial]`, `[Tool N]`, `[Response]`), dynamic tool-call updates, and per-message telemetry logging.
+  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** through `_agentic_stream_loop()`, forwarding native thinking deltas in real-time, tool execution lifecycle events (`tool_start`, `tool_end`, `tool_data`), quarantine preamble suppression, and per-message telemetry accounting (`finalize`).
 
 ### `POST /regenerate`
 * **Purpose**: Triggers a regeneration of the latest response in the chat chain.

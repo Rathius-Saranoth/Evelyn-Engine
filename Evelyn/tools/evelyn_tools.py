@@ -2008,18 +2008,22 @@ def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", 
     return terminal_agent.write_file(file_path, content, mode)
 
 
-def get_health_metrics(date: str = "today", metric: str = "summary", **kwargs) -> str:
-    """Retrieve daily health and activity data (steps, sleep, readiness, stress, calories, resting heart rate, vitals, clinical records).
+def get_health_metrics(date: str = "today", metric: str = "summary", hours: float = None, **kwargs) -> str:
+    """Retrieve daily or intraday health and activity data (heart rate, steps, sleep, readiness, stress, workouts, vitals, clinical records).
 
     Args:
         date: Target date ('YYYY-MM-DD', 'today', 'yesterday'). Defaults to 'today'.
         metric: Specific metric to retrieve:
+            - 'heart_rate' / 'hr': granular live heart rate readings, current bpm, min/max/avg, and activity breakdown for the last N hours
             - 'summary': comprehensive daily overview (live Oura sleep & readiness + steps & workouts)
+            - 'activity' / 'steps': intraday steps, distance, active calories, and workouts for the last N hours
             - 'sleep': granular sleep stages breakdown (Deep, REM, Light, Awake), scores, and hypnogram
             - 'readiness': Oura readiness score, body temp deviation, and recovery index
             - 'stress': Oura daytime stress and restorative recovery periods
-            - 'vitals': resting HR and HRV trends
+            - 'workouts': recent recorded workouts and activity sessions (Oura + Health Connect)
+            - 'vitals': resting HR and HRV trends (14-day history)
             - 'clinical': FHIR medical lab results and observations
+        hours: Optional time window in hours for intraday queries (e.g. 2 for last 2 hours).
         **kwargs: Flexible keyword arguments.
 
     Returns:
@@ -2030,29 +2034,49 @@ def get_health_metrics(date: str = "today", metric: str = "summary", **kwargs) -
     date = date or str(kwargs.get("target_date") or kwargs.get("d") or "today")
     metric = (metric or str(kwargs.get("type") or kwargs.get("category") or "summary")).lower().strip()
 
-    if metric in ("sleep", "sleep_stages", "stages"):
+    # Extract hours if passed via kwargs or parameter
+    if hours is None:
+        raw_hours = kwargs.get("hours") or kwargs.get("h") or kwargs.get("window_hours")
+        if raw_hours is not None:
+            try:
+                hours = float(raw_hours)
+            except (ValueError, TypeError):
+                hours = None
+
+    if metric in ("heart_rate", "hr", "granular_hr", "heartrate", "pulse"):
+        res = health_manager.get_granular_heart_rate(hours=hours or 2.0, date_str=date)
+    elif metric in ("sleep", "sleep_stages", "stages"):
         res = health_manager.get_sleep_breakdown(date)
     elif metric in ("readiness", "recovery", "ready"):
         res = health_manager.get_readiness_summary(date)
     elif metric in ("stress", "daytime_stress"):
         res = health_manager.get_stress_summary(date)
-    elif metric in ("vitals", "heart_rate", "rhr", "resting_heart_rate"):
+    elif metric in ("workouts", "workout", "exercise"):
+        res = health_manager.get_recent_workouts(days=7, hours=hours)
+    elif metric in ("activity", "intraday_activity", "intraday_steps", "steps") and hours is not None:
+        res = health_manager.get_intraday_activity(hours=hours)
+    elif metric in ("vitals", "resting_heart_rate", "rhr"):
         res = health_manager.get_vitals_trend(metric="resting_heart_rate", days=14)
     elif metric in ("hrv", "heart_rate_variability"):
         res = health_manager.get_vitals_trend(metric="hrv", days=14)
     elif metric in ("clinical", "labs", "medical", "fhir"):
         res = health_manager.get_clinical_records(limit=10)
     else:
-        res = health_manager.get_daily_summary(date)
+        # If hours was specified but metric was summary/default, check if user wanted intraday activity
+        if hours is not None and hours > 0:
+            res = health_manager.get_intraday_activity(hours=hours)
+        else:
+            res = health_manager.get_daily_summary(date)
 
     return json.dumps(res, indent=2)
 
 
-def get_recent_workouts(days: int = 7, **kwargs) -> str:
-    """Retrieve recorded workout and exercise sessions for the past N days.
+def get_recent_workouts(days: int = 7, hours: float = None, **kwargs) -> str:
+    """Retrieve recorded workout and exercise sessions for the past N days or hours.
 
     Args:
         days: Number of past days to query. Defaults to 7.
+        hours: Optional number of past hours to query.
         **kwargs: Flexible keyword arguments.
 
     Returns:
@@ -2064,9 +2088,19 @@ def get_recent_workouts(days: int = 7, **kwargs) -> str:
         days = int(days or kwargs.get("num_days") or 7)
     except (ValueError, TypeError):
         days = 7
-    res = health_manager.get_recent_workouts(days=days)
+
+    if hours is None:
+        raw_hours = kwargs.get("hours") or kwargs.get("h")
+        if raw_hours is not None:
+            try:
+                hours = float(raw_hours)
+            except (ValueError, TypeError):
+                hours = None
+
+    res = health_manager.get_recent_workouts(days=days, hours=hours)
     if not res:
-        return f"No workout sessions recorded in the past {days} days."
+        window_desc = f"past {hours} hours" if hours else f"past {days} days"
+        return f"No workout sessions recorded in the {window_desc}."
     return json.dumps(res, indent=2)
 
 
@@ -2548,9 +2582,10 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "get_health_metrics",
             "description": (
-                f"Retrieve {cfg.USER_NAME}'s health, fitness, sleep, vitals, readiness, or medical records from Oura Ring and Google Health Connect. "
-                f"Use when {cfg.USER_NAME} asks about sleep quality, sleep stages (deep/REM/light), readiness score, recovery, daytime stress, "
-                "resting heart rate, HRV, body temperature deviation, daily steps, calories burned, distance, or clinical lab results."
+                f"Retrieve {cfg.USER_NAME}'s health, fitness, sleep, vitals, readiness, heart rate, or medical records from Oura Ring and Google Health Connect. "
+                "Supports both whole-day summaries and high-resolution intraday queries (e.g. heart rate over the last 2 hours, recent workouts, or intraday step bursts). "
+                f"Use when {cfg.USER_NAME} asks about heart rate ('last 2 hours', 'current bpm', 'during workout'), sleep quality, sleep stages (deep/REM/light), readiness score, "
+                "recovery, daytime stress, resting heart rate, HRV, daily steps, calories burned, distance, or clinical lab results."
             ),
             "parameters": {
                 "type": "object",
@@ -2563,7 +2598,10 @@ MODEL_TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": (
                             "Specific health domain to query: "
+                            "'heart_rate' (high-resolution live heart rate readings, current/min/max/avg bpm, and activity breakdown for the last N hours), "
                             "'summary' (comprehensive daily overview: sleep, readiness, steps, calories), "
+                            "'activity' (intraday steps, distance, active calories, and workouts for the last N hours), "
+                            "'workouts' (recent recorded workouts and activity sessions from Oura + Health Connect), "
                             "'sleep' (detailed sleep score, duration, deep/REM/light stages, latency, efficiency, and hypnogram), "
                             "'readiness' (Oura readiness score, recovery index, HRV balance, temperature deviation), "
                             "'stress' (daytime stress vs recovery duration), "
@@ -2571,6 +2609,10 @@ MODEL_TOOL_DEFINITIONS = [
                             "'clinical' (medical lab observations, FHIR records, blood work, or doctor records). "
                             "Defaults to 'summary'."
                         ),
+                    },
+                    "hours": {
+                        "type": "number",
+                        "description": "Optional time window in hours for intraday/granular queries (e.g. 2 for last 2 hours, 0.5 for last 30 minutes).",
                     },
                 },
                 "required": [],
@@ -2582,8 +2624,9 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "get_recent_workouts",
             "description": (
-                f"Retrieve {cfg.USER_NAME}'s recorded exercise and workout sessions (walks, runs, strength training, gym sessions, cycling). "
-                "Use when asked about physical activities, recent walks, workout duration, or exercise history."
+                f"Retrieve {cfg.USER_NAME}'s recorded exercise and workout sessions (walks, runs, strength training, yardwork, housework, gym sessions, cycling). "
+                "Merges live Oura Ring activity sessions with Health Connect records. "
+                "Use when asked about physical activities, recent walks, workout duration, calories burned, or exercise history."
             ),
             "parameters": {
                 "type": "object",
@@ -2591,6 +2634,10 @@ MODEL_TOOL_DEFINITIONS = [
                     "days": {
                         "type": "integer",
                         "description": "Number of past days to query (default 7).",
+                    },
+                    "hours": {
+                        "type": "number",
+                        "description": "Optional number of past hours to query (e.g. 3 for workouts in the last 3 hours).",
                     },
                 },
                 "required": [],

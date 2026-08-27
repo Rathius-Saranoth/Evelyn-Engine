@@ -13,6 +13,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.001] - 2026-08-27 — *High-Resolution Granular Biometrics & Intraday Health Queries*
+
+### Added & Enhanced
+- **High-Resolution Intraday Biometrics Engine (`health_manager.py`, `oura_client.py`)**:
+  - Implemented `get_granular_heart_rate(hours=N)` to fetch high-resolution live heart rate readings from Oura Cloud API v2 (`/v2/usercollection/heartrate`) with local Health Connect SQLite fallback.
+  - Generates instant statistical summaries: `current_latest_bpm`, `min_bpm`, `max_bpm`, `avg_bpm`, total sample count, activity source breakdowns (`workout`, `awake`, `rest`, `sleep`), and downsampled 15-minute timeline chunks for clean model synthesis.
+  - Implemented `get_intraday_activity(hours=N)` to slice step counts, active calories, and distance over custom intraday time windows.
+  - Enhanced `get_recent_workouts(days=N, hours=N)` to seamlessly merge live Oura workout sessions with Health Connect records, deduplicating identical events by timestamp.
+- **Health Model Tool Enhancements (`evelyn_tools.py`)**:
+  - Updated `get_health_metrics` and `get_recent_workouts` to accept an `hours` parameter (e.g. `hours=2` for last 2 hours), supporting granular sub-day queries.
+  - Updated OpenAPI tool definitions in `MODEL_TOOL_DEFINITIONS` with explicit instructions on querying live heart rate and sub-day activity.
+- **Testing & Verification**:
+  - Added `test_18_health_metrics_granular_and_intraday` to `Evelyn/tests/test_all_tools_end_to_end.py`. Total test suite passes at 138/138.
+
+---
+
 ## [000.006.000] - 2026-08-27 — *Unified Single-Stream Agentic Architecture*
 
 ### Added & Enhanced

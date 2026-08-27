@@ -11,7 +11,7 @@ metrics, daily activity, and daytime stress directly from Oura Cloud.
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -97,6 +97,62 @@ def get_daily_activity(start_date: Optional[str] = None, end_date: Optional[str]
 def get_daily_stress(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
     """Fetch daily stress and daytime recovery metrics."""
     return _fetch_endpoint("daily_stress", start_date, end_date)
+
+
+def get_workouts(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+    """Fetch recorded workout and activity sessions from Oura."""
+    return _fetch_endpoint("workout", start_date, end_date)
+
+
+def get_sessions(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+    """Fetch recorded restorative/meditation/breathwork sessions from Oura."""
+    return _fetch_endpoint("session", start_date, end_date)
+
+
+def get_heart_rate_series(
+    start_datetime: Optional[str] = None,
+    end_datetime: Optional[str] = None,
+    hours: Optional[float] = None,
+) -> list:
+    """Fetch high-resolution live heart rate readings from Oura API.
+
+    Args:
+        start_datetime: ISO datetime string (e.g. '2026-08-27T09:00:00Z').
+        end_datetime: ISO datetime string (e.g. '2026-08-27T11:00:00Z').
+        hours: Optional convenience float to fetch the last N hours of readings.
+
+    Returns:
+        list: List of dicts with 'timestamp', 'bpm', and 'source' ('workout', 'awake', 'rest', 'sleep').
+    """
+    headers = _get_headers()
+    if not headers:
+        return []
+
+    now_utc = datetime.now(timezone.utc)
+    if hours is not None and hours > 0:
+        start_dt = now_utc - timedelta(hours=hours)
+        start_datetime = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_datetime = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        if not end_datetime:
+            end_datetime = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if not start_datetime:
+            start_datetime = (now_utc - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    params = {
+        "start_datetime": start_datetime,
+        "end_datetime": end_datetime,
+    }
+    url = f"{OURA_BASE_URL}/heartrate"
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        if resp.status_code == 200:
+            return resp.json().get("data", [])
+        print(f"[Oura Client] API heartrate returned status {resp.status_code}: {resp.text}", flush=True)
+        return []
+    except Exception as e:
+        print(f"[Oura Client] Request error on heartrate: {e}", flush=True)
+        return []
 
 
 def get_today_overview() -> dict:
