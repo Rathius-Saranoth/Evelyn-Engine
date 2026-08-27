@@ -13,6 +13,37 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.004] - 2026-08-27 — *Permanent Deletion Controls for Procedures & Triage Items*
+
+### Added & Enhanced
+- **Permanent Hard-Deletion Database Primitives (`Evelyn/tools/memory_db.py`)**:
+  - Implemented `hard_delete_procedure(proc_id: int)` to permanently remove procedures and purge orphaned references from `procedure_split_queue` and `procedure_merge_queue`.
+  - Implemented `delete_proposal(proposal_id: int)` to permanently remove pending or rejected triage proposals from SQLite.
+  - Implemented `hard_delete_entry(entry_id: int)` to permanently delete context entries and unlink references from pending proposals.
+- **Server Endpoints for Permanent Removal (`evelyn_server.py`)**:
+  - Added `DELETE /api/procedures/{id}` and `POST /api/procedures/{id}/delete` endpoints.
+  - Updated `POST /api/review/procedures/{id}/{action}` to handle permanent hard deletion when `action in ("delete", "hard_delete")`.
+  - Updated `POST /api/review/proposals/{id}/{action}` to handle permanent proposal deletion when `action in ("delete", "hard_delete")`.
+- **UI Permanent Delete & Remove Controls (`evelyn_ui/dev.html`)**:
+  - Added permanent `🗑️ Delete` button on Procedure Management cards with confirmation modal, supporting hard deletion of old/outdated procedures.
+  - Added permanent `🗑️ Remove` / `🗑️ Delete` buttons with confirmation dialogs to all Triage Queue cards (Procedures, Fact Splits, Merges, Recategorizations, and Profile Updates).
+- **Test Suite Cleanups & Coverage (`Evelyn/tests/test_procedures_upgrade.py`)**:
+  - Cleaned up 91 orphaned test procedure records from `data/evelyn_memory.db`.
+  - Updated all procedure unit tests to use `hard_delete_procedure` teardown, preventing test runs from accumulating archived dummy rows in the active database.
+  - Added `test_hard_deletion_primitives` covering `hard_delete_procedure`, `hard_delete_entry`, and `delete_proposal`.
+
+---
+
+## [000.006.003] - 2026-08-27 — *Procedure Management Search Focus Preservation & UI Fixes*
+
+### Fixed & Enhanced
+- **Procedures Management Search Filter (`evelyn_ui/dev.html`)**:
+  - Decoupled the filter bar and search input controls from the procedures list DOM container.
+  - Resolved input focus loss bug where typing in the procedure search box wiped and recreated the entire tab container on each keystroke.
+  - Kept filter pill status counts and selection bar dynamically reactive while preserving continuous typing focus and caret position.
+
+---
+
 ## [000.006.002] - 2026-08-27 — *Persistent FIFO Idle Task Queue & Cooperative Batch Catch-Up*
 
 ### Added & Enhanced

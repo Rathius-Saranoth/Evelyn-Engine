@@ -432,6 +432,24 @@ def delete_entry(entry_id: int) -> bool:
     return update_entry(entry_id, status="deleted")
 
 
+def hard_delete_entry(entry_id: int) -> bool:
+    """Permanently delete a context entry from the database.
+
+    Args:
+        entry_id: Row ID of the context entry.
+
+    Returns:
+        bool: True if deleted, False otherwise.
+    """
+    con = get_db()
+    remove_source_id_from_pending_proposals(entry_id)
+    cur = con.execute("DELETE FROM context_entries WHERE id = ?", (entry_id,))
+    con.commit()
+    affected = cur.rowcount
+    con.close()
+    return affected > 0
+
+
 def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
     """Split a single compound context entry into multiple atomic context entries.
 
@@ -822,6 +840,23 @@ def reject_proposal(proposal_id: int) -> bool:
     return affected > 0
 
 
+def delete_proposal(proposal_id: int) -> bool:
+    """Permanently delete a proposal from the database.
+
+    Args:
+        proposal_id: Row ID of the proposal.
+
+    Returns:
+        bool: True if deleted, False otherwise.
+    """
+    con = get_db()
+    cur = con.execute("DELETE FROM proposals WHERE id = ?", (proposal_id,))
+    con.commit()
+    affected = cur.rowcount
+    con.close()
+    return affected > 0
+
+
 def update_proposal(proposal_id: int, **fields) -> bool:
     """Update specific fields on an existing proposal.
 
@@ -1117,6 +1152,37 @@ def delete_procedure(proc_id: int) -> bool:
         bool: True if archived, False otherwise.
     """
     return update_procedure(proc_id, status="archived")
+
+
+def hard_delete_procedure(proc_id: int) -> bool:
+    """Permanently delete a procedure from the database and remove queue references.
+
+    Args:
+        proc_id: Database ID of the procedure.
+
+    Returns:
+        bool: True if deleted, False otherwise.
+    """
+    con = get_db()
+    con.execute("DELETE FROM procedure_split_queue WHERE proc_id = ?", (proc_id,))
+    # Remove from any pending merge queues
+    cursor = con.execute("SELECT id, proc_ids FROM procedure_merge_queue WHERE status = 'pending'")
+    for q_id, proc_ids_str in cursor.fetchall():
+        ids = [int(x.strip()) for x in proc_ids_str.split(",") if x.strip().isdigit()]
+        if proc_id in ids:
+            remaining = [x for x in ids if x != proc_id]
+            if len(remaining) < 2:
+                con.execute("DELETE FROM procedure_merge_queue WHERE id = ?", (q_id,))
+            else:
+                con.execute(
+                    "UPDATE procedure_merge_queue SET proc_ids = ?, updated_at = ? WHERE id = ?",
+                    (",".join(str(i) for i in remaining), time.time(), q_id),
+                )
+    cur = con.execute("DELETE FROM procedures WHERE id = ?", (proc_id,))
+    con.commit()
+    affected = cur.rowcount
+    con.close()
+    return affected > 0
 
 
 # ---------------------------------------------------------------------------

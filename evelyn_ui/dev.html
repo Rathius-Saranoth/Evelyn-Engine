@@ -153,13 +153,19 @@
     .source-item:last-child { border-bottom: none; }
     
     .card-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .card-actions > .btn { flex: 1; min-width: 100px; }
     .btn {
-      flex: 1; padding: 10px; border: none; border-radius: 8px; cursor: pointer;
-      font-weight: 500; font-size: 14px; transition: opacity 0.2s; text-align: center;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer;
+      font-weight: 500; font-size: 13.5px; transition: all 0.2s; text-align: center;
+      white-space: nowrap; line-height: 1.2; height: 38px; min-height: 38px; box-sizing: border-box;
+      gap: 6px;
     }
-    .btn:hover { opacity: 0.8; }
+    .btn:hover { opacity: 0.85; }
     .btn-approve { background: var(--success); color: #000; }
     .btn-reject { background: var(--danger); color: #000; }
+    .btn-delete { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .btn-delete:hover { background: rgba(239, 68, 68, 0.35); color: #fff; }
     .btn-edit { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
     .btn-action { background: var(--accent); color: #fff; }
     .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
@@ -1174,7 +1180,10 @@
     }
 
     async function handleAction(type, id, action) {
-      if (action === 'deny' && type === 'proposals') {
+      if (action === 'delete') {
+        const typeName = type === 'extractions' ? 'extraction' : (type === 'proposals' ? 'proposal' : type);
+        if (!confirm(`Are you sure you want to PERMANENTLY remove this ${typeName}?`)) return;
+      } else if (action === 'deny' && type === 'proposals') {
         if (!confirm('Are you sure you want to reject this proposal?')) return;
       }
       const endpoint = `${API_BASE}/api/review/${type}/${id}/${action}`;
@@ -1490,6 +1499,9 @@
 
 
     async function handleProcedureAction(id, action) {
+      if (action === 'delete') {
+        if (!confirm('Are you sure you want to PERMANENTLY delete this procedure? This cannot be undone.')) return;
+      }
       const endpoint = `${API_BASE}/api/review/procedures/${id}/${action}`;
       let body = null;
       
@@ -2503,9 +2515,10 @@
                   </div>
                 </div>
               </div>
-              <div class="card-actions">
+              <div class="card-actions" style="display: flex; gap: 8px;">
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Split</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
               </div>
             </div>
           `;
@@ -2561,9 +2574,10 @@
                   <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
                 </div>
               </div>
-              <div class="card-actions">
+              <div class="card-actions" style="display: flex; gap: 8px;">
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Procedure Merge</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
               </div>
             </div>
           `;
@@ -2602,9 +2616,10 @@
                 <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
               </div>
             </div>
-            <div class="card-actions">
+            <div class="card-actions" style="display: flex; gap: 8px;">
               <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve</button>
               <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
             </div>
           </div>
         `;
@@ -2646,9 +2661,10 @@
               </div>
               <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
             </div>
-            <div class="card-actions">
+            <div class="card-actions" style="display: flex; gap: 8px;">
               <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Update</button>
               <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject Update</button>
+              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
             </div>
           </div>
         `;
@@ -2685,9 +2701,10 @@
                 <input type="text" id="proc-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
             </div>
-            <div class="card-actions">
+            <div class="card-actions" style="display: flex; gap: 8px;">
               <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve')">Approve Procedure</button>
-              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'deny')">Reject / Archive</button>
+              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'deny')">Archive</button>
+              <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete')">🗑️ Delete</button>
             </div>
           </div>
         `;
@@ -2944,7 +2961,8 @@
 
     function setProcMgmtFilter(filter) {
       procMgmtFilter = filter;
-      render();
+      renderProceduresHeader();
+      renderProceduresList();
     }
 
     function toggleProcSelection(id) {
@@ -2953,7 +2971,8 @@
       } else {
         selectedProcIds.add(id);
       }
-      render();
+      renderProceduresHeader();
+      renderProceduresList();
     }
 
     function selectAllVisibleProcedures(select) {
@@ -2975,7 +2994,8 @@
       } else {
         selectedProcIds.clear();
       }
-      render();
+      renderProceduresHeader();
+      renderProceduresList();
     }
 
     async function queueSelectedProceduresMerge() {
@@ -3097,11 +3117,63 @@
       }
     }
 
-    function renderProceduresManagement() {
-      const container = document.getElementById('container');
+    async function deleteProcedureItemPermanently(id) {
+      if (!confirm(`Are you sure you want to PERMANENTLY delete Procedure #${id}? This cannot be undone.`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/procedures/${id}`, {
+          method: 'DELETE',
+          headers: headers()
+        });
+        if (res.ok) {
+          selectedProcIds.delete(id);
+          await loadAllProcedures();
+          render();
+        } else {
+          alert('Failed to delete procedure.');
+        }
+      } catch (e) {
+        alert('Network error deleting procedure.');
+      }
+    }
+
+    function renderProceduresHeader() {
+      const filtersEl = document.getElementById('proc-mgmt-filters');
+      const selectionBarEl = document.getElementById('proc-mgmt-selection-bar');
+      if (!filtersEl) return;
+
       const liveCount = allProcedures.filter(p => p.status === 'live').length;
       const extractedCount = allProcedures.filter(p => p.status === 'extracted').length;
       const archivedCount = allProcedures.filter(p => p.status === 'archived').length;
+
+      filtersEl.innerHTML = `
+        <button class="filter-pill ${procMgmtFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtFilter('all')">All (${allProcedures.length})</button>
+        <button class="filter-pill ${procMgmtFilter === 'live' ? 'active' : ''}" onclick="setProcMgmtFilter('live')">Live (${liveCount})</button>
+        <button class="filter-pill ${procMgmtFilter === 'extracted' ? 'active' : ''}" onclick="setProcMgmtFilter('extracted')">Pending Review (${extractedCount})</button>
+        <button class="filter-pill ${procMgmtFilter === 'archived' ? 'active' : ''}" onclick="setProcMgmtFilter('archived')">Archived (${archivedCount})</button>
+      `;
+
+      if (selectionBarEl) {
+        if (selectedProcIds.size > 0) {
+          selectionBarEl.innerHTML = `
+            <div style="background: var(--surface2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+              <div style="font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
+                <span>⚡ ${selectedProcIds.size} procedure(s) selected for consolidation</span>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-action" onclick="queueSelectedProceduresMerge()">Merge Selected (${selectedProcIds.size})</button>
+                <button class="btn btn-reject" onclick="selectAllVisibleProcedures(false)">Clear Selection</button>
+              </div>
+            </div>
+          `;
+        } else {
+          selectionBarEl.innerHTML = '';
+        }
+      }
+    }
+
+    function renderProceduresList() {
+      const listContainer = document.getElementById('proc-mgmt-list-container');
+      if (!listContainer) return;
 
       let filtered = allProcedures;
       if (procMgmtFilter !== 'all') {
@@ -3109,46 +3181,19 @@
       }
 
       if (procMgmtSearch) {
-        const q = procMgmtSearch.toLowerCase();
-        filtered = filtered.filter(p =>
-          (p.trigger_pattern && p.trigger_pattern.toLowerCase().includes(q)) ||
-          (p.steps && p.steps.toLowerCase().includes(q)) ||
-          (p.suggested_tools && p.suggested_tools.toLowerCase().includes(q)) ||
-          (p.tags && p.tags.toLowerCase().includes(q))
-        );
+        const q = procMgmtSearch.trim().toLowerCase();
+        if (q) {
+          filtered = filtered.filter(p =>
+            (p.trigger_pattern && p.trigger_pattern.toLowerCase().includes(q)) ||
+            (p.steps && p.steps.toLowerCase().includes(q)) ||
+            (p.suggested_tools && p.suggested_tools.toLowerCase().includes(q)) ||
+            (p.tags && p.tags.toLowerCase().includes(q))
+          );
+        }
       }
-
-      let selectionBarHtml = '';
-      if (selectedProcIds.size > 0) {
-        selectionBarHtml = `
-          <div style="background: var(--surface2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-            <div style="font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px;">
-              <span>⚡ ${selectedProcIds.size} procedure(s) selected for consolidation</span>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-action" onclick="queueSelectedProceduresMerge()">Merge Selected (${selectedProcIds.size})</button>
-              <button class="btn btn-reject" onclick="selectAllVisibleProcedures(false)">Clear Selection</button>
-            </div>
-          </div>
-        `;
-      }
-
-      const filterBarHtml = `
-        <div class="filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px;">
-          <button class="filter-pill ${procMgmtFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtFilter('all')">All (${allProcedures.length})</button>
-          <button class="filter-pill ${procMgmtFilter === 'live' ? 'active' : ''}" onclick="setProcMgmtFilter('live')">Live (${liveCount})</button>
-          <button class="filter-pill ${procMgmtFilter === 'extracted' ? 'active' : ''}" onclick="setProcMgmtFilter('extracted')">Pending Review (${extractedCount})</button>
-          <button class="filter-pill ${procMgmtFilter === 'archived' ? 'active' : ''}" onclick="setProcMgmtFilter('archived')">Archived (${archivedCount})</button>
-        </div>
-        <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
-          <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures by trigger, steps, tools, or tags..." value="${escapeHtml(procMgmtSearch)}" oninput="procMgmtSearch = this.value; render();" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
-          <button class="filter-pill" onclick="selectAllVisibleProcedures(true)">Select All Visible</button>
-        </div>
-        ${selectionBarHtml}
-      `;
 
       if (filtered.length === 0) {
-        container.innerHTML = filterBarHtml + `<div class="empty-state">No procedures found matching your filter/search criteria.</div>`;
+        listContainer.innerHTML = `<div class="empty-state">No procedures found matching your filter/search criteria.</div>`;
         return;
       }
 
@@ -3205,23 +3250,55 @@
                 <input type="text" id="proc-mgmt-tags-${p.id}" value="${escapeHtml(p.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
             </div>
-            <div class="card-actions" style="display: flex; justify-content: space-between; align-items: center;">
-              <div style="display: flex; gap: 8px;">
+            <div class="card-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="display: flex; gap: 8px; align-items: center;">
                 <button class="btn btn-action" onclick="saveProcedureEdits(${p.id})">💾 Save Changes</button>
-                <button class="btn" style="background: var(--surface2); border: 1px solid var(--border); color: var(--text);" onclick="queueSingleProcedureSplit(${p.id})">✂️ Queue Split</button>
+                <button class="btn btn-secondary" onclick="queueSingleProcedureSplit(${p.id})">✂️ Queue Split</button>
               </div>
-              <div>
+              <div style="display: flex; gap: 8px; align-items: center;">
                 ${p.status === 'archived'
                   ? `<button class="btn btn-approve" onclick="restoreProcedureItem(${p.id})">♻️ Restore to Live</button>`
                   : `<button class="btn btn-reject" onclick="archiveProcedureItem(${p.id})">📦 Archive</button>`
                 }
+                <button class="btn btn-delete" onclick="deleteProcedureItemPermanently(${p.id})">🗑️ Delete</button>
               </div>
             </div>
           </div>
         `;
       }).join('');
 
-      container.innerHTML = filterBarHtml + cardsHtml;
+      listContainer.innerHTML = cardsHtml;
+    }
+
+    function renderProceduresManagement() {
+      const container = document.getElementById('container');
+      const hasControls = !!document.getElementById('proc-mgmt-search');
+
+      if (!hasControls) {
+        container.innerHTML = `
+          <div id="proc-mgmt-filters" class="filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px;"></div>
+          <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+            <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures by trigger, steps, tools, or tags..." value="${escapeHtml(procMgmtSearch)}" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+            <button class="filter-pill" onclick="selectAllVisibleProcedures(true)">Select All Visible</button>
+          </div>
+          <div id="proc-mgmt-selection-bar"></div>
+          <div id="proc-mgmt-list-container"></div>
+        `;
+
+        const searchInput = document.getElementById('proc-mgmt-search');
+        searchInput.addEventListener('input', (e) => {
+          procMgmtSearch = e.target.value;
+          renderProceduresList();
+        });
+      }
+
+      const searchInput = document.getElementById('proc-mgmt-search');
+      if (searchInput && document.activeElement !== searchInput && searchInput.value !== procMgmtSearch) {
+        searchInput.value = procMgmtSearch;
+      }
+
+      renderProceduresHeader();
+      renderProceduresList();
     }
 
     let availableDomains = [];
