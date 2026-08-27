@@ -239,6 +239,7 @@ VAULT_READ_IGNORE = [
     f"{ASSISTANT_NAME}'s Context/Context Entries/Extracted",
     f"{ASSISTANT_NAME}'s Context/Context Entries/Pending",
     ".obsidian",
+    "Lists",
     # Add personal directories the assistant should never read:
     # "Private",
     # "Work/Confidential",
@@ -319,6 +320,18 @@ RAG_DISTANCE_THRESHOLD = 0.45
 RAG_EXCLUDED_SUBDIRS = VAULT_READ_IGNORE + [
     f"{ASSISTANT_NAME}'s Journal",
 ]
+
+# Filename regex patterns to exclude from RAG indexing (structural boilerplate, TOCs, back-of-book indexes).
+RAG_IGNORE_PATTERNS = [
+    r"(?i)(?:^|[/\\])\d+\s*-\s*index(?:\s+of\s+[\w\s]+)?\.md$",
+    r"(?i)_index\.md$",
+    r"(?i)table of contents\.md$",
+    r"(?i)(?:^|[/\\])\d+\s*-\s*colophon\.md$",
+    r"(?i)(?:^|[/\\])\d+\s*-\s*about the author(?:s)?\.md$",
+]
+
+# Frontmatter tags or keys that exclude a note from RAG vector indexing
+RAG_EXCLUDE_TAGS = {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"}
 
 # Priority score multipliers: documents tagged rag_priority=high/low have their
 # cosine distance adjusted by these factors before threshold filtering.

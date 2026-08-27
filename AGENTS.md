@@ -44,3 +44,13 @@ tags: agent-rules, guidelines, operations, protocol, evelyn
 - **Immutability Rule**: Once a migration version (`000.004.00X`) is committed and applied, its migration code and SQL are **strictly immutable**. Any corrective schema changes, data patches, or structural adjustments must be registered in a **new, incremented migration step** (`000.004.00X+1`).
 - **No Out-of-Band Schema Mutations**: Modifying production database schemas or transforming database structures ad-hoc via inline scripts or unversioned queries is strictly forbidden.
 - **Changelog & Versioning Maintenance**: Every functional code modification (features, bugfixes, architectural adjustments, database migrations) requires an incremented canonical version in `Evelyn/version.py` (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`) and a documented entry in `CHANGELOG.md` detailing added capabilities, fixed issues, changed behaviors, and migrations applied. Keep `ROADMAP.md` concise and milestone-oriented.
+
+## 6. Vault Note Formatting & Visual PKM Style
+- **Default Visual PKM Standard**: All notes, guides, and Maps of Content (MOCs) in the Obsidian vault must adhere to the **Visual PKM / Digital Garden Dashboard** standard defined in `.agents/rules/vault-note-style.md`.
+- **Key Elements**:
+  - Structured YAML frontmatter (`title`, `aliases`, `tags`, `date created`, `date modified`).
+  - Executive Callout box (`[!ABSTRACT]`) beneath the title.
+  - Thematic section anchor emojis in headers (e.g. 🪐, 🏜️, 🕯️, ⚡, 🏛️, 📊, 🎧, 🧭).
+  - Mermaid charts (`mindmap`, `graph TD`, `graph LR`) for conceptual synthesis.
+  - Comparative tables with high data density.
+  - Deep bi-directional `[[WikiLinks]]` and a `## 🔗 Related Notes` footer.

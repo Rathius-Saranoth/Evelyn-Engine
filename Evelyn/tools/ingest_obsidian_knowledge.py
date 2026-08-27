@@ -36,10 +36,14 @@ import evelyn_config as cfg
 import chroma_rag  # noqa: E402
 import memory_db   # noqa: E402
 
+import yaml
+
 # Paths
 VAULT_DIR          = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 EVELYN_DIR         = getattr(cfg, "ASSISTANT_WRITE_DIR", os.path.join(VAULT_DIR, getattr(cfg, "ASSISTANT_NAME", "Evelyn")))
 EXCLUDED_SUBDIRS   = getattr(cfg, "VAULT_READ_IGNORE", ["Archived", "Pending_Approvals", "Extracted", "Pending"])
+EXCLUDED_PATTERNS  = getattr(cfg, "RAG_IGNORE_PATTERNS", [])
+EXCLUDED_TAGS      = getattr(cfg, "RAG_EXCLUDE_TAGS", {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"})
 SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json")
 COLLECTION_NAME    = "evelyn_memory"
 
@@ -109,30 +113,76 @@ def parse_rag_frontmatter(content: str) -> dict:
         content: The raw markdown content string.
 
     Returns:
-        dict: A dictionary containing 'rag_priority', 'rag_pinned', and 'aliases'.
+        dict: A dictionary containing 'rag_priority', 'rag_pinned', 'rag_exclude', and 'aliases'.
     """
-    defaults = {"rag_priority": "normal", "rag_pinned": False, "aliases": ""}
-    fm_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+    defaults = {"rag_priority": "normal", "rag_pinned": False, "rag_exclude": False, "aliases": ""}
+    clean_content = content.lstrip("\ufeff \t\r\n")
+    fm_match = re.match(r"^---\r?\n(.*?)\r?\n---", clean_content, re.DOTALL)
     if not fm_match:
         return defaults
     fm_text = fm_match.group(1)
 
-    # rag_priority
-    m = re.search(r"^rag_priority:\s*(\S+)", fm_text, re.MULTILINE)
-    if m:
-        defaults["rag_priority"] = m.group(1).strip().lower()
+    try:
+        data = yaml.safe_load(fm_text) or {}
+    except Exception:
+        data = None
 
-    # rag_pinned
-    m = re.search(r"^rag_pinned:\s*(\S+)", fm_text, re.MULTILINE)
-    if m:
-        defaults["rag_pinned"] = m.group(1).strip().lower() == "true"
+    if isinstance(data, dict):
+        # 1. Direct exclude keys
+        for k in ("rag_exclude", "rag_ignore", "no_rag", "rag_skip"):
+            if k in data:
+                val = data[k]
+                if isinstance(val, bool) and val:
+                    defaults["rag_exclude"] = True
+                elif isinstance(val, str) and val.strip().lower() in ("true", "yes", "1", "t", "y"):
+                    defaults["rag_exclude"] = True
 
-    # aliases
-    m = re.search(r"^aliases:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE)
-    if m:
-        raw = m.group(1).replace("[", "").replace("]", "").replace('"', "").replace("'", "")
-        aliases = [a.strip() for a in raw.split(",") if a.strip()]
-        defaults["aliases"] = ", ".join(aliases)
+        # 2. Tag-based exclusion
+        tags = data.get("tags", [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        elif isinstance(tags, (list, set, tuple)):
+            tags = list(tags)
+        else:
+            tags = []
+        
+        for t in tags:
+            norm_t = str(t).strip().lower().lstrip("#")
+            if norm_t in EXCLUDED_TAGS or any(ex in norm_t.split("/") for ex in EXCLUDED_TAGS):
+                defaults["rag_exclude"] = True
+                break
+
+        # 3. Priority score
+        if "rag_priority" in data and isinstance(data["rag_priority"], str):
+            defaults["rag_priority"] = data["rag_priority"].strip().lower()
+
+        # 4. Pinned documents
+        if "rag_pinned" in data:
+            val = data["rag_pinned"]
+            if isinstance(val, bool):
+                defaults["rag_pinned"] = val
+            elif isinstance(val, str):
+                defaults["rag_pinned"] = val.strip().lower() in ("true", "yes", "1", "t", "y")
+
+        # 5. Aliases
+        aliases = data.get("aliases", [])
+        if isinstance(aliases, str):
+            defaults["aliases"] = aliases
+        elif isinstance(aliases, (list, tuple, set)):
+            defaults["aliases"] = ", ".join(str(a) for a in aliases)
+
+    else:
+        # Fallback regex parsing if YAML safe_load failed due to malformed syntax
+        m_ex = re.search(r"^(?:rag_exclude|rag_ignore|no_rag|rag_skip):\s*(\S+)", fm_text, re.MULTILINE | re.IGNORECASE)
+        if m_ex and m_ex.group(1).strip().lower() in ("true", "yes", "1", "t", "y"):
+            defaults["rag_exclude"] = True
+        
+        m_tags = re.search(r"^tags:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE | re.IGNORECASE)
+        if m_tags:
+            raw_tags = m_tags.group(1).replace("[", "").replace("]", "").replace('"', "").replace("'", "")
+            tag_list = [t.strip().lower().lstrip("#") for t in raw_tags.split(",") if t.strip()]
+            if any(t in EXCLUDED_TAGS or any(ex in t.split("/") for ex in EXCLUDED_TAGS) for t in tag_list):
+                defaults["rag_exclude"] = True
 
     return defaults
 
@@ -159,6 +209,8 @@ def main() -> None:
     active_paths = set()
     for fp in all_files:
         if any(ex in fp for ex in EXCLUDED_SUBDIRS):
+            continue
+        if any(re.search(pat, fp) for pat in EXCLUDED_PATTERNS):
             continue
         active_paths.add(fp)
 
@@ -252,12 +304,19 @@ def main() -> None:
 
             print(f"Ingesting: {os.path.basename(file_path)}")
             rag_meta = parse_rag_frontmatter(content)
-            
+
+            if rag_meta.get("rag_exclude"):
+                if file_path in state and not state[file_path].get("excluded"):
+                    print(f"Excluding/Purging: {os.path.basename(file_path)}")
+                    chroma_rag.delete_document(file_path, COLLECTION_NAME)
+                    cleaned += 1
+                state[file_path] = {"mtime": mtime, "sha256": chash, "excluded": True}
+                continue
+
             # Boost extracted/context entries to rag_priority=high if not explicitly specified in frontmatter
             basename = os.path.basename(file_path)
-            if rag_meta.get("rag_priority") == "normal":
-                if basename.startswith("EX_") or basename.startswith("CE_"):
-                    rag_meta["rag_priority"] = "high"
+            if rag_meta.get("rag_priority") == "normal" and basename.startswith(("EX_", "CE_")):
+                rag_meta["rag_priority"] = "high"
             
         if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,
                                            extra_metadata=rag_meta):

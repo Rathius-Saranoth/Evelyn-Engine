@@ -13,6 +13,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.005.017] - 2026-08-26 — *RAG Ingestion Boilerplate Filtering & YAML Exclusion Support*
+
+### Added & Enhanced
+- **Pattern-Based RAG Ingestion Exclusion (`evelyn_config.py`, `ingest_obsidian_knowledge.py`)**:
+  - Configured `RAG_IGNORE_PATTERNS` to automatically bypass structural book boilerplate (back-of-book indexes like `* - Index.md`, `*_index.md`, `*Table of Contents.md`, `* - Colophon.md`, `* - About the Author*.md`) during vector embedding.
+  - Keeps navigation/index files accessible in the Obsidian vault for manual browsing while preventing semantic keyword saturation and false-positive vector hits in RAG context.
+- **YAML Frontmatter & Tag-Based RAG Exclusion**:
+  - Added support for explicit document-level RAG bypass via YAML frontmatter (`rag_exclude: true`, `rag_ignore: true`, `no_rag: true`) or tags (`#rag-ignore`, `#rag-exclude`, `#no-rag`).
+  - Integrated automatic Chroma document garbage collection (`chroma_rag.delete_document`) during sync passes when notes are marked excluded or match ignore patterns.
+
+---
+
 ## [000.005.016] - 2026-08-26 — *Chat UI Stream Lifecycle & Reconciler Consolidation*
 
 ### Fixed & Enhanced
