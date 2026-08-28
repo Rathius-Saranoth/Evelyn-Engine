@@ -1,6 +1,6 @@
 # pending_reviewer.py
 # date created: 2026-05-07 07:18:08
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-08-28 07:33:33
 # tags: #triage, #consolidation, #review, #terminal, #interactive
 
 """
@@ -194,8 +194,14 @@ def run_review():
                 elif prop["type"] == "procedure_merge":
                     # Apply procedure_merge
                     import yaml
-                    # Archive source procedures
+                    source_tags_set = set()
                     for eid in source_ids:
+                        p_old = memory_db.get_procedure(eid)
+                        if p_old and p_old.get("tags"):
+                            for t in str(p_old["tags"]).split(","):
+                                cleaned_t = t.strip()
+                                if cleaned_t and cleaned_t.lower() not in ("procedure", "merged", "merge", "consolidated", "none"):
+                                    source_tags_set.add(cleaned_t)
                         memory_db.delete_procedure(eid)
                     # Insert merged procedure
                     try:
@@ -203,6 +209,22 @@ def run_review():
                     except Exception:
                         parsed_proc = {}
                     if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
+                        proc_tags = parsed_proc.get("tags")
+                        if isinstance(proc_tags, list):
+                            proc_tags_str = ", ".join([str(t).strip() for t in proc_tags if str(t).strip()])
+                        else:
+                            proc_tags_str = str(proc_tags).strip() if proc_tags is not None else ""
+                        
+                        parsed_tags_set = {t.strip().lower() for t in proc_tags_str.split(",") if t.strip()}
+                        if not proc_tags_str or parsed_tags_set.issubset({"procedure", "merged", "merge", "consolidated", "none"}):
+                            final_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else (proc_tags_str or "procedure")
+                        else:
+                            combined = {t.strip() for t in proc_tags_str.split(",") if t.strip()}
+                            combined.update(source_tags_set)
+                            if len(combined) > 1:
+                                combined = {t for t in combined if t.lower() not in ("procedure", "merged", "merge", "consolidated", "none")}
+                            final_tags = ", ".join(sorted(combined)) if combined else "procedure"
+
                         memory_db.insert_procedure(
                             trigger_pattern=parsed_proc["trigger_pattern"],
                             steps=parsed_proc.get("steps", ""),
@@ -210,7 +232,7 @@ def run_review():
                             verification=parsed_proc.get("verification"),
                             source="consolidated",
                             status="live",
-                            tags=parsed_proc.get("tags"),
+                            tags=final_tags,
                             suggested_tools=parsed_proc.get("suggested_tools"),
                         )
                     memory_db.apply_proposal(prop["id"])

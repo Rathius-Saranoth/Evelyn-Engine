@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-23 08:01:50
+date modified: 2026-08-28 07:37:54
 tags: changelog, versioning, history, release-notes, evelyn
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.007] - 2026-08-28 — *Procedure Suggested Tools, Tag Preservation & Advanced Filter*
+
+### Fixed & Enhanced
+- **Dedicated Suggested Tools Field & Procedure Split Parsing (`evelyn_ui/dev.html`)**:
+  - Added dedicated `SUGGESTED TOOLS` input field to procedure merge and procedure split triage proposal cards.
+  - Enhanced procedure YAML parsing (`parseProcedureYaml`) to isolate `suggested_tools:` without bleeding into `steps:` or `pitfalls:`.
+  - Added structured multi-procedure card rendering and serialization (`parseProcedureSplitYaml`, `dumpProcedureSplitYaml`) for `procedure_split` proposals in the triage queue.
+- **Domain Tag Preservation on Merged Procedures (`Evelyn/tools/procedure_consolidator.py`, `evelyn_server.py`, `Evelyn/tools/pending_reviewer.py`)**:
+  - Updated background consolidation prompt instructions and few-shot examples to require domain tag preservation rather than substituting generic tags like `'procedure, merged'`.
+  - Added source procedure tag aggregation and fallback preservation across LLM synthesis, server approval endpoints (`/api/review/proposals/{id}/approve`), and interactive CLI reviewer workflows.
+- **Advanced Query Search & Exclusions Engine (`evelyn_ui/dev.html`)**:
+  - Implemented client-side query parser supporting positive words, phrase matches (`"..."`), negative term exclusions (`-word`), exact tag matches (`tag:...`), and negative tag exclusions (`-tag:...`).
+  - Integrated advanced query filtering across both the Triage Queue and Procedures Management tabs with real-time filtering and selection synchronization.
+
+---
 
 ## [000.006.006] - 2026-08-27 — *Journal Entry Approval & Preview UI Fix*
 

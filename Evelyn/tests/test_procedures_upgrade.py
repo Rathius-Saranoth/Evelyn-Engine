@@ -1,3 +1,8 @@
+# test_procedures_upgrade.py
+# date created: 2026-08-28 07:37:20
+# date modified: 2026-08-28 07:37:20
+# tags: 
+
 import pytest
 from Evelyn.tools import memory_db
 from Evelyn.tools import fact_extractor
@@ -191,6 +196,84 @@ def test_hard_deletion_primitives():
     assert memory_db.delete_proposal(prop_id) is True
     props_after = memory_db.get_pending_proposals()
     assert not any(p["id"] == prop_id for p in props_after)
+
+
+@pytest.mark.asyncio
+async def test_procedure_merge_proposal_tag_preservation(monkeypatch):
+    """Verify that generate_procedure_merge_proposal preserves source procedure domain tags."""
+    import yaml
+    from Evelyn.tools import procedure_consolidator
+
+    p1 = memory_db.insert_procedure(
+        trigger_pattern="When testing evening routines",
+        steps="1. Wind down.",
+        tags="evening-routine, sleep",
+        suggested_tools="write_file",
+        status="live"
+    )
+    p2 = memory_db.insert_procedure(
+        trigger_pattern="When preparing for bed",
+        steps="1. Review day.",
+        tags="reflection, sleep",
+        suggested_tools="write_file",
+        status="live"
+    )
+
+    class MockResponse:
+        status_code = 200
+        def json(self):
+            return {
+                "message": {
+                    "content": (
+                        "```yaml\n"
+                        "topic: \"Merged Evening Routine\"\n"
+                        "reason: \"Consolidated evening procedures.\"\n"
+                        "trigger_pattern: \"When ending the day or preparing for bed\"\n"
+                        "steps: |\n"
+                        "  1. Step one.\n"
+                        "suggested_tools: \"write_file\"\n"
+                        "pitfalls: \"None\"\n"
+                        "verification: \"None\"\n"
+                        "tags: \"procedure, merged\"\n"
+                        "```"
+                    )
+                }
+            }
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        async def post(self, *args, **kwargs):
+            return MockResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient", MockAsyncClient)
+
+    try:
+        proc1 = memory_db.get_procedure(p1)
+        proc2 = memory_db.get_procedure(p2)
+        prop_id = await procedure_consolidator.generate_procedure_merge_proposal([proc1, proc2])
+        assert prop_id is not None
+
+        props = memory_db.get_pending_proposals(type="procedure_merge")
+        matching_props = [p for p in props if p["id"] == prop_id]
+        assert len(matching_props) == 1
+        prop = matching_props[0]
+        obs = yaml.safe_load(prop["merged_observation"])
+        # Should fallback to inherited domain tags rather than generic 'procedure, merged'
+        tags_set = {t.strip() for t in obs["tags"].split(",")}
+        assert "evening-routine" in tags_set
+        assert "reflection" in tags_set
+        assert "sleep" in tags_set
+    finally:
+        memory_db.hard_delete_procedure(p1)
+        memory_db.hard_delete_procedure(p2)
+        if prop_id:
+            memory_db.delete_proposal(prop_id)
+
 
 
 

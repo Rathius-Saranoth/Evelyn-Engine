@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-22 15:53:23
+# date modified: 2026-08-28 07:37:48
 # tags: 
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.006"
-VERSION_NAME = "Journal Entry Approval & Preview UI Fix"
+__version__ = "000.006.007"
+VERSION_NAME = "Procedure Suggested Tools, Tag Preservation & Advanced Filter"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
