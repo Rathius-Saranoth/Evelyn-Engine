@@ -4107,22 +4107,29 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 state_path = str(BASE_DIR / "data" / "evelyn_extraction_state.json")
                 last_id = 0
                 if os.path.exists(state_path):
-                    with open(state_path, "r", encoding="utf-8") as sf:
-                        st = json.load(sf)
-                        last_id = st.get("last_extracted_id", 0)
+                    try:
+                        with open(state_path, "r", encoding="utf-8") as sf:
+                            st = json.load(sf)
+                            last_id = st.get("last_extracted_id", 0)
+                    except Exception:
+                        pass
+                if sub_status and "last_extracted_id" in sub_status:
+                    last_id = max(last_id, sub_status.get("last_extracted_id", 0))
+
                 db_path = str(BASE_DIR / "data" / "evelyn_chat.db")
                 backlog = 0
                 if os.path.exists(db_path):
                     conn = sqlite3.connect(db_path, timeout=1.0)
                     try:
                         cur = conn.cursor()
-                        cur.execute("SELECT COUNT(*) FROM messages WHERE id > ?", (last_id,))
+                        cur.execute("SELECT COUNT(*) FROM messages WHERE id > ? AND role IN ('user', 'assistant')", (last_id,))
                         backlog = cur.fetchone()[0]
                     finally:
                         conn.close()
-                sub_status = sub_status or {
+                sub_status = {
+                    **(sub_status or {}),
                     "last_extracted_id": last_id,
-                    "unextracted_backlog": backlog
+                    "unextracted_backlog": backlog,
                 }
             elif key == "consolidator":
                 import json, os

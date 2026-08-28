@@ -543,7 +543,7 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
     # Fallback to Health Connect SQLite DB
     conn = _get_connection()
     if not conn:
-        return {"status": "error", "message": "Health database not found and Oura live query failed."}
+        return {"status": "error", "window_hours": hours, "message": "Health database not found and Oura live query failed."}
 
     cutoff_ms = int((now_local - timedelta(hours=hours)).timestamp() * 1000)
     cursor = conn.cursor()
@@ -582,7 +582,7 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
         }
     except Exception as e:
         conn.close()
-        return {"status": "error", "message": f"Error querying local heart rate records: {e}"}
+        return {"status": "error", "window_hours": hours, "message": f"Error querying local heart rate records: {e}"}
 
 
 def get_intraday_activity(hours: float = 2.0) -> dict:

@@ -13,6 +13,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.005] - 2026-08-27 — *Dynamic Fact Extractor Backlog Telemetry Fix*
+
+### Fixed & Enhanced
+- **Dynamic Fact Extractor Backlog Reporting (`evelyn_server.py`, `Evelyn/tools/fact_extractor.py`)**:
+  - Fixed `/api/heavy_tasks` endpoint to always compute `unextracted_backlog` and the latest message cursor dynamically from `evelyn_chat.db` and the extraction state file.
+  - Resolved short-circuiting issue where in-memory cached `sub_status` permanently overwrote live unextracted message counts with `0 msgs` on `evelyn_ui/dev.html`.
+  - Filtered chat database message counts by `role IN ('user', 'assistant')` to strictly match fact extraction batch filtering criteria.
+  - Removed hardcoded `unextracted_backlog: 0` from batch completion status notifications in `fact_extractor.py`.
+- **Health Intraday Heart Rate Telemetry (`Evelyn/tools/health_manager.py`)**:
+  - Ensured error and fallback responses in `get_granular_heart_rate` preserve `window_hours` metadata.
+
+---
+
 ## [000.006.004] - 2026-08-27 — *Permanent Deletion Controls for Procedures & Triage Items*
 
 ### Added & Enhanced
