@@ -1,6 +1,6 @@
 # extract_pdf_library.py
 # date created: 2026-04-17 21:17:42
-# date modified: 2026-08-22 19:16:00
+# date modified: 2026-08-28 11:52:01
 # tags: #pdf, #extraction, #library, #parsing, #sidecar, #normalization, #tools
 
 """
@@ -47,6 +47,7 @@ for _p in (ROOT_DIR, TOOLS_DIR):
         sys.path.insert(0, _p)
 
 import evelyn_config as cfg  # noqa: E402
+from Evelyn.tools.tag_librarian import format_yaml_array  # noqa: E402
 import fitz  # pymupdf
 
 # ---------------------------------------------------------------------------
@@ -852,14 +853,13 @@ def generate_sidecar_card(
     """
     all_tags = set(tags or [])
     all_tags.add("literature/reference")
-    tag_lines = "\n".join(f"  - {t.lstrip('#')}" for t in sorted(all_tags))
+    tags_line = f"tags: {format_yaml_array(all_tags)}\n"
 
     alias_list = list(aliases or [])
     if subtitle and subtitle not in alias_list:
         alias_list.append(subtitle)
-    alias_lines = "\n".join(f"  - \"{a}\"" for a in alias_list) if alias_list else ""
-
-    fm_aliases_block = f"aliases:\n{alias_lines}\n" if alias_lines else ""
+    
+    fm_aliases_block = f"aliases: {format_yaml_array(alias_list)}\n" if alias_list else ""
     fm_source_block = f'source: "[[{attachment_rel_path}]]"\n' if attachment_rel_path else ""
     fm_sub_block = f'subtitle: "{subtitle}"\n' if subtitle else ""
     fm_author_block = f'authors: "{author}"\n' if author else ""
@@ -867,9 +867,7 @@ def generate_sidecar_card(
     frontmatter = f"""---
 title: "{title}"
 {fm_sub_block}type: literature/card
-{fm_source_block}{fm_author_block}tags:
-{tag_lines}
-{fm_aliases_block}created: {time.strftime('%Y-%m-%d')}
+{fm_source_block}{fm_author_block}{tags_line}{fm_aliases_block}created: {time.strftime('%Y-%m-%d')}
 status: unread
 ---
 

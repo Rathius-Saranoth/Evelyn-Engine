@@ -3,7 +3,7 @@ description: A protective workflow for backing up the project to GitHub while en
 title: backup-to-github.md
 date created: 2026-03-14 22:50:31
 date modified: 2026-08-23 08:04:47
-tags: git, github, backup, workflow, command, maintenance, evelyn
+tags: [git, github, backup, workflow, command, maintenance, evelyn]
 ---
 
 # Safe Backup Workflow

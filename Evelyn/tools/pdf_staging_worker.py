@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# pdf_staging_worker.py
+# date created: 2026-08-28 11:24:49
+# date modified: 2026-08-28 11:52:11
+# tags: 
+
 """
 Evelyn Engine — Automated PDF Staging Worker.
 
@@ -18,13 +23,14 @@ import time
 from pathlib import Path
 
 # Anchor workspace roots for imports
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-for _p in (ROOT_DIR, os.path.join(ROOT_DIR, "Evelyn", "tools"), os.path.join(ROOT_DIR, "scripts")):
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _SCRIPT_DIR.parent.parent
+for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "scripts")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import evelyn_config as cfg
+from Evelyn.tools.tag_librarian import format_yaml_array
 import Evelyn.tools.task_manager as task_manager
 import Evelyn.tools.vault_db as vault_db
 import Evelyn.tools.chroma_rag as chroma_rag
@@ -123,13 +129,12 @@ def process_staging_item(pdf_file: Path, mode: str) -> dict:
             sidecar_dir.mkdir(parents=True, exist_ok=True)
             sidecar_file = sidecar_dir / f"{title}_index.md"
 
+            tags_str = format_yaml_array([domain_name.lower().replace(' ', '/'), "source/pdf"])
             content = f"""---
 title: "{title}"
 type: document/card
 source: "[[{rel_dest_pdf}]]"
-tags:
-  - {domain_name.lower().replace(' ', '/')}
-  - source/pdf
+tags: {tags_str}
 created: {time.strftime('%Y-%m-%d')}
 ---
 

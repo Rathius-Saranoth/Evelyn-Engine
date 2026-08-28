@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
+# relocate_vault_pdfs.py
+# date created: 2026-08-28 11:28:41
+# date modified: 2026-08-28 11:51:50
+# tags: 
+
 """Migrate remaining vault PDFs to Attachments/Source Material and create Sidecar cards."""
 
 import os
 import re
 import shutil
+import sys
 import time
 from pathlib import Path
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _SCRIPT_DIR.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from Evelyn.tools.tag_librarian import format_yaml_array
 
 VAULT_ROOT = Path("/home/rathius/obsidian_vault")
 ATTACHMENTS_ROOT = VAULT_ROOT / "Attachments" / "Source Material"
@@ -91,14 +104,12 @@ def migrate_all_remaining_pdfs(dry_run: bool = False):
             # Copy PDF to attachments
             shutil.copy2(pdf_path, dest_pdf)
 
-            # Generate Sidecar Note content
+            tags_str = format_yaml_array([tag, "source/pdf"])
             sidecar_content = f"""---
 title: "{title}"
 type: document/card
 source: "[[{rel_dest_pdf}]]"
-tags:
-  - {tag}
-  - source/pdf
+tags: {tags_str}
 created: {time.strftime('%Y-%m-%d')}
 ---
 

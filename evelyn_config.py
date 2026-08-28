@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-19 18:42:06
+# date modified: 2026-08-28 11:41:21
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -702,9 +702,14 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 # Tag Librarian Configuration (Incremental Vault Tag Maintenance)
 # =============================================================================
 TAG_LIBRARIAN_ENABLED = True
-# Wave 4 idle trigger (45 minutes / 2700s). Staggered after deep research (30m).
-TAG_LIBRARIAN_IDLE_THRESHOLD = 2700  # 45 minutes idle (Wave 4)
-TAG_LIBRARIAN_BATCH_SIZE = 1         # Process 1 document per idle trigger
+# Wave 4 idle trigger (20 minutes / 1200s). Staggered after deep research.
+TAG_LIBRARIAN_IDLE_THRESHOLD = 1200  # 20 minutes idle (Wave 4)
+TAG_LIBRARIAN_BATCH_SIZE = 5         # Process 5 documents per idle trigger
+
+# Specific document relative paths excluded from Tag Librarian auditing
+TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
+    "Projects/Evelyn Engine/README.md",
+]
 
 # Protected tag regexes (never modified, removed, or normalized)
 # CY-YYYY/MM/DD is strictly protected.

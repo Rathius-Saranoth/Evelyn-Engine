@@ -1,7 +1,7 @@
 ---
 title: User_Profile.example.md
 rag_priority: high
-tags: template, profile, user, core, evelyn
+tags: [template, profile, user, core, evelyn]
 date created: 2026-08-23 08:04:09
 date modified: 2026-08-23 08:04:09
 ---

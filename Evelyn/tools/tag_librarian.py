@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-19 19:48:43
+# date modified: 2026-08-28 11:50:51
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -28,7 +28,7 @@ import json
 import time
 import urllib.request
 import urllib.parse
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "../.."))
@@ -58,6 +58,24 @@ def is_excluded_tag(tag: str) -> bool:
     
     for pattern in exclusions:
         if re.search(pattern, clean_tag, re.IGNORECASE):
+            return True
+    return False
+
+
+def is_excluded_document(path: str) -> bool:
+    """Check if a document path is excluded from Tag Librarian auditing.
+
+    Args:
+        path: Relative or absolute path to evaluate.
+
+    Returns:
+        bool: True if the document path is configured in TAG_LIBRARIAN_EXCLUDED_DOCUMENTS.
+    """
+    clean_path = path.replace("\\", "/").strip()
+    excluded_paths = getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", [])
+    for ex in excluded_paths:
+        clean_ex = ex.replace("\\", "/").strip()
+        if clean_path == clean_ex or clean_path.endswith("/" + clean_ex):
             return True
     return False
 
@@ -160,6 +178,56 @@ def parse_frontmatter_tags(content: str) -> Tuple[List[str], str]:
     return tags, body
 
 
+def format_yaml_array(items: Union[Iterable[str], str, None]) -> str:
+    """Format a list, set, or raw string of values into a clean, single-line YAML flow array [item1, item2].
+
+    Rules:
+    - Strips leading '#' from tags.
+    - Preserves unquoted identifiers (e.g. 'no-rag', 'Tech/Python/FastAPI', 'Ricky_Sekulich').
+    - Quotes only when necessary: containing whitespace, colons, commas, brackets, braces,
+      hashes, quotes, backticks, or starting with special YAML indicators (@, %, &, *, ?, |, !, >, <, =, - ).
+    - Returns '[]' for empty or null input.
+
+    Args:
+        items: An iterable of strings or a raw comma-separated string.
+
+    Returns:
+        str: Formatted YAML flow sequence string like '[tag1, tag2]' or '[]'.
+    """
+    if items is None:
+        return "[]"
+
+    raw_list: list[str] = []
+    if isinstance(items, str):
+        s = items.strip()
+        if not s or s == "[]" or s == "null":
+            return "[]"
+        if s.startswith("[") and s.endswith("]"):
+            s = s[1:-1].strip()
+        for part in s.split(","):
+            raw_list.append(part)
+    else:
+        raw_list = list(items)
+
+    clean_items = list(dict.fromkeys([t.strip().lstrip("#") for t in raw_list if t.strip()]))
+    formatted: list[str] = []
+    for p in clean_items:
+        p_clean = p.strip("'\"")
+        if not p_clean:
+            continue
+        needs_quote = (
+            " " in p_clean
+            or any(c in p_clean for c in [":", "{", "}", "[", "]", ",", "#", "`", '"'])
+            or p_clean.startswith(("@", "%", "&", "*", "?", "|", "!", ">", "<", "=", "- "))
+        )
+        if needs_quote:
+            formatted.append(f'"{p_clean}"')
+        else:
+            formatted.append(p_clean)
+
+    return f"[{', '.join(formatted)}]" if formatted else "[]"
+
+
 def update_frontmatter_tags(content: str, updated_tags: List[str]) -> str:
     """Update or inject YAML frontmatter tags in markdown content cleanly.
 
@@ -170,8 +238,7 @@ def update_frontmatter_tags(content: str, updated_tags: List[str]) -> str:
     Returns:
         str: Updated markdown content with formatted frontmatter.
     """
-    clean_tags = sorted(list(dict.fromkeys([t.strip().lstrip("#") for t in updated_tags if t.strip()])))
-    tags_str = f"[{', '.join(clean_tags)}]" if clean_tags else "[]"
+    tags_str = format_yaml_array(updated_tags)
     
     lines = content.split("\n")
     if content.startswith("---"):
@@ -505,6 +572,11 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
         doc_info = vault_db.get_document(doc_path)
         gist = doc_info.get("gist", "") if doc_info else ""
         title = os.path.basename(doc_path)
+
+    # Check document path exclusions
+    if is_excluded_document(doc_path):
+        vault_db.update_document_tag_audit(doc_path)
+        return {"status": "skipped", "path": doc_path, "message": "Document path is excluded from tag auditing."}
 
     # Resolve absolute file path
     abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(VAULT_ROOT, doc_path)

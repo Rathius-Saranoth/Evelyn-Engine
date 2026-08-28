@@ -1,8 +1,8 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-23 08:01:55
-tags: agent-rules, guidelines, operations, protocol, evelyn
+date modified: 2026-08-28 11:24:45
+tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
 
@@ -48,7 +48,7 @@ tags: agent-rules, guidelines, operations, protocol, evelyn
 ## 6. Vault Note Formatting & Visual PKM Style
 - **Default Visual PKM Standard**: All notes, guides, and Maps of Content (MOCs) in the Obsidian vault must adhere to the **Visual PKM / Digital Garden Dashboard** standard defined in `.agents/rules/vault-note-style.md`.
 - **Key Elements**:
-  - Structured YAML frontmatter (`title`, `aliases`, `tags`, `date created`, `date modified`).
+  - Structured YAML frontmatter with single-line flow arrays (`title`, `aliases: [...]`, `tags: [...]`, `date created`, `date modified`).
   - Executive Callout box (`[!ABSTRACT]`) beneath the title.
   - Thematic section anchor emojis in headers (e.g. 🪐, 🏜️, 🕯️, ⚡, 🏛️, 📊, 🎧, 🧭).
   - Mermaid charts (`mindmap`, `graph TD`, `graph LR`) for conceptual synthesis.

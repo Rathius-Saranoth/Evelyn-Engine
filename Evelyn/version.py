@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-28 08:46:31
+# date modified: 2026-08-28 11:42:49
 # tags: 
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.010"
-VERSION_NAME = "Research Intent Mode Classification & Search Query Lexicon Calibration"
+__version__ = "000.006.011"
+VERSION_NAME = "Vault Taxonomy Alignment & Tag Librarian Acceleration"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

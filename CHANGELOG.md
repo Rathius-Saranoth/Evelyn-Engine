@@ -1,8 +1,8 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 08:46:31
-tags: changelog, versioning, history, release-notes, evelyn
+date modified: 2026-08-28 11:42:55
+tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
 
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.011] - 2026-08-28 — *Vault Taxonomy Alignment & Tag Librarian Acceleration*
+
+### Added & Enhanced
+- **5-Tier Priority Scheduling (`Evelyn/tools/vault_db.py`)**:
+  - Rewrote `fetch_next_document_for_tag_audit()` to prioritize notes by urgency: (1) Notes with no tags $\rightarrow$ (2) Notes with multi-dash flat tags $\rightarrow$ (3) Notes with simple flat tags $\rightarrow$ (4) Un-audited documents with existing hierarchy $\rightarrow$ (5) Routine rotation of oldest audited documents (`last_tag_audit ASC`).
+- **Document Path Exclusion Gate (`evelyn_config.py`, `tag_librarian.py`, `vault_db.py`)**:
+  - Added `TAG_LIBRARIAN_EXCLUDED_DOCUMENTS` to specifically exclude root repository files (e.g. `Projects/Evelyn Engine/README.md`) from tag auditing without affecting other documents.
+  - Added `is_excluded_document(path)` filter in `tag_librarian.py` and SQL exclusions in `vault_db.py`.
+- **Increased Tag Librarian Throughput (`evelyn_config.py`)**:
+  - Increased `TAG_LIBRARIAN_BATCH_SIZE` from `1` to `5` documents per idle sweep.
+  - Lowered `TAG_LIBRARIAN_IDLE_THRESHOLD` from `2700s` (45m) to `1200s` (20m) for faster idle execution.
+- **Standalone Batch CLI Runner (`scripts/audit_vault_tags.py`)**:
+  - Created dedicated CLI utility supporting `--limit N`, `--continuous`, `--verbose`, and `--sync-taxonomy` with live per-document reporting and graceful `Ctrl+C` interruptibility.
+- **Universal Frontmatter Array Normalization**:
+  - Standardized all YAML frontmatter list properties (`tags: [...]`, `aliases: [...]`, `categories: [...]`) across all documentation, templates, rule files, and the Obsidian vault.
+  - Updated `scripts/update_frontmatter.py`, `Evelyn/tools/vault_list_manager.py`, `scripts/extract_pdf_library.py`, and `scripts/relocate_vault_pdfs.py` to produce single-line flow arrays.
 
 ## [000.006.010] - 2026-08-28 — *Research Intent Mode Classification & Search Query Lexicon Calibration*
 

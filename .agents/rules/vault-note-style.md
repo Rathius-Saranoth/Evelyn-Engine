@@ -1,7 +1,9 @@
 ---
-title: Vault Note Style Guide (Visual PKM)
+title: vault-note-style.md
 description: Standards and guidelines for formatting Obsidian notes and vault documents in the Visual PKM style.
 tags: [obsidian, pkm, style-guide, formatting, markdown]
+date created: 2026-08-28 11:24:58
+date modified: 2026-08-28 11:24:41
 ---
 
 # Vault Note Style Guide (Visual PKM Standard)
@@ -16,9 +18,7 @@ Every note must begin with clean YAML frontmatter:
 ---
 title: <Document Title>
 aliases: [<Alternative Name>, <Acronym>]
-tags:
-  - <tag1>
-  - <tag2>
+tags: [<tag1>, <tag2>]
 date created: YYYY-MM-DD HH:MM:SS
 date modified: YYYY-MM-DD HH:MM:SS
 ---

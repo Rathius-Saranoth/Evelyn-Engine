@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-08-18 20:37:27
+# date modified: 2026-08-28 11:41:29
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -252,22 +252,53 @@ def delete_master_tag(tag: str) -> None:
 def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
     """Fetch the next vault document eligible for tag auditing.
 
-    Prioritizes un-audited documents (last_tag_audit IS NULL or 0) first,
-    followed by the document with the oldest last_tag_audit timestamp.
+    Priority Tiers:
+        1. Un-audited documents with no tags (missing tags entirely)
+        2. Un-audited documents with multi-dash flat tags (e.g. 'bad-coding-habits')
+        3. Un-audited documents with simple flat tags (no hierarchy slashes)
+        4. Other un-audited documents (e.g. existing nested tags)
+        5. Routine rotation of previously audited documents (oldest last_tag_audit first)
+
+    Excluded documents (via TAG_LIBRARIAN_EXCLUDED_DOCUMENTS) are strictly omitted.
 
     Returns:
         Optional[Dict[str, Any]]: Document metadata dict or None if vault is empty.
     """
     init_db()
     con = get_db()
-    row = con.execute("""
+    excluded_paths = getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", [])
+    
+    where_clause = ""
+    params = []
+    if excluded_paths:
+        placeholders = ", ".join(["?"] * len(excluded_paths))
+        where_clause = f"WHERE path NOT IN ({placeholders})"
+        params = list(excluded_paths)
+
+    query = f"""
         SELECT * FROM vault_documents
+        {where_clause}
         ORDER BY
+            -- Prioritize un-audited docs over audited docs
             CASE WHEN last_tag_audit IS NULL OR last_tag_audit = 0 THEN 0 ELSE 1 END ASC,
+            -- Tiered urgency among un-audited docs
+            CASE 
+                -- Tier 1: No tags at all
+                WHEN (last_tag_audit IS NULL OR last_tag_audit = 0) AND (tags IS NULL OR trim(tags) = '' OR trim(tags) = '[]') THEN 1
+                -- Tier 2: Multi-dash flat tags
+                WHEN (last_tag_audit IS NULL OR last_tag_audit = 0) AND (tags LIKE '%-%') AND (tags NOT LIKE '%/%') THEN 2
+                -- Tier 3: Simple flat tags without slashes
+                WHEN (last_tag_audit IS NULL OR last_tag_audit = 0) AND (tags NOT LIKE '%/%') THEN 3
+                -- Tier 4: Un-audited documents with existing hierarchy
+                WHEN (last_tag_audit IS NULL OR last_tag_audit = 0) THEN 4
+                -- Tier 5: Audited documents
+                ELSE 5
+            END ASC,
             last_tag_audit ASC,
             mtime DESC
         LIMIT 1
-    """).fetchone()
+    """
+    row = con.execute(query, params).fetchone()
     con.close()
     return dict(row) if row else None
 

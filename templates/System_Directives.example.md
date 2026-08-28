@@ -1,7 +1,7 @@
 ---
 title: System_Directives.example.md
 rag_priority: high
-tags: core, template, directives, rules, system, evelyn
+tags: [core, template, directives, rules, system, evelyn]
 date created: 2026-08-23 08:04:13
 date modified: 2026-08-23 08:04:13
 ---

@@ -3,7 +3,7 @@ description: How to safely stop Evelyn's core services and background daemons
 title: stop-services.md
 date created: 2026-08-23 17:42:00
 date modified: 2026-08-23 17:42:00
-tags: services, shutdown, stop, teardown, guide, workflow, evelyn
+tags: [services, shutdown, stop, teardown, guide, workflow, evelyn]
 ---
 
 # Service Shutdown Workflow
