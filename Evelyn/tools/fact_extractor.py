@@ -366,7 +366,7 @@ async def run_extraction():
             # 2. Register running status in server registry
             _set_status_in_server(
                 "running",
-                sub_status={"last_extracted_id": _last_extracted_id, "unextracted_backlog": len(messages)},
+                sub_status={"last_extracted_id": _last_extracted_id},
             )
 
             # 3. Perform LLM extraction
@@ -380,7 +380,7 @@ async def run_extraction():
             _set_status_in_server(
                 "idle",
                 summary=f"Extracted {len(messages)} messages (up to id #{max_id})",
-                sub_status={"last_extracted_id": max_id, "unextracted_backlog": 0},
+                sub_status={"last_extracted_id": max_id},
                 items_processed=len(messages),
             )
             print(
