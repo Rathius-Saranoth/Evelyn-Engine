@@ -1765,7 +1765,7 @@
       const item = unifiedItems.find(x => x.id === proposalId);
       if (!item) return;
       const entries = parseSplitYaml(item.merged_observation);
-      const defaultCat = entries[0]?.category || item.suggested_category || 'Cat05-R';
+      const defaultCat = entries[0]?.category || item.suggested_category || `Cat05-${currentIdentity.subject_code_user}`;
       const defaultSubj = entries[0]?.subject || currentIdentity.user_name;
       entries.push({ category: defaultCat, subject: defaultSubj, tags: '', observation: '' });
       const newYaml = dumpSplitYaml(entries);

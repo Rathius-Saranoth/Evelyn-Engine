@@ -13,6 +13,31 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.009] - 2026-08-28 — *Subject Code Sanitization & Canonical Fast Memory Category Suffix Enforcement*
+
+### Database Migrations & Sanitization
+- **Migration 000.006.009 (`Evelyn/tools/db_migrator.py`)**:
+  - Registered and executed migration step `migrate_legacy_subject_codes_in_memory` on `data/evelyn_memory.db`.
+  - Sanitized 1,259 legacy context entries (`Cat##-R` -> `Cat##-U`, `Cat##-E` -> `Cat##-A`).
+  - Sanitized 6,659 legacy proposals (updating `suggested_category` and replacing legacy category patterns in `merged_observation`).
+  - Triggered post-migration vault re-indexing to ensure `data/evelyn_vault.db` stays synchronized with renamed files.
+
+### Fixed & Enhanced
+- **Category Normalizer & Remediation (`Evelyn/tools/fact_consolidator.py`)**:
+  - Rewrote `validate_and_normalize_category()` to map `R`/`U` to `cfg.SUBJECT_CODE_USER` ("U") and `E`/`A` to `cfg.SUBJECT_CODE_ASSISTANT` ("A").
+  - Fixed `remediate_database_categories()` to detect and correct legacy `-R` and `-E` categories across context entries and proposals instead of ignoring them.
+  - Updated `_RECAT_DETECT_PROMPT` YAML example from `Cat08-R` to `Cat08-U`.
+- **Vault Taxonomy Files & Category Reference (`Cat00 - Index.md`, `Category Summaries/`)**:
+  - Renamed 30 summary notes in Obsidian Vault from `Cat##-E.md`/`Cat##-R.md` to `Cat##-A.md`/`Cat##-U.md` and updated frontmatter aliases and tags.
+  - Updated `Cat00 - Index.md` and `Cat01.md` through `Cat16.md` wikilinks to link canonical `-A` and `-U` summaries.
+  - Ensured `load_cat00_index()` passes canonical `-A` and `-U` category references to LLM prompts during fact extraction.
+- **Engine Fallbacks & UI Defaults (`Evelyn/tools/memory_db.py`, `evelyn_ui/dev.html`, `scripts/trigger_profile_evolution.py`)**:
+  - Updated fallback in `split_entry()` to use `f"Cat05-{cfg.SUBJECT_CODE_USER}"`.
+  - Updated fallback in `dev.html` split fact modal to use `Cat05-${currentIdentity.subject_code_user}`.
+  - Refactored `trigger_profile_evolution.py` to import `DOCUMENT_CATEGORIES` dynamically from `profile_evolver` rather than hardcoding legacy `-R`/`-E` codes.
+
+---
+
 ## [000.006.008] - 2026-08-28 — *Research Inspection, Sub-Question Notes & Resilient Guidance Tooling*
 
 ### Added & Enhanced

@@ -451,6 +451,54 @@ def migrate_000_005_018_procedures_upgrade(conn: sqlite3.Connection, db_map: dic
     logger.info("Migration 000.005.018 upgraded procedures table, created queue tables, and backfilled tools.")
 
 
+def migrate_000_006_009_subject_codes_sanitization(conn: sqlite3.Connection, db_map: dict[str, str], cfg: object) -> None:
+    """Migration 000.006.009: Sanitize legacy -R (User) and -E (Assistant) category codes to canonical -U and -A."""
+    import re
+    from Evelyn.tools.fact_consolidator import validate_and_normalize_category
+
+    cursor = conn.cursor()
+
+    # 1. Migrate context_entries
+    rows = cursor.execute("SELECT id, category, subject FROM context_entries").fetchall()
+    entries_to_update = []
+    for row in rows:
+        row_id, cat, subj = row[0], row[1] or "", row[2] or ""
+        normalized = validate_and_normalize_category(cat, subj)
+        if normalized and normalized != cat:
+            entries_to_update.append((normalized, row_id))
+
+    if entries_to_update:
+        cursor.executemany("UPDATE context_entries SET category = ? WHERE id = ?", entries_to_update)
+
+    # 2. Migrate proposals
+    p_rows = cursor.execute("SELECT id, type, suggested_category, merged_observation FROM proposals").fetchall()
+    proposals_to_update = []
+    for prow in p_rows:
+        pid, ptype, s_cat, obs = prow[0], prow[1] or "", prow[2] or "", prow[3] or ""
+        new_s_cat = s_cat
+        if s_cat and ptype != "profile_update":
+            normalized_scat = validate_and_normalize_category(s_cat)
+            if normalized_scat:
+                new_s_cat = normalized_scat
+
+        new_obs = obs
+        if obs and "Cat" in obs:
+            new_obs = re.sub(r"\bCat(\d{2})-R\b", r"Cat\1-U", new_obs)
+            new_obs = re.sub(r"\bCat(\d{2})-E\b", r"Cat\1-A", new_obs)
+
+        if new_s_cat != s_cat or new_obs != obs:
+            proposals_to_update.append((new_s_cat, new_obs, pid))
+
+    if proposals_to_update:
+        cursor.executemany("UPDATE proposals SET suggested_category = ?, merged_observation = ? WHERE id = ?", proposals_to_update)
+
+    logger.info(
+        "Migration 000.006.009 sanitized %d context_entries and %d proposals to canonical subject codes.",
+        len(entries_to_update),
+        len(proposals_to_update)
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -505,6 +553,13 @@ MIGRATIONS: list[Migration] = [
         version="000.005.018",
         name="add_suggested_tools_and_procedure_queues",
         up_fn=migrate_000_005_018_procedures_upgrade,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.009",
+        name="migrate_legacy_subject_codes_in_memory",
+        up_fn=migrate_000_006_009_subject_codes_sanitization,
+        reindex_vault=True,
     ),
 ]
 
@@ -645,9 +700,8 @@ def execute_post_hooks(migration: Migration) -> None:
     if migration.reindex_vault:
         print(f"[DB Migrator] Triggering post-migration Vault reindex hook for {migration.version}...")
         try:
-            from Evelyn.tools.vault_indexer import VaultIndexer
-            indexer = VaultIndexer()
-            indexer.scan_and_index()
+            from Evelyn.tools.vault_indexer import scan_vault
+            scan_vault()
             print("[DB Migrator] Vault reindex hook completed.")
         except Exception as e:
             print(f"[DB Migrator] [WARNING] Post-migration Vault reindex hook warning: {e}")

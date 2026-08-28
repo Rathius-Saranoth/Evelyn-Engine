@@ -54,7 +54,7 @@ class TestEvelynTools(unittest.TestCase):
     def test_context_log(self, mock_insert):
         mock_insert.return_value = 123
 
-        result = context_manager.append_context_log("Cat01-R", "Test Summary")
+        result = context_manager.append_context_log("Cat01-U", "Test Summary")
 
         self.assertIn("Created Context Entry (ID: 123)", result)
         mock_insert.assert_called_once()
