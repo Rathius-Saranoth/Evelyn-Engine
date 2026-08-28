@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-08-19 19:14:21
+# date modified: 2026-08-28 17:09:12
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -106,7 +106,7 @@ _SCAN_STATE_FILE = os.path.join(
 
 # Reference to the in-flight consolidation asyncio.Task so it can be cancelled
 # when a new chat request arrives.
-_consolidation_task = None
+_consolidation_task: asyncio.Task | None = None
 
 
 # ============================================================================

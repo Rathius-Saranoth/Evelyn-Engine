@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-28 14:41:24
+date modified: 2026-08-28 17:01:56
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -11,6 +11,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ## 1. Python Environment & Execution
 - **Virtual Environment**: Always use the project virtual environment at `/home/rathius/evelyn/venv/bin/python` and `/home/rathius/evelyn/venv/bin/pytest`. Never invoke `/usr/bin/python3` directly for workspace tasks or test runs.
 - **PYTHONPATH**: Prefix commands with `PYTHONPATH=.` when executing scripts or running tests from the workspace root (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests`).
+- **Tooling Configuration (Single Source of Truth)**: All Python tool configurations (Pyrefly language server `[tool.pyrefly]`, Ruff linter/formatter `[tool.ruff]`, and Pytest `[tool.pytest.ini_options]`) reside canonically in `pyproject.toml`. Do not introduce separate `ruff.toml` or `pyrefly.toml` files.
 
 ## 2. Database & Vector Operations (MCP Server & CLI)
 - **Primary Method (MCP Server)**: Use the `evelyn-sqlite` MCP tools:

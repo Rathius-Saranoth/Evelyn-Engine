@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-28 07:33:29
+# date modified: 2026-08-28 17:10:41
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -363,7 +363,6 @@ def terminate_research_process(task_id: str):
             with contextlib.suppress(OSError, ValueError):
                 with open(pid_path) as f:
                     pid = int(f.read().strip())
-                import psutil
 
                 if psutil.pid_exists(pid):
                     p = psutil.Process(pid)
@@ -977,7 +976,7 @@ def save_message_get_id(
     row_id = cur.lastrowid
     con.commit()
     con.close()
-    return row_id
+    return row_id if row_id is not None else 0
 
 
 def update_message(
@@ -1202,7 +1201,7 @@ async def call_ollama_stream(
         str: Raw JSON response lines from the Ollama server.
     """
     use_think = think_effort if think_effort is not None else cfg.THINK
-    options = {
+    options: dict[str, Any] = {
         k: v
         for k, v in {
             "num_ctx": cfg.NUM_CTX,
@@ -1267,7 +1266,7 @@ async def call_ollama_full(
     Returns:
         dict: The full parsed JSON response dictionary from the Ollama API.
     """
-    options = {
+    options: dict[str, Any] = {
         k: v
         for k, v in {
             "num_ctx": cfg.NUM_CTX,
@@ -1587,7 +1586,7 @@ async def _agentic_stream_loop(
                     tool_status = "error"
 
                 tool_entry = fn_name
-                meta_entry = {"name": fn_name, "data": None}
+                meta_entry: dict[str, Any] = {"name": fn_name, "data": None}
                 approval_id_or_data = None
 
                 if fn_name == "generate_image":
@@ -1767,7 +1766,7 @@ async def _process_chat_background(
         if research_ctx:
             messages.append({"role": "system", "content": research_ctx})
 
-        user_turn = {"role": "user", "content": user_msg_for_model}
+        user_turn: dict[str, Any] = {"role": "user", "content": user_msg_for_model}
         if images:
             user_turn["images"] = images
         messages.append(user_turn)
@@ -1928,8 +1927,6 @@ def pause_all_active_research():
 
     # 3. Sweep psutil for any orphan research_engine.py processes
     try:
-        import psutil
-
         current_pid = os.getpid()
         for p in psutil.process_iter(["pid", "name", "cmdline"]):
             try:
@@ -1999,7 +1996,7 @@ def clean_shutdown_all_tasks():
 
 async def chat_stream(
     user_message: str,
-    images: list[str] | None = None,
+    images: list[str | dict] | None = None,
     is_regenerate: bool = False,
     think_effort=None,
     ui_override: bool = False,
@@ -2313,7 +2310,7 @@ async def lifespan(app: FastAPI):
                 required_idle = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
             elif task_name == "refresh_memory":
                 required_idle = 2700
-            elif task_name.startswith("task_"):
+            elif task_name and task_name.startswith("task_"):
                 required_idle = getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
 
             if idle_seconds < required_idle:
@@ -2549,8 +2546,8 @@ async def lifespan(app: FastAPI):
                             active_task = task_info
 
             # 3. Handle active task pausing if user becomes active
-            if active_task:
-                tid = active_task["task_id"]
+            if active_task and active_task.get("task_id"):
+                tid = str(active_task["task_id"])
                 state = load_state(tid)
                 disk_status = state.get("status") if state else None
 
@@ -2565,9 +2562,10 @@ async def lifespan(app: FastAPI):
                         f"[RESEARCH SYNC] Task {tid} completed or changed status on disk to '{disk_status}' — updating server memory.",
                         flush=True,
                     )
-                    _background_tasks[tid]["status"] = disk_status
-                    if disk_status in ("done", "error", "cancelled", "timed_out"):
-                        _background_tasks[tid]["finished_at"] = time.time()
+                    if tid in _background_tasks:
+                        _background_tasks[tid]["status"] = disk_status
+                        if disk_status in ("done", "error", "cancelled", "timed_out"):
+                            _background_tasks[tid]["finished_at"] = time.time()
                     if disk_status == "done" and prev_status in (
                         "running",
                         "searching",
@@ -2585,7 +2583,7 @@ async def lifespan(app: FastAPI):
                         f"[RESEARCH INTERRUPT] User active (idle={idle_seconds:.1f}s) — pausing deep research task {tid}",
                         flush=True,
                     )
-                    if state and state["status"] in (
+                    if state and state.get("status") in (
                         "running",
                         "searching",
                         "synthesizing",
@@ -2595,7 +2593,8 @@ async def lifespan(app: FastAPI):
                             "Paused: Interrupted automatically due to active user chat session (to prioritize conversational response speed)."
                         )
                         save_state(tid, state)
-                        _background_tasks[tid]["status"] = "paused"
+                        if tid in _background_tasks:
+                            _background_tasks[tid]["status"] = "paused"
                         terminate_research_process(tid)
                 continue
 
@@ -3144,7 +3143,9 @@ async def edit_message(
 
 
 @app.post("/chat/stop")
-async def stop_chat(req: StopChatRequest = None, _: None = Depends(check_auth)):
+async def stop_chat(
+    req: StopChatRequest | None = None, _: None = Depends(check_auth)
+):
     """Safely stop an active chat generation session."""
     stream_id = req.stream_id if req else None
     session = (
@@ -3890,42 +3891,41 @@ async def start_refresh_memory_internal():
                 cwd=str(BASE_DIR),
             )
 
-            while True:
-                line_bytes = await proc.stdout.readline()
-                if not line_bytes:
-                    break
-                line = line_bytes.decode("utf-8", errors="replace").strip()
-                print(f"{_GRN}[REFRESH]{_RST} {line}", flush=True)
+            if proc.stdout:
+                while True:
+                    line_bytes = await proc.stdout.readline()
+                    if not line_bytes:
+                        break
+                    line = line_bytes.decode("utf-8", errors="replace").strip()
+                    print(f"{_GRN}[REFRESH]{_RST} {line}", flush=True)
 
-                if line.startswith("[PHASE_START:"):
-                    key = line.split("[PHASE_START:")[1].split("]")[0]
-                    phase_label = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
-                    task_manager.set_running("refresh_memory", phase=phase_label)
-                    if key == "vault_map":
-                        task_manager.set_running(
-                            "vault_map", phase="Mapping Obsidian Vault..."
-                        )
-                    elif key == "ingest_knowledge":
-                        task_manager.set_running("sync", phase="Syncing Chroma DB...")
-
-                elif line.startswith("[PHASE_DONE:"):
-                    key = line.split("[PHASE_DONE:")[1].split("]")[0]
-                    if key == "vault_map":
-                        task_manager.clear_running("vault_map", status="done")
-                    elif key == "ingest_knowledge":
-                        task_manager.clear_running("sync", status="done")
-
-                elif line.startswith("[PHASE_FAIL:"):
-                    key = line.split("[PHASE_FAIL:")[1].split("]")[0]
-                    if key == "vault_map":
-                        task_manager.clear_running(
-                            "vault_map", status="error", error=f"Phase '{key}' failed."
-                        )
-                    elif key == "ingest_knowledge":
-                        task_manager.clear_running(
-                            "sync", status="error", error=f"Phase '{key}' failed."
-                        )
-                    raise RuntimeError(f"Phase '{key}' failed.")
+                    if line.startswith("[PHASE_START:"):
+                        key = line.split("[PHASE_START:")[1].split("]")[0]
+                        phase_label = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
+                        task_manager.set_running("refresh_memory", phase=phase_label)
+                        if key == "vault_map":
+                            task_manager.set_running(
+                                "vault_map", phase="Mapping Obsidian Vault..."
+                            )
+                        elif key == "ingest_knowledge":
+                            task_manager.set_running("sync", phase="Syncing Chroma DB...")
+                    elif line.startswith("[PHASE_DONE:"):
+                        key = line.split("[PHASE_DONE:")[1].split("]")[0]
+                        if key == "vault_map":
+                            task_manager.clear_running("vault_map", status="done")
+                        elif key == "ingest_knowledge":
+                            task_manager.clear_running("sync", status="done")
+                    elif line.startswith("[PHASE_FAIL:"):
+                        key = line.split("[PHASE_FAIL:")[1].split("]")[0]
+                        if key == "vault_map":
+                            task_manager.clear_running(
+                                "vault_map", status="error", error=f"Phase '{key}' failed."
+                            )
+                        elif key == "ingest_knowledge":
+                            task_manager.clear_running(
+                                "sync", status="error", error=f"Phase '{key}' failed."
+                            )
+                        raise RuntimeError(f"Phase '{key}' failed.")
 
             await proc.wait()
 
@@ -4650,9 +4650,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         # Dynamic diagnostic enrichment if sub_status wasn't explicitly populated
         with contextlib.suppress(OSError, ValueError):
             if key == "extractor":
-                import os
-                import sqlite3
-
                 state_path = str(BASE_DIR / "data" / "evelyn_extraction_state.json")
                 last_id = 0
                 if os.path.exists(state_path):
@@ -4702,9 +4699,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "active_facts_count": active_facts,
                 }
             elif key == "consolidator":
-                import os
-                import sqlite3
-
                 scan_path = str(BASE_DIR / "data" / "evelyn_consolidation_offsets.json")
                 scan_st = {}
                 if os.path.exists(scan_path):
@@ -4744,9 +4738,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "recats_written": recats_written,
                 }
             elif key == "procedure_consolidator":
-                import os
-                import sqlite3
-
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
                 proc_cnt = 0
                 pending_proposals = 0
@@ -4773,9 +4764,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "last_run_audited": last_audited,
                 }
             elif key == "tag_librarian":
-                import os
-                import sqlite3
-
                 vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
                 audited = 0
                 total = 0
@@ -4805,9 +4793,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "audit_pct": audit_pct,
                 }
             elif key == "sync":
-                import os
-                import sqlite3
-
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
                 facts_cnt = 0
                 procs_cnt = 0
@@ -4829,8 +4814,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         conn.close()
                 chroma_cnt = 0
                 try:
-                    import sqlite3
-
                     cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
                     if os.path.exists(cdb_path):
                         cconn = sqlite3.connect(
@@ -4859,9 +4842,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "pending_sync_queue": sync_queue_cnt,
                 }
             elif key == "vault_map":
-                import os
-                import sqlite3
-
                 vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
                 indexed_docs = 0
                 exists = os.path.exists(vdb)
@@ -4884,9 +4864,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "last_modified": mtime,
                 }
             elif key == "refresh_memory":
-                import os
-                import sqlite3
-
                 phase = task_data.get("phase", "Idle")
                 current_step = 1
                 if "Phase 2" in phase or "Ingest" in phase or "Knowledge" in phase or phase == "Completed successfully.":
@@ -5123,7 +5100,10 @@ async def get_extractions(_: None = Depends(check_auth)):
 
 @app.post("/api/review/extractions/{id}/{action}")
 async def action_extraction(
-    id: int, action: str, req: EditEntryRequest = None, _: None = Depends(check_auth)
+    id: int,
+    action: str,
+    req: EditEntryRequest | None = None,
+    _: None = Depends(check_auth),
 ):
     """Approve, delete, or edit an extracted memory entry.
 
@@ -5243,7 +5223,7 @@ async def get_proposals(_: None = Depends(check_auth)):
 async def action_proposal(
     id: int,
     action: str,
-    req: ProposalActionRequest = None,
+    req: ProposalActionRequest | None = None,
     _: None = Depends(check_auth),
 ):
     """Approve, deny, or unlink source context entries on a proposal.
@@ -6127,9 +6107,13 @@ if __name__ == "__main__":
 
     SSL_KEY = getattr(cfg, "SSL_KEY", os.environ.get("EVELYN_SSL_KEY", "server.key"))
     SSL_CERT = getattr(cfg, "SSL_CERT", os.environ.get("EVELYN_SSL_CERT", "server.crt"))
-    ssl_args = {}
-    if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT):
-        ssl_args = {"ssl_keyfile": SSL_KEY, "ssl_certfile": SSL_CERT}
+    ssl_keyfile = (
+        SSL_KEY if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT) else None
+    )
+    ssl_certfile = (
+        SSL_CERT if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT) else None
+    )
+    if ssl_keyfile and ssl_certfile:
         print(f"SSL certs found ({SSL_CERT}) -- starting with HTTPS")
     else:
         print(
@@ -6142,5 +6126,6 @@ if __name__ == "__main__":
         port=cfg.SERVER_PORT,
         reload=False,
         log_level="info",
-        **ssl_args,
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
     )

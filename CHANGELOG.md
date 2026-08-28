@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 16:44:22
+date modified: 2026-08-28 17:15:47
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.016] - 2026-08-28 — *Pyrefly & Pyproject Tooling Consolidation and Static Typing Hardening*
+
+### Consolidated & Unified
+- **Single Source of Truth Tooling (`pyproject.toml`, `AGENTS.md`)**:
+  - Unified all Python tooling configurations (`[tool.pyrefly]`, `[tool.ruff]`, `[tool.pytest.ini_options]`) canonically inside `pyproject.toml`.
+  - Configured Pyrefly's `search-path` (`".", "Evelyn", "Evelyn/tools", "Evelyn/persona"`) to resolve tool imports statically without reliance on dynamic runtime `sys.path.insert`.
+  - Retired and deleted standalone `pyrefly.toml` and `ruff.toml` to prevent tooling drift.
+  - Documented the single source of truth rule in `AGENTS.md` Section 1.
+
+### Fixed & Hardened
+- **Static Typing & Process Guarding (`evelyn_server.py`, `Evelyn/tools/fact_extractor.py`, `Evelyn/tools/fact_consolidator.py`)**:
+  - **Module Shadowing**: Removed redundant nested `import psutil`, `import sqlite3`, and `import os` statements across diagnostic and research pause routines that caused variable uninitialized warnings.
+  - **Type Inference**: Explicitly typed `options: dict[str, Any]`, `user_turn: dict[str, Any]`, and `meta_entry: dict[str, Any]` to fix dictionary item assignment errors.
+  - **Null Safety**: Added null guards to database message insertion IDs (`lastrowid`), active task ID string casting, subprocess stdout stream inspection, and `task_name` prefix checking.
+  - **FastAPI Optional Bodies**: Fixed parameter typing from `req: Model = None` to `req: Model | None = None` across `/chat/stop`, `/api/review/extractions/{id}/{action}`, and `/api/review/proposals/{id}/{action}`.
+  - **Async Task References**: Explicitly typed `_extraction_task` and `_consolidation_task` as `asyncio.Task | None`.
+  - **Uvicorn Start Kwargs**: Replaced dictionary unpacking `**ssl_args` with explicit `ssl_keyfile` and `ssl_certfile` keyword arguments.
+
+---
 
 ## [000.006.015] - 2026-08-28 — *Heavy Task Telemetry Modernization & Vault Map Streamlining*
 
