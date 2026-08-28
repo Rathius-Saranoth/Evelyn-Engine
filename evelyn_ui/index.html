@@ -2275,7 +2275,7 @@
             const match = tstr.match(/^([^\[]+)(?:\[(.*?)\])?$/);
             return match ? { name: match[1], id: match[2] } : null;
           })
-          .filter((t) => t && (t.name === "run_command" || t.name === "write_file") && t.id);
+          .filter((t) => t && (t.name === "run_command" || t.name === "write_file" || t.name === "write_journal_entry" || (t.id && (t.id.startsWith("write_") || t.id.startsWith("cmd_")))) && t.id);
 
         if (terminalToolIds.length > 0) {
           const fetchIds = terminalToolIds.map((t) => t.id).filter((id) => !approvalStatuses[id]);
@@ -2790,6 +2790,19 @@
           const idx = currentStream.usedTools.indexOf(evt.name);
           if (idx !== -1) {
             currentStream.usedTools[idx] = `${evt.name}[${evt.data}]`;
+          }
+          return;
+        }
+
+        if (evt.type === "approval_required") {
+          if (evt.approval_id) {
+            approvalStatuses[evt.approval_id] = {
+              id: evt.approval_id,
+              tool: evt.tool,
+              args: evt.args,
+              status: "pending",
+            };
+            fetchPendingApprovals();
           }
           return;
         }

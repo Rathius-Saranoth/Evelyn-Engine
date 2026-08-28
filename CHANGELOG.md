@@ -13,6 +13,16 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
+## [000.006.006] - 2026-08-27 — *Journal Entry Approval & Preview UI Fix*
+
+### Fixed & Enhanced
+- **Journal Entry Approval Card & Preview Rendering (`evelyn_ui/index.html`)**:
+  - Fixed `addWriteBadges` in chat UI to include `write_journal_entry` in the approval IDs fetch filter (`terminalToolIds`), allowing pending journal write approvals to be resolved and displayed as interactive approval cards.
+  - Resolved issue where `approvalStatuses` lookup was skipped for `write_journal_entry`, causing pending journal writes to fall back to an unclickable `⚠️ Approval expired/lost` badge.
+  - Added real-time `approval_required` SSE stream event handler in `handleStreamEvent` to immediately populate `approvalStatuses` during streaming responses.
+
+---
+
 ## [000.006.005] - 2026-08-27 — *Dynamic Fact Extractor Backlog Telemetry Fix*
 
 ### Fixed & Enhanced

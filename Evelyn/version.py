@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.005"
-VERSION_NAME = "Dynamic Fact Extractor Backlog Telemetry Fix"
+__version__ = "000.006.006"
+VERSION_NAME = "Journal Entry Approval & Preview UI Fix"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
