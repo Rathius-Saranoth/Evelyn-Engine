@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-28 12:31:02
+date modified: 2026-08-28 14:41:24
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -20,7 +20,7 @@ This document serves as the master structural blueprint of the **Evelyn Engine**
 | **Microservices & Vision** | [[REQUIREMENTS_IMAGE_HOST.md]] |
 | **Persona & Behavior** | [[System_Directives.md]] · [[Evelyn_Narrative_Persona.md]] · [[Ricky_Narrative_Profile.md]] |
 | **Templates & Scaffolding** | [[System_Directives.example.md]] · [[Assistant_Persona.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
-| **Standards & Workflows** | [[AGENTS.md]] · [[.ai-instructions.md]] · [[docstring_guide.md]] · [[quality-review.md]] · [[start-services.md]] · [[debug-chat-db.md]] · [[backup-to-github.md]] |
+| **Standards & Workflows** | [[AGENTS.md]] · [[docstring_guide.md]] · [[quality-review.md]] · [[start-services.md]] · [[restart-services.md]] · [[debug-chat-db.md]] · [[backup-to-github.md]] |
 | **Roadmap & History** | [[ROADMAP.md]] · [[CHANGELOG.md]] · [[ROLLBACK.md]] · [[SUPPORT.md]] |
 
 ---

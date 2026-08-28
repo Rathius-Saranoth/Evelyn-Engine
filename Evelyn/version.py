@@ -1,7 +1,7 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-28 12:30:40
-# tags:
+# date modified: 2026-08-28 14:41:24
+# tags: 
 
 """
 Evelyn Engine Version System.
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.013"
-VERSION_NAME = "Consolidation Audit: Dead-Code & Type-Error Fixes"
+__version__ = "000.006.014"
+VERSION_NAME = "Consolidation Audit: Agent Instructions Single Source of Truth"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

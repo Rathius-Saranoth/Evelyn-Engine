@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 12:30:46
+date modified: 2026-08-28 14:41:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.014] - 2026-08-28 — *Consolidation Audit: Agent Instructions Single Source of Truth*
+
+### Consolidated & Unified
+- **Single Source of Truth (`AGENTS.md`)**: Consolidated workspace agent rules into `AGENTS.md` as the sole canonical rules contract. Integrated mandatory file metadata & frontmatter update rules, test data cleanup/hygiene mandates, and TCP port/systemd service verification protocols.
+- **Documentation & Navigation De-duplication**: Updated `README.md`, `reference/engine_architecture.md`, `reference/docstring_guide.md`, and `.agents/workflows/quality-review.md` to reference `AGENTS.md` and standard reference docs.
+
+### Removed
+- **Legacy Monolith (`.ai-instructions.md`)**: Retired and deleted the redundant 378-line catch-all instruction file, eliminating context noise, duplication, and potential configuration drift across AI sessions.
+
+---
 
 ## [000.006.013] - 2026-08-28 — *Consolidation Audit: Dead-Code & Type-Error Fixes*
 
