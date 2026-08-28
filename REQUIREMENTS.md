@@ -1,7 +1,7 @@
 ---
 title: REQUIREMENTS.md
 date created: 2026-05-13 20:27:49
-date modified: 2026-08-23 08:05:33
+date modified: 2026-08-28 16:43:08
 tags: [requirements, dependencies, system, hardware, environment, evelyn]
 ---
 
@@ -52,7 +52,7 @@ pip install -r requirements.txt
 | Package    | Version | Purpose                                                                                                |
 | ---------- | ------- | ------------------------------------------------------------------------------------------------------ |
 | `PyYAML`   | ≥6.0    | YAML parsing — fact extractor output, consolidator proposals, pending reviewer, frontmatter processing |
-| `requests` | ≥2.32   | Synchronous HTTP — vault map generator (`generate_vault_map.py`)                                       |
+| `requests` | ≥2.32   | Synchronous HTTP — vault indexer (`vault_indexer.py`)                                                  |
 
 ### Tools & Workspace Sync
 

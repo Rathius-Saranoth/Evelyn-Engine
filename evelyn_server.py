@@ -4664,10 +4664,15 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
 
                 db_path = str(BASE_DIR / "data" / "evelyn_chat.db")
                 backlog = 0
+                max_msg_id = 0
                 if os.path.exists(db_path):
                     conn = sqlite3.connect(db_path, timeout=1.0)
                     try:
                         cur = conn.cursor()
+                        cur.execute("SELECT MAX(id) FROM messages")
+                        row = cur.fetchone()
+                        max_msg_id = row[0] if row and row[0] is not None else 0
+
                         cur.execute(
                             "SELECT COUNT(*) FROM messages WHERE id > ? AND role IN ('user', 'assistant')",
                             (last_id,),
@@ -4675,13 +4680,30 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         backlog = cur.fetchone()[0]
                     finally:
                         conn.close()
+
+                active_facts = 0
+                mdb_path = str(BASE_DIR / "data" / "evelyn_memory.db")
+                if os.path.exists(mdb_path):
+                    mconn = sqlite3.connect(mdb_path, timeout=1.0)
+                    try:
+                        mcur = mconn.cursor()
+                        mcur.execute("SELECT COUNT(*) FROM context_entries WHERE status='live'")
+                        active_facts = mcur.fetchone()[0]
+                    finally:
+                        mconn.close()
+
+                progress_pct = round((last_id / max_msg_id * 100), 1) if max_msg_id > 0 else 100.0
                 sub_status = {
                     **(sub_status or {}),
                     "last_extracted_id": last_id,
+                    "max_message_id": max_msg_id,
                     "unextracted_backlog": backlog,
+                    "progress_pct": progress_pct,
+                    "active_facts_count": active_facts,
                 }
             elif key == "consolidator":
                 import os
+                import sqlite3
 
                 scan_path = str(BASE_DIR / "data" / "evelyn_consolidation_offsets.json")
                 scan_st = {}
@@ -4689,13 +4711,38 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
                         scan_st = await asyncio.to_thread(_server_sync_load_json, scan_path)
                 active_cat = task_data.get("phase") if status == "running" else None
-                if not sub_status:
-                    sub_status = {"scan_state": scan_st, "active_category": active_cat}
-                else:
-                    if "scan_state" not in sub_status or not sub_status["scan_state"]:
-                        sub_status["scan_state"] = scan_st
-                    if "active_category" not in sub_status:
-                        sub_status["active_category"] = active_cat
+
+                mdb_path = str(BASE_DIR / "data" / "evelyn_memory.db")
+                total_active_facts = 0
+                pending_proposals = 0
+                if os.path.exists(mdb_path):
+                    mconn = sqlite3.connect(mdb_path, timeout=1.0)
+                    try:
+                        mcur = mconn.cursor()
+                        mcur.execute("SELECT COUNT(*) FROM context_entries WHERE status='live'")
+                        total_active_facts = mcur.fetchone()[0]
+                        mcur.execute(
+                            "SELECT COUNT(*) FROM proposals WHERE type IN ('merge', 'split', 'recategorize') AND status='pending'"
+                        )
+                        pending_proposals = mcur.fetchone()[0]
+                    finally:
+                        mconn.close()
+
+                last_scanned = sub_status.get("total_records", 0) if sub_status else 0
+                proposals_written = sub_status.get("proposals_written", 0) if sub_status else 0
+                recats_written = sub_status.get("recats_written", 0) if sub_status else 0
+
+                sub_status = {
+                    **(sub_status or {}),
+                    "scan_state": scan_st,
+                    "active_category": active_cat or (sub_status.get("active_category") if sub_status else None),
+                    "total_active_facts": total_active_facts,
+                    "tracked_categories": len(scan_st),
+                    "pending_proposals": pending_proposals,
+                    "last_run_scanned": last_scanned,
+                    "proposals_written": proposals_written,
+                    "recats_written": recats_written,
+                }
             elif key == "procedure_consolidator":
                 import os
                 import sqlite3
@@ -4707,27 +4754,24 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     conn = sqlite3.connect(mdb, timeout=1.0)
                     try:
                         cur = conn.cursor()
-                        cur.execute(
-                            "SELECT COUNT(*) FROM procedures WHERE status='live'"
-                        )
+                        cur.execute("SELECT COUNT(*) FROM procedures WHERE status='live'")
                         proc_cnt = cur.fetchone()[0]
                         cur.execute(
-                            "SELECT COUNT(*) FROM memory_proposals WHERE type='procedure_merge' AND status='pending'"
+                            "SELECT COUNT(*) FROM proposals WHERE type='procedure_merge' AND status='pending'"
                         )
                         pending_proposals = cur.fetchone()[0]
                     except (sqlite3.Error, OSError):
                         pass
                     finally:
                         conn.close()
-                if not sub_status:
-                    sub_status = {
-                        "total_procedures": proc_cnt,
-                        "pending_proposals": pending_proposals,
-                        "clusters_found": 0,
-                    }
-                else:
-                    sub_status.setdefault("total_procedures", proc_cnt)
-                    sub_status.setdefault("pending_proposals", pending_proposals)
+
+                last_audited = sub_status.get("total_procedures", 0) if sub_status else 0
+                sub_status = {
+                    **(sub_status or {}),
+                    "total_live_procedures": proc_cnt,
+                    "pending_proposals": pending_proposals,
+                    "last_run_audited": last_audited,
+                }
             elif key == "tag_librarian":
                 import os
                 import sqlite3
@@ -4743,7 +4787,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         cur.execute("SELECT COUNT(*) FROM master_tag_taxonomy")
                         tags_cnt = cur.fetchone()[0]
                         cur.execute(
-                            "SELECT COUNT(*) FROM vault_documents WHERE last_tag_audit IS NOT NULL"
+                            "SELECT COUNT(*) FROM vault_documents WHERE last_tag_audit IS NOT NULL AND last_tag_audit > 0"
                         )
                         audited = cur.fetchone()[0]
                         cur.execute("SELECT COUNT(*) FROM vault_documents")
@@ -4752,10 +4796,13 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         pass
                     finally:
                         conn.close()
-                sub_status = sub_status or {
+                audit_pct = round((audited / total * 100), 1) if total > 0 else 0.0
+                sub_status = {
+                    **(sub_status or {}),
                     "master_tags": tags_cnt,
                     "audited_notes": audited,
                     "total_notes": total,
+                    "audit_pct": audit_pct,
                 }
             elif key == "sync":
                 import os
@@ -4764,16 +4811,18 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
                 facts_cnt = 0
                 procs_cnt = 0
+                sync_queue_cnt = 0
                 if os.path.exists(mdb):
                     conn = sqlite3.connect(mdb, timeout=1.0)
                     try:
                         cur = conn.cursor()
-                        cur.execute(
-                            "SELECT COUNT(*) FROM context_entries WHERE status='live'"
-                        )
+                        cur.execute("SELECT COUNT(*) FROM context_entries WHERE status='live'")
                         facts_cnt = cur.fetchone()[0]
                         cur.execute("SELECT COUNT(*) FROM procedures")
                         procs_cnt = cur.fetchone()[0]
+                        with contextlib.suppress(sqlite3.Error):
+                            cur.execute("SELECT COUNT(*) FROM chroma_sync_queue WHERE status='pending'")
+                            sync_queue_cnt = cur.fetchone()[0]
                     except (sqlite3.Error, OSError):
                         pass
                     finally:
@@ -4802,30 +4851,90 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                             cconn.close()
                 except (sqlite3.Error, OSError):
                     pass
-                sub_status = sub_status or {
+                sub_status = {
+                    **(sub_status or {}),
                     "context_facts": facts_cnt,
                     "system_procedures": procs_cnt,
                     "chroma_vectors": chroma_cnt,
+                    "pending_sync_queue": sync_queue_cnt,
                 }
             elif key == "vault_map":
-                map_file = str(BASE_DIR / "reference" / "engine_architecture.md")
-                exists = os.path.exists(map_file)
-                mtime = os.path.getmtime(map_file) if exists else None
-                sub_status = sub_status or {
-                    "ref_doc": "reference/engine_architecture.md",
-                    "target": "engine_architecture.md",
+                import os
+                import sqlite3
+
+                vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
+                indexed_docs = 0
+                exists = os.path.exists(vdb)
+                mtime = os.path.getmtime(vdb) if exists else None
+                if exists:
+                    conn = sqlite3.connect(vdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM vault_documents")
+                        indexed_docs = cur.fetchone()[0]
+                    except (sqlite3.Error, OSError):
+                        pass
+                    finally:
+                        conn.close()
+                sub_status = {
+                    **(sub_status or {}),
+                    "indexed_documents": indexed_docs,
+                    "db_target": "data/evelyn_vault.db",
                     "file_exists": exists,
                     "last_modified": mtime,
                 }
             elif key == "refresh_memory":
+                import os
+                import sqlite3
+
                 phase = task_data.get("phase", "Idle")
                 current_step = 1
                 if "Phase 2" in phase or "Ingest" in phase or "Knowledge" in phase or phase == "Completed successfully.":
                     current_step = 2
-                sub_status = sub_status or {
+
+                vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
+                vault_docs_cnt = 0
+                if os.path.exists(vdb):
+                    conn = sqlite3.connect(vdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM vault_documents")
+                        vault_docs_cnt = cur.fetchone()[0]
+                    except (sqlite3.Error, OSError):
+                        pass
+                    finally:
+                        conn.close()
+
+                chroma_cnt = 0
+                try:
+                    cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
+                    if os.path.exists(cdb_path):
+                        cconn = sqlite3.connect(
+                            f"file:{cdb_path}?mode=ro", uri=True, timeout=1.0
+                        )
+                        try:
+                            ccur = cconn.cursor()
+                            ccur.execute("""
+                                SELECT COUNT(e.id)
+                                FROM collections c
+                                JOIN segments s ON s.collection = c.id AND s.scope='METADATA'
+                                LEFT JOIN embeddings e ON e.segment_id = s.id
+                                WHERE c.name = 'evelyn_memory'
+                            """)
+                            row = ccur.fetchone()
+                            chroma_cnt = row[0] if row and row[0] is not None else 0
+                        finally:
+                            cconn.close()
+                except (sqlite3.Error, OSError):
+                    pass
+
+                sub_status = {
+                    **(sub_status or {}),
                     "total_steps": 2,
                     "current_step": current_step,
-                    "steps": ["Vault Map", "Knowledge Ingest"],
+                    "steps": ["Vault Indexer", "Knowledge Ingest"],
+                    "vault_documents_count": vault_docs_cnt,
+                    "knowledge_vectors_count": chroma_cnt,
                 }
 
         tasks_info.append(
