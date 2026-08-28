@@ -1,12 +1,12 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-28 12:30:11
+date modified: 2026-08-28 14:41:24
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
 
-> Navigation: [[README.md]] · [[.ai-instructions.md]] · [[engine_architecture.md]] · [[quality-review.md]] · [[ROADMAP.md]] · [[CHANGELOG.md]]
+> Navigation: [[README.md]] · [[engine_architecture.md]] · [[quality-review.md]] · [[ROADMAP.md]] · [[CHANGELOG.md]]
 
 ## 1. Python Environment & Execution
 - **Virtual Environment**: Always use the project virtual environment at `/home/rathius/evelyn/venv/bin/python` and `/home/rathius/evelyn/venv/bin/pytest`. Never invoke `/usr/bin/python3` directly for workspace tasks or test runs.
@@ -23,15 +23,17 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   sqlite3 /home/rathius/evelyn/data/<db_name>.db ".schema <table_name>"
   ```
 - **No Ad-Hoc Inline Scripts**: Do not write unvalidated inline `python3 -c "import sqlite3..."` shell commands to guess column names or print unbounded stdout dumps. Check table schemas via `describe_table` or `.schema` before querying.
+- **Data Hygiene & Test Cleanup**: Dummy test records, mock entries, or test proposals created during verification must be purged immediately from production databases (`evelyn_chat.db`, `evelyn_memory.db`, `evelyn_vault.db`) once testing is complete.
 - **Databases Map**:
   - `chat`: `/home/rathius/evelyn/data/evelyn_chat.db`
   - `memory`: `/home/rathius/evelyn/data/evelyn_memory.db`
   - `vault`: `/home/rathius/evelyn/data/evelyn_vault.db`
   - `health`: `/home/rathius/evelyn/data/health/health_connect.db`
 
-## 3. Documentation & Roadmap Maintenance
+## 3. Documentation & Metadata Maintenance
 - **ROADMAP.md**: Single source of truth for milestones. Keep entries concise and milestone-oriented (1–2 sentences). Do NOT append verbose changelogs, function trace dumps, or commit logs (Git history serves as the detailed log). Keep completed tasks (`- [x]`) grouped at the top of each section and pending items (`- [ ]`) at the bottom.
 - **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, `requirements.txt`, and `SETUP_GUIDE.md` in sync whenever code contracts change.
+- **File Metadata & Frontmatter**: Run `python scripts/update_frontmatter.py "<filepath>"` after modifying files to ensure timestamps and headers stay accurate.
 
 ## 4. Identity Parameterization & Memory Taxonomy
 - **Config as Single Source of Identity**: Identity variables (`ASSISTANT_NAME`, `USER_NAME`, `SUBJECT_CODE_USER = "U"`, `SUBJECT_CODE_ASSISTANT = "A"`) and vault write roots/boundaries live in `evelyn_config.py`. Never hardcode raw persona/operator names or absolute vault subtrees into engine tools, prompts, or tests.
@@ -45,7 +47,10 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **No Out-of-Band Schema Mutations**: Modifying production database schemas or transforming database structures ad-hoc via inline scripts or unversioned queries is strictly forbidden.
 - **Changelog & Versioning Maintenance**: Every functional code modification (features, bugfixes, architectural adjustments, database migrations) requires an incremented canonical version in `Evelyn/version.py` (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`) and a documented entry in `CHANGELOG.md` detailing added capabilities, fixed issues, changed behaviors, and migrations applied. Keep `ROADMAP.md` concise and milestone-oriented.
 
-## 6. Vault Note Formatting & Visual PKM Style
+## 6. Service Verification & Process Management
+- **TCP Port & Unit Binding Verification**: When verifying if services are running (Evelyn server, TTS server, Ollama, etc.), ALWAYS inspect by **TCP Port Binding** (`ss -tulpn` / `lsof -i:<port>`) or systemd status (`systemctl status <service>`). Never rely on loose process name matching (`python`) or stale PIDs.
+
+## 7. Vault Note Formatting & Visual PKM Style
 - **Default Visual PKM Standard**: All notes, guides, and Maps of Content (MOCs) in the Obsidian vault must adhere to the **Visual PKM / Digital Garden Dashboard** standard defined in `.agents/rules/vault-note-style.md`.
 - **Key Elements**:
   - Structured YAML frontmatter with single-line flow arrays (`title`, `aliases: [...]`, `tags: [...]`, `date created`, `date modified`).
@@ -55,7 +60,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - Comparative tables with high data density.
   - Deep bi-directional `[[WikiLinks]]` and a `## 🔗 Related Notes` footer.
 
-## 7. Single Source of Truth & Function Reuse Protocol (DRY Codebase)
+## 8. Single Source of Truth & Function Reuse Protocol (DRY Codebase)
 - **Mandatory Pre-Implementation Discovery**: Before introducing any new utility function, parser, string sanitizer, path resolver, or HTTP client wrapper, agents **must inspect existing canonical modules** in `Evelyn/tools/` (specifically `string_utils.py`, `path_utils.py`, `frontmatter_utils.py`, and `ollama_client.py`).
 - **Canonical Utility Modules**:
   - `string_utils.py`: Text cleaning, thinking tag stripping (`strip_thinking_tags`, `clean_llm_gist`), title casing, slugification, and filename sanitization.

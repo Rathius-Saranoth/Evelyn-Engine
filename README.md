@@ -1,3 +1,9 @@
+---
+title: README.md
+date created: 2026-08-28 14:41:00
+date modified: 2026-08-28 14:47:01
+tags: []
+---
 > [!NOTE]
 > **Project Status: Personal / As-Is**  
 > This project is tailored to personal workflows and hardware configurations. It is shared publicly as an architectural reference and portfolio project, not as a managed open-source product. No official support, feature requests, or troubleshooting are provided.
@@ -140,7 +146,7 @@ PYTHONPATH=. ./venv/bin/pytest Evelyn/tests
 
 ## 📚 Documentation & Knowledge Graph
 
-The workspace is fully structured for [Foam](https://foambubble.github.io/foam/) and Obsidian knowledge graph visualization.
+The workspace documentation is fully structured with bidirectional `[[WikiLinks]]` for Obsidian knowledge graph visualization and navigation.
 
 ### Core Architecture & API
 - 📐 **[[engine_architecture.md]]** — Master structural blueprint, system topology, and background pipelines.
@@ -157,9 +163,9 @@ The workspace is fully structured for [Foam](https://foambubble.github.io/foam/)
 ### Operations, Governance & Workflows
 - 🗺️ **[[ROADMAP.md]]** — Milestones, completed capabilities, and active enhancements.
 - 📜 **[[CHANGELOG.md]]** — Zero-padded version history and migration audit log.
-- 🤖 **[[AGENTS.md]]** & **[[.ai-instructions.md]]** — Operational rules, coding standards, and AI contracts.
+- 🤖 **[[AGENTS.md]]** — Operational rules, coding standards, and AI contracts.
 - 🛡️ **[[SUPPORT.md]]** & **[[ROLLBACK.md]]** — Support boundaries and pre-sanitization disaster recovery.
-- 🚀 **Workflows**: **[[start-services.md]]** · **[[debug-chat-db.md]]** · **[[backup-to-github.md]]** · **[[quality-review.md]]**
+- 🚀 **Workflows**: **[[start-services.md]]** · **[[restart-services.md]]** · **[[stop-services.md]]** · **[[debug-chat-db.md]]** · **[[backup-to-github.md]]** · **[[quality-review.md]]**
 
 ### Persona & Starter Templates
 - 🧠 **Active Persona**: **[[System_Directives.md]]** · **[[Evelyn_Narrative_Persona.md]]** · **[[Ricky_Narrative_Profile.md]]**

@@ -1,13 +1,13 @@
 ---
 title: docstring_guide.md
 date created: 2026-03-14 22:22:20
-date modified: 2026-08-23 08:03:05
+date modified: 2026-08-28 14:41:24
 tags: [markdown, reference, docstring, guide, formatting, pipeline, evelyn]
 ---
 
 # The Docstring Guide: LLMs, Agents, and Best Practices
 
-> Navigation: [[README.md]] · [[.ai-instructions.md]] · [[AGENTS.md]] · [[engine_architecture.md]]
+> Navigation: [[README.md]] · [[AGENTS.md]] · [[engine_architecture.md]]
 
 Docstrings are more than just "fancy comments." While comments are meant for humans reading the source code, **Docstrings** are a programmatic part of the Python language that external tools (including AI Agents like me) use to understand your code.
 
@@ -97,7 +97,7 @@ In Markdown files instead of using Python docstring syntax, you can use **GitHub
 ## 7. Pipeline Internals Reference
 
 Developer-level reference for the Evelyn background processing pipeline modules.
-Extracted from oversized module docstrings to maintain the 15-line navigation-aid ceiling defined in `.ai-instructions.md §3`.
+Extracted from oversized module docstrings to maintain the 15-line navigation-aid ceiling defined in §2.
 
 ### fact_consolidator.py — Function Index
 
