@@ -3,7 +3,7 @@
         "id": "conversational_ricky",
         "query": "Tell me about Ricky",
         "category": "conversational",
-        "expected_sources_contain": ["Cat01-R", "Cat05-R", "Cat11-R"],
+        "expected_sources_contain": ["Cat01-U", "Cat05-U", "Cat11-U"],
         "notes": "Simple conversational request — should surface identity/preference/factual docs."
     },
     {
@@ -87,7 +87,7 @@
         "id": "exact_name_ricky",
         "query": "Ricky",
         "category": "exact_name",
-        "expected_sources_contain": ["Cat05-R", "Cat11-R"],
+        "expected_sources_contain": ["Cat05-U", "Cat11-U"],
         "notes": "Single word name lookup — direct name match."
     },
     {

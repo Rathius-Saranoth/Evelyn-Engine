@@ -84,7 +84,7 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
 
         prompt = fact_extractor._build_extraction_prompt(
             messages=mock_messages,
-            cat00="### Cat05-R: Lifestyle & Preferences",
+            cat00=f"### Cat05-{cfg.SUBJECT_CODE_USER}: Lifestyle & Preferences",
             taxonomy_candidates=taxonomy_candidates,
             memory_candidates=memory_candidates,
             novelty_guidance=guidance
@@ -126,7 +126,7 @@ facts:
         """Verify evelyn_server._enrich_extraction_with_taxonomy adds suggestions and novelty score."""
         mock_item = {
             "id": 101,
-            "category": "Cat05-R",
+            "category": f"Cat05-{cfg.SUBJECT_CODE_USER}",
             "observation": "Enjoys reading Dungeon Crawler Carl audiobook series.",
             "subject": "Ricky"
         }

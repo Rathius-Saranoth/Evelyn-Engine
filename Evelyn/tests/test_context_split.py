@@ -44,7 +44,7 @@ class TestContextSplit(unittest.TestCase):
     def test_memory_db_split_entry(self):
         """Verify memory_db.split_entry atomically soft-deletes parent and inserts children."""
         parent_id = memory_db.insert_entry(
-            category="Cat05-R",
+            category="Cat05-U",
             subject="Ricky",
             observation="Likes espresso in the morning and maintains a HomeAssistant Zigbee server.",
             tags="Home/Coffee, Tech/HomeLab",
@@ -54,14 +54,14 @@ class TestContextSplit(unittest.TestCase):
 
         child_entries = [
             {
-                "category": "Cat05-R",
+                "category": "Cat05-U",
                 "subject": "Ricky",
                 "observation": "Enjoys morning double-shot espresso with freshly ground beans.",
                 "tags": "Home/Coffee/Espresso",
                 "confidence": "high"
             },
             {
-                "category": "Cat14-R",
+                "category": "Cat14-U",
                 "subject": "Ricky",
                 "observation": "Maintains a self-hosted HomeAssistant server managing Zigbee smart devices.",
                 "tags": "Tech/HomeLab/HomeAssistant, Tech/IoT/Zigbee",
@@ -80,13 +80,13 @@ class TestContextSplit(unittest.TestCase):
 
         # Children should be live
         child1 = memory_db.get_entry(new_ids[0])
-        self.assertEqual(child1["category"], "Cat05-R")
+        self.assertEqual(child1["category"], "Cat05-U")
         self.assertEqual(child1["observation"], child_entries[0]["observation"])
         self.assertEqual(child1["tags"], "Home/Coffee/Espresso")
         self.assertEqual(child1["source"], "split")
 
         child2 = memory_db.get_entry(new_ids[1])
-        self.assertEqual(child2["category"], "Cat14-R")
+        self.assertEqual(child2["category"], "Cat14-U")
         self.assertEqual(child2["observation"], child_entries[1]["observation"])
         self.assertEqual(child2["tags"], "Tech/HomeLab/HomeAssistant, Tech/IoT/Zigbee")
 
@@ -95,11 +95,11 @@ class TestContextSplit(unittest.TestCase):
         mock_llm_yaml = """
 ```yaml
 entries:
-  - category: Cat05-R
+  - category: Cat05-U
     subject: Ricky
     tags: "Home/Coffee/Espresso"
     observation: "Prefers morning espresso."
-  - category: Cat14-R
+  - category: Cat14-U
     subject: Ricky
     tags: "Tech/HomeLab/HomeAssistant"
     observation: "Runs a HomeAssistant Zigbee server."
@@ -108,7 +108,7 @@ entries:
         with patch("Evelyn.tools.tag_librarian.query_ollama", return_value=mock_llm_yaml):
             req = evelyn_server.SplitPreviewRequest(
                 observation="Likes espresso and runs HomeAssistant.",
-                category="Cat05-R",
+                category="Cat05-U",
                 subject="Ricky"
             )
             # Call preview route
@@ -119,7 +119,7 @@ entries:
     def test_generate_split_proposal_in_consolidator(self):
         """Verify consolidator generates a split proposal for bloated entries."""
         test_source_id = memory_db.insert_entry(
-            category="Cat05-R",
+            category="Cat05-U",
             subject="Ricky",
             observation="Enjoys dark roast coffee every morning and builds mechanical keyboards with tactile switches and lubed stabilizers.",
             tags="Home/Coffee, Tech/Keyboards",
@@ -129,7 +129,7 @@ entries:
 
         record = {
             "id": test_source_id,
-            "category": "Cat05-R",
+            "category": "Cat05-U",
             "subject": "Ricky",
             "summary": "Enjoys dark roast coffee every morning and builds mechanical keyboards with tactile switches and lubed stabilizers."
         }
@@ -139,11 +139,11 @@ entries:
 verdict: split
 reasoning: "Contains two distinct domain observations: coffee preferences and mechanical keyboard building."
 entries:
-  - category: Cat05-R
+  - category: Cat05-U
     subject: Ricky
     tags: "Home/Coffee/Espresso"
     observation: "Enjoys drinking dark roast coffee every morning."
-  - category: Cat05-R
+  - category: Cat05-U
     subject: Ricky
     tags: "Tech/Hardware/Keyboards"
     observation: "Builds custom mechanical keyboards using tactile switches and lubed stabilizers."
@@ -163,7 +163,7 @@ entries:
     def test_split_queue_operations(self):
         """Test enqueueing, listing, and dequeueing split review requests."""
         test_id = memory_db.insert_entry(
-            category="Cat05-R",
+            category="Cat05-U",
             subject="Ricky",
             observation="Test compound observation for split queue.",
             tags="Test",
@@ -194,7 +194,7 @@ entries:
         client = TestClient(evelyn_server.app)
 
         test_id = memory_db.insert_entry(
-            category="Cat05-R",
+            category="Cat05-U",
             subject="Ricky",
             observation="Test observation for queue endpoint.",
             tags="Test",

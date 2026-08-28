@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.008"
-VERSION_NAME = "Research Inspection, Sub-Question Notes & Resilient Guidance Tooling"
+__version__ = "000.006.009"
+VERSION_NAME = "Subject Code Sanitization & Canonical Fast Memory Category Suffix Enforcement"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

@@ -684,7 +684,7 @@ def _build_extraction_prompt(
     category_block = (
         f"\n\nCATEGORY REFERENCE (use these codes for the 'category' field):\n{cat00}"
         if cat00
-        else "\n\n(Category reference unavailable — use best judgment for Cat##-E/R codes.)"
+        else f"\n\n(Category reference unavailable — use best judgment for Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} codes.)"
     )
 
     taxonomy_block = ""

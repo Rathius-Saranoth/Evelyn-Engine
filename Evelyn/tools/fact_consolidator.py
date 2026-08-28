@@ -216,36 +216,38 @@ def _save_scan_state() -> None:
 
 
 def validate_and_normalize_category(
-    cat_str: str, subject: str | None = None
+    cat_str: str | None, subject: str | None = None
 ) -> str | None:
-    """Validate and normalize a category string to the format Cat##-[ER].
+    """Validate and normalize a category string to the canonical format Cat##-[UA].
 
-    Attempts to parse noisy category names (e.g. Ca16, Kat08, Ka11, cad09)
-    and normalize them to the canonical Cat##-E or Cat##-R.
+    Attempts to parse noisy category names (e.g. Ca16, Kat08, Ka11, cad09, Cat05-R, Cat01-E)
+    and normalize them to canonical Cat##-U (User) or Cat##-A (Assistant).
 
     Args:
         cat_str: The category string to validate.
-        subject: Optional subject ("Ricky" or "Evelyn") to resolve missing or
+        subject: Optional subject (e.g. "Ricky" or "Evelyn") to resolve missing or
                  ambiguous suffixes.
 
     Returns:
-        str | None: The normalized category string (e.g., 'Cat08-E'), or None
+        str | None: The normalized category string (e.g., 'Cat08-U', 'Cat01-A'), or None
                     if it cannot be resolved to a valid category.
     """
-    # If category is completely empty, default to Cat01-R or Cat01-E
+    user_code = getattr(cfg, "SUBJECT_CODE_USER", "U")
+    assistant_code = getattr(cfg, "SUBJECT_CODE_ASSISTANT", "A")
+
     if not cat_str or not cat_str.strip():
-        suffix = "E" if subject and "evelyn" in subject.lower() else "R"
+        suffix = assistant_code if subject and getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower() in subject.lower() else user_code
         return f"Cat01-{suffix}"
 
     cat_str = cat_str.strip()
+    if cat_str.endswith(".md"):
+        return None
 
     # Match the base category number: look for c/k/cat/kat/cad/kad followed by digits
-    # Examples: Ca16 -> 16, Kat08 -> 8, cad09 -> 9, Ka11 -> 11, Cat05-R -> 5
+    # Examples: Ca16 -> 16, Kat08 -> 8, cad09 -> 9, Ka11 -> 11, Cat05-R -> 5, Cat05-U -> 5
     num_match = re.search(r"(?i)(?:cat|kat|cad|kad|ca|ka|c|k)\s*(\d{1,2})", cat_str)
     if not num_match:
-        # If no number matched, default to Cat01-R or Cat01-E
-        suffix = "E" if subject and "evelyn" in subject.lower() else "R"
-        return f"Cat01-{suffix}"
+        return None
 
     num = int(num_match.group(1))
     if num == 0:
@@ -255,47 +257,56 @@ def validate_and_normalize_category(
 
     cat_base = f"Cat{num:02d}"
 
-    # Determine suffix: E or R
+    # Determine suffix: map legacy 'R' -> 'U' and 'E' -> 'A'
     suffix = None
-    suffix_match = re.search(r"(?i)(?:-|/|\s)?([er])$", cat_str)
+    suffix_match = re.search(r"(?i)(?:-|/|\s)?([erua])$", cat_str)
     if suffix_match:
-        suffix = suffix_match.group(1).upper()
+        raw_code = suffix_match.group(1).upper()
+        if raw_code in ("R", "U"):
+            suffix = user_code
+        elif raw_code in ("E", "A"):
+            suffix = assistant_code
     else:
         after_num = cat_str[num_match.end():].upper()
-        if "E" in after_num and "R" in after_num:
+        has_u = "U" in after_num or "R" in after_num
+        has_a = "A" in after_num or "E" in after_num
+        if has_u and has_a:
             suffix = None
-        elif "E" in after_num:
-            suffix = "E"
-        elif "R" in after_num:
-            suffix = "R"
+        elif has_a:
+            suffix = assistant_code
+        elif has_u:
+            suffix = user_code
 
     # Fall back to subject context if suffix is ambiguous or missing
     if not suffix and subject:
         subj_lower = subject.lower()
         if getattr(cfg, "USER_NAME", "Ricky").lower() in subj_lower:
-            suffix = getattr(cfg, "SUBJECT_CODE_USER", "U")
+            suffix = user_code
         elif getattr(cfg, "ASSISTANT_NAME", "Evelyn").lower() in subj_lower:
-            suffix = getattr(cfg, "SUBJECT_CODE_ASSISTANT", "A")
+            suffix = assistant_code
 
     # Final fallback for suffix if still undetermined
     if not suffix:
-        suffix = getattr(cfg, "SUBJECT_CODE_USER", "U")
+        suffix = user_code
 
     return f"{cat_base}-{suffix}"
 
 
 def remediate_database_categories() -> None:
-    """Scan the SQLite database for invalid categories and normalize them.
+    """Scan the SQLite database for invalid or legacy categories and normalize them.
 
-    Ensures that any existing invalid category strings (e.g. Ca16, cad09) are
-    corrected in place in context_entries and proposals.
+    Ensures that any existing invalid category strings (e.g. Ca16, cad09) or legacy
+    category suffixes (-R, -E) are corrected in place in context_entries and proposals.
     """
     from Evelyn.tools import memory_db
     try:
         con = memory_db.get_db()
 
-        # 1. Remediate context_entries (only inspect non-standard category strings)
-        rows = con.execute("SELECT id, category, subject FROM context_entries WHERE category NOT GLOB 'Cat[0-9][0-9]-[ERUA]'").fetchall()
+        # 1. Remediate context_entries (inspect non-standard category strings and legacy -R/-E suffixes)
+        rows = con.execute("""
+            SELECT id, category, subject FROM context_entries
+            WHERE category NOT GLOB 'Cat[0-9][0-9]-[UA]' OR category GLOB 'Cat[0-9][0-9]-[RE]'
+        """).fetchall()
         corrected_entries = 0
         for row in rows:
             entry_id = row["id"]
@@ -311,21 +322,37 @@ def remediate_database_categories() -> None:
                 corrected_entries += 1
                 print(f"[REMEDIATION] Corrected context entry {entry_id} category: '{cat}' -> '{normalized}'", flush=True)
 
-        # 2. Remediate proposals (excluding profile updates and standard category strings)
-        rows = con.execute("SELECT id, suggested_category FROM proposals WHERE suggested_category IS NOT NULL AND type != 'profile_update' AND suggested_category NOT GLOB 'Cat[0-9][0-9]-[ERUA]'").fetchall()
+        # 2. Remediate proposals (excluding profile updates and inspecting non-canonical / legacy suffixes)
+        rows = con.execute("""
+            SELECT id, type, suggested_category, merged_observation FROM proposals
+            WHERE (suggested_category IS NOT NULL AND type != 'profile_update' AND (suggested_category NOT GLOB 'Cat[0-9][0-9]-[UA]' OR suggested_category GLOB 'Cat[0-9][0-9]-[RE]'))
+               OR (merged_observation LIKE '%-R%' OR merged_observation LIKE '%-E%')
+        """).fetchall()
         corrected_proposals = 0
         for row in rows:
             prop_id = row["id"]
+            ptype = row["type"]
             cat = row["suggested_category"]
+            obs = row["merged_observation"] or ""
 
-            normalized = validate_and_normalize_category(cat)
-            if normalized and normalized != cat:
+            normalized_cat = cat
+            if cat and ptype != "profile_update" and not cat.endswith(".md"):
+                norm = validate_and_normalize_category(cat)
+                if norm:
+                    normalized_cat = norm
+
+            new_obs = obs
+            if obs and "Cat" in obs:
+                new_obs = re.sub(r"\bCat(\d{2})-R\b", r"Cat\1-U", new_obs)
+                new_obs = re.sub(r"\bCat(\d{2})-E\b", r"Cat\1-A", new_obs)
+
+            if normalized_cat != cat or new_obs != obs:
                 con.execute(
-                    "UPDATE proposals SET suggested_category = ? WHERE id = ?",
-                    (normalized, prop_id),
+                    "UPDATE proposals SET suggested_category = ?, merged_observation = ? WHERE id = ?",
+                    (normalized_cat, new_obs, prop_id),
                 )
                 corrected_proposals += 1
-                print(f"[REMEDIATION] Corrected proposal {prop_id} suggested_category: '{cat}' -> '{normalized}'", flush=True)
+                print(f"[REMEDIATION] Corrected proposal {prop_id} suggested_category: '{cat}' -> '{normalized_cat}'", flush=True)
                 
         if corrected_entries > 0 or corrected_proposals > 0:
             con.commit()
@@ -703,7 +730,7 @@ Output ONLY a YAML block in this exact format:
 ```yaml
 recategorize:
     - entry_index: 1
-      suggested_category: Cat08-R
+      suggested_category: Cat08-U
       topic: "brief topic label"
       reason: "why primary weight belongs in the other category"
 ```

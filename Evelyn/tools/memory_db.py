@@ -12,7 +12,7 @@ in evelyn_memory.db. Keeps context/memory data separate from chat history
 
 Schema:
   context_entries — Stores all context facts (live, extracted, pending_review).
-                    Replaces the Cat##/Cat##-{E,R}/*.md flat-file layout.
+                    Replaces the Cat##/Cat##-{U,A}/*.md flat-file layout.
                     Columns added over time (all idempotent migrations in init_db):
                       last_retrieved_at / retrieval_count — RAG access tracking (2026-06-14)
                       last_evolved_at   — Stamps when profile_evolver incorporated entry (2026-07-30)
@@ -25,8 +25,8 @@ Schema:
 Usage:
   import memory_db
   memory_db.init_db()                         # Idempotent — safe to call on every startup
-  entry_id = memory_db.insert_entry(category='Cat05-R', subject='Ricky', ...)
-  entries  = memory_db.get_entries_by_category('Cat05-R')
+  entry_id = memory_db.insert_entry(category='Cat05-U', subject='Ricky', ...)
+  entries  = memory_db.get_entries_by_category('Cat05-U')
   memory_db.touch_entry_retrieved(entry_id)   # Fire-and-forget RAG retrieval tracking
   memory_db.touch_entry_evolved(entry_id, ts) # Fire-and-forget; called on profile_update approval
   memory_db.increment_entry_observed(entry_id) # Increment observed_count on duplicate merge
@@ -214,7 +214,7 @@ def insert_entry(
     """Insert a new context entry and return its row ID.
 
     Args:
-        category: Category code, e.g. 'Cat05-R'.
+        category: Category code, e.g. 'Cat05-U'.
         subject: 'Ricky' or 'Evelyn'.
         observation: The factual observation text.
         confidence: 'high', 'medium', or 'low'.
@@ -265,7 +265,7 @@ def get_entries_by_category(
     """Fetch all entries for a given category and status.
 
     Args:
-        category: Category code, e.g. 'Cat05-R'.
+        category: Category code, e.g. 'Cat05-U'.
         status: Filter by status. Default 'live'.
 
     Returns:
@@ -490,7 +490,7 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
 
         # 2. Insert new child entries (inheriting temporal lineage from parent)
         for item in new_entries:
-            cat = item.get("category") or source.get("category", "Cat05-R")
+            cat = item.get("category") or source.get("category", f"Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}")
             subj = item.get("subject") or default_subject
             obs = item.get("observation", "").strip()
             if not obs:

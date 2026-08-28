@@ -46,26 +46,12 @@ for p in (ROOT_DIR, TOOLS_DIR):
 import evelyn_config as cfg
 import memory_db
 from profile_evolver import (
+    DOCUMENT_CATEGORIES,
     _evolve_document,
     _load_evolution_state,
     _save_evolution_state,
     _draft_path,
 )
-
-# ---------------------------------------------------------------------------
-# Same category map as profile_evolver.py
-# ---------------------------------------------------------------------------
-DOCUMENT_CATEGORIES = {
-    "Evelyn_Narrative_Persona.md": [
-        "Cat01-E", "Cat02-E", "Cat03-E", "Cat04-E", "Cat10-E",
-    ],
-    "Ricky_Narrative_Profile.md": [
-        "Cat01-R", "Cat03-R", "Cat04-R", "Cat06-R", "Cat09-R", "Cat12-R",
-    ],
-    "System_Directives.md": [
-        "Cat14-E", "Cat16-E", "Cat16-R",
-    ],
-}
 
 MIN_ENTRIES = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
 
