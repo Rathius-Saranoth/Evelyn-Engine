@@ -1,7 +1,17 @@
+[tool.pyrefly]
+search-path = [
+    ".",
+    "Evelyn",
+    "Evelyn/tools",
+    "Evelyn/persona",
+]
+python-interpreter-path = "venv/bin/python"
+
+[tool.ruff]
 target-version = "py314"
 line-length = 120
 
-[lint]
+[tool.ruff.lint]
 select = [
     "F",        # Pyflakes (unused imports, redefinitions, undefined names)
     "I",        # isort (import sorting)
@@ -32,13 +42,29 @@ ignore = [
     "ASYNC240", # os.path methods in async functions (pure string path joins/splits)
 ]
 
-[lint.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "scripts/archive/*" = ["ALL"]
 "Evelyn/tests/*" = ["S", "BLE001", "DTZ"]
 
-[lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Form", "fastapi.Query", "fastapi.Body", "fastapi.Header", "fastapi.Path", "fastapi.Security", "fastapi.params.File", "fastapi.params.Depends", "fastapi.params.Form", "fastapi.params.Query"]
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Security",
+    "fastapi.params.File",
+    "fastapi.params.Depends",
+    "fastapi.params.Form",
+    "fastapi.params.Query",
+]
 
-[lint.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["Evelyn", "evelyn_config"]
 
+[tool.pytest.ini_options]
+testpaths = ["Evelyn/tests"]
+python_files = ["test_*.py"]

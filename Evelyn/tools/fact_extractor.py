@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-15 11:30:20
+# date modified: 2026-08-28 17:09:09
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -224,7 +224,7 @@ _last_run_ts: float
 _last_extracted_id, _last_run_ts = _load_extraction_state()
 
 # Task reference for cancellation (same pattern as fact_consolidator)
-_extraction_task = None
+_extraction_task: asyncio.Task | None = None
 
 # Per-session batch counter — number of batches processed in the current
 # continuous idle window. Resets when a chat request arrives (cancel_pending_extraction).
