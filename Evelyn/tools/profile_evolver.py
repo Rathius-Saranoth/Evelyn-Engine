@@ -232,8 +232,9 @@ def normalize_document_text(text: str) -> str:
 
 
 STATUS_LABELS = {
-    "PROPOSAL_STAGED": "Proposal Staged",
-    "NO_CORE_CHANGES": "Evaluated — No Core Changes",
+    "APPROVED": "Profile Updated & Applied",
+    "PROPOSAL_STAGED": "Proposal Pending Approval",
+    "NO_CORE_CHANGES": "Evaluated — Up to Date",
     "BELOW_THRESHOLD": "Skipped — Below Threshold",
     "COOLDOWN_ACTIVE": "Skipped — Cooldown Active",
     "PENDING_EXISTS": "Skipped — Proposal Pending",
@@ -346,15 +347,14 @@ def advance_doc_run_timestamp(filename: str) -> None:
 
     Called when a profile_update proposal is approved by the user. Resets the
     per-document cooldown clock from the approval timestamp rather than from the
-    original proposal generation time, preventing the same context entries from
-    being immediately re-evaluated on the next idle evolution cycle.
+    original proposal generation time and updates the document status to APPROVED.
 
     Args:
         filename: Document basename, e.g. 'Ricky_Narrative_Profile.md'.
     """
     state = _load_evolution_state()
     state["last_run_per_doc"][filename] = time.time()
-    _save_evolution_state(state)
+    update_doc_status(state, filename, "APPROVED", "Proposal approved & applied to profile note")
 
 # ---------------------------------------------------------------------------
 # Infrastructure & Mutual Exclusion

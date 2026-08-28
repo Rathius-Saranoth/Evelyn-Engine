@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 14:41:24
+date modified: 2026-08-28 16:44:22
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.015] - 2026-08-28 — *Heavy Task Telemetry Modernization & Vault Map Streamlining*
+
+### Enhanced & Modernized
+- **Heavy Tasks Telemetry & Progress Percentages (`evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - **Fact Extractor**: Added real-time progress percentage against Max message ID (`last_extracted_id / MAX(id)`), remaining backlog message count, and active live facts total.
+  - **Fact Consolidator**: Clarified distinction between total active live facts in the database, tracked categories (`N / 32`), and last run scanned metrics.
+  - **Procedure Consolidator**: Clarified total live procedures in the database, pending merge proposals, and last run audited count.
+  - **Tag Librarian**: Added percentage display `XX.X% (audited / total notes)` alongside Master Taxonomy tag counts.
+  - **Memory Refresh**: Added live inventory counts for both Obsidian Vault notes and Chroma knowledge vectors alongside the pipeline progression steps.
+  - **Chroma Sync**: Added vector count, SQLite facts/procedures totals, and pending sync queue item counts.
+  - **Vault Map Indexer**: Switched telemetry from stale mock references to live `vault_documents` indexed note counts and database status in `evelyn_vault.db`.
+
+### Fixed & Streamlined
+- **Profile Evolver Status Verbiage & Lifecycle (`Evelyn/tools/profile_evolver.py`, `evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - Added `APPROVED` (`"Profile Updated & Applied"`) status code so approved proposals immediately reflect as successfully applied rather than permanently appearing as `"Proposal Staged"`.
+  - Added distinct color badges: green for `APPROVED`, amber for `PROPOSAL_STAGED` / `PENDING_APPROVAL`, and cyan for `NO_CORE_CHANGES` (`"Evaluated — Up to Date"`).
+- **Vault Map Process Clean Up (`.gitignore`, `REQUIREMENTS.md`)**:
+  - Removed obsolete references to legacy `generate_vault_map.py` from `.gitignore` and `REQUIREMENTS.md`, standardizing on canonical `Evelyn/tools/vault_indexer.py`.
+
+---
 
 ## [000.006.014] - 2026-08-28 — *Consolidation Audit: Agent Instructions Single Source of Truth*
 

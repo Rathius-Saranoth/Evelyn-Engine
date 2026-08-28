@@ -6,7 +6,6 @@ secrets.json
 # --- Personal Memory & Soul (DO NOT SHARE) ---
 # These contain private conversations, journals, and identity data
 Evelyn/persona/
-Update Logs/
 scripts/personal/
 reference/system/
 MAINTENANCE_CHECKLIST.md
@@ -15,9 +14,6 @@ MAINTENANCE_CHECKLIST.md
 # --- Local Data & State ---
 # Centralized data directory (databases, Chroma vectors, sync states)
 data/
-Vault_Map/
-!Vault_Map/generate_vault_map.py
-Void_Connections/
 __pycache__/
 *.pyc
 
@@ -31,9 +27,6 @@ openapi.json
 .vscode/settings.json
 .DS_Store
 Thumbs.db
-.prettierignore
-.prettierrc.json
-
 
 # --- SSL Certs (machine-specific) ---
 *.crt

@@ -1163,11 +1163,12 @@
             'System_Directives.md': '⚙️ Directives',
           };
           const docColorMap = {
-            'PROPOSAL_STAGED': '#10b981',    // green
-            'NO_CORE_CHANGES': '#3b82f6',    // blue
+            'APPROVED': '#10b981',           // green
+            'PROPOSAL_STAGED': '#f59e0b',    // amber
+            'PENDING_EXISTS': '#f59e0b',     // amber
+            'NO_CORE_CHANGES': '#38bdf8',    // cyan
             'BELOW_THRESHOLD': '#9ca3af',    // gray
             'COOLDOWN_ACTIVE': '#9ca3af',    // gray
-            'PENDING_EXISTS': '#f59e0b',     // amber
             'INTERRUPTED_SAVED': '#f59e0b',  // amber
             'MODEL_ERROR': '#ef4444',        // red
             'NEVER_RUN': '#6b7280'           // dark gray
@@ -1194,18 +1195,21 @@
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Backlog:</span>
-                <span style="color: ${st.unextracted_backlog > 0 ? 'var(--warning)' : 'var(--success)'}; font-weight: 500;">${st.unextracted_backlog} msgs</span>
+                <span style="color: var(--text-dim);">Progress:</span>
+                <span style="font-weight: 500;"><span style="color: var(--accent); font-weight: 600;">${st.progress_pct || 0}%</span> <span style="color: var(--text-dim); font-size: 10px;">(ID #${st.last_extracted_id || 0} / #${st.max_message_id || 0})</span></span>
               </div>
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Last Cursor:</span>
-                <span style="color: var(--text); font-family: monospace; font-size: 10px;">ID #${st.last_extracted_id || 0}</span>
+                <span style="color: var(--text-dim);">Backlog:</span>
+                <span style="color: ${st.unextracted_backlog > 0 ? 'var(--warning)' : 'var(--success)'}; font-weight: 500;">${(st.unextracted_backlog || 0).toLocaleString()} msgs</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
+                <span>Active Live Facts:</span>
+                <span style="color: var(--text); font-weight: 500;">${(st.active_facts_count || 0).toLocaleString()}</span>
               </div>
             </div>
           `;
         } else if (t.key === 'consolidator' && t.sub_status) {
           const st = t.sub_status;
-          const catCount = Object.keys(st.scan_state || {}).length;
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
@@ -1213,14 +1217,13 @@
                 <span style="color: var(--accent); font-weight: 500;">${escapeHtml(st.active_category || (t.phase || 'None'))}</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Scanned Categories:</span>
-                <span style="color: var(--text);">${catCount} tracked</span>
+                <span style="color: var(--text-dim);">Total Active Facts:</span>
+                <span style="color: var(--accent); font-weight: 600;">${(st.total_active_facts || 0).toLocaleString()}</span>
               </div>
-              ${st.clusters_found !== undefined ? `
               <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
-                <span>Clusters: ${st.clusters_found || 0}</span>
-                <span>Proposals: ${st.proposals_written || 0}</span>
-              </div>` : ''}
+                <span>Tracked: ${st.tracked_categories || 0}/32 categories</span>
+                <span>Last Pass: ${st.last_run_scanned || 0} scanned</span>
+              </div>
             </div>
           `;
         } else if (t.key === 'procedure_consolidator' && t.sub_status) {
@@ -1228,12 +1231,16 @@
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Live Procedures:</span>
-                <span style="color: var(--accent); font-weight: 500;">${st.total_procedures || 0} rules</span>
+                <span style="color: var(--text-dim);">Total Live Procedures:</span>
+                <span style="color: var(--accent); font-weight: 600;">${st.total_live_procedures || 0} rules</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Pending Proposals:</span>
-                <span style="color: ${st.pending_proposals > 0 ? 'var(--warning)' : 'var(--text-dim)'}; font-weight: 500;">${st.pending_proposals || 0}</span>
+                <span style="color: var(--text-dim);">Pending Merge Proposals:</span>
+                <span style="color: ${(st.pending_proposals || 0) > 0 ? 'var(--warning)' : 'var(--success)'}; font-weight: 500;">${st.pending_proposals || 0}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
+                <span>Last Run Audited:</span>
+                <span>${st.last_run_audited || 0} procedures</span>
               </div>
             </div>
           `;
@@ -1243,11 +1250,11 @@
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Vault Audit:</span>
-                <span style="color: var(--success); font-weight: 500;">${st.audited_notes} / ${st.total_notes} notes</span>
+                <span style="font-weight: 500;"><span style="color: var(--success); font-weight: 600;">${st.audit_pct || 0}%</span> <span style="color: var(--text-dim); font-size: 10px;">(${(st.audited_notes || 0).toLocaleString()} / ${(st.total_notes || 0).toLocaleString()})</span></span>
               </div>
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Master Taxonomy:</span>
-                <span style="color: var(--accent); font-weight: 500;">${st.master_tags} tags</span>
+                <span style="color: var(--accent); font-weight: 500;">${(st.master_tags || 0).toLocaleString()} tags</span>
               </div>
             </div>
           `;
@@ -1256,12 +1263,12 @@
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Chroma RAG Vector Store:</span>
-                <span style="color: var(--accent); font-weight: 500;">${(st.chroma_vectors || 0).toLocaleString()} vectors</span>
+                <span style="color: var(--text-dim);">Chroma RAG Vectors:</span>
+                <span style="color: var(--accent); font-weight: 600;">${(st.chroma_vectors || 0).toLocaleString()}</span>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
-                <span>SQLite Facts: ${(st.context_facts || 0).toLocaleString()}</span>
-                <span>Procedures: ${st.system_procedures || 0}</span>
+                <span>SQLite Facts: ${(st.context_facts || 0).toLocaleString()} · Procs: ${st.system_procedures || 0}</span>
+                <span>Queue: ${st.pending_sync_queue || 0}</span>
               </div>
             </div>
           `;
@@ -1269,7 +1276,7 @@
           const st = t.sub_status;
           const curStep = st.current_step || 1;
           const totalSteps = st.total_steps || (st.steps ? st.steps.length : 2);
-          const stepsHtml = (st.steps || ['Vault Map', 'Knowledge Ingest']).map((stepName, idx) => {
+          const stepsHtml = (st.steps || ['Vault Indexer', 'Knowledge Ingest']).map((stepName, idx) => {
             const stepNum = idx + 1;
             let color = 'var(--text-dim)';
             let icon = '○';
@@ -1284,9 +1291,13 @@
           }).join('<span style="color: var(--border); font-size: 9px;">→</span>');
 
           taskDetailsHtml = `
-            <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06);">
+            <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 4px;">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
                 ${stepsHtml}
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 3px;">
+                <span>Vault: ${(st.vault_documents_count || 0).toLocaleString()} notes</span>
+                <span>Knowledge: ${(st.knowledge_vectors_count || 0).toLocaleString()} vectors</span>
               </div>
             </div>
           `;
@@ -1295,8 +1306,12 @@
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Architecture Reference:</span>
-                <span style="color: var(--accent); font-family: monospace; font-size: 10px;">${st.ref_doc || st.target}</span>
+                <span style="color: var(--text-dim);">Indexed Vault Notes:</span>
+                <span style="color: var(--success); font-weight: 600;">${(st.indexed_documents || 0).toLocaleString()} notes</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-dim);">Database:</span>
+                <span style="color: var(--accent); font-family: monospace; font-size: 10px;">${st.db_target || 'data/evelyn_vault.db'}</span>
               </div>
             </div>
           `;
