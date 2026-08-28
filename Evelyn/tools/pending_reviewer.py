@@ -11,21 +11,23 @@ Handles two proposal types from SQLite `proposals` table:
   recategorize     — change category of a CE
 
 Run from the project root:
-    python Evelyn\tools\pending_reviewer.py
+    python Evelyn\tools\\pending_reviewer.py
 """
 
 import os
+import sqlite3
 import sys
 import time
-
 from pathlib import Path
+
+import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 import evelyn_config as cfg
-import Evelyn.tools.memory_db as memory_db
+from Evelyn.tools import memory_db
 
 # ---------------------------------------------------------------------------
 # Terminal helpers
@@ -56,7 +58,8 @@ def _getch():
         ch = msvcrt.getch()
         return (ch.decode("utf-8", errors="replace") if isinstance(ch, bytes) else ch).lower()
     except ImportError:
-        import tty, termios
+        import termios
+        import tty
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
@@ -84,7 +87,7 @@ def _display_proposal(prop: dict, source_entries: list[dict], idx: int, total: i
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
     print(f"{BOLD}{CYAN}  Evelyn — Pending Proposal Reviewer{RESET}")
     print(f"{BOLD}{CYAN}{_BAR}{RESET}")
-    
+
     p_type = prop["type"].upper()
     print(f"  Proposal {BOLD}{idx + 1}{RESET} of {BOLD}{total}{RESET}  |  Type: {MAGENTA}{p_type}{RESET}")
     print(f"  {DIM}Topic:{RESET} {CYAN}{prop.get('topic', 'N/A')}{RESET}")
@@ -109,11 +112,10 @@ def _display_proposal(prop: dict, source_entries: list[dict], idx: int, total: i
     elif prop["type"] == "split":
         print(f"  {BOLD}Proposed Action: SPLIT COMPOUND ENTRY{RESET}")
         print(f"  {DIM}Decomposed Atomic Facts to Create:{RESET}")
-        import yaml
         try:
             p_data = yaml.safe_load(prop.get("merged_observation", ""))
             child_list = p_data.get("entries", []) if isinstance(p_data, dict) else (p_data if isinstance(p_data, list) else [])
-        except Exception:
+        except (yaml.YAMLError, ValueError, TypeError):
             child_list = []
         for i, ce in enumerate(child_list, 1):
             c_cat = ce.get("category", "")
@@ -176,11 +178,10 @@ def run_review():
         if ch == "a":
             try:
                 if prop["type"] == "split":
-                    import yaml
                     try:
                         p_data = yaml.safe_load(prop.get("merged_observation", ""))
                         child_list = p_data.get("entries", []) if isinstance(p_data, dict) else (p_data if isinstance(p_data, list) else [])
-                    except Exception:
+                    except (yaml.YAMLError, ValueError, TypeError):
                         child_list = []
                     if source_ids and child_list:
                         memory_db.split_entry(source_ids[0], child_list)
@@ -190,7 +191,7 @@ def run_review():
                     for entry in source_entries:
                         memory_db.update_entry(entry["id"], category=prop["suggested_category"])
                     memory_db.apply_proposal(prop["id"])
-                    
+
                 elif prop["type"] == "procedure_merge":
                     # Apply procedure_merge
                     import yaml
@@ -206,7 +207,7 @@ def run_review():
                     # Insert merged procedure
                     try:
                         parsed_proc = yaml.safe_load(prop["merged_observation"])
-                    except Exception:
+                    except (yaml.YAMLError, ValueError, TypeError):
                         parsed_proc = {}
                     if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
                         proc_tags = parsed_proc.get("tags")
@@ -214,7 +215,7 @@ def run_review():
                             proc_tags_str = ", ".join([str(t).strip() for t in proc_tags if str(t).strip()])
                         else:
                             proc_tags_str = str(proc_tags).strip() if proc_tags is not None else ""
-                        
+
                         parsed_tags_set = {t.strip().lower() for t in proc_tags_str.split(",") if t.strip()}
                         if not proc_tags_str or parsed_tags_set.issubset({"procedure", "merged", "merge", "consolidated", "none"}):
                             final_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else (proc_tags_str or "procedure")
@@ -245,7 +246,7 @@ def run_review():
                     try:
                         parsed_data = yaml.safe_load(prop["merged_observation"])
                         child_procs = parsed_data.get("procedures", []) if isinstance(parsed_data, dict) else (parsed_data if isinstance(parsed_data, list) else [])
-                    except Exception:
+                    except (yaml.YAMLError, ValueError, TypeError):
                         child_procs = []
                     for cp in child_procs:
                         if isinstance(cp, dict) and "trigger_pattern" in cp:
@@ -260,7 +261,7 @@ def run_review():
                                 suggested_tools=cp.get("suggested_tools"),
                             )
                     memory_db.apply_proposal(prop["id"])
-                    
+
                 elif prop["type"] in ("merge", "supersede"):
                     # Apply merge/supersede
                     # Delete source entries
@@ -270,7 +271,7 @@ def run_review():
                     # Use subject from the first source entry, default to 'R' if unknown
                     subject = source_entries[0]["subject"] if source_entries else "R"
                     date = source_entries[0]["date"] if source_entries else None
-                    
+
                     # Use LLM-generated merged tags if available, else fallback to union
                     if prop.get("merged_tags"):
                         merged_tags = prop["merged_tags"]
@@ -282,7 +283,7 @@ def run_review():
                                     if t.strip():
                                         merged_tags_set.add(t.strip())
                         merged_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
-                    
+
                     memory_db.insert_entry(
                         category=prop["suggested_category"],
                         subject=subject,
@@ -292,10 +293,10 @@ def run_review():
                         tags=merged_tags
                     )
                     memory_db.apply_proposal(prop["id"])
-                
+
                 approved += 1
                 print(f"\n  {GREEN}✓ Approved{RESET}")
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
                 print(f"\n  {RED}✗ Error applying proposal: {e}{RESET}")
                 errors += 1
             time.sleep(0.5)
@@ -306,7 +307,7 @@ def run_review():
                 memory_db.reject_proposal(prop["id"])
                 denied += 1
                 print(f"\n  {YELLOW}→ Denied/Skipped.{RESET}")
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError) as e:
                 print(f"\n  {RED}✗ Error rejecting proposal: {e}{RESET}")
                 errors += 1
             time.sleep(0.4)
@@ -334,7 +335,7 @@ def run_review():
             if os.path.exists(refresh_script):
                 print(f"  {CYAN}Triggering background memory refresh for {approved} approved proposal(s)...{RESET}\n")
                 subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
-        except Exception as r_err:
+        except (OSError, subprocess.SubprocessError) as r_err:
             print(f"  {RED}Warning: Could not trigger memory refresh: {r_err}{RESET}\n")
 
 

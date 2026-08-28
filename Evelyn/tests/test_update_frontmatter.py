@@ -4,10 +4,13 @@
 # tags: #test, #frontmatter, #pytest, #utility
 
 import os
-import tempfile
 import subprocess
-import pytest
-from scripts.update_frontmatter import update_file_frontmatter, SUPPORTED_EXTENSIONS, YAML_EXTENSIONS, COMMENT_EXTENSIONS
+import tempfile
+
+from scripts.update_frontmatter import (
+    update_file_frontmatter,
+)
+
 
 def test_unsupported_xml_file():
     """Verify that XML files are completely untouched by frontmatter updater."""
@@ -19,7 +22,7 @@ def test_unsupported_xml_file():
     try:
         updated = update_file_frontmatter(path)
         assert updated is False
-        with open(path, "r") as f:
+        with open(path) as f:
             assert f.read() == xml_content
     finally:
         os.remove(path)
@@ -34,7 +37,7 @@ def test_unsupported_html_file():
     try:
         updated = update_file_frontmatter(path)
         assert updated is False
-        with open(path, "r") as f:
+        with open(path) as f:
             assert f.read() == html_content
     finally:
         os.remove(path)
@@ -43,7 +46,7 @@ def test_unsupported_json_css_files():
     """Verify that JSON and CSS files are ignored."""
     json_content = '{\n  "key": "value",\n  "count": 42\n}\n'
     css_content = 'body {\n  background: #000;\n  color: #fff;\n}\n'
-    
+
     with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f_json, \
          tempfile.NamedTemporaryFile(suffix=".css", mode="w", delete=False) as f_css:
         f_json.write(json_content)
@@ -54,9 +57,9 @@ def test_unsupported_json_css_files():
     try:
         assert update_file_frontmatter(path_json) is False
         assert update_file_frontmatter(path_css) is False
-        with open(path_json, "r") as f:
+        with open(path_json) as f:
             assert f.read() == json_content
-        with open(path_css, "r") as f:
+        with open(path_css) as f:
             assert f.read() == css_content
     finally:
         os.remove(path_json)
@@ -72,7 +75,7 @@ def test_supported_markdown_file():
     try:
         updated = update_file_frontmatter(path)
         assert updated is True
-        with open(path, "r") as f:
+        with open(path) as f:
             result = f.read()
         assert result.startswith("---")
         assert f"title: {os.path.basename(path)}" in result
@@ -93,7 +96,7 @@ def test_supported_python_file():
     try:
         updated = update_file_frontmatter(path)
         assert updated is True
-        with open(path, "r") as f:
+        with open(path) as f:
             result = f.read()
         assert result.startswith(f"# {os.path.basename(path)}")
         assert "# date created:" in result
@@ -106,7 +109,7 @@ def test_cli_mixed_files():
     """Verify CLI behavior when invoked with multiple mixed files."""
     xml_content = '<data><test/></data>'
     md_content = '# Test Markdown'
-    
+
     with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as f_xml, \
          tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as f_md:
         f_xml.write(xml_content)
@@ -123,13 +126,13 @@ def test_cli_mixed_files():
         ]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 0
-        
+
         # XML untouched
-        with open(path_xml, "r") as f:
+        with open(path_xml) as f:
             assert f.read() == xml_content
-            
+
         # Markdown updated
-        with open(path_md, "r") as f:
+        with open(path_md) as f:
             assert f.read().startswith("---")
     finally:
         os.remove(path_xml)

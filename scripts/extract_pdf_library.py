@@ -1,6 +1,6 @@
 # extract_pdf_library.py
 # date created: 2026-04-17 21:17:42
-# date modified: 2026-08-28 11:52:01
+# date modified: 2026-08-28 12:29:32
 # tags: #pdf, #extraction, #library, #parsing, #sidecar, #normalization, #tools
 
 """
@@ -30,13 +30,13 @@ Designed to plug into Evelyn's existing RAG pipeline:
 """
 
 import argparse
-import json
 import os
 import re
+import sqlite3
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Anchor workspace roots for imports
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,9 +46,12 @@ for _p in (ROOT_DIR, TOOLS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import evelyn_config as cfg  # noqa: E402
-from Evelyn.tools.tag_librarian import format_yaml_array  # noqa: E402
 import fitz  # pymupdf
+
+import evelyn_config as cfg
+from Evelyn.tools.frontmatter_utils import format_yaml_array
+from Evelyn.tools.ollama_client import query_ollama
+from Evelyn.tools.string_utils import sanitize_filename
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -242,11 +245,12 @@ def is_junk_text(text: str, body_size: float = 0, font_size: float = 0) -> bool:
         return True
 
     # Small-caps running headers like "NONVIOLENT COMMUNICATION" at smaller-than-body size
-    if body_size and font_size and font_size < body_size * 0.9:
-        if clean.isupper() or re.match(r'^[A-Z\s]+$', clean):
-            return True
-
-    return False
+    return bool(
+        body_size
+        and font_size
+        and font_size < body_size * 0.9
+        and (clean.isupper() or re.match(r'^[A-Z\s]+$', clean))
+    )
 
 
 def is_toc_text(text: str) -> bool:
@@ -254,9 +258,7 @@ def is_toc_text(text: str) -> bool:
     clean = text.strip()
     if re.match(r'^(Chapter|Part|Section)\s+\d+.*\d+\s*$', clean, re.IGNORECASE):
         return True
-    if re.search(r'\.{3,}\s*\d+\s*$', clean):
-        return True
-    return False
+    return bool(re.search(r'\.{3,}\s*\d+\s*$', clean))
 
 
 def is_chapter_marker(text: str) -> bool:
@@ -292,9 +294,7 @@ def is_part_marker(text: str) -> bool:
         r'ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|'
         r'I{1,3}|IV|V|VI{0,3}|[1-9]'
     )
-    if re.match(rf'^PART\s+({number_words})\s*$', clean, re.IGNORECASE):
-        return True
-    return False
+    return bool(re.match(rf'^PART\s+({number_words})\s*$', clean, re.IGNORECASE))
 
 
 def detect_front_matter_end(blocks: list[TextBlock], body_size: float) -> int:
@@ -783,18 +783,9 @@ def normalize_book_title(filename_or_path: str, doc_metadata: dict | None = None
 
 
 
-def sanitize_filename(name: str) -> str:
-    """Make a string safe for use as a filename."""
-    name = re.sub(r'[<>:"/\\|?*]', '', name)
-    name = re.sub(r'\s+', ' ', name).strip()
-    if len(name) > 80:
-        name = name[:80].strip()
-    return name
-
-
 def format_chapter_filename(index: int, title: str, total_count: int = 100) -> str:
     """Generate a zero-padded section filename like '001 - What Are Emotions For.md'."""
-    safe_title = sanitize_filename(title)
+    safe_title = sanitize_filename(title, max_length=80)
     pad_width = max(2, len(str(total_count)))
     return f"{index:0{pad_width}d} - {safe_title}.md"
 
@@ -858,7 +849,7 @@ def generate_sidecar_card(
     alias_list = list(aliases or [])
     if subtitle and subtitle not in alias_list:
         alias_list.append(subtitle)
-    
+
     fm_aliases_block = f"aliases: {format_yaml_array(alias_list)}\n" if alias_list else ""
     fm_source_block = f'source: "[[{attachment_rel_path}]]"\n' if attachment_rel_path else ""
     fm_sub_block = f'subtitle: "{subtitle}"\n' if subtitle else ""
@@ -883,16 +874,10 @@ status: unread
         header += f"**Author**: {author}  \n"
     header += f"**Catalog Entry**: {time.strftime('%Y-%m-%d')}  \n\n"
 
-    if overview_gist:
-        overview_block = f"> [!summary] Evelyn Overview\n> {overview_gist}\n\n"
-    else:
-        overview_block = ""
+    overview_block = f"> [!summary] Evelyn Overview\n> {overview_gist}\n\n" if overview_gist else ""
 
     # Source Material Embed
-    if attachment_rel_path:
-        source_block = f"## Source Document\n![[{attachment_rel_path}]]\n\n"
-    else:
-        source_block = ""
+    source_block = f"## Source Document\n![[{attachment_rel_path}]]\n\n" if attachment_rel_path else ""
 
     # Table of Contents
     toc_block = ""
@@ -946,7 +931,7 @@ type: reference-index
     header = f"# {book_title} — Reference Index\n\n"
     if author:
         header += f"**Author**: {author}  \n"
-    header += f"**Source**: PDF extraction via extract_pdf_library.py  \n"
+    header += "**Source**: PDF extraction via extract_pdf_library.py  \n"
     header += f"**Extracted**: {time.strftime('%Y-%m-%d')}\n\n"
 
     toc = "## Table of Contents\n\n"
@@ -974,8 +959,6 @@ def generate_gist(text: str, chapter_title: str, book_title: str,
     if skip_gist:
         return "_Gist generation skipped_"
 
-    import urllib.request
-
     max_chars = 12000
     truncated = text[:max_chars] if len(text) > max_chars else text
 
@@ -988,34 +971,14 @@ def generate_gist(text: str, chapter_title: str, book_title: str,
         f"Chapter text:\n{truncated}"
     )
 
-    payload = json.dumps({
-        "model": OLLAMA_MODEL,
-        "messages": [
-            {"role": "user", "content": user_message}
-        ],
-        "stream": False,
-        "options": {
-            "temperature": 0.3,
-            "num_predict": 1024,  # Gemma 4 is a thinking model; needs room for CoT + answer
-        }
-    }).encode("utf-8")
+    gist = query_ollama(
+        prompt=user_message,
+        model=OLLAMA_MODEL,
+        options={"temperature": 0.3, "num_predict": 1024},
+        timeout=180,
+    ).strip().strip('"')
 
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            result = json.loads(resp.read())
-            message = result.get("message", {})
-            gist = message.get("content", "").strip()
-            gist = gist.strip('"').strip()
-            return gist if gist else "_Could not generate gist_"
-    except Exception as e:
-        print(f"  [WARN] Gist generation failed: {e}")
-        return "_Gist generation failed_"
+    return gist if gist else "_Could not generate gist_"
 
 
 # ---------------------------------------------------------------------------
@@ -1171,7 +1134,7 @@ def extract_pdf(
         import chroma_rag
         search_snippet = overview_gist or f"{clean_title} {subtitle}"
         semantic_neighbors = chroma_rag.find_semantic_neighbors(search_snippet, limit=3, min_similarity=0.60)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, ImportError) as e:
         print(f"  [WARN] Semantic neighbor lookup skipped: {e}")
 
     try:
@@ -1182,7 +1145,7 @@ def extract_pdf(
             ent_title = ent.get("title", "")
             if ent_title and len(ent_title) > 3 and ent_title.lower() in full_text_sample.lower():
                 referenced_entities.append(ent)
-    except Exception as e:
+    except (OSError, sqlite3.Error, ValueError, RuntimeError, ImportError) as e:
         print(f"  [WARN] Entity resolution skipped: {e}")
 
     # Step 11: Write Rich Sidecar Index Card (<Title>_index.md)
@@ -1228,7 +1191,7 @@ def extract_pdf(
             if os.path.exists(filepath):
                 os.remove(filepath)
                 print(f"  Cleaned up source from: {filepath}")
-        except Exception as e:
+        except OSError as e:
             print(f"  [WARN] Could not remove original source file {filepath}: {e}")
 
     stats = {
@@ -1254,11 +1217,7 @@ def find_pdfs(path: str) -> list[str]:
     if os.path.isfile(path) and path.lower().endswith(".pdf"):
         return [path]
     elif os.path.isdir(path):
-        pdfs = []
-        for f in sorted(os.listdir(path)):
-            if f.lower().endswith(".pdf"):
-                pdfs.append(os.path.join(path, f))
-        return pdfs
+        return [os.path.join(path, f) for f in sorted(os.listdir(path)) if f.lower().endswith(".pdf")]
     else:
         print(f"Error: '{path}' is not a PDF file or directory.")
         return []
@@ -1354,7 +1313,7 @@ Examples:
             )
             all_stats.append(stats)
 
-        except Exception as e:
+        except (fitz.FileDataError, fitz.EmptyFileError, OSError, ValueError, RuntimeError, KeyError) as e:
             print(f"\n  ERROR processing {os.path.basename(pdf_path)}: {e}")
             import traceback
             traceback.print_exc()

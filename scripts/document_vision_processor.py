@@ -2,7 +2,7 @@
 # document_vision_processor.py
 # date created: 2026-08-16 20:21:38
 # date modified: 2026-08-16 20:21:38
-# tags: 
+# tags:
 
 # scripts/document_vision_processor.py
 """
@@ -15,14 +15,14 @@ Inspects staged PDFs:
     and creates a high-fidelity Markdown note with visual embeds.
 """
 
+import base64
+import json
 import os
 import sys
-import io
-import json
-import base64
-import fitz # PyMuPDF
-import urllib.request
 import urllib.error
+import urllib.request
+
+import fitz  # PyMuPDF
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(ROOT_DIR, "Evelyn", "tools")
@@ -47,18 +47,18 @@ def query_ollama_vision(image_bytes: bytes, prompt: str) -> str:
         "stream": False,
         "options": {"temperature": 0.1}
     }
-    
+
     req = urllib.request.Request(
         f"{OLLAMA_URL}/api/generate",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("response", "").strip()
-    except Exception as e:
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
         print(f"[Vision Error] {e}", flush=True)
         return ""
 
@@ -69,25 +69,25 @@ def process_scanned_pdf(pdf_path: str) -> tuple[bool, str]:
     os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
-    
+
     # Check text density
     total_words = 0
     for page in doc:
         total_words += len(page.get_text().split())
-        
+
     avg_words_per_page = total_words / max(total_pages, 1)
-    
+
     # If it's a text-heavy PDF (like an eBook), return False to let extract_pdf_library handle it
     if avg_words_per_page > 60 and total_pages > 3:
         doc.close()
         return False, "text_pdf"
-        
+
     print(f"[Vision] Processing scanned document: {os.path.basename(pdf_path)} ({total_pages} pages)...", flush=True)
-    
+
     base_name = os.path.splitext(os.path.basename(pdf_path))[0]
     page_images = []
     page_summaries = []
-    
+
     prompt = (
         "You are an expert document and clinical analyst. Transcribe and extract all meaningful "
         "information from this document page. Include:\n"
@@ -97,27 +97,27 @@ def process_scanned_pdf(pdf_path: str) -> tuple[bool, str]:
         "4. Important names, doctor names, or notes\n"
         "Output clean Markdown only."
     )
-    
+
     for i, page in enumerate(doc):
         # Render high-res image (2x zoom / 144 dpi)
         pix = page.get_pixmap(dpi=144)
         img_bytes = pix.tobytes("png")
-        
+
         img_filename = f"{base_name}_page_{i+1:02d}.png"
         img_path = os.path.join(ATTACHMENTS_DIR, img_filename)
         with open(img_path, "wb") as f_img:
             f_img.write(img_bytes)
-            
+
         page_images.append(img_filename)
-        
+
         # Only run vision on first 5 pages max to save time/resources on long scans
         if i < 5:
             summary = query_ollama_vision(img_bytes, prompt)
             if summary:
                 page_summaries.append(f"### Page {i+1} Transcription\n{summary}")
-                
+
     doc.close()
-    
+
     # Build wrapper note
     md_lines = [
         "---",
@@ -132,20 +132,19 @@ def process_scanned_pdf(pdf_path: str) -> tuple[bool, str]:
         f"> High-resolution visual scan archive ({total_pages} pages). Content analyzed via {VISION_MODEL}.",
         ""
     ]
-    
+
     if page_summaries:
         md_lines.append("## Extracted Content & Summary\n")
         md_lines.extend(page_summaries)
         md_lines.append("\n---\n")
-        
+
     md_lines.append("## Document Scans\n")
-    for img_fn in page_images:
-        md_lines.append(f"![[{img_fn}]]\n")
-        
+    md_lines.extend(f"![[{img_fn}]]\n" for img_fn in page_images)
+
     wrapper_md_path = os.path.splitext(pdf_path)[0] + ".md"
     with open(wrapper_md_path, "w", encoding="utf-8") as f_out:
         f_out.write("\n".join(md_lines))
-        
+
     print(f"[Vision] Successfully generated wrapper note: {os.path.basename(wrapper_md_path)}", flush=True)
     return True, wrapper_md_path
 

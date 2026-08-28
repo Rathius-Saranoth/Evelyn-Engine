@@ -26,26 +26,27 @@ Full function index and behavioral notes: reference/docstring_guide.md#fact_cons
 
 
 import asyncio
+import contextlib
 import datetime
 import importlib
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import httpx
 import yaml
 
-import evelyn_config as cfg # [[evelyn_config.py]]
-from Evelyn.tools.tag_librarian import normalize_tag_format
-from Evelyn.tools import fact_extractor
+import evelyn_config as cfg  # [[evelyn_config.py]]
+from Evelyn.tools import chroma_rag, fact_extractor, memory_db
 from Evelyn.tools.fact_extractor import load_cat00_index
-from Evelyn.tools import memory_db, chroma_rag
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
-
+DATETIME_MIN = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+_background_tasks: set[asyncio.Task] = set()
 
 # ---------------------------------------------------------------------------
 # Typed data structures (plain dicts — no dataclass overhead)
@@ -187,7 +188,7 @@ def _load_scan_state() -> None:
     """
     global _category_scan_state
     try:
-        with open(_SCAN_STATE_FILE, "r", encoding="utf-8") as f:
+        with open(_SCAN_STATE_FILE, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             _category_scan_state = data
@@ -298,7 +299,6 @@ def remediate_database_categories() -> None:
     Ensures that any existing invalid category strings (e.g. Ca16, cad09) or legacy
     category suffixes (-R, -E) are corrected in place in context_entries and proposals.
     """
-    from Evelyn.tools import memory_db
     try:
         con = memory_db.get_db()
 
@@ -353,12 +353,12 @@ def remediate_database_categories() -> None:
                 )
                 corrected_proposals += 1
                 print(f"[REMEDIATION] Corrected proposal {prop_id} suggested_category: '{cat}' -> '{normalized_cat}'", flush=True)
-                
+
         if corrected_entries > 0 or corrected_proposals > 0:
             con.commit()
             print(f"[REMEDIATION] Committed: {corrected_entries} entries, {corrected_proposals} proposals corrected.", flush=True)
         con.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[REMEDIATION ERROR] Failed to remediate database categories: {e}", flush=True)
 
 
@@ -402,19 +402,23 @@ async def _call_ollama(
     model = cfg.MODEL_NAME if override == "default" else override
 
     options = {"num_ctx": cfg.NUM_CTX}
-    for key, val in {
-        "temperature": cfg.TEMPERATURE,
-        "min_p": cfg.MIN_P,
-        "top_k": cfg.TOP_K,
-        "top_p": cfg.TOP_P,
-        "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n": cfg.REPEAT_LAST_N,
-        "seed": cfg.SEED,
-    }.items():
-        if val is not None:
-            options[key] = val
-    # Stop sequences are deliberately omitted — see docstring above.
-    options["num_predict"] = num_predict
+    options = {
+        "num_ctx": cfg.NUM_CTX,
+        **{
+            key: val
+            for key, val in {
+                "temperature": cfg.TEMPERATURE,
+                "min_p": cfg.MIN_P,
+                "top_k": cfg.TOP_K,
+                "top_p": cfg.TOP_P,
+                "repeat_penalty": cfg.REPEAT_PENALTY,
+                "repeat_last_n": cfg.REPEAT_LAST_N,
+                "seed": cfg.SEED,
+            }.items()
+            if val is not None
+        },
+        "num_predict": num_predict,
+    }
 
     payload = {
         "model": model,
@@ -428,26 +432,27 @@ async def _call_ollama(
     thinking_buffer = ""
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
-                resp.raise_for_status()
-                aiter = resp.aiter_lines()
-                while True:
-                    try:
-                        line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
-                    except StopAsyncIteration:
-                        break
-                    if not line.strip():
-                        continue
-                    try:
-                        import json
-                        chunk = json.loads(line)
-                        msg = chunk.get("message", {})
-                        content_buffer += msg.get("content", "")
-                        thinking_buffer += msg.get("thinking", "")
-                    except json.JSONDecodeError:
-                        continue
-                        
+        async with (
+            httpx.AsyncClient(timeout=timeout) as client,
+            client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
+        ):
+            resp.raise_for_status()
+            aiter = resp.aiter_lines()
+            while True:
+                try:
+                    line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
+                except StopAsyncIteration:
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    msg = chunk.get("message", {})
+                    content_buffer += msg.get("content", "")
+                    thinking_buffer += msg.get("thinking", "")
+                except json.JSONDecodeError:
+                    continue
+
         content = content_buffer.strip()
         thinking_trace = thinking_buffer
         if thinking_trace and cfg.DEBUG_LOGGING:
@@ -472,7 +477,7 @@ async def _call_ollama(
             flush=True,
         )
         return ""
-    except Exception as e:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
         err_cls = type(e).__name__
         err_msg = str(e).strip()
         formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
@@ -556,7 +561,7 @@ async def run_consolidation():
     except asyncio.CancelledError:
         print("[CONSOLIDATOR] Cancelled — cooldown not applied.", flush=True)
         _set_status_in_server("cancelled")
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as e:
         err_cls = type(e).__name__
         err_msg = str(e).strip()
         formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
@@ -581,7 +586,6 @@ def scan_context_entries() -> list[dict]:
     Returns:
         list[dict]: A list of FactRecord dictionaries, sorted chronologically.
     """
-    from Evelyn.tools import memory_db
     import datetime
 
     # Get live entries (and optionally extracted ones if configured)
@@ -600,15 +604,12 @@ def scan_context_entries() -> list[dict]:
         # Infer cat number for sorting
         cat_num_match = re.search(r"Cat(\d{2})", cat)
         cat_num = int(cat_num_match.group(1)) if cat_num_match else 0
-        
+
         # Parse date
         try:
-            if row["date"]:
-                entry_date = datetime.datetime.strptime(row["date"], "%Y-%m-%d")
-            else:
-                entry_date = datetime.datetime.min
+            entry_date = datetime.datetime.strptime(row["date"], "%Y-%m-%d").replace(tzinfo=datetime.UTC) if row["date"] else DATETIME_MIN
         except ValueError:
-            entry_date = datetime.datetime.min
+            entry_date = DATETIME_MIN
 
         records.append({
             "id": row["id"],
@@ -630,7 +631,7 @@ def scan_context_entries() -> list[dict]:
     )
     for cat, count in sorted(category_counts.items()):
         print(f"  {cat}: {count} entry/ies", flush=True)
-        
+
     return records
 
 
@@ -853,7 +854,7 @@ def _fmt_entry(r: dict, idx: int) -> str:
     """
     date_str = (
         r["date"].strftime("%Y-%m-%d")
-        if r["date"] != datetime.datetime.min
+        if r["date"] != DATETIME_MIN
         else "unknown"
     )
     return f"\n[{idx}] {r['filename']} ({date_str})\n    Summary: {r['summary']}\n"
@@ -924,7 +925,7 @@ async def _detect_consol_in_group(
     if not raw:
         return []
 
-    combined_records = [anchor] + comparison_window
+    combined_records = [anchor, *comparison_window]
     return _parse_consol_yaml(raw, category, combined_records)
 
 
@@ -961,10 +962,11 @@ def _parse_consol_yaml(
         topic = str(c.get("topic", "unknown topic")).strip()
         reason = str(c.get("reason", "")).strip()
 
-        cluster_records = []
-        for idx in indices:
-            if isinstance(idx, int) and 1 <= idx <= len(records):
-                cluster_records.append(records[idx - 1])
+        cluster_records = [
+            records[idx - 1]
+            for idx in indices
+            if isinstance(idx, int) and 1 <= idx <= len(records)
+        ]
 
         if len(cluster_records) >= 2:
             clusters.append(
@@ -1079,12 +1081,12 @@ def _parse_recat_yaml(raw: str, records: list[dict]) -> list[dict]:
             continue
         suggested = str(rc.get("suggested_category", "")).strip()
         record = records[idx - 1]
-        
+
         normalized = validate_and_normalize_category(suggested, record.get("subject"))
         if not normalized:
             print(f"[CONSOLIDATOR] Skipping recat proposal for entry {record['id']} — invalid suggested category: '{suggested}'", flush=True)
             continue
-            
+
         if normalized == record.get("category"):
             # Already in this category, skip recat suggestion
             continue
@@ -1136,7 +1138,7 @@ async def _detect_in_group(
         flush=True,
     )
 
-    combined_entries = [anchor] + comparison_window
+    combined_entries = [anchor, *comparison_window]
 
     # Step 2a — Consolidation detection (focused on duplicates/overlaps)
     clusters = await _detect_consol_in_group(
@@ -1326,7 +1328,7 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
     # Build entry block for the prompt
     entries_text = ""
     for r in records:
-        date_str = r["date"].strftime("%Y-%m-%d") if r["date"] != datetime.datetime.min else "unknown"
+        date_str = r["date"].strftime("%Y-%m-%d") if r["date"] != DATETIME_MIN else "unknown"
         entries_text += f"\n- File: {r['filename']} (dated {date_str})\n  Summary: {r['summary']}\n"
 
     history_instruction = (
@@ -1367,7 +1369,7 @@ async def generate_consolidation_proposal(cluster: dict) -> str | None:
 
 
 def _parse_proposal_yaml(
-    raw: str, category: str, records: list[dict] = None
+    raw: str, category: str, records: list[dict] | None = None
 ) -> dict | None:
     """Parse the consolidation verdict YAML from the model response.
 
@@ -1473,7 +1475,7 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
     block = match.group(1) if match else raw
     try:
         data = yaml.safe_load(block)
-    except Exception:
+    except (yaml.YAMLError, ValueError, TypeError):
         return None
 
     if not isinstance(data, dict):
@@ -1507,7 +1509,6 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
     if len(valid_entries) < 2:
         return None
 
-    from Evelyn.tools import memory_db
     constructed_yaml = yaml.dump({"entries": valid_entries}, default_flow_style=False, width=10000)
 
 
@@ -1535,9 +1536,8 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     Returns:
         Proposal ID string, or None on write failure.
     """
-    from Evelyn.tools import memory_db
-    
-    category = cluster["category"]
+
+    cluster["category"]
     topic = cluster["topic"]
     verdict = proposal["verdict"]
     merged = proposal["merged_summary"]
@@ -1551,7 +1551,7 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
     source_ids = [r["id"] for r in records]
 
     confidence = proposal.get("confidence", "medium")
-    
+
     # Auto-apply if confidence is high
     status = "auto_applied" if confidence == "high" else "pending"
 
@@ -1567,12 +1567,12 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
             confidence=confidence,
             status=status
         )
-        
+
         # If auto-applied, perform the merge immediately
         if status == "auto_applied":
             for sid in source_ids:
                 memory_db.delete_entry(sid)
-            
+
             # Union tags for fallback
             merged_tags_set = set()
             for r in records:
@@ -1582,10 +1582,10 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
                             merged_tags_set.add(t.strip())
             fallback_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
             final_tags = proposal.get("merged_tags") or fallback_tags
-            
+
             subject = records[0]["subject"] if records else "R"
             date = records[0]["date"] if records else None
-            
+
             memory_db.insert_entry(
                 category=target_cat,
                 subject=subject,
@@ -1599,7 +1599,7 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
 
         print(f"[CONSOLIDATOR] Proposal created: ID {pid} ({verdict})", flush=True)
         return str(pid)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[CONSOLIDATOR] Failed to write proposal: {e}", flush=True)
         return None
 
@@ -1624,13 +1624,12 @@ def _write_recategorization_proposal(
     Returns:
         str | None: The proposal database ID string, or None if it fails.
     """
-    from Evelyn.tools import memory_db
 
     record = recat_item["record"]
     suggested = recat_item["suggested_category"]
     reason = recat_item["reason"]
     topic = recat_item.get("topic", reason[:60])
-    
+
     # We auto-apply recats per user preference (1 pass).
     try:
         pid = memory_db.insert_proposal(
@@ -1644,7 +1643,7 @@ def _write_recategorization_proposal(
         memory_db.update_entry(record["id"], category=suggested)
         print(f"[CONSOLIDATOR] Auto-applied recategorization (Proposal {pid}): entry {record['id']} -> {suggested}", flush=True)
         return str(pid)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[CONSOLIDATOR] Failed to auto-apply recategorization: {e}", flush=True)
         return None
 
@@ -1655,8 +1654,6 @@ def fast_deduplicate_exact_matches() -> int:
     Returns:
         int: Number of redundant duplicate entries removed.
     """
-    from Evelyn.tools import memory_db
-    from Evelyn.tools import chroma_rag
 
     deleted_ids: list[int] = []
     con = memory_db.get_db()
@@ -1700,7 +1697,7 @@ def fast_deduplicate_exact_matches() -> int:
                 print(f"[CONSOLIDATOR] Fast deduplication merged duplicate #{dup_id} into primary #{primary_id}", flush=True)
 
         con.commit()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[CONSOLIDATOR] Fast deduplication error (non-fatal): {e}", flush=True)
         return 0
     finally:
@@ -1708,13 +1705,11 @@ def fast_deduplicate_exact_matches() -> int:
 
     # Enqueue chroma deletions after closing memory DB connection
     for dup_id in deleted_ids:
-        try:
+        with contextlib.suppress(Exception):
             chroma_rag.enqueue_delete(
                 source_path=f"sqlite::context_entry::{dup_id}",
                 collection_name=cfg.CHROMA_MEMORY_COLLECTION,
             )
-        except Exception:
-            pass
 
     if deleted_ids:
         print(f"[CONSOLIDATOR] Fast deduplication removed {len(deleted_ids)} exact duplicate entry/ies.", flush=True)
@@ -1750,14 +1745,13 @@ def _backup_memory_db() -> None:
         bak_con.close()
         src_con.close()
         print(f"[CONSOLIDATOR] DB backup written \u2192 {bak_path}", flush=True)
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         print(f"[CONSOLIDATOR] DB backup failed (non-fatal): {e}", flush=True)
 
 
 async def _do_consolidation():
     """Execute the core consolidation pipeline steps sequentially."""
     importlib.reload(cfg)
-    from Evelyn.tools import memory_db
     print("[CONSOLIDATOR] Starting idle-time consolidation pass...", flush=True)
     start = time.time()
 
@@ -1785,7 +1779,7 @@ async def _do_consolidation():
         if memory_db.has_pending_proposal_for([recat_item["record"]["id"]]):
             recats_skipped += 1
             continue
-            
+
         result = _write_recategorization_proposal(recat_item, None)
         if result:
             recats_written += 1
@@ -1795,7 +1789,7 @@ async def _do_consolidation():
 
     # Step 4 — Write consolidation proposals via LLM
     proposals_written = proposals_skipped = 0
-    for idx, cluster in enumerate(clusters):
+    for _idx, cluster in enumerate(clusters):
         # Skip if any source file in this cluster already has an open proposal.
         cluster_ids = [r["id"] for r in cluster["records"]]
         if memory_db.has_pending_proposal_for(cluster_ids):
@@ -1818,7 +1812,7 @@ async def _do_consolidation():
                 "scan_state": _category_scan_state,
             },
         )
-            
+
         result = await generate_consolidation_proposal(cluster)
         if result:
             proposals_written += 1
@@ -1922,17 +1916,18 @@ async def _do_consolidation():
                 import asyncio
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(server.start_refresh_memory_internal())
+                    task = loop.create_task(server.start_refresh_memory_internal())
+                    _background_tasks.add(task)
+                    task.add_done_callback(_background_tasks.discard)
                 except RuntimeError:
                     asyncio.run(server.start_refresh_memory_internal())
             else:
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 refresh_script = os.path.join(base_dir, "Evelyn", "tools", "refresh_memory.py")
                 if os.path.exists(refresh_script):
-                    import subprocess
-                    print(f"[CONSOLIDATOR] Triggering standalone memory refresh for updated entries...", flush=True)
-                    subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
-        except Exception as r_err:
+                    print("[CONSOLIDATOR] Triggering standalone memory refresh for updated entries...", flush=True)
+                    await asyncio.create_subprocess_exec(sys.executable, "-u", refresh_script, cwd=base_dir)
+        except (OSError, subprocess.SubprocessError) as r_err:
             print(f"[CONSOLIDATOR WARNING] Could not trigger memory refresh: {r_err}", flush=True)
 
 

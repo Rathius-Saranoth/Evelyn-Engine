@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-06-07 10:28:38
+# date modified: 2026-08-28 12:28:12
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
@@ -17,10 +17,11 @@ Key behaviour:
 Run directly or imported via sync_context_memory() in evelyn_tools.py.
 """
 
-import os
 import hashlib
 import json
+import os
 import re
+import sqlite3
 import sys
 import time
 from glob import glob
@@ -32,11 +33,11 @@ for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import evelyn_config as cfg
-import chroma_rag  # noqa: E402
-import memory_db   # noqa: E402
+import chroma_rag
+import memory_db
 
-import yaml
+import evelyn_config as cfg
+from Evelyn.tools.frontmatter_utils import parse_frontmatter
 
 # Paths
 VAULT_DIR          = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
@@ -69,7 +70,7 @@ def load_state(state_file: str) -> dict:
     if not os.path.exists(state_file):
         return {}
     try:
-        with open(state_file, "r", encoding="utf-8") as f:
+        with open(state_file, encoding="utf-8") as f:
             raw = json.load(f)
         state = {}
         for k, v in raw.items():
@@ -78,8 +79,8 @@ def load_state(state_file: str) -> dict:
             elif isinstance(v, dict):
                 state[k] = v
         return state
-    except Exception:
-        print("Could not read state file, starting fresh.")
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        print(f"Could not read state file: {e}, starting fresh.")
         return {}
 
 
@@ -116,73 +117,50 @@ def parse_rag_frontmatter(content: str) -> dict:
         dict: A dictionary containing 'rag_priority', 'rag_pinned', 'rag_exclude', and 'aliases'.
     """
     defaults = {"rag_priority": "normal", "rag_pinned": False, "rag_exclude": False, "aliases": ""}
-    clean_content = content.lstrip("\ufeff \t\r\n")
-    fm_match = re.match(r"^---\r?\n(.*?)\r?\n---", clean_content, re.DOTALL)
-    if not fm_match:
+    data, _ = parse_frontmatter(content)
+    if not data:
         return defaults
-    fm_text = fm_match.group(1)
 
-    try:
-        data = yaml.safe_load(fm_text) or {}
-    except Exception:
-        data = None
-
-    if isinstance(data, dict):
-        # 1. Direct exclude keys
-        for k in ("rag_exclude", "rag_ignore", "no_rag", "rag_skip"):
-            if k in data:
-                val = data[k]
-                if isinstance(val, bool) and val:
-                    defaults["rag_exclude"] = True
-                elif isinstance(val, str) and val.strip().lower() in ("true", "yes", "1", "t", "y"):
-                    defaults["rag_exclude"] = True
-
-        # 2. Tag-based exclusion
-        tags = data.get("tags", [])
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",") if t.strip()]
-        elif isinstance(tags, (list, set, tuple)):
-            tags = list(tags)
-        else:
-            tags = []
-        
-        for t in tags:
-            norm_t = str(t).strip().lower().lstrip("#")
-            if norm_t in EXCLUDED_TAGS or any(ex in norm_t.split("/") for ex in EXCLUDED_TAGS):
+    # 1. Direct exclude keys
+    for k in ("rag_exclude", "rag_ignore", "no_rag", "rag_skip"):
+        if k in data:
+            val = data[k]
+            if (isinstance(val, bool) and val) or (isinstance(val, str) and val.strip().lower() in ("true", "yes", "1", "t", "y")):
                 defaults["rag_exclude"] = True
-                break
 
-        # 3. Priority score
-        if "rag_priority" in data and isinstance(data["rag_priority"], str):
-            defaults["rag_priority"] = data["rag_priority"].strip().lower()
-
-        # 4. Pinned documents
-        if "rag_pinned" in data:
-            val = data["rag_pinned"]
-            if isinstance(val, bool):
-                defaults["rag_pinned"] = val
-            elif isinstance(val, str):
-                defaults["rag_pinned"] = val.strip().lower() in ("true", "yes", "1", "t", "y")
-
-        # 5. Aliases
-        aliases = data.get("aliases", [])
-        if isinstance(aliases, str):
-            defaults["aliases"] = aliases
-        elif isinstance(aliases, (list, tuple, set)):
-            defaults["aliases"] = ", ".join(str(a) for a in aliases)
-
+    # 2. Tag-based exclusion
+    tags = data.get("tags", [])
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    elif isinstance(tags, (list, set, tuple)):
+        tags = list(tags)
     else:
-        # Fallback regex parsing if YAML safe_load failed due to malformed syntax
-        m_ex = re.search(r"^(?:rag_exclude|rag_ignore|no_rag|rag_skip):\s*(\S+)", fm_text, re.MULTILINE | re.IGNORECASE)
-        if m_ex and m_ex.group(1).strip().lower() in ("true", "yes", "1", "t", "y"):
+        tags = []
+
+    for t in tags:
+        norm_t = str(t).strip().lower().lstrip("#")
+        if norm_t in EXCLUDED_TAGS or any(ex in norm_t.split("/") for ex in EXCLUDED_TAGS):
             defaults["rag_exclude"] = True
-        
-        m_tags = re.search(r"^tags:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE | re.IGNORECASE)
-        if m_tags:
-            raw_tags = m_tags.group(1).replace("[", "").replace("]", "").replace('"', "").replace("'", "")
-            tag_list = [t.strip().lower().lstrip("#") for t in raw_tags.split(",") if t.strip()]
-            if any(t in EXCLUDED_TAGS or any(ex in t.split("/") for ex in EXCLUDED_TAGS) for t in tag_list):
-                defaults["rag_exclude"] = True
+            break
+
+    # 3. Priority score
+    if "rag_priority" in data and isinstance(data["rag_priority"], str):
+        defaults["rag_priority"] = data["rag_priority"].strip().lower()
+
+    # 4. Pinned documents
+    if "rag_pinned" in data:
+        val = data["rag_pinned"]
+        if isinstance(val, bool):
+            defaults["rag_pinned"] = val
+        elif isinstance(val, str):
+            defaults["rag_pinned"] = val.strip().lower() in ("true", "yes", "1", "t", "y")
+
+    # 5. Aliases
+    aliases = data.get("aliases", [])
+    if isinstance(aliases, str):
+        defaults["aliases"] = aliases
+    elif isinstance(aliases, (list, tuple, set)):
+        defaults["aliases"] = ", ".join(str(a) for a in aliases)
 
     return defaults
 
@@ -222,7 +200,7 @@ def main() -> None:
             db_id = f"sqlite::context_entry::{row['id']}"
             active_paths.add(db_id)
             sqlite_entries_map[db_id] = row
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"Failed to query memory_db: {e}")
         sqlite_entries_map = {}
 
@@ -259,7 +237,7 @@ def main() -> None:
 
             rag_meta = {"rag_priority": "high", "rag_pinned": False, "aliases": ""}
             print(f"Ingesting DB Entry: {file_path}")
-            
+
         else:
             # It's a flat file
             try:
@@ -277,9 +255,9 @@ def main() -> None:
                 continue
 
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     content = f.read()
-            except Exception as e:
+            except OSError as e:
                 print(f"Failed to read {file_path}: {e}")
                 continue
 
@@ -317,7 +295,7 @@ def main() -> None:
             basename = os.path.basename(file_path)
             if rag_meta.get("rag_priority") == "normal" and basename.startswith(("EX_", "CE_")):
                 rag_meta["rag_priority"] = "high"
-            
+
         if chroma_rag.ingest_markdown_file(file_path, content, COLLECTION_NAME,
                                            extra_metadata=rag_meta):
             state[file_path] = {"mtime": mtime, "sha256": chash}

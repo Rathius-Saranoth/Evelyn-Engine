@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from Evelyn.tools import media_db
 import evelyn_config as cfg
+from Evelyn.tools import media_db
 
 
 class TestMediaDbAndGuid(unittest.TestCase):
@@ -15,12 +15,12 @@ class TestMediaDbAndGuid(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.test_dir, "test_media.db")
         self.attachments_dir = os.path.join(self.test_dir, "attachments")
-        
+
         self.cfg_patcher1 = patch.object(cfg, "MEDIA_DB_PATH", self.db_path)
         self.cfg_patcher2 = patch.object(cfg, "BASE_DIR", self.test_dir)
         self.cfg_patcher1.start()
         self.cfg_patcher2.start()
-        
+
         media_db.init_media_db()
 
     def tearDown(self):
@@ -32,7 +32,7 @@ class TestMediaDbAndGuid(unittest.TestCase):
         img_guid = media_db.generate_guid("image")
         aud_guid = media_db.generate_guid("audio")
         doc_guid = media_db.generate_guid("document")
-        
+
         self.assertTrue(img_guid.startswith("med_img_"))
         self.assertTrue(aud_guid.startswith("med_aud_"))
         self.assertTrue(doc_guid.startswith("med_doc_"))
@@ -40,7 +40,7 @@ class TestMediaDbAndGuid(unittest.TestCase):
 
     def test_store_and_deduplicate_media_asset(self):
         dummy_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
-        
+
         # Turn 1: Store new image asset
         asset1 = media_db.store_or_get_media_asset(
             data=dummy_data,
@@ -51,7 +51,7 @@ class TestMediaDbAndGuid(unittest.TestCase):
         self.assertTrue(asset1["is_new"])
         self.assertTrue(asset1["id"].startswith("med_img_"))
         self.assertTrue(os.path.exists(asset1["abs_file_path"]))
-        
+
         # Turn 2: Re-upload the EXACT same image in a subsequent message turn (105)
         asset2 = media_db.store_or_get_media_asset(
             data=dummy_data,
@@ -62,11 +62,11 @@ class TestMediaDbAndGuid(unittest.TestCase):
         self.assertFalse(asset2["is_new"])
         self.assertEqual(asset1["id"], asset2["id"])
         self.assertEqual(asset1["file_hash"], asset2["file_hash"])
-        
+
         # Check that both messages 101 and 105 link to this single media asset
         msg101_media = media_db.get_media_for_message(101)
         msg105_media = media_db.get_media_for_message(105)
-        
+
         self.assertEqual(len(msg101_media), 1)
         self.assertEqual(len(msg105_media), 1)
         self.assertEqual(msg101_media[0]["id"], asset1["id"])
@@ -80,7 +80,7 @@ class TestMediaDbAndGuid(unittest.TestCase):
             source_msg_id=200,
             media_type="audio",
         )
-        
+
         success = media_db.update_media_metadata(
             guid=asset["id"],
             description="Short voice recording discussing project timeline.",
@@ -89,7 +89,7 @@ class TestMediaDbAndGuid(unittest.TestCase):
             taxonomy_domain="Tech/Projects/Evelyn",
         )
         self.assertTrue(success)
-        
+
         retrieved = media_db.get_media_asset(asset["id"])
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["description"], "Short voice recording discussing project timeline.")

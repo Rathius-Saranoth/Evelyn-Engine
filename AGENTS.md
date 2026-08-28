@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-28 11:24:45
+date modified: 2026-08-28 12:30:11
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -54,3 +54,12 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - Mermaid charts (`mindmap`, `graph TD`, `graph LR`) for conceptual synthesis.
   - Comparative tables with high data density.
   - Deep bi-directional `[[WikiLinks]]` and a `## 🔗 Related Notes` footer.
+
+## 7. Single Source of Truth & Function Reuse Protocol (DRY Codebase)
+- **Mandatory Pre-Implementation Discovery**: Before introducing any new utility function, parser, string sanitizer, path resolver, or HTTP client wrapper, agents **must inspect existing canonical modules** in `Evelyn/tools/` (specifically `string_utils.py`, `path_utils.py`, `frontmatter_utils.py`, and `ollama_client.py`).
+- **Canonical Utility Modules**:
+  - `string_utils.py`: Text cleaning, thinking tag stripping (`strip_thinking_tags`, `clean_llm_gist`), title casing, slugification, and filename sanitization.
+  - `path_utils.py`: Vault relative/absolute conversions with traversal security (`to_vault_relpath`, `to_vault_abspath`), path normalization, and ignore-list matching.
+  - `frontmatter_utils.py`: Parsing (`parse_frontmatter`), rendering (`render_frontmatter`), in-place line updating (`update_frontmatter_field`), and file writes (`write_file_with_frontmatter`).
+  - `ollama_client.py`: Local Ollama inference gateway (`query_ollama`, `query_ollama_json`, `get_ollama_status`).
+- **Strict Anti-Duplication Rule**: Writing ad-hoc regex frontmatter parsers, inline `urllib.request` Ollama HTTP callers, duplicate `clean_gist()` / `slugify()` routines, or custom YAML list formatters across engine tools or scripts is strictly forbidden. Always import and reuse canonical functions.

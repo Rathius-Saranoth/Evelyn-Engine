@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # relocate_vault_pdfs.py
 # date created: 2026-08-28 11:28:41
-# date modified: 2026-08-28 11:51:50
-# tags: 
+# date modified: 2026-08-28 12:29:40
+# tags:
 
 """Migrate remaining vault PDFs to Attachments/Source Material and create Sidecar cards."""
 
 import os
-import re
 import shutil
 import sys
 import time
@@ -18,7 +17,8 @@ _REPO_ROOT = _SCRIPT_DIR.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from Evelyn.tools.tag_librarian import format_yaml_array
+from Evelyn.tools.frontmatter_utils import format_yaml_array
+from Evelyn.tools.string_utils import clean_title
 
 VAULT_ROOT = Path("/home/rathius/obsidian_vault")
 ATTACHMENTS_ROOT = VAULT_ROOT / "Attachments" / "Source Material"
@@ -65,11 +65,7 @@ def get_domain_and_tag(rel_path_str: str) -> tuple[str, str]:
 
 
 def clean_title_from_filename(filename: str) -> str:
-    name = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE)
-    # Replace underscores with spaces unless it looks like a code
-    if "_" in name and not re.match(r'^[A-Z0-9_-]+$', name):
-        name = name.replace("_", " ")
-    return name.strip()
+    return clean_title(filename)
 
 
 def migrate_all_remaining_pdfs(dry_run: bool = False):
@@ -78,9 +74,7 @@ def migrate_all_remaining_pdfs(dry_run: bool = False):
         # Skip existing Attachments/
         if "/Attachments" in root:
             continue
-        for f in files:
-            if f.lower().endswith(".pdf"):
-                pdf_files.append(Path(root) / f)
+        pdf_files.extend(Path(root) / f for f in files if f.lower().endswith(".pdf"))
 
     print(f"Found {len(pdf_files)} remaining PDF(s) to process.")
 

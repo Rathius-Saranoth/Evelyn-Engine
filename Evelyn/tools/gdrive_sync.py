@@ -13,20 +13,21 @@ import json
 import os
 import sys
 import zipfile
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-import evelyn_config as cfg
-
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
+import evelyn_config as cfg
 
-def get_google_credentials(token_path: Optional[str] = None) -> Optional[Credentials]:
+
+def get_google_credentials(token_path: str | None = None) -> Credentials | None:
     """Retrieve and refresh valid Google OAuth credentials.
 
     Args:
@@ -47,7 +48,7 @@ def get_google_credentials(token_path: Optional[str] = None) -> Optional[Credent
             with open(path, "w", encoding="utf-8") as f:
                 f.write(creds.to_json())
         return creds if creds and creds.valid else None
-    except Exception as e:
+    except (GoogleAuthError, OSError, ValueError, KeyError) as e:
         print(f"[GDrive Sync] Error loading/refreshing credentials: {e}", flush=True)
         return None
 
@@ -84,7 +85,7 @@ def get_sheets_service():
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 
-def search_drive_files(query: str, page_size: int = 10, fields: Optional[str] = None) -> list:
+def search_drive_files(query: str, page_size: int = 10, fields: str | None = None) -> list:
     """Search Google Drive for files matching the given query string.
 
     Args:
@@ -108,7 +109,7 @@ def search_drive_files(query: str, page_size: int = 10, fields: Optional[str] = 
             orderBy="modifiedTime desc"
         ).execute()
         return response.get("files", [])
-    except Exception as e:
+    except (HttpError, GoogleAuthError, OSError, ValueError) as e:
         print(f"[GDrive Sync] Error searching Drive files: {e}", flush=True)
         return []
 
@@ -136,7 +137,7 @@ def download_drive_file(file_id: str, destination_path: str) -> bool:
             while not done:
                 _, done = downloader.next_chunk()
         return True
-    except Exception as e:
+    except (HttpError, GoogleAuthError, OSError, ValueError) as e:
         print(f"[GDrive Sync] Error downloading file {file_id}: {e}", flush=True)
         return False
 
@@ -145,9 +146,9 @@ def _load_sync_state() -> dict:
     """Load sync state JSON metadata."""
     if os.path.exists(cfg.HEALTH_SYNC_STATE_PATH):
         try:
-            with open(cfg.HEALTH_SYNC_STATE_PATH, "r", encoding="utf-8") as f:
+            with open(cfg.HEALTH_SYNC_STATE_PATH, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             print(f"[GDrive Sync] Warning: could not parse sync state file: {e}", flush=True)
     return {}
 
@@ -242,7 +243,7 @@ def sync_health_connect_from_drive(force: bool = False) -> dict:
             }
 
         # Update sync state
-        state["last_synced_at"] = datetime.now(timezone.utc).isoformat()
+        state["last_synced_at"] = datetime.now(UTC).isoformat()
         state["drive_file_id"] = file_id
         state["drive_file_name"] = file_name
         state["drive_modified_time"] = modified_time
@@ -262,7 +263,7 @@ def sync_health_connect_from_drive(force: bool = False) -> dict:
             "db_size_bytes": state["db_size_bytes"]
         }
 
-    except Exception as e:
+    except (zipfile.BadZipFile, OSError, ValueError, KeyError) as e:
         print(f"[GDrive Sync] Error extracting DB from zip: {e}", flush=True)
         return {
             "status": "error",

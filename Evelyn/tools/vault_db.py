@@ -9,10 +9,11 @@ vault_db.py - SQLite interface for the Obsidian Vault Map
 Stores metadata, tags, and text preview snippets for every markdown file in the vault.
 Enables fast querying and structural vault inspection without full disk walks.
 """
-import sqlite3
 import os
+import sqlite3
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 import evelyn_config as cfg
 
 DB_PATH = getattr(cfg, "VAULT_DB_PATH", r"/home/rathius/evelyn/data/evelyn_vault.db")
@@ -67,16 +68,16 @@ def init_db() -> None:
         );
     """)
     # Migration check: Ensure last_tag_audit column exists if table was created previously
-    try:
+    import contextlib
+
+    with contextlib.suppress(sqlite3.OperationalError):
         con.execute("ALTER TABLE vault_documents ADD COLUMN last_tag_audit REAL")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
     con.commit()
     con.close()
 
 
 def upsert_document(
-    path: str, title: str, mtime: float, gist: str = "", 
+    path: str, title: str, mtime: float, gist: str = "",
     gist_failed: bool = False, rag_priority: str = "normal", rag_pinned: bool = False,
     tags: str = "", aliases: str = ""
 ) -> None:
@@ -96,7 +97,7 @@ def upsert_document(
     path = path.replace('\\', '/')
     con = get_db()
     con.execute("""
-        INSERT INTO vault_documents 
+        INSERT INTO vault_documents
         (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, indexed_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET
@@ -114,7 +115,7 @@ def upsert_document(
     con.close()
 
 
-def get_document(path: str) -> Optional[Dict[str, Any]]:
+def get_document(path: str) -> dict[str, Any] | None:
     """Retrieve a single document's metadata from the vault map by its relative path.
 
     Args:
@@ -130,7 +131,7 @@ def get_document(path: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def get_all_documents() -> List[Dict[str, Any]]:
+def get_all_documents() -> list[dict[str, Any]]:
     """Return metadata dicts for all documents currently indexed in the vault.
 
     Returns:
@@ -154,7 +155,7 @@ def delete_document(path: str) -> None:
     con.close()
 
 
-def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+def search_documents(query: str, limit: int = 5) -> list[dict[str, Any]]:
     """Scores and returns documents matching a keyword query.
 
     Args:
@@ -167,20 +168,20 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     con = get_db()
     rows = con.execute("SELECT * FROM vault_documents").fetchall()
     con.close()
-    
+
     query_lower = query.lower()
     results = []
-    
+
     for row in rows:
         title = (row["title"] or "").lower()
         tags = (row["tags"] or "").lower()
         snippet = (row["gist"] or "").lower()
-        
+
         score = 0
         if query_lower in title: score += 10
         if query_lower in tags: score += 5
         if query_lower in snippet: score += 2
-        
+
         if score > 0:
             results.append({
                 "path": row["path"],
@@ -189,7 +190,7 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                 "tags": [t.strip() for t in row["tags"].split(",")] if row["tags"] else [],
                 "snippet": row["gist"]
             })
-            
+
     results.sort(key=lambda x: x["score"], reverse=True)
     return results[:limit]
 
@@ -198,7 +199,7 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
 # Tag Librarian Database Operations
 # =============================================================================
 
-def get_master_tags() -> List[Dict[str, Any]]:
+def get_master_tags() -> list[dict[str, Any]]:
     """Return all active master tags with their categories, descriptions, and usage counts.
 
     Prioritizes high-frequency tags first (usage_count DESC).
@@ -249,7 +250,7 @@ def delete_master_tag(tag: str) -> None:
     con.commit()
     con.close()
 
-def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
+def fetch_next_document_for_tag_audit() -> dict[str, Any] | None:
     """Fetch the next vault document eligible for tag auditing.
 
     Priority Tiers:
@@ -267,7 +268,7 @@ def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
     init_db()
     con = get_db()
     excluded_paths = getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", [])
-    
+
     where_clause = ""
     params = []
     if excluded_paths:
@@ -282,7 +283,7 @@ def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
             -- Prioritize un-audited docs over audited docs
             CASE WHEN last_tag_audit IS NULL OR last_tag_audit = 0 THEN 0 ELSE 1 END ASC,
             -- Tiered urgency among un-audited docs
-            CASE 
+            CASE
                 -- Tier 1: No tags at all
                 WHEN (last_tag_audit IS NULL OR last_tag_audit = 0) AND (tags IS NULL OR trim(tags) = '' OR trim(tags) = '[]') THEN 1
                 -- Tier 2: Multi-dash flat tags
@@ -303,7 +304,7 @@ def fetch_next_document_for_tag_audit() -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def update_document_tag_audit(path: str, tags: Optional[str] = None) -> None:
+def update_document_tag_audit(path: str, tags: str | None = None) -> None:
     """Update the last_tag_audit timestamp (and optionally tags) for a vault document.
 
     Args:
@@ -361,7 +362,7 @@ def move_document(old_path: str, new_path: str) -> bool:
     return updated
 
 
-def get_all_entities() -> List[Dict[str, Any]]:
+def get_all_entities() -> list[dict[str, Any]]:
     """Return all known vault note titles and aliases for entity linking.
 
     Returns:

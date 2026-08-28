@@ -9,12 +9,14 @@ hypnograms, daytime stress) and historical/clinical health records from the
 local SQLite Health Connect database.
 """
 
+import contextlib
 import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
+
+import requests
 
 # Add Evelyn/tools and project root to path
 _tools_dir = os.path.dirname(os.path.abspath(__file__))
@@ -100,7 +102,7 @@ SLEEP_STAGE_MAP = {
 }
 
 
-def _get_connection() -> Optional[sqlite3.Connection]:
+def _get_connection() -> sqlite3.Connection | None:
     """Create a read-only SQLite connection to the health database."""
     if not os.path.exists(cfg.HEALTH_DB_PATH):
         return None
@@ -108,40 +110,40 @@ def _get_connection() -> Optional[sqlite3.Connection]:
         conn = sqlite3.connect(f"file:{cfg.HEALTH_DB_PATH}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         return conn
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         print(f"[Health Manager] Connection error: {e}", flush=True)
         return None
 
 
-def _parse_date_bounds(date_str: Optional[str] = None) -> tuple[int, int, str]:
+def _parse_date_bounds(date_str: str | None = None) -> tuple[int, int, str]:
     """Calculate start and end timestamps (in epoch milliseconds) for a given date."""
-    now_local = datetime.now()
+    now_local = datetime.now(UTC).astimezone()
     if not date_str or date_str.lower() in ("today", "current"):
         target_d = now_local.date()
     elif date_str.lower() == "yesterday":
         target_d = (now_local - timedelta(days=1)).date()
     else:
         try:
-            target_d = datetime.strptime(date_str, "%Y-%m-%d").date()
+            target_d = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC).date()
         except ValueError:
             target_d = now_local.date()
 
-    start_dt = datetime.combine(target_d, datetime.min.time())
-    end_dt = datetime.combine(target_d, datetime.max.time())
+    start_dt = datetime.combine(target_d, datetime.min.time(), tzinfo=UTC).astimezone()
+    end_dt = datetime.combine(target_d, datetime.max.time(), tzinfo=UTC).astimezone()
 
     start_ms = int(start_dt.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
     return start_ms, end_ms, target_d.strftime("%Y-%m-%d")
 
 
-def get_daily_summary(date_str: Optional[str] = None) -> dict:
+def get_daily_summary(date_str: str | None = None) -> dict:
     """Retrieve an aggregated health and activity summary for a specific day.
 
     Prioritizes live Oura Ring data for today/yesterday, enriched with SQLite
     workout and biometric records.
     """
     start_ms, end_ms, resolved_date = _parse_date_bounds(date_str)
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
 
     # If querying today or yesterday, check live Oura data
     if resolved_date == today_str:
@@ -165,16 +167,16 @@ def get_daily_summary(date_str: Optional[str] = None) -> dict:
                                 "type": type_name,
                                 "title": w["title"] or type_name,
                                 "duration_minutes": dur_mins,
-                                "start_time": datetime.fromtimestamp(w["start_time"] / 1000).strftime("%H:%M"),
+                                "start_time": datetime.fromtimestamp(w["start_time"] / 1000, tz=UTC).astimezone().strftime("%H:%M"),
                             })
                         conn.close()
-                    except Exception:
+                    except (sqlite3.Error, OSError, ValueError):
                         if conn:
                             conn.close()
 
                 oura_overview["workouts"] = workouts
                 return oura_overview
-        except Exception as e:
+        except (requests.RequestException, OSError, ValueError, KeyError) as e:
             print(f"[Health Manager] Oura live query error: {e}", flush=True)
 
     # Fallback to local SQLite database
@@ -237,7 +239,7 @@ def get_daily_summary(date_str: Optional[str] = None) -> dict:
                 "type": type_name,
                 "title": w["title"] or type_name,
                 "duration_minutes": dur_mins,
-                "start_time": datetime.fromtimestamp(w["start_time"] / 1000).strftime("%H:%M"),
+                "start_time": datetime.fromtimestamp(w["start_time"] / 1000, tz=UTC).astimezone().strftime("%H:%M"),
             })
 
         # Sleep Session
@@ -251,8 +253,8 @@ def get_daily_summary(date_str: Optional[str] = None) -> dict:
             dur_hours = round((sleep_row["end_time"] - sleep_row["start_time"]) / 3600000.0, 2)
             sleep_summary = {
                 "duration_hours": dur_hours,
-                "bedtime": datetime.fromtimestamp(sleep_row["start_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
-                "wake_time": datetime.fromtimestamp(sleep_row["end_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
+                "bedtime": datetime.fromtimestamp(sleep_row["start_time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
+                "wake_time": datetime.fromtimestamp(sleep_row["end_time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
                 "source": sleep_row["title"] or "Sleep Tracker",
             }
 
@@ -276,18 +278,18 @@ def get_daily_summary(date_str: Optional[str] = None) -> dict:
             "workouts": workouts,
         }
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         conn.close()
         return {"status": "error", "message": f"Error querying daily health summary: {e}"}
 
 
-def get_sleep_breakdown(date_str: Optional[str] = None) -> dict:
+def get_sleep_breakdown(date_str: str | None = None) -> dict:
     """Retrieve detailed sleep session and sleep stage breakdown (Awake, REM, Light, Deep).
 
     Fetches high-resolution hypnogram and contributor scores from Oura Cloud API.
     """
     start_ms, end_ms, resolved_date = _parse_date_bounds(date_str)
-    start_date_q = (datetime.strptime(resolved_date, "%Y-%m-%d") - timedelta(days=2)).strftime("%Y-%m-%d")
+    start_date_q = (datetime.strptime(resolved_date, "%Y-%m-%d").replace(tzinfo=UTC) - timedelta(days=2)).strftime("%Y-%m-%d")
 
     # Try live Oura API first
     try:
@@ -341,7 +343,7 @@ def get_sleep_breakdown(date_str: Optional[str] = None) -> dict:
                 },
                 "contributors": matching_score.get("contributors") if matching_score else {},
             }
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         print(f"[Health Manager] Oura sleep query error: {e}", flush=True)
 
     # Fallback to local DB
@@ -392,8 +394,8 @@ def get_sleep_breakdown(date_str: Optional[str] = None) -> dict:
             "source": "Health Connect Database (Local)",
             "date": resolved_date,
             "source_app": session["title"] or "Sleep Tracker",
-            "bedtime": datetime.fromtimestamp(session["start_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
-            "wake_time": datetime.fromtimestamp(session["end_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
+            "bedtime": datetime.fromtimestamp(session["start_time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
+            "wake_time": datetime.fromtimestamp(session["end_time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
             "total_time_in_bed_hours": total_hours,
             "total_sleep_hours": round(total_sleep_min / 60.0, 2),
             "stages_minutes": {k: round(v, 1) for k, v in stage_totals.items() if v > 0},
@@ -403,15 +405,15 @@ def get_sleep_breakdown(date_str: Optional[str] = None) -> dict:
                 if total_sleep_min > 0 and k != "Awake" and v > 0
             },
         }
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         conn.close()
         return {"status": "error", "message": f"Error querying sleep breakdown: {e}"}
 
 
-def get_readiness_summary(date_str: Optional[str] = None) -> dict:
+def get_readiness_summary(date_str: str | None = None) -> dict:
     """Retrieve Oura Daily Readiness score and recovery contributors."""
     _, _, resolved_date = _parse_date_bounds(date_str)
-    start_date_q = (datetime.strptime(resolved_date, "%Y-%m-%d") - timedelta(days=2)).strftime("%Y-%m-%d")
+    start_date_q = (datetime.strptime(resolved_date, "%Y-%m-%d").replace(tzinfo=UTC) - timedelta(days=2)).strftime("%Y-%m-%d")
 
     try:
         readiness_list = oura_client.get_daily_readiness(start_date=start_date_q, end_date=resolved_date)
@@ -430,14 +432,14 @@ def get_readiness_summary(date_str: Optional[str] = None) -> dict:
                 "contributors": target.get("contributors", {}),
             }
         return {"status": "error", "message": f"No readiness data found for {resolved_date}."}
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         return {"status": "error", "message": f"Error querying readiness: {e}"}
 
 
-def get_stress_summary(date_str: Optional[str] = None) -> dict:
+def get_stress_summary(date_str: str | None = None) -> dict:
     """Retrieve Oura Daytime Stress and recovery periods."""
     _, _, resolved_date = _parse_date_bounds(date_str)
-    start_date_q = (datetime.strptime(resolved_date, "%Y-%m-%d") - timedelta(days=2)).strftime("%Y-%m-%d")
+    start_date_q = (datetime.strptime(resolved_date, "%Y-%m-%d").replace(tzinfo=UTC) - timedelta(days=2)).strftime("%Y-%m-%d")
 
     try:
         stress_list = oura_client.get_daily_stress(start_date=start_date_q, end_date=resolved_date)
@@ -455,16 +457,16 @@ def get_stress_summary(date_str: Optional[str] = None) -> dict:
                 "recovery_duration_minutes": round(target.get("recovery_high", 0) / 60.0, 1),
             }
         return {"status": "error", "message": f"No stress data found for {resolved_date}."}
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         return {"status": "error", "message": f"Error querying stress: {e}"}
 
 
-def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) -> dict:
+def get_granular_heart_rate(hours: float = 2.0, date_str: str | None = None) -> dict:
     """Retrieve high-resolution live heart rate readings and statistics for the last N hours.
 
     Queries live Oura Ring API for timestamped 5-second/minute samples, falling back to Health Connect.
     """
-    now_local = datetime.now()
+    now_local = datetime.now(UTC).astimezone()
     try:
         raw_series = oura_client.get_heart_rate_series(hours=hours)
         if raw_series:
@@ -499,7 +501,7 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
                 for p in valid_points:
                     ts_str = p.get("timestamp", "")
                     if ts_str:
-                        try:
+                        with contextlib.suppress(ValueError, TypeError, KeyError):
                             dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone()
                             minute = (dt.minute // 15) * 15
                             bucket_label = f"{dt.hour:02d}:{minute:02d}"
@@ -507,8 +509,6 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
                                 bucket_map[bucket_label] = {"bpms": [], "sources": set()}
                             bucket_map[bucket_label]["bpms"].append(p["bpm"])
                             bucket_map[bucket_label]["sources"].add(p.get("source", "awake"))
-                        except Exception:
-                            pass
 
                 timeline_15m = []
                 for blk, data in sorted(bucket_map.items()):
@@ -518,7 +518,7 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
                         "avg_bpm": round(sum(b_bpms) / len(b_bpms), 1),
                         "min_bpm": min(b_bpms),
                         "max_bpm": max(b_bpms),
-                        "activity": sorted(list(data["sources"])),
+                        "activity": sorted(data["sources"]),
                     })
 
                 start_dt = now_local - timedelta(hours=hours)
@@ -537,7 +537,7 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
                     "activity_breakdown": source_summary,
                     "timeline_15m": timeline_15m,
                 }
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         print(f"[Health Manager] Error querying live Oura heart rate: {e}", flush=True)
 
     # Fallback to Health Connect SQLite DB
@@ -580,14 +580,14 @@ def get_granular_heart_rate(hours: float = 2.0, date_str: Optional[str] = None) 
             "avg_bpm": round(sum(bpms) / len(bpms), 1),
             "latest_bpm": bpms[-1] if bpms else None,
         }
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         conn.close()
         return {"status": "error", "window_hours": hours, "message": f"Error querying local heart rate records: {e}"}
 
 
 def get_intraday_activity(hours: float = 2.0) -> dict:
     """Retrieve steps, distance, active calories, and workouts for the last N hours."""
-    now_local = datetime.now()
+    now_local = datetime.now(UTC).astimezone()
     cutoff_ms = int((now_local - timedelta(hours=hours)).timestamp() * 1000)
     start_str = (now_local - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
     end_str = now_local.strftime("%Y-%m-%d %H:%M")
@@ -597,61 +597,64 @@ def get_intraday_activity(hours: float = 2.0) -> dict:
     conn = _get_connection()
     if not conn:
         return {
-            "status": "success",
-            "source": "Oura Ring (Live)",
+            "status": "partial",
             "window_hours": hours,
             "start_time": start_str,
             "end_time": end_str,
             "workouts": recent_workouts,
+            "message": "Health database not found; returned recent workouts only.",
         }
 
     cursor = conn.cursor()
     try:
         # Steps
         cursor.execute(
-            "SELECT SUM(count) FROM steps_record_table WHERE start_time >= ?",
+            "SELECT count FROM steps_record_table WHERE start_time >= ?",
             (cutoff_ms,),
         )
-        steps = cursor.fetchone()[0] or 0
+        steps_total = sum(r[0] for r in cursor.fetchall() if r[0] is not None)
 
         # Distance
         cursor.execute(
-            "SELECT SUM(distance) FROM distance_record_table WHERE start_time >= ?",
+            "SELECT distance FROM distance_record_table WHERE start_time >= ?",
             (cutoff_ms,),
         )
-        dist_m = cursor.fetchone()[0] or 0.0
+        dist_m = sum(r[0] for r in cursor.fetchall() if r[0] is not None)
 
         # Active Calories
         cursor.execute(
-            "SELECT SUM(energy) FROM active_calories_burned_record_table WHERE start_time >= ?",
+            "SELECT energy FROM active_calories_burned_record_table WHERE start_time >= ?",
             (cutoff_ms,),
         )
-        active_j = cursor.fetchone()[0] or 0.0
+        active_j = sum(r[0] for r in cursor.fetchall() if r[0] is not None)
 
         conn.close()
+
         return {
             "status": "success",
-            "source": "Health Connect Database & Oura (Live)",
+            "source": "Health Connect Database (Local)",
             "window_hours": hours,
             "start_time": start_str,
             "end_time": end_str,
-            "steps": int(steps),
-            "distance_miles": round(dist_m * 0.000621371, 2),
-            "distance_km": round(dist_m / 1000.0, 2),
+            "steps": int(steps_total),
+            "distance": {
+                "miles": round(dist_m * 0.000621371, 2),
+                "kilometers": round(dist_m / 1000.0, 2),
+            },
             "active_calories_kcal": round(active_j / 4184.0, 1),
             "workouts": recent_workouts,
         }
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         conn.close()
         return {"status": "error", "message": f"Error querying intraday activity: {e}"}
 
 
-def get_recent_workouts(days: int = 7, hours: Optional[float] = None) -> list:
+def get_recent_workouts(days: int = 7, hours: float | None = None) -> list:
     """Retrieve recorded workout and exercise sessions for the past N days or N hours.
 
     Merges live Oura workouts with Health Connect SQLite records.
     """
-    now_local = datetime.now()
+    now_local = datetime.now(UTC).astimezone()
     if hours is not None and hours > 0:
         cutoff_dt = now_local - timedelta(hours=hours)
         days_query = max(1, int(hours / 24) + 1)
@@ -671,7 +674,7 @@ def get_recent_workouts(days: int = 7, hours: Optional[float] = None) -> list:
             st_str = w.get("start_datetime", "")
             end_str = w.get("end_datetime", "")
             if st_str:
-                try:
+                with contextlib.suppress(ValueError, TypeError, KeyError):
                     dt = datetime.fromisoformat(st_str.replace("Z", "+00:00")).astimezone()
                     if dt.timestamp() * 1000 >= cutoff_ms:
                         dur_mins = None
@@ -690,9 +693,7 @@ def get_recent_workouts(days: int = 7, hours: Optional[float] = None) -> list:
                             "date": dt.strftime("%Y-%m-%d %H:%M"),
                             "timestamp_ms": int(dt.timestamp() * 1000),
                         })
-                except Exception:
-                    pass
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         print(f"[Health Manager] Oura workouts query error: {e}", flush=True)
 
     # 2. Fetch Health Connect local workouts
@@ -713,11 +714,11 @@ def get_recent_workouts(days: int = 7, hours: Optional[float] = None) -> list:
                     "source": "Health Connect Database",
                     "notes": r["notes"],
                     "duration_minutes": dur_mins,
-                    "date": datetime.fromtimestamp(r["start_time"] / 1000).strftime("%Y-%m-%d %H:%M"),
+                    "date": datetime.fromtimestamp(r["start_time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M"),
                     "timestamp_ms": r["start_time"],
                 })
             conn.close()
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             conn.close()
             print(f"[Health Manager] Local workout query error: {e}", flush=True)
 
@@ -741,7 +742,7 @@ def get_vitals_trend(metric: str = "resting_heart_rate", days: int = 14) -> list
     if not conn:
         return []
 
-    cutoff_dt = datetime.now() - timedelta(days=days)
+    cutoff_dt = datetime.now(UTC).astimezone() - timedelta(days=days)
     cutoff_ms = int(cutoff_dt.timestamp() * 1000)
     cursor = conn.cursor()
 
@@ -752,24 +753,28 @@ def get_vitals_trend(metric: str = "resting_heart_rate", days: int = 14) -> list
                 "SELECT time, beats_per_minute FROM resting_heart_rate_record_table WHERE time >= ? ORDER BY time ASC",
                 (cutoff_ms,),
             )
-            for r in cursor.fetchall():
-                results.append({
-                    "date": datetime.fromtimestamp(r["time"] / 1000).strftime("%Y-%m-%d"),
+            results.extend([
+                {
+                    "date": datetime.fromtimestamp(r["time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d"),
                     "resting_hr_bpm": r["beats_per_minute"],
-                })
+                }
+                for r in cursor.fetchall()
+            ])
         elif metric in ("hrv", "heart_rate_variability"):
             cursor.execute(
                 "SELECT time, heart_rate_variability_millis FROM heart_rate_variability_rmssd_record_table WHERE time >= ? ORDER BY time ASC",
                 (cutoff_ms,),
             )
-            for r in cursor.fetchall():
-                results.append({
-                    "date": datetime.fromtimestamp(r["time"] / 1000).strftime("%Y-%m-%d"),
+            results.extend([
+                {
+                    "date": datetime.fromtimestamp(r["time"] / 1000, tz=UTC).astimezone().strftime("%Y-%m-%d"),
                     "hrv_rmssd_ms": round(r["heart_rate_variability_millis"], 1),
-                })
+                }
+                for r in cursor.fetchall()
+            ])
         conn.close()
         return results
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         conn.close()
         print(f"[Health Manager] Error getting vitals trend: {e}", flush=True)
         return []
@@ -798,11 +803,11 @@ def get_clinical_records(limit: int = 10) -> list:
                     "effective_date": data.get("effectiveDateTime"),
                     "data": data,
                 })
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
         conn.close()
         return records
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         conn.close()
         print(f"[Health Manager] Error getting clinical records: {e}", flush=True)
         return []

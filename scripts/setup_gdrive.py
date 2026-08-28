@@ -14,9 +14,9 @@ import sys
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import evelyn_config as cfg
-
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+import evelyn_config as cfg
 
 # Scopes requested: Drive/Docs/Sheets (readonly) and Tasks (Full)
 SCOPES = [
@@ -84,7 +84,7 @@ def main():
         print(f" Token Path: {token_path}")
         print(" Evelyn can now access Google Drive, Docs, Sheets, and Tasks.")
         print("=" * 60)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         print(f"\nError running OAuth flow: {e}")
         print("=" * 60)
 

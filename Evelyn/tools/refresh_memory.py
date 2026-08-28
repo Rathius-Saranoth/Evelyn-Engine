@@ -25,8 +25,8 @@ Usage (via evelyn_server.py):
 """
 
 import os
-import sys
 import subprocess
+import sys
 
 # ---------------------------------------------------------------------------
 # Absolute path anchoring — behaves identically whether called by the FastAPI
@@ -41,7 +41,6 @@ for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import evelyn_config as cfg
 
 
 def run_phase_subprocess(name: str, args: list[str]) -> None:
@@ -56,7 +55,7 @@ def run_phase_subprocess(name: str, args: list[str]) -> None:
     """
     print(f"[PHASE_START:{name}]", flush=True)
     result = subprocess.run(
-        [sys.executable, "-u"] + args,
+        [sys.executable, "-u", *args],
         stdout=sys.stdout,
         stderr=sys.stderr,
         cwd=ROOT_DIR,

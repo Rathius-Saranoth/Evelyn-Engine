@@ -8,8 +8,8 @@ the `evelyn_memory` collection using BAAI/bge-large-en-v1.5 (1024-dim).
 """
 
 import os
-import sys
 import shutil
+import sys
 import time
 
 # Ensure project imports resolve
@@ -21,11 +21,12 @@ for d in (ROOT_DIR, TOOLS_DIR):
 
 import evelyn_config as cfg
 
+
 def main():
     print("=================================================================")
     print("Full Vault Chroma Vector Index Migration (BAAI/bge-large-en-v1.5)")
     print("=================================================================")
-    
+
     # 1. Reset chroma_dir directory to clear old 384-dim vectors
     chroma_dir = getattr(cfg, "CHROMA_DB_PATH", r"/home/rathius/evelyn/data/chroma_db")
     if os.path.exists(chroma_dir):
@@ -42,16 +43,16 @@ def main():
             try:
                 os.remove(state_file)
                 print(f"Removed stale state file: {os.path.basename(state_file)}")
-            except Exception as e:
+            except OSError as e:
                 print(f"Could not remove {state_file}: {e}")
 
     # 3. Import and run full vault ingestion
     print("\nStarting full-vault indexing pass into 'evelyn_memory'...")
     start_time = time.time()
-    
+
     import ingest_obsidian_knowledge
     ingest_obsidian_knowledge.main()
-    
+
     elapsed = time.time() - start_time
     print(f"\nMigration completed successfully in {elapsed:.2f} seconds!")
 

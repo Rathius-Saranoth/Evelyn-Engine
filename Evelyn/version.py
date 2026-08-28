@@ -1,7 +1,7 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-28 11:42:49
-# tags: 
+# date modified: 2026-08-28 12:30:40
+# tags:
 
 """
 Evelyn Engine Version System.
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.011"
-VERSION_NAME = "Vault Taxonomy Alignment & Tag Librarian Acceleration"
+__version__ = "000.006.013"
+VERSION_NAME = "Consolidation Audit: Dead-Code & Type-Error Fixes"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
@@ -33,12 +33,12 @@ def parse_version(v_str: str) -> tuple[int, int, int]:
     """
     if not isinstance(v_str, str):
         raise TypeError(f"Version must be a string, got {type(v_str).__name__}")
-    
+
     clean_str = v_str.strip().lstrip("v")
     match = VERSION_PATTERN.match(clean_str)
     if not match:
         raise ValueError(f"Invalid version format: '{v_str}'. Expected '000.000.000' or 'X.Y.Z'")
-    
+
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 

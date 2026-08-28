@@ -30,11 +30,11 @@ Usage:
 Requires: reference/rag_benchmark_queries.json (golden test set)
 """
 
-import sys
-import os
-import json
-import time
 import argparse
+import json
+import os
+import sys
+import time
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -45,8 +45,11 @@ for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import chroma_rag  # noqa: E402
-import evelyn_config as cfg  # noqa: E402
+import contextlib
+
+import chroma_rag
+
+import evelyn_config as cfg
 
 GOLDEN_FILE = os.path.join(ROOT_DIR, "reference", "rag_benchmark_queries.json")
 
@@ -62,7 +65,7 @@ _CYN = "\033[96m"
 
 def load_golden_queries(path: str) -> list[dict]:
     """Load and validate the golden query test set."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         queries = json.load(f)
     for q in queries:
         assert "id" in q, f"Query missing 'id': {q}"
@@ -71,7 +74,7 @@ def load_golden_queries(path: str) -> list[dict]:
     return queries
 
 
-def run_query(query: str, n_results: int = None, reformulate: bool = False) -> list[dict]:
+def run_query(query: str, n_results: int | None = None, reformulate: bool = False) -> list[dict]:
     """Run a raw query across both collections, apply priority boost, return all chunks."""
     if n_results is None:
         n_results = cfg.RAG_TOP_K
@@ -222,17 +225,15 @@ def _ingest_into_temp_collections(model_key: str):
 
     # Delete existing temp collections if present
     for name in (mem_temp, gist_temp):
-        try:
+        with contextlib.suppress(Exception):
             client.delete_collection(name)
-        except Exception:
-            pass
 
     # Create temp collections with candidate embedding fn
     mem_col = client.get_or_create_collection(
         name=mem_temp, embedding_function=embed_fn,
         metadata={"hnsw:space": "cosine"},
     )
-    gist_col = client.get_or_create_collection(
+    client.get_or_create_collection(
         name=gist_temp, embedding_function=embed_fn,
         metadata={"hnsw:space": "cosine"},
     )
@@ -271,14 +272,12 @@ def _cleanup_temp_collections(model_key: str):
     """Delete temporary benchmark collections."""
     client = chroma_rag._get_client()
     for name in (f"bench_{model_key}_memory", f"bench_{model_key}_gists"):
-        try:
+        with contextlib.suppress(Exception):
             client.delete_collection(name)
-        except Exception:
-            pass
 
 
 def run_query_with_collections(query: str, mem_col_name: str, gist_col_name: str,
-                                n_results: int = None) -> list[dict]:
+                                n_results: int | None = None) -> list[dict]:
     """Run query against specific collection names (for candidate model testing)."""
     if n_results is None:
         n_results = cfg.RAG_TOP_K
@@ -324,7 +323,7 @@ def main():
         print(f"{'='*80}")
 
         # Run baseline first
-        print(f"\n--- Baseline (L6) ---")
+        print("\n--- Baseline (L6) ---")
         print(f"Running {len(queries)} queries...", flush=True)
         start = time.perf_counter()
         baseline_results = []
@@ -356,7 +355,7 @@ def main():
 
         # Print comparison
         print(f"\n{'='*80}")
-        print(f"  COMPARISON RESULTS")
+        print("  COMPARISON RESULTS")
         print(f"{'='*80}")
 
         base_hits = sum(1 for r in baseline_results if r["hit"])
@@ -372,13 +371,13 @@ def main():
 
         # Per-query comparison for mismatches
         changes = []
-        for b, c in zip(baseline_results, candidate_results):
+        for b, c in zip(baseline_results, candidate_results, strict=False):
             if b["hit"] != c["hit"]:
                 direction = "GAINED" if c["hit"] else "LOST"
                 changes.append((direction, b["id"], b["query"]))
 
         if changes:
-            print(f"\n  Changes:")
+            print("\n  Changes:")
             for direction, qid, query in changes:
                 color = _GRN if direction == "GAINED" else _RED
                 print(f"    {color}{direction}{_RST}  {qid:<30s} q=\"{query[:40]}\"")

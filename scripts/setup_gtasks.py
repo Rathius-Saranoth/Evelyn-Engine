@@ -16,8 +16,9 @@ import sys
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import evelyn_config as cfg
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+import evelyn_config as cfg
 
 SCOPES = ["https://www.googleapis.com/auth/tasks"]
 
@@ -53,7 +54,7 @@ def main():
             print("5. Go to Credentials -> Create Credentials -> OAuth Client ID.")
             print("6. Select Application Type: 'Desktop App'.")
             print("7. Download the client secret JSON file.")
-            print(f"8. Rename it to 'gtasks_credentials.json' and place it in:")
+            print("8. Rename it to 'gtasks_credentials.json' and place it in:")
             print(f"   {cred_path}")
             print("9. Re-run this script.")
             print("=" * 60)
@@ -76,7 +77,7 @@ def main():
         print(f" Token Path: {token_path}")
         print(" Evelyn can now read and sync Google Tasks in the background.")
         print("=" * 60)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         print(f"\nError running OAuth flow: {e}")
         print("=" * 60)
 

@@ -25,11 +25,11 @@ import io
 import json
 import logging
 import os
-from pathlib import Path
 import sqlite3
 import time
-from typing import Any
 import uuid
+from pathlib import Path
+from typing import Any
 
 import evelyn_config as cfg
 
@@ -164,7 +164,7 @@ def extract_image_exif_and_gps(image_bytes: bytes) -> dict[str, Any]:
     """Extract EXIF metadata and GPS coordinates from image bytes using Pillow."""
     meta: dict[str, Any] = {}
     try:
-        from PIL import Image, ExifTags
+        from PIL import ExifTags, Image
 
         with Image.open(io.BytesIO(image_bytes)) as img:
             exif_data = img.getexif()
@@ -221,7 +221,7 @@ def extract_image_exif_and_gps(image_bytes: bytes) -> dict[str, Any]:
                         if alt_raw:
                             gps_info["altitude_m"] = round(float(alt_raw), 2)
                         meta["gps"] = gps_info
-                    except Exception as e:
+                    except (TypeError, ValueError, AttributeError, KeyError) as e:
                         logger.debug("Error converting GPS coordinates: %s", e)
 
             # Check for Exif SubIFD
@@ -240,11 +240,10 @@ def extract_image_exif_and_gps(image_bytes: bytes) -> dict[str, Any]:
                         "ExposureTime",
                         "FNumber",
                         "ISOSpeedRatings",
-                    ):
-                        if not isinstance(sub_val, bytes):
-                            meta[sub_tag_name.lower()] = str(sub_val).strip()
+                    ) and not isinstance(sub_val, bytes):
+                        meta[sub_tag_name.lower()] = str(sub_val).strip()
 
-    except Exception as exc:
+    except (TypeError, ValueError, AttributeError, KeyError, OSError) as exc:
         logger.debug("Failed extracting EXIF/GPS via Pillow: %s", exc)
     return meta
 
@@ -330,7 +329,7 @@ def store_or_get_media_asset(
 
                 with Image.open(io.BytesIO(data)) as img:
                     width, height = img.size
-            except Exception as e:
+            except (OSError, ValueError, RuntimeError) as e:
                 logger.debug("Could not inspect image dimensions: %s", e)
 
         meta_dict = dict(metadata) if metadata else {}
@@ -408,13 +407,13 @@ def get_media_asset(guid: str) -> dict[str, Any] | None:
         if res.get("tags"):
             try:
                 res["tags"] = json.loads(res["tags"])
-            except Exception as e:
+            except (json.JSONDecodeError, TypeError) as e:
                 logger.debug("Failed parsing tags json: %s", e)
                 res["tags"] = []
         if res.get("metadata_json"):
             try:
                 res["metadata"] = json.loads(res["metadata_json"])
-            except Exception as e:
+            except (json.JSONDecodeError, TypeError) as e:
                 logger.debug("Failed parsing metadata json: %s", e)
                 res["metadata"] = {}
         else:
@@ -443,12 +442,14 @@ def get_media_for_message(message_id: int) -> list[dict[str, Any]]:
             if item.get("tags"):
                 try:
                     item["tags"] = json.loads(item["tags"])
-                except Exception:
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.debug("Failed parsing item tags: %s", e)
                     item["tags"] = []
             if item.get("metadata_json"):
                 try:
                     item["metadata"] = json.loads(item["metadata_json"])
-                except Exception:
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.debug("Failed parsing item metadata: %s", e)
                     item["metadata"] = {}
             else:
                 item["metadata"] = {}

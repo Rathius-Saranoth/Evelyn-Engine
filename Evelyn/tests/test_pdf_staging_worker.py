@@ -16,7 +16,7 @@ from unittest.mock import patch
 import fitz  # PyMuPDF
 
 import Evelyn.tools.pdf_staging_worker as staging_worker
-import Evelyn.tools.task_manager as task_manager
+from Evelyn.tools import task_manager
 
 
 class TestPdfStagingWorker(unittest.TestCase):

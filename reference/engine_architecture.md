@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-28 11:44:48
+date modified: 2026-08-28 12:31:02
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -210,6 +210,13 @@ The standing narrative parameters, constraints, and profile baselines injected d
 * **[[Evelyn_Narrative_Persona.md]]**: Core psychological identity and conversational style parameters for Evelyn.
 * **[[Ricky_Narrative_Profile.md]]**: User context profile and emotional/cognitive baseline mappings.
 * **[[System_Directives.md]]**: Definitive instructions governing tool call behaviors, priority matrices, and interaction boundaries.
+
+### 2.9 Canonical Utilities & Shared Core Layer
+The unified single-source-of-truth utility modules serving as the leaf layer of the engine architecture:
+* **`Evelyn/tools/string_utils.py`**: Canonical string normalizer and gist cleaner (`strip_thinking_tags`, `clean_llm_gist`, `sanitize_filename`, `slugify`, `clean_title`). Zero internal project dependencies.
+* **`Evelyn/tools/path_utils.py`**: Canonical vault path transformations with directory-traversal guards (`to_vault_relpath`, `to_vault_abspath`, `normalize_vault_path`, `is_vault_excluded`).
+* **`Evelyn/tools/frontmatter_utils.py`**: Canonical YAML frontmatter manager (`parse_frontmatter`, `format_yaml_array`, `render_frontmatter`, `update_frontmatter_field`, `write_file_with_frontmatter`).
+* **`Evelyn/tools/ollama_client.py`**: Unified Ollama HTTP client gateway (`query_ollama`, `query_ollama_json`, `get_ollama_status`).
 
 ---
 

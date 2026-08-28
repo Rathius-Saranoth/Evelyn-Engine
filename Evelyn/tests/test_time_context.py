@@ -1,8 +1,12 @@
 """Unit tests for time context formatting and safeguards in evelyn_server.py."""
 
 import unittest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timedelta
+
+
+def _make_dt(*args, tzinfo=UTC, **kwargs):
+    return datetime(*args, tzinfo=tzinfo, **kwargs)
 
 
 class TestTimeContext(unittest.TestCase):

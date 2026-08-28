@@ -27,7 +27,7 @@ class TestTaskManagerWatchdog(unittest.TestCase):
         """Test recording run history to SQLite DB and calculating dynamic soft timeout."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             test_db = os.path.join(tmp_dir, "test_evelyn_memory.db")
-            
+
             # Patch _get_db_connection
             orig_get_db = task_manager._get_db_connection
             def mock_get_db():
@@ -38,7 +38,7 @@ class TestTaskManagerWatchdog(unittest.TestCase):
 
             try:
                 task_manager._get_db_connection = mock_get_db
-                
+
                 # Default dynamic timeout before history
                 baseline = task_manager.get_dynamic_timeout("extractor")
                 self.assertEqual(baseline, task_manager.DEFAULT_SOFT_TIMEOUTS["extractor"])
@@ -66,7 +66,7 @@ class TestTaskManagerWatchdog(unittest.TestCase):
     def test_reconcile_orphaned_tasks(self):
         """Test that task watchdog auto-reconciles finished tasks stuck in running status."""
         tasks_dict = {}
-        
+
         orig_get_bg = task_manager._get_background_tasks
         task_manager._get_background_tasks = lambda: tasks_dict
 
@@ -203,7 +203,7 @@ class TestTaskManagerWatchdog(unittest.TestCase):
                 task_manager.terminate_task_subprocess(task_id, grace_period=0.1)
 
                 self.assertFalse(os.path.exists(pid_file))
-                with open(state_file, "r", encoding="utf-8") as f:
+                with open(state_file, encoding="utf-8") as f:
                     updated_state = json.load(f)
                 self.assertEqual(updated_state.get("status"), "timed_out")
             finally:

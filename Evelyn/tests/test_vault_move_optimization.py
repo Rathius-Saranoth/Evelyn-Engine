@@ -2,13 +2,9 @@
 # date created: 2026-08-22 19:10:00
 # tags: #test, #vault, #move, #chroma, #optimization, #sqlite
 
-import os
 import time
-import pytest
 
-import Evelyn.tools.vault_db as vault_db
-import Evelyn.tools.chroma_rag as chroma_rag
-import Evelyn.tools.memory_db as memory_db
+from Evelyn.tools import chroma_rag, memory_db, vault_db
 from Evelyn.tools.ingest_obsidian_knowledge import compute_content_hash
 
 

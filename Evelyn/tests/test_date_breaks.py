@@ -4,7 +4,7 @@ import pathlib
 import sqlite3
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
@@ -30,15 +30,15 @@ def test_date_break_injection_in_load_history():
         """)
 
         # Day 1: Aug 4, 2026
-        dt1 = datetime(2026, 8, 4, 20, 0, 0, tzinfo=timezone.utc).astimezone()
+        dt1 = datetime(2026, 8, 4, 20, 0, 0, tzinfo=UTC).astimezone()
         ts1 = dt1.timestamp()
-        dt2 = datetime(2026, 8, 4, 20, 5, 0, tzinfo=timezone.utc).astimezone()
+        dt2 = datetime(2026, 8, 4, 20, 5, 0, tzinfo=UTC).astimezone()
         ts2 = dt2.timestamp()
 
         # Day 2: Aug 5, 2026
-        dt3 = datetime(2026, 8, 5, 9, 0, 0, tzinfo=timezone.utc).astimezone()
+        dt3 = datetime(2026, 8, 5, 9, 0, 0, tzinfo=UTC).astimezone()
         ts3 = dt3.timestamp()
-        dt4 = datetime(2026, 8, 5, 9, 5, 0, tzinfo=timezone.utc).astimezone()
+        dt4 = datetime(2026, 8, 5, 9, 5, 0, tzinfo=UTC).astimezone()
         ts4 = dt4.timestamp()
 
         con.execute("INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)", ("user", "Day 1 User Msg", ts1))

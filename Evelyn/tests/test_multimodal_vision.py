@@ -16,7 +16,7 @@ class TestMultimodalVision(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.test_dir, "test_media.db")
         self.memory_db_path = os.path.join(self.test_dir, "test_memory.db")
-        
+
         self.cfg_patcher1 = patch.object(cfg, "MEDIA_DB_PATH", self.db_path)
         self.cfg_patcher2 = patch.object(cfg, "MEMORY_DB_PATH", self.memory_db_path)
         self.cfg_patcher3 = patch.object(cfg, "BASE_DIR", self.test_dir)

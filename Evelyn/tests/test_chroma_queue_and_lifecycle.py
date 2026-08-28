@@ -1,27 +1,24 @@
 # test_chroma_queue_and_lifecycle.py
 # date created: 2026-08-19 20:25:48
 # date modified: 2026-08-19 20:25:48
-# tags: 
+# tags:
 
 """
 test_chroma_queue_and_lifecycle.py — Unit tests for Chroma Single-Writer Queue,
 dead-letter protection, queue coalescing, and lifecycle sanitization.
 """
 
+import json
 import os
 import sys
 import time
 import unittest
-import sqlite3
-import json
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-import Evelyn.tools.chroma_rag as chroma_rag
-import Evelyn.tools.memory_db as memory_db
-import Evelyn.tools.task_manager as task_manager
+from Evelyn.tools import chroma_rag, memory_db, task_manager
 
 
 class TestChromaQueueAndLifecycle(unittest.TestCase):
@@ -38,8 +35,9 @@ class TestChromaQueueAndLifecycle(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        import evelyn_config as cfg
         import shutil
+
+        import evelyn_config as cfg
         cfg.CHROMA_DB_PATH = cls.orig_chroma_path
         chroma_rag._client = None
         if os.path.exists(cls.test_chroma_dir):
@@ -167,7 +165,7 @@ class TestChromaQueueAndLifecycle(unittest.TestCase):
             f.write("test lock")
 
         self.assertTrue(os.path.exists(dummy_lock))
-        summary = task_manager.reap_orphaned_processes()
+        task_manager.reap_orphaned_processes()
         self.assertFalse(os.path.exists(dummy_lock))
     def test_06_drain_deadline_rollback(self):
         """Verify that when drain_sync_queue encounters an expired deadline, un-processed items revert to pending."""

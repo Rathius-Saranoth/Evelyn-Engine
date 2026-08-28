@@ -3,10 +3,10 @@
 # date modified: 2026-08-19 19:01:31
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
-import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
 import sys
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _TOOLS_DIR = _PROJECT_ROOT / "Evelyn" / "tools"
@@ -16,9 +16,8 @@ if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
 
-import Evelyn.tools.memory_db as memory_db
-import Evelyn.tools.fact_consolidator as fact_consolidator
 import evelyn_server
+from Evelyn.tools import fact_consolidator, memory_db
 
 
 class TestContextSplit(unittest.TestCase):
@@ -31,6 +30,7 @@ class TestContextSplit(unittest.TestCase):
 
     def tearDown(self):
         import sqlite3
+
         import evelyn_config as cfg
         conn = sqlite3.connect(cfg.MEMORY_DB_PATH)
         cur = conn.cursor()
@@ -202,7 +202,6 @@ entries:
         )
         self.created_entry_ids.append(test_id)
 
-        headers = {"X-Admin-Token": "test"}
         with patch("evelyn_server.check_auth", return_value=None):
             resp = client.post(f"/api/context/{test_id}/queue_split")
             self.assertEqual(resp.status_code, 200)

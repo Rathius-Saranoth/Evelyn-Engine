@@ -4,8 +4,9 @@
 # tags: #test, #telemetry, #hardening, #thinking, #task_manager
 
 import unittest
-import time
-import Evelyn.tools.task_manager as task_manager
+
+from Evelyn.tools import task_manager
+
 
 class TestTelemetryAndThinkingHardening(unittest.TestCase):
     def setUp(self):
@@ -26,7 +27,7 @@ class TestTelemetryAndThinkingHardening(unittest.TestCase):
         """Verify trailing colons and empty error strings are sanitized cleanly."""
         task_manager.set_running("test_task")
         task_manager.clear_running("test_task", status="error", error="ReadTimeout: ")
-        
+
         status_data = self.tasks_dict.get("test_task")
         self.assertEqual(status_data["status"], "error")
         self.assertEqual(status_data["error"], "ReadTimeout")
@@ -41,14 +42,14 @@ class TestTelemetryAndThinkingHardening(unittest.TestCase):
         """Verify previously errored tasks clear their error upon subsequent successful completion."""
         task_manager.set_running("test_task_recover")
         task_manager.clear_running("test_task_recover", status="error", error="ReadTimeout")
-        
+
         status_data = self.tasks_dict.get("test_task_recover")
         self.assertEqual(status_data["error"], "ReadTimeout")
 
         # Run again and succeed
         task_manager.set_running("test_task_recover")
         task_manager.clear_running("test_task_recover", status="idle", summary="Completed successfully")
-        
+
         status_data_after = self.tasks_dict.get("test_task_recover")
         self.assertEqual(status_data_after["status"], "idle")
         self.assertIsNone(status_data_after["error"])

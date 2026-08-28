@@ -10,13 +10,13 @@ approved execution, and status query functions for terminal commands and file sy
 across Linux environments and Obsidian Vault locations.
 """
 
-import sys
 import os
-import time
-import tempfile
 import shutil
+import sys
+import tempfile
+import time
 import unittest
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
 
 # Add Evelyn/tools and root to system path
 sys.path.append(r"/home/rathius/evelyn")
@@ -188,7 +188,7 @@ class TestTerminalAgent(unittest.TestCase):
             self.assertIn("[Success] File written to", approve_res)
 
             # Verify file contents on disk
-            with open(test_file, "r", encoding="utf-8") as f:
+            with open(test_file, encoding="utf-8") as f:
                 content = f.read()
             self.assertEqual(content, "Hello persistent approval!")
 

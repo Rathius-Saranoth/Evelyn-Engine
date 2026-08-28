@@ -17,10 +17,9 @@ This will:
 4. If confirmed, it deletes the message and merges the threads.
 """
 
-import sqlite3
-import os
 import argparse
-
+import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -56,17 +55,17 @@ def main():
         con.close()
         return
 
-    msg_id, ts, role, content = row
-    
+    msg_id, ts, _role, _content = row
+
     # Check how many messages have been sent since this thread break
     cur.execute("SELECT COUNT(*) FROM messages WHERE id > ?", (msg_id,))
     count_after = cur.fetchone()[0]
 
-    print(f"Found latest thread break:")
+    print("Found latest thread break:")
     print(f"  ID: {msg_id}")
     print(f"  Timestamp: {ts}")
     print(f"  Messages sent since this break: {count_after}")
-    
+
     if count_after > 0:
         print("\nWARNING: There are messages after this thread break.")
         print("Undoing it will merge the new messages into the previous thread.")

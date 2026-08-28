@@ -2,7 +2,7 @@
 # pdf_staging_worker.py
 # date created: 2026-08-28 11:24:49
 # date modified: 2026-08-28 11:52:11
-# tags: 
+# tags:
 
 """
 Evelyn Engine — Automated PDF Staging Worker.
@@ -16,7 +16,6 @@ Coordinates with task_manager.py for mutual exclusion against other heavy tasks.
 
 import json
 import os
-import re
 import shutil
 import sys
 import time
@@ -29,13 +28,11 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "scripts")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import evelyn_config as cfg
-from Evelyn.tools.tag_librarian import format_yaml_array
-import Evelyn.tools.task_manager as task_manager
-import Evelyn.tools.vault_db as vault_db
-import Evelyn.tools.chroma_rag as chroma_rag
 import extract_pdf_library
 
+import evelyn_config as cfg
+from Evelyn.tools import task_manager
+from Evelyn.tools.frontmatter_utils import format_yaml_array
 
 VAULT_ROOT = Path(getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault"))
 STAGING_DIR = VAULT_ROOT / "Attachments" / "Staging"
@@ -66,10 +63,10 @@ def _read_sidecar_metadata(meta_path: Path) -> dict:
     """Read metadata JSON if present for uploaded staged files."""
     if meta_path.exists():
         try:
-            with open(meta_path, "r", encoding="utf-8") as f:
+            with open(meta_path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[PDF_STAGING_WORKER] Metadata read warning for {meta_path}: {e}", flush=True)
     return {}
 
 
@@ -157,7 +154,7 @@ created: {time.strftime('%Y-%m-%d')}
         if meta_file.exists():
             os.remove(meta_file)
 
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError, KeyError) as e:
         result["status"] = "error"
         result["error"] = str(e)
 

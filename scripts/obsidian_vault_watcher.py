@@ -2,7 +2,7 @@
 # obsidian_vault_watcher.py
 # date created: 2026-08-15 14:45:36
 # date modified: 2026-08-19 19:48:02
-# tags: 
+# tags:
 
 # scripts/obsidian_vault_watcher.py
 # date created: 2026-08-15
@@ -20,6 +20,7 @@ Designed to run 24/7 as a systemd user service with low CPU/IO priority.
 import os
 import re
 import signal
+import sqlite3
 import sys
 import time
 
@@ -34,11 +35,12 @@ for _p in (ROOT_DIR, TOOLS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import evelyn_config as cfg  # noqa: E402
-import ingest_obsidian_knowledge  # noqa: E402
-import vault_db  # noqa: E402
-import task_manager  # noqa: E402
-import chroma_rag  # noqa: E402
+import chroma_rag
+import ingest_obsidian_knowledge
+import task_manager
+import vault_db
+
+import evelyn_config as cfg
 
 VAULT_DIR = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 DEBOUNCE_SECONDS = 4.0
@@ -76,7 +78,7 @@ def is_ignored(path_str: str) -> bool:
 def quick_extract_metadata(file_path: str) -> dict | None:
     """Fast extraction of YAML frontmatter, H1 title, and tags without LLM overhead."""
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
             content = f.read()
     except (OSError, UnicodeDecodeError) as e:
         print(f"[WATCHER] Error reading {file_path}: {e}", flush=True)
@@ -151,7 +153,7 @@ def update_sqlite_for_changed_files(
                 vault_db.move_document(rel_src, rel_dest)
                 chroma_rag.enqueue_remap(full_src, full_dest, "evelyn_memory")
                 print(f"[WATCHER] Atomic move: {rel_src} -> {rel_dest}", flush=True)
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError) as e:
                 print(f"[WATCHER] Move failed for {rel_src} -> {rel_dest}: {e}", flush=True)
 
     # 2. Handle modifications/creations
@@ -173,7 +175,7 @@ def update_sqlite_for_changed_files(
                     tags=",".join(meta["tags"]),
                     aliases=",".join(meta["aliases"]),
                 )
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError) as e:
                 print(f"[WATCHER] SQLite update failed for {rel_path}: {e}", flush=True)
 
     # 3. Handle deletions
@@ -181,7 +183,7 @@ def update_sqlite_for_changed_files(
         rel_path = os.path.relpath(full_path, VAULT_DIR)
         try:
             vault_db.delete_document(rel_path)
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             print(f"[WATCHER] SQLite delete failed for {rel_path}: {e}", flush=True)
 
 
@@ -298,7 +300,7 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
                         staged_results = pdf_staging_worker.process_staging_queue()
                         if staged_results:
                             print(f"[WATCHER] Ingested {len(staged_results)} staged document(s): {staged_results}", flush=True)
-                    except Exception as e:
+                    except (sqlite3.Error, OSError, ValueError, RuntimeError, ImportError) as e:
                         print(f"[WATCHER ERROR] Staging ingestion failed: {e}", file=sys.stderr, flush=True)
 
                 # 2. Update SQLite fast metadata index
@@ -313,7 +315,7 @@ class DebouncedVaultEventHandler(FileSystemEventHandler):
 
                 duration = time.time() - start_t
                 print(f"[WATCHER] Ingestion completed successfully in {duration:.2f}s.\n", flush=True)
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
                 print(f"[WATCHER ERROR] Ingestion failed: {e}", file=sys.stderr, flush=True)
 
 
@@ -348,7 +350,7 @@ def main():
             handler.check_and_run()
     except (KeyboardInterrupt, SystemExit):
         observer.stop()
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         print(f"[WATCHER FATAL] Observer loop crashed: {e}", file=sys.stderr, flush=True)
         observer.stop()
     finally:

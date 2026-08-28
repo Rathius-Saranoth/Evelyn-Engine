@@ -1,6 +1,6 @@
 # vault_list_manager.py
 # date created: 2026-08-23
-# date modified: 2026-08-28 11:51:25
+# date modified: 2026-08-28 12:28:30
 # tags: #obsidian, #vault, #lists, #groceries, #checklists, #tools
 
 """vault_list_manager.py — Local Obsidian Vault List and Checklist Manager.
@@ -14,10 +14,11 @@ from __future__ import annotations
 import datetime
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 import evelyn_config as cfg
-from Evelyn.tools.tag_librarian import format_yaml_array
+from Evelyn.tools.frontmatter_utils import format_yaml_array, parse_frontmatter
+from Evelyn.tools.string_utils import slugify
 
 
 def get_lists_directory() -> str:
@@ -46,11 +47,7 @@ def list_all_lists() -> list[str]:
     lists_dir = get_lists_directory()
     if not os.path.exists(lists_dir):
         return []
-    names = []
-    for f in sorted(os.listdir(lists_dir)):
-        if f.endswith(".md") and not f.startswith("."):
-            names.append(f[:-3])
-    return names
+    return [f[:-3] for f in sorted(os.listdir(lists_dir)) if f.endswith(".md") and not f.startswith(".")]
 
 
 def ensure_list_exists(name: str) -> str:
@@ -67,8 +64,8 @@ def ensure_list_exists(name: str) -> str:
         return path
 
     clean_name = normalize_list_name(name)
-    slug = clean_name.lower().replace(" ", "_")
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    slug = slugify(clean_name)
+    now_str = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
     # Check for specific template in templates/lists/
     specific_tmpl = os.path.join(cfg.BASE_DIR, "templates", "lists", f"{slug}.md")
@@ -76,10 +73,10 @@ def ensure_list_exists(name: str) -> str:
 
     template_content = ""
     if os.path.exists(specific_tmpl):
-        with open(specific_tmpl, "r", encoding="utf-8") as f:
+        with open(specific_tmpl, encoding="utf-8") as f:
             template_content = f.read()
     elif os.path.exists(generic_tmpl):
-        with open(generic_tmpl, "r", encoding="utf-8") as f:
+        with open(generic_tmpl, encoding="utf-8") as f:
             template_content = f.read()
     else:
         tags_str = format_yaml_array(["list", slug])
@@ -104,7 +101,7 @@ def ensure_list_exists(name: str) -> str:
     return path
 
 
-def format_item_line(name: str, quantity: Optional[float | int | str] = None, unit: Optional[str] = None) -> str:
+def format_item_line(name: str, quantity: float | int | str | None = None, unit: str | None = None) -> str:
     """Format an item string into scannable 'Item (Qty Unit)' presentation.
 
     Args:
@@ -128,17 +125,14 @@ def format_item_line(name: str, quantity: Optional[float | int | str] = None, un
             pass
 
         u_val = str(unit).strip() if unit else ""
-        if u_val:
-            qty_str = f" ({q_val} {u_val})"
-        else:
-            qty_str = f" ({q_val}x)" if q_val != "1" else ""
+        qty_str = f" ({q_val} {u_val})" if u_val else f" ({q_val}x)" if q_val != "1" else ""
     elif unit and str(unit).strip():
         qty_str = f" ({str(unit).strip()})"
 
     return f"- [ ] {clean_name}{qty_str}"
 
 
-def parse_item_line(line: str) -> Optional[dict[str, Any]]:
+def parse_item_line(line: str) -> dict[str, Any] | None:
     """Parse a markdown checklist item line into structured fields.
 
     Matches lines like:
@@ -209,32 +203,17 @@ def parse_list_file(filepath: str) -> dict[str, Any]:
     if not os.path.exists(filepath):
         return {"frontmatter": "", "title": "", "sections": {}, "order": []}
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+    with open(filepath, encoding="utf-8") as f:
+        content = f.read()
 
-    frontmatter_lines: list[str] = []
-    in_frontmatter = False
-    doc_lines: list[str] = []
+    frontmatter_str = ""
+    if content.lstrip("\ufeff").startswith("---"):
+        match = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n?", content.lstrip("\ufeff"), re.DOTALL)
+        if match:
+            frontmatter_str = match.group(0)
 
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if i == 0 and line.strip() == "---":
-            in_frontmatter = True
-            frontmatter_lines.append(line)
-            i += 1
-            while i < len(lines):
-                fm_line = lines[i]
-                frontmatter_lines.append(fm_line)
-                if fm_line.strip() == "---":
-                    in_frontmatter = False
-                    i += 1
-                    break
-                i += 1
-            continue
-
-        doc_lines.append(line)
-        i += 1
+    _, body = parse_frontmatter(content)
+    doc_lines = body.splitlines(keepends=True)
 
     sections: dict[str, list[dict[str, Any]]] = {}
     section_order: list[str] = []
@@ -265,7 +244,7 @@ def parse_list_file(filepath: str) -> dict[str, Any]:
             sections[current_section].append(item_data)
 
     return {
-        "frontmatter": "".join(frontmatter_lines),
+        "frontmatter": frontmatter_str,
         "title": title or os.path.basename(filepath)[:-3],
         "sections": sections,
         "order": section_order,
@@ -274,7 +253,7 @@ def parse_list_file(filepath: str) -> dict[str, Any]:
 
 def write_list_file(filepath: str, parsed: dict[str, Any]) -> None:
     """Serialize structured sections back to markdown document on disk."""
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
     frontmatter = parsed.get("frontmatter", "")
     if frontmatter:
         # Update date modified
@@ -353,7 +332,7 @@ def write_list_file(filepath: str, parsed: dict[str, Any]) -> None:
         f.write(content)
 
 
-def find_matching_section(parsed: dict[str, Any], category: Optional[str] = None) -> str:
+def find_matching_section(parsed: dict[str, Any], category: str | None = None) -> str:
     """Find the best matching section header in parsed list for a given category."""
     sections = parsed.get("sections", {})
     order = parsed.get("order", list(sections.keys()))
@@ -384,7 +363,7 @@ def find_matching_section(parsed: dict[str, Any], category: Optional[str] = None
     return new_sec
 
 
-def normalize_input_items(items: Any, default_category: Optional[str] = None) -> list[dict[str, Any]]:
+def normalize_input_items(items: Any, default_category: str | None = None) -> list[dict[str, Any]]:
     """Normalize flexible input formats into a list of item dictionaries."""
     if items is None:
         return []
@@ -466,10 +445,7 @@ def read_list(name: str = "Groceries") -> dict[str, Any]:
             q = item.get("quantity")
             u = item.get("unit")
             if q is not None and str(q).strip():
-                if u:
-                    qty_part = f" ({q} {u})"
-                else:
-                    qty_part = f" ({q}x)" if str(q) != "1" else ""
+                qty_part = f" ({q} {u})" if u else f" ({q}x)" if str(q) != "1" else ""
             elif u:
                 qty_part = f" ({u})"
 
@@ -494,7 +470,7 @@ def read_list(name: str = "Groceries") -> dict[str, Any]:
 def add_to_list(
     name: str = "Groceries",
     items: Any = None,
-    category: Optional[str] = None,
+    category: str | None = None,
 ) -> dict[str, Any]:
     """Add items to a list with category routing and quantity incrementing.
 
@@ -613,7 +589,7 @@ def toggle_list_items(
     matched_names: list[str] = []
 
     sections = parsed.get("sections", {})
-    for sec, sec_items in sections.items():
+    for sec_items in sections.values():
         for item in sec_items:
             item_name_lower = item["name"].strip().lower()
             # Match exact or substring

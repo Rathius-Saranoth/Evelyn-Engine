@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import evelyn_config as cfg
 from Evelyn.version import __version__, compare_versions, normalize_version
@@ -454,6 +454,7 @@ def migrate_000_005_018_procedures_upgrade(conn: sqlite3.Connection, db_map: dic
 def migrate_000_006_009_subject_codes_sanitization(conn: sqlite3.Connection, db_map: dict[str, str], cfg: object) -> None:
     """Migration 000.006.009: Sanitize legacy -R (User) and -E (Assistant) category codes to canonical -U and -A."""
     import re
+
     from Evelyn.tools.fact_consolidator import validate_and_normalize_category
 
     cursor = conn.cursor()
@@ -629,7 +630,7 @@ def create_db_snapshot(db_name: str, target_version: str) -> str:
     if not db_path or not os.path.exists(db_path):
         return ""
     ensure_backup_dir()
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backup_filename = f"{os.path.basename(db_path)}_pre_{target_version}_{timestamp}.bak"
     backup_path = os.path.join(BACKUP_DIR, backup_filename)
     shutil.copy2(db_path, backup_path)
@@ -648,7 +649,7 @@ def check_all_dbs_status(target_version: str | None = None) -> dict[str, dict]:
         applied = get_applied_migrations(db_path) if os.path.exists(db_path) else {}
         db_migrations = [m for m in MIGRATIONS if m.target_db == db_name and compare_versions(m.version, target) <= 0]
         pending = [m for m in db_migrations if m.version not in applied]
-        
+
         current_v = get_db_version(db_name)
         is_up_to_date = len(pending) == 0 and (len(db_migrations) == 0 or current_v is not None)
 
@@ -678,7 +679,7 @@ def validate_db_schemas_or_raise() -> None:
             mismatches.append(
                 f"- {db_name} ({info['db_path']}): current={info['current_version']}, target={info['target_version']}, pending={info['pending_count']}"
             )
-    
+
     if mismatches:
         mismatch_str = "\n".join(mismatches)
         raise DatabaseSchemaMismatchError(
@@ -694,7 +695,7 @@ def execute_post_hooks(migration: Migration) -> None:
         print(f"[DB Migrator] Triggering post-migration Chroma sync hook for {migration.version}...")
         try:
             print("[DB Migrator] Chroma sync hook completed.")
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
             print(f"[DB Migrator] [WARNING] Post-migration Chroma hook warning: {e}")
 
     if migration.reindex_vault:
@@ -703,7 +704,7 @@ def execute_post_hooks(migration: Migration) -> None:
             from Evelyn.tools.vault_indexer import scan_vault
             scan_vault()
             print("[DB Migrator] Vault reindex hook completed.")
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError, ImportError) as e:
             print(f"[DB Migrator] [WARNING] Post-migration Vault reindex hook warning: {e}")
 
 
@@ -758,23 +759,23 @@ def apply_pending_migrations(
         conn = sqlite3.connect(db_path, timeout=30.0)
         try:
             conn.execute("BEGIN IMMEDIATE")
-            
+
             # Execute SQL DDL if present
             if migration.up_sql:
                 conn.executescript(migration.up_sql)
-            
+
             # Execute Python transform callable if present
             if migration.up_fn:
                 migration.up_fn(conn, DB_MAP, cfg)
 
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            applied_at = datetime.now(timezone.utc).isoformat()
+            applied_at = datetime.now(UTC).isoformat()
 
             conn.execute("""
                 INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, execution_time_ms, status)
                 VALUES (?, ?, ?, ?, 'success')
             """, (migration.version, migration.name, applied_at, elapsed_ms))
-            
+
             conn.commit()
             print(f"[DB Migrator] Successfully applied [{migration.target_db}] v{migration.version} in {elapsed_ms}ms.")
 
@@ -811,7 +812,7 @@ def rollback_db(db_name: str, backup_file: str) -> None:
         raise ValueError(f"Unknown database name: {db_name}")
     if not os.path.exists(backup_file):
         raise FileNotFoundError(f"Backup file not found: {backup_file}")
-    
+
     print(f"[DB Migrator] Rolling back {db_name} from {backup_file} -> {db_path}...")
     shutil.copy2(backup_file, db_path)
     print("[DB Migrator] Rollback complete.")

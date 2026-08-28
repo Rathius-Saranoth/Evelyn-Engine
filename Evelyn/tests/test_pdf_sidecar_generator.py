@@ -2,12 +2,11 @@
 # date created: 2026-08-22 19:10:00
 # tags: #test, #pdf, #sidecar, #normalization, #obsidian
 
-import pytest
 from scripts.extract_pdf_library import (
+    Section,
+    generate_sidecar_card,
     normalize_book_title,
     segment_concatenated_words,
-    generate_sidecar_card,
-    Section,
 )
 
 
@@ -30,7 +29,7 @@ def test_normalize_book_title_clean_cases():
     assert t2 == "Crafting Engineering Strategy"
     assert s2 == "How Thoughtful Decisions Solve Complex Problems"
 
-    t3, s3 = normalize_book_title("hands-onmachinelearningwithscikit-learnandpytorch.pdf")
+    t3, _s3 = normalize_book_title("hands-onmachinelearningwithscikit-learnandpytorch.pdf")
     assert "Machine Learning" in t3
     assert "PyTorch" in t3 or "Scikit-Learn" in t3
 

@@ -2,15 +2,14 @@ import json
 import os
 import shutil
 import tempfile
+
 import pytest
 
 import evelyn_config as cfg
 from Evelyn.tools.evelyn_tools import (
-    list_research_tasks,
-    inspect_research_task,
     guide_research,
-    _resolve_research_task_id,
-    _scan_research_tasks,
+    inspect_research_task,
+    list_research_tasks,
 )
 from evelyn_server import get_research_context
 
@@ -45,7 +44,7 @@ def _create_mock_task(res_dir, task_id, query, status="running", struggling=Fals
                 {
                     "id": "sq_01",
                     "question": f"Sub-question 1 for {query}",
-                    "search_query": f"Sub-question 1 query",
+                    "search_query": "Sub-question 1 query",
                     "status": sq_status,
                     "confidence": 30,
                     "source_count": 3,
@@ -151,7 +150,7 @@ def test_guide_research_fuzzy_and_auto_resolution(temp_research_env, monkeypatch
     # Verify gaps file was updated
     gaps_file = os.path.join(temp_research_env, "task_stalled_01", "sq_01_gaps.json")
     assert os.path.exists(gaps_file)
-    with open(gaps_file, "r", encoding="utf-8") as f:
+    with open(gaps_file, encoding="utf-8") as f:
         gaps_data = json.load(f)
     assert any("Focus on polar H10" in g for g in gaps_data["gaps"])
 

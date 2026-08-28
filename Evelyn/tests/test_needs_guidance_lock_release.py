@@ -1,10 +1,10 @@
 # test_needs_guidance_lock_release.py
 # date created: 2026-08-10
 
-import unittest
-from unittest.mock import patch, MagicMock
-import sys
 import time
+import unittest
+from unittest.mock import MagicMock, patch
+
 
 class TestNeedsGuidanceLockRelease(unittest.TestCase):
     def test_task_manager_is_any_running_returns_false_for_needs_guidance(self):
@@ -20,7 +20,7 @@ class TestNeedsGuidanceLockRelease(unittest.TestCase):
         }
 
         with patch.dict("sys.modules", {"evelyn_server": mock_server}):
-            import Evelyn.tools.task_manager as task_manager
+            from Evelyn.tools import task_manager
             is_running = task_manager.is_any_running()
             self.assertFalse(is_running, "task_manager.is_any_running() should return False when task status is needs_guidance")
 
@@ -42,14 +42,16 @@ class TestNeedsGuidanceLockRelease(unittest.TestCase):
         }
 
         # Simulate the sync logic in _idle_research_loop
-        for tid, task in list(background_tasks.items()):
+        for tid, _task in list(background_tasks.items()):
             if tid.startswith("task_"):
                 status = mock_disk_state.get("status")
                 if status:
                     background_tasks[tid]["status"] = status
-                    if status in ("done", "error", "cancelled", "needs_guidance", "paused"):
-                        if "finished_at" not in background_tasks[tid] or not background_tasks[tid].get("finished_at"):
-                            background_tasks[tid]["finished_at"] = time.time()
+                    if (
+                        status in ("done", "error", "cancelled", "needs_guidance", "paused")
+                        and ("finished_at" not in background_tasks[tid] or not background_tasks[tid].get("finished_at"))
+                    ):
+                        background_tasks[tid]["finished_at"] = time.time()
 
         self.assertEqual(background_tasks["task_12345678_9abcdef0"]["status"], "needs_guidance")
         self.assertIn("finished_at", background_tasks["task_12345678_9abcdef0"])

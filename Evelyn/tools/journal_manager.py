@@ -1,6 +1,6 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-05-25 19:54:48
+# date modified: 2026-08-28 12:28:58
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
@@ -20,10 +20,12 @@ Key path constants:
 This module is imported and hot-reloaded by ``evelyn_tools.py``.
 """
 
-import os
 import datetime
 import importlib
-import evelyn_config as cfg # [[evelyn_config.py]]
+import os
+
+import evelyn_config as cfg  # [[evelyn_config.py]]
+from Evelyn.tools.frontmatter_utils import render_frontmatter
 
 JOURNAL_DIR = getattr(cfg, "JOURNAL_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), f"{getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}'s Journal"))
 PENDING_DIR = os.path.join(getattr(cfg, "PENDING_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), "Pending_Approvals")), "Journal")
@@ -52,7 +54,7 @@ def _resolve_journal_filepath(date_str: str) -> str | None:
 
     # 2. Structured archive folder
     try:
-        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
         year = dt.strftime("%Y")
         month_str = f"{dt.strftime('%m')}-{dt.strftime('%b')}"
         struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", year, month_str, filename)
@@ -74,7 +76,7 @@ def create_journal_entry(
     narrative: str,
     message_in_a_bottle: str,
     mood: str,
-    tags: list = None,
+    tags: list | None = None,
 ):
     """
     Writes a journal entry markdown file to the Pending Approvals folder.
@@ -99,7 +101,7 @@ def create_journal_entry(
         str: Confirmation message stating whether a new entry was created or
         an existing one was appended to.
     """
-    today = datetime.date.today()
+    today = datetime.datetime.now(datetime.UTC).astimezone().date()
     filename = f"Journal Entry {today.strftime('%Y-%m-%d')}.md"
 
     # Determine write target based on config
@@ -118,14 +120,9 @@ def create_journal_entry(
         if t not in clean_tags:
             clean_tags.append(t)
 
-    append_content = f"\n\n---\n\n## Supplemental Entry ({datetime.datetime.now().strftime('%H:%M')})\n### Vibe Check\n*Mood: {mood}*\n{vibe_check}\n\n### The Narrative\n{narrative}\n\n### Message in a Bottle\n*{message_in_a_bottle}*\n"
+    append_content = f"\n\n---\n\n## Supplemental Entry ({datetime.datetime.now(datetime.UTC).astimezone().strftime('%H:%M')})\n### Vibe Check\n*Mood: {mood}*\n{vibe_check}\n\n### The Narrative\n{narrative}\n\n### Message in a Bottle\n*{message_in_a_bottle}*\n"
 
-    file_content = f"""---
-mood: {mood}
-tags: [{", ".join(clean_tags)}]
----
-
-# Journal Entry {today.strftime("%Y-%m-%d")}
+    body = f"""# Journal Entry {today.strftime("%Y-%m-%d")}
 
 ## Vibe Check
 *Mood: {mood}*
@@ -137,15 +134,16 @@ tags: [{", ".join(clean_tags)}]
 ## Message in a Bottle
 *{message_in_a_bottle}*
 """
+    file_content = render_frontmatter({"mood": mood, "tags": clean_tags}, body=body)
 
-    import Evelyn.tools.terminal_agent as terminal_agent
+    from Evelyn.tools import terminal_agent
     if os.path.exists(filepath):
         return terminal_agent.write_file(filepath, append_content, mode="append")
     else:
         return terminal_agent.write_file(filepath, file_content, mode="overwrite")
 
 
-def read_journal_entry(date_str: str = None) -> str:
+def read_journal_entry(date_str: str | None = None) -> str:
     """Read a single journal entry by date.
 
     Args:
@@ -155,12 +153,12 @@ def read_journal_entry(date_str: str = None) -> str:
         str: The content of the journal entry, or a message if not found.
     """
     if not date_str:
-        date_str = datetime.date.today().strftime("%Y-%m-%d")
+        date_str = datetime.datetime.now(datetime.UTC).astimezone().date().strftime("%Y-%m-%d")
 
     filepath = _resolve_journal_filepath(date_str)
     if filepath and os.path.exists(filepath):
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 return f.read()
         except OSError as e:
             return f"Error reading journal entry file: {e}"
@@ -178,7 +176,7 @@ def read_recent_journal_entries(days: int = 7) -> str:
         str: The concatenated journal entries text.
     """
     entries = []
-    today = datetime.date.today()
+    today = datetime.datetime.now(datetime.UTC).astimezone().date()
     for i in range(days):
         date_obj = today - datetime.timedelta(days=i)
         date_str = date_obj.strftime("%Y-%m-%d")
@@ -186,7 +184,7 @@ def read_recent_journal_entries(days: int = 7) -> str:
         filepath = _resolve_journal_filepath(date_str)
         if filepath and os.path.exists(filepath):
             try:
-                with open(filepath, "r", encoding="utf-8") as f:
+                with open(filepath, encoding="utf-8") as f:
                     entries.append(f"--- Entry for {date_str} ---\n{f.read()}\n")
             except OSError:
                 pass

@@ -1,12 +1,11 @@
 # test_procedures_upgrade.py
 # date created: 2026-08-28 07:37:20
 # date modified: 2026-08-28 07:37:20
-# tags: 
+# tags:
 
 import pytest
-from Evelyn.tools import memory_db
-from Evelyn.tools import fact_extractor
-from Evelyn.tools import chroma_rag
+
+from Evelyn.tools import chroma_rag, fact_extractor, memory_db
 
 
 def test_procedure_crud_with_suggested_tools():
@@ -127,7 +126,6 @@ procedures:
 
 def test_chroma_rag_procedure_formatting(monkeypatch):
     """Verify chroma_rag formats suggested_tools in retrieved procedures."""
-    import sys
     from Evelyn.tools import query_reformulator
     monkeypatch.setattr(query_reformulator, "reformulate_query", lambda q: q)
 
@@ -202,6 +200,7 @@ def test_hard_deletion_primitives():
 async def test_procedure_merge_proposal_tag_preservation(monkeypatch):
     """Verify that generate_procedure_merge_proposal preserves source procedure domain tags."""
     import yaml
+
     from Evelyn.tools import procedure_consolidator
 
     p1 = memory_db.insert_procedure(

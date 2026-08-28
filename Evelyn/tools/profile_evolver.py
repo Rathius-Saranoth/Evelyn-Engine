@@ -27,13 +27,23 @@ import importlib
 import json
 import os
 import re
+import sqlite3
 import time
-import sys
+
 import httpx
-import yaml
+import memory_db
 
 import evelyn_config as cfg
-import memory_db
+
+
+def _sync_read_file(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _sync_write_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
 
 # ---------------------------------------------------------------------------
 # Category-to-document mapping
@@ -249,13 +259,13 @@ def _load_evolution_state() -> dict:
     """
     doc_keys = list(DOCUMENT_CATEGORIES.keys())
     default_state = {
-        "last_run_per_doc":     {k: 0.0 for k in doc_keys},
-        "draft_cursor_per_doc": {k: 0.0 for k in doc_keys},
+        "last_run_per_doc":     dict.fromkeys(doc_keys, 0.0),
+        "draft_cursor_per_doc": dict.fromkeys(doc_keys, 0.0),
         "last_status_per_doc":  {},
     }
     try:
         if os.path.exists(_STATE_FILE):
-            with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            with open(_STATE_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict) and "last_run_per_doc" in data:
                 # Merge — guarantee all keys exist for sub-dicts
@@ -263,7 +273,7 @@ def _load_evolution_state() -> dict:
                     if k not in data["last_run_per_doc"]:
                         data["last_run_per_doc"][k] = 0.0
                 if "draft_cursor_per_doc" not in data:
-                    data["draft_cursor_per_doc"] = {k: 0.0 for k in doc_keys}
+                    data["draft_cursor_per_doc"] = dict.fromkeys(doc_keys, 0.0)
                 else:
                     for k in doc_keys:
                         if k not in data["draft_cursor_per_doc"]:
@@ -271,7 +281,7 @@ def _load_evolution_state() -> dict:
                 if "last_status_per_doc" not in data:
                     data["last_status_per_doc"] = {}
                 return data
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[PROFILE EVOLVER] Warning: could not load state file: {e}", flush=True)
     return default_state
 
@@ -285,7 +295,7 @@ def _save_evolution_state(state: dict) -> None:
     try:
         with open(_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[PROFILE EVOLVER] Warning: could not save state file: {e}", flush=True)
 
 
@@ -319,7 +329,7 @@ def get_profile_evolution_statuses() -> dict:
     state = _load_evolution_state()
     statuses = state.get("last_status_per_doc", {})
     # Guarantee entries for all categories
-    for doc in DOCUMENT_CATEGORIES.keys():
+    for doc in DOCUMENT_CATEGORIES:
         if doc not in statuses:
             last_run = state.get("last_run_per_doc", {}).get(doc, 0.0)
             statuses[doc] = {
@@ -439,7 +449,7 @@ async def run_profile_evolution():
                 continue
 
             last_run    = state["last_run_per_doc"].get(filename, 0.0)
-            draft_cursor = state["draft_cursor_per_doc"].get(filename, 0.0)
+            state["draft_cursor_per_doc"].get(filename, 0.0)
             cooldown    = getattr(cfg, "PROFILE_EVOLUTION_COOLDOWN", 86400)
 
             # Skip if cooldown hasn't elapsed AND no in-progress draft exists.
@@ -459,7 +469,7 @@ async def run_profile_evolution():
             for cat in categories:
                 entries = memory_db.get_entries_by_category(cat, status="live")
                 for entry in entries:
-                    created_at      = entry.get("created_at", 0.0) or 0.0
+                    entry.get("created_at", 0.0) or 0.0
                     updated_at      = entry.get("updated_at", 0.0)  or 0.0
                     last_evolved_at = entry.get("last_evolved_at")
 
@@ -491,7 +501,7 @@ async def run_profile_evolution():
                 # Only advance last_run on a successfully created proposal
                 state["last_run_per_doc"][filename] = now
                 _save_evolution_state(state)
-        
+
         import task_manager
         task_manager.save_last_run_ts("profile_evolver")
         _set_status_in_server("idle")
@@ -499,7 +509,7 @@ async def run_profile_evolution():
     except asyncio.CancelledError:
         print("[PROFILE EVOLVER] Execution cancelled.", flush=True)
         _set_status_in_server("cancelled")
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as e:
         print(f"[PROFILE EVOLVER ERROR] Exception: {e}", flush=True)
         _set_status_in_server("error", error=f"{type(e).__name__}: {e}")
     finally:
@@ -527,18 +537,20 @@ async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
     options = {
         "num_ctx": cfg.NUM_CTX,
         "num_predict": num_predict,
+        **{
+            key: val
+            for key, val in {
+                "temperature": cfg.TEMPERATURE,
+                "min_p": cfg.MIN_P,
+                "top_k": cfg.TOP_K,
+                "top_p": cfg.TOP_P,
+                "repeat_penalty": cfg.REPEAT_PENALTY,
+                "repeat_last_n": cfg.REPEAT_LAST_N,
+                "seed": cfg.SEED,
+            }.items()
+            if val is not None
+        },
     }
-    for key, val in {
-        "temperature": cfg.TEMPERATURE,
-        "min_p": cfg.MIN_P,
-        "top_k": cfg.TOP_K,
-        "top_p": cfg.TOP_P,
-        "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n": cfg.REPEAT_LAST_N,
-        "seed": cfg.SEED,
-    }.items():
-        if val is not None:
-            options[key] = val
 
     payload = {
         "model": model,
@@ -551,10 +563,12 @@ async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
     content_buffer = ""
     timeout = 180  # Generous timeout for reasoning and response generation
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
+    async with (
+        httpx.AsyncClient(timeout=timeout) as client,
+        client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
+    ):
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
                 if not line.strip():
                     continue
                 try:
@@ -610,7 +624,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
     # Load other documents for Cross-Document Reviewer context (redundancy check)
     other_docs_context = []
-    for other_name in DOCUMENT_CATEGORIES.keys():
+    for other_name in DOCUMENT_CATEGORIES:
         if other_name == filename:
             continue
         # Load draft if exists, else live document
@@ -619,11 +633,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             other_path = os.path.join(persona_dir, other_name)
         if os.path.exists(other_path):
             try:
-                with open(other_path, "r", encoding="utf-8") as f_other:
-                    other_content = f_other.read()
+                other_content = await asyncio.to_thread(_sync_read_file, other_path)
                 _, other_body = split_frontmatter(other_content)
                 other_docs_context.append(f"DOCUMENT: {other_name}\nCONTENT:\n{other_body.strip()}")
-            except Exception as e_other:
+            except OSError as e_other:
                 print(f"[PROFILE EVOLVER] Warning: could not load other doc {other_name}: {e_other}", flush=True)
     other_docs_str = "\n\n".join(other_docs_context) if other_docs_context else "None"
 
@@ -632,8 +645,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         print(f"[PROFILE EVOLVER] Error: document file not found at {fpath}", flush=True)
         return False
 
-    with open(fpath, "r", encoding="utf-8") as f:
-        current_content = f.read()
+    current_content = await asyncio.to_thread(_sync_read_file, fpath)
 
     # Extract original frontmatter and markdown body
     frontmatter, current_body = split_frontmatter(current_content)
@@ -645,14 +657,13 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     draft_cursor = state["draft_cursor_per_doc"].get(filename, 0.0)
 
     if os.path.exists(draft_file) and draft_cursor > 0.0:
-        with open(draft_file, "r", encoding="utf-8") as f:
-            accumulated = f.read()
+        accumulated = await asyncio.to_thread(_sync_read_file, draft_file)
         # Ensure we are using the body content only
         _, accumulated_body = split_frontmatter(accumulated)
         accumulated = accumulated_body
         print(
             f"[PROFILE EVOLVER] {filename}: Loaded draft from disk "
-            f"(cursor={datetime.datetime.fromtimestamp(draft_cursor).strftime('%Y-%m-%d %H:%M')}). "
+            f"(cursor={datetime.datetime.fromtimestamp(draft_cursor, tz=datetime.UTC).astimezone().strftime('%Y-%m-%d %H:%M')}). "
             f"Resuming from last completed pass.",
             flush=True,
         )
@@ -786,7 +797,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     flush=True,
                 )
                 raise
-            except Exception as e:
+            except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
                 print(
                     f"[PROFILE EVOLVER ERROR] {filename}: Failed on pass {global_pass}: {e}",
                     flush=True,
@@ -842,16 +853,15 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
             # Persist draft and cursor after every successful pass
             try:
-                with open(draft_file, "w", encoding="utf-8") as f:
-                    f.write(accumulated)
+                await asyncio.to_thread(_sync_write_file, draft_file, accumulated)
                 state["draft_cursor_per_doc"][filename] = draft_cursor
                 _save_evolution_state(state)
                 print(
                     f"[PROFILE EVOLVER] {filename}: Pass {global_pass} complete. "
-                    f"Draft saved (cursor={datetime.datetime.fromtimestamp(draft_cursor).strftime('%Y-%m-%d %H:%M')}).",
+                    f"Draft saved (cursor={datetime.datetime.fromtimestamp(draft_cursor, tz=datetime.UTC).astimezone().strftime('%Y-%m-%d %H:%M')}).",
                     flush=True,
                 )
-            except Exception as e:
+            except OSError as e:
                 print(
                     f"[PROFILE EVOLVER] Warning: could not save draft after pass {global_pass}: {e}",
                     flush=True,
@@ -923,7 +933,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                         f"({compacted_word_count} vs {word_count}). Keeping original.",
                         flush=True,
                     )
-        except Exception as e:
+        except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
             print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass failed: {e}", flush=True)
 
     # ---------------------------------------------------------------------------
@@ -954,14 +964,11 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         reason = "Evolving profile based on recent context entries."
 
     # Update modified date in original YAML frontmatter block
-    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time_str = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
     updated_frontmatter = update_frontmatter_modified_date(frontmatter, current_time_str)
 
     # Reconstruct complete proposed document
-    if updated_frontmatter:
-        proposed_content = updated_frontmatter + "\n\n" + proposed_body
-    else:
-        proposed_content = proposed_body
+    proposed_content = updated_frontmatter + "\n\n" + proposed_body if updated_frontmatter else proposed_body
 
     source_ids = [int(entry["id"]) for entry in new_entries if entry.get("id")]
 
@@ -1003,7 +1010,7 @@ def _clear_draft(filename: str, state: dict) -> None:
     if os.path.exists(draft_file):
         try:
             os.remove(draft_file)
-        except Exception as e:
+        except OSError as e:
             print(f"[PROFILE EVOLVER] Warning: could not delete draft file: {e}", flush=True)
     state["draft_cursor_per_doc"][filename] = 0.0
     _save_evolution_state(state)

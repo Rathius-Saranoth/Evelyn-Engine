@@ -17,22 +17,18 @@ Usage:
 
 import argparse
 import asyncio
-import json
+import contextlib
 import os
 import sys
 import time
 
 # Avoid CP1252 character mapping crashes on Windows console by forcing UTF-8 output
 if hasattr(sys.stdout, 'reconfigure'):
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
 if hasattr(sys.stderr, 'reconfigure'):
-    try:
+    with contextlib.suppress(Exception):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
 
 # ---------------------------------------------------------------------------
 # Path setup — mirror what the server does
@@ -43,15 +39,16 @@ for p in (ROOT_DIR, TOOLS_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import evelyn_config as cfg
 import memory_db
 from profile_evolver import (
     DOCUMENT_CATEGORIES,
+    _draft_path,
     _evolve_document,
     _load_evolution_state,
     _save_evolution_state,
-    _draft_path,
 )
+
+import evelyn_config as cfg
 
 MIN_ENTRIES = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
 
@@ -80,8 +77,8 @@ async def main() -> None:
             print(f"[TRIGGER] {filename}: Has a pending profile update. Skipping (use --force to bypass).\n")
             continue
 
-        last_run     = state["last_run_per_doc"].get(filename, 0.0)
-        draft_exists = os.path.exists(_draft_path(filename))
+        state["last_run_per_doc"].get(filename, 0.0)
+        draft_exists = await asyncio.to_thread(os.path.exists, _draft_path(filename))
 
         # Collect entries not yet evolved OR whose observation has changed since last evolution.
         # Mirrors the selection logic in profile_evolver.run_profile_evolution().
@@ -99,7 +96,7 @@ async def main() -> None:
 
         # Allow resume even if below min_entries — draft already did the heavy lifting
         if len(changed_entries) < MIN_ENTRIES and not draft_exists:
-            print(f"[TRIGGER] Skipping — below minimum threshold.\n")
+            print("[TRIGGER] Skipping — below minimum threshold.\n")
             continue
 
         print(f"[TRIGGER] Evolving {filename}...")
