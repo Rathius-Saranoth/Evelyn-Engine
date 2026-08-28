@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-07-16 19:31:00
+# date modified: 2026-08-28 08:46:31
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -14,6 +14,8 @@ Exports:
   classify_research_query() — Keyword-heuristic task type classification (zero LLM cost).
   get_skill_template()      — Returns structured guidance block for a given task type.
   classify_domain_level()   — Keyword-heuristic domain-level classification (zero LLM cost).
+  classify_intent_mode()    — Keyword-heuristic intent mode classification ('technical' vs 'academic') (zero LLM cost).
+  is_valid_search_gap()     — Validator to filter generic/meta evaluator gap phrases.
   is_time_sensitive_query() — Zero-LLM-cost gate forcing full research on time-sensitive queries.
   get_system_prompt()       — Base system prompt for all research phases.
   build_necessity_check_prompt() — Necessity pre-filter: is research even needed?
@@ -30,6 +32,7 @@ Exports:
 """
 
 from typing import List, Dict, Any, Tuple, Optional
+import re
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +228,126 @@ def classify_domain_level(query: str) -> str:
     if any(kw in q_lower for kw in _EVERYDAY_KEYWORDS):
         return "everyday"
     return "specialist"
+
+
+# ---------------------------------------------------------------------------
+# Intent Mode classification (MODE_TECHNICAL vs MODE_ACADEMIC)
+# ---------------------------------------------------------------------------
+
+# Keywords indicating practical software engineering, APIs, hardware protocols,
+# libraries, setup/config, or code-level implementation intent.
+_TECHNICAL_KEYWORDS: List[str] = [
+    # Programming languages & syntaxes
+    "python", "javascript", "typescript", "rust", "golang", "c++", "bash",
+    "shell", "sql", "html", "css", "json", "yaml", "toml", "regex",
+    # Software development & architecture
+    "api", "apis", "sdk", "sdks", "library", "libraries", "package", "packages",
+    "framework", "module", "function", "endpoint", "endpoints", "payload",
+    "schema", "parser", "handler", "microservice", "backend", "frontend",
+    "database", "sqlite", "postgres", "mysql", "redis", "chromadb", "vector db",
+    "orm", "query", "fastapi", "flask", "django", "pydantic", "sqlalchemy",
+    # System engineering & infrastructure
+    "linux", "docker", "container", "systemd", "service", "daemon", "process",
+    "thread", "async", "asyncio", "cron", "cli", "terminal", "socket",
+    "websocket", "tcp", "udp", "ssh", "git", "github", "gitlab", "server", "nginx",
+    # Hardware, IoT & protocols
+    "sensor", "sensors", "ble", "bluetooth", "gatt", "uuid", "hz", "5hz",
+    "sampling rate", "sample rate", "ecg", "ppg", "arduino", "raspberry pi",
+    "esp32", "gpio", "i2c", "spi", "uart", "firmware", "driver", "drivers",
+    "serial port", "baud rate", "polar h10", "smartwatch", "wearable",
+    # AI & LLM engineering
+    "llm", "prompt engineering", "agent", "agentic", "tool calling", "gbnf",
+    "grammar", "token", "tokens", "embeddings", "ollama", "vllm", "langchain",
+    "langgraph", "llama.cpp", "context window", "rag", "retrieval", "fine-tuning",
+    "inference",
+    # Implementation & how-to phrasing
+    "how to build", "how to implement", "how to code", "how to integrate",
+    "how to configure", "how to setup", "how to process", "how do i",
+    "tutorial", "code example", "implementation", "integration", "setup guide",
+    "configuration", "boilerplate", "snippet",
+]
+
+
+_TECHNICAL_REGEX = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in _TECHNICAL_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def classify_intent_mode(query: str, intent_frame: str = "") -> str:
+    """Classify research intent into 'technical' (MODE_TECHNICAL) or 'academic' (MODE_ACADEMIC).
+
+    Zero-LLM-cost heuristic. Determines whether a research task is seeking
+    concrete technical/system implementation (code, APIs, libraries, hardware
+    specs, configuration, tutorials) vs. general knowledge, history, medical/scientific
+    theory, or scholarly consensus.
+
+    Checks both the research query string and the optional intent_frame using
+    strict word boundary matching to avoid false positives.
+
+    Args:
+        query: The raw research query string.
+        intent_frame: Optional 2-3 sentence intent frame describing the practical goal.
+
+    Returns:
+        str: 'technical' (MODE_TECHNICAL) or 'academic' (MODE_ACADEMIC).
+    """
+    combined = f"{query} {intent_frame}"
+    if _TECHNICAL_REGEX.search(combined):
+        return "technical"
+    return "academic"
+
+
+# ---------------------------------------------------------------------------
+# Evaluator Gap Sanitization
+# ---------------------------------------------------------------------------
+
+_GENERIC_GAP_PATTERNS: List[str] = [
+    "insufficient evidence",
+    "insufficient evidence collected",
+    "more evidence needed",
+    "more information needed",
+    "need more information",
+    "need more info",
+    "need more sources",
+    "more sources needed",
+    "no specific gaps",
+    "no specific gaps identified",
+    "no gaps identified",
+    "none identified",
+    "not enough evidence",
+    "not enough data",
+    "none",
+    "n/a",
+    "unknown",
+    "tbd",
+]
+
+
+def is_valid_search_gap(gap: str) -> bool:
+    """Validate that an evaluator gap is a real domain concept rather than meta-text.
+
+    Prevents generic evaluation status strings (e.g. 'Insufficient evidence collected.')
+    from being passed directly to search engines as search queries.
+
+    Args:
+        gap: The candidate gap string from evaluation.
+
+    Returns:
+        bool: True if the gap is a valid search concept, False if it is a meta-status phrase.
+    """
+    if not gap or not isinstance(gap, str):
+        return False
+
+    clean = gap.strip().strip(".!?:;\"'").lower()
+    if len(clean) < 3:
+        return False
+
+    for pattern in _GENERIC_GAP_PATTERNS:
+        if clean == pattern or clean.startswith(f"{pattern} ") or clean.endswith(f" {pattern}"):
+            return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +668,7 @@ def build_search_query_prompt(
     task_type: str = "factual",
     retry_reason: Optional[str] = None,
     intent_frame: str = "",
+    intent_mode: str = "technical",
 ) -> str:
     """Build the prompt for formulating a single search-engine-ready query.
 
@@ -555,19 +679,23 @@ def build_search_query_prompt(
     notes, citations, and evaluation — only this formulated string is sent to
     the search engine.
 
+    Calibrates query generation based on intent_mode:
+    - 'technical' (MODE_TECHNICAL): Prioritizes developer terms (api, library, python,
+      github, tutorial, driver) and strictly bans academic/paper vocabulary.
+    - 'academic' (MODE_ACADEMIC): Prioritizes authoritative domain consensus,
+      clinical guidelines, and encyclopedic literature.
+
     Args:
         question_text: The sub-question or gap string driving this search round.
         task_type: Classified task type ('factual', 'comparison', 'troubleshooting',
-                   'opinion'). Currently informational only; reserved for future
-                   type-specific query phrasing.
+                   'opinion'). Currently informational only.
         retry_reason: If this is a retry after is_atomic_query() rejected a prior
                       formulation attempt, the specific failure reason to correct.
                       None on the first attempt.
         intent_frame: Optional 2-3 sentence block describing why this topic
-            matters and what kind of answer is needed. When provided, injected
-            as a 'Research Goal' constraint so the formulated query stays at
-            the correct practical depth rather than drifting toward academic
-            phrasing. Defaults to empty string (omitted).
+            matters and what kind of answer is needed.
+        intent_mode: One of 'technical' (MODE_TECHNICAL) or 'academic' (MODE_ACADEMIC).
+            Defaults to 'technical'.
 
     Returns:
         str: Formatted prompt.
@@ -589,9 +717,38 @@ def build_search_query_prompt(
         else ""
     )
 
+    if intent_mode == "technical":
+        mode_block = (
+            "## Target Intent: TECHNICAL / IMPLEMENTATION (Strict)\n"
+            "- This query seeks practical implementation details: APIs, libraries, tutorials, code snippets, hardware protocols, or configuration.\n"
+            "- Target developer documentation, official SDK docs, GitHub repositories, and practical guides.\n"
+            "- Prioritize concrete developer keywords: 'api', 'library', 'python', 'docs', 'tutorial', 'github', 'integration', 'driver'.\n"
+            "- Strictly AVOID academic paper vocabulary (NO 'Analysis of', 'Mechanisms of', 'Physiological effects of', 'A study on').\n\n"
+            "FEW-SHOT TECHNICAL EXAMPLES:\n"
+            "❌ BAD (Academic/Thesis): 'Mechanisms of high frequency heart rate sampling in stress detection'\n"
+            "✔ GOOD (Web-Native): 'python process heart rate stream library'\n\n"
+            "❌ BAD (Academic/Thesis): 'Comparative analysis of narrative retention techniques in LLM prompts'\n"
+            "✔ GOOD (Web-Native): 'llm context window narrative buffer memory'\n\n"
+            "❌ BAD (Academic/Thesis): 'Investigation of Bluetooth Low Energy GATT characteristics for sensor streaming'\n"
+            "✔ GOOD (Web-Native): 'bleak python ble hr sensor stream'\n\n"
+        )
+    else:
+        mode_block = (
+            "## Target Intent: ACADEMIC / SCHOLARLY CONSENSUS\n"
+            "- This query seeks foundational facts, peer-reviewed consensus, medical/scientific definitions, or historical context.\n"
+            "- Target authoritative domain literature, clinical guidelines, official standards, or encyclopedic definitions.\n"
+            "- Keep queries short (2-4 keywords) and objective. Avoid code/developer jargon unless specifically part of the topic.\n\n"
+            "FEW-SHOT ACADEMIC EXAMPLES:\n"
+            "❌ BAD (Bloated): 'What are all the underlying biological mechanisms causing elevated heart rate in humans'\n"
+            "✔ GOOD (Web-Native): 'causes elevated heart rate physiology'\n\n"
+            "❌ BAD (Bloated): 'Comprehensive historical overview of the development of modern relational database theory'\n"
+            "✔ GOOD (Web-Native): 'relational database history codd'\n\n"
+        )
+
     return (
         f"Sub-question under investigation: \"{question_text}\"\n\n"
         f"{intent_block}"
+        f"{mode_block}"
         "TASK:\n"
         "Convert the sub-question above into ONE short, 2 to 4 word search query for DuckDuckGo.\n"
         "Strip away all conversational words, prepositions, and academic jargon. Leave ONLY essential keywords.\n\n"
@@ -674,7 +831,9 @@ def build_evaluate_prompt(sub_question: str, evidence_summary: str, confidence_t
         "Be self-critical. If key details are missing, contradictory, or unverified, score it lower.\n"
         f"2. If your confidence is below the target threshold of {confidence_threshold}%, list the specific gaps "
         "that still need to be found. Each gap must be a single, searchable fragment — a specific term, "
-        "mechanism, or missing fact — NOT a restatement of the whole sub-question.\n\n"
+        "mechanism, or missing fact (e.g. 'polar h10 bluetooth GATT uuid', 'RSA frequency band') — NOT a restatement of the whole sub-question.\n"
+        "- CRITICAL RULE: NEVER output generic meta-phrases like 'Insufficient evidence collected', 'Need more sources', "
+        "or 'More information needed' — list the exact technical term or missing fact to search for, or leave 'gaps' empty.\n\n"
         "Output ONLY a valid, single JSON block containing exactly the keys 'confidence' and 'gaps'. "
         "Do not include markdown code fence formatting blocks inside or outside the JSON. "
         "Do not output any introductory or concluding text.\n\n"

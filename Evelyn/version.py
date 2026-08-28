@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-28 07:53:00
+# date modified: 2026-08-28 08:46:31
 # tags: 
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.009"
-VERSION_NAME = "Subject Code Sanitization & Canonical Fast Memory Category Suffix Enforcement"
+__version__ = "000.006.010"
+VERSION_NAME = "Research Intent Mode Classification & Search Query Lexicon Calibration"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

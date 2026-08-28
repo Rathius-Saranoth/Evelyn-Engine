@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-08-17 19:23:53
+# date modified: 2026-08-28 08:46:31
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -524,6 +524,7 @@ async def formulate_search_query(
     task_type: str,
     state: Dict[str, Any],
     intent_frame: str = "",
+    intent_mode: Optional[str] = None,
 ) -> str:
     """Formulate a short, atomic web-search query from a sub-question or gap string.
 
@@ -547,10 +548,13 @@ async def formulate_search_query(
         intent_frame: Optional 2-3 sentence research intent block. Passed through
             to build_search_query_prompt() to keep formulated queries at the
             correct practical depth. Defaults to empty string (omitted).
+        intent_mode: Optional intent mode ('technical' vs 'academic'). If None,
+            retrieves from state or classifies from question_text/intent_frame.
 
     Returns:
         str: A short, search-engine-ready query string.
     """
+    mode = intent_mode or state.get("intent_mode") or research_prompts.classify_intent_mode(question_text, intent_frame)
     retry_reason = None
 
     for attempt in range(2):
@@ -559,6 +563,7 @@ async def formulate_search_query(
             task_type=task_type,
             retry_reason=retry_reason,
             intent_frame=intent_frame,
+            intent_mode=mode,
         )
         messages = [
             {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
@@ -580,7 +585,7 @@ async def formulate_search_query(
         )
         retry_reason = reason
 
-    fallback = _truncate_query_fallback(question_text)
+    fallback = _truncate_query_fallback(question_text, intent_mode=mode)
     print(
         f"[RESEARCH_ENGINE WARNING] Search query formulation failed validation twice. "
         f"Falling back to truncated original: '{fallback}'",
@@ -589,16 +594,21 @@ async def formulate_search_query(
     return fallback
 
 
-def _truncate_query_fallback(question_text: str, max_words: int = 5) -> str:
+def _truncate_query_fallback(question_text: str, max_words: int = 5, intent_mode: str = "technical") -> str:
     """Deterministic fallback that strips academic prefixes and extracts raw keywords."""
-    text = re.sub(r"(?i)^(an?|the)\s+(analysis|overview|study|investigation|evaluation)\s+(of|on)\s+", "", question_text)
+    text = re.sub(r"(?i)^(an?|the)\s+(analysis|overview|study|investigation|evaluation|review)\s+(of|on)\s+", "", question_text)
     text = re.sub(r"(?i)^(comparative\s+)?(analysis|comparison)\s+between\s+", "", text)
     text = re.sub(r"[?\"'!,]", "", text)
 
     ignore_words = {
         "underlying", "mechanisms", "linking", "impact", "effects", "role",
-        "towards", "using", "via", "what", "how", "why", "does", "is", "are"
+        "towards", "using", "via", "what", "how", "why", "does", "is", "are",
+        "insights", "perspectives", "investigation", "examination", "comparative",
+        "between", "overview", "comparison"
     }
+    if intent_mode == "technical":
+        ignore_words.update({"physiological", "biological", "clinical", "pathophysiology"})
+
     words = [w for w in text.split() if w.lower() not in ignore_words]
     return " ".join(words[:max_words])
 
@@ -671,11 +681,13 @@ async def _rewrite_subquestion(
     # Regenerate search_query from the rewritten question
     try:
         task_type = state.get("task_type", "factual")
+        intent_mode = state.get("intent_mode", "technical")
         new_search_query = await formulate_search_query(
             rewritten_q,
             task_type,
             state,
             intent_frame=state.get("intent_frame", ""),
+            intent_mode=intent_mode,
         )
         sq["search_query"] = new_search_query
         print(f"[RESEARCH_ENGINE] Regenerated search_query after rewrite: '{new_search_query}'", flush=True)
@@ -994,17 +1006,19 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
         if resolved:
             return True
 
-    # Classify query type and domain level once at plan time — zero LLM cost (Hermes Tier 2 #8b)
+    # Classify query type, domain level, and intent mode once at plan time — zero LLM cost (Hermes Tier 2 #8b)
     task_type = research_prompts.classify_research_query(state["query"])
     domain_level = research_prompts.classify_domain_level(state["query"])
-    state["task_type"] = task_type
-    state["domain_level"] = domain_level
-    print(f"[RESEARCH_ENGINE] Classified query: task_type='{task_type}', domain_level='{domain_level}'", flush=True)
-
     # Generate intent frame if not already set (user-triggered tasks with no explicit intent;
     # Evelyn-triggered tasks carry a pre-generated frame from self_initiate_research_topics()).
     if not state.get("intent_frame"):
         state["intent_frame"] = await _generate_intent_frame(state)
+
+    intent_mode = research_prompts.classify_intent_mode(state["query"], state.get("intent_frame", ""))
+    state["task_type"] = task_type
+    state["domain_level"] = domain_level
+    state["intent_mode"] = intent_mode
+    print(f"[RESEARCH_ENGINE] Classified query: task_type='{task_type}', domain_level='{domain_level}', intent_mode='{intent_mode}'", flush=True)
 
     prompt = research_prompts.build_seed_subquestion_prompt(
         state["query"],
@@ -1027,11 +1041,13 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
 
     # Formulate the first search_query from the seed question
     task_type = state.get("task_type", "factual")
+    intent_mode = state.get("intent_mode", "technical")
     seed_search_query = await formulate_search_query(
         seed_question,
         task_type,
         state,
         intent_frame=state.get("intent_frame", ""),
+        intent_mode=intent_mode,
     )
 
     state["plan"]["sub_questions"] = [{
@@ -1094,9 +1110,13 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                     search_basis = user_gap[len("USER GUIDANCE:"):].strip()
                     is_user_guidance = True
                     print(f"[RESEARCH_ENGINE] Using user guidance as search basis: '{search_basis}'", flush=True)
-                elif gaps:
-                    search_basis = gaps[0]
-                    print(f"[RESEARCH_ENGINE] Using gap as search basis: '{search_basis}'", flush=True)
+                else:
+                    valid_gaps = [g for g in gaps if research_prompts.is_valid_search_gap(g)]
+                    if valid_gaps:
+                        search_basis = valid_gaps[0]
+                        print(f"[RESEARCH_ENGINE] Using valid gap as search basis: '{search_basis}'", flush=True)
+                    elif gaps:
+                        print(f"[RESEARCH_ENGINE] Discarded non-searchable meta-gaps: {gaps}. Falling back to SQ text.", flush=True)
         except Exception:
             pass
 
@@ -1118,11 +1138,13 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             print(f"[RESEARCH_ENGINE] Using search basis directly (bypassing formulation): '{search_query}'", flush=True)
         else:
             task_type = state.get("task_type", "factual")
+            intent_mode = state.get("intent_mode", "technical")
             search_query = await formulate_search_query(
                 search_basis,
                 task_type,
                 state,
                 intent_frame=state.get("intent_frame", ""),
+                intent_mode=intent_mode,
             )
         sq["search_query"] = search_query
     else:
@@ -1419,16 +1441,20 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     # After all sources processed, update search_query from gaps for next round
     current_gaps = sq.get("gaps", [])
     if current_gaps and not is_user_guidance:
-        gap_basis = current_gaps[0]
-        task_type = state.get("task_type", "factual")
-        new_search_query = await formulate_search_query(
-            gap_basis,
-            task_type,
-            state,
-            intent_frame=state.get("intent_frame", ""),
-        )
-        sq["search_query"] = new_search_query
-        print(f"[RESEARCH_ENGINE] Updated search_query for next round: '{new_search_query}'", flush=True)
+        valid_gaps = [g for g in current_gaps if research_prompts.is_valid_search_gap(g)]
+        if valid_gaps:
+            gap_basis = valid_gaps[0]
+            task_type = state.get("task_type", "factual")
+            intent_mode = state.get("intent_mode", "technical")
+            new_search_query = await formulate_search_query(
+                gap_basis,
+                task_type,
+                state,
+                intent_frame=state.get("intent_frame", ""),
+                intent_mode=intent_mode,
+            )
+            sq["search_query"] = new_search_query
+            print(f"[RESEARCH_ENGINE] Updated search_query for next round: '{new_search_query}'", flush=True)
 
     # Move to the evaluate step
     state["current_step"] = "evaluate"
@@ -1780,11 +1806,13 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                     else:
                         new_idx = len(state["plan"]["sub_questions"])
                         # Formulate search_query for the new SQ immediately
+                        intent_mode = state.get("intent_mode", "technical")
                         new_sq_search_query = await formulate_search_query(
                             next_question,
                             state.get("task_type", "factual"),
                             state,
                             intent_frame=state.get("intent_frame", ""),
+                            intent_mode=intent_mode,
                         )
                         new_sq = {
                             "id": f"sq_{new_idx + 1:02d}",
