@@ -3,13 +3,12 @@
 # date modified: 2026-08-27 09:35:00
 # tags: #test, #streaming, #agentic, #unified_stream, #v000_006_000
 
-import unittest
-import asyncio
 import json
-from unittest.mock import patch, MagicMock
+import unittest
+from unittest.mock import patch
 
-import evelyn_server as srv
 import evelyn_config as cfg
+import evelyn_server as srv
 
 
 class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
@@ -40,10 +39,11 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
                 yield chunk
 
         with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream):
-            events = []
-            async for evt_line in srv._agentic_stream_loop([{"role": "user", "content": "Hello"}], think_effort="medium"):
-                if evt_line.startswith("data: "):
-                    events.append(json.loads(evt_line[6:]))
+            events = [
+                json.loads(evt_line[6:])
+                async for evt_line in srv._agentic_stream_loop([{"role": "user", "content": "Hello"}], think_effort="medium")
+                if evt_line.startswith("data: ")
+            ]
 
             # Filter non-heartbeat events
             events = [e for e in events if e.get("type") != "heartbeat"]
@@ -103,11 +103,12 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
 
         with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream), \
              patch("evelyn_server.dispatch_tool", return_value="__version__ = '000.006.000'"):
-            events = []
             test_msgs = [{"role": "user", "content": "What version are you on?"}]
-            async for evt_line in srv._agentic_stream_loop(test_msgs, think_effort="medium"):
-                if evt_line.startswith("data: "):
-                    events.append(json.loads(evt_line[6:]))
+            events = [
+                json.loads(evt_line[6:])
+                async for evt_line in srv._agentic_stream_loop(test_msgs, think_effort="medium")
+                if evt_line.startswith("data: ")
+            ]
 
             events = [e for e in events if e.get("type") != "heartbeat"]
             event_types = [e.get("type") for e in events]
@@ -157,10 +158,11 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
 
         with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream), \
              patch("evelyn_server.dispatch_tool", return_value="Matching note: test.md"):
-            events = []
-            async for evt_line in srv._agentic_stream_loop([{"role": "user", "content": "Search vault"}], think_effort="medium"):
-                if evt_line.startswith("data: "):
-                    events.append(json.loads(evt_line[6:]))
+            events = [
+                json.loads(evt_line[6:])
+                async for evt_line in srv._agentic_stream_loop([{"role": "user", "content": "Search vault"}], think_effort="medium")
+                if evt_line.startswith("data: ")
+            ]
 
             events = [e for e in events if e.get("type") != "heartbeat"]
             quarantine_events = [e for e in events if e.get("type") == "quarantine_preamble"]
@@ -206,11 +208,12 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
 
         with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream), \
              patch("evelyn_server.dispatch_tool", side_effect=mock_error_dispatch):
-            events = []
             test_msgs = [{"role": "user", "content": "Read non_existent.txt"}]
-            async for evt_line in srv._agentic_stream_loop(test_msgs, think_effort="medium"):
-                if evt_line.startswith("data: "):
-                    events.append(json.loads(evt_line[6:]))
+            events = [
+                json.loads(evt_line[6:])
+                async for evt_line in srv._agentic_stream_loop(test_msgs, think_effort="medium")
+                if evt_line.startswith("data: ")
+            ]
 
             events = [e for e in events if e.get("type") != "heartbeat"]
             tool_ends = [e for e in events if e.get("type") == "tool_end"]
@@ -220,7 +223,7 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
             state = events[-1]
             self.assertEqual(state["content"], "I encountered an error reading the file.")
             # Verify the tool error message was appended to messages for round 2
-            tool_msg = [m for m in test_msgs if m.get("role") == "tool"][0]
+            tool_msg = next(m for m in test_msgs if m.get("role") == "tool")
             self.assertIn("Error executing read_file", tool_msg["content"])
 
     async def test_05_terminal_round_enforcement(self):
@@ -247,12 +250,14 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
 
         with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream), \
              patch("evelyn_server.dispatch_tool", return_value="result"):
-            events = []
-            async for evt_line in srv._agentic_stream_loop([{"role": "user", "content": "Loop test"}], think_effort="medium"):
-                if evt_line.startswith("data: "):
-                    events.append(json.loads(evt_line[6:]))
+            events = [
+                json.loads(evt_line[6:])
+                async for evt_line in srv._agentic_stream_loop([{"role": "user", "content": "Loop test"}], think_effort="medium")
+                if evt_line.startswith("data: ")
+            ]
 
             # Round 1: offered tools
+            self.assertTrue(len(events) > 0)
             self.assertIsNotNone(recorded_tools[0])
             # Round 2 (terminal round since MAX_TOOL_ROUNDS=2): tools=None enforced
             self.assertIsNone(recorded_tools[1])

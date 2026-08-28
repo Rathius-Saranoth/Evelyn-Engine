@@ -14,12 +14,10 @@ Usage:
   python evelyn_setup.py --defaults     # Non-interactive default configuration
 """
 
+import argparse
 import os
 import re
 import sys
-import shutil
-import argparse
-from pathlib import Path
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
@@ -40,10 +38,7 @@ def sanitize_name(val: str, default: str = "Evelyn") -> str:
 
 def prompt_input(prompt_text: str, default_val: str = "") -> str:
     """Prompt user with default fallback."""
-    if default_val:
-        display = f"{prompt_text} [{default_val}]: "
-    else:
-        display = f"{prompt_text}: "
+    display = f"{prompt_text} [{default_val}]: " if default_val else f"{prompt_text}: "
     try:
         res = input(display).strip()
         return res if res else default_val
@@ -106,7 +101,7 @@ def copy_starter_templates(vault_dir: str, assistant_name: str, user_name: str) 
     for src_name, dst_path in template_map.items():
         src_file = os.path.join(TEMPLATES_DIR, src_name)
         if os.path.exists(src_file) and not os.path.exists(dst_path):
-            with open(src_file, "r", encoding="utf-8") as f:
+            with open(src_file, encoding="utf-8") as f:
                 content = f.read()
             # Replace placeholder names
             content = content.replace("Assistant", assistant_name).replace("Operator", user_name)
@@ -121,7 +116,7 @@ def update_config_file(assistant_name: str, user_name: str, vault_dir: str) -> N
         print(f"[ERROR] Config file not found: {CONFIG_PATH}")
         return
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         content = f.read()
 
     # Update ASSISTANT_NAME and USER_NAME

@@ -18,13 +18,12 @@ import sys
 # Ensure repository root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from Evelyn.version import __version__, VERSION_NAME
 from Evelyn.tools.db_migrator import (
-    check_all_dbs_status,
-    apply_pending_migrations,
-    get_db_version,
     DB_MAP,
+    apply_pending_migrations,
+    check_all_dbs_status,
 )
+from Evelyn.version import VERSION_NAME, __version__
 
 
 def print_status_table(status_data: dict) -> None:
@@ -33,7 +32,7 @@ def print_status_table(status_data: dict) -> None:
     print("=" * 78)
     print(f"{'Database':<10} | {'Current Version':<18} | {'Target Version':<14} | {'Status':<12} | {'Pending'}")
     print("-" * 78)
-    
+
     all_clean = True
     for db_name, info in status_data.items():
         status_label = "✅ UP TO DATE" if info["is_up_to_date"] else "⚠️  PENDING"
@@ -41,7 +40,7 @@ def print_status_table(status_data: dict) -> None:
             all_clean = False
         pending_str = ", ".join(info["pending_migrations"]) if info["pending_migrations"] else "None"
         print(f"{db_name:<10} | {info['current_version']:<18} | {info['target_version']:<14} | {status_label:<12} | {pending_str}")
-    
+
     print("-" * 78)
     if all_clean:
         print("All database schemas match application target version.")
@@ -70,7 +69,7 @@ def create_git_tag(version_tag: str) -> None:
             check=True
         )
         print(f"[CLI] ✅ Successfully created Git release tag '{tag_name}'.")
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         print(f"[CLI] [WARNING] Failed to create Git tag: {e}")
 
 
@@ -97,14 +96,14 @@ def main():
     if args.dry_run or args.execute:
         mode_str = "DRY RUN" if args.dry_run else "EXECUTION"
         print(f"\n[CLI] Starting database migration in {mode_str} mode (Target Version: {args.target or __version__})...\n")
-        
+
         results = apply_pending_migrations(
             target_db=args.db,
             target_version=args.target,
             dry_run=args.dry_run,
             create_snapshots=True
         )
-        
+
         if not results:
             print("[CLI] No pending migrations to apply. All databases are up to date.")
         else:

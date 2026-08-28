@@ -8,19 +8,20 @@ import os
 import re
 import sqlite3
 import tempfile
+
 import pytest
 from fastapi.testclient import TestClient
 
 import evelyn_config as cfg
-import Evelyn.tools.chroma_rag as chroma_rag
-from Evelyn.tools.chroma_rag import log_rag_retrieval, get_recent_rag_telemetry, link_rag_telemetry_to_message
+from Evelyn.tools import chroma_rag
+from Evelyn.tools.chroma_rag import get_recent_rag_telemetry, link_rag_telemetry_to_message, log_rag_retrieval
 from Evelyn.tools.db_migrator import (
     BASELINE_CHAT_SQL,
     BASELINE_MEMORY_SQL,
     CREATE_MESSAGE_FEEDBACK_TABLE_SQL,
     CREATE_RAG_RETRIEVAL_LOG_TABLE_SQL,
 )
-from evelyn_server import app, save_or_update_feedback, get_feedback_for_messages, save_message_get_id
+from evelyn_server import app, get_feedback_for_messages, save_message_get_id, save_or_update_feedback
 
 
 @pytest.fixture(autouse=True)
@@ -260,7 +261,7 @@ def test_vault_note_endpoints(client):
             assert post_resp.json()["status"] == "ok"
 
             # 3. Verify disk file updated
-            with open(full_note_path, "r", encoding="utf-8") as f:
+            with open(full_note_path, encoding="utf-8") as f:
                 assert f.read() == "# Test Concept\nUpdated note content."
 
             # 4. Traversal attack protection (403)

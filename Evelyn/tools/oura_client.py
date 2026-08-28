@@ -11,8 +11,7 @@ metrics, daily activity, and daytime stress directly from Oura Cloud.
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -23,7 +22,7 @@ import evelyn_config as cfg
 OURA_BASE_URL = "https://api.ouraring.com/v2/usercollection"
 
 
-def _get_access_token() -> Optional[str]:
+def _get_access_token() -> str | None:
     """Retrieve the Oura Personal Access Token from config or environment."""
     token = os.environ.get("OURA_ACCESS_TOKEN")
     if token:
@@ -32,15 +31,15 @@ def _get_access_token() -> Optional[str]:
     token_path = getattr(cfg, "OURA_TOKEN_PATH", r"/home/rathius/evelyn/data/oura_token.json")
     if os.path.exists(token_path):
         try:
-            with open(token_path, "r", encoding="utf-8") as f:
+            with open(token_path, encoding="utf-8") as f:
                 data = json.load(f)
                 return data.get("access_token")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, KeyError) as e:
             print(f"[Oura Client] Error loading token file: {e}", flush=True)
     return None
 
 
-def _get_headers() -> Optional[dict]:
+def _get_headers() -> dict | None:
     """Build Authorization headers for Oura API requests."""
     token = _get_access_token()
     if not token:
@@ -51,16 +50,16 @@ def _get_headers() -> Optional[dict]:
     }
 
 
-def _fetch_endpoint(endpoint: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def _fetch_endpoint(endpoint: str, start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch items from an Oura usercollection endpoint within a date range."""
     headers = _get_headers()
     if not headers:
         return []
 
     if not end_date:
-        end_date = date.today().strftime("%Y-%m-%d")
+        end_date = datetime.now(UTC).astimezone().date().strftime("%Y-%m-%d")
     if not start_date:
-        start_date = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+        start_date = (datetime.now(UTC).astimezone().date() - timedelta(days=7)).strftime("%Y-%m-%d")
 
     url = f"{OURA_BASE_URL}/{endpoint}?start_date={start_date}&end_date={end_date}"
     try:
@@ -69,50 +68,50 @@ def _fetch_endpoint(endpoint: str, start_date: Optional[str] = None, end_date: O
             return resp.json().get("data", [])
         print(f"[Oura Client] API {endpoint} returned status {resp.status_code}: {resp.text}", flush=True)
         return []
-    except Exception as e:
+    except (requests.RequestException, TimeoutError, OSError, json.JSONDecodeError) as e:
         print(f"[Oura Client] Request error on {endpoint}: {e}", flush=True)
         return []
 
 
-def get_daily_sleep(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_daily_sleep(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch daily sleep scores and contributor metrics."""
     return _fetch_endpoint("daily_sleep", start_date, end_date)
 
 
-def get_sleep_sessions(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_sleep_sessions(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch detailed sleep session objects (hypnogram stages, HR, HRV, efficiency)."""
     return _fetch_endpoint("sleep", start_date, end_date)
 
 
-def get_daily_readiness(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_daily_readiness(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch daily readiness scores and recovery contributors."""
     return _fetch_endpoint("daily_readiness", start_date, end_date)
 
 
-def get_daily_activity(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_daily_activity(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch daily activity records (steps, active calories, target scores)."""
     return _fetch_endpoint("daily_activity", start_date, end_date)
 
 
-def get_daily_stress(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_daily_stress(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch daily stress and daytime recovery metrics."""
     return _fetch_endpoint("daily_stress", start_date, end_date)
 
 
-def get_workouts(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_workouts(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch recorded workout and activity sessions from Oura."""
     return _fetch_endpoint("workout", start_date, end_date)
 
 
-def get_sessions(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list:
+def get_sessions(start_date: str | None = None, end_date: str | None = None) -> list:
     """Fetch recorded restorative/meditation/breathwork sessions from Oura."""
     return _fetch_endpoint("session", start_date, end_date)
 
 
 def get_heart_rate_series(
-    start_datetime: Optional[str] = None,
-    end_datetime: Optional[str] = None,
-    hours: Optional[float] = None,
+    start_datetime: str | None = None,
+    end_datetime: str | None = None,
+    hours: float | None = None,
 ) -> list:
     """Fetch high-resolution live heart rate readings from Oura API.
 
@@ -128,7 +127,7 @@ def get_heart_rate_series(
     if not headers:
         return []
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     if hours is not None and hours > 0:
         start_dt = now_utc - timedelta(hours=hours)
         start_datetime = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -150,7 +149,7 @@ def get_heart_rate_series(
             return resp.json().get("data", [])
         print(f"[Oura Client] API heartrate returned status {resp.status_code}: {resp.text}", flush=True)
         return []
-    except Exception as e:
+    except (requests.RequestException, TimeoutError, OSError, json.JSONDecodeError) as e:
         print(f"[Oura Client] Request error on heartrate: {e}", flush=True)
         return []
 
@@ -162,9 +161,8 @@ def get_today_overview() -> dict:
         Structured dictionary containing sleep score & breakdown, readiness,
         activity, and daytime recovery metrics.
     """
-    today_str = date.today().strftime("%Y-%m-%d")
-    yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-    start_str = (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
+    today_str = datetime.now(UTC).astimezone().date().strftime("%Y-%m-%d")
+    start_str = (datetime.now(UTC).astimezone().date() - timedelta(days=2)).strftime("%Y-%m-%d")
 
     # Fetch live data
     sleep_scores = get_daily_sleep(start_str, today_str)

@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-28 11:50:51
+# date modified: 2026-08-28 12:27:17
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -21,14 +21,12 @@ Key config: evelyn_config.py (TAG_LIBRARIAN_EXCLUSIONS, TAG_LIBRARIAN_FORMAT_RUL
 See also: reference/engine_architecture.md
 """
 
+import json
 import os
 import re
+import sqlite3
 import sys
-import json
-import time
-import urllib.request
-import urllib.parse
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "../.."))
@@ -36,9 +34,14 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import evelyn_config as cfg
-import Evelyn.tools.vault_db as vault_db
-import Evelyn.tools.chroma_rag as chroma_rag
-from Evelyn.tools.chroma_rag import acquire_chroma_write_lock
+from Evelyn.tools import chroma_rag, vault_db
+from Evelyn.tools.frontmatter_utils import (
+    parse_frontmatter,
+    update_frontmatter_field,
+    write_file_with_frontmatter,
+)
+from Evelyn.tools.ollama_client import query_ollama as _canonical_query_ollama
+from Evelyn.tools.path_utils import to_vault_abspath
 
 VAULT_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 TAG_COLLECTION_NAME = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
@@ -55,11 +58,8 @@ def is_excluded_tag(tag: str) -> bool:
     """
     clean_tag = tag.strip().lstrip("#")
     exclusions = getattr(cfg, "TAG_LIBRARIAN_EXCLUSIONS", [r"^CY-\d{4}/\d{2}/\d{2}$"])
-    
-    for pattern in exclusions:
-        if re.search(pattern, clean_tag, re.IGNORECASE):
-            return True
-    return False
+
+    return any(re.search(pattern, clean_tag, re.IGNORECASE) for pattern in exclusions)
 
 
 def is_excluded_document(path: str) -> bool:
@@ -80,7 +80,7 @@ def is_excluded_document(path: str) -> bool:
     return False
 
 
-def normalize_tag_format(tag: str, is_entity: Optional[bool] = None) -> str:
+def normalize_tag_format(tag: str, is_entity: bool | None = None) -> str:
     """Normalize a tag string according to project formatting standards.
 
     Rules:
@@ -134,101 +134,27 @@ def normalize_tag_format(tag: str, is_entity: Optional[bool] = None) -> str:
     return "/".join(norm_parts)
 
 
-def parse_frontmatter_tags(content: str) -> Tuple[List[str], str]:
+def parse_frontmatter_tags(content: str) -> tuple[list[str], str]:
     """Extract frontmatter tags and return (tags_list, body_content).
 
     Args:
         content: Raw markdown note text.
 
     Returns:
-        Tuple[List[str], str]: List of current tags and remaining document text.
+        tuple[list[str], str]: List of current tags and remaining document text.
     """
-    tags = []
-    body = content
-    
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            fm_text = parts[1]
-            body = parts[2]
-            
-            fm_lines = fm_text.split("\n")
-            in_tags_block = False
-            
-            for line in fm_lines:
-                stripped = line.strip()
-                if line.startswith("tags:"):
-                    raw = line[5:].strip()
-                    if raw:
-                        if raw.startswith("[") and raw.endswith("]"):
-                            items = raw[1:-1].split(",")
-                        else:
-                            items = raw.split(",")
-                        tags.extend([t.strip().strip("'\"#") for t in items if t.strip()])
-                    else:
-                        in_tags_block = True
-                elif in_tags_block:
-                    if stripped.startswith("- "):
-                        tag_val = stripped[2:].strip().strip("'\"#")
-                        if tag_val:
-                            tags.append(tag_val)
-                    elif ":" in stripped or stripped == "":
-                        in_tags_block = False
-                        
+    meta, body = parse_frontmatter(content)
+    raw_tags = meta.get("tags", [])
+    if isinstance(raw_tags, str):
+        tags = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+    elif isinstance(raw_tags, (list, set, tuple)):
+        tags = [str(t).strip().strip("'\"#") for t in raw_tags if str(t).strip().strip("'\"#")]
+    else:
+        tags = []
     return tags, body
 
 
-def format_yaml_array(items: Union[Iterable[str], str, None]) -> str:
-    """Format a list, set, or raw string of values into a clean, single-line YAML flow array [item1, item2].
-
-    Rules:
-    - Strips leading '#' from tags.
-    - Preserves unquoted identifiers (e.g. 'no-rag', 'Tech/Python/FastAPI', 'Ricky_Sekulich').
-    - Quotes only when necessary: containing whitespace, colons, commas, brackets, braces,
-      hashes, quotes, backticks, or starting with special YAML indicators (@, %, &, *, ?, |, !, >, <, =, - ).
-    - Returns '[]' for empty or null input.
-
-    Args:
-        items: An iterable of strings or a raw comma-separated string.
-
-    Returns:
-        str: Formatted YAML flow sequence string like '[tag1, tag2]' or '[]'.
-    """
-    if items is None:
-        return "[]"
-
-    raw_list: list[str] = []
-    if isinstance(items, str):
-        s = items.strip()
-        if not s or s == "[]" or s == "null":
-            return "[]"
-        if s.startswith("[") and s.endswith("]"):
-            s = s[1:-1].strip()
-        for part in s.split(","):
-            raw_list.append(part)
-    else:
-        raw_list = list(items)
-
-    clean_items = list(dict.fromkeys([t.strip().lstrip("#") for t in raw_list if t.strip()]))
-    formatted: list[str] = []
-    for p in clean_items:
-        p_clean = p.strip("'\"")
-        if not p_clean:
-            continue
-        needs_quote = (
-            " " in p_clean
-            or any(c in p_clean for c in [":", "{", "}", "[", "]", ",", "#", "`", '"'])
-            or p_clean.startswith(("@", "%", "&", "*", "?", "|", "!", ">", "<", "=", "- "))
-        )
-        if needs_quote:
-            formatted.append(f'"{p_clean}"')
-        else:
-            formatted.append(p_clean)
-
-    return f"[{', '.join(formatted)}]" if formatted else "[]"
-
-
-def update_frontmatter_tags(content: str, updated_tags: List[str]) -> str:
+def update_frontmatter_tags(content: str, updated_tags: list[str]) -> str:
     """Update or inject YAML frontmatter tags in markdown content cleanly.
 
     Args:
@@ -238,54 +164,7 @@ def update_frontmatter_tags(content: str, updated_tags: List[str]) -> str:
     Returns:
         str: Updated markdown content with formatted frontmatter.
     """
-    tags_str = format_yaml_array(updated_tags)
-    
-    lines = content.split("\n")
-    if content.startswith("---"):
-        # Existing frontmatter block
-        out_lines = []
-        in_fm = True
-        tags_updated = False
-        skipping_multiline_tags = False
-        
-        out_lines.append(lines[0])  # '---'
-        for line in lines[1:]:
-            if in_fm and line.strip() == "---":
-                if not tags_updated:
-                    out_lines.append(f"tags: {tags_str}")
-                in_fm = False
-                out_lines.append(line)
-                continue
-                
-            if in_fm:
-                if line.startswith("tags:"):
-                    out_lines.append(f"tags: {tags_str}")
-                    tags_updated = True
-                    skipping_multiline_tags = True
-                elif skipping_multiline_tags:
-                    if line.strip().startswith("- "):
-                        continue  # Skip multiline tag items
-                    else:
-                        skipping_multiline_tags = False
-                        out_lines.append(line)
-                else:
-                    out_lines.append(line)
-            else:
-                out_lines.append(line)
-                
-        return "\n".join(out_lines)
-    else:
-        # Prepend new frontmatter
-        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-        fm = [
-            "---",
-            f"date created: {now_str}",
-            f"date modified: {now_str}",
-            f"tags: {tags_str}",
-            "---",
-            ""
-        ]
-        return "\n".join(fm) + content.lstrip("\n")
+    return update_frontmatter_field(content, "tags", updated_tags)
 
 
 # =============================================================================
@@ -334,7 +213,7 @@ def index_tag_in_chroma(tag: str, category: str = "", description: str = "",
             "type": "master_tag"
         }
         return chroma_rag.enqueue_upsert(doc_id, doc_text, collection_name=TAG_COLLECTION_NAME, extra_metadata=meta)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
         print(f"[TAG LIBRARIAN] Chroma tag indexing enqueue failed for #{clean_tag}: {e}")
         return False
 
@@ -355,7 +234,7 @@ def delete_tag_from_chroma(tag: str) -> bool:
     try:
         doc_id = f"tag::{clean_tag}"
         return chroma_rag.enqueue_delete(doc_id, collection_name=TAG_COLLECTION_NAME)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
         print(f"[TAG LIBRARIAN] Chroma tag deletion enqueue failed for #{clean_tag}: {e}")
         return False
 
@@ -398,9 +277,9 @@ def retrieve_candidate_tags_for_document(
     title: str,
     gist: str,
     body_sample: str,
-    current_tags: List[str],
-    top_k: Optional[int] = None
-) -> Tuple[List[Dict[str, Any]], float, str]:
+    current_tags: list[str],
+    top_k: int | None = None
+) -> tuple[list[dict[str, Any]], float, str]:
     """Retrieve semantically relevant candidate master tags for a document using Tag RAG.
 
     Uses a composite query approach (title + gist, sample body, and current tags)
@@ -445,7 +324,7 @@ def retrieve_candidate_tags_for_document(
     if not queries:
         return [], 1.0, "NO_QUERY_AVAILABLE"
 
-    candidates_map: Dict[str, Dict[str, Any]] = {}
+    candidates_map: dict[str, dict[str, Any]] = {}
 
     for q in queries:
         try:
@@ -456,7 +335,7 @@ def retrieve_candidate_tags_for_document(
                 if not tag or is_excluded_tag(tag):
                     continue
                 dist = float(r.get("distance", 1.0))
-                
+
                 if tag not in candidates_map or dist < candidates_map[tag]["distance"]:
                     candidates_map[tag] = {
                         "tag": tag,
@@ -465,7 +344,7 @@ def retrieve_candidate_tags_for_document(
                         "usage_count": meta.get("usage_count", 0),
                         "distance": dist
                     }
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
             print(f"[TAG LIBRARIAN] Tag RAG query failed for '{q[:30]}...': {e}")
 
     # If Chroma tag collection is empty or query had no results, fallback to SQLite master tags
@@ -488,22 +367,22 @@ def retrieve_candidate_tags_for_document(
 
     if min_dist < 0.40:
         novelty_guidance = (
-            "TAXONOMY MATCH CONFIDENCE: HIGH (Nearest match distance: {:.2f}).\n"
+            f"TAXONOMY MATCH CONFIDENCE: HIGH (Nearest match distance: {min_dist:.2f}).\n"
             "Strong domain alignment exists in the Master Taxonomy. Strictly adhere to existing parent hierarchies "
             "or add specific child tags if the document covers a narrower specialization."
-        ).format(min_dist)
+        )
     elif min_dist < novelty_threshold:
         novelty_guidance = (
-            "TAXONOMY MATCH CONFIDENCE: MODERATE (Nearest match distance: {:.2f}).\n"
+            f"TAXONOMY MATCH CONFIDENCE: MODERATE (Nearest match distance: {min_dist:.2f}).\n"
             "Related parent domains found, but this note may represent a distinct sub-domain or angle. "
             "You may extend existing parent branches (e.g. '3D-Printing/...', 'AI/LLM/...') or introduce a clean nested category."
-        ).format(min_dist)
+        )
     else:
         novelty_guidance = (
-            "TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN (Nearest match distance: {:.2f}).\n"
+            f"TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN (Nearest match distance: {min_dist:.2f}).\n"
             "This document introduces concepts not well-covered by existing taxonomy. "
             "You are EXPLICITLY ENCOURAGED to mint new domain-level tag hierarchies (e.g. #Domain/Subtopic or #Domain/Subdomain/Topic)."
-        ).format(min_dist)
+        )
 
     return sorted_candidates, min_dist, novelty_guidance
 
@@ -518,41 +397,15 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     Returns:
         str: Raw response text from model.
     """
-    url = f"{cfg.OLLAMA_URL}/api/chat"
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    payload = {
-        "model": cfg.MODEL_NAME,
-        "messages": messages,
-        "stream": False,
-        "options": {
-            "temperature": 0.2,
-            "num_predict": 1024,
-        }
-    }
-    
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+    return _canonical_query_ollama(
+        prompt=prompt,
+        system=system_prompt if system_prompt else None,
+        options={"temperature": 0.2, "num_predict": 1024},
+        timeout=120,
     )
-    
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            res_text = data.get("message", {}).get("content", "")
-            # Strip <think> tags if present
-            res_text = re.sub(r"<think>.*?</think>", "", res_text, flags=re.DOTALL).strip()
-            return res_text
-    except Exception as e:
-        print(f"[TAG LIBRARIAN] Ollama query failed: {e}")
-        return ""
 
 
-def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
+def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
     """Audit a single vault document against the Master Tag Taxonomy using Tag RAG.
 
     Args:
@@ -579,20 +432,23 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
         return {"status": "skipped", "path": doc_path, "message": "Document path is excluded from tag auditing."}
 
     # Resolve absolute file path
-    abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(VAULT_ROOT, doc_path)
+    try:
+        abs_path = str(to_vault_abspath(doc_path))
+    except (ValueError, TypeError):
+        abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(VAULT_ROOT, doc_path)
     if not os.path.exists(abs_path):
         vault_db.update_document_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": "File not found on disk."}
 
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
+        with open(abs_path, encoding="utf-8") as f:
             content = f.read()
-    except Exception as e:
+    except OSError as e:
         vault_db.update_document_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": f"Read error: {e}"}
 
     current_tags, body = parse_frontmatter_tags(content)
-    
+
     # Identify protected tags (e.g. CY-YYYY/MM/DD) and normalize auditable tags up front
     protected_tags = [t for t in current_tags if is_excluded_tag(t)]
     auditable_tags = [normalize_tag_format(t) for t in current_tags if not is_excluded_tag(t)]
@@ -649,7 +505,7 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
     )
 
     response_text = query_ollama(user_prompt, system_prompt)
-    
+
     tags_to_keep = auditable_tags
     tags_to_add = []
     tags_to_remove = []
@@ -663,7 +519,7 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
             tags_to_add = [normalize_tag_format(t) for t in parsed.get("tags_to_add", []) if t]
             tags_to_remove = [normalize_tag_format(t) for t in parsed.get("tags_to_remove", []) if t]
             new_masters = parsed.get("new_master_tags", [])
-    except Exception as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         print(f"[TAG LIBRARIAN] JSON parse fallback for {doc_path}: {e}")
 
     # Build final tag set: protected date tags + kept + added - removed
@@ -676,7 +532,7 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
         if t in final_tags_set and not is_excluded_tag(t):
             final_tags_set.remove(t)
 
-    final_tags_list = sorted(list(final_tags_set))
+    final_tags_list = sorted(final_tags_set)
     tags_str = ", ".join(final_tags_list)
 
     # Save changes if tags modified
@@ -684,8 +540,7 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
     if modified:
         new_content = update_frontmatter_tags(content, final_tags_list)
         try:
-            with open(abs_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            write_file_with_frontmatter(abs_path, new_content, preserve_mtime=True)
             # Re-index modified note in Chroma DB memory collection
             try:
                 target_col = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
@@ -695,9 +550,9 @@ def audit_single_document(doc_path: Optional[str] = None) -> Dict[str, Any]:
                     collection_name=target_col,
                     extra_metadata={"tags": tags_str}
                 )
-            except Exception as ve:
+            except (sqlite3.Error, OSError, RuntimeError, ValueError) as ve:
                 print(f"[TAG LIBRARIAN] Single-file vector update skipped: {ve}")
-        except Exception as e:
+        except OSError as e:
             vault_db.update_document_tag_audit(doc_path)
             return {"status": "error", "path": doc_path, "message": f"Write error: {e}"}
 
@@ -731,8 +586,8 @@ def seed_master_taxonomy_from_vault() -> int:
         int: Number of unique tags seeded into master_tag_taxonomy.
     """
     docs = vault_db.get_all_documents()
-    tag_counts: Dict[str, int] = {}
-    
+    tag_counts: dict[str, int] = {}
+
     for doc in docs:
         raw_tags = doc.get("tags") or ""
         if not raw_tags:
@@ -753,7 +608,7 @@ def seed_master_taxonomy_from_vault() -> int:
     return len(tag_counts)
 
 
-def maintain_master_taxonomy() -> Dict[str, Any]:
+def maintain_master_taxonomy() -> dict[str, Any]:
     """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
     Updates tag usage counts across the vault and removes zero-usage tags.
@@ -762,8 +617,8 @@ def maintain_master_taxonomy() -> Dict[str, Any]:
         Dict[str, Any]: Summary of maintenance pass.
     """
     docs = vault_db.get_all_documents()
-    current_counts: Dict[str, int] = {}
-    
+    current_counts: dict[str, int] = {}
+
     for doc in docs:
         raw_tags = doc.get("tags") or ""
         if not raw_tags:
@@ -806,9 +661,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed-taxonomy", action="store_true", help="Seed master taxonomy from vault index")
     parser.add_argument("--maintain-taxonomy", action="store_true", help="Perform taxonomy maintenance pass")
     parser.add_argument("--sync-vector-tags", action="store_true", help="Sync SQLite master tags to Chroma vector store")
-    
+
     args = parser.parse_args()
-    
+
     if args.seed_taxonomy:
         count = seed_master_taxonomy_from_vault()
         print(f"[TAG LIBRARIAN] Seeded {count} tags into master_tag_taxonomy and Chroma vector store.")

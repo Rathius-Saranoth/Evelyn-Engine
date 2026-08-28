@@ -20,21 +20,19 @@ Exports:
 import asyncio
 import importlib
 import json
-import os
 import re
+import sqlite3
 import time
-from typing import Optional
 
 import httpx
 import yaml
 
 import evelyn_config as cfg
-from Evelyn.tools import memory_db
-from Evelyn.tools import task_manager
+from Evelyn.tools import memory_db, task_manager
 
 # Task and state management
 _consolidating = False
-_procedure_task: Optional[asyncio.Task] = None
+_procedure_task: asyncio.Task | None = None
 _last_run_ts: float = 0.0
 
 # ---------------------------------------------------------------------------
@@ -82,7 +80,7 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
     try:
         _procedure_task = asyncio.current_task()
         result = await _do_procedure_consolidation()
-        status_res = result.get("status", "idle") if isinstance(result, dict) else "idle"
+        result.get("status", "idle") if isinstance(result, dict) else "idle"
         summary_text = f"Audited {result.get('total_procedures', 0)} procedures. Created {result.get('proposals_created', 0)} merge proposal(s)."
         task_manager.clear_running(
             "procedure_consolidator",
@@ -96,7 +94,7 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
         print("[PROC_CONSOLIDATOR] Procedure consolidation pass cancelled", flush=True)
         task_manager.clear_running("procedure_consolidator", status="cancelled")
         return {"status": "cancelled"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as e:
         err_cls = type(e).__name__
         err_msg = str(e).strip()
         formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
@@ -115,7 +113,7 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
 def _extract_keywords(text: str) -> set[str]:
     """Extract lowercase semantic keywords from a trigger pattern."""
     words = re.findall(r"\b[a-z0-9_]{3,}\b", text.lower())
-    stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "you", "your", "they"}
+    stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they"}
     return {w for w in words if w not in stopwords}
 
 
@@ -138,8 +136,8 @@ def find_procedure_clusters() -> list[list[dict]]:
             p_ids = json.loads(row["source_ids"])
             if isinstance(p_ids, list):
                 pending_proposed_ids.update(p_ids)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"[PROC_CONSOLIDATOR] Parse error: {e}", flush=True)
     con.close()
 
     # Filter out procedures already in pending merge proposals
@@ -268,7 +266,7 @@ async def _do_procedure_consolidation() -> dict:
     }
 
 
-async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int]:
+async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
     """Call Ollama to merge a cluster of procedures and write a proposal record to memory_db.
 
     Args:
@@ -287,17 +285,16 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
                     source_tags_set.add(cleaned_t)
     inherited_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else "procedure"
 
-    proc_texts = []
-    for p in cluster:
-        proc_texts.append(
-            f"Procedure ID #{p['id']}:\n"
-            f"  Trigger: {p['trigger_pattern']}\n"
-            f"  Steps:\n{p['steps']}\n"
-            f"  Suggested Tools: {p.get('suggested_tools') or 'None'}\n"
-            f"  Pitfalls: {p.get('pitfalls') or 'None'}\n"
-            f"  Verification: {p.get('verification') or 'None'}\n"
-            f"  Tags: {p.get('tags') or 'None'}"
-        )
+    proc_texts = [
+        f"Procedure ID #{p['id']}:\n"
+        f"  Trigger: {p['trigger_pattern']}\n"
+        f"  Steps:\n{p['steps']}\n"
+        f"  Suggested Tools: {p.get('suggested_tools') or 'None'}\n"
+        f"  Pitfalls: {p.get('pitfalls') or 'None'}\n"
+        f"  Verification: {p.get('verification') or 'None'}\n"
+        f"  Tags: {p.get('tags') or 'None'}"
+        for p in cluster
+    ]
 
     formatted_procs = "\n\n".join(proc_texts)
 
@@ -361,7 +358,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
 
         topic = parsed.get("topic", f"Merged Procedures {proc_ids}")
         reason = parsed.get("reason", f"Consolidated procedures {proc_ids} into a single master rule.")
-        
+
         tools_val = parsed.get("suggested_tools") or ""
         if isinstance(tools_val, list):
             tools_val = ", ".join([str(t).strip() for t in tools_val if str(t).strip()])
@@ -374,7 +371,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
             parsed_tags = ", ".join([str(t).strip() for t in raw_tags if str(t).strip()])
         else:
             parsed_tags = str(raw_tags).strip() if raw_tags is not None else ""
-        
+
         # If model generated generic or empty tags, prefer inherited tags
         parsed_tags_set = {t.strip().lower() for t in parsed_tags.split(",") if t.strip()}
         if not parsed_tags or parsed_tags_set.issubset({"procedure", "merged", "merge", "consolidated", "none"}):
@@ -412,12 +409,12 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         print(f"[PROC_CONSOLIDATOR] Created procedure merge proposal ID #{prop_id} for source IDs {proc_ids}", flush=True)
         return prop_id
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as e:
         print(f"[PROC_CONSOLIDATOR ERROR] Failed to generate procedure merge proposal: {e}", flush=True)
         return None
 
 
-async def generate_procedure_split_proposal(proc: dict) -> Optional[int]:
+async def generate_procedure_split_proposal(proc: dict) -> int | None:
     """Call Ollama to split a compound procedure into multiple focused atomic procedures.
 
     Args:
@@ -517,7 +514,7 @@ async def generate_procedure_split_proposal(proc: dict) -> Optional[int]:
         print(f"[PROC_CONSOLIDATOR] Created procedure split proposal ID #{prop_id} for procedure #{proc_id}", flush=True)
         return prop_id
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as e:
         print(f"[PROC_CONSOLIDATOR ERROR] Failed to generate procedure split proposal: {e}", flush=True)
         return None
 

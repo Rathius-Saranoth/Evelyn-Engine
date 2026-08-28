@@ -21,23 +21,58 @@ Run: python evelyn_server.py
 
 import asyncio
 import base64
-import json
+import contextlib
 import importlib
+import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import time
-import httpx
-from datetime import datetime
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
+from typing import Any
+
+import httpx
+import psutil
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+
+_server_background_tasks: set[asyncio.Task] = set()
+
+
+def _server_sync_read(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _server_sync_write(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _server_sync_write_bytes(path: str, data: bytes) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def _server_sync_load_json(path: str) -> Any:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _server_sync_dump_json(path: str, data: Any, indent: int = 2) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=indent)
+
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -48,21 +83,21 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
 
-import evelyn_config as cfg
-from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS, TOOL_THINK_EFFORT
 from chroma_rag import build_rag_context
-from fact_consolidator import run_consolidation, cancel_pending_consolidation
+from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS, TOOL_THINK_EFFORT
+from fact_consolidator import cancel_pending_consolidation, run_consolidation
+from fact_extractor import cancel_pending_extraction, run_extraction
 from procedure_consolidator import (
-    run_procedure_consolidation,
     cancel_pending_procedure_consolidation,
+    run_procedure_consolidation,
 )
-from fact_extractor import run_extraction, cancel_pending_extraction
 from profile_evolver import (
-    run_profile_evolution,
-    cancel_pending_evolution,
     advance_doc_run_timestamp,
+    cancel_pending_evolution,
+    run_profile_evolution,
 )
 
+import evelyn_config as cfg
 
 # ---------------------------------------------------------------------------
 # Console colors (ANSI — native on Windows Terminal, VS Code, etc.)
@@ -205,7 +240,7 @@ async def stream_session_events(
                     continue
                 try:
                     await asyncio.wait_for(current_event.wait(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield 'data: {"type":"heartbeat"}\n\n'
     except (GeneratorExit, asyncio.CancelledError):
         pass
@@ -310,12 +345,10 @@ def terminate_research_process(task_id: str):
             proc.terminate()
             try:
                 proc.wait(timeout=2.0)
-            except Exception:
-                try:
+            except (subprocess.SubprocessError, OSError):
+                with suppress(subprocess.SubprocessError, OSError):
                     proc.kill()
-                except Exception:
-                    pass
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             print(
                 f"[RESEARCH TERMINATE ERROR] Failed to terminate subprocess handle {task_id}: {e}",
                 flush=True,
@@ -327,7 +360,7 @@ def terminate_research_process(task_id: str):
 
         pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
         if os.path.exists(pid_path):
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 with open(pid_path) as f:
                     pid = int(f.read().strip())
                 import psutil
@@ -342,16 +375,11 @@ def terminate_research_process(task_id: str):
                         p.terminate()
                         try:
                             p.wait(timeout=2.0)
-                        except Exception:
+                        except (psutil.Error, OSError):
                             p.kill()
-            except Exception:
-                pass
-            finally:
-                try:
-                    os.remove(pid_path)
-                except OSError:
-                    pass
-    except Exception as e:
+            with suppress(OSError):
+                os.remove(pid_path)
+    except (psutil.Error, OSError) as e:
         print(
             f"[RESEARCH TERMINATE ERROR] PID cleanup failed for {task_id}: {e}",
             flush=True,
@@ -381,9 +409,8 @@ def get_research_context() -> str:
         str: A formatted context block of task notifications and warnings,
             or an empty string if no tasks exist.
     """
-    import os
     import json
-    import re
+    import os
 
     research_dir = cfg.RESEARCH_DATA_DIR
     if not os.path.exists(research_dir):
@@ -398,7 +425,7 @@ def get_research_context() -> str:
             state_file = os.path.join(task_dir, "state.json")
             if os.path.exists(state_file):
                 try:
-                    with open(state_file, "r", encoding="utf-8") as f:
+                    with open(state_file, encoding="utf-8") as f:
                         state = json.load(f)
                         if "task_id" not in state:
                             state["task_id"] = d
@@ -421,7 +448,7 @@ def get_research_context() -> str:
                             or has_stuck_sq
                         ):
                             stalled_tasks.append(state)
-                except Exception:
+                except (OSError, json.JSONDecodeError, ValueError):
                     pass
 
     lines = []
@@ -508,7 +535,7 @@ def get_upcoming_agenda_prompt_context() -> str:
         if lines:
             return "\n" + "\n".join(lines)
         return ""
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         return f"\n[Agenda Error] Failed to load agenda notification: {e}"
 
 
@@ -523,8 +550,8 @@ def load_system_prompt() -> str:
     # Matches YAML frontmatter with either LF or CRLF line endings (Windows files use CRLF)
     _FRONTMATTER_RE = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
     parts = []
-    date_str = datetime.now().strftime("%A, %B %d, %Y")
-    time_str = datetime.now().strftime("%I:%M %p")
+    date_str = datetime.now(UTC).astimezone().strftime("%A, %B %d, %Y")
+    time_str = datetime.now(UTC).astimezone().strftime("%I:%M %p")
     parts.append(f"The current date and time is {date_str} - {time_str}.")
     parts.append(
         "Use thinking for fact verification, logical analysis, and selecting "
@@ -573,8 +600,8 @@ def get_time_gap_context() -> str | None:
 
     from datetime import timedelta as _td
 
-    last_ts = datetime.fromtimestamp(row["ts"])
-    now = datetime.now()
+    last_ts = datetime.fromtimestamp(row["ts"], tz=UTC).astimezone()
+    now = datetime.now(UTC).astimezone()
     delta = now - last_ts
 
     if delta < _td(minutes=5):
@@ -673,7 +700,7 @@ def _init_fts5_index(con: sqlite3.Connection) -> None:
                 f"[FTS5] Rebuilt search index for {msg_count} existing messages.",
                 flush=True,
             )
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[FTS5] Index rebuild skipped: {e}", flush=True)
 
 
@@ -691,10 +718,8 @@ def init_db():
         )
     """)
     # Migrate: add tools_used column if missing (existing DBs)
-    try:
+    with suppress(sqlite3.OperationalError):
         con.execute("ALTER TABLE messages ADD COLUMN tools_used TEXT")
-    except Exception:
-        pass  # Column already exists
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS message_metrics (
@@ -712,14 +737,10 @@ def init_db():
         )
     """)
     # Migrate: add think_effort and think_source columns if missing
-    try:
+    with suppress(Exception):
         con.execute("ALTER TABLE message_metrics ADD COLUMN think_effort TEXT")
-    except Exception:
-        pass
-    try:
+    with suppress(Exception):
         con.execute("ALTER TABLE message_metrics ADD COLUMN think_source TEXT")
-    except Exception:
-        pass
 
     # Drop reminders table if it exists to cleanly remove local reminders data
     con.execute("DROP TABLE IF EXISTS reminders")
@@ -795,7 +816,7 @@ def _time_of_day_label(ts: float | None) -> str:
     if not ts:
         return ""
     try:
-        d = datetime.fromtimestamp(ts)
+        d = datetime.fromtimestamp(ts, tz=UTC).astimezone()
         hour = d.hour
         if 5 <= hour < 12:
             period = "morning"
@@ -834,7 +855,7 @@ def load_history() -> list[dict]:
     limit = cfg.MAX_HISTORY_MESSAGES
     from datetime import time as dtime
 
-    today_start = datetime.combine(datetime.now().date(), dtime.min).timestamp()
+    today_start = datetime.combine(datetime.now(UTC).astimezone().date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
 
     # 1. Fetch today's messages (newest first)
     today_rows = con.execute(
@@ -874,7 +895,7 @@ def load_history() -> list[dict]:
         ts = r["ts"]
         if ts:
             try:
-                msg_date = datetime.fromtimestamp(ts).date()
+                msg_date = datetime.fromtimestamp(ts, tz=UTC).astimezone().date()
                 if last_date is not None and msg_date != last_date:
                     date_str = msg_date.strftime("%A, %b %d, %Y")
                     messages.append(
@@ -915,7 +936,7 @@ def load_history() -> list[dict]:
 
 
 def save_message(
-    role: str, content: str, thinking: str = None, tools_used: str = None
+    role: str, content: str, thinking: str | None = None, tools_used: str | None = None
 ) -> None:
     """Insert a message row into the chat history DB (fire and forget — no return value).
 
@@ -935,7 +956,7 @@ def save_message(
 
 
 def save_message_get_id(
-    role: str, content: str, thinking: str = None, tools_used: str = None
+    role: str, content: str, thinking: str | None = None, tools_used: str | None = None
 ) -> int:
     """Insert a message row into the chat history database and return its row ID.
 
@@ -962,9 +983,9 @@ def save_message_get_id(
 def update_message(
     row_id: int,
     content: str,
-    thinking: str = None,
-    tools_used: str = None,
-    tool_metadata: str = None,
+    thinking: str | None = None,
+    tools_used: str | None = None,
+    tool_metadata: str | None = None,
 ):
     """Update an existing message row in the chat history database.
 
@@ -996,7 +1017,7 @@ def save_message_metrics(message_id: int, metrics: dict):
         return
     con = get_db()
     con.execute(
-        """INSERT INTO message_metrics 
+        """INSERT INTO message_metrics
            (message_id, prompt_eval_count, prompt_eval_duration, eval_count, eval_duration, total_duration, load_duration, think_effort, think_source)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
@@ -1164,7 +1185,7 @@ def check_auth(request: Request):
 
 
 async def call_ollama_stream(
-    messages: list[dict], tools: list[dict] = None, think_effort=None
+    messages: list[dict], tools: list[dict] | None = None, think_effort=None
 ):
     """Stream a chat request to Ollama.
 
@@ -1181,19 +1202,21 @@ async def call_ollama_stream(
         str: Raw JSON response lines from the Ollama server.
     """
     use_think = think_effort if think_effort is not None else cfg.THINK
-    options = {"num_ctx": cfg.NUM_CTX}
-    for key, val in {
-        "temperature": cfg.TEMPERATURE,
-        "min_p": cfg.MIN_P,
-        "top_k": cfg.TOP_K,
-        "top_p": cfg.TOP_P,
-        "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n": cfg.REPEAT_LAST_N,
-        "seed": cfg.SEED,
-        "num_predict": cfg.NUM_PREDICT,
-    }.items():
-        if val is not None:
-            options[key] = val
+    options = {
+        k: v
+        for k, v in {
+            "num_ctx": cfg.NUM_CTX,
+            "temperature": cfg.TEMPERATURE,
+            "min_p": cfg.MIN_P,
+            "top_k": cfg.TOP_K,
+            "top_p": cfg.TOP_P,
+            "repeat_penalty": cfg.REPEAT_PENALTY,
+            "repeat_last_n": cfg.REPEAT_LAST_N,
+            "seed": cfg.SEED,
+            "num_predict": cfg.NUM_PREDICT,
+        }.items()
+        if v is not None
+    }
     if cfg.STOP_SEQUENCES:
         options["stop"] = cfg.STOP_SEQUENCES
     payload = {
@@ -1213,19 +1236,18 @@ async def call_ollama_stream(
         [m["role"] for m in messages],
     )
 
-    async with httpx.AsyncClient(timeout=600) as client:
-        async with client.stream(
-            "POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload
-        ) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if line.strip():
-                    yield line
+    async with httpx.AsyncClient(timeout=600) as client, client.stream(
+        "POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload
+    ) as resp:
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
+            if line.strip():
+                yield line
 
 
 async def call_ollama_full(
     messages: list[dict],
-    tools: list[dict] = None,
+    tools: list[dict] | None = None,
     num_predict_override: int | None = None,
 ) -> dict:
     """Perform a non-streaming Ollama call for tool detection and agentic reasoning.
@@ -1245,21 +1267,23 @@ async def call_ollama_full(
     Returns:
         dict: The full parsed JSON response dictionary from the Ollama API.
     """
-    options = {"num_ctx": cfg.NUM_CTX}
-    for key, val in {
-        "temperature": cfg.TEMPERATURE,
-        "min_p": cfg.MIN_P,
-        "top_k": cfg.TOP_K,
-        "top_p": cfg.TOP_P,
-        "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n": cfg.REPEAT_LAST_N,
-        "seed": cfg.SEED,
-        "num_predict": num_predict_override
-        if num_predict_override is not None
-        else cfg.NUM_PREDICT,
-    }.items():
-        if val is not None:
-            options[key] = val
+    options = {
+        k: v
+        for k, v in {
+            "num_ctx": cfg.NUM_CTX,
+            "temperature": cfg.TEMPERATURE,
+            "min_p": cfg.MIN_P,
+            "top_k": cfg.TOP_K,
+            "top_p": cfg.TOP_P,
+            "repeat_penalty": cfg.REPEAT_PENALTY,
+            "repeat_last_n": cfg.REPEAT_LAST_N,
+            "seed": cfg.SEED,
+            "num_predict": num_predict_override
+            if num_predict_override is not None
+            else cfg.NUM_PREDICT,
+        }.items()
+        if v is not None
+    }
     if cfg.STOP_SEQUENCES:
         options["stop"] = cfg.STOP_SEQUENCES
     payload = {
@@ -1299,7 +1323,7 @@ def dispatch_tool(name: str, args: dict) -> str:
         result = fn(**args)
         dlog(f"Tool result preview: {str(result)[:200]}")
         return result
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError, KeyError, RuntimeError, OSError) as e:
         import traceback
 
         print(f"\n{_RED}[TOOL ERROR]{_RST} Exception in '{name}':", flush=True)
@@ -1369,16 +1393,16 @@ async def _agentic_stream_loop(
 
         queue: asyncio.Queue = asyncio.Queue()
 
-        async def _feed(feed_msgs, feed_tools, feed_think):
+        async def _feed(feed_msgs, feed_tools, feed_think, target_q=queue):
             try:
                 async for line in call_ollama_stream(
                     feed_msgs, tools=feed_tools, think_effort=feed_think
                 ):
-                    await queue.put(("line", line))
-            except BaseException as exc:
-                await queue.put(("error", exc))
+                    await target_q.put(("line", line))
+            except (httpx.HTTPError, RuntimeError, OSError, ValueError) as exc:
+                await target_q.put(("error", exc))
                 return
-            await queue.put(("done", _SENTINEL))
+            await target_q.put(("done", _SENTINEL))
 
         feeder = asyncio.create_task(_feed(msgs, tools_for_round, current_think_effort))
 
@@ -1386,7 +1410,7 @@ async def _agentic_stream_loop(
             while True:
                 try:
                     kind, item = await asyncio.wait_for(queue.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield 'data: {"type":"heartbeat"}\n\n'
                     continue
 
@@ -1399,9 +1423,10 @@ async def _agentic_stream_loop(
                 if kind == "done":
                     break
 
-                try:
+                chunk = {}
+                with contextlib.suppress(json.JSONDecodeError):
                     chunk = json.loads(item)
-                except Exception:
+                if not chunk:
                     continue
 
                 msg = chunk.get("message", {})
@@ -1544,9 +1569,9 @@ async def _agentic_stream_loop(
                 fn_name = tc.get("function", {}).get("name", "unknown")
                 fn_args = tc.get("function", {}).get("arguments", {})
                 if isinstance(fn_args, str):
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError, TypeError):
                         fn_args = json.loads(fn_args)
-                    except Exception:
+                    if isinstance(fn_args, str):
                         fn_args = {}
 
                 yield f"data: {json.dumps({'type': 'tool_start', 'round': round_num, 'tool': fn_name, 'args': fn_args})}\n\n"
@@ -1557,7 +1582,7 @@ async def _agentic_stream_loop(
                     result = await loop.run_in_executor(
                         None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
                     )
-                except Exception as exc:
+                except (AttributeError, TypeError, ValueError, KeyError, RuntimeError, OSError) as exc:
                     result = f"Error executing {fn_name}: {exc}"
                     tool_status = "error"
 
@@ -1736,7 +1761,7 @@ async def _process_chat_background(
         if agenda_prefix:
             user_msg_for_model = f"{agenda_prefix}\n\n{user_msg_for_model}"
 
-        messages = [{"role": "system", "content": system}] + history
+        messages = [{"role": "system", "content": system}, *history]
 
         research_ctx = get_research_context()
         if research_ctx:
@@ -1769,7 +1794,7 @@ async def _process_chat_background(
                         content_buf += d.get("delta", "")
                     elif d.get("type") == "thinking":
                         thinking_buf += d.get("delta", "")
-                except Exception:
+                except (json.JSONDecodeError, TypeError, KeyError):
                     pass
             session.push_chunk(event)
 
@@ -1777,7 +1802,7 @@ async def _process_chat_background(
         dlog(f"Chat background task cancelled for session {session.stream_id}")
         session.is_cancelled = True
         raise
-    except Exception as exc:
+    except (httpx.HTTPError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         print(
             f"{_RED}[CHAT BACKGROUND ERROR]{_RST} {type(exc).__name__}: {exc}",
             flush=True,
@@ -1851,16 +1876,16 @@ def pause_all_active_research():
 
     # 2. Check disk state for any active tasks in data/research
     try:
-        from Evelyn.tools.research_engine import load_state, save_state, get_task_dir
-    except Exception:
+        from Evelyn.tools.research_engine import load_state, save_state
+    except (ImportError, ModuleNotFoundError):
         try:
-            from research_engine import load_state, save_state, get_task_dir
-        except Exception as e:
+            from research_engine import load_state, save_state
+        except (ImportError, ModuleNotFoundError) as e:
             print(
                 f"[IMMEDIATE RESEARCH PAUSE ERROR] Could not import research_engine: {e}",
                 flush=True,
             )
-            load_state, save_state, get_task_dir = None, None, None
+            load_state, save_state, _get_task_dir = None, None, None
 
     if os.path.exists(cfg.RESEARCH_DATA_DIR):
         for d in os.listdir(cfg.RESEARCH_DATA_DIR):
@@ -1884,7 +1909,7 @@ def pause_all_active_research():
                             )
                             if save_state:
                                 save_state(d, state)
-                    except Exception as e:
+                    except (json.JSONDecodeError, OSError, ValueError) as e:
                         print(
                             f"[IMMEDIATE RESEARCH PAUSE ERROR] Failed to pause task {d} state: {e}",
                             flush=True,
@@ -1919,12 +1944,12 @@ def pause_all_active_research():
                     p.terminate()
                     try:
                         p.wait(timeout=2.0)
-                    except Exception:
+                    except (psutil.Error, OSError):
                         p.kill()
                     paused_any = True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-    except Exception as e:
+    except (psutil.Error, OSError) as e:
         print(
             f"[IMMEDIATE RESEARCH PAUSE ERROR] psutil process scan failed: {e}",
             flush=True,
@@ -1936,18 +1961,17 @@ def pause_all_active_research():
 def clean_shutdown_all_tasks():
     """Cleanly terminate child processes, pause active research, and drain in-flight Chroma queue items."""
     print("[SERVER SHUTDOWN] Gracefully shutting down all tasks...", flush=True)
-    import Evelyn.tools.task_manager as task_manager
-    import Evelyn.tools.chroma_rag as chroma_rag
+    from Evelyn.tools import chroma_rag, task_manager
 
     # 1. Terminate write producers (subprocesses/tasks) first so no new rows are created
     try:
         task_manager.terminate_all_subprocesses(grace_period=3.0)
-    except Exception as e:
+    except (subprocess.SubprocessError, psutil.Error, OSError) as e:
         print(f"[SERVER SHUTDOWN ERROR] Subprocess termination failed: {e}", flush=True)
 
     try:
         pause_all_active_research()
-    except Exception as e:
+    except (subprocess.SubprocessError, psutil.Error, OSError) as e:
         print(f"[SERVER SHUTDOWN ERROR] Research pause failed: {e}", flush=True)
 
     try:
@@ -1955,7 +1979,7 @@ def clean_shutdown_all_tasks():
         cancel_pending_procedure_consolidation()
         cancel_pending_extraction()
         cancel_pending_evolution()
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         print(
             f"[SERVER SHUTDOWN ERROR] Background task cancellation failed: {e}",
             flush=True,
@@ -1968,7 +1992,7 @@ def clean_shutdown_all_tasks():
     )
     try:
         chroma_rag.flush_sync_queue(timeout=5.0)
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
         print(f"[SERVER SHUTDOWN] Final queue flush notice: {e}", flush=True)
     print("[SERVER SHUTDOWN] Clean shutdown complete. Exiting.", flush=True)
 
@@ -2055,7 +2079,7 @@ async def chat_stream(
                                 "user_context": user_message,
                             }
                         )
-                except Exception as exc:
+                except (sqlite3.Error, OSError, ValueError, KeyError) as exc:
                     print(
                         f"[MEDIA ERROR] Failed processing image attachment: {exc}",
                         flush=True,
@@ -2111,7 +2135,7 @@ async def chat_stream(
 _background_tasks: dict[str, dict] = {}
 
 
-def is_any_heavy_task_running(exclude_name: str = None) -> bool:
+def is_any_heavy_task_running(exclude_name: str | None = None) -> bool:
     """Check if any heavy background task is currently running in the system.
 
     Delegates to task_manager.is_any_running() — the single canonical source
@@ -2161,7 +2185,7 @@ async def lifespan(app: FastAPI):
 
     # 0. Engine Version & Database Schema Validation
     print(f"\n{_CYN}🌌 Evelyn Engine v{cfg.__version__} ({cfg.VERSION_NAME}){_RST}\n")
-    import Evelyn.tools.db_migrator as db_migrator
+    from Evelyn.tools import db_migrator
 
     if getattr(cfg, "AUTO_MIGRATE_ON_BOOT", False):
         migrated = db_migrator.apply_pending_migrations()
@@ -2177,11 +2201,10 @@ async def lifespan(app: FastAPI):
             )
         except db_migrator.DatabaseSchemaMismatchError as e:
             print(f"  {_RED}{e}{_RST}", flush=True)
-            raise e
+            raise
 
     init_db()
-    import Evelyn.tools.task_manager as task_manager
-    import Evelyn.tools.chroma_rag as chroma_rag
+    from Evelyn.tools import chroma_rag, task_manager
 
     # 1. Startup Sanitization & Process Reaper
     reap_res = task_manager.reap_orphaned_processes()
@@ -2214,7 +2237,7 @@ async def lifespan(app: FastAPI):
                     dlog(f"[CHROMA DRAIN] Processed {drained} queued records.")
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
                 print(f"[CHROMA DRAIN ERROR] {e}", flush=True)
             await asyncio.sleep(1.5)
 
@@ -2224,8 +2247,7 @@ async def lifespan(app: FastAPI):
     )
 
     # 4. Media DB & Visual Memory Indexer
-    import Evelyn.tools.media_db as media_db
-    import Evelyn.tools.visual_indexer as visual_indexer
+    from Evelyn.tools import media_db, visual_indexer
 
     media_db.init_media_db()
     _lifespan_tasks.append(
@@ -2330,17 +2352,23 @@ async def lifespan(app: FastAPI):
                         run_procedure_consolidation()
                     )
                 elif dispatched_task == "profile_evolver":
-                    asyncio.create_task(run_profile_evolution())
+                    t_pe = asyncio.create_task(run_profile_evolution())
+                    _server_background_tasks.add(t_pe)
+                    t_pe.add_done_callback(_server_background_tasks.discard)
                 elif dispatched_task == "tag_librarian":
-                    asyncio.create_task(run_tag_librarian_task())
+                    t_tl = asyncio.create_task(run_tag_librarian_task())
+                    _server_background_tasks.add(t_tl)
+                    t_tl.add_done_callback(_server_background_tasks.discard)
                 elif dispatched_task == "refresh_memory":
-                    asyncio.create_task(start_refresh_memory_internal())
+                    t_rm = asyncio.create_task(start_refresh_memory_internal())
+                    _server_background_tasks.add(t_rm)
+                    t_rm.add_done_callback(_server_background_tasks.discard)
                 else:
                     print(
                         f"{_YEL}[IDLE DISPATCHER]{_RST} Unknown task '{dispatched_task}' in queue.",
                         flush=True,
                     )
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 print(
                     f"[IDLE DISPATCHER ERROR] Failed to dispatch '{dispatched_task}': {e}",
                     flush=True,
@@ -2392,10 +2420,8 @@ async def lifespan(app: FastAPI):
     # Idle-time deep research loop
     async def _idle_research_loop():
         """Background loop for deep research management."""
-        import os
         import json
-        import subprocess
-        import sys
+        import os
 
         while True:
             await asyncio.sleep(10)
@@ -2426,7 +2452,7 @@ async def lifespan(app: FastAPI):
                         from research_engine import self_initiate_research_topics
 
                         await self_initiate_research_topics()
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     print(f"[RESEARCH ERROR] Topic generation failed: {e}", flush=True)
 
             # 2. Build a unified view of unfinished tasks from memory and disk
@@ -2463,14 +2489,13 @@ async def lifespan(app: FastAPI):
                 if tid.startswith("task_"):
                     # Check disk state as well to stay perfectly in sync
                     disk_state = load_state(tid)
-                    if not disk_state:
-                        if task.get("status") not in (
-                            "running",
-                            "searching",
-                            "synthesizing",
-                        ):
-                            del _background_tasks[tid]
-                            continue
+                    if not disk_state and task.get("status") not in (
+                        "running",
+                        "searching",
+                        "synthesizing",
+                    ):
+                        del _background_tasks[tid]
+                        continue
                     status = (
                         disk_state.get("status") if disk_state else task.get("status")
                     )
@@ -2492,11 +2517,10 @@ async def lifespan(app: FastAPI):
                             "cancelled",
                             "needs_guidance",
                             "paused",
-                        ):
-                            if "finished_at" not in _background_tasks[
-                                tid
-                            ] or not _background_tasks[tid].get("finished_at"):
-                                _background_tasks[tid]["finished_at"] = time.time()
+                        ) and ("finished_at" not in _background_tasks[
+                            tid
+                        ] or not _background_tasks[tid].get("finished_at")):
+                            _background_tasks[tid]["finished_at"] = time.time()
 
                     if status in (
                         "running",
@@ -2638,11 +2662,14 @@ async def lifespan(app: FastAPI):
 
                 queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
                 if os.path.exists(queue_file):
-                    try:
-                        with open(queue_file, "r", encoding="utf-8") as f:
-                            queue = json.load(f)
-                    except Exception:
-                        queue = []
+                    def _read_queue(q_path: str):
+                        try:
+                            with open(q_path, encoding="utf-8") as f:
+                                return json.load(f)
+                        except (json.JSONDecodeError, OSError):
+                            return []
+
+                    queue = await asyncio.to_thread(_read_queue, queue_file)
 
                     if queue:
                         # Sort chronologically by created_at date
@@ -2653,11 +2680,15 @@ async def lifespan(app: FastAPI):
                         )
 
                         next_task = queue.pop(0)
-                        try:
-                            with open(queue_file, "w", encoding="utf-8") as f:
-                                json.dump(queue, f, indent=2)
-                        except Exception:
-                            pass
+
+                        def _write_queue(q_path: str, q_data: list):
+                            with (
+                                contextlib.suppress(OSError, TypeError),
+                                open(q_path, "w", encoding="utf-8") as f,
+                            ):
+                                json.dump(q_data, f, indent=2)
+
+                        await asyncio.to_thread(_write_queue, queue_file, queue)
 
                         print(
                             f"[RESEARCH IDLE START] Starting queued task: '{next_task['query']}'",
@@ -2690,10 +2721,9 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(300)  # Check every 5 minutes
             importlib.reload(cfg)
             idle_seconds = time.time() - _last_activity_ts
-            if idle_seconds >= 2700:
-                if time.time() - last_enqueued_time >= 7200:
-                    task_manager.enqueue_idle_task("refresh_memory")
-                    last_enqueued_time = time.time()
+            if idle_seconds >= 2700 and time.time() - last_enqueued_time >= 7200:
+                task_manager.enqueue_idle_task("refresh_memory")
+                last_enqueued_time = time.time()
 
     _lifespan_tasks.append(asyncio.create_task(_idle_memory_refresh_loop()))
     print(f"  {_GRN}Mem Refresher:{_RST} idle timer started (threshold=45m, limit=2h)")
@@ -2750,7 +2780,7 @@ async def lifespan(app: FastAPI):
                     f"{_GRN}[TAG LIBRARIAN]{_RST} Taxonomy maintenance pruned {m_res['removed_master_tags']} orphan tags.",
                     flush=True,
                 )
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
             print(f"[TAG LIBRARIAN] Error during audit pass: {e}", flush=True)
             task_manager.clear_running("tag_librarian", status="error", error=str(e))
         finally:
@@ -2790,14 +2820,13 @@ async def lifespan(app: FastAPI):
                         f"{_GRN}[GCAL SYNC]{_RST} Auto-sync successful: {result['message']}",
                         flush=True,
                     )
-                elif result.get("status") == "offline":
+                elif result.get("status") == "offline" and cfg.DEBUG_LOGGING:
                     # Only print if debug logging is enabled or on config change
-                    if cfg.DEBUG_LOGGING:
-                        print(
-                            f"{_GRN}[GCAL SYNC]{_RST} Auto-sync fallback to cache: {result['message']}",
-                            flush=True,
-                        )
-            except Exception as e:
+                    print(
+                        f"{_GRN}[GCAL SYNC]{_RST} Auto-sync fallback to cache: {result['message']}",
+                        flush=True,
+                    )
+            except (httpx.HTTPError, sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
                 print(f"{_RED}[GCAL SYNC ERROR]{_RST} {e}", flush=True)
 
             # Run every 30 minutes
@@ -2822,13 +2851,12 @@ async def lifespan(app: FastAPI):
                         f"{_GRN}[GTASKS SYNC]{_RST} Auto-sync successful: {result['message']}",
                         flush=True,
                     )
-                elif result.get("status") == "offline":
-                    if cfg.DEBUG_LOGGING:
-                        print(
-                            f"{_GRN}[GTASKS SYNC]{_RST} Auto-sync fallback to cache: {result['message']}",
-                            flush=True,
-                        )
-            except Exception as e:
+                elif result.get("status") == "offline" and cfg.DEBUG_LOGGING:
+                    print(
+                        f"{_GRN}[GTASKS SYNC]{_RST} Auto-sync fallback to cache: {result['message']}",
+                        flush=True,
+                    )
+            except (httpx.HTTPError, sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
                 print(f"{_RED}[GTASKS SYNC ERROR]{_RST} {e}", flush=True)
 
             # Run every 30 minutes
@@ -2852,11 +2880,7 @@ async def lifespan(app: FastAPI):
                 )
                 if result.get("status") == "success":
                     action = result.get("action", "")
-                    if action == "downloaded":
-                        print(
-                            f"{_GRN}[GDRIVE SYNC]{_RST} {result['message']}", flush=True
-                        )
-                    elif cfg.DEBUG_LOGGING:
+                    if action == "downloaded" or cfg.DEBUG_LOGGING:
                         print(
                             f"{_GRN}[GDRIVE SYNC]{_RST} {result['message']}", flush=True
                         )
@@ -2864,7 +2888,7 @@ async def lifespan(app: FastAPI):
                     print(
                         f"{_YEL}[GDRIVE SYNC]{_RST} {result.get('message')}", flush=True
                     )
-            except Exception as e:
+            except (httpx.HTTPError, sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
                 print(f"{_RED}[GDRIVE SYNC ERROR]{_RST} {e}", flush=True)
 
             # Check every 2 hours (7200s)
@@ -2919,7 +2943,7 @@ app.mount(
 @app.get("/status")
 async def status(_: None = Depends(check_auth)):
     """Return server health and active config (model, context size, think mode, engine version)."""
-    import Evelyn.tools.db_migrator as db_migrator
+    from Evelyn.tools import db_migrator
 
     return {
         "status": "ok",
@@ -2962,8 +2986,8 @@ async def update_media_endpoint(
     guid: str, req: MediaUpdateRequest, _: None = Depends(check_auth)
 ):
     """Update description, tags, domain for a media asset and re-index into ChromaDB."""
-    from Evelyn.tools import media_db, chroma_rag
     import evelyn_config as cfg
+    from Evelyn.tools import chroma_rag, media_db
 
     asset = media_db.get_media_asset(guid)
     if not asset:
@@ -3010,7 +3034,7 @@ async def update_media_endpoint(
         if isinstance(meta_json, str):
             try:
                 meta_json = json.loads(meta_json)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 meta_json = {}
 
         exif_details = []
@@ -3139,7 +3163,7 @@ async def stop_chat(req: StopChatRequest = None, _: None = Depends(check_auth)):
         from Evelyn.tools import task_manager
 
         task_manager.terminate_all_subprocesses(grace_period=1.0)
-    except Exception as e:
+    except (subprocess.SubprocessError, psutil.Error, OSError, RuntimeError) as e:
         dlog(f"Subprocess termination notice on stop: {e}")
 
     session.push_chunk(f"data: {json.dumps({'type': 'stopped'})}\n\n")
@@ -3245,7 +3269,7 @@ async def get_history(
         d["feedback"] = feedback_map.get(d["id"])
         try:
             d["attachments"] = media_db.get_media_for_message(d["id"])
-        except Exception:
+        except (sqlite3.Error, OSError):
             d["attachments"] = []
         messages_out.append(d)
     return messages_out
@@ -3435,7 +3459,8 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
     if type == "journal":
         import os
         import re
-        from Evelyn.tools.journal_manager import PENDING_DIR, JOURNAL_DIR
+
+        from Evelyn.tools.journal_manager import JOURNAL_DIR, PENDING_DIR
 
         filename = id if id.endswith(".md") else f"{id}.md"
         filename = os.path.basename(filename)
@@ -3458,9 +3483,9 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
                     filename,
                 )
                 if os.path.exists(struct_path):
-                    with open(struct_path, "r", encoding="utf-8") as f:
-                        return {"content": f.read(), "status": "approved"}
-            except Exception:
+                    content = await asyncio.to_thread(_server_sync_read, struct_path)
+                    return {"content": content, "status": "approved"}
+            except (OSError, ValueError):
                 pass
 
         # 2. Try vault root path — written directly (JOURNAL_DIRECT_WRITE=True) but not yet
@@ -3468,14 +3493,14 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
         # approve/file button rather than the "already approved" badge.
         root_path = os.path.join(JOURNAL_DIR, filename)
         if os.path.exists(root_path):
-            with open(root_path, "r", encoding="utf-8") as f:
-                return {"content": f.read(), "status": "unfiled"}
+            content = await asyncio.to_thread(_server_sync_read, root_path)
+            return {"content": content, "status": "unfiled"}
 
         # 3. Try pending folder (legacy — JOURNAL_DIRECT_WRITE=False mode)
         pending_path = os.path.join(PENDING_DIR, filename)
         if os.path.exists(pending_path):
-            with open(pending_path, "r", encoding="utf-8") as f:
-                return {"content": f.read(), "status": "pending"}
+            content = await asyncio.to_thread(_server_sync_read, pending_path)
+            return {"content": content, "status": "pending"}
 
         # Fallback to journal_manager read
         from Evelyn.tools.journal_manager import read_journal_entry
@@ -3488,14 +3513,14 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
             raise HTTPException(status_code=400, detail="Invalid journal ID")
     elif type == "research":
         import os
-        import evelyn_config as cfg
         import re
+
+        import evelyn_config as cfg
 
         safe_id = re.sub(r"[^a-zA-Z0-9_\-]+", "-", id).strip("-")
         report_path = os.path.join(cfg.RESEARCH_VAULT_DIR, f"{safe_id}.md")
         if os.path.exists(report_path):
-            with open(report_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            content = await asyncio.to_thread(_server_sync_read, report_path)
             return {"content": content}
         else:
             # Fallback to research data dir
@@ -3508,10 +3533,7 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
                             state_path = os.path.join(d_path, "state.json")
                             if os.path.exists(state_path):
                                 try:
-                                    import json
-
-                                    with open(state_path, "r", encoding="utf-8") as sf:
-                                        sdata = json.load(sf)
+                                    sdata = await asyncio.to_thread(_server_sync_load_json, state_path)
                                     if (
                                         sdata.get("task_id") == id
                                         or re.sub(
@@ -3521,12 +3543,9 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
                                         ).strip("-")
                                         == safe_id
                                     ):
-                                        with open(
-                                            rep_path, "r", encoding="utf-8"
-                                        ) as rf:
-                                            content = rf.read()
+                                        content = await asyncio.to_thread(_server_sync_read, rep_path)
                                         return {"content": content}
-                                except Exception:
+                                except (OSError, json.JSONDecodeError, ValueError):
                                     pass
             raise HTTPException(status_code=404, detail="Research report not found")
     else:
@@ -3550,11 +3569,12 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
     Returns:
         dict: Confirmation of approval status and final destination path.
     """
+    import datetime
     import os
     import re
     import shutil
-    import datetime
-    from Evelyn.tools.journal_manager import PENDING_DIR, JOURNAL_DIR
+
+    from Evelyn.tools.journal_manager import JOURNAL_DIR, PENDING_DIR
 
     filename = req.id if req.id.endswith(".md") else f"{req.id}.md"
     filename = os.path.basename(filename)
@@ -3587,14 +3607,14 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
                             "status": "already_approved",
                             "destination": struct_path,
                         }
-                except Exception:
+                except (OSError, ValueError):
                     pass
             raise HTTPException(
                 status_code=404,
                 detail="Journal entry file not found in pending or vault root",
             )
 
-    m = re.search(r"Journal Entry (\d{4})-(\d{2})-\d{2}\.md", filename)
+    m = re.search(r"Journal Entry (\d{4})-(\d{2})-(\d{2})\.md", filename)
     if not m:
         raise HTTPException(status_code=400, detail="Invalid journal filename format")
 
@@ -3610,15 +3630,15 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
     target_path = os.path.join(target_dir, filename)
 
     try:
-        shutil.move(source_path, target_path)
+        await asyncio.to_thread(shutil.move, source_path, target_path)
         print(
             f"[JOURNAL APPROVE] Moved {filename} to structured vault path: {target_path}",
             flush=True,
         )
         await start_refresh_memory_internal()
         return {"status": "success", "destination": target_path}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to move journal file: {e}")
+    except (OSError, RuntimeError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to move journal file: {e}") from e
 
 
 @app.post("/new_thread")
@@ -3641,8 +3661,8 @@ def _load_existing_research_tasks():
     in-flight tasks to 'paused' unconditionally.
     """
     try:
-        import os
         import json
+        import os
 
         research_dir = cfg.RESEARCH_DATA_DIR
         if not os.path.exists(research_dir):
@@ -3655,7 +3675,7 @@ def _load_existing_research_tasks():
                     state_file = os.path.join(task_dir, "state.json")
                     if os.path.exists(state_file):
                         try:
-                            with open(state_file, "r", encoding="utf-8") as f:
+                            with open(state_file, encoding="utf-8") as f:
                                 state = json.load(f)
                             status = state.get("status")
 
@@ -3706,9 +3726,9 @@ def _load_existing_research_tasks():
                                     f"[RESEARCH RECOVERY] Registered {target_status} task {d} from disk.",
                                     flush=True,
                                 )
-                        except Exception:
+                        except (OSError, json.JSONDecodeError, ValueError):
                             pass
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(
             f"[RESEARCH RECOVERY ERROR] Failed to load existing tasks: {e}", flush=True
         )
@@ -3743,8 +3763,9 @@ async def trigger_sync(_: None = Depends(check_auth)):
     calls simultaneously.
     """
     import threading
-    import task_manager
+
     import ingest_obsidian_knowledge
+    import task_manager
 
     # Free Ollama before a heavy background operation starts
     cancel_pending_consolidation()
@@ -3766,7 +3787,7 @@ async def trigger_sync(_: None = Depends(check_auth)):
                 "sync", status="done", summary="Chroma Sync completed successfully."
             )
             print(f"{_GRN}[SYNC]{_RST} Complete.", flush=True)
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
             task_manager.clear_running("sync", status="error", error=str(e))
             print(f"{_RED}[SYNC ERROR]{_RST} {e}", flush=True)
 
@@ -3780,9 +3801,10 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
 
     Cancels any in-flight consolidation or extraction tasks before starting.
     """
-    import threading
     import subprocess
     import sys
+    import threading
+
     import task_manager
 
     # Free Ollama before a heavy background operation starts
@@ -3817,7 +3839,7 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
                     f"{_RED}[VAULT MAP ERROR]{_RST} Process exited with code {result.returncode}",
                     flush=True,
                 )
-        except Exception as e:
+        except (subprocess.SubprocessError, psutil.Error, OSError, RuntimeError) as e:
             task_manager.clear_running("vault_map", status="error", error=str(e))
             print(f"{_RED}[VAULT MAP ERROR]{_RST} {e}", flush=True)
 
@@ -3919,13 +3941,15 @@ async def start_refresh_memory_internal():
             else:
                 raise RuntimeError(f"Pipeline exited with code {proc.returncode}")
 
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, RuntimeError) as e:
             task_manager.clear_running("refresh_memory", status="error", error=str(e))
             if "refresh_memory" in _background_tasks:
                 _background_tasks["refresh_memory"]["phase"] = "Failed."
             print(f"{_RED}[REFRESH ERROR]{_RST} {e}", flush=True)
 
-    asyncio.create_task(_run_subprocess())
+    t_proc = asyncio.create_task(_run_subprocess())
+    _server_background_tasks.add(t_proc)
+    t_proc.add_done_callback(_server_background_tasks.discard)
 
 
 @app.post("/refresh_memory")
@@ -3949,7 +3973,7 @@ class ResearchStartRequest(BaseModel):
 
     query: str
     scope: str = "standard"
-    intent_frame: Optional[str] = None
+    intent_frame: str | None = None
 
 
 @app.post("/research/start")
@@ -4007,6 +4031,7 @@ async def api_research_report(task_id: str, _: None = Depends(check_auth)):
         dict: A dictionary containing the markdown report content.
     """
     import os
+
     from research_engine import get_task_dir
 
     task_dir = get_task_dir(task_id)
@@ -4015,15 +4040,15 @@ async def api_research_report(task_id: str, _: None = Depends(check_auth)):
         raise HTTPException(
             status_code=404, detail="Report not synthesized yet or task failed"
         )
-    with open(report_file, "r", encoding="utf-8") as f:
-        return {"report": f.read()}
+    content = await asyncio.to_thread(_server_sync_read, report_file)
+    return {"report": content}
 
 
 @app.get("/research/list")
 async def api_research_list(_: None = Depends(check_auth)):
     """List all research tasks sorted by creation date, merging in-progress and queued items."""
-    import os
     import json
+    import os
 
     research_dir = cfg.RESEARCH_DATA_DIR
     if not os.path.exists(research_dir):
@@ -4035,14 +4060,11 @@ async def api_research_list(_: None = Depends(check_auth)):
         if os.path.isdir(task_dir):
             state_file = os.path.join(task_dir, "state.json")
             if os.path.exists(state_file):
-                try:
-                    with open(state_file, "r", encoding="utf-8") as f:
-                        state = json.load(f)
-                        tasks.append(state)
-                        if state.get("query"):
-                            existing_queries.add(state["query"])
-                except Exception:
-                    pass
+                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+                    state = await asyncio.to_thread(_server_sync_load_json, state_file)
+                    tasks.append(state)
+                    if state.get("query"):
+                        existing_queries.add(state["query"])
 
     # Helper to clean/check duplicates
     def queries_are_duplicates(q1: str, q2: str) -> bool:
@@ -4059,8 +4081,8 @@ async def api_research_list(_: None = Depends(check_auth)):
 
         if not q1 or not q2:
             return False
-        words1 = set(w for w in re.findall(r"\w+", q1.lower()) if len(w) > 3)
-        words2 = set(w for w in re.findall(r"\w+", q2.lower()) if len(w) > 3)
+        words1 = {w for w in re.findall(r"\w+", q1.lower()) if len(w) > 3}
+        words2 = {w for w in re.findall(r"\w+", q2.lower()) if len(w) > 3}
         if not words1 or not words2:
             return False
         intersection = words1.intersection(words2)
@@ -4070,16 +4092,13 @@ async def api_research_list(_: None = Depends(check_auth)):
             return True
         overlap_count = len(intersection)
         min_len = min(len(words1), len(words2))
-        if overlap_count >= 4 and (overlap_count / min_len) >= 0.75:
-            return True
-        return False
+        return bool(overlap_count >= 4 and overlap_count / min_len >= 0.75)
 
     # 2. Process queue.json, filtering duplicates and adding queued items
     queue_file = os.path.join(research_dir, "queue.json")
     if os.path.exists(queue_file):
         try:
-            with open(queue_file, "r", encoding="utf-8") as f:
-                queue = json.load(f)
+            queue = await asyncio.to_thread(_server_sync_load_json, queue_file)
 
             filtered_queue = []
             queue_changed = False
@@ -4104,8 +4123,7 @@ async def api_research_list(_: None = Depends(check_auth)):
 
             # If we stripped out duplicates, write the sanitized queue back to disk
             if queue_changed:
-                with open(queue_file, "w", encoding="utf-8") as f:
-                    json.dump(filtered_queue, f, indent=2)
+                await asyncio.to_thread(_server_sync_dump_json, queue_file, filtered_queue)
                 queue = filtered_queue
 
             # Add remaining queued items to the tasks list
@@ -4126,7 +4144,7 @@ async def api_research_list(_: None = Depends(check_auth)):
                         "orchestrator_turns": 0,
                     }
                 )
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             print(
                 f"[RESEARCH LIST ERROR] Failed to process queue.json: {e}", flush=True
             )
@@ -4153,12 +4171,10 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
             idx = int(task_id.split("_")[1])
             queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
             if os.path.exists(queue_file):
-                with open(queue_file, "r", encoding="utf-8") as f:
-                    queue = json.load(f)
+                queue = await asyncio.to_thread(_server_sync_load_json, queue_file)
                 if 0 <= idx < len(queue):
                     removed = queue.pop(idx)
-                    with open(queue_file, "w", encoding="utf-8") as f:
-                        json.dump(queue, f, indent=2)
+                    await asyncio.to_thread(_server_sync_dump_json, queue_file, queue)
                     print(
                         f"[RESEARCH QUEUE] Cancelled queued task: '{removed.get('query')}'",
                         flush=True,
@@ -4169,10 +4185,10 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
             )
         except HTTPException:
             raise
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=500, detail=f"Failed to cancel queued task: {e}"
-            )
+            ) from e
 
     from research_engine import load_state, save_state
 
@@ -4210,8 +4226,8 @@ async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
     Returns:
         dict: Deletion status indicator.
     """
-    import shutil
     import os
+    import shutil
 
     # 1. Handle queued task ID (e.g. queued_N)
     if task_id.startswith("queued_"):
@@ -4219,12 +4235,10 @@ async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
             idx = int(task_id.split("_")[1])
             queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
             if os.path.exists(queue_file):
-                with open(queue_file, "r", encoding="utf-8") as f:
-                    queue = json.load(f)
+                queue = await asyncio.to_thread(_server_sync_load_json, queue_file)
                 if 0 <= idx < len(queue):
                     removed = queue.pop(idx)
-                    with open(queue_file, "w", encoding="utf-8") as f:
-                        json.dump(queue, f, indent=2)
+                    await asyncio.to_thread(_server_sync_dump_json, queue_file, queue)
                     print(
                         f"[RESEARCH QUEUE] Deleted queued task: '{removed.get('query')}'",
                         flush=True,
@@ -4233,10 +4247,10 @@ async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
             raise HTTPException(status_code=404, detail="Queue item or file not found")
         except HTTPException:
             raise
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=500, detail=f"Failed to delete queued task: {e}"
-            )
+            ) from e
 
     # Terminate process immediately if active
     terminate_research_process(task_id)
@@ -4246,18 +4260,15 @@ async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
     if not os.path.exists(task_dir):
         raise HTTPException(status_code=404, detail="Research task not found")
 
-    # Delete the directory recursively with a retry loop to handle Windows file lock delays
-    import time
-
-    time.sleep(0.5)  # Give the terminated process a moment to release handles
+    await asyncio.sleep(0.5)  # Give the terminated process a moment to release handles
     delete_success = False
-    for attempt in range(3):
+    for _attempt in range(3):
         try:
             shutil.rmtree(task_dir)
             delete_success = True
             break
-        except Exception:
-            time.sleep(1.0)
+        except OSError:
+            await asyncio.sleep(1.0)
 
     if not delete_success:
         # Last ditch effort ignoring errors
@@ -4335,8 +4346,8 @@ class SQRewriteRequest(BaseModel):
     """Pydantic model representing a request to rewrite a sub-question or its search query."""
 
     sq_id: str
-    new_question: Optional[str] = None
-    new_search_query: Optional[str] = None
+    new_question: str | None = None
+    new_search_query: str | None = None
 
 
 class SQRemoveRequest(BaseModel):
@@ -4458,15 +4469,13 @@ async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
             if not os.path.exists(queue_file):
                 raise HTTPException(status_code=404, detail="Queue file not found")
 
-            with open(queue_file, "r", encoding="utf-8") as f:
-                queue = json.load(f)
+            queue = await asyncio.to_thread(_server_sync_load_json, queue_file)
 
             if not (0 <= idx < len(queue)):
                 raise HTTPException(status_code=404, detail="Queue index out of range")
 
             item = queue.pop(idx)
-            with open(queue_file, "w", encoding="utf-8") as f:
-                json.dump(queue, f, indent=2)
+            await asyncio.to_thread(_server_sync_dump_json, queue_file, queue)
 
             query = item.get("query", "")
             scope = item.get("scope", "standard")
@@ -4482,10 +4491,10 @@ async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
 
         except HTTPException:
             raise
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=500, detail=f"Failed to start queued task: {e}"
-            )
+            ) from e
 
     # For real task IDs (paused / cancelled / error) — resume in-place
     from evelyn_tools import resume_research_task
@@ -4507,20 +4516,19 @@ async def tts_stream_proxy(request: Request):
 
     async def _forward():
         try:
-            async with httpx.AsyncClient(timeout=300) as client:
-                async with client.stream(
-                    "POST",
-                    f"{cfg.TTS_SERVER_URL}/v1/audio/speech/stream",
-                    content=body,
-                    headers={"Content-Type": "application/json"},
-                ) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if line.strip():
-                            yield line + "\n\n"
+            async with httpx.AsyncClient(timeout=300) as client, client.stream(
+                "POST",
+                f"{cfg.TTS_SERVER_URL}/v1/audio/speech/stream",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line.strip():
+                        yield line + "\n\n"
         except httpx.ConnectError:
             yield 'data: {"error": "TTS server is not running"}\n\n'
-        except Exception as e:
+        except (httpx.HTTPError, RuntimeError, OSError) as e:
             yield f'data: {{"error": "{e}"}}\n\n'
 
     return StreamingResponse(
@@ -4544,9 +4552,9 @@ async def tts_audio_proxy(filename: str):
             resp = await client.get(f"{cfg.TTS_SERVER_URL}/tts-audio/{filename}")
             resp.raise_for_status()
         except httpx.ConnectError:
-            raise HTTPException(status_code=503, detail="TTS server is not running")
+            raise HTTPException(status_code=503, detail="TTS server is not running") from None
         except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=str(e))
+            raise HTTPException(status_code=e.response.status_code, detail=str(e)) from e
     return Response(content=resp.content, media_type="audio/wav")
 
 
@@ -4574,7 +4582,7 @@ if __name__ == "__main__":
 
     except NameError as e:
         print(f"Error: It looks like something is missing in the script: {e}")
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         print(f"An unexpected error occurred: {e}")
 
 
@@ -4590,7 +4598,7 @@ if __name__ == "__main__":
 @app.get("/api/heavy_tasks")
 async def get_heavy_tasks(_: None = Depends(check_auth)):
     """Return real-time status of all heavy background tasks and mutual-exclusion lock state."""
-    import Evelyn.tools.task_manager as task_manager
+    from Evelyn.tools import task_manager
     from Evelyn.tools.research_engine import load_state
 
     now = time.time()
@@ -4630,31 +4638,27 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
 
         doc_statuses = None
         if key == "profile_evolver":
-            try:
+            with contextlib.suppress(sqlite3.Error, OSError, ValueError, KeyError):
                 from Evelyn.tools.profile_evolver import get_profile_evolution_statuses
 
                 doc_statuses = get_profile_evolution_statuses()
-            except Exception as e:
-                pass
 
         sub_status = task_data.get("sub_status")
         summary = task_data.get("summary")
         diagnostics = task_data.get("diagnostics")
 
         # Dynamic diagnostic enrichment if sub_status wasn't explicitly populated
-        try:
+        with contextlib.suppress(OSError, ValueError):
             if key == "extractor":
-                import json, os, sqlite3
+                import os
+                import sqlite3
 
                 state_path = str(BASE_DIR / "data" / "evelyn_extraction_state.json")
                 last_id = 0
                 if os.path.exists(state_path):
-                    try:
-                        with open(state_path, "r", encoding="utf-8") as sf:
-                            st = json.load(sf)
-                            last_id = st.get("last_extracted_id", 0)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+                        st = await asyncio.to_thread(_server_sync_load_json, state_path)
+                        last_id = st.get("last_extracted_id", 0)
                 if sub_status and "last_extracted_id" in sub_status:
                     last_id = max(last_id, sub_status.get("last_extracted_id", 0))
 
@@ -4677,13 +4681,13 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "unextracted_backlog": backlog,
                 }
             elif key == "consolidator":
-                import json, os
+                import os
 
                 scan_path = str(BASE_DIR / "data" / "evelyn_consolidation_offsets.json")
                 scan_st = {}
                 if os.path.exists(scan_path):
-                    with open(scan_path, "r", encoding="utf-8") as sf:
-                        scan_st = json.load(sf)
+                    with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+                        scan_st = await asyncio.to_thread(_server_sync_load_json, scan_path)
                 active_cat = task_data.get("phase") if status == "running" else None
                 if not sub_status:
                     sub_status = {"scan_state": scan_st, "active_category": active_cat}
@@ -4693,7 +4697,8 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     if "active_category" not in sub_status:
                         sub_status["active_category"] = active_cat
             elif key == "procedure_consolidator":
-                import sqlite3, os
+                import os
+                import sqlite3
 
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
                 proc_cnt = 0
@@ -4710,7 +4715,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                             "SELECT COUNT(*) FROM memory_proposals WHERE type='procedure_merge' AND status='pending'"
                         )
                         pending_proposals = cur.fetchone()[0]
-                    except Exception:
+                    except (sqlite3.Error, OSError):
                         pass
                     finally:
                         conn.close()
@@ -4724,7 +4729,8 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     sub_status.setdefault("total_procedures", proc_cnt)
                     sub_status.setdefault("pending_proposals", pending_proposals)
             elif key == "tag_librarian":
-                import sqlite3, os
+                import os
+                import sqlite3
 
                 vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
                 audited = 0
@@ -4742,7 +4748,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         audited = cur.fetchone()[0]
                         cur.execute("SELECT COUNT(*) FROM vault_documents")
                         total = cur.fetchone()[0]
-                    except Exception:
+                    except (sqlite3.Error, OSError):
                         pass
                     finally:
                         conn.close()
@@ -4752,7 +4758,8 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "total_notes": total,
                 }
             elif key == "sync":
-                import sqlite3, os
+                import os
+                import sqlite3
 
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
                 facts_cnt = 0
@@ -4767,7 +4774,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         facts_cnt = cur.fetchone()[0]
                         cur.execute("SELECT COUNT(*) FROM procedures")
                         procs_cnt = cur.fetchone()[0]
-                    except Exception:
+                    except (sqlite3.Error, OSError):
                         pass
                     finally:
                         conn.close()
@@ -4793,7 +4800,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                             chroma_cnt = row[0] if row and row[0] is not None else 0
                         finally:
                             cconn.close()
-                except Exception:
+                except (sqlite3.Error, OSError):
                     pass
                 sub_status = sub_status or {
                     "context_facts": facts_cnt,
@@ -4813,17 +4820,13 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             elif key == "refresh_memory":
                 phase = task_data.get("phase", "Idle")
                 current_step = 1
-                if "Phase 2" in phase or "Ingest" in phase or "Knowledge" in phase:
-                    current_step = 2
-                elif phase == "Completed successfully.":
+                if "Phase 2" in phase or "Ingest" in phase or "Knowledge" in phase or phase == "Completed successfully.":
                     current_step = 2
                 sub_status = sub_status or {
                     "total_steps": 2,
                     "current_step": current_step,
                     "steps": ["Vault Map", "Knowledge Ingest"],
                 }
-        except Exception as e:
-            pass
 
         tasks_info.append(
             {
@@ -4895,7 +4898,7 @@ def _enrich_extraction_with_taxonomy(item: dict) -> dict:
         return item
 
     try:
-        import Evelyn.tools.chroma_rag as chroma_rag
+        from Evelyn.tools import chroma_rag
         from Evelyn.tools.tag_librarian import is_excluded_tag
 
         tag_col = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
@@ -4921,7 +4924,7 @@ def _enrich_extraction_with_taxonomy(item: dict) -> dict:
             item["alignment_label"] = "Related"
         else:
             item["alignment_label"] = "Novel"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError):
         item["suggested_tags"] = []
         item["novelty_score"] = 1.0
         item["alignment_label"] = "Novel"
@@ -4934,7 +4937,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
     """Return all pending review items (extractions, proposals, profile updates, procedures)
     in a single unified list with item_type metadata and vector taxonomy suggestions.
     """
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     unified_items = []
     queued_split_ids = memory_db.get_all_queued_split_entry_ids()
@@ -5003,7 +5006,7 @@ class EditEntryRequest(BaseModel):
 @app.get("/api/review/extractions")
 async def get_extractions(_: None = Depends(check_auth)):
     """Return all extracted (pending review) memory entries with vector taxonomy enrichment."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
     return [_enrich_extraction_with_taxonomy(item) for item in raw_extractions]
@@ -5020,7 +5023,7 @@ async def action_extraction(
         action: "approve" | "delete" | "edit".
         req:    Required for "edit" — carries updated fields.
     """
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     if action == "approve":
         memory_db.update_entry(id, status="live")
@@ -5095,7 +5098,7 @@ class ProposalActionRequest(BaseModel):
 @app.get("/api/review/proposals")
 async def get_proposals(_: None = Depends(check_auth)):
     """Return all pending consolidation/recategorization proposals with their source entries."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     proposals = memory_db.get_pending_proposals()
     for p in proposals:
@@ -5141,7 +5144,7 @@ async def action_proposal(
         action: "approve" | "deny" | "unlink_source".
         req:    Optional JSON body containing modified_text or source_id.
     """
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     if action == "deny":
         memory_db.reject_proposal(id)
@@ -5211,7 +5214,8 @@ async def action_proposal(
             # Run update_frontmatter script to update date modified/tags
             import subprocess
 
-            subprocess.run(
+            await asyncio.to_thread(
+                subprocess.run,
                 [sys.executable, "scripts/update_frontmatter.py", str(target_file)],
                 cwd=str(BASE_DIR),
                 capture_output=True,
@@ -5237,7 +5241,7 @@ async def action_proposal(
                 memory_db.delete_procedure(eid)
             try:
                 parsed_proc = yaml.safe_load(final_text)
-            except Exception:
+            except (yaml.YAMLError, ValueError, TypeError):
                 parsed_proc = {}
             if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
                 proc_tags = parsed_proc.get("tags")
@@ -5307,7 +5311,7 @@ async def action_proposal(
                     if isinstance(parsed_data, dict)
                     else (parsed_data if isinstance(parsed_data, list) else [])
                 )
-            except Exception:
+            except (yaml.YAMLError, ValueError, TypeError):
                 child_procs = []
             for cp in child_procs:
                 if isinstance(cp, dict) and "trigger_pattern" in cp:
@@ -5336,7 +5340,7 @@ async def action_proposal(
                         child_entries = parsed_splits
                     else:
                         child_entries = []
-                except Exception:
+                except (yaml.YAMLError, ValueError, TypeError):
                     child_entries = []
                 if child_entries:
                     memory_db.split_entry(source_id, child_entries)
@@ -5393,9 +5397,8 @@ async def preview_context_split(
     req: SplitPreviewRequest, _: None = Depends(check_auth)
 ):
     """Decompose a compound or over-merged context entry into atomic child entries."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import fact_extractor, memory_db
     from Evelyn.tools.tag_librarian import normalize_tag_format
-    import Evelyn.tools.fact_extractor as fact_extractor
 
     obs = req.observation
     cat = req.category
@@ -5445,7 +5448,7 @@ async def preview_context_split(
         "```"
     )
 
-    import Evelyn.tools.tag_librarian as tag_librarian
+    from Evelyn.tools import tag_librarian
 
     raw_response = await asyncio.to_thread(
         tag_librarian.query_ollama,
@@ -5461,7 +5464,7 @@ async def preview_context_split(
     block = match.group(1) if match else raw_response
     try:
         data = yaml.safe_load(block)
-    except Exception:
+    except (yaml.YAMLError, ValueError, TypeError):
         data = None
 
     entries_list = []
@@ -5513,7 +5516,7 @@ async def preview_context_split(
 @app.post("/api/context/split_apply")
 async def apply_context_split(req: SplitApplyRequest, _: None = Depends(check_auth)):
     """Apply a split on a compound context entry."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     if not req.entries:
         raise HTTPException(
@@ -5528,7 +5531,7 @@ async def apply_context_split(req: SplitApplyRequest, _: None = Depends(check_au
 @app.post("/api/context/{id}/queue_split")
 async def queue_context_split(id: int, _: None = Depends(check_auth)):
     """Queue a context entry for split evaluation in the next consolidation run."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     entry = memory_db.get_entry(id)
     if not entry:
@@ -5567,7 +5570,7 @@ class ProcedureUpdateRequest(BaseModel):
 @app.get("/api/review/procedures")
 async def get_procedures_review(_: None = Depends(check_auth)):
     """Return all pending extracted procedures for review."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     return memory_db.get_all_procedures(status="extracted")
 
@@ -5586,7 +5589,7 @@ async def action_procedure(
         action: "approve" | "deny" | "edit".
         body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags/suggested_tools.
     """
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     if action in ("deny", "archive"):
         memory_db.delete_procedure(id)
@@ -5646,7 +5649,7 @@ async def action_procedure(
 @app.get("/api/procedures")
 async def get_procedures(status: str | None = None, _: None = Depends(check_auth)):
     """Return all procedures matching status ('live', 'extracted', 'archived', or 'all')."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     target_status = status if status and status != "all" else None
     procs = memory_db.get_all_procedures(status=target_status)
@@ -5663,7 +5666,7 @@ async def patch_procedure(
     id: int, body: ProcedureUpdateRequest, _: None = Depends(check_auth)
 ):
     """Update fields of an existing procedure."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     fields = {}
     if body.trigger_pattern is not None:
@@ -5694,7 +5697,7 @@ async def queue_procedure_merge(
     req: ProcedureQueueMergeRequest, _: None = Depends(check_auth)
 ):
     """Enqueue multiple procedure IDs to be merged in the background."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     if len(req.proc_ids) < 2:
         raise HTTPException(
@@ -5708,7 +5711,7 @@ async def queue_procedure_merge(
 @app.post("/api/procedures/{id}/queue_split")
 async def queue_procedure_split(id: int, _: None = Depends(check_auth)):
     """Enqueue a procedure ID to be evaluated for splitting in the background."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     proc = memory_db.get_procedure(id)
     if not proc:
@@ -5722,7 +5725,7 @@ async def queue_procedure_split(id: int, _: None = Depends(check_auth)):
 @app.post("/api/procedures/{id}/archive")
 async def archive_procedure(id: int, _: None = Depends(check_auth)):
     """Soft delete/archive a procedure."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     success = memory_db.delete_procedure(id)
     if not success:
@@ -5734,7 +5737,7 @@ async def archive_procedure(id: int, _: None = Depends(check_auth)):
 @app.post("/api/procedures/{id}/delete")
 async def delete_procedure_endpoint(id: int, _: None = Depends(check_auth)):
     """Permanently delete a procedure."""
-    import Evelyn.tools.memory_db as memory_db
+    from Evelyn.tools import memory_db
 
     success = memory_db.hard_delete_procedure(id)
     if not success:
@@ -5750,7 +5753,7 @@ async def delete_procedure_endpoint(id: int, _: None = Depends(check_auth)):
 @app.get("/api/terminal/pending")
 async def get_pending_commands(_: None = Depends(check_auth)):
     """Return all commands/writes awaiting user approval."""
-    import Evelyn.tools.terminal_agent as terminal_agent
+    from Evelyn.tools import terminal_agent
 
     return terminal_agent.get_pending_approvals()
 
@@ -5764,7 +5767,7 @@ async def get_multiple_approvals_status(
     body: ApprovalStatusRequest, _: None = Depends(check_auth)
 ):
     """Get the status of multiple approval IDs in bulk."""
-    import Evelyn.tools.terminal_agent as terminal_agent
+    from Evelyn.tools import terminal_agent
 
     return {
         approval_id: terminal_agent.get_approval_status(approval_id)
@@ -5775,7 +5778,7 @@ async def get_multiple_approvals_status(
 @app.get("/api/terminal/details/{approval_id}")
 async def get_approval_details(approval_id: str, _: None = Depends(check_auth)):
     """Return full details including content for a specific approval ID."""
-    import Evelyn.tools.terminal_agent as terminal_agent
+    from Evelyn.tools import terminal_agent
 
     details = terminal_agent.get_approval_details(approval_id)
     if not details:
@@ -5788,7 +5791,7 @@ async def get_approval_details(approval_id: str, _: None = Depends(check_auth)):
 @app.post("/api/terminal/approve/{approval_id}")
 async def approve_terminal_command(approval_id: str, _: None = Depends(check_auth)):
     """Approve and execute a pending command or file write."""
-    import Evelyn.tools.terminal_agent as terminal_agent
+    from Evelyn.tools import terminal_agent
 
     result = terminal_agent.approve_command(approval_id)
     return {"status": "ok", "result": result}
@@ -5797,7 +5800,7 @@ async def approve_terminal_command(approval_id: str, _: None = Depends(check_aut
 @app.post("/api/terminal/deny/{approval_id}")
 async def deny_terminal_command(approval_id: str, _: None = Depends(check_auth)):
     """Deny and delete a pending command or file write."""
-    import Evelyn.tools.terminal_agent as terminal_agent
+    from Evelyn.tools import terminal_agent
 
     terminal_agent.deny_command(approval_id)
     return {"status": "ok"}
@@ -5811,7 +5814,7 @@ async def deny_terminal_command(approval_id: str, _: None = Depends(check_auth))
 @app.get("/api/vault/domains")
 async def get_vault_domains(_: None = Depends(check_auth)):
     """Return available vault domain options for document staging."""
-    import Evelyn.tools.pdf_staging_worker as pdf_staging_worker
+    from Evelyn.tools import pdf_staging_worker
 
     return {"domains": pdf_staging_worker.get_available_domains()}
 
@@ -5830,7 +5833,7 @@ async def upload_document_staging(
       - 'full': Extracts chapters, markdown TOC, embedded viewer, and indexes to Chroma.
       - 'card': Generates a sidecar index card with embedded viewer and relocates source.
     """
-    import Evelyn.tools.pdf_staging_worker as pdf_staging_worker
+    from Evelyn.tools import pdf_staging_worker
 
     filename = os.path.basename(file.filename or "uploaded_document.pdf")
     if not filename.lower().endswith(".pdf"):
@@ -5848,9 +5851,8 @@ async def upload_document_staging(
     target_path = staging_dir / filename
 
     # Save uploaded file
-    with open(target_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    content = await file.read()
+    await asyncio.to_thread(_server_sync_write_bytes, str(target_path), content)
 
     # Save metadata JSON sidecar for destination domain
     meta_path = staging_dir / f"{filename}.meta.json"
@@ -5860,14 +5862,13 @@ async def upload_document_staging(
         "mode": mode,
         "uploaded_at": time.time(),
     }
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta_info, f, indent=2)
+    await asyncio.to_thread(_server_sync_dump_json, str(meta_path), meta_info)
 
     # Trigger background staging worker in async task if task manager is idle
     try:
         loop = asyncio.get_running_loop()
         loop.run_in_executor(None, pdf_staging_worker.process_staging_queue)
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         print(
             f"[SERVER WARNING] Failed to trigger async staging worker: {e}", flush=True
         )
@@ -5898,9 +5899,7 @@ async def get_vault_note(path: str, _: None = Depends(check_auth)):
     clean_path = path.replace("\\", "/").lstrip("/")
 
     # Handle SQLite Context Fact Entries (e.g. sqlite::context_entry::2650)
-    if clean_path.startswith("sqlite::context_entry::") or clean_path.startswith(
-        "sqlite::fact::"
-    ):
+    if clean_path.startswith(("sqlite::context_entry::", "sqlite::fact::")):
         try:
             entry_id = int(clean_path.split("::")[-1])
             from Evelyn.tools import memory_db
@@ -5931,11 +5930,11 @@ async def get_vault_note(path: str, _: None = Depends(check_auth)):
                 "entry": entry,
             }
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid context entry ID")
+            raise HTTPException(status_code=400, detail="Invalid context entry ID") from None
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except (sqlite3.Error, OSError, KeyError) as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, clean_path))
     vault_base = os.path.abspath(cfg.VAULT_BASE_DIR)
@@ -5944,11 +5943,10 @@ async def get_vault_note(path: str, _: None = Depends(check_auth)):
     if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="Vault note not found")
     try:
-        with open(full_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = await asyncio.to_thread(_server_sync_read, full_path)
         return {"status": "ok", "path": clean_path, "content": content}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/vault/note")
@@ -5957,12 +5955,10 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
     clean_path = req.path.replace("\\", "/").lstrip("/")
 
     # Handle SQLite Context Fact Entries
-    if clean_path.startswith("sqlite::context_entry::") or clean_path.startswith(
-        "sqlite::fact::"
-    ):
+    if clean_path.startswith(("sqlite::context_entry::", "sqlite::fact::")):
         try:
             entry_id = int(clean_path.split("::")[-1])
-            from Evelyn.tools import memory_db, chroma_rag
+            from Evelyn.tools import chroma_rag, memory_db
 
             raw_content = req.content.strip()
             obs = raw_content
@@ -5986,22 +5982,20 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
             )
             return {"status": "ok", "path": clean_path}
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid context entry ID")
+            raise HTTPException(status_code=400, detail="Invalid context entry ID") from None
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except (sqlite3.Error, OSError, KeyError) as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, clean_path))
     vault_base = os.path.abspath(cfg.VAULT_BASE_DIR)
     if not (full_path == vault_base or full_path.startswith(vault_base + os.sep)):
         raise HTTPException(status_code=403, detail="Path outside vault boundaries")
     try:
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        with open(full_path, "w", encoding="utf-8") as f:
-            f.write(req.content)
+        await asyncio.to_thread(_server_sync_write, full_path, req.content)
         # Update SQLite vault database
-        from Evelyn.tools import vault_db, chroma_rag
+        from Evelyn.tools import chroma_rag, vault_db
 
         mtime = os.path.getmtime(full_path)
         title = os.path.splitext(os.path.basename(clean_path))[0]
@@ -6013,13 +6007,14 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
             content=req.content,
         )
         return {"status": "ok", "path": clean_path}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except (sqlite3.Error, OSError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":
-    import uvicorn
     import os
+
+    import uvicorn
 
     SSL_KEY = getattr(cfg, "SSL_KEY", os.environ.get("EVELYN_SSL_KEY", "server.key"))
     SSL_CERT = getattr(cfg, "SSL_CERT", os.environ.get("EVELYN_SSL_CERT", "server.crt"))

@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-28 11:43:01
+date modified: 2026-08-28 12:30:53
 tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
@@ -106,3 +106,4 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Template Sanitization**: Parameterized persona and operator identity in config, migrated Fast Memory subject codes (-U/-A), and shipped starter templates with setup wizard.
 - [x] **Architectural Documentation**: Published comprehensive setup, architecture, and developer reference guides.
 - [x] **Public GitHub Repository**: Initial public release of the Evelyn Engine framework with zero-padded versioning and database migration tooling.
+- [x] **Canonical DRY Architecture & Codebase Consolidation**: Unified utility layer (`string_utils`, `path_utils`, `frontmatter_utils`, `ollama_client`), eliminated ad-hoc duplicate helpers across all engine scripts, and added strict agent anti-duplication protocols.

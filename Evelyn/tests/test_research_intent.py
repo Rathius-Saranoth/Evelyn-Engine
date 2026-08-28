@@ -3,14 +3,12 @@
 # date modified: 2026-08-28 08:46:31
 # tags: #research, #intent, #prompts, #classification, #testing
 
-import pytest
+from Evelyn.tools.research_engine import _truncate_query_fallback
 from Evelyn.tools.research_prompts import (
+    build_search_query_prompt,
     classify_intent_mode,
     is_valid_search_gap,
-    build_search_query_prompt,
-    is_atomic_query,
 )
-from Evelyn.tools.research_engine import _truncate_query_fallback
 
 
 def test_classify_intent_mode_technical_queries():

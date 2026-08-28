@@ -2,11 +2,13 @@
 # date created: 2026-08-11
 # tags: #test, #image, #flux, #unit-test
 
-import sys
 import os
+import sys
 import unittest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import requests
 
 # Add project root and tools directory to sys.path
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -128,7 +130,7 @@ class TestImageGenerationTool(unittest.TestCase):
         result = evelyn_tools.generate_image(prompt="Valid prompt")
         self.assertIn("Error from Image Engine: Internal CUDA Error", result)
 
-    @patch("requests.post", side_effect=Exception("Connection refused"))
+    @patch("requests.post", side_effect=requests.RequestException("Connection refused"))
     @patch("evelyn_config.IMAGE_SERVER_URL", "http://image-host.internal:5055")
     @patch("evelyn_config.IMAGE_OUTPUT_DIR", "/tmp/test_evelyn_image_output")
     def test_generate_image_connection_failure(self, mock_post):

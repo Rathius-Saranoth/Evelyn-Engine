@@ -12,47 +12,76 @@ emergency safety limits.
 """
 
 import asyncio
-import datetime
+import contextlib
 import importlib
 import json
 import os
 import re
 import shutil
+import sqlite3
+import subprocess
 import sys
 import time
 import traceback
-from typing import List, Dict, Any, Tuple, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 
 # Reconfigure stdout/stderr to force UTF-8 output to avoid Windows CP1252 character mapping crashes on international titles
 if hasattr(sys.stdout, 'reconfigure'):
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
 if hasattr(sys.stderr, 'reconfigure'):
-    try:
+    with contextlib.suppress(Exception):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
 
 # Local ISO timestamped print wrapper for subprocess log output
 _original_print = print
 
 def _timestamped_print(*args, **kwargs):
     """Print with a local ISO timestamp prefix [YYYY-MM-DD HH:MM:SS]."""
-    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
     if args and isinstance(args[0], str):
         if not (args[0].startswith("[20") and len(args[0]) > 20 and args[0][20] == "]"):
-            args = (f"[{ts}] {args[0]}",) + args[1:]
+            args = (f"[{ts}] {args[0]}", *args[1:])
     elif not args:
         args = (f"[{ts}]",)
     else:
-        args = (f"[{ts}]",) + args
+        args = (f"[{ts}]", *args)
     _original_print(*args, **kwargs)
 
 print = _timestamped_print
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _sync_read_file(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _sync_write_file(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _sync_append_file(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _sync_load_json(path: str) -> Any:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _sync_dump_json(path: str, data: Any, indent: int = 2) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=indent)
 
 
 # Ensure Tools and root directories are in system path
@@ -63,13 +92,14 @@ if TOOLS_DIR not in sys.path:
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
-import evelyn_config as cfg # [[evelyn_config.py]]
-import web_reader # [[web_reader.py]]
-import research_prompts # [[research_prompts.py]]
-import evelyn_tools # [[evelyn_tools.py]]
+import evelyn_tools  # [[evelyn_tools.py]]
+import research_prompts  # [[research_prompts.py]]
+import web_reader  # [[web_reader.py]]
+
+import evelyn_config as cfg  # [[evelyn_config.py]]
 
 # Virtual memory cache to store chunks from previous deep research collections without re-scrapes
-VIRTUAL_SOURCES: Dict[str, str] = {}
+VIRTUAL_SOURCES: dict[str, str] = {}
 
 
 def _in_research_window() -> bool:
@@ -158,7 +188,7 @@ def _release_pid_lock(task_id: str) -> None:
         print(f"[RESEARCH_ENGINE WARNING] Could not remove PID lock file: {e}", flush=True)
 
 
-def recalculate_total_sources(task_id: str, state: Dict[str, Any]) -> int:
+def recalculate_total_sources(task_id: str, state: dict[str, Any]) -> int:
     """Recalculate the true source count from the contributing_sources.json registry.
 
     Reads the per-task contributing_sources.json file, which records only sources
@@ -182,9 +212,9 @@ def recalculate_total_sources(task_id: str, state: Dict[str, Any]) -> int:
     if not os.path.exists(contrib_file):
         return 0  # Old task — leave counts intact, do not stomp
     try:
-        with open(contrib_file, "r", encoding="utf-8") as f:
+        with open(contrib_file, encoding="utf-8") as f:
             contrib = json.load(f)
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         return 0
     all_sources: set = set()
     for sq in state.get("plan", {}).get("sub_questions", []):
@@ -195,47 +225,46 @@ def recalculate_total_sources(task_id: str, state: Dict[str, Any]) -> int:
     return len(all_sources)
 
 
-def update_limit_warnings(task_id: str, state: Dict[str, Any]) -> None:
+def update_limit_warnings(task_id: str, state: dict[str, Any]) -> None:
     """Check task and subquestion state against limits and populate warning flags."""
     limit_warnings = set()
-    
+
     max_total_sources = state.get("max_total_sources", 100)
     if state.get("total_sources", 0) >= max_total_sources:
         limit_warnings.add("total_sources_cap_reached")
-        
+
     turn_limit = state.get(
         "max_orchestrator_turns",
         getattr(cfg, "RESEARCH_MAX_ORCHESTRATOR_TURNS", 50)
     )
     if state.get("orchestrator_turns", 0) >= turn_limit:
         limit_warnings.add("orchestrator_turns_cap_reached")
-        
+
     timeout_limit = state.get(
         "wall_clock_timeout",
         getattr(cfg, "RESEARCH_WALL_CLOCK_TIMEOUT", 7200)
     )
     if state.get("accumulated_runtime", 0.0) >= timeout_limit:
         limit_warnings.add("timeout_reached")
-        
+
     state["limit_warnings"] = list(limit_warnings)
-    
+
     max_sources_per_sq = state.get("max_sources_per_sq", 15)
     max_search_depth = state.get("max_search_depth", 8)
-    
+
     for sq in state.get("plan", {}).get("sub_questions", []):
         sq_warnings = set()
-        
+
         if sq.get("source_count", 0) >= max_sources_per_sq:
             sq_warnings.add("source_cap_reached")
-            
-        if sq.get("status") not in ("done", "removed", "split"):
-            if sq.get("search_depth", 0) >= max_search_depth - 1:
-                sq_warnings.add("depth_cap_reached")
-                
+
+        if sq.get("status") not in ("done", "removed", "split") and sq.get("search_depth", 0) >= max_search_depth - 1:
+            sq_warnings.add("depth_cap_reached")
+
         sq["limit_warnings"] = list(sq_warnings)
 
 
-def load_state(task_id: str) -> Optional[Dict[str, Any]]:
+def load_state(task_id: str) -> dict[str, Any] | None:
     """Load the persisted state of a research task from disk.
 
     Args:
@@ -248,18 +277,18 @@ def load_state(task_id: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(state_file):
         return None
     try:
-        with open(state_file, "r", encoding="utf-8") as f:
+        with open(state_file, encoding="utf-8") as f:
             state = json.load(f)
         if state:
             state["total_sources"] = recalculate_total_sources(task_id, state)
             update_limit_warnings(task_id, state)
         return state
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE ERROR] Failed to load state for {task_id}: {e}", flush=True)
         return None
 
 
-def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = False) -> None:
+def save_state(task_id: str, state: dict[str, Any], ignore_disk_status: bool = False) -> None:
     """Persist the current research task state to disk.
 
     Ensures the task directory exists before writing.
@@ -272,28 +301,25 @@ def save_state(task_id: str, state: Dict[str, Any], ignore_disk_status: bool = F
     task_dir = get_task_dir(task_id)
     os.makedirs(task_dir, exist_ok=True)
     state_file = os.path.join(task_dir, "state.json")
-    
+
     if not ignore_disk_status and os.path.exists(state_file):
-        try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                disk_state = json.load(f)
-                disk_status = disk_state.get("status")
-                if disk_status in ("paused", "cancelled", "error"):
-                    state["status"] = disk_status
-                if "termination_reason" in disk_state and disk_state["termination_reason"]:
-                    state["termination_reason"] = disk_state["termination_reason"]
-                if "error" in disk_state and disk_state["error"]:
-                    state["error"] = disk_state["error"]
-        except Exception:
-            pass
-            
-    state["updated_at"] = datetime.datetime.now().isoformat()
+        with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(state_file, encoding="utf-8") as f:
+            disk_state = json.load(f)
+            disk_status = disk_state.get("status")
+            if disk_status in ("paused", "cancelled", "error"):
+                state["status"] = disk_status
+            if disk_state.get("termination_reason"):
+                state["termination_reason"] = disk_state["termination_reason"]
+            if disk_state.get("error"):
+                state["error"] = disk_state["error"]
+
+    state["updated_at"] = datetime.now(UTC).astimezone().isoformat()
     update_limit_warnings(task_id, state)
-    
+
     try:
         with open(state_file, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE ERROR] Failed to save state for {task_id}: {e}", flush=True)
 
 
@@ -302,7 +328,7 @@ def create_research_task(
     scope: str = "standard",
     triggered_by: str = "user",
     initial_status: str = "pending",
-    intent_frame: Optional[str] = None,
+    intent_frame: str | None = None,
 ) -> str:
     """Initialize a brand-new research task and persist its base state.
 
@@ -319,10 +345,10 @@ def create_research_task(
         str: Generated unique task_id.
     """
     importlib.reload(cfg)
-    
+
     # Generate unique task_id based on timestamp
     task_id = f"task_{int(time.time())}_{os.urandom(4).hex()}"
-    
+
     # Establish scope presets.
     # Each preset is fully self-contained so tasks carry their own budgets in
     # state.json rather than relying on config at runtime. This means changing
@@ -356,19 +382,19 @@ def create_research_task(
             "min_sources_per_sq": 3,
         }
     }
-    
+
     # Default fallback to standard if scope invalid
     scope = scope.lower() if scope.lower() in presets else "standard"
     scope_cfg = presets[scope]
-    
+
     state = {
         "task_id": task_id,
         "query": query,
         "original_question": query,
         "scope": scope,
         "status": initial_status,
-        "created_at": datetime.datetime.now().isoformat(),
-        "updated_at": datetime.datetime.now().isoformat(),
+        "created_at": datetime.now(UTC).astimezone().isoformat(),
+        "updated_at": datetime.now(UTC).astimezone().isoformat(),
         "triggered_by": triggered_by,
         "notified": False,
         "vault_path": None,
@@ -388,7 +414,7 @@ def create_research_task(
         "accumulated_runtime": 0.0,
         "termination_reason": None,
         "error": None,
-        
+
         # Scoped thresholds and budgets — self-contained per task
         "confidence_threshold": scope_cfg["threshold"],
         "max_search_depth": scope_cfg["max_depth"],
@@ -398,7 +424,7 @@ def create_research_task(
         "wall_clock_timeout": scope_cfg["wall_clock_timeout"],
         "min_sources_per_sq": scope_cfg["min_sources_per_sq"],
     }
-    
+
     save_state(task_id, state)
     print(f"[RESEARCH_ENGINE] Created task {task_id} (Scope: {scope}) for query: '{query}'", flush=True)
     return task_id
@@ -407,7 +433,7 @@ def create_research_task(
 
 
 async def call_ollama(
-    prompt_messages: List[Dict[str, str]], 
+    prompt_messages: list[dict[str, str]],
     num_predict: int = 2048,
     think: bool = True
 ) -> str:
@@ -425,10 +451,10 @@ async def call_ollama(
         str: Raw response text from the model (with <think> tags stripped).
     """
     importlib.reload(cfg)
-    
+
     override = getattr(cfg, "RESEARCH_MODEL_OVERRIDE", "default")
     model = cfg.MODEL_NAME if override == "default" else override
-    
+
     options = {
         "num_ctx": cfg.NUM_CTX,
         "num_predict": num_predict,
@@ -437,7 +463,7 @@ async def call_ollama(
         "top_k": cfg.TOP_K,
         "top_p": cfg.TOP_P,
     }
-    
+
     payload = {
         "model": model,
         "messages": prompt_messages,
@@ -445,23 +471,21 @@ async def call_ollama(
         "options": options,
         "think": think
     }
-    
+
     content_buffer = ""
-    
+
     try:
-        async with httpx.AsyncClient(timeout=600.0) as client:
-            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        import json
-                        chunk = json.loads(line)
-                        msg = chunk.get("message", {})
-                        content_buffer += msg.get("content", "")
-                    except json.JSONDecodeError:
-                        continue
+        async with httpx.AsyncClient(timeout=600.0) as client, client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    msg = chunk.get("message", {})
+                    content_buffer += msg.get("content", "")
+                except json.JSONDecodeError:
+                    continue
     except httpx.ConnectError as ce:
         raise RuntimeError(
             f"Ollama server connection failed (is Ollama running? URL: {cfg.OLLAMA_URL}). Error: {ce}"
@@ -474,12 +498,12 @@ async def call_ollama(
         raise RuntimeError(
             f"Ollama server returned HTTP error status {hse.response.status_code}. Response: {hse.response.text}"
         ) from hse
-        
+
     content = content_buffer.strip()
     return re.sub(r"^.*?</think>", "", content, flags=re.DOTALL).strip()
 
 
-def parse_web_search_results(web_results: str) -> List[Tuple[str, str]]:
+def parse_web_search_results(web_results: str) -> list[tuple[str, str]]:
     """Parse URLs and titles from DuckDuckGo search string format.
 
     Args:
@@ -492,16 +516,16 @@ def parse_web_search_results(web_results: str) -> List[Tuple[str, str]]:
     # Match the exact formatting produced by web_search tool:
     # "{i}. {title}\n   {href}\n   {body}"
     pattern = re.compile(r"^\d+\.\s*(.*?)\n\s*(https?://[^\s\n]+)", re.MULTILINE)
-    
+
     for match in pattern.finditer(web_results):
         title = match.group(1).strip().strip('"\'*')
         url = match.group(2).strip()
         results.append((title, url))
-        
+
     return results
 
 
-def parse_vault_search_results(vault_res: str) -> List[Tuple[str, str]]:
+def parse_vault_search_results(vault_res: str) -> list[tuple[str, str]]:
     """Parse titles and paths from search_vault_map output.
 
     Args:
@@ -522,9 +546,9 @@ def parse_vault_search_results(vault_res: str) -> List[Tuple[str, str]]:
 async def formulate_search_query(
     question_text: str,
     task_type: str,
-    state: Dict[str, Any],
+    state: dict[str, Any],
     intent_frame: str = "",
-    intent_mode: Optional[str] = None,
+    intent_mode: str | None = None,
 ) -> str:
     """Formulate a short, atomic web-search query from a sub-question or gap string.
 
@@ -572,7 +596,7 @@ async def formulate_search_query(
 
         state["ollama_calls"] += 1
         raw = await call_ollama(messages, num_predict=1024, think=True)
-        candidate = raw.strip().strip('"\'\'').split("\n")[0].strip()
+        candidate = raw.strip().strip('"\'').split("\n")[0].strip()
 
         is_ok, reason = research_prompts.is_atomic_query(candidate)
         if is_ok and candidate:
@@ -615,9 +639,9 @@ def _truncate_query_fallback(question_text: str, max_words: int = 5, intent_mode
 
 async def _rewrite_subquestion(
     task_id: str,
-    state: Dict[str, Any],
-    sq: Dict[str, Any],
-    gaps: List[str],
+    state: dict[str, Any],
+    sq: dict[str, Any],
+    gaps: list[str],
 ) -> None:
     """Attempt to rewrite a sub-question's phrasing to escape a barren search space.
 
@@ -644,8 +668,7 @@ async def _rewrite_subquestion(
     notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
     current_notes = ""
     if os.path.exists(notes_file):
-        with open(notes_file, "r", encoding="utf-8") as f:
-            current_notes = f.read()
+        current_notes = await asyncio.to_thread(_sync_read_file, notes_file)
 
     rewrite_prompt = research_prompts.build_rewrite_prompt(
         sq["question"],
@@ -691,7 +714,7 @@ async def _rewrite_subquestion(
         )
         sq["search_query"] = new_search_query
         print(f"[RESEARCH_ENGINE] Regenerated search_query after rewrite: '{new_search_query}'", flush=True)
-    except Exception as rse:
+    except (RuntimeError, ValueError) as rse:
         print(f"[RESEARCH_ENGINE WARNING] Failed to regenerate search_query after rewrite: {rse}", flush=True)
 
     # Clear gaps file since the rewrite absorbs them
@@ -700,7 +723,7 @@ async def _rewrite_subquestion(
 
 
 
-def query_previous_deep_research(search_query: str, current_task_id: str, limit: int = 3) -> List[Dict[str, Any]]:
+def query_previous_deep_research(search_query: str, current_task_id: str, limit: int = 3) -> list[dict[str, Any]]:
     """Query completed deep-scope research task collections for relevant chunks.
 
     Args:
@@ -714,20 +737,20 @@ def query_previous_deep_research(search_query: str, current_task_id: str, limit:
     results = []
     try:
         import chroma_rag
-        
+
         # Check if research folder exists
         if not os.path.exists(cfg.RESEARCH_DATA_DIR):
             return []
-            
+
         for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
             if folder == current_task_id:
                 continue
             state_path = os.path.join(cfg.RESEARCH_DATA_DIR, folder, "state.json")
             if not os.path.exists(state_path):
                 continue
-                
-            try:
-                with open(state_path, "r", encoding="utf-8") as f:
+
+            with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+                with open(state_path, encoding="utf-8") as f:
                     task_state = json.load(f)
                 if task_state.get("scope") == "deep" and task_state.get("status") == "done":
                     collection_name = f"research_{folder}"
@@ -738,18 +761,16 @@ def query_previous_deep_research(search_query: str, current_task_id: str, limit:
                             chunk["task_query"] = task_state.get("query", "")
                             chunk["task_id"] = folder
                             results.append(chunk)
-            except Exception:
-                continue
-                
+
         # Sort results by distance and return top matches
         results.sort(key=lambda x: x["distance"])
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Failed cross-task search: {e}", flush=True)
-        
+
     return results[:limit]
 
 
-async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bool:
+async def step_assess_prior_knowledge(task_id: str, state: dict[str, Any]) -> bool:
     """Assess what Evelyn already knows before launching web research.
 
     Checks internal knowledge (training data) and saved knowledge (chat history,
@@ -790,7 +811,7 @@ async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bo
     try:
         raw_internal = await call_ollama(messages, num_predict=512)
         internal_result = parse_json_response(raw_internal)
-    except Exception as e:
+    except (RuntimeError, json.JSONDecodeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Internal knowledge check failed: {e}. Proceeding with research.", flush=True)
         internal_result = {"answerable": False, "confidence": 0, "summary": ""}
     state["internal_knowledge"] = {
@@ -828,29 +849,25 @@ async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bo
                 f"- [{e['category']}] {e['observation']}" for _, e in matched_entries
             )
             evidence_parts.append(f"### Recorded Memory Facts:\n{memory_text}")
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Memory query failed for knowledge gate: {e}", flush=True)
         matched_entries = []
 
     # Gate expensive lookups (vault + prior research) behind an inconclusive cheap pass
     cheap_confident = state["internal_knowledge"]["confidence"] >= 70
     if not cheap_confident:
-        try:
+        with contextlib.suppress(OSError, ValueError):
             from context_manager import search_vault_map
             vault_res = search_vault_map(query, limit=3)
             if vault_res and not vault_res.startswith("No results found"):
                 evidence_parts.append(f"### Obsidian Vault Excerpts:\n{vault_res}")
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(sqlite3.Error, OSError, ValueError):
             prev_chunks = query_previous_deep_research(query, task_id, limit=3)
             if prev_chunks:
                 prior_text = "\n".join(
                     f"[{c['task_id']}] {c['content'][:400]}" for c in prev_chunks
                 )
                 evidence_parts.append(f"### Prior Research Summaries:\n{prior_text}")
-        except Exception:
-            pass
 
     evidence_text = "\n\n".join(evidence_parts)
     saved_prompt = research_prompts.build_prior_knowledge_prompt(
@@ -864,7 +881,7 @@ async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bo
     try:
         raw_saved = await call_ollama(messages, num_predict=512)
         saved_result = parse_json_response(raw_saved)
-    except Exception as e:
+    except (RuntimeError, json.JSONDecodeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Saved knowledge check failed: {e}. Proceeding with research.", flush=True)
         saved_result = {"answerable": False, "confidence": 0, "summary": "", "sources": []}
     state["saved_knowledge"] = {
@@ -906,10 +923,8 @@ async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bo
     if resolved:
         # Touch memory entries so they register as retrieved
         for _, entry in matched_entries:
-            try:
+            with contextlib.suppress(sqlite3.Error, OSError):
                 memory_db.touch_entry_retrieved(entry["id"])
-            except Exception:
-                pass
         state["status"] = "resolved"
         state["current_step"] = "done"
 
@@ -919,22 +934,20 @@ async def step_assess_prior_knowledge(task_id: str, state: Dict[str, Any]) -> bo
             try:
                 shutil.rmtree(task_dir, ignore_errors=True)
                 print(f"[RESEARCH_ENGINE] Auto-cleared resolved task workspace: {task_id}", flush=True)
-            except Exception as e:
+            except OSError as e:
                 print(f"[RESEARCH_ENGINE WARNING] Failed to auto-clear task workspace {task_id}: {e}", flush=True)
 
-        try:
+        with contextlib.suppress(AttributeError):
             import evelyn_server
             if hasattr(evelyn_server, "_background_tasks") and task_id in evelyn_server._background_tasks:
                 del evelyn_server._background_tasks[task_id]
-        except Exception:
-            pass
 
         return True
 
     return False
 
 
-async def _generate_intent_frame(state: Dict[str, Any]) -> str:
+async def _generate_intent_frame(state: dict[str, Any]) -> str:
     """Generate a 2-3 sentence research intent frame for a user-triggered task.
 
     Called once in step_plan() when state['intent_frame'] is None (i.e. the
@@ -969,16 +982,12 @@ async def _generate_intent_frame(state: Dict[str, Any]) -> str:
         if frame:
             print(f"[RESEARCH_ENGINE] Generated intent frame: '{frame}'", flush=True)
         return frame
-    except Exception as e:
-        print(
-            f"[RESEARCH_ENGINE WARNING] Intent frame generation failed: {e}. "
-            "Proceeding without frame.",
-            flush=True,
-        )
+    except (RuntimeError, ValueError) as e:
+        print(f"[RESEARCH_ENGINE WARNING] Intent frame generation failed: {e}. Proceeding without frame.", flush=True)
         return ""
 
 
-async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
+async def step_plan(task_id: str, state: dict[str, Any]) -> bool | None:
 
     """Execute the PLAN step of a research task.
 
@@ -1070,7 +1079,7 @@ async def step_plan(task_id: str, state: Dict[str, Any]) -> Optional[bool]:
 
 
 
-async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
+async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
     """Execute search query formulation, web fetching, and fact extraction.
 
     Args:
@@ -1079,15 +1088,15 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     """
     sq_idx = state["current_sq_idx"]
     sq_list = state["plan"]["sub_questions"]
-    
+
     if sq_idx >= len(sq_list):
         state["current_step"] = "synthesize"
         save_state(task_id, state)
         return
-        
+
     sq = sq_list[sq_idx]
     print(f"[RESEARCH_ENGINE] Processing SQ ({sq['id']}): '{sq['question']}' (Search Round {state['search_depth'] + 1})", flush=True)
-    
+
     # Load any existing gaps or notes to determine the search basis text.
     # When gaps exist, use the gap text as the basis rather than the original
     # sub-question — the gap is already a targeted phrase produced by the
@@ -1098,27 +1107,24 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     gaps_file = os.path.join(get_task_dir(task_id), f"{sq['id']}_gaps.json")
     search_basis = sq["question"]
     is_user_guidance = False
-    
+
     if os.path.exists(gaps_file):
-        try:
-            with open(gaps_file, "r", encoding="utf-8") as f:
-                gaps_data = json.load(f)
-                gaps = gaps_data.get("gaps", [])
-                # Prioritize user guidance if present anywhere in the gaps list
-                user_gap = next((g for g in gaps if g.startswith("USER GUIDANCE:")), None)
-                if user_gap:
-                    search_basis = user_gap[len("USER GUIDANCE:"):].strip()
-                    is_user_guidance = True
-                    print(f"[RESEARCH_ENGINE] Using user guidance as search basis: '{search_basis}'", flush=True)
-                else:
-                    valid_gaps = [g for g in gaps if research_prompts.is_valid_search_gap(g)]
-                    if valid_gaps:
-                        search_basis = valid_gaps[0]
-                        print(f"[RESEARCH_ENGINE] Using valid gap as search basis: '{search_basis}'", flush=True)
-                    elif gaps:
-                        print(f"[RESEARCH_ENGINE] Discarded non-searchable meta-gaps: {gaps}. Falling back to SQ text.", flush=True)
-        except Exception:
-            pass
+        with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+            gaps_data = await asyncio.to_thread(_sync_load_json, gaps_file)
+            gaps = gaps_data.get("gaps", [])
+            # Prioritize user guidance if present anywhere in the gaps list
+            user_gap = next((g for g in gaps if g.startswith("USER GUIDANCE:")), None)
+            if user_gap:
+                search_basis = user_gap[len("USER GUIDANCE:"):].strip()
+                is_user_guidance = True
+                print(f"[RESEARCH_ENGINE] Using user guidance as search basis: '{search_basis}'", flush=True)
+            else:
+                valid_gaps = [g for g in gaps if research_prompts.is_valid_search_gap(g)]
+                if valid_gaps:
+                    search_basis = valid_gaps[0]
+                    print(f"[RESEARCH_ENGINE] Using valid gap as search basis: '{search_basis}'", flush=True)
+                elif gaps:
+                    print(f"[RESEARCH_ENGINE] Discarded non-searchable meta-gaps: {gaps}. Falling back to SQ text.", flush=True)
 
     # Use stored search_query if available; fall back to sq.question for old tasks
     search_query = sq.get("search_query") or ""
@@ -1129,9 +1135,9 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         if not bypass_formulation:
             lower_basis = search_basis.lower()
             operators = ["site:", "filetype:", "intitle:", "inurl:", "ext:", "cache:"]
-            if any(op in lower_basis for op in operators) or lower_basis.startswith("http://") or lower_basis.startswith("https://"):
+            if any(op in lower_basis for op in operators) or lower_basis.startswith(("http://", "https://")):
                 bypass_formulation = True
-                print(f"[RESEARCH_ENGINE] Detected search operators or URL in search basis. Bypassing formulation.", flush=True)
+                print("[RESEARCH_ENGINE] Detected search operators or URL in search basis. Bypassing formulation.", flush=True)
 
         if bypass_formulation:
             search_query = search_basis
@@ -1154,7 +1160,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
     print(f"[RESEARCH_ENGINE] Searching DuckDuckGo: '{search_query}'", flush=True)
     search_results_str = evelyn_tools.web_search(search_query, max_results=5)
     parsed_sources = parse_web_search_results(search_results_str)
-    
+
     # Obsidian Vault search (Phase 3)
     try:
         from context_manager import search_vault_map
@@ -1164,9 +1170,9 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             vault_sources = parse_vault_search_results(vault_res)
             print(f"[RESEARCH_ENGINE] Found {len(vault_sources)} relevant documents in Obsidian Vault.", flush=True)
             parsed_sources.extend(vault_sources)
-    except Exception as ve:
+    except (OSError, RuntimeError, ValueError) as ve:
         print(f"[RESEARCH_ENGINE WARNING] Vault search failed: {ve}", flush=True)
-        
+
     # Cross-task search (Phase 3)
     try:
         prev_research_chunks = query_previous_deep_research(search_query, task_id, limit=3)
@@ -1177,9 +1183,9 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 url = f"sqlite::research_task::{chunk['task_id']}::{chunk['metadata'].get('source', '')}::chunk-{chunk['metadata'].get('chunk', 0)}"
                 VIRTUAL_SOURCES[url] = chunk["content"]
                 parsed_sources.append((title, url))
-    except Exception as pe:
+    except (sqlite3.Error, OSError, ValueError) as pe:
         print(f"[RESEARCH_ENGINE WARNING] Cross-task search failed: {pe}", flush=True)
-    
+
     if not parsed_sources:
         depth_remaining = state["search_depth"] < state["max_search_depth"] - 1
         if depth_remaining:
@@ -1204,50 +1210,44 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             state["struggling"] = True
             save_state(task_id, state)
             return
-        
+
     task_dir = get_task_dir(task_id)
     notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
     summary_file = os.path.join(task_dir, f"{sq['id']}_summary.md")
     contrib_file = os.path.join(task_dir, "contributing_sources.json")
 
     # Load current contributing sources registry
-    try:
-        if os.path.exists(contrib_file):
-            with open(contrib_file, "r", encoding="utf-8") as f:
-                contrib_registry = json.load(f)
-        else:
-            contrib_registry = {}
-    except Exception:
-        contrib_registry = {}
+    contrib_registry = {}
+    if os.path.exists(contrib_file):
+        with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+            contrib_registry = await asyncio.to_thread(_sync_load_json, contrib_file)
 
     # Load current evidence summary
     current_summary = ""
     if os.path.exists(summary_file):
-        with open(summary_file, "r", encoding="utf-8") as f:
-            current_summary = f.read()
-            
-    extracted_any = False
-    
+        current_summary = await asyncio.to_thread(_sync_read_file, summary_file)
+
+
     max_sources_per_sq = state.get("max_sources_per_sq", 15)
     for title, url in parsed_sources:
         # Check per-SQ source ceiling and overall task source ceiling
         if sq.get("source_count", 0) >= max_sources_per_sq:
             print(f"[RESEARCH_ENGINE] SQ {sq['id']} per-SQ source limit ({max_sources_per_sq}) reached. Stopping extraction for this sub-question.", flush=True)
             break
-            
+
         if state["total_sources"] >= 100:  # Just sanity check
             print("[RESEARCH_ENGINE] Total task source cap reached.", flush=True)
             break
-            
+
         # Deduplication
         existing_src = next((s for s in state["sources_registry"] if s["url"] == url), None)
         if existing_src:
             print(f"[RESEARCH_ENGINE] Source already consulted: {url}. Skipping.", flush=True)
             continue
-            
+
         # Scrape or read page first to verify success before counting it against constraints
         scrape_result = {"success": False, "content": None, "chunks": []}
-        
+
         if url in VIRTUAL_SOURCES:
             # Virtual cache source (cross-task search)
             content = VIRTUAL_SOURCES[url]
@@ -1257,13 +1257,12 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 "content": content,
                 "chunks": [content]
             }
-        elif not (url.startswith("http://") or url.startswith("https://")):
+        elif not (url.startswith(("http://", "https://"))):
             # Local Obsidian file source!
             try:
                 full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, url))
                 if os.path.exists(full_path):
-                    with open(full_path, "r", encoding="utf-8") as f:
-                        content = f.read()
+                    content = await asyncio.to_thread(_sync_read_file, full_path)
                     # Strip frontmatter for clean extraction context
                     content_clean = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
                     scrape_result = {
@@ -1274,12 +1273,12 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                     }
                 else:
                     print(f"[RESEARCH_ENGINE WARNING] Local vault file not found: {full_path}", flush=True)
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 print(f"[RESEARCH_ENGINE] Failed to read local vault file {url}: {e}", flush=True)
         else:
             # Web URL
             scrape_result = await web_reader.read_and_extract_url(url)
-            
+
         if not scrape_result["success"] or not scrape_result["content"]:
             print(f"[RESEARCH_ENGINE WARNING] Could not extract text from: {url}", flush=True)
             # Register as failed so we still deduplicate in future rounds
@@ -1288,13 +1287,13 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 "id": src_id,
                 "title": title,
                 "url": url,
-                "timestamp": datetime.datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).astimezone().isoformat(),
                 "failed": True
             }
             state["sources_registry"].append(failed_entry)
             save_state(task_id, state)
             continue
-            
+
         # Scrape succeeded — register in sources_registry (dedup/audit) but do NOT
         # increment source_count yet. That only happens if the digest confirms contribution.
         src_id = f"src_{len(state['sources_registry']) + 1:03d}"
@@ -1302,11 +1301,11 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
             "id": src_id,
             "title": title,
             "url": url,
-            "timestamp": datetime.datetime.now().isoformat()
+            "timestamp": datetime.now(UTC).astimezone().isoformat()
         }
         state["sources_registry"].append(source_entry)
         save_state(task_id, state)
-        
+
         # If scope is deep, embed in custom Chroma collection (Phase 3)
         if state.get("scope") == "deep" and not url.startswith("sqlite::"):
             try:
@@ -1322,9 +1321,9 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                     }
                 )
                 print(f"[RESEARCH_ENGINE] Embedded source into per-task Chroma collection research_{task_id}", flush=True)
-            except Exception as ce:
+            except (sqlite3.Error, OSError, ValueError) as ce:
                 print(f"[RESEARCH_ENGINE WARNING] Failed to ingest into custom Chroma collection: {ce}", flush=True)
-        
+
         print(f"[RESEARCH_ENGINE] Extracting facts from: '{title}' [{src_id}]", flush=True)
 
         # Retrieve the skill template for this task's classified type (Hermes Tier 2 #8b)
@@ -1334,7 +1333,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         # We extract chunk by chunk if the page has multiple chunks
         chunks = scrape_result["chunks"]
         all_extracted_notes = ""
-        for idx, chunk in enumerate(chunks):
+        for _idx, chunk in enumerate(chunks):
             prompt = research_prompts.build_extract_prompt(
                 sq["question"],
                 src_id,
@@ -1343,24 +1342,23 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 chunk,
                 skill_template=skill_template,
             )
-            
+
             messages = [
                 {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
                 {"role": "user", "content": prompt}
             ]
-            
+
             state["ollama_calls"] += 1
             extracted_chunk_notes = await call_ollama(messages, num_predict=2048, think=True)
             extracted_chunk_notes = extracted_chunk_notes.strip()
-            
+
             if extracted_chunk_notes:
                 all_extracted_notes += extracted_chunk_notes + "\n\n"
                 section_header = f"### Source [{src_id}]: {title}\n"
                 formatted_entry = f"{section_header}{extracted_chunk_notes}\n\n"
-                
+
                 # Append raw notes to disk — permanent audit log, never truncated
-                with open(notes_file, "a", encoding="utf-8") as f:
-                    f.write(formatted_entry)
+                await asyncio.to_thread(_sync_append_file, notes_file, formatted_entry)
 
                 # Parse discovered technical aliases / synonyms for Phase 11 Alias Expansion
                 if "Discovered Aliases" in extracted_chunk_notes:
@@ -1377,7 +1375,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                     if new_found:
                         state["topic_aliases"] = list(current_aliases)
                         save_state(task_id, state)
-            
+
             # Respect step cooldown
             await asyncio.sleep(cfg.RESEARCH_STEP_COOLDOWN)
 
@@ -1386,7 +1384,6 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
         # The digest prompt returns an explicit 'contributed' boolean so we
         # never need to diff strings to decide whether to count the source.
         if all_extracted_notes.strip():
-            extracted_any = True
             digest_prompt = research_prompts.build_evidence_digest_prompt(
                 sub_question=sq["question"],
                 current_summary=current_summary,
@@ -1404,7 +1401,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 digest_result = parse_json_response(raw_digest)
                 updated_summary = str(digest_result.get("summary", current_summary))
                 contributed = bool(digest_result.get("contributed", True))  # default True on parse error
-            except Exception as de:
+            except (json.JSONDecodeError, TypeError, ValueError) as de:
                 print(f"[RESEARCH_ENGINE WARNING] Evidence digest parse failed: {de}. Treating source as contributing.", flush=True)
                 updated_summary = current_summary  # Don't corrupt existing summary
                 contributed = True
@@ -1413,16 +1410,14 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
                 # Source added new facts — count it against budget and persist
                 current_summary = updated_summary
                 sq["evidence_summary"] = current_summary
-                with open(summary_file, "w", encoding="utf-8") as f:
-                    f.write(current_summary)
+                await asyncio.to_thread(_sync_write_file, summary_file, current_summary)
 
                 # Register in contributing_sources.json (the authoritative count)
                 sq_contrib_list = contrib_registry.get(sq["id"], [])
                 if src_id not in sq_contrib_list:
                     sq_contrib_list.append(src_id)
                 contrib_registry[sq["id"]] = sq_contrib_list
-                with open(contrib_file, "w", encoding="utf-8") as f:
-                    json.dump(contrib_registry, f, indent=2)
+                await asyncio.to_thread(_sync_dump_json, contrib_file, contrib_registry)
 
                 # sq["source_count"] is now derived from contributing_sources.json
                 # but update it in-memory for limit_warnings to work this cycle
@@ -1462,7 +1457,7 @@ async def step_search_and_extract(task_id: str, state: Dict[str, Any]) -> None:
 
 
 
-def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _build_completed_sq_summaries(task_id: str, state: dict[str, Any]) -> list[dict[str, Any]]:
     """Assemble a lightweight summary of all resolved sub-questions for the coverage check.
 
     Prefers sq_XX_summary.md (the bounded evidence summary) over the raw notes
@@ -1487,10 +1482,10 @@ def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[D
         notes_file = os.path.join(task_dir, f"{s['id']}_notes.md")
         notes_text = ""
         if os.path.exists(summary_file):
-            with open(summary_file, "r", encoding="utf-8") as f:
+            with open(summary_file, encoding="utf-8") as f:
                 notes_text = f.read()
         elif os.path.exists(notes_file):
-            with open(notes_file, "r", encoding="utf-8") as f:
+            with open(notes_file, encoding="utf-8") as f:
                 notes_text = f.read()
         notes_summary = notes_text[:300] + "..." if len(notes_text) > 300 else notes_text
         summaries.append({
@@ -1502,7 +1497,7 @@ def _build_completed_sq_summaries(task_id: str, state: Dict[str, Any]) -> List[D
 
 
 
-async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
+async def step_evaluate(task_id: str, state: dict[str, Any]) -> None:
     """Execute the EVALUATE step of the current sub-question.
 
     Args:
@@ -1511,10 +1506,10 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     """
     sq_idx = state["current_sq_idx"]
     sq = state["plan"]["sub_questions"][sq_idx]
-    
+
     task_dir = get_task_dir(task_id)
     notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
-    
+
     # If notes don't exist (e.g. every found source failed to scrape/extract),
     # treat this as a failed round rather than blindly marking done -- there
     # is no pre-planned "next SQ" to advance to under the lazy generation
@@ -1565,17 +1560,16 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
     # The raw notes file can be 60-97KB — passing it to the evaluator would saturate
     # the model's context and produce garbled non-JSON, triggering the 0% fallback.
     evidence_for_eval = ""
+    evidence_for_eval = ""
     if os.path.exists(summary_file):
-        with open(summary_file, "r", encoding="utf-8") as f:
-            evidence_for_eval = f.read()
+        evidence_for_eval = await asyncio.to_thread(_sync_read_file, summary_file)
         print(
             f"[RESEARCH_ENGINE] Evaluating from evidence_summary ({len(evidence_for_eval)} chars).",
             flush=True,
         )
     elif os.path.exists(notes_file):
         # Old task without summary — compress before sending to evaluator
-        with open(notes_file, "r", encoding="utf-8") as f:
-            raw_notes = f.read()
+        raw_notes = await asyncio.to_thread(_sync_read_file, notes_file)
         evidence_for_eval = await _summarize_sq_notes(
             sq["question"],
             raw_notes,
@@ -1599,9 +1593,9 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
         state["struggling"] = True
         save_state(task_id, state)
         return
-        
+
     print(f"[RESEARCH_ENGINE] Evaluating collected evidence for SQ ({sq['id']})...", flush=True)
-    
+
     prompt = research_prompts.build_evaluate_prompt(
         sq["question"],
         evidence_for_eval,
@@ -1612,23 +1606,23 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
         {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
         {"role": "user", "content": prompt}
     ]
-    
+
     state["ollama_calls"] += 1
     raw_response = await call_ollama(messages, num_predict=1024, think=True)
-    
+
     # Parse evaluate output (must be valid JSON)
     try:
         evaluation = parse_json_response(raw_response)
         confidence = int(evaluation.get("confidence", 0))
         gaps = evaluation.get("gaps", [])
-    except Exception as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Failed to parse evaluate JSON: {e}. Output was: '{raw_response}'", flush=True)
         # Source-cap escape hatch: if no more sources can be added AND the eval
         # failed, we have no recovery path — advance to synthesize immediately
         # rather than looping forever on a permanently-failing evaluate call.
         if "source_cap_reached" in sq.get("limit_warnings", []):
             print(
-                f"[RESEARCH_ENGINE] Source cap reached and evaluate failed — "
+                "[RESEARCH_ENGINE] Source cap reached and evaluate failed — "
                 "advancing SQ to done and proceeding to synthesize.",
                 flush=True,
             )
@@ -1640,10 +1634,10 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
         confidence = 0
         gaps = ["Insufficient evidence collected."]
 
-        
+
     sq["confidence"] = confidence
     sq["gaps"] = gaps
-    
+
     # Update struggling status based on the latest sub-question evaluation
     if confidence < 60:
         state["struggling"] = True
@@ -1655,12 +1649,11 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                 any_struggling = True
                 break
         state["struggling"] = any_struggling
-        
+
     # Save gaps on disk for the next search iteration
     gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
-    with open(gaps_file, "w", encoding="utf-8") as f:
-        json.dump({"gaps": gaps}, f, indent=2)
-        
+    await asyncio.to_thread(_sync_dump_json, gaps_file, {"gaps": gaps})
+
     # Minimum-sources floor: guarantee at least N sources are consulted before
     # confidence is evaluated. Prevents trivial SQs from closing too early and
     # hard SQs from being abandoned before enough evidence is gathered.
@@ -1732,7 +1725,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                     coverage_result = parse_json_response(raw_coverage)
                     sufficient = bool(coverage_result.get("sufficient", True))
                     next_question = coverage_result.get("next_question")
-                except Exception as e:
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
                     print(
                         f"[RESEARCH_ENGINE WARNING] Failed to parse coverage check JSON: {e}. "
                         "Defaulting to synthesis.",
@@ -1756,7 +1749,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                     # answers this specific proposed question. Avoids researching
                     # what Evelyn already knows from prior work.
                     sq_gate_evidence = ""
-                    try:
+                    with contextlib.suppress(sqlite3.Error, OSError, ValueError):
                         # Cheap: chat + memory only (no vault/prior-task lookup here)
                         gate_history = get_recent_chat_history(20)
                         if gate_history:
@@ -1773,8 +1766,6 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                             sq_gate_evidence += "\n\n### Memory Facts:\n" + "\n".join(
                                 f"- {e['observation']}" for e in _matched[:5]
                             )
-                    except Exception:
-                        pass
 
                     sq_gate_prompt = research_prompts.build_prior_knowledge_prompt(
                         state["query"],
@@ -1791,7 +1782,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                         )
                         sq_gate_result = parse_json_response(raw_sq_gate)
                         sq_gate_conf = int(sq_gate_result.get("confidence", 0))
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError, ValueError):
                         sq_gate_conf = 0
 
                     sq_gate_threshold = getattr(cfg, "RESEARCH_NECESSITY_CONFIDENCE_THRESHOLD", 90)
@@ -1828,22 +1819,21 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
                         state["current_step"] = "search"
                         state["search_depth"] = 0
                         print(
-
-                        f"[RESEARCH_ENGINE] Coverage check: gap found. Generated next "
-                        f"sub-question: '{next_question}'",
-                        flush=True,
-                    )
+                            f"[RESEARCH_ENGINE] Coverage check: gap found. Generated next "
+                            f"sub-question: '{next_question}'",
+                            flush=True,
+                        )
         else:
             print(f"[RESEARCH_ENGINE] SQ {sq['id']} exhausted search depth with low confidence. Pausing for guidance.", flush=True)
             sq["status"] = "needs_guidance"
             state["status"] = "needs_guidance"
             state["struggling"] = True
-            
+
         save_state(task_id, state)
     else:
         # Loop again!
         print(f"[RESEARCH_ENGINE] SQ {sq['id']} requires further search. Running iteration {state['search_depth'] + 2}.", flush=True)
-        
+
         # Auto-Rewrite Logic (shared helper — also used by step_search_and_extract's
         # zero-result branch)
         print(f"[RESEARCH_ENGINE] Low confidence ({confidence}%) for SQ {sq['id']}. Attempting rewrite.", flush=True)
@@ -1851,7 +1841,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
 
         state["current_step"] = "search"
         state["search_depth"] += 1
-        
+
     # Calculate live progress average confidence
     total_conf = 0
     completed_sqs = 0
@@ -1861,7 +1851,7 @@ async def step_evaluate(task_id: str, state: Dict[str, Any]) -> None:
             completed_sqs += 1
     if completed_sqs > 0:
         state["confidence"] = int(total_conf / len(state["plan"]["sub_questions"]))
-        
+
     save_state(task_id, state)
 
 
@@ -1940,12 +1930,11 @@ async def _summarize_sq_notes(
 
         # Persist summary alongside raw notes for audit trail
         summary_file = os.path.join(task_dir, f"{sq_id}_notes_summary.md")
-        with open(summary_file, "w", encoding="utf-8") as f:
-            f.write(compressed)
+        await asyncio.to_thread(_sync_write_file, summary_file, compressed)
 
         return compressed
 
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         print(
             f"[RESEARCH_ENGINE WARNING] Notes compression failed for {sq_id}: {e}. "
             "Falling back to original notes.",
@@ -1954,7 +1943,7 @@ async def _summarize_sq_notes(
         return notes
 
 
-async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
+async def step_synthesize(task_id: str, state: dict[str, Any]) -> None:
     """Execute the final SYNTHESIZE step of a research task.
 
     Compiles final reports and propagates output to the Obsidian Vault.
@@ -1975,11 +1964,9 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
         summary_file = os.path.join(task_dir, f"{sq['id']}_summary.md")
         notes_file = os.path.join(task_dir, f"{sq['id']}_notes.md")
         if os.path.exists(summary_file):
-            with open(summary_file, "r", encoding="utf-8") as f:
-                all_notes[sq["question"]] = f.read()
+            all_notes[sq["question"]] = await asyncio.to_thread(_sync_read_file, summary_file)
         elif os.path.exists(notes_file):
-            with open(notes_file, "r", encoding="utf-8") as f:
-                raw_notes = f.read()
+            raw_notes = await asyncio.to_thread(_sync_read_file, notes_file)
             compressed = await _summarize_sq_notes(
                 sq_question=sq["question"],
                 notes=raw_notes,
@@ -1993,7 +1980,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             all_notes[sq["question"]] = compressed
         else:
             all_notes[sq["question"]] = "*(No evidence collected)*"
-            
+
     prompt = research_prompts.build_synthesize_prompt(
         state["query"],
         all_notes,
@@ -2012,12 +1999,12 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     # 6144 tokens gives ~4500 words — enough for dense 8-SQ deep reports.
     # Raised from 4096 as part of the deep-scope budget review (2026-06-21).
     final_report = await call_ollama(messages, num_predict=6144)
-    
+
     # Parse actual overall confidence score, short_title, and topic_tags out of report YAML frontmatter if present
     parsed_confidence = state["confidence"]
     short_title = None
     topic_tags = []
-    
+
     try:
         # Match either standard YAML frontmatter '---' or markdown code block ```yaml/```
         fm_match = re.match(r"^(?:---|```yaml|```)\s*\n(.*?)\n(?:---|```)(?:\s*\n|\Z)", final_report, re.DOTALL)
@@ -2029,22 +2016,17 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                 if isinstance(fm_data, dict):
                     # extract confidence
                     if "confidence" in fm_data:
-                        try:
+                        with contextlib.suppress(ValueError, TypeError):
                             conf_val = str(fm_data["confidence"]).replace("%", "").strip()
                             parsed_confidence = int(conf_val)
-                        except Exception:
-                            pass
-                    
+
                     # extract short_title
                     if "short_title" in fm_data:
                         short_title = str(fm_data["short_title"]).strip()
                     elif "title" in fm_data and not short_title:
                         title_val = str(fm_data["title"]).strip()
-                        if len(title_val.split()) > 5:
-                            short_title = " ".join(title_val.split()[:5])
-                        else:
-                            short_title = title_val
-                            
+                        short_title = " ".join(title_val.split()[:5]) if len(title_val.split()) > 5 else title_val
+
                     # extract topic_tags
                     if "topic_tags" in fm_data:
                         raw_tags = fm_data["topic_tags"]
@@ -2068,66 +2050,63 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                                 if clean_a:
                                     current_aliases.add(clean_a)
                         state["topic_aliases"] = list(current_aliases)
-            except Exception as e:
+            except (yaml.YAMLError, ValueError, TypeError) as e:
                 # Fallback to regex if PyYAML fails
                 print(f"[RESEARCH_ENGINE WARNING] PyYAML failed to parse frontmatter: {e}. Falling back to regex.", flush=True)
                 conf_match = re.search(r"confidence:\s*(\d+)", frontmatter_text, re.IGNORECASE)
                 if conf_match:
                     parsed_confidence = int(conf_match.group(1))
-                
+
                 short_title_match = re.search(r"short_title:\s*[\"']?(.*?)[\"']?$", frontmatter_text, re.MULTILINE)
                 if short_title_match:
                     short_title = short_title_match.group(1).strip()
-                    
+
                 tags_match = re.search(r"topic_tags:\s*\[(.*?)\]", frontmatter_text, re.MULTILINE)
                 if tags_match:
                     topic_tags = [t.strip().strip("\"'") for t in tags_match.group(1).split(",") if t.strip()]
-    except Exception as e:
+    except (yaml.YAMLError, ValueError, TypeError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Failed to extract frontmatter: {e}", flush=True)
 
     if not short_title:
         # Fallback to query
         query_words = state["query"].split()
-        if len(query_words) > 5:
-            short_title = " ".join(query_words[:5]) + "..."
-        else:
-            short_title = state["query"]
+        short_title = " ".join(query_words[:5]) + "..." if len(query_words) > 5 else state["query"]
 
     state["confidence"] = parsed_confidence
     state["short_title"] = short_title
     state["topic_tags"] = topic_tags
     state["current_step"] = "done"
     state["status"] = "done"
-    
+
     # Strip LLM's own frontmatter to write a unified, structured one
     clean_report_body = final_report
     if final_report.startswith("---"):
         clean_report_body = re.sub(r"^---.*?---\s*\n", "", final_report, count=1, flags=re.DOTALL)
     elif final_report.startswith("```yaml"):
         clean_report_body = re.sub(r"^```yaml.*?```\s*\n", "", final_report, count=1, flags=re.DOTALL)
-        
+
     tags_list = []
-        
+
     # Clean and append topic tags from state
     for tag in state.get("topic_tags", []):
         cleaned_tag = re.sub(r"[^\w\s-]", "", tag.lower())
         cleaned_tag = re.sub(r"[-\s]+", "-", cleaned_tag).strip("-_")
         if cleaned_tag and cleaned_tag not in tags_list:
             tags_list.append(cleaned_tag)
-            
+
     tags_str = ", ".join(tags_list)
     clean_short_title = state["short_title"].replace('"', '\\"')
     clean_query = state['query'].replace('"', '\\"')
-    
+
     triggered_by_val = state.get("triggered_by", "user")
     if isinstance(triggered_by_val, str) and triggered_by_val.lower() == "evelyn":
         triggered_by_val = "Evelyn"
-        
+
     frontmatter = (
         "---\n"
         f"title: \"{clean_short_title}\"\n"
         f"research_query: \"{clean_query}\"\n"
-        f"date created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"date created: {datetime.now(UTC).astimezone().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"research_task_id: {task_id}\n"
         f"scope: {state['scope']}\n"
         f"source_count: {state['total_sources']}\n"
@@ -2136,14 +2115,13 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
         f"tags: [{tags_str}]\n"
         "---\n\n"
     )
-    
+
     full_report_content = frontmatter + clean_report_body
-    
+
     # Save report locally
     report_file = os.path.join(task_dir, "report.md")
-    with open(report_file, "w", encoding="utf-8") as f:
-        f.write(full_report_content)
-    
+    await asyncio.to_thread(_sync_write_file, report_file, full_report_content)
+
     # --- Post-Synthesis Triage Logic ---
     low_conf_sqs = []
     if state.get("termination_reason") in ("timeout", "turn_cap"):
@@ -2155,7 +2133,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
     else:
         state["synthesis_iterations"] = state.get("synthesis_iterations", 0) + 1
         max_synthesis_iters = getattr(cfg, "MAX_SYNTHESIS_ITERATIONS", 3)
-        
+
         # Identify low-confidence sub-questions that haven't been removed/split
         for sq in state["plan"]["sub_questions"]:
             if sq.get("confidence", 100) < state["confidence_threshold"] and sq.get("status") not in ("removed", "split"):
@@ -2165,40 +2143,40 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                 sq_copy = dict(sq)
                 sq_copy["notes_summary"] = notes_summary
                 low_conf_sqs.append(sq_copy)
-            
+
     if low_conf_sqs and state["synthesis_iterations"] <= max_synthesis_iters:
         print(f"[RESEARCH_ENGINE] Post-synthesis triage: found {len(low_conf_sqs)} low-confidence SQs. Triage iteration {state['synthesis_iterations']}/{max_synthesis_iters}.", flush=True)
-        
+
         # Extract limitations/gaps section from report
         gap_analysis_text = "No gap analysis found."
         match = re.search(r"(?i)(###\s*(?:Limitations|Gaps|Remaining Questions|Areas of Uncertainty).*?)(?=^#|\Z)", final_report, re.MULTILINE | re.DOTALL)
         if match:
             gap_analysis_text = match.group(1).strip()
-            
+
         triage_prompt = research_prompts.build_post_synthesis_triage_prompt(gap_analysis_text, low_conf_sqs)
         triage_messages = [
             {"role": "system", "content": research_prompts.get_system_prompt(domain_level=state.get("domain_level", "specialist"))},
             {"role": "user", "content": triage_prompt}
         ]
-        
+
         state["ollama_calls"] += 1
         raw_triage_response = await call_ollama(triage_messages, num_predict=1024)
-        
+
         try:
             triage_decisions = parse_json_response(raw_triage_response)
             if not isinstance(triage_decisions, list):
                 raise ValueError("Triage response is not a list")
-                
+
             new_children_added = False
             for decision in triage_decisions:
                 sq_id = decision.get("sq_id")
                 action = decision.get("action", "").lower()
                 reason = decision.get("reason", "")
-                
+
                 target_sq = next((s for s in state["plan"]["sub_questions"] if s["id"] == sq_id), None)
                 if not target_sq:
                     continue
-                    
+
                 if action == "remove":
                     print(f"[RESEARCH_ENGINE] Triage REMOVE: {sq_id}. Reason: {reason}", flush=True)
                     target_sq["status"] = "removed"
@@ -2208,7 +2186,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                     print(f"[RESEARCH_ENGINE] Triage SPLIT: {sq_id} into {len(children)} children. Reason: {reason}", flush=True)
                     target_sq["status"] = "split"
                     target_sq["split_reason"] = reason
-                    
+
                     for i, child_q in enumerate(children):
                         new_sq = {
                             "id": f"{sq_id}_c{i+1}",
@@ -2221,7 +2199,7 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                         }
                         state["plan"]["sub_questions"].append(new_sq)
                         new_children_added = True
-                        
+
             if new_children_added:
                 for idx, s in enumerate(state["plan"]["sub_questions"]):
                     if s["status"] == "pending":
@@ -2232,15 +2210,15 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
                 print("[RESEARCH_ENGINE] Triage added new child questions. Resuming search loop.", flush=True)
                 save_state(task_id, state)
                 return  # Exit step_synthesize, task continues!
-                
-        except Exception as e:
+
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
             print(f"[RESEARCH_ENGINE WARNING] Failed to parse triage JSON: {e}. Output was: '{raw_triage_response}'", flush=True)
             print("[RESEARCH_ENGINE] Falling through to quarantine/done logic.", flush=True)
 
     elif low_conf_sqs:
         print(f"[RESEARCH_ENGINE] Max synthesis iterations reached ({state['synthesis_iterations']}). Falling through.", flush=True)
     # --- End Triage Logic ---
-    
+
     # Copy file to Obsidian Vault (quarantine if confidence < 60%)
     if state["confidence"] >= 60:
         try:
@@ -2248,14 +2226,13 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             slug = re.sub(r"[^\w\s-]", "", state["short_title"].lower())
             slug = re.sub(r"[-\s]+", "-", slug).strip("-_")
             vault_filename = f"{slug}.md"
-            
+
             vault_dir = getattr(cfg, "RESEARCH_VAULT_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), "Research"))
             os.makedirs(vault_dir, exist_ok=True)
             vault_file_path = os.path.join(vault_dir, vault_filename)
-            
-            with open(vault_file_path, "w", encoding="utf-8") as f:
-                f.write(full_report_content)
-                
+
+            await asyncio.to_thread(_sync_write_file, vault_file_path, full_report_content)
+
             state["vault_path"] = vault_file_path
             state["quarantined"] = False
             print(f"[RESEARCH_ENGINE] Saved report to Obsidian Vault: {vault_file_path}", flush=True)
@@ -2264,28 +2241,28 @@ async def step_synthesize(task_id: str, state: Dict[str, Any]) -> None:
             try:
                 server = sys.modules.get("evelyn_server") or sys.modules.get("__main__")
                 if server and hasattr(server, "start_refresh_memory_internal"):
-                    import asyncio
                     try:
                         loop = asyncio.get_running_loop()
-                        loop.create_task(server.start_refresh_memory_internal())
+                        t = loop.create_task(server.start_refresh_memory_internal())
+                        _background_tasks.add(t)
+                        t.add_done_callback(_background_tasks.discard)
                     except RuntimeError:
                         asyncio.run(server.start_refresh_memory_internal())
                 else:
                     base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                     refresh_script = os.path.join(base_dir, "Evelyn", "tools", "refresh_memory.py")
                     if os.path.exists(refresh_script):
-                        import subprocess
-                        print(f"[RESEARCH_ENGINE] Triggering standalone memory refresh process...", flush=True)
-                        subprocess.Popen([sys.executable, "-u", refresh_script], cwd=base_dir)
-            except Exception as r_err:
+                        print("[RESEARCH_ENGINE] Triggering standalone memory refresh process...", flush=True)
+                        await asyncio.to_thread(subprocess.Popen, [sys.executable, "-u", refresh_script], cwd=base_dir)
+            except (subprocess.SubprocessError, OSError, RuntimeError) as r_err:
                 print(f"[RESEARCH_ENGINE WARNING] Could not trigger memory refresh after vault save: {r_err}", flush=True)
-        except Exception as e:
+        except OSError as e:
             print(f"[RESEARCH_ENGINE ERROR] Failed to copy report to Vault: {e}", flush=True)
     else:
         state["quarantined"] = True
         state["vault_path"] = None
         print(f"[RESEARCH_ENGINE] Research completed with low confidence ({state['confidence']}%). Quarantined task, did not copy to Obsidian Vault.", flush=True)
-        
+
     save_state(task_id, state)
     print(f"[RESEARCH_ENGINE] Task {task_id} completed successfully!", flush=True)
 
@@ -2305,19 +2282,19 @@ async def execute_task_step(task_id: str) -> bool:
     if not state:
         print(f"[RESEARCH_ENGINE ERROR] Task {task_id} state file not found.", flush=True)
         return True
-        
+
     if state["status"] in ("done", "error", "cancelled", "needs_guidance"):
         return True
-        
+
     if state["status"] == "paused":
         print(f"[RESEARCH_ENGINE] Task {task_id} paused by server. Exiting background runner.", flush=True)
         return True
-        
+
     # Increment high-level orchestrator turns (steps)
     if "orchestrator_turns" not in state:
         state["orchestrator_turns"] = 0
     state["orchestrator_turns"] += 1
-    
+
     # Verify safety net limits (Emergency Brakes on State Loop).
     # Read from state first (set at task creation from scope preset) so each
     # task uses its own budget. Fall back to config for tasks created before
@@ -2395,22 +2372,19 @@ async def execute_task_step(task_id: str) -> bool:
             state["error"] = f"Unknown task step '{step}'"
             save_state(task_id, state)
             return True
-            
+
         # Check if completed
         updated_state = load_state(task_id)
-        if updated_state and updated_state["status"] == "done":
-            return True
-            
-        return False
-        
-    except Exception as e:
+        return bool(updated_state and updated_state["status"] == "done")
+
+    except (httpx.HTTPError, sqlite3.Error, OSError, RuntimeError, ValueError, TypeError, KeyError) as e:
         traceback.print_exc()
         state["status"] = "error"
-        
+
         # Enrich exception output with human-actionable debug information
         err_type = type(e).__name__
         err_msg = str(e)
-        
+
         if "ConnectError" in err_msg or "ConnectError" in err_type:
             enriched = f"Ollama Connection Error: Could not reach Ollama server (URL: {getattr(cfg, 'OLLAMA_URL', 'default')}). Ensure the Ollama service is running."
         elif "TimeoutException" in err_msg or "Timeout" in err_type:
@@ -2423,7 +2397,7 @@ async def execute_task_step(task_id: str) -> bool:
             enriched = f"Filesystem Error: Required asset, directory, or state cache is missing. details: {err_msg}"
         else:
             enriched = f"Execution Error [{err_type}]: {err_msg}"
-            
+
         state["error"] = enriched
         save_state(task_id, state)
         return True
@@ -2446,17 +2420,17 @@ async def run_full_research(task_id: str) -> None:
     """
     print(f"[RESEARCH_ENGINE] Starting research loop for task: {task_id}", flush=True)
     is_done = False
-    
+
     while not is_done:
         is_done = await execute_task_step(task_id)
         if not is_done:
             await asyncio.sleep(1.0) # Yield control
-            
+
     print(f"[RESEARCH_ENGINE] Finished processing task: {task_id}", flush=True)
 
 
 
-def get_recent_chat_history(limit: int = 20) -> List[Dict[str, str]]:
+def get_recent_chat_history(limit: int = 20) -> list[dict[str, str]]:
     """Fetch the most recent messages from the SQLite database.
 
     Args:
@@ -2475,7 +2449,7 @@ def get_recent_chat_history(limit: int = 20) -> List[Dict[str, str]]:
         ).fetchall()
         con.close()
         return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[RESEARCH_ENGINE ERROR] Failed to fetch chat history for self-initiate: {e}", flush=True)
         return []
 
@@ -2490,18 +2464,15 @@ async def self_initiate_research_topics() -> None:
     importlib.reload(cfg)
     if not cfg.RESEARCH_SELF_INITIATE:
         return
-        
+
     queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
-    
+
     # Load current queue
     queue = []
     if os.path.exists(queue_file):
-        try:
-            with open(queue_file, "r", encoding="utf-8") as f:
-                queue = json.load(f)
-        except Exception:
-            queue = []
-            
+        with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+            queue = await asyncio.to_thread(_sync_load_json, queue_file)
+
     if len(queue) >= cfg.RESEARCH_MAX_QUEUE_SIZE:
         return
 
@@ -2530,12 +2501,12 @@ async def self_initiate_research_topics() -> None:
     history = get_recent_chat_history(20)
     if not history:
         return
-        
+
     # Construct history dump
     history_text = ""
     for msg in history:
         history_text += f"{msg['role'].upper()}: {msg['content']}\n"
-        
+
     prompt = f"""You are {cfg.ASSISTANT_NAME}, an advanced AI research companion. Review the following recent conversation history between you and {cfg.USER_NAME}:
 
 {history_text}
@@ -2562,13 +2533,13 @@ If no topics are worth researching, output an empty list. Output nothing else bu
         {"role": "system", "content": "You are Evelyn's analytical sub-agent. Output only YAML."},
         {"role": "user", "content": prompt}
     ]
-    
+
     try:
         raw = await call_ollama(messages, num_predict=4096)
         match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw, re.DOTALL | re.IGNORECASE)
         block = match.group(1) if match else raw
         data = yaml.safe_load(block)
-        
+
         if isinstance(data, dict) and "topics" in data:
             new_topics = data["topics"] or []
             added = 0
@@ -2598,17 +2569,16 @@ If no topics are worth researching, output an empty list. Output nothing else bu
                     "priority": 1,
                     "source": "evelyn",
                     "intent_frame": intent_frame,
-                    "created_at": datetime.datetime.now().isoformat()
+                    "created_at": datetime.now(UTC).astimezone().isoformat(),
                 })
                 known_queries.append(query)  # prevent intra-batch duplicates
                 added += 1
 
             if added > 0:
                 os.makedirs(cfg.RESEARCH_DATA_DIR, exist_ok=True)
-                with open(queue_file, "w", encoding="utf-8") as f:
-                    json.dump(queue, f, indent=2)
+                await asyncio.to_thread(_sync_dump_json, queue_file, queue)
                 print(f"[RESEARCH_ENGINE] Successfully queued {added} self-initiated research topics.", flush=True)
-    except Exception as e:
+    except (yaml.YAMLError, OSError, ValueError, TypeError) as e:
         print(f"[RESEARCH_ENGINE ERROR] Failed self-initiated topic generation: {e}", flush=True)
 
 
@@ -2616,13 +2586,13 @@ If no topics are worth researching, output an empty list. Output nothing else bu
 if __name__ == "__main__":
     # CLI Testing capability (Phase 1 Checklist)
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Evelyn Deep Research CLI Runner")
     parser.add_argument("query", type=str, help="Research topic or search query")
     parser.add_argument("--scope", type=str, default="standard", choices=["quick", "standard", "deep"], help="Research depth scope")
-    
+
     args = parser.parse_args()
-    
+
     async def main():
         """Run the research engine from the command line.
 
@@ -2646,5 +2616,5 @@ if __name__ == "__main__":
             await run_full_research(task_id)
         finally:
             _release_pid_lock(task_id)
-        
+
     asyncio.run(main())

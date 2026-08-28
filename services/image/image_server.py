@@ -25,10 +25,11 @@ API Endpoints:
 """
 
 import os
-import time
-import torch
 import random
+import time
 import warnings
+
+import torch
 
 # Suppress noisy terminal warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -37,16 +38,16 @@ try:
     transformers_logging.set_verbosity_error()
 except ImportError:
     pass
-import asyncio
 import threading
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+
+import uvicorn
+from diffusers import DiffusionPipeline
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from diffusers import DiffusionPipeline
-import uvicorn
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -114,18 +115,18 @@ def _load_pipeline():
 
     print("[IMAGE] Loading FLUX.1 [schnell] NF4 pipeline...", flush=True)
     t0 = time.perf_counter()
-    
+
     # Load the ungated community NF4 quantized FLUX.1-schnell model
     _pipeline = DiffusionPipeline.from_pretrained(
         "magespace/FLUX.1-schnell-bnb-nf4",
         torch_dtype=torch.bfloat16,
         device_map="cuda"
     )
-    
+
     # Enable CPU offload to be extra safe with Ollama coexisting in VRAM
     print("[IMAGE] Enabling model CPU offload...", flush=True)
     _pipeline.enable_model_cpu_offload()
-    
+
     elapsed = time.perf_counter() - t0
     vram_mb = torch.cuda.memory_allocated() / 1024**2
     print(f"[IMAGE] Pipeline loaded in {elapsed:.1f}s ({vram_mb:.0f} MB VRAM)", flush=True)
@@ -190,19 +191,19 @@ async def generate_image(request: ImageRequest):
     aspect_ratio = request.aspect_ratio
     if aspect_ratio not in ASPECT_RATIOS:
         aspect_ratio = "1:1"
-        
+
     width, height = ASPECT_RATIOS[aspect_ratio]
-    
+
     # Determine the seed
     seed = request.seed if request.seed is not None else random.randint(0, 2**32 - 1)
     generator = torch.Generator(device="cuda").manual_seed(seed)
-    
+
     print(f"[IMAGE] Generating: '{prompt}' ({width}x{height}, seed={seed})...", flush=True)
     t0 = time.perf_counter()
-    
+
     # Get loaded pipeline
     pipe = get_pipeline()
-    
+
     try:
         # Run inference using recommended settings for schnell: 4 steps, guidance_scale=0.0
         output = pipe(
@@ -214,27 +215,27 @@ async def generate_image(request: ImageRequest):
             generator=generator
         )
         image = output.images[0]
-    except Exception as e:
+    except (RuntimeError, ValueError, OSError) as e:
         print(f"[IMAGE] Generation failed: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Image generation failed: {e}")
-        
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {e}") from e
+
     # Save image to the output folder
     import re
-    from datetime import datetime
+    from datetime import UTC, datetime
     title_slug = "image"
     if request.short_title:
         title_slug = re.sub(r'[^a-zA-Z0-9]', '_', request.short_title).strip('_').lower()
         if not title_slug:
             title_slug = "image"
-            
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
     filename = f"image_{timestamp}_{title_slug}.png"
     filepath = OUTPUT_DIR / filename
     image.save(filepath)
-    
+
     elapsed = time.perf_counter() - t0
     print(f"[IMAGE] Done in {elapsed:.2f} seconds -> Saved as {filename}", flush=True)
-    
+
     return {
         "filename": filename,
         "url": f"/images/{filename}",
@@ -271,7 +272,7 @@ async def health():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print(f"[IMAGE] Evelyn FLUX.1 [schnell] NF4 Image Server")
+    print("[IMAGE] Evelyn FLUX.1 [schnell] NF4 Image Server")
     print(f"[IMAGE] Listening on {HOST}:{PORT}")
     print(f"[IMAGE] Model will load on demand and auto-unload after {UNLOAD_TIMEOUT_S}s idle")
     uvicorn.run(app, host=HOST, port=PORT)

@@ -22,11 +22,11 @@ Key path constants:
   PENDING_DIR    — In-vault staging folder for new context entries.
 """
 
-import os
-import re
 import datetime
+import sqlite3
+
 import evelyn_config as cfg
-import json
+
 
 def append_context_log(
     category_code: str,
@@ -43,9 +43,9 @@ def append_context_log(
         str: A human-readable confirmation message with the ID that was created.
     """
     import memory_db
-    
-    today = datetime.date.today().strftime("%Y-%m-%d")
-    
+
+    today = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d")
+
     # Determine subject from category code suffix
     subject_code = category_code[-1].upper() if category_code else ""
     subject = cfg.ASSISTANT_NAME if subject_code == cfg.SUBJECT_CODE_ASSISTANT else (cfg.USER_NAME if subject_code == cfg.SUBJECT_CODE_USER else "Unknown")
@@ -60,7 +60,7 @@ def append_context_log(
             status="pending_review",
             date=today
         )
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         return f"Error writing context entry: {e}"
 
     return f"Created Context Entry (ID: {row_id}) pending review."
@@ -87,10 +87,10 @@ def search_vault_map(query: str, limit: int = 5) -> str:
         map database is missing or unreadable.
     """
     import vault_db
-    
+
     try:
         results = vault_db.search_documents(query, limit=limit)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         return f"Error reading vault map database: {e}"
 
     if not results:
@@ -120,24 +120,24 @@ def update_context_log(target_filepaths: list, new_summary: str) -> str:
         str: Confirmation message.
     """
     import memory_db
-    
+
     source_ids = []
     for p in target_filepaths:
         # Extract ID if RAG source format is passed
         if isinstance(p, str) and p.startswith("sqlite::context_entry::"):
             p = p.split("::")[-1]
-            
+
         try:
             target_id = int(p)
         except ValueError:
             continue
-            
+
         con = memory_db.get_db()
         row = con.execute("SELECT id FROM context_entries WHERE id = ?", (target_id,)).fetchone()
         con.close()
         if row:
             source_ids.append(row["id"])
-            
+
     try:
         pid = memory_db.insert_proposal(
             type="update_request",
@@ -146,7 +146,7 @@ def update_context_log(target_filepaths: list, new_summary: str) -> str:
             merged_observation=new_summary,
             status="pending"
         )
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         return f"Error creating update proposal: {e}"
 
     return f"Update proposal created (ID: {pid}) for {cfg.USER_NAME} to review."

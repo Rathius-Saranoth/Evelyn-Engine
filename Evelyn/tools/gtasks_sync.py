@@ -10,20 +10,24 @@ and handles authentication token refreshes and network errors gracefully to supp
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import os
 import shutil
 import sqlite3
 import time
-from typing import Any, Optional
+from typing import Any
 
-import evelyn_config as cfg
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+import evelyn_config as cfg
 
 
-def get_gtasks_credentials(token_path: Optional[str] = None) -> Optional[Credentials]:
+def get_gtasks_credentials(token_path: str | None = None) -> Credentials | None:
     """Retrieve and refresh valid Google Tasks OAuth credentials.
 
     Falls back to checking GDRIVE_TOKEN_PATH if GTASKS_TOKEN_PATH does not exist yet.
@@ -35,16 +39,15 @@ def get_gtasks_credentials(token_path: Optional[str] = None) -> Optional[Credent
         Credentials object if valid or refreshed, None otherwise.
     """
     path = token_path or cfg.GTASKS_TOKEN_PATH
-    
+
     # Fallback to GDRIVE_TOKEN_PATH if gtasks token doesn't exist
-    if not os.path.exists(path):
-        if hasattr(cfg, "GDRIVE_TOKEN_PATH") and os.path.exists(cfg.GDRIVE_TOKEN_PATH):
-            try:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                shutil.copy(cfg.GDRIVE_TOKEN_PATH, path)
-                print(f"[GTasks Sync] Copied credentials from {cfg.GDRIVE_TOKEN_PATH} -> {path}", flush=True)
-            except Exception as e:
-                print(f"[GTasks Sync] Warning: could not copy GDRIVE token: {e}", flush=True)
+    if not os.path.exists(path) and hasattr(cfg, "GDRIVE_TOKEN_PATH") and os.path.exists(cfg.GDRIVE_TOKEN_PATH):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            shutil.copy(cfg.GDRIVE_TOKEN_PATH, path)
+            print(f"[GTasks Sync] Copied credentials from {cfg.GDRIVE_TOKEN_PATH} -> {path}", flush=True)
+        except OSError as e:
+            print(f"[GTasks Sync] Warning: could not copy GDRIVE token: {e}", flush=True)
 
     if not os.path.exists(path):
         return None
@@ -57,13 +60,11 @@ def get_gtasks_credentials(token_path: Optional[str] = None) -> Optional[Credent
             with open(path, "w", encoding="utf-8") as f:
                 f.write(creds.to_json())
         return creds if creds and creds.valid else None
-    except Exception as e:
+    except (GoogleAuthError, OSError, ValueError, KeyError) as e:
         file_age_days = 0.0
-        try:
+        with contextlib.suppress(OSError):
             mtime = os.path.getmtime(path)
             file_age_days = (time.time() - mtime) / 86400.0
-        except Exception:
-            pass
 
         if file_age_days > 7.0:
             print(
@@ -90,7 +91,7 @@ def get_gtasks_service() -> Any:
     return build("tasks", "v1", credentials=creds, cache_discovery=False)
 
 
-def parse_due_datetime(due_str: Optional[str]) -> Optional[str]:
+def parse_due_datetime(due_str: str | None) -> str | None:
     """Normalize a due date/time string into RFC 3339 timestamp format.
 
     Args:
@@ -109,14 +110,14 @@ def parse_due_datetime(due_str: Optional[str]) -> Optional[str]:
     if "T" in clean:
         try:
             dt = datetime.datetime.fromisoformat(clean.replace("Z", "+00:00"))
-            return dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            return dt.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         except ValueError:
             pass
 
     # Handle 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM'
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
         try:
-            dt = datetime.datetime.strptime(clean, fmt)
+            dt = datetime.datetime.strptime(clean, fmt).replace(tzinfo=datetime.UTC)
             return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         except ValueError:
             continue
@@ -124,7 +125,7 @@ def parse_due_datetime(due_str: Optional[str]) -> Optional[str]:
     # Handle date-only 'YYYY-MM-DD' or 'YYYY/MM/DD'
     for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
         try:
-            dt = datetime.datetime.strptime(clean, fmt)
+            dt = datetime.datetime.strptime(clean, fmt).replace(tzinfo=datetime.UTC)
             return dt.strftime("%Y-%m-%dT00:00:00.000Z")
         except ValueError:
             continue
@@ -165,7 +166,7 @@ def sync_gtasks(tasklist: str = "@default") -> dict[str, Any]:
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         con.row_factory = sqlite3.Row
         try:
-            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            now_iso = datetime.datetime.now(datetime.UTC).isoformat()
             fetched_ids = set()
 
             for item in items:
@@ -199,7 +200,7 @@ def sync_gtasks(tasklist: str = "@default") -> dict[str, Any]:
             "count": len(items),
         }
 
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GTasks Sync] Error during sync: {e}", flush=True)
         return {
             "status": "offline",
@@ -209,7 +210,7 @@ def sync_gtasks(tasklist: str = "@default") -> dict[str, Any]:
 
 def get_cached_tasks(
     include_completed: bool = False,
-    due_within_days: Optional[int] = None,
+    due_within_days: int | None = None,
     tasklist: str = "@default",
 ) -> list[dict[str, Any]]:
     """Retrieve tasks from the local SQLite cache.
@@ -236,7 +237,7 @@ def get_cached_tasks(
                 query += " AND status = 'needsAction'"
 
             if due_within_days is not None:
-                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                now_utc = datetime.datetime.now(datetime.UTC)
                 max_due = (now_utc + datetime.timedelta(days=due_within_days)).strftime("%Y-%m-%dT23:59:59.999Z")
                 query += " AND (due_at IS NULL OR due_at <= ?)"
                 params.append(max_due)
@@ -249,15 +250,15 @@ def get_cached_tasks(
             return [dict(row) for row in rows]
         finally:
             con.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[GTasks Sync] Error querying cached tasks: {e}", flush=True)
         return []
 
 
 def create_gtask(
     title: str,
-    due: Optional[str] = None,
-    notes: Optional[str] = None,
+    due: str | None = None,
+    notes: str | None = None,
     tasklist: str = "@default",
 ) -> dict[str, Any]:
     """Create a new task on Google Tasks and cache it locally.
@@ -295,7 +296,7 @@ def create_gtask(
         ).execute()
 
         task_id = created_task.get("id")
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now_iso = datetime.datetime.now(datetime.UTC).isoformat()
 
         # Cache locally
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
@@ -319,7 +320,7 @@ def create_gtask(
             "task": created_task,
         }
 
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GTasks Sync] Error creating task: {e}", flush=True)
         return {
             "status": "error",
@@ -346,8 +347,8 @@ def complete_gtask(task_id: str, tasklist: str = "@default") -> dict[str, Any]:
 
     try:
         print(f"[GTasks Sync] Marking task {task_id} as completed...", flush=True)
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        
+        now_iso = datetime.datetime.now(datetime.UTC).isoformat()
+
         service.tasks().patch(
             tasklist=tasklist,
             task=task_id,
@@ -374,7 +375,7 @@ def complete_gtask(task_id: str, tasklist: str = "@default") -> dict[str, Any]:
             "task_id": task_id,
         }
 
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GTasks Sync] Error completing task {task_id}: {e}", flush=True)
         return {
             "status": "error",
@@ -419,7 +420,7 @@ def delete_gtask(task_id: str, tasklist: str = "@default") -> dict[str, Any]:
             "task_id": task_id,
         }
 
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GTasks Sync] Error deleting task {task_id}: {e}", flush=True)
         return {
             "status": "error",

@@ -26,7 +26,7 @@ Architecture notes: reference/docstring_guide.md#fact_extractorpy--architecture-
 
 
 import asyncio
-import datetime
+import datetime as dt
 import importlib
 import json
 import os
@@ -37,11 +37,9 @@ import time
 import httpx
 import yaml
 
-import evelyn_config as cfg # [[evelyn_config.py]]
-import Evelyn.tools.chroma_rag as chroma_rag
-import Evelyn.tools.vault_db as vault_db
-from Evelyn.tools.tag_librarian import normalize_tag_format, is_excluded_tag
-
+import evelyn_config as cfg  # [[evelyn_config.py]]
+from Evelyn.tools import chroma_rag, vault_db
+from Evelyn.tools.tag_librarian import is_excluded_tag, normalize_tag_format
 
 # ---------------------------------------------------------------------------
 # Module-level regex constants
@@ -147,13 +145,13 @@ def load_cat00_index() -> str:
         "Cat00 - Index.md",
     )
     try:
-        with open(cat00_path, "r", encoding="utf-8") as f:
+        with open(cat00_path, encoding="utf-8") as f:
             text = f.read()
         stripped = re.sub(r"^---.*?---\s*", "", text, count=1, flags=re.DOTALL)
         _cat00_text = stripped.strip()
         _cat00_loaded_at = now
         print("[EXTRACTOR] Cat00 index loaded.", flush=True)
-    except Exception as e:
+    except OSError as e:
         print(f"[EXTRACTOR] Warning: could not load Cat00 index: {e}", flush=True)
         _cat00_text = ""
     return _cat00_text
@@ -184,7 +182,7 @@ def _load_extraction_state() -> tuple[int, float]:
             last_run_ts defaults to 0.0 if not present (first run ever).
     """
     try:
-        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+        with open(_STATE_FILE, encoding="utf-8") as f:
             data = json.load(f)
         last_id = int(data.get("last_extracted_id", cfg.FACT_EXTRACTION_START_ID))
         last_ts = float(data.get("last_run_ts", 0.0))
@@ -248,7 +246,7 @@ def _heavy_tasks_running() -> bool:
     Returns:
         bool: True if another heavy background task is active, False otherwise.
     """
-    import Evelyn.tools.task_manager as task_manager
+    from Evelyn.tools import task_manager
     return task_manager.is_any_running(exclude="extractor")
 
 
@@ -272,7 +270,7 @@ def _set_status_in_server(
         diagnostics: Optional diagnostic details dict.
         items_processed: Optional number of items processed.
     """
-    import Evelyn.tools.task_manager as task_manager
+    from Evelyn.tools import task_manager
     if status == "running":
         task_manager.set_running("extractor", sub_status=sub_status, diagnostics=diagnostics)
     else:
@@ -328,7 +326,7 @@ async def run_extraction():
         )
         return
 
-    import Evelyn.tools.task_manager as task_manager
+    from Evelyn.tools import task_manager
 
     # Cooldown check (only on initial invocation if no backlog)
     _last_run_ts = task_manager.get_last_run_ts("extractor")
@@ -415,7 +413,7 @@ async def run_extraction():
     except asyncio.CancelledError:
         print("[EXTRACTOR] Cancelled — current batch aborted.", flush=True)
         _set_status_in_server("cancelled")
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as e:
         err_cls = type(e).__name__
         err_msg = str(e).strip()
         formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
@@ -439,7 +437,7 @@ async def run_extraction():
 def _update_last_run_ts():
     """Update the global background task last-run timestamp in task_manager."""
     global _last_run_ts
-    import Evelyn.tools.task_manager as task_manager
+    from Evelyn.tools import task_manager
     _last_run_ts = task_manager.save_last_run_ts("extractor")
 
 
@@ -467,7 +465,7 @@ def _fetch_new_messages() -> tuple[list[dict], int]:
             (_last_extracted_id, batch_size),
         ).fetchall()
         conn.close()
-    except Exception as e:
+    except sqlite3.Error as e:
         print(f"[EXTRACTOR] DB read error: {e}", flush=True)
         return [], 0
 
@@ -477,7 +475,7 @@ def _fetch_new_messages() -> tuple[list[dict], int]:
     messages = []
     # Structural markers stored as assistant messages — no factual content
     _SKIP_PREFIXES = ("[THREAD_BREAK]", "[Response interrupted")
-    for row_id, role, content, ts in rows:
+    for _row_id, role, content, ts in rows:
         if not content or not content.strip():
             continue
         if any(content.startswith(p) for p in _SKIP_PREFIXES):
@@ -502,7 +500,6 @@ def _format_messages_for_extraction(messages: list[dict]) -> str:
     Returns:
         str: The formatted transcript string.
     """
-    import datetime as dt
     lines = []
     for msg in messages:
         role_label = cfg.USER_NAME if msg["role"] == "user" else cfg.ASSISTANT_NAME
@@ -512,7 +509,7 @@ def _format_messages_for_extraction(messages: list[dict]) -> str:
         ts = msg.get("ts")
         if ts:
             try:
-                date_str = dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+                date_str = dt.datetime.fromtimestamp(ts, tz=dt.UTC).astimezone().strftime("%Y-%m-%d")
                 prefix = f"[{date_str}] {role_label}"
             except (OSError, OverflowError, ValueError):
                 prefix = role_label
@@ -591,7 +588,7 @@ def retrieve_candidate_taxonomy_and_clusters(
                         "description": meta.get("description", ""),
                         "distance": dist,
                     }
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
             print(f"[EXTRACTOR] Tag taxonomy query failed for '{q[:30]}...': {e}", flush=True)
 
         # Memory chunks query
@@ -608,7 +605,7 @@ def retrieve_candidate_taxonomy_and_clusters(
                         "distance": dist,
                         "source": meta.get("source", "memory"),
                     })
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
             print(f"[EXTRACTOR] Memory cluster query failed for '{q[:30]}...': {e}", flush=True)
 
     # Fallback to SQLite master tags if Chroma tag collection is empty
@@ -624,7 +621,7 @@ def retrieve_candidate_taxonomy_and_clusters(
                         "description": m.get("description", ""),
                         "distance": 0.50,
                     }
-        except Exception as e:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
             print(f"[EXTRACTOR] Fallback master tags retrieval failed: {e}", flush=True)
 
     sorted_tags = sorted(candidates_tag_map.values(), key=lambda x: x["distance"])[:top_k_tags]
@@ -694,16 +691,14 @@ def _build_extraction_prompt(
             desc = f" — {t['description']}" if t.get("description") else ""
             tag_lines.append(f"  - #{t['tag']}{desc}")
         taxonomy_block = (
-            f"\n\nRELEVANT MASTER TAXONOMY DOMAINS & TAGS (Tag RAG):\n" + "\n".join(tag_lines)
+            "\n\nRELEVANT MASTER TAXONOMY DOMAINS & TAGS (Tag RAG):\n" + "\n".join(tag_lines)
         )
 
     memory_block = ""
     if memory_candidates:
-        fact_lines = []
-        for m in memory_candidates[:4]:
-            fact_lines.append(f"  - {m['content']}")
+        fact_lines = [f"  - {m['content']}" for m in memory_candidates[:4]]
         memory_block = (
-            f"\n\nRELEVANT EXISTING KNOWLEDGE CLUSTERS (for deduplication & context):\n" + "\n".join(fact_lines)
+            "\n\nRELEVANT EXISTING KNOWLEDGE CLUSTERS (for deduplication & context):\n" + "\n".join(fact_lines)
         )
 
     guidance_block = f"\n\n{novelty_guidance}" if novelty_guidance else ""
@@ -958,9 +953,8 @@ async def _do_extraction(messages: list[dict]):
     Args:
         messages: A list of chat message dictionaries.
     """
-    import datetime as dt
     cat00 = load_cat00_index()
-    tag_candidates, mem_candidates, min_dist, novelty_guidance = retrieve_candidate_taxonomy_and_clusters(messages)
+    tag_candidates, mem_candidates, _min_dist, novelty_guidance = retrieve_candidate_taxonomy_and_clusters(messages)
     prompt = _build_extraction_prompt(
         messages=messages,
         cat00=cat00,
@@ -974,11 +968,11 @@ async def _do_extraction(messages: list[dict]):
     latest_ts = max((m.get("ts") or 0) for m in messages)
     if latest_ts:
         try:
-            fallback_date = dt.datetime.fromtimestamp(latest_ts).strftime("%Y-%m-%d")
+            fallback_date = dt.datetime.fromtimestamp(latest_ts, tz=dt.UTC).astimezone().strftime("%Y-%m-%d")
         except (OSError, OverflowError, ValueError):
-            fallback_date = dt.date.today().strftime("%Y-%m-%d")
+            fallback_date = dt.datetime.now(dt.UTC).astimezone().date().strftime("%Y-%m-%d")
     else:
-        fallback_date = dt.date.today().strftime("%Y-%m-%d")
+        fallback_date = dt.datetime.now(dt.UTC).astimezone().date().strftime("%Y-%m-%d")
 
     extraction_messages = [
         {
@@ -992,18 +986,22 @@ async def _do_extraction(messages: list[dict]):
     importlib.reload(cfg)
     override = cfg.FACT_EXTRACTION_MODEL_OVERRIDE
     model = cfg.MODEL_NAME if override == "default" else override
-    options = {"num_ctx": cfg.NUM_CTX}
-    for key, val in {
-        "temperature": cfg.TEMPERATURE,
-        "min_p": cfg.MIN_P,
-        "top_k": cfg.TOP_K,
-        "top_p": cfg.TOP_P,
-        "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n": cfg.REPEAT_LAST_N,
-        "seed": cfg.SEED,
-    }.items():
-        if val is not None:
-            options[key] = val
+    options = {
+        "num_ctx": cfg.NUM_CTX,
+        **{
+            key: val
+            for key, val in {
+                "temperature": cfg.TEMPERATURE,
+                "min_p": cfg.MIN_P,
+                "top_k": cfg.TOP_K,
+                "top_p": cfg.TOP_P,
+                "repeat_penalty": cfg.REPEAT_PENALTY,
+                "repeat_last_n": cfg.REPEAT_LAST_N,
+                "seed": cfg.SEED,
+            }.items()
+            if val is not None
+        },
+    }
 
     # Scale token budget to batch size — a small batch needs far fewer tokens
     options["num_predict"] = min(64 * len(messages), 512)
@@ -1027,27 +1025,28 @@ async def _do_extraction(messages: list[dict]):
     timeout = cfg.FACT_EXTRACTION_TIMEOUT
     content_buffer = ""
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
-                resp.raise_for_status()
-                aiter = resp.aiter_lines()
-                while True:
-                    try:
-                        line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
-                    except StopAsyncIteration:
-                        break
-                    if not line.strip():
-                        continue
-                    try:
-                        import json
-                        chunk = json.loads(line)
-                        msg = chunk.get("message", {})
-                        content_buffer += msg.get("content", "")
-                    except json.JSONDecodeError:
-                        continue
+        async with (
+            httpx.AsyncClient(timeout=timeout) as client,
+            client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
+        ):
+            resp.raise_for_status()
+            aiter = resp.aiter_lines()
+            while True:
+                try:
+                    line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
+                except StopAsyncIteration:
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    msg = chunk.get("message", {})
+                    content_buffer += msg.get("content", "")
+                except json.JSONDecodeError:
+                    continue
     except asyncio.CancelledError:
         raise  # Let it propagate — caller handles it
-    except Exception as e:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[EXTRACTOR] Ollama call failed: {e}", flush=True)
         raise
 
@@ -1088,27 +1087,28 @@ async def _do_extraction(messages: list[dict]):
     proc_content_buffer = ""
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp:
-                resp.raise_for_status()
-                proc_aiter = resp.aiter_lines()
-                while True:
-                    try:
-                        line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=120.0)
-                    except StopAsyncIteration:
-                        break
-                    if not line.strip():
-                        continue
-                    try:
-                        import json
-                        chunk = json.loads(line)
-                        msg = chunk.get("message", {})
-                        proc_content_buffer += msg.get("content", "")
-                    except json.JSONDecodeError:
-                        continue
+        async with (
+            httpx.AsyncClient(timeout=timeout) as client,
+            client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
+        ):
+            resp.raise_for_status()
+            proc_aiter = resp.aiter_lines()
+            while True:
+                try:
+                    line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=120.0)
+                except StopAsyncIteration:
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    msg = chunk.get("message", {})
+                    proc_content_buffer += msg.get("content", "")
+                except json.JSONDecodeError:
+                    continue
     except asyncio.CancelledError:
         raise
-    except Exception as e:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[EXTRACTOR] Ollama procedure call failed: {e}", flush=True)
         raise
 
@@ -1143,9 +1143,8 @@ def write_extracted_facts(facts: list[dict]) -> int:
         int: The number of facts successfully inserted.
     """
     import memory_db
-    import datetime as dt
 
-    today_str = dt.date.today().strftime("%Y-%m-%d")
+    today_str = dt.datetime.now(dt.UTC).astimezone().date().strftime("%Y-%m-%d")
     written = 0
 
     for fact in facts:
@@ -1192,7 +1191,7 @@ def write_extracted_facts(facts: list[dict]) -> int:
                 tags=fact.get("tags"),
             )
             written += 1
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             print(f"[EXTRACTOR] Failed to insert fact: {e}", flush=True)
 
     return written
@@ -1236,7 +1235,7 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
                 suggested_tools=proc.get("suggested_tools"),
             )
             written += 1
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             print(f"[EXTRACTOR] Failed to insert procedure: {e}", flush=True)
 
     return written

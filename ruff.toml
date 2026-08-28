@@ -1,0 +1,44 @@
+target-version = "py314"
+line-length = 120
+
+[lint]
+select = [
+    "F",        # Pyflakes (unused imports, redefinitions, undefined names)
+    "I",        # isort (import sorting)
+    "UP",       # pyupgrade (modern Python syntax)
+    "RUF",      # Ruff-specific rules
+    "BLE",      # Blind except
+    "DTZ",      # Datetime timezone safety
+    "S110",     # try-except-pass (silent exception swallowing)
+    "S112",     # try-except-continue
+    "ASYNC",    # Async blocking call detection
+    "SIM",      # Code simplification
+    "PERF",     # Performance anti-patterns
+    "W",        # pycodestyle warnings (invalid escape sequences, etc.)
+    "EXE",      # Shebang / executable checks
+    "PLR0402",  # manual-from-import
+    "PIE810",   # multiple-starts-ends-with
+    "B",        # flake8-bugbear
+    "C4",       # flake8-comprehensions
+    "TRY201",   # verbose-raise
+]
+
+ignore = [
+    "RUF001",   # String contains ambiguous unicode character (intentional typography)
+    "RUF002",   # Docstring contains ambiguous unicode character
+    "RUF003",   # Comment contains ambiguous unicode character
+    "ASYNC109", # Async function with timeout parameter (idiomatic for network client wrappers)
+    "ASYNC110", # Busy wait with sleep in background queues
+    "ASYNC240", # os.path methods in async functions (pure string path joins/splits)
+]
+
+[lint.per-file-ignores]
+"scripts/archive/*" = ["ALL"]
+"Evelyn/tests/*" = ["S", "BLE001", "DTZ"]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Form", "fastapi.Query", "fastapi.Body", "fastapi.Header", "fastapi.Path", "fastapi.Security", "fastapi.params.File", "fastapi.params.Depends", "fastapi.params.Form", "fastapi.params.Query"]
+
+[lint.isort]
+known-first-party = ["Evelyn", "evelyn_config"]
+

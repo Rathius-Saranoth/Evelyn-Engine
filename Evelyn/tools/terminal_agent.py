@@ -1,7 +1,7 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
 # date modified: 2026-08-17 19:08:10
-# tags: 
+# tags:
 
 # Evelyn/tools/terminal_agent.py
 # date created: 2026-06-27 15:30:00
@@ -14,14 +14,15 @@ Gives Evelyn the capability to execute safe bash/shell commands, read files, and
 files in allowed workspace paths with a multi-layered safety check and user approval gate.
 """
 
-import os
-import sys
+import importlib
 import json
+import os
 import re
 import subprocess
+import sys
 import time
 import uuid
-import importlib
+
 import evelyn_config as cfg
 
 # Multi-layered safety pattern rules
@@ -168,9 +169,9 @@ def _load_approvals() -> dict:
     if not os.path.exists(APPROVALS_FILE):
         return {}
     try:
-        with open(APPROVALS_FILE, "r", encoding="utf-8") as f:
+        with open(APPROVALS_FILE, encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[Terminal Agent] Error loading approvals: {e}")
         return {}
 
@@ -185,7 +186,7 @@ def _save_approvals(data: dict):
         os.makedirs(os.path.dirname(APPROVALS_FILE), exist_ok=True)
         with open(APPROVALS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         print(f"[Terminal Agent] Error saving approvals: {e}")
 
 
@@ -199,7 +200,7 @@ def cleanup_stale_approvals():
     changed = False
 
     # 1. Update pending approvals older than 10 minutes to 'expired'
-    for k, v in approvals.items():
+    for v in approvals.values():
         if v.get("status") == "pending" and now - v.get("created_at", 0) > 600:
             v["status"] = "expired"
             changed = True
@@ -367,7 +368,7 @@ def is_path_allowed(path: str) -> bool:
                 return False
 
         return True
-    except Exception:
+    except (ValueError, TypeError, OSError):
         return False
 
 
@@ -384,7 +385,7 @@ def run_command(command: str, cwd: str = r"/home/rathius/evelyn", timeout: int =
     """
     cleanup_stale_approvals()
     importlib.reload(cfg)
-    
+
     # 1. Path scoping check
     cwd_abs = resolve_file_path(cwd)
     if not is_path_allowed(cwd_abs):
@@ -477,7 +478,7 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
         return output
     except subprocess.TimeoutExpired:
         return f"Error: Command timed out after {timeout} seconds."
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         return f"Error executing command: {e}"
 
 
@@ -492,7 +493,7 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
         str: Numbered file content or error description.
     """
     cleanup_stale_approvals()
-    
+
     # Resolve path
     abs_path = resolve_file_path(file_path)
 
@@ -501,7 +502,7 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
         return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
 
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
+        with open(abs_path, encoding="utf-8") as f:
             lines = f.readlines()
 
         total = len(lines)
@@ -517,7 +518,7 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
         return f"Error: File not found: {file_path}"
     except UnicodeDecodeError:
         return f"Error: File is not valid UTF-8 text: {file_path}"
-    except Exception as e:
+    except OSError as e:
         return f"Error reading file: {e}"
 
 
@@ -535,7 +536,7 @@ def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
         str: Confirmation warning with approval ID.
     """
     cleanup_stale_approvals()
-    
+
     # Resolve path
     abs_path = resolve_file_path(file_path)
 
@@ -596,7 +597,7 @@ def approve_command(approval_id: str) -> str:
             pending["result"] = result
             _save_approvals(approvals)
             return result
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             result = f"Error writing file: {e}"
             pending["status"] = "failed"
             pending["result"] = result

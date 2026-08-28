@@ -9,15 +9,20 @@ Pulls events from Google Calendar, updates the local SQLite cache, and handles
 authentication token refreshes and network errors gracefully to support offline-first.
 """
 
+import contextlib
+import datetime
 import os
 import sqlite3
-import datetime
 import time
+
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
 import evelyn_config as cfg
 
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
 
 def get_gcal_service():
     """Load cached OAuth credentials, refresh if expired, and build GCal service.
@@ -37,18 +42,16 @@ def get_gcal_service():
             with open(token_path, "w", encoding="utf-8") as token_file:
                 token_file.write(creds.to_json())
         return build("calendar", "v3", credentials=creds, cache_discovery=False)
-    except Exception as e:
+    except (GoogleAuthError, OSError, ValueError, KeyError) as e:
         # Check token file age to see if it likely hit the 7-day GCloud Testing limit
         file_age_days = 0.0
         try:
             mtime = os.path.getmtime(token_path)
             ctime = os.path.getctime(token_path)
             file_age_days = (time.time() - min(ctime, mtime)) / 86400.0
-        except Exception:
-            try:
+        except OSError:
+            with contextlib.suppress(OSError):
                 file_age_days = (time.time() - os.path.getmtime(token_path)) / 86400.0
-            except Exception:
-                pass
 
         if file_age_days > 7.0:
             print(f"[GCal Sync] Error loading credentials: {e}\n"
@@ -79,7 +82,7 @@ def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
         }
 
     try:
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.UTC)
         time_min = (now - datetime.timedelta(days=days_back)).isoformat() + "Z"
         time_max = (now + datetime.timedelta(days=days_forward)).isoformat() + "Z"
 
@@ -97,7 +100,7 @@ def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
 
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         con.row_factory = sqlite3.Row
-        
+
         # Clear existing GCal cache entries in this range so we reflect cancellations/updates
         # This keeps the cache accurate without needing full deletion of past events.
         con.execute(
@@ -105,7 +108,7 @@ def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
             (time_min, time_max)
         )
 
-        sync_time = datetime.datetime.utcnow().isoformat()
+        sync_time = datetime.datetime.now(datetime.UTC).isoformat()
         inserted_count = 0
 
         for event in events:
@@ -113,14 +116,14 @@ def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
             summary = event.get("summary", "No Title")
             description = event.get("description", "")
             location = event.get("location", "")
-            
+
             # Start and End times (handles all-day events vs standard events)
             start_info = event.get("start", {})
             end_info = event.get("end", {})
-            
+
             start_at = start_info.get("dateTime") or start_info.get("date")
             end_at = end_info.get("dateTime") or end_info.get("date")
-            
+
             if not start_at or not end_at:
                 continue
 
@@ -141,7 +144,7 @@ def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
             "count": inserted_count
         }
 
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GCal Sync] Failed to sync: {e}. Using cached events.", flush=True)
         return {
             "status": "offline",
@@ -161,11 +164,11 @@ def get_cached_gcal_events(days_back: int = 7, days_forward: int = 30) -> list:
     try:
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         con.row_factory = sqlite3.Row
-        
-        now = datetime.datetime.utcnow()
+
+        now = datetime.datetime.now(datetime.UTC)
         time_min = (now - datetime.timedelta(days=days_back)).isoformat()
         time_max = (now + datetime.timedelta(days=days_forward)).isoformat()
-        
+
         rows = con.execute(
             """
             SELECT id, summary, description, start_at, end_at, location, source
@@ -175,11 +178,11 @@ def get_cached_gcal_events(days_back: int = 7, days_forward: int = 30) -> list:
             """,
             (time_min, time_max)
         ).fetchall()
-        
+
         events = [dict(r) for r in rows]
         con.close()
         return events
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[GCal Sync] Error reading cache: {e}", flush=True)
         return []
 
@@ -194,18 +197,18 @@ def parse_local_datetime(dt_str: str) -> datetime.datetime:
         datetime.datetime: Timezone-aware datetime object.
     """
     dt_str = dt_str.strip().replace("T", " ")
-    
+
     # Try parsing date-only first (normalize to midnight)
     if len(dt_str) <= 10:
-        dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d")
+        dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
     else:
         # Try 'YYYY-MM-DD HH:MM:SS'
         try:
-            dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+            dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
         except ValueError:
             # Fall back to standard ISO parsing if offset/etc is already present
             dt = datetime.datetime.fromisoformat(dt_str)
-            
+
     if dt.tzinfo is None:
         # Make it aware using local timezone
         dt = dt.astimezone()
@@ -215,10 +218,10 @@ def parse_local_datetime(dt_str: str) -> datetime.datetime:
 def create_gcal_event(
     summary: str,
     start_at: str,
-    end_at: str = None,
-    description: str = None,
-    location: str = None,
-    recurrence: list = None
+    end_at: str | None = None,
+    description: str | None = None,
+    location: str | None = None,
+    recurrence: list | None = None
 ) -> dict:
     """Create a new event on Google Calendar, then cache it locally.
 
@@ -249,10 +252,7 @@ def create_gcal_event(
         if end_at:
             end_dt = parse_local_datetime(end_at)
         else:
-            if is_all_day:
-                end_dt = start_dt + datetime.timedelta(days=1)
-            else:
-                end_dt = start_dt + datetime.timedelta(hours=1)
+            end_dt = start_dt + datetime.timedelta(days=1) if is_all_day else start_dt + datetime.timedelta(hours=1)
 
         # Build request body
         event_body = {
@@ -282,8 +282,8 @@ def create_gcal_event(
 
         # Immediately update the local cache so the event is visible without a full sync
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
-        sync_time = datetime.datetime.utcnow().isoformat()
-        
+        sync_time = datetime.datetime.now(datetime.UTC).isoformat()
+
         # Save event to local sqlite cache
         con.execute(
             """
@@ -309,7 +309,7 @@ def create_gcal_event(
             "event_id": event_id
         }
 
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GCal Sync] Failed to create event: {e}", flush=True)
         return {
             "status": "error",
@@ -317,7 +317,7 @@ def create_gcal_event(
         }
 
 
-def delete_gcal_event(event_id_or_query: str, target_date: str = None) -> dict:
+def delete_gcal_event(event_id_or_query: str, target_date: str | None = None) -> dict:
     """Delete an event from Google Calendar and the local cache.
 
     Accepts either an exact event ID or an event title/summary query.
@@ -362,7 +362,7 @@ def delete_gcal_event(event_id_or_query: str, target_date: str = None) -> dict:
                 else:
                     candidates = rows
         con.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[GCal Sync] Error checking local cache: {e}", flush=True)
 
     # 2. If no direct ID and no candidates in cache, search GCal API directly
@@ -380,7 +380,7 @@ def delete_gcal_event(event_id_or_query: str, target_date: str = None) -> dict:
                 date_matched = [c for c in candidates if c[2] and c[2].startswith(clean_date)]
                 if date_matched:
                     candidates = date_matched
-        except Exception as e:
+        except (HttpError, GoogleAuthError, OSError, ValueError) as e:
             print(f"[GCal Sync] Error searching GCal API: {e}", flush=True)
 
     # Resolve candidates
@@ -417,7 +417,7 @@ def delete_gcal_event(event_id_or_query: str, target_date: str = None) -> dict:
             "status": "success",
             "message": f"Successfully deleted calendar event '{target_id}' (ID: {resolved_id})."
         }
-    except Exception as e:
+    except (HttpError, GoogleAuthError, sqlite3.Error, OSError, ValueError) as e:
         print(f"[GCal Sync] Failed to delete event {resolved_id}: {e}", flush=True)
         return {
             "status": "error",

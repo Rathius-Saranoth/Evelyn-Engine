@@ -31,16 +31,17 @@ Priority/Pinning: rag_priority multiplier adjusts cosine distance before thresho
 """
 
 
-import sys
-import os
-import re
-import time
 import fcntl
 import json
-import sqlite3
+import os
+import re
 import shutil
+import sqlite3
 import subprocess
-from contextlib import contextmanager
+import sys
+import time
+from contextlib import contextmanager, suppress
+
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -75,34 +76,28 @@ def acquire_chroma_write_lock(timeout: float = 60.0, non_blocking: bool = False)
         None
     """
     os.makedirs(os.path.dirname(CHROMA_LOCK_FILE), exist_ok=True)
-    lock_file = open(CHROMA_LOCK_FILE, "a+")
-    start = time.time()
-    acquired = False
-    try:
-        while True:
-            try:
-                # Always use LOCK_NB so flock returns immediately if held by another process/thread,
-                # allowing the timeout loop to enforce the deadline without kernel-level deadlock.
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except (BlockingIOError, OSError):
-                if non_blocking:
-                    raise BlockingIOError("ChromaDB write lock is held by another process")
-                if (time.time() - start) >= timeout:
-                    raise TimeoutError(f"Could not acquire ChromaDB write lock after {timeout:.1f}s")
-                time.sleep(0.1)
-        yield
-    finally:
-        if acquired:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
+    with open(CHROMA_LOCK_FILE, "a+") as lock_file:
+        start = time.time()
+        acquired = False
         try:
-            lock_file.close()
-        except Exception:
-            pass
+            while True:
+                try:
+                    # Always use LOCK_NB so flock returns immediately if held by another process/thread,
+                    # allowing the timeout loop to enforce the deadline without kernel-level deadlock.
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except (BlockingIOError, OSError) as err:
+                    if non_blocking:
+                        raise BlockingIOError("ChromaDB write lock is held by another process") from err
+                    if (time.time() - start) >= timeout:
+                        raise TimeoutError(f"Could not acquire ChromaDB write lock after {timeout:.1f}s") from err
+                    time.sleep(0.1)
+            yield
+        finally:
+            if acquired:
+                with suppress(OSError):
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 # ---------------------------------------------------------------------------
 # Chunking config
@@ -256,7 +251,7 @@ def enqueue_upsert(source_path: str, content: str, collection_name: str = "evely
             )
         con.commit()
         return True
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[chroma_rag] enqueue_upsert error for {source_path}: {e}", flush=True)
         return False
     finally:
@@ -303,7 +298,7 @@ def enqueue_delete(source_path: str, collection_name: str = "evelyn_memory") -> 
             )
         con.commit()
         return True
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[chroma_rag] enqueue_delete error for {source_path}: {e}", flush=True)
         return False
     finally:
@@ -350,7 +345,7 @@ def enqueue_remap(old_source_path: str, new_source_path: str,
             )
         con.commit()
         return True
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[chroma_rag] enqueue_remap error from {old_source_path} to {new_source_path}: {e}", flush=True)
         return False
     finally:
@@ -391,7 +386,7 @@ def direct_upsert(file_path: str, content: str, collection_name: str,
         return True
     except Exception as e:
         print(f"[chroma_rag] direct_upsert failed for {file_path}: {e}", flush=True)
-        raise e
+        raise
 
 
 def direct_delete(file_path: str, collection_name: str) -> bool:
@@ -410,7 +405,7 @@ def direct_delete(file_path: str, collection_name: str) -> bool:
         return True
     except Exception as e:
         print(f"[chroma_rag] direct_delete failed for {file_path}: {e}", flush=True)
-        raise e
+        raise
 
 
 def direct_remap(old_source_path: str, new_source_path: str, collection_name: str = "evelyn_memory") -> bool:
@@ -457,7 +452,7 @@ def direct_remap(old_source_path: str, new_source_path: str, collection_name: st
         col.upsert(**kwargs)
         _delete_chunks_by_source(col, old_source_path)
         return True
-    except Exception as e:
+    except (RuntimeError, ValueError, KeyError, OSError) as e:
         print(f"[chroma_rag] direct_remap failed from {old_source_path} to {new_source_path}: {e}", flush=True)
         return False
 
@@ -544,7 +539,7 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "", deadline: fl
             if r["extra_metadata_json"]:
                 try:
                     extra_meta = json.loads(r["extra_metadata_json"])
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     extra_meta = None
 
             try:
@@ -564,7 +559,7 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "", deadline: fl
                 )
                 processed_count += 1
 
-            except Exception as e:
+            except (RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as e:
                 new_retries = retries + 1
                 if new_retries >= 3:
                     # Dead-letter: mark error so queue is never blocked
@@ -639,7 +634,7 @@ def check_chroma_health() -> dict:
         # Probe query: test cosine similarity and HNSW segment reader
         col.query(query_texts=["system health probe canary"], n_results=min(1, max(1, doc_count)))
         return {"status": "healthy", "error": None, "count": doc_count}
-    except Exception as e:
+    except (RuntimeError, ValueError, KeyError, OSError) as e:
         err_msg = str(e)
         print(f"[chroma_rag] HEALTH PROBE FAILED: {err_msg}", flush=True)
         return {"status": "corrupt", "error": err_msg, "count": 0}
@@ -658,7 +653,7 @@ def repair_corrupted_chroma(background: bool = True) -> None:
     if os.path.exists(_CHROMA_DIR):
         try:
             shutil.rmtree(_CHROMA_DIR, ignore_errors=True)
-        except Exception as e:
+        except OSError as e:
             print(f"[chroma_rag] Warning: Could not purge {_CHROMA_DIR}: {e}", flush=True)
 
     # Clear state files
@@ -667,10 +662,8 @@ def repair_corrupted_chroma(background: bool = True) -> None:
         getattr(cfg, "GIST_SYNC_STATE", r"/home/rathius/evelyn/data/gist_sync_state.json"),
     ]:
         if os.path.exists(state_path):
-            try:
+            with suppress(Exception):
                 os.remove(state_path)
-            except Exception:
-                pass
 
     script_path = os.path.join(cfg.BASE_DIR if hasattr(cfg, "BASE_DIR") else "/home/rathius/evelyn", "scripts", "sync_full_vault_to_chroma.py")
     py_bin = sys.executable
@@ -700,7 +693,7 @@ def _delete_chunks_by_source(col: chromadb.Collection, file_path: str):
         ids_to_delete = results.get("ids", [])
         if ids_to_delete:
             col.delete(ids=ids_to_delete)
-    except Exception as e:
+    except (RuntimeError, ValueError, KeyError, OSError) as e:
         print(f"[chroma_rag] chunk cleanup failed for {file_path}: {e}")
 
 
@@ -713,7 +706,7 @@ def delete_document(file_path: str, collection_name: str) -> bool:
 # Query
 # ---------------------------------------------------------------------------
 
-def query_collection(query: str, collection_name: str, n_results: int = None) -> list[dict]:
+def query_collection(query: str, collection_name: str, n_results: int | None = None) -> list[dict]:
     """Retrieve the top-K most relevant chunks from a collection.
 
     Args:
@@ -740,7 +733,7 @@ def query_collection(query: str, collection_name: str, n_results: int = None) ->
         for doc, meta, dist in zip(
             results["documents"][0],
             results["metadatas"][0],
-            results["distances"][0],
+            results["distances"][0], strict=False,
         ):
             chunks.append({
                 "content":  doc,
@@ -749,7 +742,7 @@ def query_collection(query: str, collection_name: str, n_results: int = None) ->
                 "metadata": meta,
             })
         return chunks
-    except Exception as e:
+    except (RuntimeError, ValueError, KeyError, OSError) as e:
         # Always log query failures (not debug-gated) — a failed query means
         # total RAG context loss for this turn, which should never be silent.
         print(f"[chroma_rag] QUERY FAILED ({collection_name}): {e}", flush=True)
@@ -837,7 +830,7 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
                 )
                 docs = chunk_results.get("documents", [])
                 metas = chunk_results.get("metadatas", [])
-                for doc, meta in list(zip(docs, metas))[:max_chunks]:
+                for doc, meta in list(zip(docs, metas, strict=False))[:max_chunks]:
                     pinned.append({
                         "content":  doc,
                         "source":   src,
@@ -860,7 +853,7 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
                         flush=True,
                     )
 
-        except Exception as e:
+        except (RuntimeError, ValueError, KeyError, OSError) as e:
             print(f"[chroma_rag] pinned fetch failed ({collection_name}): {e}")
 
     return pinned
@@ -886,7 +879,7 @@ def get_vault_relative_path(path: str) -> str:
             return rel.replace('\\', '/')
         else:
             return norm_path.replace('\\', '/')
-    except Exception:
+    except (ValueError, OSError):
         return path.replace('\\', '/')
 
 
@@ -907,10 +900,9 @@ def log_rag_retrieval(
         pinned_sources = {c["source"] for c in pinned_chunks} if pinned_chunks else set()
         threshold = cfg.RAG_DISTANCE_THRESHOLD
 
-        chunk_records = []
         # Add pinned chunks
-        for c in (pinned_chunks or []):
-            chunk_records.append({
+        chunk_records = [
+            {
                 "source": get_vault_relative_path(c.get("source", "")),
                 "chunk": c.get("metadata", {}).get("chunk", 0),
                 "total_chunks": c.get("metadata", {}).get("total_chunks", 1),
@@ -919,7 +911,9 @@ def log_rag_retrieval(
                 "status": "pinned",
                 "preview": (c.get("content") or "")[:120],
                 "tags": c.get("metadata", {}).get("tags", ""),
-            })
+            }
+            for c in (pinned_chunks or [])
+        ]
 
         # Add queried vector chunks
         for c in (all_chunks or []):
@@ -939,8 +933,8 @@ def log_rag_retrieval(
             })
 
         # Add procedures if any
-        for p in (matching_procedures or []):
-            chunk_records.append({
+        chunk_records.extend([
+            {
                 "source": f"procedure::{p.get('id', '')}",
                 "chunk": 0,
                 "total_chunks": 1,
@@ -949,7 +943,9 @@ def log_rag_retrieval(
                 "status": "procedure",
                 "preview": f"Trigger: {p.get('trigger_pattern', '')}",
                 "tags": p.get("tags", ""),
-            })
+            }
+            for p in (matching_procedures or [])
+        ])
 
         con = _get_queue_db()
         cur = con.cursor()
@@ -972,7 +968,7 @@ def log_rag_retrieval(
         con.commit()
         con.close()
         return row_id
-    except Exception as exc:
+    except (sqlite3.Error, OSError, ValueError) as exc:
         if cfg.DEBUG_LOGGING:
             print(f"[RAG] Warning: telemetry logging failed: {exc}", flush=True)
         return None
@@ -1009,7 +1005,7 @@ def get_recent_rag_telemetry(limit: int = 50, offset: int = 0, days: float | Non
             if d.get("chunks_json"):
                 try:
                     d["chunks"] = json.loads(d["chunks_json"])
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     d["chunks"] = []
             else:
                 d["chunks"] = []
@@ -1021,13 +1017,11 @@ def get_recent_rag_telemetry(limit: int = 50, offset: int = 0, days: float | Non
 
 def link_rag_telemetry_to_message(telemetry_id: int, message_id: int) -> None:
     """Link an existing rag_retrieval_log entry to an assistant or user message_id."""
-    try:
+    with suppress(sqlite3.Error, OSError):
         con = _get_queue_db()
         con.execute("UPDATE rag_retrieval_log SET message_id = ? WHERE id = ?", (message_id, telemetry_id))
         con.commit()
         con.close()
-    except Exception:
-        pass
 
 
 def build_rag_context(query: str, message_id: int | None = None) -> str:
@@ -1104,7 +1098,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
         matching_procedures = _memory_db.search_procedures_by_trigger(query, status="live")[:3]
         for proc in matching_procedures:
             _memory_db.touch_procedure_retrieved(proc["id"])
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[RAG] Warning: procedure search failed: {e}", flush=True)
 
     # Telemetry logging (fire-and-forget)
@@ -1124,7 +1118,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     # Touch retrieval counters for any SQLite context entries in the result set.
     # These have synthetic source paths: "sqlite::context_entry::{id}".
     # Fire-and-forget — a tracking failure must never affect context delivery.
-    try:
+    with suppress(sqlite3.Error, OSError, ValueError, KeyError):
         try:
             import memory_db as _memory_db
         except ImportError:
@@ -1132,13 +1126,9 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
         for _chunk in all_context:
             _src = _chunk.get("source", "")
             if _src.startswith("sqlite::context_entry::"):
-                try:
+                with suppress(ValueError, sqlite3.Error, OSError):
                     _entry_id = int(_src.rsplit("::", 1)[-1])
                     _memory_db.touch_entry_retrieved(_entry_id)
-                except Exception:
-                    pass
-    except Exception:
-        pass
 
     # Separate context types to structure the final block
     pinned_by_source = {}

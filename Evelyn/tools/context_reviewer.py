@@ -14,12 +14,13 @@ Phase 1 (implemented): Review extracted facts from the SQLite database.
   [Q] Quit     — exits; remaining facts are untouched
 
 Run from the project root:
-    python Evelyn\tools\context_reviewer.py
+    python Evelyn\tools\\context_reviewer.py
 
 Google-style docstrings throughout for AI tool inspection.
 """
 
 import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -31,8 +32,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-import evelyn_config as cfg
-import Evelyn.tools.memory_db as memory_db
+from Evelyn.tools import memory_db
 
 # ---------------------------------------------------------------------------
 # Terminal helpers
@@ -67,7 +67,8 @@ def _getch() -> str:
         ch = msvcrt.getch()
         return (ch.decode("utf-8", errors="replace") if isinstance(ch, bytes) else ch).lower()
     except ImportError:
-        import tty, termios  # Unix
+        import termios
+        import tty  # Unix
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
@@ -157,7 +158,7 @@ def run_phase1() -> None:
                 memory_db.update_entry(entry["id"], status="live")
                 approved += 1
                 print(f"\n  {GREEN}✓ Approved{RESET}")
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError) as e:
                 print(f"\n  {RED}✗ Error: {e}{RESET}")
                 errors += 1
             time.sleep(0.5)
@@ -174,7 +175,7 @@ def run_phase1() -> None:
                 memory_db.delete_entry(entry["id"])
                 deleted += 1
                 print(f"\n  {RED}✗ Deleted.{RESET}")
-            except Exception as e:
+            except (sqlite3.Error, OSError, ValueError) as e:
                 print(f"\n  {RED}✗ Error deleting: {e}{RESET}")
                 errors += 1
             time.sleep(0.4)

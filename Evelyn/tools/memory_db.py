@@ -34,13 +34,12 @@ Usage:
 All functions use short-lived connections (no module-level state).
 """
 
+import contextlib
 import json
 import sqlite3
 import time
-from typing import Optional
 
 import evelyn_config as cfg
-
 
 # ---------------------------------------------------------------------------
 # Connection helper
@@ -106,10 +105,8 @@ def init_db() -> None:
         "ALTER TABLE context_entries ADD COLUMN observed_count INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE context_entries ADD COLUMN vad TEXT",
     ]:
-        try:
+        with contextlib.suppress(sqlite3.OperationalError):
             con.execute(_migration)
-        except Exception:
-            pass  # Column already exists — expected on all existing DBs
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS proposals (
@@ -208,8 +205,8 @@ def insert_entry(
     confidence: str = "medium",
     source: str = "manual",
     status: str = "live",
-    date: Optional[str] = None,
-    tags: Optional[str] = None,
+    date: str | None = None,
+    tags: str | None = None,
 ) -> int:
     """Insert a new context entry and return its row ID.
 
@@ -242,7 +239,7 @@ def insert_entry(
     return row_id
 
 
-def get_entry(entry_id: int) -> Optional[dict]:
+def get_entry(entry_id: int) -> dict | None:
     """Fetch a single context entry by ID.
 
     Args:
@@ -281,7 +278,7 @@ def get_entries_by_category(
     return [dict(r) for r in rows]
 
 
-def get_all_entries(statuses: Optional[list[str]] = None) -> list[dict]:
+def get_all_entries(statuses: list[str] | None = None) -> list[dict]:
     """Fetch all context entries, optionally filtered by status list.
 
     Args:
@@ -331,7 +328,7 @@ def update_entry(entry_id: int, **fields) -> bool:
         updates["updated_at"] = now
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [entry_id]
+    values = [*list(updates.values()), entry_id]
 
     con = get_db()
     cur = con.execute(
@@ -343,7 +340,7 @@ def update_entry(entry_id: int, **fields) -> bool:
     return affected > 0
 
 
-def touch_entry_evolved(entry_id: int, timestamp: Optional[float] = None) -> None:
+def touch_entry_evolved(entry_id: int, timestamp: float | None = None) -> None:
     """Update last_evolved_at timestamp for a context entry.
 
     Called when an entry has been processed into a profile_update proposal.
@@ -361,8 +358,8 @@ def touch_entry_evolved(entry_id: int, timestamp: Optional[float] = None) -> Non
         )
         con.commit()
         con.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        print(f"[MEMORY_DB] Warning: failed to update last_evolved_at for entry {entry_id}: {e}")
 
 
 def increment_entry_observed(entry_id: int, count_delta: int = 1) -> None:
@@ -386,8 +383,8 @@ def increment_entry_observed(entry_id: int, count_delta: int = 1) -> None:
         )
         con.commit()
         con.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        print(f"[MEMORY_DB] Warning: failed to increment observed count for entry {entry_id}: {e}")
 
 
 def touch_entry_retrieved(entry_id: int) -> None:
@@ -416,7 +413,7 @@ def touch_entry_retrieved(entry_id: int) -> None:
         )
         con.commit()
         con.close()
-    except Exception:
+    except sqlite3.Error:
         pass  # Tracking failure must never propagate to the caller
 
 
@@ -523,7 +520,7 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
 
 
 
-def count_entries(status: Optional[str] = None) -> int:
+def count_entries(status: str | None = None) -> int:
     """Count context entries, optionally filtered by status.
 
     Args:
@@ -583,7 +580,8 @@ def enqueue_split(entry_id: int) -> bool:
         )
         con.commit()
         return True
-    except Exception:
+    except sqlite3.Error as e:
+        print(f"[MEMORY_DB] Error enqueueing entry {entry_id} for split: {e}")
         return False
     finally:
         con.close()
@@ -693,10 +691,10 @@ def _extract_keywords(text: str) -> set[str]:
         "get", "let", "say", "she", "too", "use", "been", "each", "have",
         "from", "into", "just", "like", "made", "many", "some", "than",
         "them", "then", "they", "this", "very", "when", "with", "that",
-        "what", "will", "your", "also", "back", "been", "come", "could",
+        "what", "will", "your", "also", "back", "come", "could",
         "does", "even", "good", "here", "know", "more", "most", "much",
         "only", "over", "such", "take", "their", "well", "were", "which",
-        "about", "after", "being", "could", "every", "first", "other",
+        "about", "after", "being", "every", "first", "other",
         "since", "still", "those", "under", "where", "while", "would",
         "these", "there", "should", "really",
     }
@@ -721,11 +719,11 @@ def _extract_keywords(text: str) -> set[str]:
 def insert_proposal(
     type: str,
     source_ids: list[int],
-    merged_observation: Optional[str] = None,
-    merged_tags: Optional[str] = None,
-    suggested_category: Optional[str] = None,
-    reason: Optional[str] = None,
-    topic: Optional[str] = None,
+    merged_observation: str | None = None,
+    merged_tags: str | None = None,
+    suggested_category: str | None = None,
+    reason: str | None = None,
+    topic: str | None = None,
     confidence: str = "medium",
     status: str = "pending",
 ) -> int:
@@ -765,7 +763,7 @@ def insert_proposal(
 
 
 def get_pending_proposals(
-    type: Optional[str] = None,
+    type: str | None = None,
 ) -> list[dict]:
     """Fetch all pending proposals, optionally filtered by type.
 
@@ -879,7 +877,7 @@ def update_proposal(proposal_id: int, **fields) -> bool:
         updates["source_ids"] = json.dumps(updates["source_ids"])
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [proposal_id]
+    values = [*list(updates.values()), proposal_id]
 
     con = get_db()
     cur = con.execute(
@@ -937,7 +935,7 @@ def remove_source_id_from_pending_proposals(entry_id: int) -> int:
     return updated_count
 
 
-def has_pending_proposal_for(entry_ids: list[int], type: Optional[str] = None) -> bool:
+def has_pending_proposal_for(entry_ids: list[int], type: str | None = None) -> bool:
     """Check if any pending proposal already references the given entry IDs.
 
     Args:
@@ -977,12 +975,12 @@ def has_pending_proposal_for(entry_ids: list[int], type: Optional[str] = None) -
 def insert_procedure(
     trigger_pattern: str,
     steps: str,
-    pitfalls: Optional[str] = None,
-    verification: Optional[str] = None,
+    pitfalls: str | None = None,
+    verification: str | None = None,
     source: str = "extracted",
     status: str = "live",
-    tags: Optional[str] = None,
-    suggested_tools: Optional[str] = None,
+    tags: str | None = None,
+    suggested_tools: str | None = None,
 ) -> int:
     """Insert a new procedure and return its row ID.
 
@@ -1014,7 +1012,7 @@ def insert_procedure(
     return row_id
 
 
-def get_procedure(proc_id: int) -> Optional[dict]:
+def get_procedure(proc_id: int) -> dict | None:
     """Fetch a single procedure by ID.
 
     Args:
@@ -1031,7 +1029,7 @@ def get_procedure(proc_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def get_all_procedures(status: Optional[str] = "live") -> list[dict]:
+def get_all_procedures(status: str | None = "live") -> list[dict]:
     """Fetch all procedures matching a given status (or all if status is None or 'all').
 
     Args:
@@ -1107,7 +1105,7 @@ def touch_procedure_retrieved(proc_id: int) -> None:
         )
         con.commit()
         con.close()
-    except Exception:
+    except sqlite3.Error:
         pass
 
 
@@ -1130,7 +1128,7 @@ def update_procedure(proc_id: int, **fields) -> bool:
         return False
     updates["updated_at"] = time.time()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [proc_id]
+    values = [*list(updates.values()), proc_id]
 
     con = get_db()
     cur = con.execute(
@@ -1282,7 +1280,8 @@ def enqueue_procedure_split(proc_id: int) -> bool:
         )
         con.commit()
         return True
-    except Exception:
+    except sqlite3.Error as e:
+        print(f"[MEMORY_DB] Error enqueueing procedure {proc_id} for split: {e}")
         return False
     finally:
         con.close()

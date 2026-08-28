@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# sqlite_mcp_server.py
+# date created: 2026-08-28 12:29:50
+# date modified: 2026-08-28 12:29:50
+# tags:
+
 """
 sqlite_mcp_server.py — Comprehensive MCP Server for Evelyn's Databases, Chroma Vectors, & FastAPI Services.
 
@@ -23,12 +28,14 @@ import asyncio
 import json
 import os
 import sqlite3
-import urllib.request
-import urllib.error
 import ssl
+import urllib.error
+import urllib.request
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+
+from Evelyn.tools.ollama_client import get_ollama_status as fetch_ollama_status
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT_DIR, "data")
@@ -44,7 +51,6 @@ DB_MAP = {
 }
 
 SERVER_URL = "https://localhost:7860"
-OLLAMA_URL = "http://localhost:11434"
 API_KEY = os.environ.get("EVELYN_API_KEY", "evelyn-secret-key")
 
 server = MCPServer("evelyn-sqlite")
@@ -93,7 +99,7 @@ def http_get_json(url: str, headers: dict[str, str] | None = None) -> dict[str, 
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         return {"error": f"HTTP {e.code}: {e.reason}", "body": body}
-    except Exception as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, ssl.SSLError, json.JSONDecodeError) as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
@@ -120,7 +126,7 @@ def list_databases() -> str:
 @server.tool()
 def list_tables(database: str) -> str:
     """List all tables and their row counts in a specified SQLite database.
-    
+
     Args:
         database: Database alias ('chat', 'memory', 'vault', 'health') or path.
     """
@@ -135,7 +141,7 @@ def list_tables(database: str) -> str:
         for (tbl,) in tables:
             try:
                 count = cur.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
-            except Exception:
+            except (sqlite3.Error, OSError):
                 count = -1
             out.append({"table": tbl, "row_count": count})
         return json.dumps(out, indent=2)
@@ -146,7 +152,7 @@ def list_tables(database: str) -> str:
 @server.tool()
 def describe_table(database: str, table_name: str) -> str:
     """Inspect the schema, columns, data types, primary keys, and indexes of a table.
-    
+
     Args:
         database: Database alias ('chat', 'memory', 'vault', 'health') or path.
         table_name: Name of the table to describe.
@@ -194,7 +200,7 @@ def describe_table(database: str, table_name: str) -> str:
 @server.tool()
 def query_database(database: str, sql: str, limit: int = 50) -> str:
     """Execute a read-only SQL query (SELECT / PRAGMA / EXPLAIN / WITH) on a database and return rows as JSON.
-    
+
     Args:
         database: Database alias ('chat', 'memory', 'vault', 'health') or path.
         sql: Read-only SQL statement to execute.
@@ -224,7 +230,7 @@ def query_database(database: str, sql: str, limit: int = 50) -> str:
             "rows": data,
         }
         return json.dumps(result, indent=2, default=str)
-    except Exception as exc:
+    except (sqlite3.Error, OSError, ValueError) as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
     finally:
         con.close()
@@ -250,14 +256,14 @@ def list_chroma_collections() -> str:
             for c in cols
         ]
         return json.dumps({"chroma_path": CHROMA_DIR, "collections": out}, indent=2)
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, ImportError) as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
 
 @server.tool()
 def query_chroma(query_text: str, collection_name: str = "evelyn_memory", n_results: int = 5) -> str:
     """Perform a semantic vector similarity search against a ChromaDB collection.
-    
+
     Args:
         query_text: Natural language query string to embed and search.
         collection_name: Target collection ('evelyn_memory', 'evelyn_tag_taxonomy', etc. Default: 'evelyn_memory').
@@ -268,28 +274,29 @@ def query_chroma(query_text: str, collection_name: str = "evelyn_memory", n_resu
         client = chromadb.PersistentClient(path=CHROMA_DIR)
         col = client.get_collection(collection_name)
         res = col.query(query_texts=[query_text], n_results=n_results)
-        
-        matches = []
+
         ids = res.get("ids", [[]])[0]
         distances = res.get("distances", [[]])[0]
         documents = res.get("documents", [[]])[0]
         metadatas = res.get("metadatas", [[]])[0]
-        
-        for i in range(len(ids)):
-            matches.append({
+
+        matches = [
+            {
                 "id": ids[i],
                 "cosine_distance": round(float(distances[i]), 4) if i < len(distances) else None,
                 "document": documents[i] if i < len(documents) else None,
                 "metadata": metadatas[i] if i < len(metadatas) else None,
-            })
-            
+            }
+            for i in range(len(ids))
+        ]
+
         return json.dumps({
             "collection": collection_name,
             "query": query_text,
             "match_count": len(matches),
             "matches": matches,
         }, indent=2, default=str)
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, ImportError) as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
 
@@ -309,12 +316,12 @@ def get_chroma_status() -> str:
                     queue_count = cur.execute("SELECT COUNT(*) FROM chroma_sync_queue").fetchone()[0]
             finally:
                 con.close()
-                
+
         import chromadb
         client = chromadb.PersistentClient(path=CHROMA_DIR)
         cols = client.list_collections()
         total_vectors = sum(c.count() for c in cols)
-        
+
         return json.dumps({
             "chroma_dir": CHROMA_DIR,
             "write_lock_active": lock_exists,
@@ -322,7 +329,7 @@ def get_chroma_status() -> str:
             "total_vectors": total_vectors,
             "collections": [{"name": c.name, "vectors": c.count()} for c in cols],
         }, indent=2)
-    except Exception as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, ImportError) as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
 
@@ -357,7 +364,7 @@ def get_pending_reviews() -> str:
 @server.tool()
 def get_ollama_status() -> str:
     """Inspect active Ollama models loaded in VRAM, memory usage, and context configurations."""
-    ps_data = http_get_json(f"{OLLAMA_URL}/api/ps")
+    ps_data = fetch_ollama_status()
     return json.dumps(ps_data, indent=2)
 
 

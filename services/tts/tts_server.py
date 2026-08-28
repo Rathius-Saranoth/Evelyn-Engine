@@ -25,18 +25,20 @@ Run:
 """
 
 import os
+
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+import asyncio
 import re
+import threading
 import time
 import uuid
-import asyncio
-import threading
 import warnings
 
 # Suppress noisy terminal warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 import sys
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 try:
     import evelyn_config as cfg
@@ -44,8 +46,8 @@ except ImportError:
     cfg = None
 
 import numpy as np
-import torch
 import soundfile as sf
+import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -176,10 +178,11 @@ def _unload_ollama():
     """Instruct Ollama to unload the current model from VRAM."""
     if not cfg:
         return
-    import urllib.request
     import json
+    import urllib.request
     url = f"{cfg.OLLAMA_URL}/api/generate"
     payload = json.dumps({"model": cfg.MODEL_NAME, "keep_alive": 0}).encode()
+    import urllib.error
     try:
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -187,7 +190,7 @@ def _unload_ollama():
         print(f"[TTS] Sent unload signal for {cfg.MODEL_NAME} to Ollama", flush=True)
         time.sleep(0.8)
         torch.cuda.empty_cache()
-    except Exception as e:
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as e:
         print(f"[TTS] Failed to unload Ollama: {e}", flush=True)
 
 
@@ -195,8 +198,9 @@ def _prefetch_ollama():
     """Trigger Ollama to reload the model into VRAM in the background."""
     if not cfg:
         return
-    import urllib.request
     import json
+    import urllib.error
+    import urllib.request
     # Wait 0.5s to ensure the OS/GPU has fully registered the Chatterbox release
     time.sleep(0.5)
     url = f"{cfg.OLLAMA_URL}/api/generate"
@@ -206,7 +210,7 @@ def _prefetch_ollama():
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp.read()
         print(f"[TTS] Reloaded {cfg.MODEL_NAME} into Ollama VRAM", flush=True)
-    except Exception as e:
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as e:
         print(f"[TTS] Failed to prefetch Ollama: {e}", flush=True)
 
 
@@ -240,7 +244,7 @@ async def _delete_after_delay(filepath: str, delay: int = FILE_CLEANUP_DELAY_S):
     try:
         if os.path.exists(filepath):
             os.remove(filepath)
-    except Exception as e:
+    except OSError as e:
         print(f"[TTS] Cleanup failed for {filepath}: {e}", flush=True)
 
 
@@ -351,9 +355,9 @@ async def generate_speech_stream(data: SpeechRequest):
 
                 yield f'data: {{"chunk": "{filename}"}}\n\n'
 
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, OSError) as e:
             print(f"[TTS] Stream generation error: {e}", flush=True)
-            yield f'data: {{"error": "{str(e)}"}}\n\n'
+            yield f'data: {{"error": "{e!s}"}}\n\n'
         finally:
             _unload_model_force()
             threading.Thread(target=_prefetch_ollama, daemon=True).start()
@@ -388,9 +392,9 @@ async def health():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print(f"[TTS] Evelyn TTS Server (Chatterbox Turbo)")
+    print("[TTS] Evelyn TTS Server (Chatterbox Turbo)")
     print(f"[TTS] Listening on {HOST}:{PORT}")
     print(f"[TTS] Reference audio: {REF_AUDIO}")
     print(f"[TTS] Model loads on first request, unloads after {UNLOAD_TIMEOUT_S}s idle")
-    print(f"[TTS] Supported tags: [laugh] [sigh] [chuckle] [cough] [gasp] [groan] [sniff] [shush] [clear throat]")
+    print("[TTS] Supported tags: [laugh] [sigh] [chuckle] [cough] [gasp] [groan] [sniff] [shush] [clear throat]")
     uvicorn.run(app, host=HOST, port=PORT)

@@ -16,11 +16,16 @@ The TOOL_FUNCTIONS dict maps tool name → callable for the dispatcher in evelyn
 All tool logic uses standard function signatures for Ollama's function-calling API.
 """
 
-import sys
-import os
+import contextlib
 import importlib
-from typing import Any, Optional
-
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import time
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Module path setup
@@ -61,32 +66,30 @@ def _prune_log_file(log_path: str, max_lines: int = 2000, keep_lines: int = 1000
         max_lines: Maximum number of lines permitted before pruning is triggered.
         keep_lines: Number of most recent lines to retain when pruning.
     """
-    try:
-        if not os.path.exists(log_path):
-            return
-        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+    if not os.path.exists(log_path):
+        return
+    with contextlib.suppress(OSError):
+        with open(log_path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         if len(lines) > max_lines:
             with open(log_path, "w", encoding="utf-8", errors="replace") as f:
                 f.writelines(lines[-keep_lines:])
-    except Exception:
-        pass
 
 
 
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
 
-import journal_manager # [[journal_manager.py]]
-import context_manager # [[context_manager.py]]
-import ingest_obsidian_knowledge # [[ingest_obsidian_knowledge.py]]
+
+import context_manager  # [[context_manager.py]]
 import gcal_sync
-import gtasks_sync
-import vault_list_manager
-import terminal_agent
 import gdrive_sync
+import gtasks_sync
 import health_manager
-import oura_client
+import ingest_obsidian_knowledge  # [[ingest_obsidian_knowledge.py]]
+import journal_manager  # [[journal_manager.py]]
+import terminal_agent
+import vault_list_manager
 
 
 def _reload():
@@ -160,25 +163,24 @@ DEPRECATION_LOG_FILE = os.path.join(getattr(cfg, "BASE_DIR", r"/home/rathius/eve
 
 def _log_deprecation(func_name: str, args_summary: str = "") -> None:
     """Log prominent warning to console and append to deprecation_warnings.log with traceback."""
-    import time
     import traceback
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     tb = "".join(traceback.format_stack()[:-1])  # Exclude current call frame
-    
+
     warning_msg = f"[DEPRECATION WARNING] {timestamp} - Function '{func_name}' was called with args ({args_summary}). Static read tools are deprecated in favor of full-vault Chroma RAG."
     print(f"\033[93m{warning_msg}\033[0m", flush=True)
-    
+
     try:
         os.makedirs(os.path.dirname(DEPRECATION_LOG_FILE), exist_ok=True)
         with open(DEPRECATION_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"--- {timestamp} ---\n{warning_msg}\nTraceback:\n{tb}\n\n")
-    except Exception as e:
+    except OSError as e:
         print(f"[DEPRECATION LOG ERROR] Could not write to log: {e}", flush=True)
 
 
 def read_journal(date: str = "", days: int = 0, **kwargs) -> str:
     """[DEPRECATED] Read Evelyn's personal journal entries.
-    
+
     All journal entries are now indexed full-text in Chroma RAG context.
     """
     _log_deprecation("read_journal", f"date='{date}', days={days}")
@@ -199,7 +201,7 @@ def read_recent_journal_entries(days: int = 7, **kwargs) -> str:
 
 def search_vault(query: str = "", **kwargs) -> str:
     """[DEPRECATED] Search Obsidian Vault gist index.
-    
+
     Full vault text across all 1,202 notes is indexed directly in Chroma RAG context.
     """
     query = query or str(kwargs.get("search_query") or kwargs.get("search_term") or kwargs.get("term") or "")
@@ -209,12 +211,12 @@ def search_vault(query: str = "", **kwargs) -> str:
 
 def recall_specific_memory(file_path: str = "", **kwargs) -> str:
     """[DEPRECATED] Read full markdown content of a specific Obsidian vault file.
-    
+
     All vault files are indexed in Chroma RAG. For workspace files, use read_file.
     """
     file_path = file_path or str(kwargs.get("filepath") or kwargs.get("path") or kwargs.get("file") or "")
     _log_deprecation("recall_specific_memory", f"file_path='{file_path}'")
-    return f"[NOTICE] 'recall_specific_memory' is deprecated. Vault files are indexed in Chroma RAG context. For non-vault code/workspace files, use 'read_file'."
+    return "[NOTICE] 'recall_specific_memory' is deprecated. Vault files are indexed in Chroma RAG context. For non-vault code/workspace files, use 'read_file'."
 
 
 def log_context_fact(category: str = "", summary: str = "", secondary_cats: str = "", **kwargs) -> str:
@@ -241,7 +243,7 @@ def log_context_fact(category: str = "", summary: str = "", secondary_cats: str 
     return context_manager.append_context_log(category, summary, refs)
 
 
-def update_context_fact(target_filepaths: list = None, new_summary: str = "", **kwargs) -> str:
+def update_context_fact(target_filepaths: list | None = None, new_summary: str = "", **kwargs) -> str:
     """Queue an update request for an existing vault context file.
 
     Args:
@@ -280,10 +282,11 @@ def generate_image(
     Returns:
         str: Confirmation path/URL to the generated image, or error description.
     """
-    import os
-    import requests
     from pathlib import Path
-    from evelyn_config import IMAGE_SERVER_URL, IMAGE_OUTPUT_DIR
+
+    import requests
+
+    from evelyn_config import IMAGE_OUTPUT_DIR, IMAGE_SERVER_URL
 
     prompt = prompt or str(kwargs.get("description") or kwargs.get("image_prompt") or kwargs.get("p") or "")
     if not prompt.strip():
@@ -306,7 +309,7 @@ def generate_image(
 
         result = resp.json()
         filename = result["filename"]
-        
+
         # Download and cache the image locally if server is remote
         try:
             download_url = f"{IMAGE_SERVER_URL.rstrip('/')}/images/{filename}"
@@ -317,13 +320,13 @@ def generate_image(
                 local_path = local_dir / filename
                 with open(local_path, "wb") as f:
                     f.write(img_resp.content)
-        except Exception as dl_err:
+        except (requests.RequestException, OSError) as dl_err:
             print(f"[IMAGE] Warning: Could not cache remote image locally ({dl_err}). Serving via remote host.")
 
         # Served statically via the main evelyn_server mount
         image_url = f"/images/{filename}"
         return f"Image generated successfully at {image_url}."
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         return f"Failed to generate image via FLUX.1 server at {IMAGE_SERVER_URL}: {e}"
 
 
@@ -345,7 +348,7 @@ def sync_context_memory(**kwargs) -> str:
             print("Sync: Starting core memory ingest...")
             ingest_obsidian_knowledge.main()
             print("Sync: Complete.")
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             print(f"Sync error: {e}")
 
     threading.Thread(target=_run, daemon=True).start()
@@ -385,7 +388,7 @@ def web_search(query: str, max_results: int = 5, **kwargs) -> str:
             body = r.get("body", "").strip()
             lines.append(f"{i}. {title}\n   {href}\n   {body[:300]}")
         return "\n\n".join(lines)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         return f"Web search error: {e}"
 
 
@@ -411,7 +414,7 @@ def _is_research_engine_running(task_id: str) -> bool:
             return False
         with open(pid_path) as f:
             pid = int(f.read().strip())
-        
+
         import psutil
         if psutil.pid_exists(pid):
             try:
@@ -421,14 +424,12 @@ def _is_research_engine_running(task_id: str) -> bool:
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-        
+
         # Dead PID or recycled PID for another process — delete stale pid file
-        try:
+        with contextlib.suppress(OSError):
             os.remove(pid_path)
-        except OSError:
-            pass
         return False
-    except Exception:
+    except (psutil.Error, OSError, ValueError):
         return False
 
 
@@ -437,7 +438,7 @@ def start_research(
     query: str,
     scope: str = "standard",
     triggered_by: str = "user",
-    intent_frame: Optional[str] = None,
+    intent_frame: str | None = None,
     **kwargs,
 ) -> str:
     """Launch a deep research task on a topic in the background.
@@ -456,14 +457,13 @@ def start_research(
     Returns:
         str: Confirmation message.
     """
-    import time
-    import threading
-    import subprocess
-    import sys
-    import os
-    import json
     import datetime
-    
+    import json
+    import os
+    import sys
+    import threading
+    import time
+
     _reload()
     try:
         # Get bypass_queue flag
@@ -540,15 +540,12 @@ def start_research(
         if unfinished_task_id and not bypass_queue:
             queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
             os.makedirs(cfg.RESEARCH_DATA_DIR, exist_ok=True)
-            
+
             queue = []
             if os.path.exists(queue_file):
-                try:
-                    with open(queue_file, "r", encoding="utf-8") as f:
-                        queue = json.load(f)
-                except Exception:
-                    queue = []
-            
+                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(queue_file, encoding="utf-8") as f:
+                    queue = json.load(f)
+
             # Check if a very similar query is already queued (Jaccard similarity >= 0.45) to avoid duplicates
             already_exists = any(get_jaccard_similarity(q.get("query", ""), query) >= 0.45 for q in queue)
             if not already_exists:
@@ -558,14 +555,14 @@ def start_research(
                     "priority": 1,
                     "source": triggered_by,
                     "intent_frame": intent_frame,
-                    "created_at": datetime.datetime.now().isoformat()
+                    "created_at": datetime.now(UTC).astimezone().isoformat(),
                 })
                 try:
                     with open(queue_file, "w", encoding="utf-8") as f:
                         json.dump(queue, f, indent=2)
-                except Exception as qe:
+                except (OSError, TypeError, ValueError) as qe:
                     return f"Failed to queue research task: {qe}"
-            
+
             return (
                 f"Successfully queued deep research on '{query}' (scope: {scope}). "
                 f"I detected an unfinished research task ('{unfinished_query}', ID: {unfinished_task_id}) "
@@ -582,7 +579,7 @@ def start_research(
             initial_status="running" if bypass_queue else "pending",
             intent_frame=intent_frame,
         )
-        
+
         # Access evelyn_server active processes to ensure mutual exclusion
         if server:
             cancel_consol = getattr(server, "cancel_pending_consolidation", None)
@@ -591,7 +588,7 @@ def start_research(
                 cancel_consol()
             if cancel_extract:
                 cancel_extract()
-            
+
             # Register in server's _background_tasks dict
             bg_tasks = getattr(server, "_background_tasks", None)
             if bg_tasks is not None:
@@ -601,11 +598,11 @@ def start_research(
                     "scope": scope,
                     "started_at": time.time()
                 }
-        
+
         def _run_subprocess():
             """Launch research_engine.py as a subprocess, register it, and wait for completion."""
-            import sys
             import os
+            import sys
             try:
                 # Layer 1: PID lock check — refuse to spawn if a live process already exists
                 # for this task. Works even if server is None or _background_tasks is stale.
@@ -620,64 +617,52 @@ def start_research(
                 creationflags = 0
                 if sys.platform == "win32":
                     creationflags = 0x08000000 # CREATE_NO_WINDOW
-                
+
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 script = os.path.join(base_dir, "Evelyn", "tools", "research_engine.py")
                 log_path = os.path.join(base_dir, "data", "research_subprocess.log")
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 _prune_log_file(log_path)
-                
-                log_file = None
-                proc = None
+
                 try:
-                    log_file = open(log_path, "a", encoding="utf-8")
-                    proc = subprocess.Popen(
-                        [sys.executable, "-u", script, task_id, "--scope", scope],
-                        cwd=base_dir,
-                        stdout=log_file,
-                        stderr=log_file,
-                        creationflags=creationflags
-                    )
-                except Exception:
+                    with open(log_path, "a", encoding="utf-8") as log_file:
+                        proc = subprocess.Popen(
+                            [sys.executable, "-u", script, task_id, "--scope", scope],
+                            cwd=base_dir,
+                            stdout=log_file,
+                            stderr=log_file,
+                            creationflags=creationflags,
+                        )
+                except (OSError, subprocess.SubprocessError):
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=base_dir,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        creationflags=creationflags
+                        creationflags=creationflags,
                     )
-                
-                if log_file:
-                    try:
-                        log_file.close()
-                    except Exception:
-                        pass
-                
+
                 if proc:
-                    try:
+                    with contextlib.suppress(Exception):
                         import task_manager
                         task_manager.register_subprocess(proc)
                         task_manager._active_handles[task_id] = proc
-                    except Exception:
-                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
                             active_procs[task_id] = proc
-                            
+
                     returncode = proc.wait()
-                    
-                    try:
+
+                    with contextlib.suppress(Exception):
                         import task_manager
                         task_manager.unregister_subprocess(proc)
                         task_manager._active_handles.pop(task_id, None)
-                    except Exception:
-                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
                             active_procs.pop(task_id, None)
-                    
+
                     if server and bg_tasks is not None:
                         from research_engine import load_state, save_state
                         disk_state = load_state(task_id)
@@ -697,7 +682,7 @@ def start_research(
                             disk_state["status"] = "error"
                             disk_state["error"] = f"Exit code {returncode}"
                             save_state(task_id, disk_state, ignore_disk_status=True)
-            except Exception as e:
+            except (subprocess.SubprocessError, OSError, ValueError) as e:
                 print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
                 if server and bg_tasks is not None:
                     bg_tasks[task_id]["status"] = "error"
@@ -710,7 +695,7 @@ def start_research(
             f"I am conducting research on '{query}' (scope: {scope}) in the background "
             f"and will notify you as soon as the final report is compiled."
         )
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         return f"Failed to start deep research: {e}"
 
 
@@ -724,18 +709,17 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
     Returns:
         str: Confirmation message.
     """
-    import time
-    import threading
-    import subprocess
     import sys
-    
+    import threading
+    import time
+
     _reload()
     try:
         from research_engine import load_state, save_state
         state = load_state(task_id)
         if not state:
             return "Research task not found."
-            
+
         # Concurrency check — refuse to resume if another research task is already running.
         # Only one research engine process should run at a time to avoid Ollama contention.
         server = sys.modules.get("evelyn_server")
@@ -749,15 +733,15 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                 for tid, tinfo in bg_tasks.items():
                     if tid.startswith("task_") and tinfo.get("status") in ("running", "searching", "synthesizing"):
                         return f"Cannot resume task {task_id}: another research task ({tid}) is already actively running."
-            
+
         # Reset status to running on disk so the engine knows it should proceed
         state["status"] = "running"
         state["error"] = None
         save_state(task_id, state, ignore_disk_status=True)
-        
+
         query = state.get("query", "")
         scope = state.get("scope", "standard")
-        
+
         # Access evelyn_server active processes to ensure mutual exclusion
         if server:
             cancel_consol = getattr(server, "cancel_pending_consolidation", None)
@@ -766,7 +750,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                 cancel_consol()
             if cancel_extract:
                 cancel_extract()
-                
+
             # Register in server's _background_tasks dict
             bg_tasks = getattr(server, "_background_tasks", None)
             if bg_tasks is not None:
@@ -778,11 +762,11 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                 }
         else:
             bg_tasks = None
-            
+
         def _run_subprocess():
             """Launch research_engine.py as a subprocess to resume the task and wait for completion."""
-            import sys
             import os
+            import sys
             try:
                 # Layer 1: PID lock check — refuse to spawn if a live process already exists
                 # for this task. Works even if server is None or _background_tasks is stale.
@@ -797,64 +781,52 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                 creationflags = 0
                 if sys.platform == "win32":
                     creationflags = 0x08000000 # CREATE_NO_WINDOW
-                
+
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 script = os.path.join(base_dir, "Evelyn", "tools", "research_engine.py")
                 log_path = os.path.join(base_dir, "data", "research_subprocess.log")
                 os.makedirs(os.path.dirname(log_path), exist_ok=True)
                 _prune_log_file(log_path)
-                
-                log_file = None
-                proc = None
+
                 try:
-                    log_file = open(log_path, "a", encoding="utf-8")
-                    proc = subprocess.Popen(
-                        [sys.executable, "-u", script, task_id, "--scope", scope],
-                        cwd=base_dir,
-                        stdout=log_file,
-                        stderr=log_file,
-                        creationflags=creationflags
-                    )
-                except Exception:
+                    with open(log_path, "a", encoding="utf-8") as log_file:
+                        proc = subprocess.Popen(
+                            [sys.executable, "-u", script, task_id, "--scope", scope],
+                            cwd=base_dir,
+                            stdout=log_file,
+                            stderr=log_file,
+                            creationflags=creationflags,
+                        )
+                except (OSError, subprocess.SubprocessError):
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=base_dir,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        creationflags=creationflags
+                        creationflags=creationflags,
                     )
-                
-                if log_file:
-                    try:
-                        log_file.close()
-                    except Exception:
-                        pass
-                
+
                 if proc:
-                    try:
+                    with contextlib.suppress(Exception):
                         import task_manager
                         task_manager.register_subprocess(proc)
                         task_manager._active_handles[task_id] = proc
-                    except Exception:
-                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
                             active_procs[task_id] = proc
-                            
+
                     returncode = proc.wait()
-                    
-                    try:
+
+                    with contextlib.suppress(Exception):
                         import task_manager
                         task_manager.unregister_subprocess(proc)
                         task_manager._active_handles.pop(task_id, None)
-                    except Exception:
-                        pass
                     if server:
                         active_procs = getattr(server, "_active_research_processes", None)
                         if active_procs is not None:
                             active_procs.pop(task_id, None)
-                    
+
                     if server and bg_tasks is not None:
                         from research_engine import load_state, save_state
                         disk_state = load_state(task_id)
@@ -874,7 +846,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                             disk_state["status"] = "error"
                             disk_state["error"] = f"Exit code {returncode}"
                             save_state(task_id, disk_state, ignore_disk_status=True)
-            except Exception as e:
+            except (subprocess.SubprocessError, OSError, ValueError) as e:
                 print(f"[RESEARCH ERROR] Background execution failed: {e}", flush=True)
                 if server and bg_tasks is not None:
                     bg_tasks[task_id]["status"] = "error"
@@ -883,15 +855,12 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
 
         threading.Thread(target=_run_subprocess, daemon=True).start()
         return f"Research task {task_id} successfully resumed."
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         return f"Failed to resume research task: {e}"
 
 
 def _scan_research_tasks() -> list[dict]:
     """Scan cfg.RESEARCH_DATA_DIR and return all task states sorted by updated_at / created_at desc."""
-    import os
-    import json
-    import evelyn_config as cfg
     tasks = []
     if not os.path.exists(cfg.RESEARCH_DATA_DIR):
         return tasks
@@ -900,19 +869,16 @@ def _scan_research_tasks() -> list[dict]:
         if os.path.isdir(task_dir):
             state_file = os.path.join(task_dir, "state.json")
             if os.path.exists(state_file):
-                try:
-                    with open(state_file, "r", encoding="utf-8") as f:
-                        st = json.load(f)
-                        if "task_id" not in st:
-                            st["task_id"] = folder
-                        tasks.append(st)
-                except Exception:
-                    pass
+                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(state_file, encoding="utf-8") as f:
+                    st = json.load(f)
+                    if "task_id" not in st:
+                        st["task_id"] = folder
+                    tasks.append(st)
     tasks.sort(key=lambda t: t.get("updated_at") or t.get("created_at") or "", reverse=True)
     return tasks
 
 
-def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[Optional[str], Optional[dict], Optional[str]]:
+def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[str | None, dict | None, str | None]:
     """Resolve a task_id or query string to a specific task state.
 
     Returns:
@@ -945,9 +911,7 @@ def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[Optio
             q_text = (t.get("query") or t.get("original_question") or "").lower()
             aliases = " ".join(t.get("topic_aliases") or []).lower()
             tags = " ".join(t.get("topic_tags") or []).lower()
-            if clean_query in q_text or clean_query in aliases or clean_query in tags:
-                matches.append(t)
-            elif all(term in q_text or term in aliases or term in tags for term in clean_query.split() if len(term) > 2):
+            if clean_query in q_text or clean_query in aliases or clean_query in tags or all(term in q_text or term in aliases or term in tags for term in clean_query.split() if len(term) > 2):
                 matches.append(t)
         if len(matches) == 1:
             return matches[0]["task_id"], matches[0], None
@@ -985,7 +949,7 @@ def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[Optio
     return None, None, "Could not identify research task. Please provide task_id or topic query."
 
 
-def list_research_tasks(status_filter: Optional[str] = None, limit: int = 10, **kwargs) -> str:
+def list_research_tasks(status_filter: str | None = None, limit: int = 10, **kwargs) -> str:
     """List background deep research tasks, showing their task IDs, topics, statuses, and progress.
 
     Args:
@@ -1011,13 +975,7 @@ def list_research_tasks(status_filter: Optional[str] = None, limit: int = 10, **
         has_stuck_sq = any(sq.get("status") == "needs_guidance" for sq in sqs)
         is_stalled = (st == "needs_guidance" or is_quarantined or is_struggling or has_stuck_sq)
 
-        if filt == "stalled" and not is_stalled:
-            continue
-        elif filt == "active" and st not in ("running", "searching", "synthesizing", "pending", "paused"):
-            continue
-        elif filt == "done" and st != "done":
-            continue
-        elif filt == "quarantined" and not is_quarantined:
+        if (filt == "stalled" and not is_stalled) or (filt == "active" and st not in ("running", "searching", "synthesizing", "pending", "paused")) or (filt == "done" and st != "done") or (filt == "quarantined" and not is_quarantined):
             continue
         filtered.append((t, is_stalled))
 
@@ -1057,7 +1015,7 @@ def inspect_research_task(
     task_id: str = "",
     query: str = "",
     include_notes: bool = True,
-    sq_id: Optional[str] = None,
+    sq_id: str | None = None,
     include_sources: bool = False,
     **kwargs,
 ) -> str:
@@ -1075,7 +1033,7 @@ def inspect_research_task(
         str: Comprehensive research task inspection details.
     """
     import os
-    import json
+
     import evelyn_config as cfg
 
     resolved_id, state, err = _resolve_research_task_id(task_id, query)
@@ -1137,24 +1095,15 @@ def inspect_research_task(
 
                 notes_content = ""
                 if os.path.exists(summary_file):
-                    try:
-                        with open(summary_file, "r", encoding="utf-8") as f:
-                            notes_content = f.read().strip()
-                    except Exception:
-                        pass
+                    with contextlib.suppress(OSError), open(summary_file, encoding="utf-8") as f:
+                        notes_content = f.read().strip()
                 elif os.path.exists(notes_summary_file):
-                    try:
-                        with open(notes_summary_file, "r", encoding="utf-8") as f:
-                            notes_content = f.read().strip()
-                    except Exception:
-                        pass
+                    with contextlib.suppress(OSError), open(notes_summary_file, encoding="utf-8") as f:
+                        notes_content = f.read().strip()
                 elif os.path.exists(notes_file):
-                    try:
-                        with open(notes_file, "r", encoding="utf-8") as f:
-                            raw = f.read().strip()
-                            notes_content = raw[:2000] + ("\n... [Notes truncated for brevity]" if len(raw) > 2000 else "")
-                    except Exception:
-                        pass
+                    with contextlib.suppress(OSError), open(notes_file, encoding="utf-8") as f:
+                        raw = f.read().strip()
+                        notes_content = raw[:2000] + ("\n... [Notes truncated for brevity]" if len(raw) > 2000 else "")
 
                 if notes_content:
                     lines.append(f"- **Synthesized Notes / Evidence**:\n```markdown\n{notes_content}\n```")
@@ -1183,13 +1132,10 @@ def inspect_research_task(
         if vault_path:
             lines.append(f"**Obsidian Vault Note**: `{vault_path}`")
         if os.path.exists(report_file):
-            try:
-                with open(report_file, "r", encoding="utf-8") as f:
-                    rep = f.read().strip()
-                    rep_snippet = rep[:3000] + ("\n... [Report truncated -- see Obsidian vault for full note]" if len(rep) > 3000 else "")
-                    lines.append(f"```markdown\n{rep_snippet}\n```")
-            except Exception:
-                pass
+            with contextlib.suppress(OSError), open(report_file, encoding="utf-8") as f:
+                rep = f.read().strip()
+                rep_snippet = rep[:3000] + ("\n... [Report truncated -- see Obsidian vault for full note]" if len(rep) > 3000 else "")
+                lines.append(f"```markdown\n{rep_snippet}\n```")
 
     return "\n".join(lines)
 
@@ -1206,15 +1152,16 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
     Returns:
         str: Resumption status confirmation.
     """
-    import os
     import json
+    import os
+
     import evelyn_config as cfg
     _reload()
     try:
         # Check flexible guidance argument names
         if not guidance:
             for alt in ("instructions", "terms", "hint", "text", "prompt"):
-                if alt in kwargs and kwargs[alt]:
+                if kwargs.get(alt):
                     guidance = kwargs[alt]
                     break
 
@@ -1264,12 +1211,9 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
 
             existing_gaps = []
             if os.path.exists(gaps_file):
-                try:
-                    with open(gaps_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        existing_gaps = data.get("gaps", [])
-                except Exception:
-                    pass
+                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(gaps_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                    existing_gaps = data.get("gaps", [])
 
             existing_gaps.append(f"USER GUIDANCE: {guidance}")
 
@@ -1306,11 +1250,11 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
             save_state(resolved_id, state, ignore_disk_status=True)
             result = resume_research_task(resolved_id)
             return f"Guidance attached to research task '{state.get('query')}' (`{resolved_id}`). Task is resuming. {result}"
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:
         return f"Failed to guide research task: {e}"
 
 
-def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: Optional[str] = None, new_search_query: Optional[str] = None, **kwargs) -> str:
+def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: str | None = None, new_search_query: str | None = None, **kwargs) -> str:
     """Manually rewrite a single sub-question or its search query without resuming the task.
 
     Args:
@@ -1324,6 +1268,7 @@ def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: Optio
         str: Status confirmation message.
     """
     import os
+
     import evelyn_config as cfg
     _reload()
     try:
@@ -1331,13 +1276,13 @@ def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: Optio
         state = load_state(task_id)
         if not state:
             return f"Research task {task_id} not found."
-            
+
         sqs = state.get("plan", {}).get("sub_questions", [])
         target_sq = next((s for s in sqs if s["id"] == sq_id), None)
-        
+
         if not target_sq:
             return f"Sub-question {sq_id} not found in task {task_id}."
-            
+
         # Stop task if running
         if state.get("status") in ("running", "searching", "synthesizing"):
             import sys
@@ -1354,7 +1299,7 @@ def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: Optio
             time.sleep(0.5)
 
         target_sq["original_question"] = target_sq.get("original_question", target_sq.get("question", ""))
-        
+
         # Update search_query and question
         if new_search_query:
             target_sq["search_query"] = new_search_query
@@ -1366,18 +1311,18 @@ def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: Optio
 
         target_sq["status"] = "pending"
         target_sq["search_depth"] = 0
-        
+
         # Clear gaps
         task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
         gaps_file = os.path.join(task_dir, f"{sq_id}_gaps.json")
         if os.path.exists(gaps_file):
             os.remove(gaps_file)
-            
+
         target_sq["gaps"] = []
-        
+
         save_state(task_id, state, ignore_disk_status=True)
         return f"Successfully rewrote sub-question {sq_id}."
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:
         return f"Failed to rewrite sub-question: {e}"
 
 
@@ -1393,7 +1338,7 @@ def remove_sub_question(task_id: str = "", sq_id: str = "", **kwargs) -> str:
         str: Status confirmation message.
     """
     import os
-    import glob
+
     import evelyn_config as cfg
     _reload()
     try:
@@ -1429,7 +1374,7 @@ def remove_sub_question(task_id: str = "", sq_id: str = "", **kwargs) -> str:
 
         save_state(task_id, state, ignore_disk_status=True)
         return f"Successfully removed sub-question {sq_id}."
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:
         return f"Failed to remove sub-question: {e}"
 
 
@@ -1449,30 +1394,30 @@ def finalize_guidance(task_id: str = "", **kwargs) -> str:
         state = load_state(task_id)
         if not state:
             return f"Research task {task_id} not found."
-            
+
         sqs = state.get("plan", {}).get("sub_questions", [])
-        
+
         # Find first pending or struggling SQ
         idx = 0
         for i, s in enumerate(sqs):
             if s["status"] in ("pending", "needs_guidance"):
                 idx = i
                 break
-                
+
         state["current_sq_idx"] = idx
         state["current_step"] = "search"
         state["struggling"] = False
         state["status"] = "paused"
-        
+
         if "termination_reason" in state:
             state["termination_reason"] = None
         if "quarantined" in state:
             state["quarantined"] = False
         if "error" in state:
             state["error"] = None
-            
+
         save_state(task_id, state, ignore_disk_status=True)
-        
+
         # Register in the server's _background_tasks memory dictionary so it's picked up by the idle loop
         import sys
         import time
@@ -1488,9 +1433,9 @@ def finalize_guidance(task_id: str = "", **kwargs) -> str:
                     "scope": state.get("scope", "standard"),
                     "started_at": time.time()
                 }
-        
+
         return f"Guidance finalized. Task {task_id} has been placed in the waiting queue."
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:
         return f"Failed to finalize guidance: {e}"
 
 
@@ -1503,59 +1448,56 @@ def check_new_research(**kwargs) -> str:
     Returns:
         str: Compiled summaries of completed tasks, or notice of none.
     """
-    import os
     import json
+    import os
+
     import evelyn_config as cfg
     _reload()
-    
+
     research_dir = cfg.RESEARCH_DATA_DIR
     if not os.path.exists(research_dir):
         return "No research data directory found."
-        
+
     unnotified_reports = []
-    
+
     for d in os.listdir(research_dir):
         task_dir = os.path.join(research_dir, d)
         if os.path.isdir(task_dir):
             state_file = os.path.join(task_dir, "state.json")
             if os.path.exists(state_file):
-                try:
-                    with open(state_file, "r", encoding="utf-8") as f:
-                        state = json.load(f)
-                    if state.get("status") == "done" and not state.get("quarantined"):
-                        if not state.get("notified", False):
-                            query = state.get("query", "Unknown Topic")
-                            task_id = state.get("task_id", "")
-                            
-                            summary_text = ""
-                            report_file = os.path.join(task_dir, "report.md")
-                            if os.path.exists(report_file):
-                                import re
-                                with open(report_file, "r", encoding="utf-8") as f:
-                                    content = f.read()
-                                    summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
-                                    if summary_match:
-                                        summary_text = summary_match.group(1).strip()[:800] + "..."
-                                    else:
-                                        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-                                        for p in paragraphs:
-                                            if not p.startswith("#"):
-                                                summary_text = p[:800] + "..."
-                                                break
-                            if not summary_text:
-                                summary_text = "Detailed report saved in Obsidian Vault."
-                                
-                            unnotified_reports.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}")
-                            
-                            state["notified"] = True
-                            with open(state_file, "w", encoding="utf-8") as f:
-                                json.dump(state, f, indent=2)
-                except Exception:
-                    pass
-                    
+                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(state_file, encoding="utf-8") as f:
+                    state = json.load(f)
+                    if state.get("status") == "done" and not state.get("quarantined") and not state.get("notified", False):
+                        query = state.get("query", "Unknown Topic")
+                        task_id = state.get("task_id", "")
+
+                        summary_text = ""
+                        report_file = os.path.join(task_dir, "report.md")
+                        if os.path.exists(report_file):
+                            import re
+                            with open(report_file, encoding="utf-8") as f:
+                                content = f.read()
+                                summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
+                                if summary_match:
+                                    summary_text = summary_match.group(1).strip()[:800] + "..."
+                                else:
+                                    paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+                                    for p in paragraphs:
+                                        if not p.startswith("#"):
+                                            summary_text = p[:800] + "..."
+                                            break
+                        if not summary_text:
+                            summary_text = "Detailed report saved in Obsidian Vault."
+
+                        unnotified_reports.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}")
+
+                        state["notified"] = True
+                        with open(state_file, "w", encoding="utf-8") as f:
+                            json.dump(state, f, indent=2)
+
     if not unnotified_reports:
         return "No new completed research reports found."
-        
+
     lines = ["Here are the newly completed research reports:\n"]
     lines.extend(unnotified_reports)
     lines.append("\nThe full reports have been saved to your Obsidian vault.")
@@ -1564,13 +1506,13 @@ def check_new_research(**kwargs) -> str:
 
 def search_history(
     query: str = "",
-    date: str = None,
-    date_from: str = None,
-    date_to: str = None,
+    date: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     limit: int = 8,
     order: str = "desc",
     offset: int = 0,
-    message_id: int = None,
+    message_id: int | None = None,
     window: int = 0,
     **kwargs,
 ) -> str:
@@ -1599,9 +1541,10 @@ def search_history(
     Returns:
         str: Formatted list of messages with timestamps, IDs, and speakers, or a status message.
     """
-    import sqlite3
     import re
-    from datetime import datetime, timedelta
+    import sqlite3
+    from datetime import datetime
+
     import evelyn_config as cfg
 
     # --- Kwargs fallback & normalization ---
@@ -1692,7 +1635,7 @@ def search_history(
         m = re.search(r"(\d{4}-\d{2}-\d{2})", ds)
         if m:
             try:
-                return datetime.strptime(m.group(1), "%Y-%m-%d")
+                return datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=UTC)
             except ValueError:
                 pass
         return None
@@ -1758,7 +1701,7 @@ def search_history(
                 rows = con.execute(sql, (msg_id,)).fetchall()
                 header = f"Message ID {msg_id}:"
             con.close()
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             return f"History search failed on message lookup: {e}"
 
         if not rows:
@@ -1767,7 +1710,7 @@ def search_history(
         lines = [header + "\n"]
         for row in rows:
             ts_val = row["ts"]
-            ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+            ts_str = datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
             role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
             marker = " [TARGET]" if row["id"] == msg_id and win_val > 0 else ""
             lines.append(f"[ID: {row['id']}]{marker} [{ts_str}] {role_label}:\n{row['content']}\n")
@@ -1790,7 +1733,7 @@ def search_history(
             """
             rows = con.execute(sql, (*date_params, limit_val, offset_val)).fetchall()
             con.close()
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             return f"History retrieval failed: {e}"
 
         if not rows:
@@ -1809,7 +1752,7 @@ def search_history(
         lines = [header + "\n"]
         for row in rows:
             ts_val = row["ts"]
-            ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+            ts_str = datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
             role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
             lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
         return "\n".join(lines).strip()
@@ -1821,7 +1764,7 @@ def search_history(
     try:
         from query_reformulator import reformulate_query
         fts_query = reformulate_query(raw_query)
-    except Exception:
+    except (ImportError, AttributeError):
         fts_query = raw_query
 
     def sanitize_fts5(q: str) -> str:
@@ -1884,7 +1827,7 @@ def search_history(
             rows = con.execute(like_sql, (f"%{raw_query}%", *date_params, limit_val, offset_val)).fetchall()
 
         con.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         return f"History keyword search failed: {e}"
 
     if not rows:
@@ -1897,7 +1840,7 @@ def search_history(
     lines = [header + "\n"]
     for row in rows:
         ts_val = row["ts"]
-        ts_str = datetime.fromtimestamp(ts_val).strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+        ts_str = datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
         role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
         lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
 
@@ -1907,10 +1850,10 @@ def search_history(
 def create_calendar_event(
     title: str = "",
     start_at: str = "",
-    end_at: str = None,
-    description: str = None,
-    location: str = None,
-    recurrence_rule: str = None,
+    end_at: str | None = None,
+    description: str | None = None,
+    location: str | None = None,
+    recurrence_rule: str | None = None,
     **kwargs,
 ) -> str:
     """Create a new event on Google Calendar.
@@ -1967,7 +1910,7 @@ def create_calendar_event(
             )
         else:
             return f"Failed to create calendar event: {result['message']}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error creating calendar event: {e}"
 
 
@@ -2004,7 +1947,7 @@ def delete_calendar_event(
             return f"Multiple matching events found: {result['message']}"
         else:
             return f"Failed to delete event: {result['message']}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error deleting calendar event: {e}"
 
 
@@ -2021,14 +1964,14 @@ def sync_google_calendar(**kwargs) -> str:
             return f"Google Calendar sync successful: {result['message']}"
         else:
             return f"Google Calendar sync notice: {result['message']}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error syncing Google Calendar: {e}"
 
 
 def create_task(
     title: str = "",
-    due_at: str = None,
-    notes: str = None,
+    due_at: str | None = None,
+    notes: str | None = None,
     **kwargs,
 ) -> str:
     """Create a new task on Google Tasks.
@@ -2059,7 +2002,7 @@ def create_task(
             )
         else:
             return f"Failed to create task: {result.get('message')}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error creating task: {e}"
 
 
@@ -2083,7 +2026,7 @@ def complete_task(task_id: str = "", **kwargs) -> str:
             return f"Successfully marked task {task_id} as completed."
         else:
             return f"Failed to complete task: {result.get('message')}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error completing task: {e}"
 
 
@@ -2107,11 +2050,11 @@ def delete_task(task_id: str = "", **kwargs) -> str:
             return f"Successfully deleted task {task_id} from Google Tasks."
         else:
             return f"Failed to delete task: {result.get('message')}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error deleting task: {e}"
 
 
-def list_tasks(include_completed: bool = False, due_within_days: Optional[int] = None, **kwargs) -> str:
+def list_tasks(include_completed: bool = False, due_within_days: int | None = None, **kwargs) -> str:
     """List Google Tasks from the local cache / Google Tasks.
 
     Args:
@@ -2144,7 +2087,7 @@ def list_tasks(include_completed: bool = False, due_within_days: Optional[int] =
             notes_str = f" - {t.get('notes')}" if t.get("notes") else ""
             lines.append(f"- (ID: {t.get('id')}) {status_str} {t.get('title')} (Due: {due_str}){notes_str}")
         return "\n".join(lines)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error listing tasks: {e}"
 
 
@@ -2161,7 +2104,7 @@ def sync_google_tasks(**kwargs) -> str:
             return f"Google Tasks sync successful: {result.get('message')}"
         else:
             return f"Google Tasks sync notice: {result.get('message')}"
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error syncing Google Tasks: {e}"
 
 
@@ -2210,7 +2153,7 @@ def get_agenda(days: int = 7, **kwargs) -> str:
             sections.append("\n".join(lines))
 
         return "\n\n".join(sections)
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error fetching agenda: {e}"
 
 
@@ -2219,7 +2162,7 @@ def manage_vault_list(
     name: str = "Groceries",
     action: str = "read",
     items: Any = None,
-    category: str = None,
+    category: str | None = None,
     **kwargs,
 ) -> str:
     """Read, add, check, uncheck, or remove items from an Obsidian Vault checklist note.
@@ -2274,7 +2217,7 @@ def manage_vault_list(
         else:
             return f"Unknown list action: '{action}'. Supported actions: read, add, check, uncheck, remove, clear_completed, list_all."
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error managing vault list '{name}': {e}"
 
 
@@ -2333,7 +2276,7 @@ def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", 
     return terminal_agent.write_file(file_path, content, mode)
 
 
-def get_health_metrics(date: str = "today", metric: str = "summary", hours: float = None, **kwargs) -> str:
+def get_health_metrics(date: str = "today", metric: str = "summary", hours: float | None = None, **kwargs) -> str:
     """Retrieve daily or intraday health and activity data (heart rate, steps, sleep, readiness, stress, workouts, vitals, clinical records).
 
     Args:
@@ -2396,7 +2339,7 @@ def get_health_metrics(date: str = "today", metric: str = "summary", hours: floa
     return json.dumps(res, indent=2)
 
 
-def get_recent_workouts(days: int = 7, hours: float = None, **kwargs) -> str:
+def get_recent_workouts(days: int = 7, hours: float | None = None, **kwargs) -> str:
     """Retrieve recorded workout and exercise sessions for the past N days or hours.
 
     Args:

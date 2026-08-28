@@ -65,7 +65,7 @@ class TestVaultListManager(unittest.TestCase):
         """Test template instantiation for Groceries."""
         path = vault_list_manager.ensure_list_exists("Groceries")
         self.assertTrue(os.path.exists(path))
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
         self.assertIn("title: Groceries", content)
         self.assertIn("## Produce", content)

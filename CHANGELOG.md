@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 11:42:55
+date modified: 2026-08-28 12:30:46
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,46 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.013] - 2026-08-28 — *Consolidation Audit: Dead-Code & Type-Error Fixes*
+
+### Fixed
+- **`scripts/sqlite_mcp_server.py` Type Error**: `get_ollama_status(OLLAMA_URL)` passed a URL string where the canonical function expects `timeout: int` — would cause a `TypeError` at runtime. Changed to `fetch_ollama_status()` (canonical reads URL from config).
+- **`Evelyn/tools/pdf_staging_worker.py` Missed Migration**: Still imported `format_yaml_array` from `tag_librarian` instead of `frontmatter_utils`. Redirected to canonical module.
+- **`Evelyn/tools/health_manager.py` Schema Alignment**: Fixed intraday activity query columns (`distance` and `energy`) to match Health Connect SQLite table schema.
+- **Test Suite Fixtures**: Updated `test_image_generation.py` to mock `requests.RequestException`, and cleaned archived migration imports in `test_triggered_by_normalization.py`.
+
+### Enhanced & Hardened
+- **Ruff Compliance & Quality Gate**: Configured repository-wide `ruff.toml` with `target-version = "py314"`, narrowed broad exception handlers to concrete error classes, added explicit exception chaining (`raise ... from e`), offloaded async file I/O to thread pools, and verified 100% test pass rate across 176 test cases.
+
+### Removed (Dead Code)
+- **`tag_librarian.py`**: Removed unused `import urllib.request` and `import urllib.parse` (Ollama calls fully delegated to `ollama_client`).
+- **`extract_pdf_library.py`**: Removed dead `import json` (never referenced), unused `field` from `dataclasses` import (factory never called), and dead `clean_title` import from `string_utils` (shadowed by local variable in every usage).
+- **`sqlite_mcp_server.py`**: Removed dead `OLLAMA_URL` constant (no remaining references after type-error fix).
+
+---
+
+## [000.006.012] - 2026-08-28 — *Codebase Consolidation & Canonical DRY Architecture*
+
+### Added & Canonical Architecture
+- **Canonical String & Gist Utilities (`Evelyn/tools/string_utils.py`)**:
+  - Implemented single source of truth for text and title processing: `strip_thinking_tags()`, `clean_llm_gist()`, `sanitize_filename()`, `slugify()`, and `clean_title()`.
+  - Zero internal dependencies to serve as the leaf layer of the engine DAG.
+- **Canonical Vault Path Resolvers (`Evelyn/tools/path_utils.py`)**:
+  - Implemented directory-traversal-guarded vault path transforms: `to_vault_relpath()`, `to_vault_abspath()`, `normalize_vault_path()`, and `is_vault_excluded()`.
+  - Standardized all relative paths to forward-slash `.as_posix()` convention.
+- **Canonical YAML Frontmatter Manager (`Evelyn/tools/frontmatter_utils.py`)**:
+  - Implemented `parse_frontmatter()`, `format_yaml_array()`, `render_frontmatter()`, and line-aware non-destructive `update_frontmatter_field()`.
+  - Added atomic `write_file_with_frontmatter()` with `preserve_mtime` support via `os.utime()`.
+- **Canonical Ollama HTTP Client (`Evelyn/tools/ollama_client.py`)**:
+  - Unified local Ollama gateway: `query_ollama()` (with automatic CoT stripping and connect/read timeouts), `query_ollama_json()`, and `get_ollama_status()`.
+- **Systematic Caller Migrations**:
+  - Migrated `tag_librarian.py`, `vault_indexer.py`, `ingest_obsidian_knowledge.py`, `vault_list_manager.py`, `journal_manager.py`, `scripts/update_frontmatter.py`, `scripts/extract_pdf_library.py`, `scripts/relocate_vault_pdfs.py`, and `scripts/sqlite_mcp_server.py`.
+- **Agent Governance & Anti-Duplication Directives**:
+  - Updated `AGENTS.md` (§7 Single Source of Truth & Function Reuse Protocol).
+  - Updated `.ai-instructions.md` (§0 Phase A step 4, §2 Operational Disciplines, and §7 Anti-Hallucination Directives).
+- **Unit Test Coverage**:
+  - Created `Evelyn/tests/test_string_and_path_utils.py`, `Evelyn/tests/test_frontmatter_utils.py`, and `Evelyn/tests/test_ollama_client.py` (20 new tests, 178/178 tests passing suite-wide).
 
 ## [000.006.011] - 2026-08-28 — *Vault Taxonomy Alignment & Tag Librarian Acceleration*
 

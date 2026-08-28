@@ -2,19 +2,18 @@
 # date created: 2026-08-19
 # tags: #tests, #taxonomy, #rag, #extractor, #novelty
 
-import unittest
-from unittest.mock import patch, MagicMock
 import sys
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-import Evelyn.tools.fact_extractor as fact_extractor
-import Evelyn.tools.memory_db as memory_db
 import evelyn_config as cfg
 import evelyn_server
+from Evelyn.tools import fact_extractor, memory_db
 
 
 class TestContextExtractorTaxonomyRAG(unittest.TestCase):
@@ -41,8 +40,8 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
             return mock_mem_results
 
         with patch("Evelyn.tools.chroma_rag.query_collection", side_effect=mock_query_col):
-            tags, facts, min_dist, guidance = fact_extractor.retrieve_candidate_taxonomy_and_clusters(mock_messages)
-            
+            tags, _facts, min_dist, guidance = fact_extractor.retrieve_candidate_taxonomy_and_clusters(mock_messages)
+
             self.assertTrue(len(tags) > 0)
             self.assertEqual(tags[0]["tag"], "Tech/Python/FastAPI")
             self.assertAlmostEqual(min_dist, 0.25, places=2)
@@ -65,8 +64,8 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
             return []
 
         with patch("Evelyn.tools.chroma_rag.query_collection", side_effect=mock_query_col):
-            tags, facts, min_dist, guidance = fact_extractor.retrieve_candidate_taxonomy_and_clusters(mock_messages)
-            
+            _tags, _facts, min_dist, guidance = fact_extractor.retrieve_candidate_taxonomy_and_clusters(mock_messages)
+
             self.assertAlmostEqual(min_dist, 0.78, places=2)
             self.assertIn("TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN", guidance)
             self.assertIn("mint new domain-level tag hierarchies", guidance)

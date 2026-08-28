@@ -2,7 +2,7 @@
 # sync_staged_to_vault.py
 # date created: 2026-08-16 20:32:00
 # date modified: 2026-08-16 20:32:00
-# tags: 
+# tags:
 
 # scripts/sync_staged_to_vault.py
 """
@@ -10,8 +10,8 @@ sync_staged_to_vault.py — Sync verified staged knowledge and attachments into 
 """
 
 import os
-import sys
 import shutil
+import sys
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(ROOT_DIR, "Evelyn", "tools")
@@ -64,34 +64,34 @@ def sync_knowledge_notes():
         src_dir = os.path.join(STAGING_DIR, stage_folder)
         if not os.path.exists(src_dir):
             continue
-            
+
         dst_dir = os.path.join(VAULT_DIR, vault_rel)
         os.makedirs(dst_dir, exist_ok=True)
-        
+
         for root, _, files in os.walk(src_dir):
             for f in files:
                 src_file = os.path.join(root, f)
                 rel_to_stage = os.path.relpath(src_file, src_dir)
                 dst_file = os.path.join(dst_dir, rel_to_stage)
-                
+
                 os.makedirs(os.path.dirname(dst_file), exist_ok=True)
                 if not os.path.exists(dst_file):
                     shutil.copy2(src_file, dst_file)
                     synced_notes += 1
-                    
+
     return synced_notes
 
 def main():
     print("=" * 70)
     print("SYNCING STAGED KNOWLEDGE INTO OBSIDIAN VAULT")
     print("=" * 70)
-    
+
     attach_count = sync_attachments()
     print(f"Synced {attach_count} new image/document attachments to: {VAULT_ATTACHMENTS_DIR}")
-    
+
     notes_count = sync_knowledge_notes()
     print(f"Synced {notes_count} new knowledge notes and documents to Vault.")
-    
+
     print("\nVault Knowledge Sync Complete!")
 
 if __name__ == "__main__":

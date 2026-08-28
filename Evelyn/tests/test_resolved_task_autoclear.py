@@ -1,15 +1,14 @@
 # test_resolved_task_autoclear.py
 # date created: 2026-08-17
 # date modified: 2026-08-17 19:23:04
-# tags: 
+# tags:
 
 import os
 import shutil
 import unittest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, patch
 
-import evelyn_config as cfg
-from Evelyn.tools.research_engine import step_assess_prior_knowledge, get_task_dir, save_state
+from Evelyn.tools.research_engine import get_task_dir, save_state, step_assess_prior_knowledge
 
 
 class TestResolvedTaskAutoclear(unittest.IsolatedAsyncioTestCase):
@@ -70,10 +69,9 @@ class TestResolvedTaskAutoclear(unittest.IsolatedAsyncioTestCase):
                 # Simulate server check: load_state returns None
                 from Evelyn.tools.research_engine import load_state
                 disk_state = load_state(tid)
-                if not disk_state:
-                    if task.get("status") not in ("running", "searching", "synthesizing"):
-                        del background_tasks[tid]
-                        continue
+                if not disk_state and task.get("status") not in ("running", "searching", "synthesizing"):
+                    del background_tasks[tid]
+                    continue
 
         self.assertNotIn("task_test_autoclear_9999", background_tasks)
 

@@ -1,6 +1,6 @@
 # vault_indexer.py
 # date created: 2026-05-24 17:50:08
-# date modified: 2026-05-25 19:50:51
+# date modified: 2026-08-28 12:27:45
 # tags: #vault, #indexer, #mapping, #scans, #metadata
 
 """
@@ -19,7 +19,6 @@ Key design decisions:
 import os
 import re
 import sys
-import requests
 
 # Anchoring paths before importing evelyn_config
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,68 +27,32 @@ for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import evelyn_config as cfg
-
 import vault_db
+
+import evelyn_config as cfg
+from Evelyn.tools.frontmatter_utils import parse_frontmatter
+from Evelyn.tools.path_utils import is_vault_excluded, normalize_vault_path
+from Evelyn.tools.string_utils import clean_llm_gist
 
 OBSIDIAN_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
-EXCLUDE_DIRS = {d.lower() for d in getattr(cfg, "VAULT_READ_IGNORE", [])} | {
-    ".obsidian",
-    "attachments",
-    "bases",
-    "templates",
-}
-
 SUMMARY_MAX_CHARS = 500
 
+
 def clean_gist(text: str) -> str:
-    """Strip thinking tags, LaTeX markup, and leading 'summary:' prefixes from LLM output.
+    """Strip thinking tags, LaTeX markup, and leading 'summary:' prefixes from LLM output."""
+    return clean_llm_gist(text)
 
-    Args:
-        text: The raw summary text string.
-
-    Returns:
-        str: The cleaned summary text.
-    """
-    text = re.sub(r"^.*?</think>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
-    text = re.sub(r"\\boxed\{.*?\}", "", text, flags=re.DOTALL)
-    text = re.sub(r"(?im)^\*?\*?summary:?\*?\*?\s*", "", text)
-    text = re.sub(r"\n{2,}", "\n", text)
-    return text.strip()
 
 def normalize_path(path: str) -> str:
-    """Return a normalized lower-case path string for safe comparison.
+    """Return a normalized lower-case path string for safe comparison."""
+    return normalize_vault_path(path)
 
-    Args:
-        path: The filesystem path string.
 
-    Returns:
-        str: The normalized path string.
-    """
-    return os.path.normpath(path).lower()
+def is_excluded(dir_path: str) -> bool:
+    """Determine if a directory path is in the exclusion list."""
+    return is_vault_excluded(dir_path)
 
-def is_excluded(dir_path):
-    """Determine if a directory path is in the exclusion list.
-
-    Args:
-        dir_path: Absolute or relative directory path.
-
-    Returns:
-        True if the directory is excluded, False otherwise.
-    """
-    rel_path = os.path.relpath(dir_path, OBSIDIAN_ROOT)
-    norm_rel = normalize_path(rel_path)
-    for exclude in EXCLUDE_DIRS:
-        norm_exclude = normalize_path(exclude)
-        if norm_rel == norm_exclude or norm_rel.startswith(norm_exclude + os.sep):
-            return True
-    parts = norm_rel.split(os.sep)
-    for part in parts:
-        if part.startswith("."): 
-            return True
-    return False
 
 def extract_metadata(file_path, timeout=300):
     """Read a markdown file and extract metadata fields plus an LLM-generated summary.
@@ -102,40 +65,35 @@ def extract_metadata(file_path, timeout=300):
         Dict of metadata fields, or None if the file could not be read.
     """
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
             content = f.read()
-    except Exception as e:
+    except OSError as e:
         print(f"Error reading {file_path}: {e}")
         return None
 
-    # 1. Frontmatter extraction
-    frontmatter_match = re.search(r"^---\n(.*?)\n---", content, re.DOTALL)
-    fm_tags = []
-    fm_aliases = []
-    fm_rag_priority = "normal"
-    fm_rag_pinned = False
-    
-    if frontmatter_match:
-        fm_text = frontmatter_match.group(1)
-        tags_line = re.search(r"^tags:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE)
-        if tags_line:
-            raw_tags = tags_line.group(1)
-            cleaned = raw_tags.replace("[", "").replace("]", "").replace('"', "").replace("'", "")
-            fm_tags = [t.strip() for t in cleaned.split(",") if t.strip()]
+    # 1. Frontmatter extraction via canonical parser
+    meta, _body = parse_frontmatter(content)
 
-        aliases_line = re.search(r"^aliases:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE)
-        if aliases_line:
-            raw_aliases = aliases_line.group(1)
-            cleaned_a = raw_aliases.replace("[", "").replace("]", "").replace('"', "").replace("'", "")
-            fm_aliases = [a.strip() for a in cleaned_a.split(",") if a.strip()]
+    raw_tags = meta.get("tags", [])
+    if isinstance(raw_tags, str):
+        fm_tags = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+    elif isinstance(raw_tags, (list, set, tuple)):
+        fm_tags = [str(t).strip().strip("'\"#") for t in raw_tags if str(t).strip().strip("'\"#")]
+    else:
+        fm_tags = []
 
-        priority_line = re.search(r"^rag_priority:\s*(\S+)", fm_text, re.MULTILINE)
-        if priority_line:
-            fm_rag_priority = priority_line.group(1).strip().lower()
+    raw_aliases = meta.get("aliases", [])
+    if isinstance(raw_aliases, str):
+        fm_aliases = [a.strip().strip("'\"") for a in raw_aliases.split(",") if a.strip().strip("'\"")]
+    elif isinstance(raw_aliases, (list, set, tuple)):
+        fm_aliases = [str(a).strip().strip("'\"") for a in raw_aliases if str(a).strip().strip("'\"")]
+    else:
+        fm_aliases = []
 
-        pinned_line = re.search(r"^rag_pinned:\s*(\S+)", fm_text, re.MULTILINE)
-        if pinned_line:
-            fm_rag_pinned = pinned_line.group(1).strip().lower() == "true"
+    fm_rag_priority = str(meta.get("rag_priority", "normal")).strip().lower()
+    fm_rag_pinned = bool(meta.get("rag_pinned", False))
+    if isinstance(meta.get("rag_pinned"), str):
+        fm_rag_pinned = meta.get("rag_pinned", "").strip().lower() in ("true", "yes", "1")
 
     # 2. H1 Extraction
     h1_match = re.search(r"^#\s+(.*)", content, re.MULTILINE)
@@ -147,7 +105,7 @@ def extract_metadata(file_path, timeout=300):
 
     # 3. Inline Tags #tag
     inline_tags = re.findall(r"(?:^|\s)#([a-zA-Z0-9_/-]+)(?=\s|$)", content)
-    all_tags = sorted(list(set(fm_tags + inline_tags)))
+    all_tags = sorted(set(fm_tags + inline_tags))
 
     # 5. Gist / Summary (Sanitized)
     text_body = re.sub(r"^---\n(.*?)\n---", "", content, flags=re.DOTALL)
@@ -205,7 +163,7 @@ def scan_vault():
         dirs[:] = [d for d in dirs if not is_excluded(os.path.join(root, d))]
         for file in files:
             if not file.endswith(".md"): continue
-            
+
             full_path = os.path.join(root, file)
             rel_path = os.path.relpath(full_path, OBSIDIAN_ROOT)
             current_files.add(rel_path)

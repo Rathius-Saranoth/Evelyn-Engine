@@ -18,6 +18,7 @@ Design rationale: reference/docstring_guide.md#query_reformulatorpy--design-rati
 """
 
 
+import json
 import re
 import time
 
@@ -81,18 +82,23 @@ def reformulate_query(user_message: str) -> str:
 
     # Build Ollama request — identical options to main chat to avoid model swap
     timeout = getattr(cfg, "RAG_REFORMULATE_TIMEOUT", 10)
-    options = {"num_ctx": cfg.NUM_CTX, "num_predict": 50}
-    for key, val in {
-        "temperature": 0.3,  # Low temp for deterministic extraction
-        "min_p": cfg.MIN_P,
-        "top_k": cfg.TOP_K,
-        "top_p": cfg.TOP_P,
-        "repeat_penalty": cfg.REPEAT_PENALTY,
-        "repeat_last_n": cfg.REPEAT_LAST_N,
-        "seed": cfg.SEED,
-    }.items():
-        if val is not None:
-            options[key] = val
+    options = {
+        "num_ctx": cfg.NUM_CTX,
+        "num_predict": 50,
+    }
+    options.update({
+        key: val
+        for key, val in {
+            "temperature": 0.3,  # Low temp for deterministic extraction
+            "min_p": cfg.MIN_P,
+            "top_k": cfg.TOP_K,
+            "top_p": cfg.TOP_P,
+            "repeat_penalty": cfg.REPEAT_PENALTY,
+            "repeat_last_n": cfg.REPEAT_LAST_N,
+            "seed": cfg.SEED,
+        }.items()
+        if val is not None
+    })
     if cfg.STOP_SEQUENCES:
         options["stop"] = cfg.STOP_SEQUENCES
 
@@ -117,7 +123,7 @@ def reformulate_query(user_message: str) -> str:
             resp = client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
             resp.raise_for_status()
             result = resp.json()
-    except Exception as e:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
         # Fallback to original message — degraded but not broken
         elapsed = time.perf_counter() - start
         print(

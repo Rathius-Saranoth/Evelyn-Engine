@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-08-28 11:51:10
+# date modified: 2026-08-28 12:28:44
 # tags: #frontmatter, #metadata, #headers, #update, #utility
 
-import sys
+import datetime
 import os
 import re
-import datetime
+import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from Evelyn.tools.tag_librarian import format_yaml_array
+from Evelyn.tools.frontmatter_utils import format_yaml_array
 
 # Explicitly supported file extensions
 YAML_EXTENSIONS = {'.md', '.markdown', '.txt'}
@@ -32,7 +32,7 @@ UNSUPPORTED_EXTENSIONS = {
 
 def update_file_frontmatter(filepath: str) -> bool:
     """Updates the frontmatter or header comment of a single file if supported.
-    
+
     Returns:
         bool: True if file was updated, False otherwise.
     """
@@ -48,7 +48,7 @@ def update_file_frontmatter(filepath: str) -> bool:
         return False
 
     try:
-        with open(filepath, 'r', encoding='utf-8-sig') as f:
+        with open(filepath, encoding='utf-8-sig') as f:
             content = f.read()
     except UnicodeDecodeError:
         return False
@@ -57,8 +57,8 @@ def update_file_frontmatter(filepath: str) -> bool:
     st = os.stat(filepath)
     ctime = getattr(st, 'st_birthtime', st.st_ctime)
     mtime = st.st_mtime
-    date_created = datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
-    date_modified = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    date_created = datetime.datetime.fromtimestamp(ctime, tz=datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    date_modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
     # Handle Python and PowerShell files with comment blocks
     if ext in COMMENT_EXTENSIONS:
@@ -123,13 +123,10 @@ def update_file_frontmatter(filepath: str) -> bool:
                 f"# {filename}",
                 f"# date created: {date_created}",
                 f"# date modified: {date_modified}",
-                f"# tags: ",
+                "# tags: ",
                 ""
             ]
-            if lines and lines[0].startswith('#!'):
-                out_lines = [lines[0]] + header + lines[1:]
-            else:
-                out_lines = header + lines
+            out_lines = [lines[0], *header, *lines[1:]] if lines and lines[0].startswith('#!') else header + lines
 
         new_content = '\n'.join(out_lines)
 
@@ -233,10 +230,7 @@ def update_file_frontmatter(filepath: str) -> bool:
             "---",
             ""
         ]
-        if content.startswith('\n'):
-            new_content = '\n'.join(fm) + content[1:]
-        else:
-            new_content = '\n'.join(fm) + content
+        new_content = '\n'.join(fm) + content[1:] if content.startswith('\n') else '\n'.join(fm) + content
 
     if new_content != content:
         with open(filepath, 'w', encoding='utf-8', newline='\n') as f:

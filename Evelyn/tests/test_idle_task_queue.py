@@ -4,18 +4,14 @@
 
 """Unit tests for the Persistent FIFO Idle Task Queue and cooperative batch catch-up."""
 
-import asyncio
-import json
 import os
 import shutil
 import tempfile
 import time
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import Evelyn.tools.task_manager as task_manager
-import Evelyn.tools.fact_extractor as fact_extractor
-import evelyn_config as cfg
+from Evelyn.tools import fact_extractor, task_manager
 
 
 class TestIdleTaskQueue(unittest.TestCase):

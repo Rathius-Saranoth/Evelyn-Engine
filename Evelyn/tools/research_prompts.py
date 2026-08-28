@@ -31,9 +31,8 @@ Exports:
   build_post_synthesis_triage_prompt() — Post-synthesis triage prompt.
 """
 
-from typing import List, Dict, Any, Tuple, Optional
 import re
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Task-type classification + skill templates (Hermes Tier 2 #8b)
@@ -41,7 +40,7 @@ import re
 
 # Keyword sets for zero-cost heuristic classification. Order matters: more
 # specific patterns come first so they shadow broader ones.
-_TASK_TYPE_KEYWORDS: Dict[str, List[str]] = {
+_TASK_TYPE_KEYWORDS: dict[str, list[str]] = {
     "troubleshooting": [
         "fix", "error", "bug", "broken", "not working", "crash", "fail",
         "problem", "issue", "debug", "troubleshoot", "resolve", "stuck",
@@ -65,7 +64,7 @@ _TASK_TYPE_KEYWORDS: Dict[str, List[str]] = {
 
 # Structured guidance blocks injected into extract prompts per task type.
 # Each block sets: Research Goal, Key Procedures, Common Pitfalls, Verification.
-RESEARCH_SKILL_TEMPLATES: Dict[str, str] = {
+RESEARCH_SKILL_TEMPLATES: dict[str, str] = {
     "factual": (
         "## Research Task Type: Factual Lookup\n"
         "**Research Goal**: Establish precise, verifiable facts (dates, figures, names, "
@@ -170,7 +169,7 @@ def get_skill_template(task_type: str) -> str:
 # Keywords that strongly suggest a topic belongs to the "everyday" domain:
 # tasks that a non-specialist person regularly encounters and for which
 # plain, step-oriented language is more useful than academic prose.
-_EVERYDAY_KEYWORDS: List[str] = [
+_EVERYDAY_KEYWORDS: list[str] = [
     # Home improvement & DIY
     "fix", "repair", "install", "replace", "patch", "paint", "hang",
     "mount", "assemble", "wire", "plumb", "tile", "caulk", "grout",
@@ -236,7 +235,7 @@ def classify_domain_level(query: str) -> str:
 
 # Keywords indicating practical software engineering, APIs, hardware protocols,
 # libraries, setup/config, or code-level implementation intent.
-_TECHNICAL_KEYWORDS: List[str] = [
+_TECHNICAL_KEYWORDS: list[str] = [
     # Programming languages & syntaxes
     "python", "javascript", "typescript", "rust", "golang", "c++", "bash",
     "shell", "sql", "html", "css", "json", "yaml", "toml", "regex",
@@ -302,7 +301,7 @@ def classify_intent_mode(query: str, intent_frame: str = "") -> str:
 # Evaluator Gap Sanitization
 # ---------------------------------------------------------------------------
 
-_GENERIC_GAP_PATTERNS: List[str] = [
+_GENERIC_GAP_PATTERNS: list[str] = [
     "insufficient evidence",
     "insufficient evidence collected",
     "more evidence needed",
@@ -358,7 +357,7 @@ def is_valid_search_gap(gap: str) -> bool:
 # Any match forces full research regardless of what the necessity-check LLM
 # call claims -- a confidently-wrong "I already know this" is far more
 # dangerous for time-sensitive facts than for stable ones.
-_TIME_SENSITIVE_KEYWORDS: List[str] = [
+_TIME_SENSITIVE_KEYWORDS: list[str] = [
     "current", "currently", "latest", "newest", "recent", "recently",
     "as of", "right now", "these days", "nowadays", "today", "this year",
     "this week", "this month", "who is the president", "who is the ceo",
@@ -410,16 +409,16 @@ ATOMIC_QUERY_CONSTRAINT = (
 # Deterministic heuristics used to validate that a formulated query is actually
 # atomic before it is spent on a search engine call. Cheap, code-only checks —
 # no LLM cost — per the "push control-flow into code" architecture principle.
-_ACADEMIC_STOP_WORDS: List[str] = [
+_ACADEMIC_STOP_WORDS: list[str] = [
     "analysis", "comparative", "mechanisms", "underlying", "investigation",
     "examination", "implications", "methodologies", "paradigms", "evaluation of",
     "impact of", "role of", "perspectives on", "towards understanding"
 ]
-_COMPOUND_MARKERS: List[str] = [" and ", " versus ", " as well as ", " along with ", " between "]
+_COMPOUND_MARKERS: list[str] = [" and ", " versus ", " as well as ", " along with ", " between "]
 _MAX_QUERY_WORDS = 6
 
 
-def is_atomic_query(query: str) -> Tuple[bool, Optional[str]]:
+def is_atomic_query(query: str) -> tuple[bool, str | None]:
     """Validate that a formulated search query is atomic (one concept, web search-shaped).
 
     Zero-LLM-cost deterministic check run against LLM-formulated search strings
@@ -666,7 +665,7 @@ def build_seed_subquestion_prompt(
 def build_search_query_prompt(
     question_text: str,
     task_type: str = "factual",
-    retry_reason: Optional[str] = None,
+    retry_reason: str | None = None,
     intent_frame: str = "",
     intent_mode: str = "technical",
 ) -> str:
@@ -847,7 +846,7 @@ def build_evaluate_prompt(sub_question: str, evidence_summary: str, confidence_t
 
 def build_coverage_check_prompt(
     query: str,
-    completed_sqs: List[Dict[str, Any]],
+    completed_sqs: list[dict[str, Any]],
     domain_level: str = "specialist",
     intent_frame: str = "",
 ) -> str:
@@ -1002,8 +1001,8 @@ def build_notes_summary_prompt(sub_question: str, notes: str, task_type: str = "
 
 def build_synthesize_prompt(
     query: str,
-    all_notes: Dict[str, str],
-    sources_registry: List[Dict[str, Any]],
+    all_notes: dict[str, str],
+    sources_registry: list[dict[str, Any]],
     domain_level: str = "specialist",
     scope: str = "standard",
     intent_frame: str = "",
@@ -1119,8 +1118,8 @@ def build_synthesize_prompt(
 def build_rewrite_prompt(
     original_question: str,
     current_notes: str,
-    gaps: List[str],
-    topic_aliases: Optional[List[str]] = None,
+    gaps: list[str],
+    topic_aliases: list[str] | None = None,
 ) -> str:
     """Build the prompt for auto-rewriting a low-confidence sub-question.
 
@@ -1175,7 +1174,7 @@ def build_rewrite_prompt(
 
 def build_post_synthesis_triage_prompt(
     gap_analysis_text: str,
-    low_confidence_sqs: List[Dict[str, Any]]
+    low_confidence_sqs: list[dict[str, Any]]
 ) -> str:
     """Build the prompt for post-synthesis sub-question triage.
 
@@ -1307,7 +1306,7 @@ def build_prior_knowledge_prompt(
     query: str,
     variant: str,
     evidence_text: str,
-    sub_question: Optional[str] = None,
+    sub_question: str | None = None,
 ) -> str:
     """Build the prompt for the task-level or SQ-level knowledge gate assessment.
 

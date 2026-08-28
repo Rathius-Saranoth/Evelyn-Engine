@@ -2,7 +2,7 @@
 # content_deduplicator.py
 # date created: 2026-08-16 20:21:49
 # date modified: 2026-08-16 20:21:49
-# tags: 
+# tags:
 
 # scripts/content_deduplicator.py
 """
@@ -18,11 +18,11 @@ Generates:
   - data/gdrive_removal_checklist.md (human-readable decommissioning guide)
 """
 
-import os
-import sys
-import json
-import re
 import hashlib
+import json
+import os
+import re
+import sys
 from collections import defaultdict
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +49,7 @@ def get_word_ngrams(text: str, n: int = 3) -> set:
     words = re.findall(r'\b\w+\b', text.lower())
     if len(words) < n:
         return set(words)
-    return set(" ".join(words[i:i+n]) for i in range(len(words)-n+1))
+    return {" ".join(words[i:i+n]) for i in range(len(words)-n+1)}
 
 def jaccard_similarity(set1: set, set2: set) -> float:
     if not set1 or not set2:
@@ -63,46 +63,46 @@ def index_vault_files():
         "md_ngrams": {},     # vault_rel_path -> set(3-grams)
         "md_contents": {}    # vault_rel_path -> text
     }
-    
+
     for root, _, files in os.walk(VAULT_DIR):
         for f in files:
             full_p = os.path.join(root, f)
             rel_p = os.path.relpath(full_p, VAULT_DIR)
-            
+
             # Skip hidden and cache folders
             if any(part.startswith(".") for part in rel_p.split(os.sep)):
                 continue
-                
+
             try:
                 sha = compute_file_sha256(full_p)
                 vault_index["hashes"][sha] = rel_p
-                
+
                 if f.lower().endswith(".md"):
-                    with open(full_p, "r", encoding="utf-8", errors="replace") as md_f:
+                    with open(full_p, encoding="utf-8", errors="replace") as md_f:
                         content = md_f.read()
                         vault_index["md_contents"][rel_p] = content
                         vault_index["md_ngrams"][rel_p] = get_word_ngrams(content, n=3)
-            except Exception:
-                pass
-                
+            except (OSError, UnicodeError) as err:
+                print(f"[DEDUP WARNING] Could not index {rel_p}: {err}", flush=True)
+
     return vault_index
 
 def run_deduplication():
     print("=" * 70, flush=True)
     print("RUNNING MULTI-TIER CONTENT DEDUPLICATION & TRIAGE", flush=True)
     print("=" * 70, flush=True)
-    
+
     if not os.path.exists(MANIFEST_FILE):
         print("[dedup] No transfer manifest found. Please run staging importer first.", flush=True)
         return False
-        
-    with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
+
+    with open(MANIFEST_FILE, encoding="utf-8") as f:
         manifest = json.load(f)
-        
+
     print("1. Indexing existing Obsidian Vault files...", flush=True)
     vault_idx = index_vault_files()
     print(f"   Indexed {len(vault_idx['hashes'])} files in Vault ({len(vault_idx['md_contents'])} Markdown notes).", flush=True)
-    
+
     results = {
         "SAFE_TO_IMPORT": [],
         "EXACT_DUPLICATE_IN_VAULT": [],
@@ -110,25 +110,25 @@ def run_deduplication():
         "EHR_AUTHORITATIVE": [],
         "EXCLUDED_ARCHIVE": []
     }
-    
+
     print("\n2. Analyzing staged items against Vault...", flush=True)
-    for file_id, meta in manifest.get("items", {}).items():
+    for meta in manifest.get("items", {}).values():
         local_path = meta.get("local_path", "")
         if not os.path.exists(local_path):
             continue
-            
+
         rel_path = meta.get("rel_path", "")
-        name = meta.get("name", "")
-        size = meta.get("size_bytes", 0)
-        item_type = meta.get("type", "")
-        
+        meta.get("name", "")
+        meta.get("size_bytes", 0)
+        meta.get("type", "")
+
         # Check EHR raw
         if meta.get("status") == "EHR_RAW" or "medical record" in rel_path.lower():
             meta["triage_status"] = "EHR_AUTHORITATIVE"
             meta["triage_reason"] = "Official Provider EHR Export (Synthesized into Ricky/Medical/ master notes)"
             results["EHR_AUTHORITATIVE"].append(meta)
             continue
-            
+
         # Tier 1: Exact Hash Match
         staged_sha = meta.get("sha256") or compute_file_sha256(local_path)
         if staged_sha in vault_idx["hashes"]:
@@ -137,13 +137,13 @@ def run_deduplication():
             meta["triage_reason"] = f"Identical file already exists at: {matched_vault}"
             results["EXACT_DUPLICATE_IN_VAULT"].append(meta)
             continue
-            
+
         # Tier 2: Markdown Content Lexical Overlap
         if local_path.lower().endswith(".md"):
-            with open(local_path, "r", encoding="utf-8", errors="replace") as f_in:
+            with open(local_path, encoding="utf-8", errors="replace") as f_in:
                 staged_text = f_in.read()
             staged_ngrams = get_word_ngrams(staged_text, n=3)
-            
+
             best_sim = 0.0
             best_match = None
             for v_path, v_ngrams in vault_idx["md_ngrams"].items():
@@ -151,7 +151,7 @@ def run_deduplication():
                 if sim > best_sim:
                     best_sim = sim
                     best_match = v_path
-                    
+
             if best_sim >= 0.85:
                 meta["triage_status"] = "NEAR_DUPLICATE"
                 meta["triage_reason"] = f"{int(best_sim*100)}% content match with Vault note: {best_match}"
@@ -162,21 +162,21 @@ def run_deduplication():
                 meta["triage_reason"] = f"{int(best_sim*100)}% overlap with Vault note: {best_match} (Contains revisions)"
                 results["NEAR_DUPLICATE_REVISION"].append(meta)
                 continue
-                
+
         # Tier 3: Novel & Safe
         meta["triage_status"] = "SAFE_TO_IMPORT"
         meta["triage_reason"] = "Unique knowledge document"
         results["SAFE_TO_IMPORT"].append(meta)
-        
+
     # Save updated manifest
     with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
-        
+
     print("\n3. Generating Google Drive Removal Checklist...", flush=True)
     generate_removal_checklist(manifest, results)
-    
+
     print("\n" + "=" * 70, flush=True)
-    print(f"Deduplication Analysis Summary:")
+    print("Deduplication Analysis Summary:")
     print(f"  - Safe to Import to Vault:    {len(results['SAFE_TO_IMPORT']):>4}")
     print(f"  - Exact Duplicates in Vault:  {len(results['EXACT_DUPLICATE_IN_VAULT']):>4}")
     print(f"  - Near Duplicates / Variants: {len(results['NEAR_DUPLICATE_REVISION']):>4}")
@@ -187,15 +187,15 @@ def run_deduplication():
 def generate_removal_checklist(manifest: dict, results: dict):
     """Create human-readable checklist of what to remove from Google Drive."""
     total_safe_remove_bytes = 0
-    
+
     safe_to_remove = results["SAFE_TO_IMPORT"] + results["EXACT_DUPLICATE_IN_VAULT"] + results["EHR_AUTHORITATIVE"]
     for item in safe_to_remove:
         total_safe_remove_bytes += item.get("size_bytes", 0)
-        
+
     mb_freed = total_safe_remove_bytes / (1024**2)
     gb_freed = total_safe_remove_bytes / (1024**3)
     freed_str = f"{gb_freed:.2f} GB" if gb_freed >= 0.1 else f"{mb_freed:.1f} MB"
-    
+
     lines = [
         "# Google Drive Decommissioning & Removal Checklist",
         "",
@@ -221,7 +221,7 @@ def generate_removal_checklist(manifest: dict, results: dict):
         "> These files have been converted to Markdown, assets extracted to Attachments, and are staged for your Obsidian Vault.",
         ""
     ]
-    
+
     # Group by parent folder
     by_folder = defaultdict(list)
     for item in results["SAFE_TO_IMPORT"]:
@@ -229,24 +229,26 @@ def generate_removal_checklist(manifest: dict, results: dict):
         parts = rel.split(os.sep)
         folder = parts[0] if len(parts) > 1 else "Root"
         by_folder[folder].append(item)
-        
+
     for folder, items in sorted(by_folder.items()):
         lines.append(f"### {folder}")
         for it in items:
             sz_mb = it.get("size_bytes", 0) / (1024**2)
             lines.append(f"- [ ] `{it.get('name')}` ({sz_mb:.1f} MB)")
         lines.append("")
-        
+
     lines.extend([
         "## 3. Duplicates & Redundant Files",
         "> [!NOTE]",
         "> These files were detected as duplicates of notes already present in your Obsidian Vault.",
         ""
     ])
-    
-    for it in results["EXACT_DUPLICATE_IN_VAULT"] + results["NEAR_DUPLICATE_REVISION"]:
-        lines.append(f"- [ ] `{it.get('name')}` — *Reason: {it.get('triage_reason')}*")
-        
+
+    lines.extend(
+        f"- [ ] `{it.get('name')}` — *Reason: {it.get('triage_reason')}*"
+        for it in results["EXACT_DUPLICATE_IN_VAULT"] + results["NEAR_DUPLICATE_REVISION"]
+    )
+
     lines.extend([
         "",
         "## 4. Excluded Media & Backups",
@@ -258,10 +260,10 @@ def generate_removal_checklist(manifest: dict, results: dict):
         "- `Video` & `Music`",
         ""
     ])
-    
+
     with open(REMOVAL_CHECKLIST_MD, "w", encoding="utf-8") as f_out:
         f_out.write("\n".join(lines))
-        
+
     print(f"Generated Removal Checklist at: {REMOVAL_CHECKLIST_MD}", flush=True)
 
 if __name__ == "__main__":

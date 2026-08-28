@@ -29,12 +29,15 @@ Exports:
     terminate_task_subprocess(name) — Forcefully terminate subprocess and clean PID locks for a task.
 """
 
+import contextlib
+import json
+import math
 import os
-import signal
+import sqlite3
 import subprocess
 import sys
 import time
-from typing import Optional
+
 import psutil
 
 # ---------------------------------------------------------------------------
@@ -119,14 +122,12 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
                 if callable(wait_fn):
                     try:
                         wait_fn(timeout=grace_period)
-                    except Exception:
+                    except (subprocess.SubprocessError, psutil.Error, OSError, TimeoutError):
                         kill_fn = getattr(handle, "kill", None)
                         if callable(kill_fn):
-                            try:
+                            with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
                                 kill_fn()
-                            except Exception:
-                                pass
-        except Exception as e:
+        except (subprocess.SubprocessError, psutil.Error, OSError) as e:
             print(f"[TASK MANAGER] Error terminating handle for {name}: {e}", flush=True)
         unregister_subprocess(handle)
 
@@ -138,7 +139,7 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
             if callable(term_fn):
                 try:
                     term_fn(name)
-                except Exception as e:
+                except (subprocess.SubprocessError, psutil.Error, OSError, RuntimeError) as e:
                     print(f"[TASK MANAGER] Error in server.terminate_research_process for {name}: {e}", flush=True)
                 break
 
@@ -149,13 +150,13 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
                 import evelyn_config as cfg
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 task_dir = os.path.join(base_dir, "data", "research", name)
-            except Exception:
+            except (ImportError, AttributeError):
                 task_dir = os.path.join(r"/home/rathius/evelyn/data/research", name)
 
             pid_path = os.path.join(task_dir, "engine.pid")
             if os.path.exists(pid_path):
                 try:
-                    with open(pid_path, "r", encoding="utf-8") as f:
+                    with open(pid_path, encoding="utf-8") as f:
                         pid = int(f.read().strip())
                     if psutil.pid_exists(pid):
                         p = psutil.Process(pid)
@@ -165,25 +166,20 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
                             p.terminate()
                             try:
                                 p.wait(timeout=grace_period)
-                            except Exception:
-                                try:
+                            except (psutil.Error, TimeoutError):
+                                with contextlib.suppress(psutil.Error, OSError):
                                     p.kill()
-                                except Exception:
-                                    pass
-                except Exception as e:
+                except (psutil.Error, OSError, ValueError) as e:
                     print(f"[TASK MANAGER] Error killing PID from {pid_path}: {e}", flush=True)
                 finally:
-                    try:
+                    with contextlib.suppress(OSError):
                         os.remove(pid_path)
-                    except OSError:
-                        pass
 
             # 4. Synchronize on-disk state.json to prevent resurrection by idle research loop
             state_path = os.path.join(task_dir, "state.json")
             if os.path.exists(state_path):
                 try:
-                    import json
-                    with open(state_path, "r", encoding="utf-8") as f:
+                    with open(state_path, encoding="utf-8") as f:
                         disk_state = json.load(f)
                     if isinstance(disk_state, dict):
                         disk_state["status"] = "timed_out"
@@ -191,9 +187,9 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
                         disk_state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
                         with open(state_path, "w", encoding="utf-8") as f:
                             json.dump(disk_state, f, indent=2)
-                except Exception as e:
+                except (OSError, json.JSONDecodeError, ValueError) as e:
                     print(f"[TASK MANAGER] Error updating disk state for {name}: {e}", flush=True)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             print(f"[TASK MANAGER] Subprocess termination error for {name}: {e}", flush=True)
 
 
@@ -210,19 +206,17 @@ def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
     print(f"[TASK MANAGER] Terminating all {len(_spawned_subprocesses)} registered subprocesses...", flush=True)
 
     # 1. Cancel in-memory asyncio task handles
-    for name, handle in list(_active_handles.items()):
+    for _name, handle in list(_active_handles.items()):
         if isinstance(handle, asyncio.Task) and not handle.done():
             handle.cancel()
 
     # 2. Send SIGTERM to all subprocesses
     alive_procs = []
-    for proc in list(_spawned_subprocesses):
-        try:
+    for proc in _spawned_subprocesses:
+        with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
             if proc.poll() is None:
                 proc.terminate()
                 alive_procs.append(proc)
-        except Exception:
-            pass
 
     if not alive_procs:
         _spawned_subprocesses.clear()
@@ -238,12 +232,10 @@ def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
 
     # Escalation to SIGKILL if still alive
     for proc in alive_procs:
-        try:
+        with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
             if proc.poll() is None:
                 print(f"[TASK MANAGER] Process PID {proc.pid} unresponsive; sending SIGKILL.", flush=True)
                 proc.kill()
-        except Exception:
-            pass
 
     _spawned_subprocesses.clear()
 
@@ -291,7 +283,7 @@ def reap_orphaned_processes() -> dict:
                         pass
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-    except Exception as e:
+    except (psutil.Error, OSError) as e:
         print(f"[STARTUP REAPER] Warning during process scan: {e}", flush=True)
 
     # Clean up stale .lock files
@@ -300,13 +292,11 @@ def reap_orphaned_processes() -> dict:
         for file in files:
             if file.endswith(".lock") or file.startswith(".chroma_write.lock"):
                 lock_path = os.path.join(root, file)
-                try:
+                with contextlib.suppress(OSError):
                     # Remove lock file unconditionally during server startup
                     os.remove(lock_path)
                     cleaned_locks.append(lock_path)
                     print(f"[STARTUP REAPER] Removed stale lock file: {lock_path}", flush=True)
-                except Exception:
-                    pass
 
     # Normalize heavy_tasks_state.json if tasks were interrupted
     tasks = _get_background_tasks()
@@ -332,14 +322,12 @@ def reap_orphaned_processes() -> dict:
 
 def _get_db_connection():
     """Return an open SQLite connection to evelyn_memory.db."""
-    import sqlite3
-    import os
     try:
         import evelyn_config as cfg
         db_path = getattr(cfg, "MEMORY_DB_PATH", r"/home/rathius/evelyn/data/evelyn_memory.db")
-    except Exception:
+    except (ImportError, AttributeError):
         db_path = r"/home/rathius/evelyn/data/evelyn_memory.db"
-    
+
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=10.0)
     conn.row_factory = sqlite3.Row
@@ -366,7 +354,7 @@ def _init_history_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_heavy_task_name ON heavy_task_history(task_name);")
         conn.commit()
         conn.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         print(f"[TASK MANAGER] Warning: Could not initialize task history DB: {e}", flush=True)
 
 
@@ -376,7 +364,7 @@ def record_task_history(
     finished_at: float,
     elapsed_seconds: float,
     status: str,
-    error: Optional[str] = None,
+    error: str | None = None,
     items_processed: int = 0,
 ) -> None:
     """Record a completed task run in heavy_task_history SQLite table."""
@@ -387,7 +375,7 @@ def record_task_history(
         conn = _get_db_connection()
         conn.execute(
             """
-            INSERT INTO heavy_task_history 
+            INSERT INTO heavy_task_history
             (task_name, started_at, finished_at, elapsed_seconds, status, error, items_processed, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -396,10 +384,10 @@ def record_task_history(
         # Prune old records to keep table under 500 rows per task
         conn.execute(
             """
-            DELETE FROM heavy_task_history 
+            DELETE FROM heavy_task_history
             WHERE id IN (
-                SELECT id FROM heavy_task_history 
-                WHERE task_name = ? 
+                SELECT id FROM heavy_task_history
+                WHERE task_name = ?
                 ORDER BY id DESC LIMIT -1 OFFSET 500
             )
             """,
@@ -407,7 +395,7 @@ def record_task_history(
         )
         conn.commit()
         conn.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[TASK MANAGER] Error recording task history for {name}: {e}", flush=True)
 
 
@@ -420,8 +408,6 @@ def get_dynamic_timeout(name: str) -> float:
     Returns:
         float: Soft timeout threshold in seconds.
     """
-    import json
-
     baseline = DEFAULT_SOFT_TIMEOUTS.get(name)
     if baseline is None:
         if name.startswith("task_"):
@@ -434,18 +420,15 @@ def get_dynamic_timeout(name: str) -> float:
             try:
                 import evelyn_config as cfg
                 res_dir = getattr(cfg, "RESEARCH_DATA_DIR", "/home/rathius/evelyn/data/research")
-            except Exception:
+            except (ImportError, AttributeError):
                 res_dir = "/home/rathius/evelyn/data/research"
             state_file = os.path.join(res_dir, name, "state.json")
             if os.path.exists(state_file):
-                try:
-                    with open(state_file, "r", encoding="utf-8") as f:
-                        state_data = json.load(f)
-                        if not scope:
-                            scope = state_data.get("scope")
-                        wc_timeout = state_data.get("wall_clock_timeout")
-                except Exception:
-                    pass
+                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(state_file, encoding="utf-8") as f:
+                    state_data = json.load(f)
+                    if not scope:
+                        scope = state_data.get("scope")
+                    wc_timeout = state_data.get("wall_clock_timeout")
 
             if wc_timeout:
                 baseline = max(float(wc_timeout) + 1800.0, float(wc_timeout) * 1.25)
@@ -455,40 +438,30 @@ def get_dynamic_timeout(name: str) -> float:
         else:
             baseline = 1800.0
 
-    try:
-        _init_history_db()
+    # Query SQLite database for up to 30 completed runs
+    with contextlib.suppress(sqlite3.Error, OSError, ValueError):
         conn = _get_db_connection()
-        if name.startswith("task_"):
-            rows = conn.execute(
-                """
-                SELECT elapsed_seconds FROM heavy_task_history
-                WHERE task_name LIKE 'task_%' AND status IN ('idle', 'done', 'success')
-                ORDER BY id DESC LIMIT 50
-                """,
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT elapsed_seconds FROM heavy_task_history
-                WHERE task_name = ? AND status IN ('idle', 'done', 'success')
-                ORDER BY id DESC LIMIT 50
-                """,
-                (name,),
-            ).fetchall()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT elapsed_seconds FROM heavy_task_history
+            WHERE task_name = ? AND status = 'idle'
+            ORDER BY finished_at DESC LIMIT 30
+            """,
+            (name,),
+        )
+        rows = cur.fetchall()
         conn.close()
 
-        if len(rows) >= 5:
-            times = [r["elapsed_seconds"] for r in rows if r["elapsed_seconds"] > 0]
-            if len(times) >= 5:
-                import math
-                mean = sum(times) / len(times)
-                variance = sum((x - mean) ** 2 for x in times) / len(times)
+        if rows and len(rows) >= 3:
+            durations = [r["elapsed_seconds"] for r in rows if r["elapsed_seconds"] and r["elapsed_seconds"] > 0]
+            if len(durations) >= 3:
+                mean = sum(durations) / len(durations)
+                variance = sum((x - mean) ** 2 for x in durations) / len(durations)
                 std_dev = math.sqrt(variance)
                 dynamic_val = mean + (3.0 * std_dev)
                 # Enforce baseline minimum so small averages don't cut off normal runs
                 return max(baseline, dynamic_val)
-    except Exception:
-        pass
 
     return baseline
 
@@ -511,6 +484,7 @@ def _get_background_tasks() -> dict:
     Returns:
         dict: The _background_tasks dict (or local fallback).
     """
+    import sys
     for mod_name in ("evelyn_server", "__main__"):
         mod = sys.modules.get(mod_name)
         if mod:
@@ -547,7 +521,7 @@ def is_boot_grace_period_active() -> bool:
     try:
         import evelyn_config as cfg
         grace_period = getattr(cfg, "IDLE_STARTUP_GRACE_PERIOD", 60.0)
-    except Exception:
+    except (ImportError, AttributeError):
         grace_period = 60.0
     return (time.time() - _boot_ts) < grace_period
 
@@ -662,10 +636,7 @@ def should_yield(name: str) -> bool:
         return True
 
     # If other peer tasks are waiting in the queue, yield to let them execute
-    if len(_idle_queue) > 0:
-        return True
-
-    return False
+    return len(_idle_queue) > 0
 
 
 def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
@@ -676,6 +647,7 @@ def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
     Args:
         reason: Description of why cancellation was triggered.
     """
+    import contextlib
     # 1. Cancel in-memory handles for idle tasks
     for name, handle in list(_active_handles.items()):
         if name.startswith("test_"):
@@ -684,15 +656,13 @@ def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
             if hasattr(handle, "cancel") and callable(handle.cancel) and not handle.done():
                 handle.cancel()
                 print(f"[TASK MANAGER] Cancelled active handle for '{name}' ({reason}).", flush=True)
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             print(f"[TASK MANAGER] Error cancelling handle for '{name}': {e}", flush=True)
 
     # 2. Call tool-specific cancellation hooks if available
-    try:
-        import Evelyn.tools.fact_extractor as fact_extractor
+    with contextlib.suppress(ImportError, AttributeError):
+        from Evelyn.tools import fact_extractor
         fact_extractor.cancel_pending_extraction(reason=reason)
-    except Exception:
-        pass
 
 
 def save_persistent_queue() -> None:
@@ -705,7 +675,7 @@ def save_persistent_queue() -> None:
         os.makedirs(os.path.dirname(queue_file), exist_ok=True)
         with open(queue_file, "w", encoding="utf-8") as f:
             json.dump(_idle_queue, f, indent=2)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"[TASK MANAGER] Error saving persistent task queue: {e}", flush=True)
 
 
@@ -714,19 +684,18 @@ def load_persistent_queue() -> None:
     global _idle_queue
     import json
     import os
+    import time
     queue_file = QUEUE_STATE_FILE
 
     loaded_queue = []
     if os.path.exists(queue_file):
         try:
-            with open(queue_file, "r", encoding="utf-8") as f:
+            with open(queue_file, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict) and "task" in item:
-                        loaded_queue.append(item)
+                loaded_queue.extend([item for item in data if isinstance(item, dict) and "task" in item])
             print(f"[TASK MANAGER] Loaded persistent idle queue ({len(loaded_queue)} items).", flush=True)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             print(f"[TASK MANAGER] Error loading persistent task queue: {e}", flush=True)
 
     # Reconcile interrupted running tasks from persistent state:
@@ -734,16 +703,15 @@ def load_persistent_queue() -> None:
     # re-enqueue it at the front of the queue so it resumes.
     tasks = _get_background_tasks() or {}
     for task_name, info in tasks.items():
-        if task_name.startswith("test_") or task_name.startswith("task_"):
+        if task_name.startswith(("test_", "task_")):
             continue
-        if isinstance(info, dict) and (info.get("status") in RUNNING_STATUSES or info.get("status") == "running"):
-            if not any(item.get("task") == task_name for item in loaded_queue):
-                loaded_queue.insert(0, {
-                    "task": task_name,
-                    "enqueued_at": time.time(),
-                    "metadata": {"resumed_from_crash": True},
-                })
-                print(f"[TASK MANAGER] Reconciled interrupted task '{task_name}' to front of idle queue.", flush=True)
+        if isinstance(info, dict) and (info.get("status") in RUNNING_STATUSES or info.get("status") == "running") and not any(item.get("task") == task_name for item in loaded_queue):
+            loaded_queue.insert(0, {
+                "task": task_name,
+                "enqueued_at": time.time(),
+                "metadata": {"resumed_from_crash": True},
+            })
+            print(f"[TASK MANAGER] Reconciled interrupted task '{task_name}' to front of idle queue.", flush=True)
 
     _idle_queue = loaded_queue
     save_persistent_queue()
@@ -764,31 +732,30 @@ def save_persistent_state() -> None:
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(persist_data, f, indent=2)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"[TASK MANAGER] Error saving persistent state: {e}", flush=True)
 
 
 def load_persistent_state() -> None:
-    """Load persistent heavy task state from disk and SQLite history into server memory on startup."""
+    """Load non-research heavy task states from disk on server startup."""
     import json
     import os
+    import sqlite3
     tasks = _get_background_tasks()
     if tasks is None:
         return
 
-    # 1. Load state file from disk if present
+    # 1. Load JSON state file from disk
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, "r", encoding="utf-8") as f:
+            with open(STATE_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 for key, val in data.items():
-                    if isinstance(val, dict) and not key.startswith("test_"):
-                        if val.get("status") in RUNNING_STATUSES or val.get("status") == "running":
-                            val["status"] = "idle"
+                    if isinstance(val, dict) and key not in tasks:
                         tasks[key] = val
                 print(f"[TASK MANAGER] Restored heavy tasks state from disk ({len(tasks)} tasks).", flush=True)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             print(f"[TASK MANAGER] Error loading persistent state: {e}", flush=True)
 
     # 2. Reconcile missing / uninitialized task records from SQLite heavy_task_history
@@ -825,7 +792,7 @@ def load_persistent_state() -> None:
             save_persistent_state()
         finally:
             conn.close()
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         print(f"[TASK MANAGER] Error reconciling history from DB: {e}", flush=True)
 
 
@@ -848,17 +815,15 @@ def get_last_run_ts(name: str, default: float = 0.0) -> float:
             return float(ts)
 
     if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r", encoding="utf-8") as f:
+        with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
+            with open(STATE_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict) and name in data:
                 ts = data[name].get("last_run_at")
                 if isinstance(ts, (int, float)) and ts > 0:
                     return float(ts)
-        except Exception:
-            pass
 
-    try:
+    with contextlib.suppress(sqlite3.Error, OSError, ValueError):
         conn = _get_db_connection()
         try:
             cur = conn.cursor()
@@ -871,13 +836,11 @@ def get_last_run_ts(name: str, default: float = 0.0) -> float:
                 return float(row[0])
         finally:
             conn.close()
-    except Exception:
-        pass
 
     return default
 
 
-def save_last_run_ts(name: str, ts: Optional[float] = None) -> float:
+def save_last_run_ts(name: str, ts: float | None = None) -> float:
     """Save and update the last_run_at timestamp for a named heavy task.
 
     Args:
@@ -887,8 +850,6 @@ def save_last_run_ts(name: str, ts: Optional[float] = None) -> float:
     Returns:
         float: The timestamp float that was saved.
     """
-    import json
-    import os
     now = ts if ts is not None else time.time()
     tasks = _get_background_tasks()
     if tasks is not None:
@@ -900,11 +861,8 @@ def save_last_run_ts(name: str, ts: Optional[float] = None) -> float:
         # Standalone / test mode without server module imported
         data = {}
         if os.path.exists(STATE_FILE):
-            try:
-                with open(STATE_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                data = {}
+            with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(STATE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
         if not isinstance(data, dict):
             data = {}
         if name not in data or not isinstance(data[name], dict):
@@ -914,13 +872,13 @@ def save_last_run_ts(name: str, ts: Optional[float] = None) -> float:
             os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
             with open(STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             print(f"[TASK MANAGER] Error saving persistent state: {e}", flush=True)
 
     return now
 
 
-def is_any_running(exclude: str = None) -> bool:
+def is_any_running(exclude: str | None = None) -> bool:
     """Return True if any heavy background task is currently running.
 
     Drop-in canonical replacement for all copies of `_heavy_tasks_running()`
@@ -955,10 +913,10 @@ def is_any_running(exclude: str = None) -> bool:
 
 def set_running(
     name: str,
-    phase: Optional[str] = None,
-    sub_status: Optional[dict] = None,
-    diagnostics: Optional[dict] = None,
-    task_obj: Optional[object] = None,
+    phase: str | None = None,
+    sub_status: dict | None = None,
+    diagnostics: dict | None = None,
+    task_obj: object | None = None,
 ) -> None:
     """Register a named task as running in the server's background task registry.
 
@@ -976,14 +934,11 @@ def set_running(
     if task_obj is not None:
         _active_handles[name] = task_obj
     else:
-        # Fallback to current asyncio task if available
-        try:
+        with contextlib.suppress(RuntimeError):
             import asyncio
             current = asyncio.current_task()
             if current:
                 _active_handles[name] = current
-        except Exception:
-            pass
 
     tasks = _get_background_tasks()
     if tasks is None:
@@ -992,7 +947,7 @@ def set_running(
     now = time.time()
     started_at = existing.get("started_at") if existing.get("status") == "running" else now
     last_run_at = existing.get("last_run_at")
-    
+
     tasks[name] = {
         "status": "running",
         "started_at": started_at,
@@ -1009,10 +964,10 @@ def set_running(
 def clear_running(
     name: str,
     status: str = "idle",
-    error: Optional[str] = None,
-    summary: Optional[str] = None,
-    sub_status: Optional[dict] = None,
-    diagnostics: Optional[dict] = None,
+    error: str | None = None,
+    summary: str | None = None,
+    sub_status: dict | None = None,
+    diagnostics: dict | None = None,
     items_processed: int = 0,
 ) -> None:
     """Mark a named task as completed/cancelled/idle in the background task registry.
@@ -1077,7 +1032,7 @@ def clear_running(
     save_persistent_state()
 
 
-def get_status(name: str) -> Optional[str]:
+def get_status(name: str) -> str | None:
     """Return the current status string for a named task, or None if not registered.
 
     Args:
@@ -1196,7 +1151,7 @@ async def start_watchdog(interval: float = 30.0) -> None:
             try:
                 _reconcile_orphaned_tasks()
                 _check_soft_timeouts()
-            except Exception as e:
+            except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
                 print(f"[TASK WATCHDOG ERROR] {e}", flush=True)
 
     _watchdog_task = asyncio.create_task(_loop())

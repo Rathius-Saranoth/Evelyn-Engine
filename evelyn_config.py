@@ -12,9 +12,10 @@ No restart required for DEBUG_LOGGING changes — the server reads it per-reques
 
 import os
 import time
+
 from Evelyn.version import VERSION_NAME, __version__
 
-__all__ = ["__version__", "VERSION_NAME"]
+__all__ = ["VERSION_NAME", "__version__"]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -24,7 +25,7 @@ def _load_dotenv(filepath: str) -> None:
     if not os.path.isfile(filepath):
         return
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -317,9 +318,7 @@ RAG_TOP_K = 8  # Number of chunks to retrieve per query
 RAG_DISTANCE_THRESHOLD = 0.45
 
 # RAG exclusions — derived from VAULT_READ_IGNORE plus any RAG-specific additions.
-RAG_EXCLUDED_SUBDIRS = VAULT_READ_IGNORE + [
-    f"{ASSISTANT_NAME}'s Journal",
-]
+RAG_EXCLUDED_SUBDIRS = [*VAULT_READ_IGNORE, f"{ASSISTANT_NAME}'s Journal"]
 
 # Filename regex patterns to exclude from RAG indexing (structural boilerplate, TOCs, back-of-book indexes).
 RAG_IGNORE_PATTERNS = [

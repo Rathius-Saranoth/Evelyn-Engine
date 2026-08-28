@@ -1,11 +1,11 @@
 # test_task_manager_last_run.py
 # date created: 2026-08-10
 
+import json
 import os
 import sys
-import time
 import tempfile
-import json
+import time
 import unittest
 
 # Ensure repo root and Evelyn/tools are on python path
@@ -33,7 +33,7 @@ class TestTaskManagerLastRun(unittest.TestCase):
             try:
                 task_manager.STATE_FILE = test_state_file
                 now = time.time()
-                
+
                 # Save timestamp for a task
                 saved_ts = task_manager.save_last_run_ts("custom_consolidator", ts=now)
                 self.assertEqual(saved_ts, now)
@@ -44,7 +44,7 @@ class TestTaskManagerLastRun(unittest.TestCase):
 
                 # Verify disk contents
                 self.assertTrue(os.path.exists(test_state_file))
-                with open(test_state_file, "r", encoding="utf-8") as f:
+                with open(test_state_file, encoding="utf-8") as f:
                     data = json.load(f)
                 self.assertEqual(data["custom_consolidator"]["last_run_at"], now)
 
@@ -58,7 +58,7 @@ class TestTaskManagerLastRun(unittest.TestCase):
             original_state_file = task_manager.STATE_FILE
             try:
                 task_manager.STATE_FILE = test_state_file
-                
+
                 task_manager.set_running("custom_task_abc")
                 time.sleep(0.05)
                 task_manager.clear_running("custom_task_abc", status="idle")

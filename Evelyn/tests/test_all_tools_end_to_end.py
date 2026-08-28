@@ -1,7 +1,7 @@
 # test_all_tools_end_to_end.py
 # date created: 2026-08-19 20:26:51
 # date modified: 2026-08-19 20:26:51
-# tags: 
+# tags:
 # Comprehensive Unit and End-to-End Test Suite for Evelyn Tools
 
 import os
@@ -19,13 +19,13 @@ for p in (BASE_DIR, ROOT_DIR, TOOLS_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import evelyn_config as cfg
-import evelyn_tools
 import chroma_rag
 import context_manager
-import vault_db
-import journal_manager
+import evelyn_tools
 import task_manager
+import vault_db
+
+import evelyn_config as cfg
 
 
 class TestAllToolsEndToEnd(unittest.TestCase):
@@ -66,7 +66,7 @@ class TestAllToolsEndToEnd(unittest.TestCase):
         """Test SQLite vault search and context manager preview rendering."""
         results = vault_db.search_documents("Journal", limit=3)
         self.assertIsInstance(results, list)
-        
+
         rendered = context_manager.search_vault_map("Journal", limit=3)
         self.assertIsInstance(rendered, str)
         if results:
@@ -181,9 +181,10 @@ class TestAllToolsEndToEnd(unittest.TestCase):
 
     def test_17_load_recent_messages_tool_context(self):
         """Test that load_recent_messages injects [Tools Executed: ...] for assistant turns."""
-        import evelyn_server
         import sqlite3
         import time
+
+        import evelyn_server
         con = sqlite3.connect(cfg.CHAT_DB_PATH)
         con.execute(
             "INSERT INTO messages (role, content, thinking, ts, tools_used) VALUES (?, ?, ?, ?, ?)",

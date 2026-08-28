@@ -18,8 +18,10 @@ import asyncio
 import base64
 import json
 import logging
+import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -37,7 +39,7 @@ def _encode_file_to_base64(file_path: Path) -> str | None:
     try:
         with open(file_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
+    except OSError as e:
         logger.error("Failed encoding file %s to base64: %s", file_path, e)
         return None
 
@@ -116,7 +118,7 @@ async def extract_visual_metadata_from_ollama(
                 "suggested_tags": parsed.get("suggested_tags", []),
                 "domain": parsed.get("domain", "").strip() or "General/Media",
             }
-    except Exception as exc:
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
         logger.warning("Visual metadata extraction fallback due to: %s", exc)
         return {
             "caption": "Image attachment",
@@ -197,7 +199,8 @@ async def process_media_asset_indexing(
     if isinstance(meta_json, str):
         try:
             meta_json = json.loads(meta_json)
-        except Exception:
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning("Failed parsing metadata_json: %s", e)
             meta_json = {}
 
     exif_details = []
@@ -264,7 +267,7 @@ async def visual_indexing_worker_loop(is_busy_predicate: Callable[[], bool] | No
                     base64_image=base64_data,
                     user_context=user_context,
                 )
-        except Exception as exc:
+        except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
             logger.error("Error in visual indexing worker for %s: %s", guid, exc)
         finally:
             vision_indexing_queue.task_done()

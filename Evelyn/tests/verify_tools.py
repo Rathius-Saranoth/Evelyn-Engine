@@ -4,14 +4,13 @@
 # tags: #test, #verification, #tools, #testing, #assertion
 
 import sys
-import os
 import unittest
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
 
 # Add tools to path
 sys.path.append(r"/home/rathius/evelyn/Evelyn/tools")
-import journal_manager
 import context_manager
+import journal_manager
 
 
 class TestEvelynTools(unittest.TestCase):

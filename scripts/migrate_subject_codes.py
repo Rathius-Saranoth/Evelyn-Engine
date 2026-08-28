@@ -13,12 +13,11 @@ Performs:
 3. Supports --dry-run for validation before making changes.
 """
 
+import argparse
 import os
-import sys
 import re
 import sqlite3
-import argparse
-from pathlib import Path
+import sys
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(ROOT_DIR, "Evelyn", "tools")
@@ -83,7 +82,7 @@ def migrate_database(db_path: str, dry_run: bool = False) -> dict:
         cur.executemany("UPDATE context_entries SET category = ? WHERE id = ?", entries_to_update)
         cur.executemany("UPDATE proposals SET suggested_category = ?, merged_observation = ? WHERE id = ?", proposals_to_update)
         con.commit()
-        print(f"[DB] Successfully committed database migrations.")
+        print("[DB] Successfully committed database migrations.")
 
     con.close()
     return {"entries_updated": len(entries_to_update), "proposals_updated": len(proposals_to_update)}
@@ -109,7 +108,7 @@ def migrate_vault_files(vault_base: str, dry_run: bool = False) -> int:
 
                 # Update file contents
                 try:
-                    with open(src_path, "r", encoding="utf-8") as fp:
+                    with open(src_path, encoding="utf-8") as fp:
                         content = fp.read()
 
                     # Update internal category tag or frontmatter
@@ -124,7 +123,7 @@ def migrate_vault_files(vault_base: str, dry_run: bool = False) -> int:
 
                     renamed_count += 1
                     print(f"  [RENAME] {f} -> {new_filename}")
-                except Exception as ex:
+                except (OSError, UnicodeError) as ex:
                     print(f"  [ERROR] Failed migrating file {src_path}: {ex}")
 
     print(f"[VAULT] Migrated {renamed_count} context entry vault files.")
@@ -149,7 +148,7 @@ def main():
     vault_res = migrate_vault_files(vault_dir, dry_run=args.dry_run)
 
     print("\n" + "=" * 70)
-    print(f"MIGRATION SUMMARY:")
+    print("MIGRATION SUMMARY:")
     print(f"  Context Entries: {db_res['entries_updated']}")
     print(f"  Proposals:       {db_res['proposals_updated']}")
     print(f"  Vault Files:     {vault_res}")
