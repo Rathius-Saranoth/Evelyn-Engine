@@ -49,7 +49,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Message Biometrics & State Mapping**: Asynchronously map message IDs to timestamped physiological metrics (Oura/Health HRV, stress) for retroactive wellbeing inquiry without prompt clutter.
 
 ### Agency & Tools
-- [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search (DuckDuckGo), intent framing, atomic query generation, source evaluation, and Obsidian Vault synthesis.
+- [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search (DuckDuckGo), intent framing, atomic query generation, source evaluation, Obsidian Vault synthesis, research inspection tools (`list_research_tasks`, `inspect_research_task` with sub-question evidence digests), and resilient fuzzy guidance (`guide_research`).
 - [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
 - [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with pre-approval editing and live diff panels in DevUI.
 - [x] **Procedural Knowledge & Tool Execution Protocols**: Background pipeline that extracts operational workflows, tool recommendations, and pitfalls into searchable procedural memory, with queue-based consolidation and DevUI management.

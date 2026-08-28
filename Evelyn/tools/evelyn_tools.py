@@ -887,11 +887,319 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
         return f"Failed to resume research task: {e}"
 
 
-def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
+def _scan_research_tasks() -> list[dict]:
+    """Scan cfg.RESEARCH_DATA_DIR and return all task states sorted by updated_at / created_at desc."""
+    import os
+    import json
+    import evelyn_config as cfg
+    tasks = []
+    if not os.path.exists(cfg.RESEARCH_DATA_DIR):
+        return tasks
+    for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
+        task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, folder)
+        if os.path.isdir(task_dir):
+            state_file = os.path.join(task_dir, "state.json")
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        st = json.load(f)
+                        if "task_id" not in st:
+                            st["task_id"] = folder
+                        tasks.append(st)
+                except Exception:
+                    pass
+    tasks.sort(key=lambda t: t.get("updated_at") or t.get("created_at") or "", reverse=True)
+    return tasks
+
+
+def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[Optional[str], Optional[dict], Optional[str]]:
+    """Resolve a task_id or query string to a specific task state.
+
+    Returns:
+        (resolved_task_id, state_dict, error_or_clarification_message)
+    """
+    tasks = _scan_research_tasks()
+    if not tasks:
+        return None, None, "No research tasks found in the system."
+
+    clean_id = (task_id or "").strip()
+    clean_query = (query or "").strip().lower()
+
+    # 1. Exact task_id match
+    if clean_id:
+        for t in tasks:
+            if t.get("task_id") == clean_id:
+                return clean_id, t, None
+        # Prefix or substring match on task_id
+        matching_ids = [t for t in tasks if clean_id.lower() in t.get("task_id", "").lower()]
+        if len(matching_ids) == 1:
+            return matching_ids[0]["task_id"], matching_ids[0], None
+        elif len(matching_ids) > 1:
+            opts = "\n".join(f"- `{t['task_id']}`: {t.get('query', 'Unknown')}" for t in matching_ids)
+            return None, None, f"Multiple tasks match ID '{clean_id}':\n{opts}"
+
+    # 2. Query / Topic matching
+    if clean_query:
+        matches = []
+        for t in tasks:
+            q_text = (t.get("query") or t.get("original_question") or "").lower()
+            aliases = " ".join(t.get("topic_aliases") or []).lower()
+            tags = " ".join(t.get("topic_tags") or []).lower()
+            if clean_query in q_text or clean_query in aliases or clean_query in tags:
+                matches.append(t)
+            elif all(term in q_text or term in aliases or term in tags for term in clean_query.split() if len(term) > 2):
+                matches.append(t)
+        if len(matches) == 1:
+            return matches[0]["task_id"], matches[0], None
+        elif len(matches) > 1:
+            # If multiple match, check if only one is stalled/struggling
+            stalled_matches = [
+                t for t in matches
+                if t.get("status") in ("needs_guidance", "quarantined")
+                or t.get("struggling")
+                or any(sq.get("status") == "needs_guidance" for sq in t.get("plan", {}).get("sub_questions", []))
+            ]
+            if len(stalled_matches) == 1:
+                return stalled_matches[0]["task_id"], stalled_matches[0], None
+            opts = "\n".join(f"- `{t['task_id']}` ({t.get('status')}): {t.get('query', 'Unknown')}" for t in matches)
+            return None, None, f"Multiple tasks match query '{query}':\n{opts}\nPlease specify the exact task_id."
+
+    # 3. If neither task_id nor query matched, check stalled/struggling tasks
+    stalled_tasks = [
+        t for t in tasks
+        if t.get("status") in ("needs_guidance", "quarantined")
+        or t.get("struggling")
+        or any(sq.get("status") == "needs_guidance" for sq in t.get("plan", {}).get("sub_questions", []))
+    ]
+    if len(stalled_tasks) == 1:
+        return stalled_tasks[0]["task_id"], stalled_tasks[0], None
+    elif len(stalled_tasks) > 1:
+        opts = "\n".join(f"- `{t['task_id']}`: {t.get('query', 'Unknown')} (Status: {t.get('status')})" for t in stalled_tasks)
+        return None, None, f"Multiple stalled research tasks need guidance:\n{opts}\nPlease specify task_id or topic query."
+
+    # 4. If no stalled tasks and only 1 total active task
+    active_tasks = [t for t in tasks if t.get("status") in ("running", "searching", "synthesizing", "pending", "paused")]
+    if len(active_tasks) == 1:
+        return active_tasks[0]["task_id"], active_tasks[0], None
+
+    return None, None, "Could not identify research task. Please provide task_id or topic query."
+
+
+def list_research_tasks(status_filter: Optional[str] = None, limit: int = 10, **kwargs) -> str:
+    """List background deep research tasks, showing their task IDs, topics, statuses, and progress.
+
+    Args:
+        status_filter: Optional filter ('stalled', 'active', 'done', 'quarantined', 'all').
+                       Defaults to 'all'.
+        limit: Maximum number of tasks to return (default 10).
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Formatted markdown summary of research tasks.
+    """
+    tasks = _scan_research_tasks()
+    if not tasks:
+        return "No research tasks found in the system."
+
+    filt = (status_filter or "all").strip().lower()
+    filtered = []
+    for t in tasks:
+        st = t.get("status", "unknown")
+        is_quarantined = bool(t.get("quarantined"))
+        is_struggling = bool(t.get("struggling"))
+        sqs = t.get("plan", {}).get("sub_questions", [])
+        has_stuck_sq = any(sq.get("status") == "needs_guidance" for sq in sqs)
+        is_stalled = (st == "needs_guidance" or is_quarantined or is_struggling or has_stuck_sq)
+
+        if filt == "stalled" and not is_stalled:
+            continue
+        elif filt == "active" and st not in ("running", "searching", "synthesizing", "pending", "paused"):
+            continue
+        elif filt == "done" and st != "done":
+            continue
+        elif filt == "quarantined" and not is_quarantined:
+            continue
+        filtered.append((t, is_stalled))
+
+    if not filtered:
+        return f"No research tasks found matching filter '{filt}'."
+
+    # Limit results
+    filtered = filtered[:max(1, limit)]
+
+    lines = [f"### Research Tasks ({len(filtered)} shown):"]
+    for t, is_stalled in filtered:
+        tid = t.get("task_id", "unknown")
+        query = t.get("query", "Unknown Topic")
+        raw_status = t.get("status", "unknown")
+        if is_stalled:
+            status_badge = "⚠️ NEEDS GUIDANCE" if raw_status == "needs_guidance" or not t.get("quarantined") else "⛔ QUARANTINED"
+        elif raw_status == "done":
+            status_badge = "✅ COMPLETED"
+        elif raw_status in ("running", "searching", "synthesizing"):
+            status_badge = f"🔄 RUNNING ({raw_status})"
+        else:
+            status_badge = f"⏸️ {raw_status.upper()}"
+
+        conf = t.get("confidence", 0)
+        step = t.get("current_step", "unknown")
+        sqs = t.get("plan", {}).get("sub_questions", [])
+        sq_info = f"{len(sqs)} SQs" if sqs else "No plan"
+        stuck_sq = next((s for s in sqs if s.get("status") == "needs_guidance"), None)
+        stuck_info = f" | Stuck on: '{stuck_sq.get('question') or stuck_sq.get('search_query', '')[:50]}'" if stuck_sq else ""
+
+        lines.append(f"- **`{tid}`** | {status_badge} | {conf}% Conf | Stage: {step} ({sq_info}{stuck_info})\n  *Topic:* {query}")
+
+    return "\n".join(lines)
+
+
+def inspect_research_task(
+    task_id: str = "",
+    query: str = "",
+    include_notes: bool = True,
+    sq_id: Optional[str] = None,
+    include_sources: bool = False,
+    **kwargs,
+) -> str:
+    """Inspect full details of a research task including question, sub-questions, confidence, and synthesized notes.
+
+    Args:
+        task_id: Task ID (e.g. 'task_1787864268_8713b01d') or partial ID.
+        query: Topic or question search query if task_id is unknown.
+        include_notes: If True (default), includes synthesized notes/evidence for sub-questions.
+        sq_id: Optional sub-question ID (e.g. 'sq_01') to inspect a specific sub-question.
+        include_sources: If True, lists source URLs and titles (defaults to False to save context tokens).
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Comprehensive research task inspection details.
+    """
+    import os
+    import json
+    import evelyn_config as cfg
+
+    resolved_id, state, err = _resolve_research_task_id(task_id, query)
+    if err or not resolved_id or not state:
+        return f"Failed to inspect task: {err}"
+
+    task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, resolved_id)
+    topic = state.get("query", "Unknown Topic")
+    scope = state.get("scope", "standard")
+    status = state.get("status", "unknown")
+    conf = state.get("confidence", 0)
+    current_step = state.get("current_step", "unknown")
+    intent = state.get("intent_frame", "")
+    runtime_sec = state.get("accumulated_runtime", 0)
+    runtime_str = f"{int(runtime_sec // 60)}m {int(runtime_sec % 60)}s" if runtime_sec else "N/A"
+
+    lines = [
+        f"## Research Task: `{resolved_id}`",
+        f"**Topic**: {topic}",
+        f"**Status**: {status.upper()} | **Confidence**: {conf}% | **Scope**: {scope} | **Current Stage**: {current_step} | **Runtime**: {runtime_str}",
+    ]
+    if intent:
+        lines.append(f"**Intent Frame**: {intent}")
+    if state.get("quarantined"):
+        lines.append("**Quarantine Notice**: Task quarantined due to low confidence.")
+    if state.get("termination_reason"):
+        lines.append(f"**Termination Reason**: {state.get('termination_reason')}")
+
+    plan = state.get("plan", {})
+    sqs = plan.get("sub_questions", [])
+    if not sqs:
+        lines.append("\n*No sub-questions plan registered yet.*")
+    else:
+        lines.append(f"\n### Sub-Questions ({len(sqs)}):")
+        for i, sq in enumerate(sqs):
+            sid = sq.get("id", f"sq_{i+1:02d}")
+            if sq_id and sq_id.strip() != sid:
+                continue
+            s_q = sq.get("question", "")
+            s_query = sq.get("search_query", "")
+            s_status = sq.get("status", "pending")
+            s_conf = sq.get("confidence", 0)
+            s_sources = sq.get("source_count", 0)
+            s_depth = sq.get("search_depth", 0)
+            gaps = sq.get("gaps", [])
+
+            lines.append(f"\n#### [{sid}] {s_q}")
+            lines.append(f"- **Status**: {s_status} | **Confidence**: {s_conf}% | **Sources Extracted**: {s_sources} | **Search Depth**: {s_depth}")
+            if s_query and s_query != s_q:
+                lines.append(f"- **Current Search Query**: `{s_query}`")
+            if gaps:
+                lines.append(f"- **Knowledge Gaps / Injected Guidance**: {'; '.join(gaps)}")
+
+            # Load synthesized notes / summary
+            if include_notes:
+                summary_file = os.path.join(task_dir, f"{sid}_summary.md")
+                notes_summary_file = os.path.join(task_dir, f"{sid}_notes_summary.md")
+                notes_file = os.path.join(task_dir, f"{sid}_notes.md")
+
+                notes_content = ""
+                if os.path.exists(summary_file):
+                    try:
+                        with open(summary_file, "r", encoding="utf-8") as f:
+                            notes_content = f.read().strip()
+                    except Exception:
+                        pass
+                elif os.path.exists(notes_summary_file):
+                    try:
+                        with open(notes_summary_file, "r", encoding="utf-8") as f:
+                            notes_content = f.read().strip()
+                    except Exception:
+                        pass
+                elif os.path.exists(notes_file):
+                    try:
+                        with open(notes_file, "r", encoding="utf-8") as f:
+                            raw = f.read().strip()
+                            notes_content = raw[:2000] + ("\n... [Notes truncated for brevity]" if len(raw) > 2000 else "")
+                    except Exception:
+                        pass
+
+                if notes_content:
+                    lines.append(f"- **Synthesized Notes / Evidence**:\n```markdown\n{notes_content}\n```")
+                else:
+                    lines.append("- **Synthesized Notes / Evidence**: *(No notes extracted yet)*")
+
+    # Sources (only if requested)
+    if include_sources:
+        sources = state.get("sources_registry", [])
+        if sources:
+            lines.append(f"\n### Sources Registry ({len(sources)}):")
+            for s in sources[:20]:
+                sid = s.get("id", "")
+                stitle = s.get("title", "Untitled")
+                surl = s.get("url", "")
+                failed_flag = " [FAILED]" if s.get("failed") else ""
+                lines.append(f"- `[{sid}]` {stitle} ({surl}){failed_flag}")
+            if len(sources) > 20:
+                lines.append(f"- *... and {len(sources) - 20} more sources*")
+
+    # Report if done
+    if status == "done":
+        report_file = os.path.join(task_dir, "report.md")
+        vault_path = state.get("vault_path")
+        lines.append("\n### Final Report:")
+        if vault_path:
+            lines.append(f"**Obsidian Vault Note**: `{vault_path}`")
+        if os.path.exists(report_file):
+            try:
+                with open(report_file, "r", encoding="utf-8") as f:
+                    rep = f.read().strip()
+                    rep_snippet = rep[:3000] + ("\n... [Report truncated -- see Obsidian vault for full note]" if len(rep) > 3000 else "")
+                    lines.append(f"```markdown\n{rep_snippet}\n```")
+            except Exception:
+                pass
+
+    return "\n".join(lines)
+
+
+def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwargs) -> str:
     """Inject user guidance into a struggling research task and resume it.
 
     Args:
-        task_id: Unique task identifier.
+        task_id: Unique task identifier. Optional if query is provided or single stalled task exists.
+        query: Topic or query keyword to identify the task if task_id is not known.
         guidance: Free-form text guidance to redirect the query search.
         **kwargs: Flexible keyword arguments.
 
@@ -903,14 +1211,28 @@ def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
     import evelyn_config as cfg
     _reload()
     try:
+        # Check flexible guidance argument names
+        if not guidance:
+            for alt in ("instructions", "terms", "hint", "text", "prompt"):
+                if alt in kwargs and kwargs[alt]:
+                    guidance = kwargs[alt]
+                    break
+
+        if not guidance:
+            return "Please provide guidance text to redirect the research task."
+
+        resolved_id, state, err = _resolve_research_task_id(task_id, query)
+        if err or not resolved_id or not state:
+            return f"Failed to locate research task: {err}"
+
         from research_engine import load_state, save_state
-        state = load_state(task_id)
+        state = load_state(resolved_id)
         if not state:
-            return f"Research task {task_id} not found."
-            
+            return f"Research task {resolved_id} not found on disk."
+
         if state.get("status") not in ("needs_guidance", "paused", "running", "done", "cancelled", "error"):
-            return f"Research task {task_id} is currently '{state.get('status')}'. Cannot inject guidance in this state."
-            
+            return f"Research task {resolved_id} is currently '{state.get('status')}'. Cannot inject guidance in this state."
+
         if state.get("status") in ("running", "searching", "synthesizing"):
             import sys
             import time
@@ -922,20 +1244,24 @@ def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
             if server:
                 term_func = getattr(server, "terminate_research_process", None)
                 if term_func:
-                    term_func(task_id)
-            # Give it a moment to cleanly exit before overwriting state
+                    term_func(resolved_id)
             time.sleep(0.5)
-            
-        # Find the currently active sub-question
+
+        # Find the currently active sub-question or first struggling sub-question
         idx = state.get("current_sq_idx", 0)
         plan = state.get("plan", {})
         sqs = plan.get("sub_questions", [])
+
+        target_sq = None
         if 0 <= idx < len(sqs):
-            sq = sqs[idx]
-            # Inject guidance directly into the gaps file for the next search iteration
-            task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, task_id)
-            gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
-            
+            target_sq = sqs[idx]
+        elif sqs:
+            target_sq = next((s for s in sqs if s.get("status") == "needs_guidance"), sqs[0])
+
+        if target_sq:
+            task_dir = os.path.join(cfg.RESEARCH_DATA_DIR, resolved_id)
+            gaps_file = os.path.join(task_dir, f"{target_sq['id']}_gaps.json")
+
             existing_gaps = []
             if os.path.exists(gaps_file):
                 try:
@@ -944,30 +1270,29 @@ def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
                         existing_gaps = data.get("gaps", [])
                 except Exception:
                     pass
-                    
+
             existing_gaps.append(f"USER GUIDANCE: {guidance}")
-            
+
             with open(gaps_file, "w", encoding="utf-8") as f:
                 json.dump({"gaps": existing_gaps}, f, indent=2)
-                
-            # Reset search depth so it has a fresh chance to search
+
             state["search_depth"] = 0
             state["current_step"] = "search"
             state["struggling"] = False
-            state["status"] = "pending" # So it gets picked up by idle loop or resume
-            sq["status"] = "pending"
+            state["status"] = "pending"
+            target_sq["status"] = "pending"
             if "termination_reason" in state:
                 state["termination_reason"] = None
             if "quarantined" in state:
                 state["quarantined"] = False
             if "error" in state:
                 state["error"] = None
-            
-            save_state(task_id, state, ignore_disk_status=True)
-            
-            # Immediately resume the task
-            result = resume_research_task(task_id)
-            return f"Guidance injected into sub-question '{sq.get('query')}'. Task is resuming. {result}"
+
+            save_state(resolved_id, state, ignore_disk_status=True)
+
+            result = resume_research_task(resolved_id)
+            sq_label = target_sq.get("question") or target_sq.get("query", target_sq.get("id"))
+            return f"Guidance injected into sub-question '{sq_label}' for task `{resolved_id}`. Task is resuming. {result}"
         else:
             state["intent_frame"] = guidance
             state["struggling"] = False
@@ -978,9 +1303,9 @@ def guide_research(task_id: str = "", guidance: str = "", **kwargs) -> str:
                 state["quarantined"] = False
             if "error" in state:
                 state["error"] = None
-            save_state(task_id, state, ignore_disk_status=True)
-            result = resume_research_task(task_id)
-            return f"Guidance attached to research task '{state.get('query')}'. Task is resuming. {result}"
+            save_state(resolved_id, state, ignore_disk_status=True)
+            result = resume_research_task(resolved_id)
+            return f"Guidance attached to research task '{state.get('query')}' (`{resolved_id}`). Task is resuming. {result}"
     except Exception as e:
         return f"Failed to guide research task: {e}"
 
@@ -2154,6 +2479,8 @@ TOOL_THINK_EFFORT: dict[str, str] = {
     "generate_image":        "medium",
     "web_search":            "medium",
     "start_research":        "high",
+    "list_research_tasks":   "low",
+    "inspect_research_task": "medium",
     "guide_research":        "medium",
     "check_new_research":    "medium",
     "search_history":        "low",
@@ -2305,24 +2632,89 @@ MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "guide_research",
+            "name": "list_research_tasks",
             "description": (
-                "Provide guidance to a deep research task that is stalled or quarantined. "
-                "Use when asked to help a stalled task or when a research task requires redirection."
+                "List background deep research tasks, showing their task IDs, topics, statuses (running, stalled, needs_guidance, done), and progress. "
+                "Use when checking ongoing research, searching for research task IDs, or seeing what investigations are active or stalled."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status_filter": {
+                        "type": "string",
+                        "description": "Optional status filter: 'stalled' (needs guidance / struggling), 'active' (running / paused), 'done', 'quarantined', or 'all'. Defaults to 'all'.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of tasks to return (default: 10).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_research_task",
+            "description": (
+                "Inspect full details of a specific deep research task, including its main question, decomposed sub-questions, confidence scores, identified knowledge gaps, and synthesized notes/evidence gathered so far. "
+                "Use to discuss research findings with user, investigate where a task is stuck, or review notes before providing guidance."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "The research task ID (e.g. 'task_1234567890_abcdef').",
+                        "description": "The research task ID (e.g. 'task_1787864268_8713b01d') or partial ID. Optional if query is provided.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Topic or keyword query to locate the task if task_id is unknown (e.g. 'heart rate', 'narrative flow').",
+                    },
+                    "include_notes": {
+                        "type": "boolean",
+                        "description": "Whether to include synthesized notes/evidence collected for the sub-questions (default: true).",
+                    },
+                    "sq_id": {
+                        "type": "string",
+                        "description": "Optional specific sub-question ID to focus on (e.g. 'sq_01'). If omitted, shows all sub-questions.",
+                    },
+                    "include_sources": {
+                        "type": "boolean",
+                        "description": "Whether to list source titles and URLs (default: false to save context tokens).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "guide_research",
+            "description": (
+                "Provide guidance to a deep research task that is stalled, struggling, or quarantined. "
+                "Use when asked to help a stalled task or when a research task requires redirection. "
+                "Can target by task_id or query topic keyword."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The research task ID (e.g. 'task_1234567890_abcdef'). Optional if query is provided or only one task is stalled.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Topic or question keyword to find the task if task_id is unknown (e.g. 'heart rate sampling').",
                     },
                     "guidance": {
                         "type": "string",
                         "description": "Specific search terms, hints, or instructions to redirect the research engine.",
                     },
                 },
-                "required": ["task_id", "guidance"],
+                "required": ["guidance"],
             },
         },
     },
@@ -2813,6 +3205,8 @@ TOOL_FUNCTIONS = {
     "sync_context_memory": sync_context_memory,
     "web_search": web_search,
     "start_research": start_research,
+    "list_research_tasks": list_research_tasks,
+    "inspect_research_task": inspect_research_task,
     "guide_research": guide_research,
     "check_new_research": check_new_research,
     "search_history": search_history,
