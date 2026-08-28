@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-23 08:05:18
+date modified: 2026-08-28 08:46:43
 tags: architecture, backend, design, systems, map, evelyn
 ---
 
@@ -162,9 +162,9 @@ Initiated on-demand to rebuild, map, and synchronize files from your Obsidian Va
 
 ### 2.4 Deep Research Subsystem
 Enables fully autonomous, multi-step search and information synthesis in the background when the server is idle.
-* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), cross-task Chroma querying leveraging a virtual memory cache, **two-phase prior knowledge necessity pre-filtering** (internal model knowledge & saved memory facts with automatic workspace auto-clearing upon resolution), **additive source note extraction** (`### Source [src_00X]`) ensuring zero evidence loss, **mid-pipeline native reasoning** (`think=True`) with stage-tailored token budgets, **Research Intent Frame anchoring**, **dynamic technical alias/synonym expansion** (`topic_aliases`), and a **circadian mid-loop window check** that pauses tasks at step boundaries when outside active hours (06:00–21:00).
+* **[[research_engine.py]]**: Core deep research runner. Manages state transitions, confidence scoring, safety brakes, Obsidian Vault compilation, self-initiated gap extraction, auto-rewriting of low-confidence questions, post-synthesis triage loops, local Obsidian note parsing, per-task Chroma vector indexing (for `deep` scope tasks), cross-task Chroma querying leveraging a virtual memory cache, **two-phase prior knowledge necessity pre-filtering** (internal model knowledge & saved memory facts with automatic workspace auto-clearing upon resolution), **pre-search intent mode classification** (`[MODE_TECHNICAL]` vs `[MODE_ACADEMIC]`), **additive source note extraction** (`### Source [src_00X]`) ensuring zero evidence loss, **mid-pipeline native reasoning** (`think=True`) with stage-tailored token budgets, **Research Intent Frame anchoring**, **evaluator gap sanitization** (discarding non-searchable meta-status text), **dynamic technical alias/synonym expansion** (`topic_aliases`), and a **circadian mid-loop window check** that pauses tasks at step boundaries when outside active hours (06:00–21:00).
 * **[[web_reader.py]]**: Dynamic web scraper. Features Trafilatura integration, SSL bypasses, timeouts, and adaptive chunking for heavy documents.
-* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, **web-native query formulation** (2–5 keywords, atomic constraints, academic stop-word heuristics), single-source extraction with discovered technical synonyms, alias-aware search rewrites, and 5-part scannable reference guide synthesis with frontmatter `aliases`.
+* **[[research_prompts.py]]**: Stateless prompt library driving deep search plans, **pre-search intent classification** (`classify_intent_mode`), **intent-calibrated web-native query formulation** (technical mode developer ecosystem targeting vs academic mode consensus targeting, 2–5 keywords, atomic constraints, academic stop-word heuristics), single-source extraction with discovered technical synonyms, alias-aware search rewrites, and 5-part scannable reference guide synthesis with frontmatter `aliases`.
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.

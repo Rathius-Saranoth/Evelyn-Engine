@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 07:53:30
+date modified: 2026-08-28 08:46:31
 tags: changelog, versioning, history, release-notes, evelyn
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.010] - 2026-08-28 — *Research Intent Mode Classification & Search Query Lexicon Calibration*
+
+### Added & Enhanced
+- **Pre-Search Intent Mode Classification (`Evelyn/tools/research_prompts.py`)**:
+  - Implemented `classify_intent_mode(query, intent_frame)` with zero-LLM-cost regex word boundary matching across programming languages, system engineering, IoT/hardware, and AI/LLM keywords.
+  - Distinguishes `[MODE_TECHNICAL]` (`technical` — APIs, libraries, tutorials, code snippets, hardware protocols) from `[MODE_ACADEMIC]` (`academic` — foundational facts, peer-reviewed consensus, medical/scientific definitions).
+  - Wired intent mode persistence and orchestration in `Evelyn/tools/research_engine.py` (`state["intent_mode"]`).
+- **Technical vs. Academic Query Formulation (`build_search_query_prompt`)**:
+  - Injected explicit intent mode constraints and few-shot examples into `build_search_query_prompt()`.
+  - For technical intent: strictly targets developer documentation, GitHub repositories, tutorials, and library packages while banning thesis-style academic phrasing.
+  - For academic intent: targets scholarly consensus and authoritative domain literature.
+- **Evaluator Gap Sanitization & Prompt Hardening (`research_prompts.py`, `research_engine.py`)**:
+  - Implemented `is_valid_search_gap(gap)` to catch and discard generic evaluation status strings (e.g. `"Insufficient evidence collected."`).
+  - Hardened `build_evaluate_prompt()` negative constraints to prevent meta-status phrases from leaking into `gaps`.
+  - Updated fallback query extraction in `_truncate_query_fallback()` to strip academic filler and prioritize technical keywords.
+- **Unit Test Suite (`Evelyn/tests/test_research_intent.py`)**:
+  - Added test coverage for technical vs academic intent classification, intent frame evaluation, gap validation, prompt formulation, and fallback keyword generation.
+
+---
 
 ## [000.006.009] - 2026-08-28 — *Subject Code Sanitization & Canonical Fast Memory Category Suffix Enforcement*
 
