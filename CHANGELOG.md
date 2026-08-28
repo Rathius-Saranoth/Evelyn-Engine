@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 07:37:54
+date modified: 2026-08-28 07:53:30
 tags: changelog, versioning, history, release-notes, evelyn
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.008] - 2026-08-28 — *Research Inspection, Sub-Question Notes & Resilient Guidance Tooling*
+
+### Added & Enhanced
+- **Research Inspection & Discovery Tooling (`Evelyn/tools/evelyn_tools.py`)**:
+  - Added `list_research_tasks(status_filter, limit)` tool enabling Evelyn to list active, stalled, queued, and completed research tasks with status badges, confidence %, and stuck sub-questions.
+  - Added `inspect_research_task(task_id, query, include_notes, sq_id, include_sources)` tool allowing Evelyn to inspect sub-questions, confidence ratings, knowledge gaps, and synthesized evidence digests (`sq_##_summary.md` / `sq_##_notes_summary.md`).
+  - Implemented token-efficient output design: raw web sources registry is excluded by default (`include_sources=False`) and long raw notes are bounded.
+- **Resilient & Fuzzy Research Guidance (`Evelyn/tools/evelyn_tools.py`)**:
+  - Upgraded `guide_research(task_id, query, guidance)` to support query keyword / topic matching, auto-resolution when a single stalled task exists, and candidate list suggestions when queries are ambiguous.
+  - Added flexible argument alias resolution for `guidance` (e.g. `instructions`, `terms`, `hint`, `prompt`).
+- **System Notification Hardening for Struggling Research (`evelyn_server.py`)**:
+  - Fixed `get_research_context()` in `evelyn_server.py` to identify struggling tasks (`state.get("struggling") == True` or sub-question in `needs_guidance`) even when process status is `"running"` or `"paused"`.
+  - Corrected sub-question extraction in system prompt alerts to read `.get("question")` or `.get("search_query")` rather than missing `"query"` key, and ensured task IDs are clearly formatted.
+
+---
 
 ## [000.006.007] - 2026-08-28 — *Procedure Suggested Tools, Tag Preservation & Advanced Filter*
 
