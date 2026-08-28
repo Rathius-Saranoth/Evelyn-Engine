@@ -1,6 +1,6 @@
 ---
 title: {{TITLE}}
-tags: list, {{SLUG}}
+tags: [list, "{{SLUG}}"]
 date created: {{DATE}}
 date modified: {{DATE}}
 ---

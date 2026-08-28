@@ -2,7 +2,7 @@
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
 date modified: 2026-08-23 08:02:11
-tags: setup, guide, installation, configuration, deployment, evelyn
+tags: [setup, guide, installation, configuration, deployment, evelyn]
 ---
 
 # Evelyn Engine — Full Setup & Installation Guide

@@ -1,6 +1,6 @@
 ---
 title: Groceries
-tags: list, groceries, shopping
+tags: [list, groceries, shopping]
 date created: {{DATE}}
 date modified: {{DATE}}
 ---

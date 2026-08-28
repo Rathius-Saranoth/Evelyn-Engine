@@ -3,7 +3,7 @@ description: A structured self-review checklist based on the "Notes to Live By" 
 title: quality-review.md
 date created: 2026-04-26 10:18:20
 date modified: 2026-08-23 08:04:26
-tags: quality, review, guidelines, standards, checklist, workflow, evelyn
+tags: [quality, review, guidelines, standards, checklist, workflow, evelyn]
 ---
 
 # Quality Review Workflow

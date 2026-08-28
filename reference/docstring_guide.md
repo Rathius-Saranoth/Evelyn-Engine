@@ -2,7 +2,7 @@
 title: docstring_guide.md
 date created: 2026-03-14 22:22:20
 date modified: 2026-08-23 08:03:05
-tags: markdown, reference, docstring, guide, formatting, pipeline, evelyn
+tags: [markdown, reference, docstring, guide, formatting, pipeline, evelyn]
 ---
 
 # The Docstring Guide: LLMs, Agents, and Best Practices

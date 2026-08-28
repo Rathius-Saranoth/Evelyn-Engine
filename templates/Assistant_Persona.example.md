@@ -1,7 +1,7 @@
 ---
 title: Assistant_Persona.example.md
 rag_priority: high
-tags: template, persona, identity, core, evelyn
+tags: [template, persona, identity, core, evelyn]
 date created: 2026-08-23 08:04:03
 date modified: 2026-08-23 08:04:03
 ---

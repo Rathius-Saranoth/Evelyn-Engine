@@ -1,7 +1,7 @@
 ---
 title: Physical_Description.example.md
 rag_priority: normal
-tags: template, visual, image_generation, description, persona, evelyn
+tags: [template, visual, image_generation, description, persona, evelyn]
 date created: 2026-08-23 08:04:00
 date modified: 2026-08-23 08:04:00
 ---

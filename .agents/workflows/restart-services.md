@@ -3,7 +3,7 @@ description: How to cleanly and safely restart Evelyn's core services, flush WAL
 title: restart-services.md
 date created: 2026-08-27 12:22:00
 date modified: 2026-08-27 12:22:00
-tags: services, restart, reboot, ecosystem, guide, workflow, evelyn
+tags: [services, restart, reboot, ecosystem, guide, workflow, evelyn]
 ---
 
 # Service Restart Workflow

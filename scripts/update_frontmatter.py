@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-08-21 21:04:07
+# date modified: 2026-08-28 11:51:10
 # tags: #frontmatter, #metadata, #headers, #update, #utility
 
 import sys
 import os
 import re
 import datetime
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from Evelyn.tools.tag_librarian import format_yaml_array
 
 # Explicitly supported file extensions
 YAML_EXTENSIONS = {'.md', '.markdown', '.txt'}
@@ -141,7 +148,11 @@ def update_file_frontmatter(filepath: str) -> bool:
         out_lines.append(lines[0])
         fm_keys_found = set()
 
-        for line in lines[1:]:
+        ARRAY_KEYS = {"tags", "aliases", "icon", "categories", "keywords"}
+
+        i = 1
+        while i < len(lines):
+            line = lines[i]
             if in_fm and line.strip() == '---':
                 in_fm = False
                 if 'title' not in fm_keys_found:
@@ -151,32 +162,65 @@ def update_file_frontmatter(filepath: str) -> bool:
                 if 'date modified' not in fm_keys_found:
                     out_lines.append(f"date modified: {date_modified}")
                 if 'tags' not in fm_keys_found:
-                    out_lines.append("tags: ")
+                    out_lines.append("tags: []")
                 out_lines.append(line)
+                i += 1
                 continue
 
             if in_fm:
                 match = re.match(r'^([^:]+):\s*(.*)$', line)
                 if match:
-                    key = match.group(1).strip()
+                    orig_key = match.group(1).strip()
+                    key = orig_key.lower()
                     fm_keys_found.add(key)
 
                     if key == 'title':
                         out_lines.append(f"title: {filename}")
+                        i += 1
                     elif key == 'date modified':
                         out_lines.append(f"date modified: {date_modified}")
+                        i += 1
                     elif key == 'date created':
                         existing_val = match.group(2).strip()
                         if not existing_val:
                             out_lines.append(f"date created: {date_created}")
                         else:
                             out_lines.append(line)
+                        i += 1
+                    elif key in ARRAY_KEYS:
+                        # Check for multiline yaml list
+                        list_items = []
+                        j = i + 1
+                        while j < len(lines) and in_fm:
+                            if lines[j].strip() == '---':
+                                break
+                            item_m = re.match(r'^\s*-\s+(.*)$', lines[j])
+                            if item_m:
+                                raw_item = item_m.group(1).strip().strip("'\"")
+                                if raw_item:
+                                    list_items.append(raw_item)
+                                j += 1
+                            else:
+                                break
+
+                        if list_items:
+                            formatted_val = format_yaml_array(list_items)
+                            out_lines.append(f"{orig_key}: {formatted_val}")
+                            i = j
+                        else:
+                            val = match.group(2).strip()
+                            formatted_val = format_yaml_array(val)
+                            out_lines.append(f"{orig_key}: {formatted_val}")
+                            i += 1
                     else:
                         out_lines.append(line)
+                        i += 1
                 else:
                     out_lines.append(line)
+                    i += 1
             else:
                 out_lines.append(line)
+                i += 1
 
         new_content = '\n'.join(out_lines)
     else:
@@ -185,7 +229,7 @@ def update_file_frontmatter(filepath: str) -> bool:
             f"title: {filename}",
             f"date created: {date_created}",
             f"date modified: {date_modified}",
-            "tags: ",
+            "tags: []",
             "---",
             ""
         ]

@@ -2,7 +2,7 @@
 title: google_access.md
 date created: 2026-08-16 12:55:00
 date modified: 2026-08-23 08:03:00
-tags: google, oauth, scopes, permissions, gdrive, gcal, tasks, docs, sheets, reference, evelyn
+tags: [google, oauth, scopes, permissions, gdrive, gcal, tasks, docs, sheets, reference, evelyn]
 ---
 
 # Google API Access & OAuth Scopes Reference

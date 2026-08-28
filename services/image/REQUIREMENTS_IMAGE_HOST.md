@@ -2,7 +2,7 @@
 title: REQUIREMENTS_IMAGE_HOST.md
 date created: 2026-08-22 15:00:00
 date modified: 2026-08-23 15:00:00
-tags: service, image-generation, flux, requirements, gpu, setup, evelyn
+tags: [service, image-generation, flux, requirements, gpu, setup, evelyn]
 ---
 
 # Standalone Image Generation Host Requirements & Restoration Guide

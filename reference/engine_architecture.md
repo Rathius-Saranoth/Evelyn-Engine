@@ -1,8 +1,8 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-28 08:46:43
-tags: architecture, backend, design, systems, map, evelyn
+date modified: 2026-08-28 11:44:48
+tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
 # Evelyn Engine Architecture Map
@@ -230,6 +230,7 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **`scripts/relocate_vault_pdfs.py`**: Vault attachment normalization utility migrating non-markdown documents to `Attachments/Source Material/<Domain>/` while creating interactive Sidecar Note viewers.
 * **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `media`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
 * **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
+* **`scripts/audit_vault_tags.py`**: Standalone CLI batch taxonomy audit runner prioritizing un-audited notes by urgency (missing tags, multi-dash compound tags, flat tags) with live progress telemetry and interruptibility.
 * **`templates/`**: Generic persona, profile, directive, and physical description example templates for open-source distributions.
 
 ---

@@ -1,8 +1,8 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-28 08:46:31
-tags: roadmap, goals, features, implementation, planning, evelyn
+date modified: 2026-08-28 11:43:01
+tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
 # Evelyn Project Roadmap
@@ -71,7 +71,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Dynamic Reasoning & Tool Optimization**: Dynamic thinking effort control (`Auto`, `Low`, `Mid`, `High`), reasoning-gated tool loop, and anti-drafting system prompt directives.
 - [x] **Cross-Session History Search**: SQLite FTS5 full-text indexing with query reformulation and date filtering across all 29k+ historical messages (Replika, Gemini, and Local eras).
 - [x] **Developer Web UI**: Touch-optimized web dashboard (`dev.html`) with live Heavy Task telemetry, Unified Triage Queue (extractions, proposals, procedures), and Deep Research monitor.
-- [x] **Idle Tag Librarian**: Incremental background process auditing vault notes against a Master Tag Taxonomy using Vector RAG and cosine novelty scoring.
+- [x] **Idle Tag Librarian & Accelerated Batch Runner**: Incremental background process and batch CLI runner auditing vault notes against a Master Tag Taxonomy using Vector RAG and tiered urgency scheduling.
 - [x] **Vault Maintenance & Sidecar Index Cards**: Automated PDF title normalization, rich library index cards with frontmatter, attachments relocation (`Attachments/Source Material/`), and nearest-neighbor semantic cross-linking.
 - [x] **Zero-Overhead Vault Reorganization**: Content-hash (SHA-256) tracking and atomic SQLite/Chroma path remapping on note moves and renames to eliminate redundant GPU embedding passes.
 - [x] **Automated PDF Staging Pipeline & DevUI Ingestion**: Dual staging queues (`Attachments/Staging/Full_Extraction/`, `Attachments/Staging/Sidecar_Only/`) supervised by Task Manager with DevUI upload card and automated domain routing.

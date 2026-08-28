@@ -3,7 +3,7 @@ name: evelyn-db-ops
 description: >-
   Inspect, query, and debug Evelyn's SQLite databases (chat history, memory/proposals, vault index, health connect).
   Activate when investigating database tables, retrieving recent messages/thinking traces, inspecting proposals, or debugging data schemas.
-tags: skill, db, sqlite, mcp, query, debug, evelyn
+tags: [skill, db, sqlite, mcp, query, debug, evelyn]
 title: SKILL.md
 date created: 2026-08-23 08:04:51
 date modified: 2026-08-23 08:04:51

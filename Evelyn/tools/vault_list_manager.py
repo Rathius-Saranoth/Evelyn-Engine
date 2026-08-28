@@ -1,5 +1,6 @@
 # vault_list_manager.py
 # date created: 2026-08-23
+# date modified: 2026-08-28 11:51:25
 # tags: #obsidian, #vault, #lists, #groceries, #checklists, #tools
 
 """vault_list_manager.py — Local Obsidian Vault List and Checklist Manager.
@@ -16,6 +17,7 @@ import re
 from typing import Any, Optional
 
 import evelyn_config as cfg
+from Evelyn.tools.tag_librarian import format_yaml_array
 
 
 def get_lists_directory() -> str:
@@ -80,10 +82,11 @@ def ensure_list_exists(name: str) -> str:
         with open(generic_tmpl, "r", encoding="utf-8") as f:
             template_content = f.read()
     else:
+        tags_str = format_yaml_array(["list", slug])
         template_content = (
             "---\n"
             f"title: {clean_name}\n"
-            f"tags: list, {slug}\n"
+            f"tags: {tags_str}\n"
             f"date created: {now_str}\n"
             f"date modified: {now_str}\n"
             "---\n"
@@ -284,10 +287,11 @@ def write_list_file(filepath: str, parsed: dict[str, Any]) -> None:
     else:
         title = parsed.get("title", "List")
         slug = title.lower().replace(" ", "_")
+        tags_str = format_yaml_array(["list", slug])
         frontmatter = (
             "---\n"
             f"title: {title}\n"
-            f"tags: list, {slug}\n"
+            f"tags: {tags_str}\n"
             f"date created: {now_str}\n"
             f"date modified: {now_str}\n"
             "---\n"
