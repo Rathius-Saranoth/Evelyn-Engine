@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-20 19:09:10
+# date modified: 2026-08-28 07:33:29
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -4620,13 +4620,36 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
         elif prop["type"] == "procedure_merge":
             import yaml
             source_ids = prop.get("source_ids", [])
+            source_tags_set = set()
             for eid in source_ids:
+                p_old = memory_db.get_procedure(eid)
+                if p_old and p_old.get("tags"):
+                    for t in str(p_old["tags"]).split(","):
+                        cleaned_t = t.strip()
+                        if cleaned_t and cleaned_t.lower() not in ("procedure", "merged", "merge", "consolidated", "none"):
+                            source_tags_set.add(cleaned_t)
                 memory_db.delete_procedure(eid)
             try:
                 parsed_proc = yaml.safe_load(final_text)
             except Exception:
                 parsed_proc = {}
             if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
+                proc_tags = parsed_proc.get("tags")
+                if isinstance(proc_tags, list):
+                    proc_tags_str = ", ".join([str(t).strip() for t in proc_tags if str(t).strip()])
+                else:
+                    proc_tags_str = str(proc_tags).strip() if proc_tags is not None else ""
+                
+                parsed_tags_set = {t.strip().lower() for t in proc_tags_str.split(",") if t.strip()}
+                if not proc_tags_str or parsed_tags_set.issubset({"procedure", "merged", "merge", "consolidated", "none"}):
+                    final_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else (proc_tags_str or "procedure")
+                else:
+                    combined = {t.strip() for t in proc_tags_str.split(",") if t.strip()}
+                    combined.update(source_tags_set)
+                    if len(combined) > 1:
+                        combined = {t for t in combined if t.lower() not in ("procedure", "merged", "merge", "consolidated", "none")}
+                    final_tags = ", ".join(sorted(combined)) if combined else "procedure"
+
                 memory_db.insert_procedure(
                     trigger_pattern=parsed_proc["trigger_pattern"],
                     steps=parsed_proc.get("steps", ""),
@@ -4634,7 +4657,7 @@ async def action_proposal(id: int, action: str, req: ProposalActionRequest = Non
                     verification=parsed_proc.get("verification"),
                     source="consolidated",
                     status="live",
-                    tags=parsed_proc.get("tags"),
+                    tags=final_tags,
                     suggested_tools=parsed_proc.get("suggested_tools"),
                 )
             memory_db.apply_proposal(id)

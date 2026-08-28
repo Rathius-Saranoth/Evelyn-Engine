@@ -1,6 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
-# date modified: 2026-08-15 11:30:47
+# date modified: 2026-08-28 07:37:05
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -29,7 +29,8 @@ import httpx
 import yaml
 
 import evelyn_config as cfg
-import memory_db
+from Evelyn.tools import memory_db
+from Evelyn.tools import task_manager
 
 # Task and state management
 _consolidating = False
@@ -46,7 +47,6 @@ def cancel_pending_procedure_consolidation() -> None:
     if _procedure_task and not _procedure_task.done():
         _procedure_task.cancel()
         _consolidating = False
-        import task_manager
         task_manager.clear_running("procedure_consolidator", status="cancelled")
         print("[PROC_CONSOLIDATOR] Cancelled in-flight procedure consolidation (new chat request)", flush=True)
     _procedure_task = None
@@ -67,7 +67,6 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
         return {"status": "skipped", "reason": "already_running"}
 
     importlib.reload(cfg)
-    import task_manager
     _last_run_ts = task_manager.get_last_run_ts("procedure_consolidator")
     now = time.time()
 
@@ -185,8 +184,6 @@ def find_procedure_clusters() -> list[list[dict]]:
 
 async def _do_procedure_consolidation() -> dict:
     """Internal implementation for processing manual queues and finding procedure clusters."""
-    import memory_db
-    import task_manager
     live_procs = memory_db.get_all_procedures(status="live")
     total_procs = len(live_procs)
     proposals_created = 0
@@ -281,6 +278,15 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         Optional[int]: Row ID of created proposal, or None on failure.
     """
     proc_ids = [p["id"] for p in cluster]
+    source_tags_set = set()
+    for p in cluster:
+        if p.get("tags"):
+            for t in str(p["tags"]).split(","):
+                cleaned_t = t.strip()
+                if cleaned_t and cleaned_t.lower() not in ("procedure", "merged", "merge", "consolidated", "none"):
+                    source_tags_set.add(cleaned_t)
+    inherited_tags = ", ".join(sorted(source_tags_set)) if source_tags_set else "procedure"
+
     proc_texts = []
     for p in cluster:
         proc_texts.append(
@@ -305,8 +311,9 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         "1. Create a single 'trigger_pattern' that clearly encompasses all trigger phrases.\n"
         "2. Merge the 'steps' logically without losing important details or verification checks.\n"
         "3. Select or combine the accurate 'suggested_tools' (comma-separated if multiple, or None).\n"
-        "4. Keep tone and constraints intact.\n"
-        "5. Output ONLY a YAML block in this exact structure:\n\n"
+        "4. PRESERVE DOMAIN TAGS: Combine and retain all specific domain tags from the source procedures. Do NOT replace them with generic tags like 'procedure, merged' or 'merge'.\n"
+        "5. Keep tone and constraints intact.\n"
+        "6. Output ONLY a YAML block in this exact structure:\n\n"
         "```yaml\n"
         "topic: \"Unified Evening Journaling Procedure\"\n"
         "reason: \"Consolidated duplicate evening and journaling procedure entries into one master rule.\"\n"
@@ -317,7 +324,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         "suggested_tools: \"write_journal_entry\"\n"
         "pitfalls: \"Common mistakes to avoid\"\n"
         "verification: \"How to verify execution\"\n"
-        "tags: \"procedure, merged\"\n"
+        "tags: \"evening-routine, sleep, journal\"\n"
         "```\n\n"
         f"PROCEDURES TO MERGE:\n{formatted_procs}"
     )
@@ -361,6 +368,26 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
         else:
             tools_val = str(tools_val).strip()
 
+        # Clean and validate tags from parsed YAML, falling back to inherited domain tags
+        raw_tags = parsed.get("tags")
+        if isinstance(raw_tags, list):
+            parsed_tags = ", ".join([str(t).strip() for t in raw_tags if str(t).strip()])
+        else:
+            parsed_tags = str(raw_tags).strip() if raw_tags is not None else ""
+        
+        # If model generated generic or empty tags, prefer inherited tags
+        parsed_tags_set = {t.strip().lower() for t in parsed_tags.split(",") if t.strip()}
+        if not parsed_tags or parsed_tags_set.issubset({"procedure", "merged", "merge", "consolidated", "none"}):
+            final_tags = inherited_tags
+        else:
+            # Combine any missing inherited domain tags with model's tags
+            combined = {t.strip() for t in parsed_tags.split(",") if t.strip()}
+            combined.update(source_tags_set)
+            # Remove purely generic tags if specific tags exist
+            if len(combined) > 1:
+                combined = {t for t in combined if t.lower() not in ("procedure", "merged", "merge", "consolidated", "none")}
+            final_tags = ", ".join(sorted(combined)) if combined else "procedure"
+
         # Build merged procedure dict for storage as JSON/YAML in merged_observation
         merged_dict = {
             "trigger_pattern": parsed.get("trigger_pattern", ""),
@@ -368,7 +395,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> Optional[int
             "suggested_tools": tools_val,
             "pitfalls": parsed.get("pitfalls") or "",
             "verification": parsed.get("verification") or "",
-            "tags": parsed.get("tags") or "procedure, merged"
+            "tags": final_tags
         }
         merged_obs_yaml = yaml.dump(merged_dict, sort_keys=False, default_flow_style=False, width=10000)
 

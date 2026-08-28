@@ -413,6 +413,7 @@
     const API_KEY = localStorage.getItem('evelyn_api_key') || '';
     let currentTab = 'triage';
     let triageFilter = 'all';
+    let triageSearch = '';
     
     let unifiedItems = [];
     let extractions = [];
@@ -638,23 +639,54 @@
 
     function parseProcedureYaml(yamlStr) {
       if (!yamlStr) return {};
-      const res = {};
-      const mTrigger = yamlStr.match(/trigger_pattern:\s*([\s\S]*?)(?=\nsteps:|\npitfalls:|\nverification:|\ntags:|$)/i);
-      if (mTrigger) res.trigger_pattern = cleanYamlScalar(mTrigger[1]);
-      const mSteps = yamlStr.match(/steps:\s*([\s\S]*?)(?=\npitfalls:|\nverification:|\ntags:|$)/i);
-      if (mSteps) res.steps = cleanYamlScalar(mSteps[1]);
-      const mPitfalls = yamlStr.match(/pitfalls:\s*([\s\S]*?)(?=\nverification:|\ntags:|$)/i);
-      if (mPitfalls) res.pitfalls = cleanYamlScalar(mPitfalls[1]);
-      const mVerif = yamlStr.match(/verification:\s*([\s\S]*?)(?=\ntags:|$)/i);
-      if (mVerif) res.verification = cleanYamlScalar(mVerif[1]);
-      const mTags = yamlStr.match(/tags:\s*([\s\S]*?)$/i);
-      if (mTags) res.tags = cleanYamlScalar(mTags[1]);
-      return res;
+      try {
+        const match = yamlStr.match(/```(?:yaml)?\s*\n(.*?)```/s);
+        const textToParse = match ? match[1] : yamlStr;
+        const lines = textToParse.split('\n');
+        const res = { trigger_pattern: '', suggested_tools: '', steps: '', pitfalls: '', verification: '', tags: '' };
+        let activeKey = null;
+
+        for (let i = 0; i < lines.length; i++) {
+          const rawLine = lines[i];
+          const trimmed = rawLine.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+
+          const km = trimmed.match(/^(trigger_pattern|suggested_tools|tools|steps|pitfalls|verification|tags|topic|reason):\s*(.*)$/i);
+          if (km) {
+            let key = km[1].toLowerCase();
+            if (key === 'tools') key = 'suggested_tools';
+            activeKey = key;
+            let val = km[2];
+            if (val === '|' || val === '>-' || val === '>' || val === '|-') {
+              val = '';
+            }
+            if (res[activeKey] !== undefined) {
+              res[activeKey] = val;
+            }
+          } else if (activeKey && (rawLine.startsWith('  ') || rawLine.startsWith('\t') || rawLine.startsWith('    '))) {
+            if (res[activeKey] !== undefined) {
+              const strippedIndent = rawLine.replace(/^( {2}|\t)/, '');
+              res[activeKey] = res[activeKey] ? (res[activeKey] + '\n' + strippedIndent) : strippedIndent;
+            }
+          }
+        }
+
+        for (const k of Object.keys(res)) {
+          res[k] = cleanYamlScalar(res[k]);
+        }
+        return res;
+      } catch (e) {
+        return {};
+      }
     }
 
     function dumpProcedureYaml(proc) {
       let lines = [];
       lines.push(`trigger_pattern: ${JSON.stringify(proc.trigger_pattern || '')}`);
+      const tools = (proc.suggested_tools || '').trim();
+      if (tools) {
+        lines.push(`suggested_tools: ${JSON.stringify(tools)}`);
+      }
       const steps = (proc.steps || '').trim();
       if (steps.includes('\n')) {
         lines.push(`steps: |`);
@@ -666,8 +698,232 @@
       }
       lines.push(`pitfalls: ${JSON.stringify(proc.pitfalls || '')}`);
       lines.push(`verification: ${JSON.stringify(proc.verification || '')}`);
-      lines.push(`tags: ${JSON.stringify(proc.tags || 'procedure, merged')}`);
+      lines.push(`tags: ${JSON.stringify(proc.tags || '')}`);
       return lines.join('\n');
+    }
+
+    function parseProcedureSplitYaml(yamlStr) {
+      if (!yamlStr) return [];
+      try {
+        const match = yamlStr.match(/```(?:yaml)?\s*\n(.*?)```/s);
+        const textToParse = match ? match[1] : yamlStr;
+        const lines = textToParse.split('\n');
+        let procs = [];
+        let cur = null;
+        let activeField = null;
+
+        for (let i = 0; i < lines.length; i++) {
+          const rawLine = lines[i];
+          const trimmed = rawLine.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          if (trimmed === 'procedures:') continue;
+
+          if (trimmed.startsWith('- ') || (trimmed.startsWith('trigger_pattern:') && (!cur || cur.trigger_pattern))) {
+            if (cur && (cur.trigger_pattern || cur.steps)) {
+              for (const k of Object.keys(cur)) cur[k] = cleanYamlScalar(cur[k]);
+              procs.push(cur);
+            }
+            cur = { trigger_pattern: '', suggested_tools: '', steps: '', pitfalls: '', verification: '', tags: '' };
+            activeField = null;
+          }
+
+          if (!cur) cur = { trigger_pattern: '', suggested_tools: '', steps: '', pitfalls: '', verification: '', tags: '' };
+
+          let lineContent = trimmed;
+          if (lineContent.startsWith('- ')) {
+            lineContent = lineContent.substring(2).trim();
+          }
+
+          const km = lineContent.match(/^(trigger_pattern|suggested_tools|tools|steps|pitfalls|verification|tags):\s*(.*)$/i);
+          if (km) {
+            let k = km[1].toLowerCase();
+            if (k === 'tools') k = 'suggested_tools';
+            activeField = k;
+            let val = km[2];
+            if (val === '|' || val === '>-' || val === '>' || val === '|-') val = '';
+            cur[activeField] = val;
+          } else if (activeField && (rawLine.startsWith('  ') || rawLine.startsWith('\t') || rawLine.startsWith('    '))) {
+            const strippedIndent = rawLine.replace(/^( {4}| {2}|\t)/, '');
+            cur[activeField] = cur[activeField] ? (cur[activeField] + '\n' + strippedIndent) : strippedIndent;
+          }
+        }
+        if (cur && (cur.trigger_pattern || cur.steps)) {
+          for (const k of Object.keys(cur)) cur[k] = cleanYamlScalar(cur[k]);
+          procs.push(cur);
+        }
+        return procs;
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function dumpProcedureSplitYaml(procedures, topic, reason) {
+      let lines = [];
+      if (topic) lines.push(`topic: ${JSON.stringify(topic)}`);
+      if (reason) lines.push(`reason: ${JSON.stringify(reason)}`);
+      lines.push('procedures:');
+      for (const p of procedures) {
+        lines.push(`  - trigger_pattern: ${JSON.stringify(p.trigger_pattern || '')}`);
+        if (p.suggested_tools) {
+          lines.push(`    suggested_tools: ${JSON.stringify(p.suggested_tools)}`);
+        }
+        const steps = (p.steps || '').trim();
+        if (steps.includes('\n')) {
+          lines.push(`    steps: |`);
+          for (const l of steps.split('\n')) {
+            lines.push(`      ${l}`);
+          }
+        } else {
+          lines.push(`    steps: ${JSON.stringify(steps)}`);
+        }
+        lines.push(`    pitfalls: ${JSON.stringify(p.pitfalls || '')}`);
+        lines.push(`    verification: ${JSON.stringify(p.verification || '')}`);
+        lines.push(`    tags: ${JSON.stringify(p.tags || '')}`);
+      }
+      return lines.join('\n');
+    }
+
+    // -----------------------------------------------------------------------
+    // Advanced Query Search Engine (-tag:, -word, tag:, positive keywords)
+    // -----------------------------------------------------------------------
+    function parseAdvancedQuery(queryString) {
+      if (!queryString || !queryString.trim()) return null;
+      
+      const tokens = [];
+      const regex = /(-?tags?:"[^"]+"|-tags?:[^\s]+|-[a-zA-Z0-9_\/-]+|tags?:"[^"]+"|tags?:[^\s]+|"[^"]+"|[^\s]+)/gi;
+      let match;
+      while ((match = regex.exec(queryString)) !== null) {
+        tokens.push(match[1]);
+      }
+      
+      const parsed = {
+        includeWords: [],
+        excludeWords: [],
+        includeTags: [],
+        excludeTags: []
+      };
+
+      for (let t of tokens) {
+        let clean = t.trim();
+        if (!clean) continue;
+        
+        const lower = clean.toLowerCase();
+        
+        if (lower.startsWith('-tag:') || lower.startsWith('-tags:')) {
+          const val = clean.replace(/^-tags?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.excludeTags.push(val);
+        } else if (lower.startsWith('tag:') || lower.startsWith('tags:')) {
+          const val = clean.replace(/^tags?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.includeTags.push(val);
+        } else if (clean.startsWith('-') && clean.length > 1) {
+          const val = clean.substring(1).replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.excludeWords.push(val);
+        } else {
+          const val = clean.replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.includeWords.push(val);
+        }
+      }
+
+      if (!parsed.includeWords.length && !parsed.excludeWords.length && !parsed.includeTags.length && !parsed.excludeTags.length) {
+        return null;
+      }
+      return parsed;
+    }
+
+    function matchesAdvancedQuery(item, queryParsed, getSearchableFieldsFn) {
+      if (!queryParsed) return true;
+      const fields = getSearchableFieldsFn(item);
+      const allText = (fields.text || []).map(t => String(t || '').toLowerCase()).join(' ');
+      const tagsList = (fields.tags || []).map(t => String(t || '').toLowerCase());
+      const allTagsText = tagsList.join(', ');
+
+      // 1. Check exclude tags
+      for (const exTag of queryParsed.excludeTags) {
+        if (allTagsText.includes(exTag) || tagsList.some(t => t.includes(exTag))) {
+          return false;
+        }
+      }
+
+      // 2. Check exclude words
+      for (const exWord of queryParsed.excludeWords) {
+        if (allText.includes(exWord) || allTagsText.includes(exWord)) {
+          return false;
+        }
+      }
+
+      // 3. Check include tags (all must match)
+      for (const incTag of queryParsed.includeTags) {
+        if (!allTagsText.includes(incTag) && !tagsList.some(t => t.includes(incTag))) {
+          return false;
+        }
+      }
+
+      // 4. Check include words (all must match)
+      for (const incWord of queryParsed.includeWords) {
+        if (!allText.includes(incWord) && !allTagsText.includes(incWord)) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    function getProcedureSearchableFields(p) {
+      return {
+        text: [p.trigger_pattern, p.steps, p.pitfalls, p.verification, p.suggested_tools, p.id ? String(p.id) : ''],
+        tags: p.tags ? String(p.tags).split(',').map(t => t.trim()).filter(Boolean) : []
+      };
+    }
+
+    function getTriageSearchableFields(item) {
+      if (item.item_type === 'extraction') {
+        return {
+          text: [item.observation, item.category, item.subject, item.source_file, item.id ? String(item.id) : ''],
+          tags: item.tags ? String(item.tags).split(',').map(t => t.trim()).filter(Boolean) : []
+        };
+      } else if (item.item_type === 'procedure') {
+        return {
+          text: [item.trigger_pattern, item.steps, item.pitfalls, item.verification, item.suggested_tools, item.id ? String(item.id) : ''],
+          tags: item.tags ? String(item.tags).split(',').map(t => t.trim()).filter(Boolean) : []
+        };
+      } else if (item.item_type === 'proposal') {
+        if (item.type === 'procedure_merge') {
+          const pd = parseProcedureYaml(item.merged_observation);
+          return {
+            text: [item.reason, item.topic, pd.trigger_pattern, pd.steps, pd.pitfalls, pd.verification, pd.suggested_tools, item.id ? String(item.id) : ''],
+            tags: (pd.tags || item.merged_tags || '').split(',').map(t => t.trim()).filter(Boolean)
+          };
+        } else if (item.type === 'procedure_split') {
+          const sp = parseProcedureSplitYaml(item.merged_observation);
+          const allText = [item.reason, item.topic, item.id ? String(item.id) : ''];
+          const allTags = [];
+          for (const p of sp) {
+            allText.push(p.trigger_pattern, p.steps, p.pitfalls, p.verification, p.suggested_tools);
+            if (p.tags) allTags.push(...p.tags.split(',').map(t => t.trim()).filter(Boolean));
+          }
+          return { text: allText, tags: allTags };
+        } else if (item.type === 'split') {
+          const facts = parseSplitYaml(item.merged_observation);
+          const allText = [item.reason, item.topic, item.id ? String(item.id) : ''];
+          const allTags = [];
+          for (const f of facts) {
+            allText.push(f.category, f.subject, f.observation);
+            if (f.tags) allTags.push(...f.tags.split(',').map(t => t.trim()).filter(Boolean));
+          }
+          return { text: allText, tags: allTags };
+        } else {
+          return {
+            text: [item.reason, item.topic, item.merged_observation, item.suggested_category, item.id ? String(item.id) : ''],
+            tags: item.merged_tags ? String(item.merged_tags).split(',').map(t => t.trim()).filter(Boolean) : []
+          };
+        }
+      } else if (item.item_type === 'profile_update') {
+        return {
+          text: [item.reason, item.suggested_category, item.merged_observation, item.id ? String(item.id) : ''],
+          tags: item.merged_tags ? String(item.merged_tags).split(',').map(t => t.trim()).filter(Boolean) : []
+        };
+      }
+      return { text: [], tags: [] };
     }
 
     function parseSplitYaml(yamlStr) {
@@ -1179,6 +1435,16 @@
       render();
     }
 
+    function handleTriageSearch(val) {
+      triageSearch = val;
+      render();
+      const input = document.getElementById('triage-search-input');
+      if (input) {
+        input.focus();
+        input.selectionStart = input.selectionEnd = input.value.length;
+      }
+    }
+
     async function handleAction(type, id, action) {
       if (action === 'delete') {
         const typeName = type === 'extractions' ? 'extraction' : (type === 'proposals' ? 'proposal' : type);
@@ -1201,18 +1467,42 @@
         const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
         if (procTrigger) {
           const trigger = procTrigger.value || '';
+          const tools = document.getElementById(`proc-merge-tools-${id}`)?.value || '';
           const steps = document.getElementById(`proc-merge-steps-${id}`)?.value || '';
           const pitfalls = document.getElementById(`proc-merge-pitfalls-${id}`)?.value || '';
           const verification = document.getElementById(`proc-merge-verification-${id}`)?.value || '';
           const tags = document.getElementById(`proc-merge-tags-${id}`)?.value || '';
           const constructedYaml = dumpProcedureYaml({
             trigger_pattern: trigger,
+            suggested_tools: tools,
             steps: steps,
             pitfalls: pitfalls,
             verification: verification,
             tags: tags
           });
           body = JSON.stringify({ modified_text: constructedYaml });
+        } else if (item && item.type === 'procedure_split') {
+          const currentProcs = parseProcedureSplitYaml(item.merged_observation);
+          const updatedProcs = currentProcs.map((proc, idx) => {
+            const tr = document.getElementById(`proc-split-trigger-${id}-${idx}`)?.value ?? proc.trigger_pattern;
+            const to = document.getElementById(`proc-split-tools-${id}-${idx}`)?.value ?? proc.suggested_tools;
+            const st = document.getElementById(`proc-split-steps-${id}-${idx}`)?.value ?? proc.steps;
+            const pi = document.getElementById(`proc-split-pitfalls-${id}-${idx}`)?.value ?? proc.pitfalls;
+            const ve = document.getElementById(`proc-split-verification-${id}-${idx}`)?.value ?? proc.verification;
+            const tg = document.getElementById(`proc-split-tags-${id}-${idx}`)?.value ?? proc.tags;
+            return {
+              trigger_pattern: tr,
+              suggested_tools: to,
+              steps: st,
+              pitfalls: pi,
+              verification: ve,
+              tags: tg
+            };
+          }).filter(p => p.trigger_pattern && p.trigger_pattern.trim().length > 0);
+          if (updatedProcs.length > 0) {
+            const constructedYaml = dumpProcedureSplitYaml(updatedProcs, item.topic, item.reason);
+            body = JSON.stringify({ modified_text: constructedYaml });
+          }
         } else if (item && item.type === 'split') {
           const currentFacts = parseSplitYaml(item.merged_observation);
           const updatedFacts = currentFacts.map((fact, idx) => {
@@ -2547,6 +2837,11 @@
                   </div>
 
                   <div>
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
+                    <input type="text" id="proc-merge-tools-${item.id}" value="${escapeHtml(procData.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
+                  </div>
+
+                  <div>
                     <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">STEPS (Markdown list of operations)</label>
                     <textarea id="proc-merge-steps-${item.id}" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 120px;">${escapeHtml(procData.steps || '')}</textarea>
                   </div>
@@ -2576,6 +2871,73 @@
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Procedure Merge</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
+              </div>
+            </div>
+          `;
+        }
+
+        if (item.type === 'procedure_split') {
+          const splitProcs = parseProcedureSplitYaml(item.merged_observation);
+          const childProcsHTML = splitProcs.map((proc, idx) => `
+            <div style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-size: 11px; color: var(--accent); font-weight: 600; text-transform: uppercase;">Child Procedure #${idx + 1}</div>
+              <div>
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">TRIGGER PATTERN</label>
+                <input type="text" id="proc-split-trigger-${item.id}-${idx}" value="${escapeHtml(proc.trigger_pattern || '')}" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">SUGGESTED TOOLS</label>
+                <input type="text" id="proc-split-tools-${item.id}-${idx}" value="${escapeHtml(proc.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">STEPS</label>
+                <textarea id="proc-split-steps-${item.id}-${idx}" style="width: 100%; min-height: 80px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: vertical;">${escapeHtml(proc.steps || '')}</textarea>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div>
+                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">PITFALLS</label>
+                  <input type="text" id="proc-split-pitfalls-${item.id}-${idx}" value="${escapeHtml(proc.pitfalls || '')}" placeholder="None" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
+                </div>
+                <div>
+                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">VERIFICATION</label>
+                  <input type="text" id="proc-split-verification-${item.id}-${idx}" value="${escapeHtml(proc.verification || '')}" placeholder="None" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
+                </div>
+              </div>
+              <div>
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">TAGS</label>
+                <input type="text" id="proc-split-tags-${item.id}-${idx}" value="${escapeHtml(proc.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
+              </div>
+            </div>
+          `).join('');
+
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span class="badge" style="background: #8b5cf6; color: #fff;">PROPOSAL: PROCEDURE SPLIT</span>
+                <span>ID: ${item.id}</span>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Reason / Rationale</div>
+                  <div style="font-size: 14px; color: var(--text); line-height: 1.4;">${escapeHtml(item.reason)}</div>
+                </div>
+
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 12px;">
+                  <div style="font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px;">Proposed Atomic Procedures (${splitProcs.length})</div>
+                  ${childProcsHTML}
+                </div>
+
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+                    Source Compound Procedure (${(item.source_entries || []).length})
+                  </div>
+                  <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
+                </div>
+              </div>
+              <div class="card-actions" style="display: flex; gap: 8px;">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Procedure Split</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
               </div>
@@ -2722,12 +3084,18 @@
         const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
 
         const filterBarHtml = `
-          <div class="filter-bar">
-            <button class="filter-pill ${triageFilter === 'all' ? 'active' : ''}" onclick="setTriageFilter('all')">All (${unifiedItems.length})</button>
-            <button class="filter-pill ${triageFilter === 'extraction' ? 'active' : ''}" onclick="setTriageFilter('extraction')">Extractions (${extCount})</button>
-            <button class="filter-pill ${triageFilter === 'proposal' ? 'active' : ''}" onclick="setTriageFilter('proposal')">Proposals (${propCount})</button>
-            <button class="filter-pill ${triageFilter === 'profile_update' ? 'active' : ''}" onclick="setTriageFilter('profile_update')">Profile Updates (${profUpCount})</button>
-            <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')">Procedures (${procCount})</button>
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
+            <div class="filter-bar" style="margin-bottom: 0;">
+              <button class="filter-pill ${triageFilter === 'all' ? 'active' : ''}" onclick="setTriageFilter('all')">All (${unifiedItems.length})</button>
+              <button class="filter-pill ${triageFilter === 'extraction' ? 'active' : ''}" onclick="setTriageFilter('extraction')">Extractions (${extCount})</button>
+              <button class="filter-pill ${triageFilter === 'proposal' ? 'active' : ''}" onclick="setTriageFilter('proposal')">Proposals (${propCount})</button>
+              <button class="filter-pill ${triageFilter === 'profile_update' ? 'active' : ''}" onclick="setTriageFilter('profile_update')">Profile Updates (${profUpCount})</button>
+              <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')">Procedures (${procCount})</button>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="triage-search-input" value="${escapeHtml(triageSearch)}" placeholder="🔍 Filter triage queue (e.g. journal, -dream, -tag:sleep, tag:routine)..." oninput="handleTriageSearch(this.value)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+              ${triageSearch ? `<button class="btn btn-sm" onclick="handleTriageSearch('')" style="background: var(--surface); border: 1px solid var(--border); font-size: 12px; padding: 7px 12px; cursor: pointer; color: var(--text-dim);">Clear</button>` : ''}
+            </div>
           </div>
         `;
 
@@ -2736,8 +3104,15 @@
           filteredItems = unifiedItems.filter(i => i.item_type === triageFilter);
         }
 
+        const queryParsed = parseAdvancedQuery(triageSearch);
+        if (queryParsed) {
+          filteredItems = filteredItems.filter(item => matchesAdvancedQuery(item, queryParsed, getTriageSearchableFields));
+        }
+
         if (filteredItems.length === 0) {
-          container.innerHTML = filterBarHtml + `<div class="empty-state">All caught up! No ${triageFilter === 'all' ? '' : triageFilter.replace('_', ' ')} items to review.</div>`;
+          const filterDesc = triageFilter === 'all' ? '' : ` in ${triageFilter.replace('_', ' ')}`;
+          const searchDesc = triageSearch ? ` matching "${escapeHtml(triageSearch)}"` : '';
+          container.innerHTML = filterBarHtml + `<div class="empty-state">No triage items found${filterDesc}${searchDesc}.</div>`;
           return;
         }
 
@@ -2976,18 +3351,14 @@
     }
 
     function selectAllVisibleProcedures(select) {
-      const queryVal = (document.getElementById('proc-mgmt-search') ? document.getElementById('proc-mgmt-search').value : procMgmtSearch).trim().toLowerCase();
+      const queryStr = document.getElementById('proc-mgmt-search') ? document.getElementById('proc-mgmt-search').value : procMgmtSearch;
+      const queryParsed = parseAdvancedQuery(queryStr);
       let visible = allProcedures;
       if (procMgmtFilter !== 'all') {
         visible = visible.filter(p => p.status === procMgmtFilter);
       }
-      if (queryVal) {
-        visible = visible.filter(p =>
-          (p.trigger_pattern && p.trigger_pattern.toLowerCase().includes(queryVal)) ||
-          (p.steps && p.steps.toLowerCase().includes(queryVal)) ||
-          (p.suggested_tools && p.suggested_tools.toLowerCase().includes(queryVal)) ||
-          (p.tags && p.tags.toLowerCase().includes(queryVal))
-        );
+      if (queryParsed) {
+        visible = visible.filter(p => matchesAdvancedQuery(p, queryParsed, getProcedureSearchableFields));
       }
       if (select) {
         visible.forEach(p => selectedProcIds.add(p.id));
@@ -3180,16 +3551,9 @@
         filtered = filtered.filter(p => p.status === procMgmtFilter);
       }
 
-      if (procMgmtSearch) {
-        const q = procMgmtSearch.trim().toLowerCase();
-        if (q) {
-          filtered = filtered.filter(p =>
-            (p.trigger_pattern && p.trigger_pattern.toLowerCase().includes(q)) ||
-            (p.steps && p.steps.toLowerCase().includes(q)) ||
-            (p.suggested_tools && p.suggested_tools.toLowerCase().includes(q)) ||
-            (p.tags && p.tags.toLowerCase().includes(q))
-          );
-        }
+      const queryParsed = parseAdvancedQuery(procMgmtSearch);
+      if (queryParsed) {
+        filtered = filtered.filter(p => matchesAdvancedQuery(p, queryParsed, getProcedureSearchableFields));
       }
 
       if (filtered.length === 0) {
@@ -3278,7 +3642,7 @@
         container.innerHTML = `
           <div id="proc-mgmt-filters" class="filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px;"></div>
           <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
-            <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures by trigger, steps, tools, or tags..." value="${escapeHtml(procMgmtSearch)}" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+            <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures (e.g. journal, -dream, -tag:sleep, tag:routine)..." value="${escapeHtml(procMgmtSearch)}" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
             <button class="filter-pill" onclick="selectAllVisibleProcedures(true)">Select All Visible</button>
           </div>
           <div id="proc-mgmt-selection-bar"></div>
