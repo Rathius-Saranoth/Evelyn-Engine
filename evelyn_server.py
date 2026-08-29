@@ -4703,7 +4703,13 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 scan_st = {}
                 if os.path.exists(scan_path):
                     with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
-                        scan_st = await asyncio.to_thread(_server_sync_load_json, scan_path)
+                        raw_st = await asyncio.to_thread(_server_sync_load_json, scan_path)
+                        if isinstance(raw_st, dict):
+                            scan_st = {
+                                k: v
+                                for k, v in raw_st.items()
+                                if re.match(r"^Cat(0[1-9]|1[0-6])-[UA]$", k)
+                            }
                 active_cat = task_data.get("phase") if status == "running" else None
 
                 mdb_path = str(BASE_DIR / "data" / "evelyn_memory.db")
@@ -4732,6 +4738,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "active_category": active_cat or (sub_status.get("active_category") if sub_status else None),
                     "total_active_facts": total_active_facts,
                     "tracked_categories": len(scan_st),
+                    "total_categories": 32,
                     "pending_proposals": pending_proposals,
                     "last_run_scanned": last_scanned,
                     "proposals_written": proposals_written,

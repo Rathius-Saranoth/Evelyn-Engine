@@ -1,7 +1,7 @@
 # test_procedures_upgrade.py
 # date created: 2026-08-28 07:37:20
-# date modified: 2026-08-28 07:37:20
-# tags:
+# date modified: 2026-08-28 17:25:57
+# tags: 
 
 import pytest
 
@@ -140,9 +140,10 @@ def test_chroma_rag_procedure_formatting(monkeypatch):
     )
 
     try:
-        # Mock chromadb query functions
+        # Mock chromadb query functions and telemetry logging
         monkeypatch.setattr(chroma_rag, "query_collection", lambda *args, **kwargs: [])
         monkeypatch.setattr(chroma_rag, "_fetch_pinned_chunks", lambda *args, **kwargs: [])
+        monkeypatch.setattr(chroma_rag, "log_rag_retrieval", lambda *args, **kwargs: None)
 
         context = chroma_rag.build_rag_context(
             query="When testing xylophonic_unique_operation_xyz"

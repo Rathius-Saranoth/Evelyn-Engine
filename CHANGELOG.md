@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 17:15:47
+date modified: 2026-08-28 19:16:25
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.017] - 2026-08-28 — *Fact Consolidator Category Scan State Sanitization*
+
+### Fixed & Hardened
+- **Fact Consolidator Scan State Sanitization (`Evelyn/tools/fact_consolidator.py`, `data/evelyn_consolidation_offsets.json`, `evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - **Offsets JSON Cleanup**: Pruned 41 legacy (`-R`/`-E`) and dirty/non-canonical category keys accumulated in `evelyn_consolidation_offsets.json` before taxonomy migration, bringing active tracked categories to the exact 32 canonical categories (`Cat01-U`..`Cat16-U`, `Cat01-A`..`Cat16-A`).
+  - **Automatic State Validation & Normalization**: Hardened `_load_scan_state()` in `fact_consolidator.py` to filter and normalize all loaded category keys on startup and automatically persist the pruned canonical dictionary when stale keys are detected.
+  - **Server Status Filtering & UI Alignment**: Added defensive regex filtering in `evelyn_server.py` (`re.match(r"^Cat(0[1-9]|1[0-6])-[UA]$")`) and dynamic `total_categories: 32` propagation to ensure the dashboard accurately reflects `Tracked: 32/32 categories`.
+  - **Automated Verification**: Added comprehensive unit tests in `Evelyn/tests/test_fact_consolidator_scan_state.py`.
+
+---
 
 ## [000.006.016] - 2026-08-28 — *Pyrefly & Pyproject Tooling Consolidation and Static Typing Hardening*
 
