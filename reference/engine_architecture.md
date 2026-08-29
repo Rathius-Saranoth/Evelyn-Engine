@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-28 16:44:39
+date modified: 2026-08-29 08:32:30
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -179,7 +179,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[health_manager.py]]**: Health and vitals query engine. Blends live Oura Cloud API metrics with local SQLite Health Connect records for comprehensive health intelligence.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner and consolidator. Scans context databases for duplicate, compound, or superseded facts. Generates merge, supersede, recategorize, and split/decomposition proposals for bloated compound entries.
 * **[[procedure_consolidator.py]]**: Idle-time procedure consolidation engine. Merges overlapping procedural rules into unified specifications.
-* **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. **Draft persistence**: accumulated working document and cursor are saved to disk after each successful pass so interrupted runs resume from the last completed batch rather than restarting.
+* **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Features **thematic section pre-clustering** (`DOCUMENT_THEMES`, `_cluster_entries_by_theme()`) and entity topic pre-aggregation to group related observations under topic subheadings, eliminating cross-topic context switching. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. Features **fault-isolated per-document timeouts** (`PROFILE_EVOLUTION_DOC_TIMEOUT = 1500`), **draft persistence** (saving working document and cursor after each pass so interrupted runs resume smoothly), and a **dedicated editorial proofreading pass** (`_proofread_document()` at `temperature: 0.1`) that eliminates subword tokenizer artifacts and typos before proposal creation.
 * **[[docstring_guide.md]] §7**: Detailed reference containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[terminal_agent.py]]**: Manages shell command execution and file write safety checks, staging operations for user approval and persisting approvals to disk to survive server restarts.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.

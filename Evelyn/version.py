@@ -1,7 +1,7 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-29 07:46:50
-# tags: 
+# date modified: 2026-08-29 08:35:11
+# tags: #versioning, #release
 
 """
 Evelyn Engine Version System.
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.020"
-VERSION_NAME = "Live Procedures Cleanup, Fact Migration & write_dream_entry Tool"
+__version__ = "000.006.021"
+VERSION_NAME = "Profile Evolver Thematic Clustering & Editorial Proofreading Pass"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

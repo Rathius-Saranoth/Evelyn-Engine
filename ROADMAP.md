@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-28 12:30:53
+date modified: 2026-08-29 08:32:38
 tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
@@ -51,7 +51,7 @@ This roadmap is the primary source of truth for project milestones and future di
 ### Agency & Tools
 - [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search (DuckDuckGo), pre-search intent mode classification (`[MODE_TECHNICAL]` vs `[MODE_ACADEMIC]`), intent framing, atomic query generation, source evaluation, Obsidian Vault synthesis, inspection tools (`list_research_tasks`, `inspect_research_task`), and resilient fuzzy guidance (`guide_research`).
 - [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
-- [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with pre-approval editing and live diff panels in DevUI.
+- [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with thematic pre-clustering, editorial proofreading, pre-approval editing, and live diff panels in DevUI.
 - [x] **Procedural Knowledge & Tool Execution Protocols**: Background pipeline that extracts operational workflows, tool recommendations, and pitfalls into searchable procedural memory, with queue-based consolidation and DevUI management.
 - [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, Oura Ring Cloud API v2 vitals, and high-resolution intraday heart rate / activity biometrics.
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
