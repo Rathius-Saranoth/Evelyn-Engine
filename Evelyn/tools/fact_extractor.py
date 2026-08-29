@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-29 07:45:56
+# date modified: 2026-08-29 16:04:10
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -753,7 +753,10 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
     if match:
         block = match.group(1)
     elif _FACTS_KEY_RE.search(raw):
-        block = raw
+        # Strip optional leading markdown code fence if opening fence was not closed
+        cleaned_raw = re.sub(r"^```(?:facts|yaml)?\s*\n?", "", raw.strip(), flags=re.IGNORECASE)
+        cleaned_raw = re.sub(r"\n?```\s*$", "", cleaned_raw)
+        block = cleaned_raw
     else:
         print("[EXTRACTOR] No YAML block found in model output.", flush=True)
         return []
@@ -891,7 +894,10 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
     if match:
         block = match.group(1)
     elif _PROC_KEY_RE.search(raw):
-        block = raw
+        # Strip optional leading markdown code fence if opening fence was not closed
+        cleaned_raw = re.sub(r"^```(?:procedures|yaml)?\s*\n?", "", raw.strip(), flags=re.IGNORECASE)
+        cleaned_raw = re.sub(r"\n?```\s*$", "", cleaned_raw)
+        block = cleaned_raw
     else:
         return []
 
@@ -1011,8 +1017,13 @@ async def _do_extraction(messages: list[dict]):
 
     # Scale token budget to batch size — a small batch needs far fewer tokens
     options["num_predict"] = min(64 * len(messages), 512)
-    if cfg.STOP_SEQUENCES:
-        options["stop"] = cfg.STOP_SEQUENCES
+
+    # Configure extraction stop sequences to halt model generation immediately upon closing the YAML fence
+    extraction_stops = list(cfg.STOP_SEQUENCES or [])
+    for s in ["\n```\n", "\n```", "```\n"]:
+        if s not in extraction_stops:
+            extraction_stops.append(s)
+    options["stop"] = extraction_stops
 
     payload = {
         "model": model,
@@ -1028,11 +1039,12 @@ async def _do_extraction(messages: list[dict]):
     )
     start = time.time()
 
-    timeout = getattr(cfg, "FACT_EXTRACTION_TIMEOUT", 300)
+    timeout = getattr(cfg, "FACT_EXTRACTION_TIMEOUT", 450)
+    httpx_timeout = httpx.Timeout(timeout, connect=60.0, read=timeout, write=60.0, pool=60.0)
     content_buffer = ""
     try:
         async with (
-            httpx.AsyncClient(timeout=timeout) as client,
+            httpx.AsyncClient(timeout=httpx_timeout) as client,
             client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
         ):
             resp.raise_for_status()
@@ -1084,6 +1096,7 @@ async def _do_extraction(messages: list[dict]):
 
     payload["messages"] = proc_messages
     payload["options"]["num_predict"] = 384
+    payload["options"]["stop"] = extraction_stops
 
     print(
         f"[EXTRACTOR] Extracting procedures from {len(messages)} new message(s)...",
@@ -1094,7 +1107,7 @@ async def _do_extraction(messages: list[dict]):
 
     try:
         async with (
-            httpx.AsyncClient(timeout=timeout) as client,
+            httpx.AsyncClient(timeout=httpx_timeout) as client,
             client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
         ):
             resp.raise_for_status()

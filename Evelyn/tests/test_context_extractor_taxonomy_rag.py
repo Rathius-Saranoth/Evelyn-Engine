@@ -1,5 +1,6 @@
 # test_context_extractor_taxonomy_rag.py
 # date created: 2026-08-19
+# date modified: 2026-08-29 16:04:16
 # tags: #tests, #taxonomy, #rag, #extractor, #novelty
 
 import sys
@@ -118,6 +119,22 @@ facts:
         # Verify normalization
         self.assertEqual(fact["tags"], "tech/python/fastapi, Ricky_Sekulich, 3d-printing/slicing")
         self.assertEqual(fact["confidence"], "high")
+
+    def test_parse_facts_yaml_unclosed_fence(self):
+        """Verify YAML facts block parsing works when stop sequence cuts closing fence."""
+        raw_yaml = f"""```facts
+facts:
+  - subject: {cfg.USER_NAME}
+    category: Cat05-{cfg.SUBJECT_CODE_USER}
+    tags: "Tech/Python/FastAPI"
+    summary: "Built an API service."
+    confidence: high
+    date: "2026-08-29"
+"""
+        parsed = fact_extractor._parse_facts_yaml(raw_yaml, fallback_date="2026-08-29")
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["summary"], "Built an API service.")
+        self.assertEqual(parsed[0]["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
 
 
 

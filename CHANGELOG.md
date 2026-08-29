@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 13:17:27
+date modified: 2026-08-29 16:04:50
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.025] - 2026-08-29 — *Fact Extractor Timeout Hardening & Stop Sequence Guard*
+
+### Fixed & Hardened
+- **Stop Sequence Enforcement (`Evelyn/tools/fact_extractor.py`)**:
+  - Injected explicit markdown code fence stop sequences (`["\n```\n", "\n```", "```\n"]`) into extraction options for both Pass 1 (facts) and Pass 2 (procedures) to immediately halt local Ollama inference upon closing the YAML code fence, preventing token generation runaways.
+- **Resilient YAML Code Fence Parsing (`Evelyn/tools/fact_extractor.py`)**:
+  - Enhanced `_parse_facts_yaml` and `_parse_procedures_yaml` to strip unmatched opening code fences when stop sequences trigger and omit the trailing delimiter.
+- **Batch Size & Timeout Configuration (`evelyn_config.py`)**:
+  - Reduced default `FACT_EXTRACTION_BATCH_SIZE` from 20 to 12 messages to keep prompt ingestion and token generation windows bounded and fast.
+  - Increased `FACT_EXTRACTION_TIMEOUT` from 300s to 450s with explicit socket connection/read timeout configuration (`httpx.Timeout`).
+
+---
 
 ## [000.006.024] - 2026-08-29 — *Canonical XML Telemetry Envelopes & In-Flight Context Hardening*
 
