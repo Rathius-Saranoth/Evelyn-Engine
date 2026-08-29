@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 21:07:22
+date modified: 2026-08-29 07:47:57
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.020] - 2026-08-29 — *Live Procedures Cleanup, Fact Migration & write_dream_entry Tool*
+
+### Added & Consolidated
+- **Database Migration 000.006.020 (`Evelyn/tools/db_migrator.py`, `data/evelyn_memory.db`)**:
+  - Migrated 5 misclassified procedures (#53 store hours, #54 shopping snack habit, #96 shredded wheat dislike, #102 Factor meal rotation, #108 daughter name spelling) into canonical `context_entries` (`Cat01-U`, `Cat09-U`, `Cat15-U`) and archived their procedure rows.
+  - Merged 9 duplicate Evening Journaling procedures (#28, #86, #107, #190, #195, #458, #575, #583, #619) into 1 canonical Master Daily Journaling Procedure.
+  - Merged 5 duplicate Dream procedures (#88, #132, #137, #184, #201) into 1 canonical Master Dream Entry & Analysis Procedure.
+  - Consolidated redundant health pacing (#95, #110 into #105; #159, #571 into #160) and image generation procedures (#146, #147, #149, #155, #166 into #621), reducing active live procedures from 62 to 36 (a 42% reduction).
+
+- **New `write_dream_entry` Tool (`Evelyn/tools/dream_manager.py`, `Evelyn/tools/evelyn_tools.py`)**:
+  - Introduced dedicated tool and backing manager to save and append structured dream notes in the Obsidian Vault (`Dream Entries/` archive) with date formatting, raw description preservation, initial feelings/thoughts, and tags.
+  - Completely disambiguated dream logs from Evelyn's personal daily reflection journal (`write_journal_entry`).
+
+- **Engine Tool Enhancements & Precision RAG (`Evelyn/tools/fact_extractor.py`, `Evelyn/tools/procedure_consolidator.py`, `Evelyn/tools/memory_db.py`)**:
+  - Added strict negative extraction constraints in `fact_extractor.py` to prevent static facts or preferences from being extracted as procedures.
+  - Added Jaccard keyword deduplication check before inserting extracted procedures to prevent near-duplicate backlog accumulation.
+  - Added domain synonym group clustering (`domain_journal`, `domain_dream`, `domain_visual`, `domain_health`) in `procedure_consolidator.py` to automatically detect and cluster multi-variant procedures.
+  - Upgraded `search_procedures_by_trigger` in `memory_db.py` to use token overlap and relevance scoring, eliminating false-positive runaway procedure retrievals.
+
+- **Automated Verification (`Evelyn/tests/test_dream_manager_and_procedures_cleanup.py`)**:
+  - Added 5 unit tests covering dream note creation, same-day dream appends, tool dispatch, relevance scoring, and domain synonym extraction.
+
+---
 
 ## [000.006.019] - 2026-08-28 — *Fact Extractor Ollama ReadTimeout & Stream Resilience*
 

@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-08-19 19:46:33
+# date modified: 2026-08-29 07:46:29
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -36,6 +36,7 @@ All functions use short-lived connections (no module-level state).
 
 import contextlib
 import json
+import re
 import sqlite3
 import time
 
@@ -1060,32 +1061,38 @@ def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]
         status: Filter status, default 'live'.
 
     Returns:
-        list[dict]: List of matching procedure dictionaries.
+        list[dict]: List of matching procedure dictionaries sorted by relevance.
     """
     stopwords = {
         "when", "what", "with", "that", "this", "your", "have", "from", "about",
         "user", "says", "asks", "tells", "like", "will", "would", "could", "should",
         "they", "them", "their", "there", "then", "into", "onto", "over", "under",
-        "make", "want", "need", "some", "time", "just", "also", "been", "were"
+        "make", "want", "need", "some", "time", "just", "also", "been", "were",
+        "here", "more", "done", "know", "good", "well", "very"
     }
     raw_words = [w.strip(".,;:!?\"'()[]{}") for w in query.lower().split()]
-    meaningful_words = [w for w in raw_words if len(w) > 3 and w not in stopwords]
-    if not meaningful_words:
-        meaningful_words = [w for w in raw_words if len(w) > 3]
-    if not meaningful_words:
+    query_kws = {w for w in raw_words if len(w) >= 3 and w not in stopwords}
+    if not query_kws:
         return []
 
     con = get_db()
-    clauses = []
-    params = [status]
-    for w in meaningful_words[:4]:
-        clauses.append("trigger_pattern LIKE ?")
-        params.append(f"%{w}%")
-
-    query_str = f"SELECT * FROM procedures WHERE status = ? AND ({' OR '.join(clauses)}) ORDER BY retrieval_count DESC"
-    rows = con.execute(query_str, params).fetchall()
+    rows = con.execute("SELECT * FROM procedures WHERE status = ?", (status,)).fetchall()
     con.close()
-    return [dict(r) for r in rows]
+
+    scored = []
+    for r in rows:
+        p_dict = dict(r)
+        trigger_text = f"{p_dict.get('trigger_pattern') or ''} {p_dict.get('tags') or ''}".lower()
+        trigger_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", trigger_text)) - stopwords
+        overlap = query_kws & trigger_words
+        if not overlap:
+            continue
+
+        score = len(overlap)
+        scored.append((score, p_dict.get("retrieval_count", 0), p_dict))
+
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [item[2] for item in scored]
 
 
 def touch_procedure_retrieved(proc_id: int) -> None:

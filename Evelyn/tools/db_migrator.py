@@ -1,3 +1,8 @@
+# db_migrator.py
+# date created: 2026-08-29 07:46:44
+# date modified: 2026-08-29 07:46:44
+# tags: 
+
 """
 Evelyn Engine Database Migration Framework.
 
@@ -500,6 +505,147 @@ def migrate_000_006_009_subject_codes_sanitization(conn: sqlite3.Connection, db_
     )
 
 
+def migrate_000_006_020_live_procedures_cleanup(conn: sqlite3.Connection, db_map: dict[str, str], cfg_obj: object) -> None:
+    """Migration 000.006.020: Migrate misclassified procedures to facts, consolidate procedure clusters, and archive superseded entries."""
+    import time
+    cursor = conn.cursor()
+    now = time.time()
+    user_name = getattr(cfg_obj, "USER_NAME", "Ricky")
+
+    # 1. Migrate 5 misclassified procedures to context_entries
+    facts_to_insert = [
+        (
+            53,
+            "Cat09-U",
+            user_name,
+            "The local hardware store opens at 12:00 PM (noon), whereas the local grocery store opens much earlier in the morning.",
+            "context/location, procedure/timing, schedule",
+            "fact_extractor",
+            "live",
+            now,
+            now,
+            now,
+            now,
+            1,
+        ),
+        (
+            54,
+            "Cat09-U",
+            user_name,
+            f"{user_name} prefers eating a meal or snack before leaving for grocery shopping to prevent impulse buying while hungry.",
+            "life_hack, planning, shopping",
+            "fact_extractor",
+            "live",
+            now,
+            now,
+            now,
+            now,
+            1,
+        ),
+        (
+            96,
+            "Cat15-U",
+            user_name,
+            f"{user_name} maintains a 'Never Again' exclusion preference for store-brand shredded wheat due to consistently poor quality and unpleasant aftertaste.",
+            "shopping-preferences, dislikes",
+            "fact_extractor",
+            "live",
+            now,
+            now,
+            now,
+            now,
+            1,
+        ),
+        (
+            102,
+            "Cat09-U",
+            user_name,
+            f"{user_name} uses a Factor meal rotation (7 pre-made meals per week) and prefers recommendations categorized by mood, theme, or comfort rather than complex cooking instructions.",
+            "meal-planning, food-preferences",
+            "fact_extractor",
+            "live",
+            now,
+            now,
+            now,
+            now,
+            1,
+        ),
+        (
+            108,
+            "Cat01-U",
+            user_name,
+            f"{user_name}'s daughter is named Schyler (specifically spelled 'Schyler', not 'Skyler' or 'Schuyler').",
+            "identity/personal-info, family",
+            "fact_extractor",
+            "live",
+            now,
+            now,
+            now,
+            now,
+            1,
+        ),
+    ]
+
+    for orig_id, cat, subj, obs, tags, src, status, dt, created, updated, f_obs, o_cnt in facts_to_insert:
+        cursor.execute(
+            """INSERT INTO context_entries (category, subject, observation, tags, source, status, date, created_at, updated_at, first_observed, observed_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (cat, subj, obs, tags, src, status, dt, created, updated, f_obs, o_cnt),
+        )
+        cursor.execute("UPDATE procedures SET status = 'archived', updated_at = ? WHERE id = ?", (now, orig_id))
+
+    # 2. Insert Master Daily Journaling Procedure & archive duplicates
+    journal_trigger = f"When {user_name} is ending the day, preparing for sleep/bedtime, or asks for Evelyn's daily journal entry"
+    journal_steps = (
+        "1. Reflect on the entire arc of the day discussed in conversation (actions, emotional states, technical milestones, physical comforts).\n"
+        "2. Draft the entry through Evelyn's personal, warm perspective with subjective feelings and internal thoughts (avoiding detached reporter-like summaries).\n"
+        "3. Organize the narrative chronologically (Morning, Afternoon, Night).\n"
+        "4. Save the entry using write_journal_entry.\n"
+        "5. Ask the user to verify and confirm the day is safely filed away before transitioning to sleep."
+    )
+    journal_pitfalls = "Avoid dry factual summaries; do not introduce new work tasks during wind-down; preserve Evelyn's warmth and shared journey."
+    journal_verif = "The journal entry is successfully created via write_journal_entry in the vault and user confirms it is filed away."
+    journal_tags = "procedure/daily-journaling, skill/writing, routine/bedtime"
+
+    cursor.execute(
+        """INSERT INTO procedures (trigger_pattern, steps, pitfalls, verification, source, status, tags, created_at, updated_at, retrieval_count, suggested_tools)
+           VALUES (?, ?, ?, ?, 'consolidated', 'live', ?, ?, ?, 0, 'write_journal_entry')""",
+        (journal_trigger, journal_steps, journal_pitfalls, journal_verif, journal_tags, now, now),
+    )
+    journal_archive_ids = [28, 86, 107, 190, 195, 458, 575, 583, 619]
+    cursor.executemany("UPDATE procedures SET status = 'archived', updated_at = ? WHERE id = ?", [(now, pid) for pid in journal_archive_ids])
+
+    # 3. Insert Master Dream Entry Procedure & archive duplicates
+    dream_trigger = f"When {user_name} shares, describes, or asks to log or analyze a dream entry"
+    dream_steps = (
+        "1. Extract the raw dream description and preserve it untouched under an 'Original Description' section.\n"
+        "2. Format the entry using the write_dream_entry tool (or write_file to Dream Entries) with date and descriptive keywords in the title.\n"
+        "3. Extract initial feelings, emotions, and narrative flow into structured sections.\n"
+        "4. Keep personal cross-references or real-world date notes in dedicated analytical notes rather than altering the core narrative.\n"
+        "5. When requested, perform thematic cross-entry analysis across dimensions (characters, moods, symbols, settings) correlating with personal context."
+    )
+    dream_pitfalls = "Never use write_journal_entry for dream entries (reserve write_journal_entry exclusively for Evelyn's daily journal); do not alter raw user descriptions or inject surreal tropes not present in the user's account."
+    dream_verif = "The dream entry is successfully saved in Dream Entries with untouched raw text and structured analysis."
+    dream_tags = "procedure/dream-logging, skill/dream-analysis, procedure/writing"
+
+    cursor.execute(
+        """INSERT INTO procedures (trigger_pattern, steps, pitfalls, verification, source, status, tags, created_at, updated_at, retrieval_count, suggested_tools)
+           VALUES (?, ?, ?, ?, 'consolidated', 'live', ?, ?, ?, 0, 'write_dream_entry, write_file')""",
+        (dream_trigger, dream_steps, dream_pitfalls, dream_verif, dream_tags, now, now),
+    )
+    dream_archive_ids = [88, 132, 137, 184, 201]
+    cursor.executemany("UPDATE procedures SET status = 'archived', updated_at = ? WHERE id = ?", [(now, pid) for pid in dream_archive_ids])
+
+    # 4. Archive Health and Image duplicates
+    health_archive_ids = [95, 110, 159, 571]
+    cursor.executemany("UPDATE procedures SET status = 'archived', updated_at = ? WHERE id = ?", [(now, pid) for pid in health_archive_ids])
+
+    image_archive_ids = [146, 147, 149, 155, 166]
+    cursor.executemany("UPDATE procedures SET status = 'archived', updated_at = ? WHERE id = ?", [(now, pid) for pid in image_archive_ids])
+
+    logger.info("Migration 000.006.020 successfully cleaned up live procedures and migrated misclassified facts.")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -561,6 +707,12 @@ MIGRATIONS: list[Migration] = [
         name="migrate_legacy_subject_codes_in_memory",
         up_fn=migrate_000_006_009_subject_codes_sanitization,
         reindex_vault=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.020",
+        name="live_procedures_cleanup_and_fact_migration",
+        up_fn=migrate_000_006_020_live_procedures_cleanup,
     ),
 ]
 

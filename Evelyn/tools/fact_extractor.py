@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-28 21:07:12
+# date modified: 2026-08-29 07:45:56
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -846,10 +846,14 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
         f"instructions, workflows, rules, or guidelines that {cfg.USER_NAME} (the user) asks {cfg.ASSISTANT_NAME} (the AI) to follow. "
         "Specifically look for patterns like: 'When X happens, do Y, watch out for Z' or 'If I ask for A, do B'. "
         "Ignore standard factual statements, preferences, small talk, and general chat. \n\n"
+        "STRICT NEGATIVE CONSTRAINTS:\n"
+        "- Do NOT extract static facts, personal food preferences, consumer dislikes, family entity spellings, or local business hours as procedures — these belong strictly in context entries.\n"
+        "- Only extract actionable, repeatable procedural steps and behavioral workflows.\n\n"
         "Active Engine Tools Available for Procedures:\n"
-        "- write_file: Write or update notes, dream journals, feature ideas, or vault documents (e.g. Dream Journal/...)\n"
+        "- write_dream_entry: Save structured dream entry notes for Ricky in the Dream Entries vault archive (never use write_journal_entry for dreams)\n"
+        "- write_journal_entry: Reserved EXCLUSIVELY for Evelyn's personal daily reflection / wrap-up journal entry (not dream logs or user notes)\n"
+        "- write_file: Write or update general notes, feature ideas, or vault documents\n"
         "- read_file: Read files in workspace or vault notes\n"
-        "- write_journal_entry: Reserved EXCLUSIVELY for Evelyn's daily reflection / wrap-up journal entry (not dream journals)\n"
         "- create_task, complete_task, list_tasks, get_agenda: Manage Google Tasks and schedule\n"
         "- get_health_metrics, get_recent_workouts: Query Oura Ring and Health Connect data\n"
         "- manage_vault_list: Manage checklists in vault (groceries, packing, hardware lists)\n"
@@ -1213,13 +1217,24 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
 
     for proc in procedures:
         # Check for duplication. We look up existing procedures and compare
-        # their triggers and steps to avoid exact duplicates.
+        # their triggers and steps to avoid exact or near duplicates.
         existing = memory_db.get_all_procedures(status="live") + memory_db.get_all_procedures(status="extracted")
         duplicate = False
+        candidate_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", proc["trigger_pattern"].lower()))
+        stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they"}
+        candidate_kws = candidate_words - stopwords
+
         for ext in existing:
             if ext["trigger_pattern"].lower() == proc["trigger_pattern"].lower():
                 duplicate = True
                 break
+            ext_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", ext["trigger_pattern"].lower()))
+            ext_kws = ext_words - stopwords
+            if candidate_kws and ext_kws:
+                jaccard = len(candidate_kws & ext_kws) / len(candidate_kws | ext_kws)
+                if jaccard >= 0.75:
+                    duplicate = True
+                    break
 
         if duplicate:
             print(f"[EXTRACTOR] Skipping duplicate procedure trigger: {proc['trigger_pattern'][:80]}...", flush=True)

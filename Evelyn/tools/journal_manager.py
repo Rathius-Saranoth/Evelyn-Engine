@@ -1,6 +1,6 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-08-28 12:28:58
+# date modified: 2026-08-29 07:53:50
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
@@ -31,12 +31,37 @@ JOURNAL_DIR = getattr(cfg, "JOURNAL_DIR", os.path.join(getattr(cfg, "VAULT_BASE_
 PENDING_DIR = os.path.join(getattr(cfg, "PENDING_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), "Pending_Approvals")), "Journal")
 
 
+def _resolve_journal_dir(date_obj: datetime.date | None = None) -> str:
+    """Resolve the structured target directory for journal entries:
+    JOURNAL_DIR/Journal Entries/YYYY/MM-ShortMonth/
+    """
+    if not os.environ.get("PYTEST_CURRENT_TEST") and not getattr(cfg, "DISABLE_HOT_RELOAD", False):
+        importlib.reload(cfg)
+    base_journal = getattr(
+        cfg,
+        "JOURNAL_DIR",
+        os.path.join(
+            getattr(cfg, "VAULT_BASE_DIR", os.path.expanduser("~/obsidian_vault")),
+            getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
+            f"{getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}'s Journal",
+        ),
+    )
+    if date_obj is None:
+        date_obj = datetime.datetime.now(datetime.UTC).astimezone().date()
+
+    year = date_obj.strftime("%Y")
+    month_str = f"{date_obj.strftime('%m')}-{date_obj.strftime('%b')}"
+    target_dir = os.path.join(base_journal, "Journal Entries", year, month_str)
+    os.makedirs(target_dir, exist_ok=True)
+    return target_dir
+
+
 def _resolve_journal_filepath(date_str: str) -> str | None:
     """Find the filepath of a journal entry by date.
 
     Searches across:
-      1. Live vault root: JOURNAL_DIR/Journal Entry YYYY-MM-DD.md
-      2. Structured archive: JOURNAL_DIR/Journal Entries/YYYY/MM-ShortMonth/Journal Entry YYYY-MM-DD.md
+      1. Structured archive: JOURNAL_DIR/Journal Entries/YYYY/MM-ShortMonth/Journal Entry YYYY-MM-DD.md
+      2. Live vault root (legacy fallback): JOURNAL_DIR/Journal Entry YYYY-MM-DD.md
       3. Pending quarantine: PENDING_DIR/Journal Entry YYYY-MM-DD.md
 
     Args:
@@ -47,12 +72,7 @@ def _resolve_journal_filepath(date_str: str) -> str | None:
     """
     filename = f"Journal Entry {date_str}.md"
 
-    # 1. Live vault root
-    root_path = os.path.join(JOURNAL_DIR, filename)
-    if os.path.exists(root_path):
-        return root_path
-
-    # 2. Structured archive folder
+    # 1. Structured archive folder
     try:
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
         year = dt.strftime("%Y")
@@ -62,6 +82,11 @@ def _resolve_journal_filepath(date_str: str) -> str | None:
             return struct_path
     except ValueError:
         pass
+
+    # 2. Live vault root (legacy fallback)
+    root_path = os.path.join(JOURNAL_DIR, filename)
+    if os.path.exists(root_path):
+        return root_path
 
     # 3. Pending quarantine folder
     pending_path = os.path.join(PENDING_DIR, filename)
@@ -79,9 +104,9 @@ def create_journal_entry(
     tags: list | None = None,
 ):
     """
-    Writes a journal entry markdown file to the Pending Approvals folder.
+    Writes a journal entry markdown file to the structured Journal Entries archive.
 
-    If a file for today's date already exists in ``PENDING_DIR``, the new
+    If a file for today's date already exists in the archive, the new
     content is appended as a "Supplemental Entry" section rather than
     overwriting the existing file. This preserves multiple sessions in a
     single day's entry.
@@ -104,10 +129,13 @@ def create_journal_entry(
     today = datetime.datetime.now(datetime.UTC).astimezone().date()
     filename = f"Journal Entry {today.strftime('%Y-%m-%d')}.md"
 
-    # Determine write target based on config
-    importlib.reload(cfg)
-    target_dir = JOURNAL_DIR
-    filepath = os.path.join(target_dir, filename)
+    # Determine write target: check existing archive file or create in structured year/month dir
+    existing_filepath = _resolve_journal_filepath(today.strftime("%Y-%m-%d"))
+    if existing_filepath and os.path.exists(existing_filepath):
+        filepath = existing_filepath
+    else:
+        target_dir = _resolve_journal_dir(today)
+        filepath = os.path.join(target_dir, filename)
 
     if tags is None:
         tags = []

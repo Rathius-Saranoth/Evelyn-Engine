@@ -1,6 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
-# date modified: 2026-08-28 07:37:05
+# date modified: 2026-08-29 07:46:15
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -110,11 +110,38 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
 # Core Clustering & Synthesis Logic
 # ---------------------------------------------------------------------------
 
+SYNONYM_GROUPS: dict[str, str] = {
+    "journal": "domain_journal",
+    "journaling": "domain_journal",
+    "bedtime": "domain_journal",
+    "night": "domain_journal",
+    "sleep": "domain_journal",
+    "evening": "domain_journal",
+    "wrap": "domain_journal",
+    "dream": "domain_dream",
+    "dreams": "domain_dream",
+    "outfit": "domain_visual",
+    "portrait": "domain_visual",
+    "clothing": "domain_visual",
+    "illustration": "domain_visual",
+    "image": "domain_visual",
+    "oura": "domain_health",
+    "biometrics": "domain_health",
+    "fatigue": "domain_health",
+    "pacing": "domain_health",
+    "unwell": "domain_health",
+    "exhaustion": "domain_health",
+}
+
+
 def _extract_keywords(text: str) -> set[str]:
-    """Extract lowercase semantic keywords from a trigger pattern."""
+    """Extract lowercase semantic keywords and normalized domain tags from a trigger pattern."""
     words = re.findall(r"\b[a-z0-9_]{3,}\b", text.lower())
-    stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they"}
-    return {w for w in words if w not in stopwords}
+    stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they", "into", "from", "about"}
+    kws = {w for w in words if w not in stopwords}
+    # Add mapped synonym domain tokens
+    synonym_tokens = {SYNONYM_GROUPS[w] for w in kws if w in SYNONYM_GROUPS}
+    return kws | synonym_tokens
 
 
 def find_procedure_clusters() -> list[list[dict]]:
@@ -168,8 +195,11 @@ def find_procedure_clusters() -> list[list[dict]]:
                 continue
 
             overlap = kw1.intersection(kw2)
-            # Check overlap coefficient Jaccard or minimum shared keywords
-            if len(overlap) >= 2 or (len(kw1) <= 3 and len(overlap) >= 1 and ("journal" in overlap or "bed" in overlap or "research" in overlap)):
+            # Check overlap: >=2 shared keywords or matching domain synonym marker
+            domain_overlap = {w for w in overlap if w.startswith("domain_")}
+            raw_overlap = {w for w in overlap if not w.startswith("domain_")}
+
+            if (len(domain_overlap) >= 1 and len(raw_overlap) >= 1) or (len(raw_overlap) >= 2):
                 cluster.append(p2)
 
         if len(cluster) >= 2:
@@ -301,9 +331,9 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
     prompt = (
         "You are an expert systems archivist consolidating duplicate AI companion procedures.\n"
         "Analyze the following overlapping procedure rules and merge them into ONE single, master procedure.\n\n"
-        "Active Tools: write_file, read_file, write_journal_entry, create_task, complete_task, list_tasks, "
+        "Active Tools: write_file, read_file, write_dream_entry, write_journal_entry, create_task, complete_task, list_tasks, "
         "get_agenda, get_health_metrics, get_recent_workouts, manage_vault_list, run_command, web_search, start_research, generate_image.\n"
-        "Note: Use 'write_file' for creating/updating notes, dream journals, and vault files. Reserve 'write_journal_entry' ONLY for daily narrative reflections.\n\n"
+        "Note: Use 'write_dream_entry' for saving structured dream entries to Dream Entries archive. Reserve 'write_journal_entry' ONLY for Evelyn's personal daily narrative reflections. Use 'write_file' for general vault notes.\n\n"
         "Requirements:\n"
         "1. Create a single 'trigger_pattern' that clearly encompasses all trigger phrases.\n"
         "2. Merge the 'steps' logically without losing important details or verification checks.\n"

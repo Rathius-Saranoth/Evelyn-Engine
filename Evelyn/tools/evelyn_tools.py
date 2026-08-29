@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-08-20 20:49:45
+# date modified: 2026-08-29 07:45:31
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -87,6 +87,7 @@ import gdrive_sync
 import gtasks_sync
 import health_manager
 import ingest_obsidian_knowledge  # [[ingest_obsidian_knowledge.py]]
+import dream_manager
 import journal_manager  # [[journal_manager.py]]
 import terminal_agent
 import vault_list_manager
@@ -97,6 +98,7 @@ def _reload():
     if os.environ.get("PYTEST_CURRENT_TEST") or getattr(cfg, "DISABLE_HOT_RELOAD", False):
         return
     for mod in (
+        "dream_manager",
         "journal_manager",
         "context_manager",
         "ingest_obsidian_knowledge",
@@ -157,6 +159,57 @@ def write_journal_entry(
     return journal_manager.create_journal_entry(
         vibe_check, narrative, message_in_a_bottle, mood, tag_list
     )
+
+
+def write_dream_entry(
+    title: str = "",
+    description: str = "",
+    date: str = "",
+    feelings: str = "",
+    tags: str = "",
+    analysis: str = "",
+    **kwargs,
+) -> str:
+    """Compose and save a structured Dream Entry note for Ricky in the Obsidian vault.
+
+    Args:
+        title: Descriptive title for this specific dream scene/narrative.
+        description: Raw, untouched dream narrative from Ricky.
+        date: Optional date string in YYYY-MM-DD format (defaults to current date).
+        feelings: Optional initial feelings, immediate waking thoughts, or mood.
+        tags: Comma-separated list of tags to associate.
+        analysis: Optional thematic or cross-referencing analysis notes.
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Confirmation message or path to the saved dream entry note.
+    """
+    _reload()
+    title = title or str(kwargs.get("dream_title") or kwargs.get("name") or "Untitled Dream")
+    description = description or str(kwargs.get("body") or kwargs.get("text") or kwargs.get("narrative") or kwargs.get("dream_description") or "")
+    date = date or str(kwargs.get("date_str") or "")
+    feelings = feelings or str(kwargs.get("initial_feelings") or kwargs.get("thoughts") or kwargs.get("mood") or "")
+    tags = tags or str(kwargs.get("tag_list") or kwargs.get("tag_string") or "")
+    analysis = analysis or str(kwargs.get("analytical_notes") or kwargs.get("notes") or "")
+
+    if not description.strip() and not title.strip():
+        return "Error: write_dream_entry called with completely blank description and title. Aborted."
+
+    tag_list = [t.strip() for t in tags.split(",")] if tags.strip() else []
+    return dream_manager.create_dream_entry(
+        title=title,
+        description=description,
+        date_str=date,
+        feelings=feelings,
+        tags=tag_list,
+        analysis=analysis,
+    )
+
+
+def read_dream_entry(date: str = "", **kwargs) -> str:
+    """Read a dream entry note by date."""
+    _reload()
+    return dream_manager.read_dream_entry(date_str=date)
 
 
 DEPRECATION_LOG_FILE = os.path.join(getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"), "data", "deprecation_warnings.log")
@@ -2419,6 +2472,7 @@ def sync_google_drive(force: bool = False, **kwargs) -> str:
 #   run/read/write_file  → "medium": context-dependent
 TOOL_THINK_EFFORT: dict[str, str] = {
     "write_journal_entry":   "high",
+    "write_dream_entry":     "medium",
     "generate_image":        "medium",
     "web_search":            "medium",
     "start_research":        "high",
@@ -2447,7 +2501,7 @@ MODEL_TOOL_DEFINITIONS = [
             "description": (
                 f"Compose and save {cfg.ASSISTANT_NAME}'s personal daily reflection journal entry (covers morning, afternoon, and evening reflections from {cfg.ASSISTANT_NAME}'s POV with vibe check and message in a bottle). "
                 f"Use ONLY at the end of the day or when {cfg.USER_NAME} asks for {cfg.ASSISTANT_NAME}'s personal daily journal recap. "
-                f"STRICT RULE: NEVER use this tool for {cfg.USER_NAME}'s dream journal entries, personal notes, research reports, or general vault documents — use write_file for all user-authored vault documents."
+                f"STRICT RULE: NEVER use this tool for {cfg.USER_NAME}'s dream entries, personal notes, research reports, or general vault documents — use write_dream_entry for dream records, and write_file for all other user-authored vault documents."
             ),
             "parameters": {
                 "type": "object",
@@ -2488,6 +2542,48 @@ MODEL_TOOL_DEFINITIONS = [
                     "message_in_a_bottle",
                     "tags",
                 ],
+            },
+        },
+    },
+
+    {
+        "type": "function",
+        "function": {
+            "name": "write_dream_entry",
+            "description": (
+                f"Compose and save a structured Dream Entry note for {cfg.USER_NAME} in the Obsidian Vault Dream archive. "
+                f"Preserves {cfg.USER_NAME}'s raw, untouched dream narrative under 'Dream Description:' with a descriptive title, initial feelings/thoughts, tags, and optional analysis. "
+                f"If a dream note already exists for the given date, appends the new dream section to preserve multiple dreams on the same calendar day."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Descriptive title for this specific dream scene/narrative (e.g. 'Ice Caverns, Rising Lava, Rescuing People').",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": f"Raw, untouched dream description and narrative provided by {cfg.USER_NAME}.",
+                    },
+                    "feelings": {
+                        "type": "string",
+                        "description": "Initial feelings, immediate waking thoughts, mood, or emotional context associated with the dream.",
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Date of the dream in YYYY-MM-DD format (defaults to current date if omitted).",
+                    },
+                    "analysis": {
+                        "type": "string",
+                        "description": "Optional thematic or cross-referencing analysis notes (correlations with waking life, symbols, recurring themes).",
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Comma-separated tags for the dream (e.g. 'dream, anxiety-dreams, video-game-dreams').",
+                    },
+                },
+                "required": ["title", "description"],
             },
         },
     },
@@ -3142,6 +3238,8 @@ TOOL_FUNCTIONS = {
     "write_journal_entry": write_journal_entry,
     "read_journal_entry": read_journal_entry,
     "read_recent_journal_entries": read_recent_journal_entries,
+    "write_dream_entry": write_dream_entry,
+    "read_dream_entry": read_dream_entry,
     "search_vault": search_vault,
     "recall_specific_memory": recall_specific_memory,
     "generate_image": generate_image,

@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-08-28 21:02:19
+# date modified: 2026-08-28 21:16:47
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -225,7 +225,10 @@ def normalize_document_text(text: str) -> str:
     text = text.replace('"Nourishment"t', '"Nourishment"')
     text = text.replace('Nourishmen"t', '"Nourishment"')
 
-    # 4. Strip trailing whitespace from lines
+    # 4. Fix subword token artifact typos (e.g. navigms -> navigates)
+    text = re.sub(r"\bnavigms\b", "navigates", text)
+
+    # 5. Strip trailing whitespace from lines
     lines = [line.rstrip() for line in text.splitlines()]
 
     return "\n".join(lines).strip()
