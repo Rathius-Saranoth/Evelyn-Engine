@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-29 08:32:30
+date modified: 2026-08-29 11:56:27
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -177,6 +177,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[gdrive_sync.py]]**: Google Drive synchronizer. Periodically syncs and downloads daily Android `Health Connect.zip` exports from Google Drive to maintain local health databases.
 * **[[oura_client.py]]**: Oura Ring Cloud API v2 client. Fetches real-time, zero-lag sleep scores, sleep stage hypnograms, readiness scores, and daytime stress indicators.
 * **[[health_manager.py]]**: Health and vitals query engine. Blends live Oura Cloud API metrics with local SQLite Health Connect records for comprehensive health intelligence.
+* **[[time_manager.py]]**: Dedicated temporal management and chronology subsystem. Provides timezone-aware datetime parsing across UNIX epochs, Google Calendar all-day date strings (`YYYY-MM-DD`), and Google Tasks timestamps, evaluates role-agnostic silence gaps, generates structured `<temporal_context>` XML telemetry envelopes for LLM turns, and drives the always-on proactive heartbeat loop.
 * **[[fact_consolidator.py]]**: Idle-time database cleaner and consolidator. Scans context databases for duplicate, compound, or superseded facts. Generates merge, supersede, recategorize, and split/decomposition proposals for bloated compound entries.
 * **[[procedure_consolidator.py]]**: Idle-time procedure consolidation engine. Merges overlapping procedural rules into unified specifications.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Features **thematic section pre-clustering** (`DOCUMENT_THEMES`, `_cluster_entries_by_theme()`) and entity topic pre-aggregation to group related observations under topic subheadings, eliminating cross-topic context switching. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. Features **fault-isolated per-document timeouts** (`PROFILE_EVOLUTION_DOC_TIMEOUT = 1500`), **draft persistence** (saving working document and cursor after each pass so interrupted runs resume smoothly), and a **dedicated editorial proofreading pass** (`_proofread_document()` at `temperature: 0.1`) that eliminates subword tokenizer artifacts and typos before proposal creation.

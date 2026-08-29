@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-29 08:32:38
+date modified: 2026-08-29 11:54:24
 tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
@@ -53,6 +53,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
 - [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with thematic pre-clustering, editorial proofreading, pre-approval editing, and live diff panels in DevUI.
 - [x] **Procedural Knowledge & Tool Execution Protocols**: Background pipeline that extracts operational workflows, tool recommendations, and pitfalls into searchable procedural memory, with queue-based consolidation and DevUI management.
+- [x] **Temporal Management Subsystem (`time_manager`)**: Dedicated subsystem providing timezone-aware normalization, role-agnostic silence tracking, structured `<temporal_context>` XML telemetry envelopes, and always-on proactive heartbeat evaluation.
 - [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, Oura Ring Cloud API v2 vitals, and high-resolution intraday heart rate / activity biometrics.
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
 - [ ] **System-Event Prompting Flow**: Inject proactive notifications into conversation turns for background triggers (agenda alerts, completed research, health anomalies).

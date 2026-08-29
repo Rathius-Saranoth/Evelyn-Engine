@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-28 17:10:41
+# date modified: 2026-08-29 11:52:49
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -96,8 +96,11 @@ from profile_evolver import (
     cancel_pending_evolution,
     run_profile_evolution,
 )
+from time_manager import TimeManager
 
 import evelyn_config as cfg
+
+time_manager = TimeManager()
 
 # ---------------------------------------------------------------------------
 # Console colors (ANSI — native on Windows Terminal, VS Code, etc.)
@@ -503,39 +506,18 @@ def get_research_context() -> str:
 
 
 def get_upcoming_agenda_prompt_context() -> str:
-    """Fetch a high-level summary notification of upcoming Google Calendar events and Google Tasks to inject into the system prompt.
+    """Fetch structured temporal and agenda context from TimeManager.
 
-    Avoids token bloat by notifying about counts and only listing urgent pending items.
+    Returns:
+        str: XML temporal context string.
     """
+    con = get_db()
     try:
-        import sys
-
-        TOOLS_DIR = str(BASE_DIR / "Evelyn" / "tools")
-        if TOOLS_DIR not in sys.path:
-            sys.path.append(TOOLS_DIR)
-        import gcal_sync
-        import gtasks_sync
-
-        # 1. Fetch upcoming calendar events for the next 24 hours (days_back=0, days_forward=1)
-        events = gcal_sync.get_cached_gcal_events(days_back=0, days_forward=1)
-        # 2. Fetch pending tasks due within the next 24 hours
-        tasks = gtasks_sync.get_cached_tasks(include_completed=False, due_within_days=1)
-
-        lines = []
-        if events:
-            lines.append(
-                f"(Context note: {cfg.USER_NAME} has {len(events)} upcoming calendar event(s) in the next 24 hours. You may call 'get_agenda' if {cfg.USER_NAME} asks about the schedule.)"
-            )
-        if tasks:
-            lines.append(
-                f"(Context note: {cfg.USER_NAME} has {len(tasks)} pending task(s) due soon or today. You may call 'list_tasks' or 'get_agenda' if {cfg.USER_NAME} asks about to-dos/tasks.)"
-            )
-
-        if lines:
-            return "\n" + "\n".join(lines)
-        return ""
+        return time_manager.build_temporal_envelope(con)
     except (sqlite3.Error, OSError, ValueError) as e:
         return f"\n[Agenda Error] Failed to load agenda notification: {e}"
+    finally:
+        con.close()
 
 
 def load_system_prompt() -> str:
@@ -552,6 +534,13 @@ def load_system_prompt() -> str:
     date_str = datetime.now(UTC).astimezone().strftime("%A, %B %d, %Y")
     time_str = datetime.now(UTC).astimezone().strftime("%I:%M %p")
     parts.append(f"The current date and time is {date_str} - {time_str}.")
+    parts.append(
+        "<system_telemetry_directives>\n"
+        "`<temporal_context>` blocks contain environmental telemetry produced by the server runtime.\n"
+        f"They report the absolute clock, session resumption state, and agenda alerts for {cfg.USER_NAME}.\n"
+        f"Never attribute this telemetry block to {cfg.USER_NAME}, and do not repeat telemetry tags verbatim in conversation.\n"
+        "</system_telemetry_directives>"
+    )
     parts.append(
         "Use thinking for fact verification, logical analysis, and selecting "
         "tools. Keep thinking concise -- you don't need lengthy chains for casual conversation. "
@@ -578,7 +567,7 @@ def load_system_prompt() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Time-gap awareness
+# Time-gap awareness (Legacy compatibility wrapper)
 # ---------------------------------------------------------------------------
 
 
@@ -587,49 +576,16 @@ def get_time_gap_context() -> str | None:
 
     Returns:
         str | None: A succinct bracketed explanation of the last message time,
-            elapsed time gap, and current time if exceeding 5 minutes, otherwise None.
+            elapsed time gap, and current time if exceeding 15 minutes, otherwise None.
     """
     con = get_db()
-    row = con.execute(
-        "SELECT ts FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    con.close()
-    if not row:
-        return None  # First message ever
-
-    from datetime import timedelta as _td
-
-    last_ts = datetime.fromtimestamp(row["ts"], tz=UTC).astimezone()
-    now = datetime.now(UTC).astimezone()
-    delta = now - last_ts
-
-    if delta < _td(minutes=5):
-        return None  # Continuous conversation, no annotation needed
-
-    last_time_str = (
-        last_ts.strftime("%a %b %d, %I:%M %p").lstrip("0")
-        if last_ts.date() != now.date()
-        else last_ts.strftime("%I:%M %p").lstrip("0")
-    )
-
-    if delta < _td(hours=1):
-        mins = int(delta.total_seconds() // 60)
-        gap_str = f"{mins} minutes"
-    elif delta < _td(hours=6):
-        hrs = delta.total_seconds() / 3600
-        label = f"{hrs:.1f}".rstrip("0").rstrip(".")
-        gap_str = f"{label} hours"
-    else:
-        days = delta.days
-        hrs = delta.seconds // 3600
-        parts = []
-        if days:
-            parts.append(f"{days} day{'s' if days != 1 else ''}")
-        if hrs:
-            parts.append(f"{hrs} hour{'s' if hrs != 1 else ''}")
-        gap_str = " and ".join(parts) if parts else "a long time"
-
-    return f"[Last user message: {last_time_str} ({gap_str} ago)]"
+    try:
+        gap = time_manager.evaluate_session_gap(con)
+        if gap:
+            return f"[Last interaction: {gap['last_interaction_ts']} ({gap['duration_str']} ago)]"
+        return None
+    finally:
+        con.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1753,12 +1709,14 @@ async def _process_chat_background(
 
         history = load_history()
 
-        # Agenda as dynamic user-turn prefix
-        agenda_prefix = get_upcoming_agenda_prompt_context()
+        # Build structured temporal envelope telemetry
+        con = get_db()
+        try:
+            temporal_envelope = time_manager.build_temporal_envelope(con)
+        finally:
+            con.close()
 
-        user_msg_for_model = f"{time_ctx}\n{user_message}" if time_ctx else user_message
-        if agenda_prefix:
-            user_msg_for_model = f"{agenda_prefix}\n\n{user_msg_for_model}"
+        user_msg_for_model = f"{temporal_envelope}\n\n{user_message}"
 
         messages = [{"role": "system", "content": system}, *history]
 
@@ -2030,9 +1988,7 @@ async def chat_stream(
 
     clean_b64_images = []
     if not is_regenerate:
-        time_ctx = get_time_gap_context()
-        if time_ctx:
-            dlog("Time-gap annotation:", time_ctx)
+        time_ctx = None
         user_row_id = save_message_get_id("user", user_message)
 
         if images:
@@ -2895,6 +2851,36 @@ async def lifespan(app: FastAPI):
 
     _lifespan_tasks.append(asyncio.create_task(_gdrive_sync_loop()))
     print(f"  {_GRN}GDrive Syncer:{_RST} periodic loop started (interval=2h)")
+
+    # Autonomous Temporal Heartbeat loop (evaluates imminent/overdue tasks & events)
+    async def _temporal_heartbeat_loop():
+        """Periodic background task evaluating time thresholds every 60s for autonomous alerts."""
+        await asyncio.sleep(10)  # Brief warm-up delay on startup
+        while True:
+            try:
+                import task_manager
+
+                # Do not trigger during active chat generation or preemption
+                if not task_manager.is_chat_preempted():
+                    con = get_db()
+                    try:
+                        triggers = time_manager.evaluate_heartbeat(con)
+                        for trigger in triggers:
+                            print(
+                                f"{_YEL}[TEMPORAL HEARTBEAT ALERT]{_RST} {trigger['type'].upper()}: {trigger['details']}",
+                                flush=True,
+                            )
+                    finally:
+                        con.close()
+            except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
+                if cfg.DEBUG_LOGGING:
+                    print(f"{_RED}[TEMPORAL HEARTBEAT ERROR]{_RST} {e}", flush=True)
+
+            # Tick every 60 seconds
+            await asyncio.sleep(60)
+
+    _lifespan_tasks.append(asyncio.create_task(_temporal_heartbeat_loop()))
+    print(f"  {_GRN}Temporal Heartbeat:{_RST} periodic loop started (interval=60s)")
 
     yield
 
