@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-28 19:16:25
+date modified: 2026-08-28 21:07:22
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,34 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.019] - 2026-08-28 — *Fact Extractor Ollama ReadTimeout & Stream Resilience*
+
+### Fixed & Hardened
+- **Fact Extraction Timeout Scaling (`evelyn_config.py`, `Evelyn/tools/fact_extractor.py`)**:
+  - Increased `FACT_EXTRACTION_TIMEOUT` from 180s (3m) to 300s (5m) in `evelyn_config.py` to provide sufficient headroom for large 20-message batches with full master taxonomy (`Cat00 - Index.md`) prompt evaluation.
+  - Increased streaming line chunk timeout from 120.0s to 180.0s in `_do_extraction()` across both fact and procedure extraction passes.
+  - Hardened static typing and sanitized tool string lists in `_do_extraction()` to prevent dictionary assignment type warnings and join issues.
+
+---
+
+## [000.006.018] - 2026-08-28 — *Profile Evolver Per-Document Timeout & Task Manager Resilience*
+
+### Enhanced & Hardened
+- **Per-Document Timeout & Failure Isolation (`Evelyn/tools/profile_evolver.py`, `evelyn_config.py`)**:
+  - Replaced the global task-level execution timer assumption with dedicated per-document timeouts (`PROFILE_EVOLUTION_DOC_TIMEOUT = 1500` / 25 minutes per document), wrapping each document pass in `asyncio.wait_for()`.
+  - Hardened error handling so an individual document timeout or LLM error preserves any in-progress draft on disk, sets status `INTERRUPTED_SAVED`, and gracefully advances to the remaining identity documents rather than killing the entire background task.
+  - Standardized per-call Ollama inference timeouts using `PROFILE_EVOLUTION_TIMEOUT = 180` (3 minutes per stream).
+  - Added live heartbeat updates to `task_manager.set_running()` reporting current document name, pass number, compaction word counts, and reason summary stages.
+
+- **Task Manager Watchdog Resilience (`Evelyn/tools/task_manager.py`)**:
+  - Increased `DEFAULT_SOFT_TIMEOUTS["profile_evolver"]` baseline from 900s (15 min) to 4500s (75 min) to account for multi-pass evolution across all 3 identity documents.
+  - Updated `get_dynamic_timeout()` to automatically enforce `PROFILE_EVOLUTION_DOC_TIMEOUT * 3.0` as the dynamic baseline minimum.
+
+- **Automated Verification (`Evelyn/tests/test_profile_evolver_timeouts.py`)**:
+  - Added unit tests validating dynamic timeout baselines and per-document timeout isolation across sequential identity documents.
+
+---
 
 ## [000.006.017] - 2026-08-28 — *Fact Consolidator Category Scan State Sanitization*
 

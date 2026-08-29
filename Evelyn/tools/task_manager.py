@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-22 15:44:12
+# date modified: 2026-08-28 21:01:56
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -66,7 +66,7 @@ DEFAULT_SOFT_TIMEOUTS = {
     "extractor": 1200.0,             # 20 minutes
     "consolidator": 2100.0,          # 35 minutes
     "procedure_consolidator": 900.0, # 15 minutes
-    "profile_evolver": 900.0,        # 15 minutes
+    "profile_evolver": 4500.0,        # 75 minutes (up to 3 documents * 25m per doc ceiling)
     "refresh_memory": 1800.0,        # 30 minutes
     "vault_map": 600.0,              # 10 minutes
     "sync": 1800.0,                  # 30 minutes
@@ -438,6 +438,14 @@ def get_dynamic_timeout(name: str) -> float:
         else:
             baseline = 1800.0
 
+    if name == "profile_evolver":
+        try:
+            import evelyn_config as cfg
+            doc_timeout = float(getattr(cfg, "PROFILE_EVOLUTION_DOC_TIMEOUT", 1500.0))
+            baseline = max(baseline or 4500.0, doc_timeout * 3.0)
+        except (ImportError, AttributeError):
+            pass
+
     # Query SQLite database for up to 30 completed runs
     with contextlib.suppress(sqlite3.Error, OSError, ValueError):
         conn = _get_db_connection()
@@ -541,7 +549,7 @@ def set_chat_preemption(active: bool) -> None:
         active: True to preempt idle tasks for chat, False when chat finishes.
     """
     global _chat_preempted
-    _chat_preempted = bool(active)
+    _chat_preempted = active
     if _chat_preempted:
         cancel_all_idle_tasks("chat_preemption")
 

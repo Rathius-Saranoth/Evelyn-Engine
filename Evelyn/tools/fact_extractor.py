@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-28 17:09:09
+# date modified: 2026-08-28 21:07:12
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -33,6 +33,7 @@ import os
 import re
 import sqlite3
 import time
+from typing import Any
 
 import httpx
 import yaml
@@ -931,7 +932,8 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
             verification = _sanitize_entry(str(verification).strip())
         if suggested_tools:
             if isinstance(suggested_tools, list):
-                suggested_tools = ", ".join([_sanitize_entry(str(t).strip()) for t in suggested_tools if str(t).strip()])
+                sanitized_tools = [s for t in suggested_tools if (s := _sanitize_entry(str(t).strip()))]
+                suggested_tools = ", ".join(sanitized_tools)
             else:
                 suggested_tools = _sanitize_entry(str(suggested_tools).strip())
 
@@ -986,7 +988,7 @@ async def _do_extraction(messages: list[dict]):
     importlib.reload(cfg)
     override = cfg.FACT_EXTRACTION_MODEL_OVERRIDE
     model = cfg.MODEL_NAME if override == "default" else override
-    options = {
+    options: dict[str, Any] = {
         "num_ctx": cfg.NUM_CTX,
         **{
             key: val
@@ -1022,7 +1024,7 @@ async def _do_extraction(messages: list[dict]):
     )
     start = time.time()
 
-    timeout = cfg.FACT_EXTRACTION_TIMEOUT
+    timeout = getattr(cfg, "FACT_EXTRACTION_TIMEOUT", 300)
     content_buffer = ""
     try:
         async with (
@@ -1033,7 +1035,7 @@ async def _do_extraction(messages: list[dict]):
             aiter = resp.aiter_lines()
             while True:
                 try:
-                    line = await asyncio.wait_for(aiter.__anext__(), timeout=120.0)
+                    line = await asyncio.wait_for(aiter.__anext__(), timeout=180.0)
                 except StopAsyncIteration:
                     break
                 if not line.strip():
@@ -1095,7 +1097,7 @@ async def _do_extraction(messages: list[dict]):
             proc_aiter = resp.aiter_lines()
             while True:
                 try:
-                    line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=120.0)
+                    line = await asyncio.wait_for(proc_aiter.__anext__(), timeout=180.0)
                 except StopAsyncIteration:
                     break
                 if not line.strip():

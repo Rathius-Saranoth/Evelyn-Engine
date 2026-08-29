@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-28 11:41:21
+# date modified: 2026-08-28 21:06:31
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -390,7 +390,7 @@ FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
 FACT_EXTRACTION_BATCH_SIZE = 20
 
 # Per-run Ollama call timeout (seconds).
-FACT_EXTRACTION_TIMEOUT = 180
+FACT_EXTRACTION_TIMEOUT = 300
 
 # Maximum number of sequential batches allowed per continuous idle session.
 # 0 = unlimited / continuous backlog drain while the system is idle.
@@ -670,6 +670,14 @@ PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
 # accumulated history). Entries are sorted oldest-first so later passes
 # layer on top of earlier refinements. 40 entries ≈ ~6000 chars of evidence.
 PROFILE_EVOLUTION_BATCH_SIZE = 40
+
+# Maximum seconds allowed per individual document evolution before saving draft and moving on.
+# Default: 1500 seconds (25 minutes).
+PROFILE_EVOLUTION_DOC_TIMEOUT = 1500
+
+# Per-request HTTP timeout in seconds for individual Ollama inference calls during profile evolution.
+# Default: 180 seconds (3 minutes).
+PROFILE_EVOLUTION_TIMEOUT = 180
 
 # Target word limits for persona/profile evolution documents.
 # Keeping these compact prevents prompt dilution and attention decay in long chats.

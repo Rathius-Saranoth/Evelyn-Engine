@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-08-08 07:03:32
+# date modified: 2026-08-28 21:02:19
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -496,11 +496,47 @@ async def run_profile_evolution():
                 f"new/updated entries{resume_msg}...",
                 flush=True,
             )
-            success = await _evolve_document(filename, changed_entries, state)
-            if success:
-                # Only advance last_run on a successfully created proposal
-                state["last_run_per_doc"][filename] = now
-                _save_evolution_state(state)
+
+            doc_timeout = float(getattr(cfg, "PROFILE_EVOLUTION_DOC_TIMEOUT", 1500))
+            import task_manager
+            task_manager.set_running(
+                "profile_evolver",
+                phase=f"Evolving {filename}...",
+                sub_status={"current_doc": filename, "changed_entries": len(changed_entries)},
+            )
+            try:
+                success = await asyncio.wait_for(
+                    _evolve_document(filename, changed_entries, state),
+                    timeout=doc_timeout,
+                )
+                if success:
+                    # Only advance last_run on a successfully created proposal
+                    state["last_run_per_doc"][filename] = now
+                    _save_evolution_state(state)
+            except TimeoutError:
+                print(
+                    f"[PROFILE EVOLVER WARNING] {filename}: Timed out after {doc_timeout:.0f}s. "
+                    "Draft state preserved on disk; continuing to next document.",
+                    flush=True,
+                )
+                update_doc_status(
+                    state,
+                    filename,
+                    "INTERRUPTED_SAVED",
+                    f"Per-document timeout exceeded ({int(doc_timeout)}s limit); draft preserved",
+                )
+            except (httpx.HTTPError, OSError, ValueError, RuntimeError) as e_doc:
+                print(
+                    f"[PROFILE EVOLVER ERROR] {filename}: Error during evolution: {e_doc}. "
+                    "Continuing to next document.",
+                    flush=True,
+                )
+                update_doc_status(
+                    state,
+                    filename,
+                    "MODEL_ERROR",
+                    f"Evolution error: {type(e_doc).__name__}: {e_doc}",
+                )
 
         import task_manager
         task_manager.save_last_run_ts("profile_evolver")
@@ -561,7 +597,7 @@ async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
     }
 
     content_buffer = ""
-    timeout = 180  # Generous timeout for reasoning and response generation
+    timeout = getattr(cfg, "PROFILE_EVOLUTION_TIMEOUT", 180)
 
     async with (
         httpx.AsyncClient(timeout=timeout) as client,
@@ -607,6 +643,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         bool: True if a proposal was successfully created, False otherwise.
     """
     importlib.reload(cfg)
+    import task_manager
     rules = DOCUMENT_RULES.get(filename, {})
     description = rules.get("description", "document body")
     perspective = rules.get("perspective", "appropriate perspective")
@@ -787,6 +824,18 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     flush=True,
                 )
 
+            import task_manager
+            task_manager.set_running(
+                "profile_evolver",
+                phase=f"Evolving {filename} (Pass {global_pass}/{global_total_passes})",
+                sub_status={
+                    "current_doc": filename,
+                    "pass": global_pass,
+                    "total_passes": global_total_passes,
+                    "entries_count": len(batch),
+                },
+            )
+
             try:
                 result = await _call_ollama(messages)
             except asyncio.CancelledError:
@@ -913,6 +962,17 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             {"role": "user", "content": compaction_prompt},
         ]
 
+        task_manager.set_running(
+            "profile_evolver",
+            phase=f"Evolving {filename} (Compacting {word_count}w > {target_limit}w)",
+            sub_status={
+                "current_doc": filename,
+                "phase": "compaction",
+                "word_count": word_count,
+                "target_limit": target_limit,
+            },
+        )
+
         try:
             compacted_result = await _call_ollama(compaction_messages)
             if compacted_result:
@@ -959,6 +1019,14 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         {"role": "system", "content": "You are a helpful summarizing assistant. Output one or two sentences only."},
         {"role": "user", "content": reason_prompt},
     ]
+    task_manager.set_running(
+        "profile_evolver",
+        phase=f"Evolving {filename} (Generating Reason Summary)",
+        sub_status={
+            "current_doc": filename,
+            "phase": "reason_summary",
+        },
+    )
     reason = await _call_ollama(reason_messages, num_predict=150)
     if not reason:
         reason = "Evolving profile based on recent context entries."
