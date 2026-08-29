@@ -1,6 +1,6 @@
 # test_procedures_upgrade.py
 # date created: 2026-08-28 07:37:20
-# date modified: 2026-08-29 13:20:42
+# date modified: 2026-08-29 16:04:22
 # tags: 
 
 import pytest
@@ -122,6 +122,23 @@ procedures:
 
     item2 = parsed[1]
     assert item2["suggested_tools"] == "manage_vault_list, web_search"
+
+
+def test_parse_procedures_yaml_unclosed_fence():
+    """Verify procedures YAML parser handles unclosed markdown fences from stop sequences."""
+    raw_yaml = """```procedures
+procedures:
+  - trigger_pattern: "When the user asks to bake bread"
+    steps: |
+      1. Mix flour, water, and yeast.
+      2. Let it rise for 2 hours.
+    suggested_tools: "write_file"
+    tags: "procedure/baking"
+"""
+    parsed = fact_extractor._parse_procedures_yaml(raw_yaml)
+    assert len(parsed) == 1
+    assert parsed[0]["trigger_pattern"] == "When the user asks to bake bread"
+    assert parsed[0]["suggested_tools"] == "write_file"
 
 
 def test_chroma_rag_procedure_formatting(monkeypatch):
