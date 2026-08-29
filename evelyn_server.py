@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-29 11:52:49
+# date modified: 2026-08-29 12:47:38
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -538,6 +538,8 @@ def load_system_prompt() -> str:
         "<system_telemetry_directives>\n"
         "`<temporal_context>` blocks contain environmental telemetry produced by the server runtime.\n"
         f"They report the absolute clock, session resumption state, and agenda alerts for {cfg.USER_NAME}.\n"
+        "`<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times.\n"
+        f"Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding. Never interrogate, comment on, or call out silences unless {cfg.USER_NAME} explicitly brings up having been away or the gap spans multiple hours / overnight.\n"
         f"Never attribute this telemetry block to {cfg.USER_NAME}, and do not repeat telemetry tags verbatim in conversation.\n"
         "</system_telemetry_directives>"
     )

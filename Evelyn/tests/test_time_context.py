@@ -1,6 +1,6 @@
 # test_time_context.py
 # date created: 2026-08-29
-# date modified: 2026-08-29 11:53:33
+# date modified: 2026-08-29 12:48:06
 # tags: #test, #temporal, #time-manager, #agenda, #heartbeat
 
 """Unit tests for Evelyn Temporal Management Subsystem (TimeManager) and evelyn_server time integration."""
@@ -21,7 +21,7 @@ class TestTimeContext(unittest.TestCase):
         """Set up an in-memory SQLite database and test TimeManager instance."""
         self.tz = ZoneInfo(getattr(cfg, "USER_TIMEZONE", "America/Chicago"))
         self.tm = TimeManager(
-            idle_threshold_minutes=15,
+            idle_threshold_minutes=45,
             calendar_lookahead_hours=4,
             task_lookahead_hours=2,
             timezone_name=getattr(cfg, "USER_TIMEZONE", "America/Chicago"),
@@ -84,6 +84,8 @@ class TestTimeContext(unittest.TestCase):
         self.assertIn("The current date and time is", sys_prompt)
         self.assertIn("<system_telemetry_directives>", sys_prompt)
         self.assertIn("<temporal_context>", sys_prompt)
+        self.assertIn("`<current_time>` is the sole authoritative clock", sys_prompt)
+        self.assertIn("Treat `<session_gap>` as passive atmospheric awareness", sys_prompt)
         self.assertIn(f"Never attribute this telemetry block to {cfg.USER_NAME}", sys_prompt)
 
     def test_parse_dt_normalization(self):
@@ -140,23 +142,23 @@ class TestTimeContext(unittest.TestCase):
         self.assertIsNone(gap)
 
     def test_evaluate_session_gap_thresholds(self):
-        """Verify gaps under 15m return None while gaps >= 15m return duration strings."""
+        """Verify gaps under 45m return None while gaps >= 45m return duration strings."""
         t_start = datetime(2026, 8, 29, 8, 0, 0, tzinfo=self.tz)
         self.con.execute(
             "INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)",
             ("assistant", "See you later!", t_start.timestamp()),
         )
 
-        # 14 minutes later -> None (under threshold)
-        t_14m = t_start + timedelta(minutes=14)
-        self.assertIsNone(self.tm.evaluate_session_gap(self.con, t_14m))
+        # 44 minutes later -> None (under 45m threshold)
+        t_44m = t_start + timedelta(minutes=44)
+        self.assertIsNone(self.tm.evaluate_session_gap(self.con, t_44m))
 
-        # 15 minutes later -> resumed
-        t_15m = t_start + timedelta(minutes=15)
-        gap_15m = self.tm.evaluate_session_gap(self.con, t_15m)
-        self.assertIsNotNone(gap_15m)
-        self.assertEqual(gap_15m["elapsed_minutes"], 15)
-        self.assertEqual(gap_15m["duration_str"], "15m")
+        # 45 minutes later -> resumed
+        t_45m = t_start + timedelta(minutes=45)
+        gap_45m = self.tm.evaluate_session_gap(self.con, t_45m)
+        self.assertIsNotNone(gap_45m)
+        self.assertEqual(gap_45m["elapsed_minutes"], 45)
+        self.assertEqual(gap_45m["duration_str"], "45m")
 
         # 4 hours 30 minutes later -> "4h 30m"
         t_4h30m = t_start + timedelta(hours=4, minutes=30)
@@ -257,7 +259,8 @@ class TestTimeContext(unittest.TestCase):
         self.assertTrue(envelope.startswith("<temporal_context>"))
         self.assertTrue(envelope.endswith("</temporal_context>"))
         self.assertIn("<current_time>Saturday, Aug 29, 2026, 11:00 AM", envelope)
-        self.assertIn('<session_gap status="resumed" silence_duration="2h"', envelope)
+        self.assertIn('<session_gap status="resumed" break_duration="2h" />', envelope)
+        self.assertNotIn('last_interaction', envelope)
         self.assertIn('<calendar_agenda>', envelope)
         self.assertIn('event title="Team Sync" time="11:15 AM" status="In 15 minutes"', envelope)
         self.assertIn('<task_agenda>', envelope)

@@ -1,6 +1,6 @@
 # time_manager.py
 # date created: 2026-08-29
-# date modified: 2026-08-29 11:53:40
+# date modified: 2026-08-29 12:47:25
 # tags: #temporal, #time-manager, #agenda, #heartbeat, #scheduling
 
 """time_manager.py — Evelyn Temporal Management Subsystem.
@@ -23,7 +23,7 @@ class TimeManager:
 
     def __init__(
         self,
-        idle_threshold_minutes: int = 15,
+        idle_threshold_minutes: int = 45,
         calendar_lookahead_hours: int = 4,
         task_lookahead_hours: int = 2,
         timezone_name: str | None = None,
@@ -31,7 +31,7 @@ class TimeManager:
         """Initialize the TimeManager subsystem.
 
         Args:
-            idle_threshold_minutes: Silence threshold in minutes before declaring a resumed session gap.
+            idle_threshold_minutes: Silence threshold in minutes before declaring a resumed session gap (default: 45m).
             calendar_lookahead_hours: Hours ahead to inspect upcoming calendar events.
             task_lookahead_hours: Hours ahead to inspect pending or imminent tasks.
             timezone_name: Timezone string identifier (defaults to cfg.USER_TIMEZONE).
@@ -366,8 +366,7 @@ class TimeManager:
 
         if gap:
             lines.append(
-                f'  <session_gap status="resumed" silence_duration="{gap["duration_str"]}" '
-                f'last_interaction="{gap["last_interaction_ts"]}" />'
+                f'  <session_gap status="resumed" break_duration="{gap["duration_str"]}" />'
             )
         else:
             lines.append('  <session_gap status="active_flow" />')

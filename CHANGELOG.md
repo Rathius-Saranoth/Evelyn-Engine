@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 11:54:16
+date modified: 2026-08-29 12:48:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.023] - 2026-08-29 — *Temporal Subsystem Grounding & Passive Telemetry Directives*
+
+### Enhanced & Hardened
+- **Arithmetic Elimination & Macro-Transition Threshold (`Evelyn/tools/time_manager.py`)**:
+  - Removed `last_interaction` timestamp attribute from `<session_gap>` XML envelopes, emitting solely `<session_gap status="resumed" break_duration="..." />` (or `<session_gap status="active_flow" />`), eliminating arithmetic temptation in chain-of-thought models.
+  - Raised default `idle_threshold_minutes` from 15m to 45m, treating everyday micro-chore pauses as continuous active flow.
+
+- **Authoritative Clock & Passive Telemetry Directives (`evelyn_server.py`)**:
+  - Updated `<system_telemetry_directives>` in `load_system_prompt()` to explicitly establish `<current_time>` as the single authoritative clock and forbid estimating or offsetting time.
+  - Instructed Evelyn to treat `<session_gap>` as passive atmospheric grounding for natural transitions rather than a conversational prompt to interrogate or call out silences.
+
+---
 
 ## [000.006.022] - 2026-08-29 — *Evelyn Temporal Management Subsystem (time_manager)*
 
