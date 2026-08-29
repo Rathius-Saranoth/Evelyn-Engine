@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-08-28 17:09:12
+# date modified: 2026-08-28 19:15:43
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -183,6 +183,10 @@ def _set_status_in_server(
 def _load_scan_state() -> None:
     """Load per-category anchor scan state from disk into _category_scan_state.
 
+    Only canonical categories (Cat01-U..Cat16-U, Cat01-A..Cat16-A) are retained.
+    Legacy or malformed keys are normalized or pruned, and any modifications
+    are immediately saved back to disk.
+
     Returns:
         None
     """
@@ -191,9 +195,18 @@ def _load_scan_state() -> None:
         with open(_SCAN_STATE_FILE, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            _category_scan_state = data
+            cleaned_data: dict[str, dict] = {}
+            for cat_key, val in data.items():
+                if not isinstance(val, dict):
+                    continue
+                norm_cat = validate_and_normalize_category(cat_key)
+                if norm_cat and (norm_cat not in cleaned_data or cat_key == norm_cat):
+                    cleaned_data[norm_cat] = val
+            _category_scan_state = cleaned_data
+            if len(cleaned_data) != len(data):
+                _save_scan_state()
             print(
-                f"[CONSOLIDATOR] Loaded anchor scan state for {len(data)} category/ies.",
+                f"[CONSOLIDATOR] Loaded anchor scan state for {len(_category_scan_state)} category/ies.",
                 flush=True,
             )
     except FileNotFoundError:

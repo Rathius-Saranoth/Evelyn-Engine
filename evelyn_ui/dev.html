@@ -1221,7 +1221,7 @@
                 <span style="color: var(--accent); font-weight: 600;">${(st.total_active_facts || 0).toLocaleString()}</span>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
-                <span>Tracked: ${st.tracked_categories || 0}/32 categories</span>
+                <span id="consolidator-tracked-categories">Tracked: ${st.tracked_categories || 0}/${st.total_categories || 32} categories</span>
                 <span>Last Pass: ${st.last_run_scanned || 0} scanned</span>
               </div>
             </div>

@@ -1,7 +1,7 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-28 17:15:40
-# tags:
+# date modified: 2026-08-28 19:16:19
+# tags: 
 
 """
 Evelyn Engine Version System.
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.016"
-VERSION_NAME = "Pyrefly & Pyproject Tooling Consolidation and Static Typing Hardening"
+__version__ = "000.006.017"
+VERSION_NAME = "Fact Consolidator Category Scan State Sanitization"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
