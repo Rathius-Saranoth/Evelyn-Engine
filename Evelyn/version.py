@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-29 11:54:08
+# date modified: 2026-08-29 12:48:15
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.022"
-VERSION_NAME = "Evelyn Temporal Management Subsystem (time_manager)"
+__version__ = "000.006.023"
+VERSION_NAME = "Temporal Subsystem Grounding & Passive Telemetry Directives"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
