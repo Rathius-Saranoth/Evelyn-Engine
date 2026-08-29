@@ -1,3 +1,8 @@
+# test_research_tools.py
+# date created: 2026-08-29 13:16:39
+# date modified: 2026-08-29 13:16:39
+# tags: 
+
 import json
 import os
 import shutil
@@ -166,7 +171,7 @@ def test_get_research_context_struggling_detection(temp_research_env):
     )
 
     ctx = get_research_context()
-    assert "=== STALLED / QUARANTINED RESEARCH TASKS ===" in ctx
-    assert "task_hr_01" in ctx
+    assert "<autonomous_trigger" in ctx
+    assert 'entity_id="task_hr_01"' in ctx
     assert "Comparison of high-frequency heart rate sampling" in ctx
-    assert "Stuck on Sub-Question" in ctx
+    assert "Sub-question stuck" in ctx

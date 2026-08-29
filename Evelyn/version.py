@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-29 12:48:15
+# date modified: 2026-08-29 13:17:27
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.023"
-VERSION_NAME = "Temporal Subsystem Grounding & Passive Telemetry Directives"
+__version__ = "000.006.024"
+VERSION_NAME = "Canonical XML Telemetry Envelopes & In-Flight Context Hardening"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

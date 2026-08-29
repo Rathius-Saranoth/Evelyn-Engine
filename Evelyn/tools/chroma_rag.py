@@ -1,7 +1,7 @@
 
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-08-19 20:27:07
+# date modified: 2026-08-29 13:17:27
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 # Chroma Rag.py
@@ -1149,27 +1149,40 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
                 normal_files_by_source[src] = []
             normal_files_by_source[src].append(chunk)
 
-    parts = ["--- Retrieved Context ---"]
+    try:
+        from Evelyn.tools.string_utils import (
+            build_context_retrieval_envelope,
+            escape_xml_content,
+            wrap_xml_envelope,
+        )
+    except ImportError:
+        from string_utils import (
+            build_context_retrieval_envelope,
+            escape_xml_content,
+            wrap_xml_envelope,
+        )
+
+    retrieval_items = []
 
     # 0. Procedures: Show active repeatable instructions if matched
     if matching_procedures:
-        proc_blocks = []
         for proc in matching_procedures:
-            tools_str = f"\nSuggested Tool(s): {proc['suggested_tools']}" if proc.get("suggested_tools") else ""
-            pitfalls_str = f"\nPitfalls to Avoid: {proc['pitfalls']}" if proc.get("pitfalls") else ""
-            verif_str = f"\nVerification: {proc['verification']}" if proc.get("verification") else ""
-            proc_blocks.append(
-                f"[Operational Protocol: {proc['trigger_pattern']}]\n"
-                f"Steps:\n{proc['steps']}"
-                f"{tools_str}"
-                f"{pitfalls_str}"
-                f"{verif_str}"
+            proc_children = [
+                f"<steps>\n{escape_xml_content(proc['steps'])}\n</steps>"
+            ]
+            if proc.get("suggested_tools"):
+                proc_children.append(f"<suggested_tools>{escape_xml_content(proc['suggested_tools'])}</suggested_tools>")
+            if proc.get("pitfalls"):
+                proc_children.append(f"<pitfalls>{escape_xml_content(proc['pitfalls'])}</pitfalls>")
+            if proc.get("verification"):
+                proc_children.append(f"<verification>{escape_xml_content(proc['verification'])}</verification>")
+            retrieval_items.append(
+                wrap_xml_envelope(
+                    "protocol",
+                    body=proc_children,
+                    trigger_pattern=proc.get("trigger_pattern", ""),
+                )
             )
-        parts.append(
-            "--- Active Operational Protocols (Actionable Instructions) ---\n"
-            "When the user's request matches a protocol below, you MUST execute these steps and use the suggested tools:\n\n"
-            + "\n\n".join(proc_blocks)
-        )
 
     # 1. Pinned (Primary Source) Documents: Show full content of matching chunks in order
     for src, chunks in pinned_by_source.items():
@@ -1177,13 +1190,26 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
         rel_path = get_vault_relative_path(src)
         content_parts = [c["content"] for c in chunks]
         full_content = "\n...\n".join(content_parts)
-        parts.append(f"[Primary Source Document: {rel_path}]\n{full_content}")
+        retrieval_items.append(
+            wrap_xml_envelope(
+                "document",
+                body=escape_xml_content(full_content),
+                type="primary_source",
+                path=rel_path,
+            )
+        )
 
     # 2. SQLite Context Entries: Show observation text
     for chunk in sqlite_entries:
         src = chunk["source"]
         entry_id = src.rsplit("::", 1)[-1]
-        parts.append(f"[Context Entry (ID: {entry_id})]\n{chunk['content']}")
+        retrieval_items.append(
+            wrap_xml_envelope(
+                "memory_entry",
+                body=escape_xml_content(chunk["content"]),
+                id=entry_id,
+            )
+        )
 
     # 3. Vault Documents: Show direct relevant content chunks
     for src, chunks in normal_files_by_source.items():
@@ -1196,20 +1222,26 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
             title = os.path.splitext(os.path.basename(src))[0]
 
         tags_raw = first_meta.get("tags", "")
-        tags_str = f"Tags: {tags_raw}\n" if tags_raw else ""
 
         content_parts = [c["content"] for c in chunks]
         matched_content = "\n...\n".join(content_parts)
 
-        parts.append(
-            f"[Vault Document: {rel_path}]\n"
-            f"Title: {title}\n"
-            f"{tags_str}"
-            f"Content:\n{matched_content}"
+        doc_attrs = {
+            "path": rel_path,
+            "title": title,
+        }
+        if tags_raw:
+            doc_attrs["tags"] = tags_raw
+
+        retrieval_items.append(
+            wrap_xml_envelope(
+                "document",
+                body=escape_xml_content(matched_content),
+                **doc_attrs,
+            )
         )
 
-    parts.append("--- End Context ---")
-    return "\n\n".join(parts)
+    return build_context_retrieval_envelope(source="vault", query=query, items=retrieval_items)
 
 
 def find_semantic_neighbors(

@@ -1,6 +1,6 @@
 # time_manager.py
 # date created: 2026-08-29
-# date modified: 2026-08-29 12:47:25
+# date modified: 2026-08-29 13:20:35
 # tags: #temporal, #time-manager, #agenda, #heartbeat, #scheduling
 
 """time_manager.py — Evelyn Temporal Management Subsystem.
@@ -10,8 +10,8 @@ XML temporal envelope construction, and proactive heartbeat tick evaluation for
 autonomous operations.
 """
 
-from datetime import UTC, datetime, timedelta
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -356,39 +356,19 @@ class TimeManager:
         gap = self.evaluate_session_gap(con, current_now)
         events = self.get_calendar_agenda(con, current_now)
         tasks = self.get_imminent_tasks(con, current_now)
-
         time_str = current_now.strftime("%A, %b %d, %Y, %I:%M %p %Z").replace(" 0", " ")
 
-        lines = [
-            "<temporal_context>",
-            f"  <current_time>{time_str}</current_time>",
-        ]
+        try:
+            from Evelyn.tools.string_utils import build_temporal_envelope as _build_envelope
+        except ImportError:
+            from string_utils import build_temporal_envelope as _build_envelope
 
-        if gap:
-            lines.append(
-                f'  <session_gap status="resumed" break_duration="{gap["duration_str"]}" />'
-            )
-        else:
-            lines.append('  <session_gap status="active_flow" />')
-
-        if events:
-            lines.append("  <calendar_agenda>")
-            lines.extend(
-                f'    <event title="{ev["title"]}" time="{ev["start_str"]}" status="{ev["status"]}" />'
-                for ev in events
-            )
-            lines.append("  </calendar_agenda>")
-
-        if tasks:
-            lines.append("  <task_agenda>")
-            lines.extend(
-                f'    <task title="{tk["title"]}" time="{tk["due_str"]}" status="{tk["status"]}" />'
-                for tk in tasks
-            )
-            lines.append("  </task_agenda>")
-
-        lines.append("</temporal_context>")
-        return "\n".join(lines)
+        return _build_envelope(
+            current_time=time_str,
+            session_gap=gap,
+            calendar_events=events,
+            task_events=tasks,
+        )
 
     def evaluate_heartbeat(
         self, con: sqlite3.Connection, now: datetime | None = None
