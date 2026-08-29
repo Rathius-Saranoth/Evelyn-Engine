@@ -1,7 +1,7 @@
 ---
 title: README.md
 date created: 2026-08-28 14:41:00
-date modified: 2026-08-28 14:47:01
+date modified: 2026-08-29 12:56:01
 tags: []
 ---
 > [!NOTE]
@@ -151,6 +151,7 @@ The workspace documentation is fully structured with bidirectional `[[WikiLinks]
 ### Core Architecture & API
 - 📐 **[[engine_architecture.md]]** — Master structural blueprint, system topology, and background pipelines.
 - 🔌 **[[endpoints.md]]** — Single source of truth for FastAPI REST & SSE endpoints.
+- 🏷️ **[[xml_injection_conventions.md]]** — Standards for in-flight XML context injection and telemetry envelopes.
 - 🔑 **[[google_access.md]]** — Google Cloud OAuth scopes, tokens, and service mappings.
 - 📝 **[[docstring_guide.md]]** — Google-style docstrings and background pipeline architecture notes.
 

@@ -57,7 +57,7 @@ class TestAllToolsEndToEnd(unittest.TestCase):
             ctx = chroma_rag.build_rag_context("Tenser persona")
             self.assertIsInstance(ctx, str)
             if ctx:
-                self.assertIn("--- Retrieved Context ---", ctx)
+                self.assertIn("<context_retrieval", ctx)
                 self.assertNotIn("Gist Summary:", ctx)
                 self.assertNotIn("recall_specific_memory", ctx)
             mock_log.assert_called_once()

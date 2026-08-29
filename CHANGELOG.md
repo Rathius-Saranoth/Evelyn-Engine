@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 12:48:21
+date modified: 2026-08-29 13:17:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.024] - 2026-08-29 — *Canonical XML Telemetry Envelopes & In-Flight Context Hardening*
+
+### Added & Standardized
+- **Canonical XML Envelope Helper Suite (`Evelyn/tools/string_utils.py`)**:
+  - Implemented centralized XML escaping and attribute sanitization routines (`escape_xml_content`, `escape_xml_attr`).
+  - Implemented core XML envelope constructor (`wrap_xml_envelope`) with strict token pruning (omits empty containers completely unless explicitly configured for self-closing status).
+  - Added specialized taxonomy builders: `build_temporal_envelope`, `build_context_retrieval_envelope`, `build_autonomous_trigger_envelope`, `build_system_event_envelope`, and `build_memory_context_envelope`.
+  - Added deterministic multi-envelope stacking (`stack_envelopes`) enforcing canonical order: `<temporal_context>` $\rightarrow$ `<system_event>` / `<autonomous_trigger>` $\rightarrow$ `<context_retrieval>` / `<memory_context>` $\rightarrow$ user turn.
+  - Added clean double-newline turn boundary isolation (`inject_envelope_to_turn`).
+
+- **Architecture & System Prompt Telemetry Contract (`evelyn_server.py`)**:
+  - Upgraded `<system_telemetry_directives>` in `load_system_prompt()` to the comprehensive System Telemetry Contract covering all 5 canonical taxonomy tags, including strict anti-leakage negative constraints forbidding the model from echoing or wrapping conversational responses in XML tags.
+  - Refactored `get_research_context()` to emit structured `<autonomous_trigger>` and `<system_event>` envelopes instead of legacy plain text headers.
+  - Integrated deterministic `inject_envelope_to_turn` into the main chat streaming pipeline.
+
+- **RAG Semantic Context Hardening (`Evelyn/tools/chroma_rag.py`)**:
+  - Replaced legacy plain text bracket headers (`--- Retrieved Context ---`, `[Primary Source Document: ...]`, `[Operational Protocol: ...]`) with structured `<context_retrieval>` envelopes wrapping `<document>`, `<protocol>`, and `<memory_entry>` tags with attribute metadata.
+
+- **Automated Test Suite (`Evelyn/tests/test_xml_envelopes.py`)**:
+  - Added 10 dedicated unit tests covering escaping, token pruning, self-closing tags, domain builders, deterministic stacking order, and turn boundary isolation.
+  - Updated all existing test assertions across `test_time_context.py`, `test_research_tools.py`, `test_procedures_upgrade.py`, and `test_all_tools_end_to_end.py`.
+
+---
 
 ## [000.006.023] - 2026-08-29 — *Temporal Subsystem Grounding & Passive Telemetry Directives*
 

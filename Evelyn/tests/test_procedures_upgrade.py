@@ -1,6 +1,6 @@
 # test_procedures_upgrade.py
 # date created: 2026-08-28 07:37:20
-# date modified: 2026-08-28 17:25:57
+# date modified: 2026-08-29 13:20:42
 # tags: 
 
 import pytest
@@ -149,10 +149,10 @@ def test_chroma_rag_procedure_formatting(monkeypatch):
             query="When testing xylophonic_unique_operation_xyz"
         )
 
-        assert "--- Active Operational Protocols (Actionable Instructions) ---" in context
-        assert "[Operational Protocol: When testing xylophonic_unique_operation_xyz]" in context
-        assert "Suggested Tool(s): write_file" in context
-        assert "Pitfalls to Avoid: Never use write_journal_entry for dream records." in context
+        assert "<context_retrieval" in context
+        assert 'trigger_pattern="When testing xylophonic_unique_operation_xyz"' in context
+        assert "<suggested_tools>write_file</suggested_tools>" in context
+        assert "<pitfalls>Never use write_journal_entry for dream records.</pitfalls>" in context
     finally:
         memory_db.hard_delete_procedure(proc_id)
 

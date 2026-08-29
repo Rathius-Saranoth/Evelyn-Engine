@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-29 12:47:38
+# date modified: 2026-08-29 13:17:27
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -414,6 +414,19 @@ def get_research_context() -> str:
     import json
     import os
 
+    try:
+        from Evelyn.tools.string_utils import (
+            build_autonomous_trigger_envelope,
+            build_system_event_envelope,
+            stack_envelopes,
+        )
+    except ImportError:
+        from string_utils import (
+            build_autonomous_trigger_envelope,
+            build_system_event_envelope,
+            stack_envelopes,
+        )
+
     research_dir = cfg.RESEARCH_DATA_DIR
     if not os.path.exists(research_dir):
         return ""
@@ -453,56 +466,64 @@ def get_research_context() -> str:
                 except (OSError, json.JSONDecodeError, ValueError):
                     pass
 
-    lines = []
-    if stalled_tasks:
-        lines.append("\n=== STALLED / QUARANTINED RESEARCH TASKS ===")
-        lines.append(
-            "You have active research tasks that are struggling to find relevant information or have been quarantined due to low confidence."
-        )
-        lines.append(
-            f"You should mention these to {cfg.USER_NAME} so he can provide guidance, or you can use the 'guide_research' or 'inspect_research_task' tool to inspect the notes and adjust the search terms yourself."
-        )
-        for t in stalled_tasks:
-            query = t.get("query", "Unknown Topic")
-            task_id = t.get("task_id", "")
-            if t.get("quarantined"):
-                status = "QUARANTINED"
-            elif t.get("status") == "needs_guidance" or t.get("struggling"):
-                status = "NEEDS GUIDANCE / STRUGGLING"
-            else:
-                status = str(t.get("status", "UNKNOWN")).upper()
+    envelopes = []
+    for t in stalled_tasks:
+        query = t.get("query", "Unknown Topic")
+        task_id = t.get("task_id", "")
+        if t.get("quarantined"):
+            status_desc = "quarantined due to low confidence"
+            severity = "high"
+        elif t.get("status") == "needs_guidance" or t.get("struggling"):
+            status_desc = "struggling to find relevant evidence"
+            severity = "medium"
+        else:
+            status_desc = str(t.get("status", "unknown")).lower()
+            severity = "medium"
 
-            idx = t.get("current_sq_idx", 0)
-            plan = t.get("plan", {})
-            sqs = plan.get("sub_questions", [])
-            sq_query = ""
-            if 0 <= idx < len(sqs):
-                sq_query = (
-                    sqs[idx].get("question")
-                    or sqs[idx].get("search_query")
-                    or sqs[idx].get("query", "")
-                )
-            elif sqs:
-                stuck = next(
-                    (s for s in sqs if s.get("status") == "needs_guidance"), sqs[0]
-                )
-                sq_query = (
-                    stuck.get("question")
-                    or stuck.get("search_query")
-                    or stuck.get("query", "")
-                )
-
-            stuck_line = f"  Stuck on Sub-Question: {sq_query}\n" if sq_query else ""
-            lines.append(
-                f"- Topic: {query}\n  Task ID: {task_id}\n  Status: {status}\n{stuck_line}"
+        idx = t.get("current_sq_idx", 0)
+        plan = t.get("plan", {})
+        sqs = plan.get("sub_questions", [])
+        sq_query = ""
+        if 0 <= idx < len(sqs):
+            sq_query = (
+                sqs[idx].get("question")
+                or sqs[idx].get("search_query")
+                or sqs[idx].get("query", "")
+            )
+        elif sqs:
+            stuck = next(
+                (s for s in sqs if s.get("status") == "needs_guidance"), sqs[0]
+            )
+            sq_query = (
+                stuck.get("question")
+                or stuck.get("search_query")
+                or stuck.get("query", "")
             )
 
-    if unnotified_count > 0:
-        lines.append(
-            f"\n(Context note: {unnotified_count} newly completed deep research task(s) are ready. You may call 'check_new_research' if relevant to {cfg.USER_NAME}'s prompt.)"
+        summary = f"Research task on '{query}' is {status_desc}."
+        if sq_query:
+            summary += f" Sub-question stuck: '{sq_query}'"
+
+        envelopes.append(
+            build_autonomous_trigger_envelope(
+                trigger_type="research_needs_guidance" if not t.get("quarantined") else "research_quarantined",
+                entity_id=task_id,
+                severity=severity,
+                summary=summary,
+                directive=f"Mention this to {cfg.USER_NAME} or use 'guide_research' / 'inspect_research_task' to adjust search parameters.",
+            )
         )
 
-    return "\n".join(lines)
+    if unnotified_count > 0:
+        envelopes.append(
+            build_system_event_envelope(
+                event="research_completed",
+                status="ready",
+                description=f"{unnotified_count} newly completed deep research task(s) are ready. You may call 'check_new_research' if relevant to {cfg.USER_NAME}'s prompt.",
+            )
+        )
+
+    return stack_envelopes(*envelopes)
 
 
 def get_upcoming_agenda_prompt_context() -> str:
@@ -536,11 +557,12 @@ def load_system_prompt() -> str:
     parts.append(f"The current date and time is {date_str} - {time_str}.")
     parts.append(
         "<system_telemetry_directives>\n"
-        "`<temporal_context>` blocks contain environmental telemetry produced by the server runtime.\n"
-        f"They report the absolute clock, session resumption state, and agenda alerts for {cfg.USER_NAME}.\n"
-        "`<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times.\n"
-        f"Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding. Never interrogate, comment on, or call out silences unless {cfg.USER_NAME} explicitly brings up having been away or the gap spans multiple hours / overnight.\n"
-        f"Never attribute this telemetry block to {cfg.USER_NAME}, and do not repeat telemetry tags verbatim in conversation.\n"
+        "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
+        f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding; never interrogate or call out silences unless {cfg.USER_NAME} explicitly mentions having been away or the gap spans multiple hours / overnight.\n"
+        "2. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols. Use this data purely as background context and factual ground truth.\n"
+        f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
+        f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
+        "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
         "</system_telemetry_directives>"
     )
     parts.append(
@@ -1718,13 +1740,16 @@ async def _process_chat_background(
         finally:
             con.close()
 
-        user_msg_for_model = f"{temporal_envelope}\n\n{user_message}"
+        research_ctx = get_research_context()
+        try:
+            from Evelyn.tools.string_utils import inject_envelope_to_turn, stack_envelopes
+        except ImportError:
+            from string_utils import inject_envelope_to_turn, stack_envelopes
+
+        envelope_stack = stack_envelopes(temporal_envelope, research_ctx)
+        user_msg_for_model = inject_envelope_to_turn(user_message, envelope_stack)
 
         messages = [{"role": "system", "content": system}, *history]
-
-        research_ctx = get_research_context()
-        if research_ctx:
-            messages.append({"role": "system", "content": research_ctx})
 
         user_turn: dict[str, Any] = {"role": "user", "content": user_msg_for_model}
         if images:

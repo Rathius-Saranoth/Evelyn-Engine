@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-28 17:01:56
+date modified: 2026-08-29 12:55:51
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -69,3 +69,9 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - `frontmatter_utils.py`: Parsing (`parse_frontmatter`), rendering (`render_frontmatter`), in-place line updating (`update_frontmatter_field`), and file writes (`write_file_with_frontmatter`).
   - `ollama_client.py`: Local Ollama inference gateway (`query_ollama`, `query_ollama_json`, `get_ollama_status`).
 - **Strict Anti-Duplication Rule**: Writing ad-hoc regex frontmatter parsers, inline `urllib.request` Ollama HTTP callers, duplicate `clean_gist()` / `slugify()` routines, or custom YAML list formatters across engine tools or scripts is strictly forbidden. Always import and reuse canonical functions.
+
+## 9. In-Flight Context Injection & Structured XML Envelopes
+- **No Unstructured Bracket Annotations**: Never inject dynamic background context (timestamps, session telemetry, retrieved knowledge/RAG, autonomous triggers) using plain text annotations (`[System Note: ...]`), parentheses, or informal prefixes. This causes role bleeding and prompt confusion.
+- **Semantic XML Envelopes**: All dynamic in-flight context injections must use standardized semantic XML tags (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`).
+- **Canonical Standards & System Contract**: Adhere strictly to `reference/xml_injection_conventions.md` for tag taxonomy, token pruning (never emit empty envelopes), turn boundary placement, escaping guidelines, and required system prompt parsing contracts.
+

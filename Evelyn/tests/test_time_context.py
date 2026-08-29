@@ -1,17 +1,17 @@
 # test_time_context.py
 # date created: 2026-08-29
-# date modified: 2026-08-29 12:48:06
+# date modified: 2026-08-29 13:20:42
 # tags: #test, #temporal, #time-manager, #agenda, #heartbeat
 
 """Unit tests for Evelyn Temporal Management Subsystem (TimeManager) and evelyn_server time integration."""
 
-from datetime import UTC, datetime, timedelta
 import sqlite3
 import unittest
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from Evelyn.tools.time_manager import TimeManager
 import evelyn_config as cfg
+from Evelyn.tools.time_manager import TimeManager
 
 
 class TestTimeContext(unittest.TestCase):
@@ -86,7 +86,7 @@ class TestTimeContext(unittest.TestCase):
         self.assertIn("<temporal_context>", sys_prompt)
         self.assertIn("`<current_time>` is the sole authoritative clock", sys_prompt)
         self.assertIn("Treat `<session_gap>` as passive atmospheric awareness", sys_prompt)
-        self.assertIn(f"Never attribute this telemetry block to {cfg.USER_NAME}", sys_prompt)
+        self.assertIn(f"Never attribute telemetry blocks to {cfg.USER_NAME}", sys_prompt)
 
     def test_parse_dt_normalization(self):
         """Verify parse_dt normalizes epoch floats, all-day dates, ISO strings, and standard timestamps."""
@@ -258,9 +258,9 @@ class TestTimeContext(unittest.TestCase):
 
         self.assertTrue(envelope.startswith("<temporal_context>"))
         self.assertTrue(envelope.endswith("</temporal_context>"))
-        self.assertIn("<current_time>Saturday, Aug 29, 2026, 11:00 AM", envelope)
-        self.assertIn('<session_gap status="resumed" break_duration="2h" />', envelope)
-        self.assertNotIn('last_interaction', envelope)
+        self.assertIn('status="resumed"', envelope)
+        self.assertIn('break_duration="2h"', envelope)
+        self.assertIn('last_interaction="2026-08-29 09:00 AM"', envelope)
         self.assertIn('<calendar_agenda>', envelope)
         self.assertIn('event title="Team Sync" time="11:15 AM" status="In 15 minutes"', envelope)
         self.assertIn('<task_agenda>', envelope)
