@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-28 21:07:17
+# date modified: 2026-08-29 07:46:50
 # tags: 
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.019"
-VERSION_NAME = "Fact Extractor Ollama ReadTimeout & Stream Resilience"
+__version__ = "000.006.020"
+VERSION_NAME = "Live Procedures Cleanup, Fact Migration & write_dream_entry Tool"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
