@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 08:29:29
+date modified: 2026-08-29 11:54:16
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.022] - 2026-08-29 — *Evelyn Temporal Management Subsystem (time_manager)*
+
+### Added & Refactored
+- **Dedicated Temporal Subsystem (`Evelyn/tools/time_manager.py`)**:
+  - Implemented `TimeManager` class encapsulating timezone-aware chronology, role-agnostic silence tracking, schema-adaptive agenda lookups, structured XML envelope generation, and autonomous heartbeat evaluation.
+  - Robust datetime parsing (`parse_dt`): Normalizes UNIX epoch floats (`messages.ts`), all-day date strings (`YYYY-MM-DD` from Google Calendar), RFC 3339 UTC strings (`tasks.due_at`), and ISO/SQLite timestamps into timezone-aware `America/Chicago` objects using `zoneinfo.ZoneInfo(cfg.USER_TIMEZONE)`.
+  - Role-Agnostic Silence Tracking (`get_last_interaction_ts`): Queries latest message regardless of role (`SELECT ts FROM messages ORDER BY id DESC LIMIT 1`), eliminating the bug where active conversations were flagged with false idle gaps.
+  - Structured XML Environmental Telemetry (`build_temporal_envelope`): Generates unambiguous `<temporal_context>` XML blocks with absolute clocks, relative session gaps (`active_flow` vs `resumed`), upcoming calendar events, and imminent tasks.
+  - Proactive Heartbeat Evaluation (`evaluate_heartbeat`): Evaluates imminent/overdue tasks and imminent events on autonomous ticks with deduplication caching and lookahead TTL pruning.
+
+- **Engine Turn Decoupling & Directives (`evelyn_server.py`)**:
+  - Replaced ambiguous in-turn prefixing (`user_msg_for_model = f"{time_ctx}\n{user_message}"`) with Gemma-compatible XML envelopes (`f"{temporal_envelope}\n\n{user_message}"`).
+  - Added `<system_telemetry_directives>` in `load_system_prompt()` instructing the model that `<temporal_context>` is environmental server telemetry rather than user utterances.
+  - Registered `_temporal_heartbeat_loop` in FastAPI lifespan context ticking every 60 seconds with `task_manager.is_chat_preempted()` generation lock protection.
+
+- **Automated Verification (`Evelyn/tests/test_time_context.py`)**:
+  - Added 8 unit tests covering timezone-aware parsing, all-day event handling, role-agnostic silence tracking, session gap thresholds, XML envelope generation, telemetry prompt directives, and heartbeat alert deduplication.
+
+---
 
 ## [000.006.021] - 2026-08-29 — *Profile Evolver Thematic Clustering & Editorial Proofreading Pass*
 
