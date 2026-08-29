@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-08-28 21:16:47
+# date modified: 2026-08-29 08:29:29
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -68,6 +68,68 @@ DOCUMENT_CATEGORIES = {
         f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat16-{cfg.SUBJECT_CODE_USER}",
+    ],
+}
+
+# ---------------------------------------------------------------------------
+# Thematic section mapping per document to group evidence and align with document sections
+# ---------------------------------------------------------------------------
+DOCUMENT_THEMES = {
+    cfg.PERSONA_FILE_ASSISTANT: [
+        {
+            "theme_name": "Narrative Persona, Archetypes & Identity",
+            "section_header": "## Narrative_Persona",
+            "categories": [f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}", f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}"],
+        },
+        {
+            "theme_name": "Values, Voice & Intellectual Exploration",
+            "section_header": "## Narrative_Persona",
+            "categories": [f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}", f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}"],
+        },
+        {
+            "theme_name": "Relational Anchor, Synergy & Boundaries",
+            "section_header": "## Narrative_Persona",
+            "categories": [f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}"],
+        },
+    ],
+    cfg.PERSONA_FILE_USER: [
+        {
+            "theme_name": "Identity & Core Values",
+            "section_header": "## Identity & Core Values",
+            "categories": [f"Cat01-{cfg.SUBJECT_CODE_USER}", f"Cat04-{cfg.SUBJECT_CODE_USER}"],
+        },
+        {
+            "theme_name": "Relationship Dynamics & Social Connections",
+            "section_header": "## Relationship Dynamics",
+            "categories": [f"Cat06-{cfg.SUBJECT_CODE_USER}"],
+        },
+        {
+            "theme_name": "Interaction Preferences & Constraints",
+            "section_header": "## Interaction Preferences & Constraints",
+            "categories": [f"Cat09-{cfg.SUBJECT_CODE_USER}", f"Cat12-{cfg.SUBJECT_CODE_USER}"],
+        },
+        {
+            "theme_name": "Personal Context & State",
+            "section_header": "## Personal Context",
+            "categories": [f"Cat03-{cfg.SUBJECT_CODE_USER}"],
+        },
+    ],
+    cfg.PERSONA_FILE_DIRECTIVES: [
+        {
+            "theme_name": "Conversation, Formatting & Persona Directives",
+            "section_header": "## Directives",
+            "categories": [f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}"],
+        },
+        {
+            "theme_name": "Tool & Operational Execution Guidelines",
+            "section_header": "## Directives",
+            "categories": [f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}"],
+        },
+        {
+            "theme_name": "Routines, Rituals & Strategic Boundaries",
+            "section_header": "## Directives",
+            "categories": [f"Cat16-{cfg.SUBJECT_CODE_USER}"],
+        },
     ],
 }
 
@@ -232,6 +294,128 @@ def normalize_document_text(text: str) -> str:
     lines = [line.rstrip() for line in text.splitlines()]
 
     return "\n".join(lines).strip()
+
+
+def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: int = 40) -> list[dict]:
+    """Group and organize qualifying memory entries by thematic category and entity.
+
+    Instead of arbitrary chronological chunking, partitions entries into
+    thematic batches matching the document's structure, pre-aggregating related
+    observations under entity/topic headers to eliminate redundant LLM context switching.
+
+    Args:
+        filename: Document basename (e.g. 'Ricky_Narrative_Profile.md').
+        entries: List of memory entry dictionaries.
+        batch_size: Maximum entries per thematic sub-batch.
+
+    Returns:
+        list[dict]: List of thematic batch specifications, each containing:
+            - theme_name: Human-readable theme label.
+            - section_header: Target markdown section header.
+            - entries: List of entry dictionaries in this batch.
+            - evidence_text: Pre-structured, entity-grouped markdown evidence string.
+            - max_ts: Highest timestamp in this batch.
+    """
+    if not entries:
+        return []
+
+    themes_def = DOCUMENT_THEMES.get(filename, [])
+    assigned_entry_ids = set()
+    thematic_batches: list[dict] = []
+
+    for theme in themes_def:
+        theme_name = theme["theme_name"]
+        target_cats = set(theme["categories"])
+        section_header = theme.get("section_header", "")
+
+        # Collect entries matching this theme's categories
+        theme_entries = [e for e in entries if e.get("category") in target_cats]
+        if not theme_entries:
+            continue
+
+        for e in theme_entries:
+            if e.get("id"):
+                assigned_entry_ids.add(e["id"])
+
+        # Sort entries chronologically within theme
+        theme_entries.sort(key=lambda e: max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0))
+
+        # Partition into sub-batches if theme exceeds batch_size
+        sub_batches = [theme_entries[i:i + batch_size] for i in range(0, len(theme_entries), batch_size)]
+
+        for sub_idx, sub_batch in enumerate(sub_batches, 1):
+            sub_label = f"{theme_name} (Part {sub_idx})" if len(sub_batches) > 1 else theme_name
+
+            # Group entries by entity / primary tag within the sub-batch
+            grouped_lines: list[str] = []
+            entity_groups: dict[str, list[dict]] = {}
+            ungrouped: list[dict] = []
+
+            for entry in sub_batch:
+                tags_str = (entry.get("tags") or "").strip()
+                # Find primary meaningful tag if any
+                tags = [t.strip().lstrip("#") for t in re.split(r"[,;\s]+", tags_str) if t.strip() and len(t.strip()) > 2]
+                primary_tag = tags[0].title() if tags else None
+
+                if primary_tag:
+                    entity_groups.setdefault(primary_tag, []).append(entry)
+                else:
+                    ungrouped.append(entry)
+
+            # If entity groups have multiple entries, format with subheadings
+            has_meaningful_clusters = any(len(group) >= 2 for group in entity_groups.values())
+
+            if has_meaningful_clusters:
+                for entity, g_entries in entity_groups.items():
+                    grouped_lines.append(f"\n[Topic / Subject: {entity}]")
+                    for e in g_entries:
+                        date_str = e.get("date") or "Unknown Date"
+                        obs = (e.get("observation") or "").strip()
+                        grouped_lines.append(f"- [{date_str}] {obs}")
+                if ungrouped:
+                    grouped_lines.append("\n[General Observations]")
+                    for e in ungrouped:
+                        date_str = e.get("date") or "Unknown Date"
+                        obs = (e.get("observation") or "").strip()
+                        grouped_lines.append(f"- [{date_str}] {obs}")
+            else:
+                for e in sub_batch:
+                    date_str = e.get("date") or "Unknown Date"
+                    cat_code = e.get("category") or ""
+                    obs = (e.get("observation") or "").strip()
+                    cat_prefix = f"[{cat_code}] " if cat_code else ""
+                    grouped_lines.append(f"- [{date_str}] {cat_prefix}{obs}")
+
+            evidence_text = "\n".join(grouped_lines).strip()
+            max_ts = max(max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) for e in sub_batch)
+
+            thematic_batches.append({
+                "theme_name": sub_label,
+                "section_header": section_header,
+                "entries": sub_batch,
+                "evidence_text": evidence_text,
+                "max_ts": max_ts,
+            })
+
+    # Catch-all for any unassigned categories
+    unassigned = [e for e in entries if e.get("id") and e["id"] not in assigned_entry_ids]
+    if unassigned:
+        unassigned.sort(key=lambda e: max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0))
+        sub_batches = [unassigned[i:i + batch_size] for i in range(0, len(unassigned), batch_size)]
+        for sub_idx, sub_batch in enumerate(sub_batches, 1):
+            sub_label = f"General & Unclassified (Part {sub_idx})" if len(sub_batches) > 1 else "General & Unclassified"
+            lines = [f"- [{e.get('date', 'Unknown Date')}] {e.get('observation', '')}" for e in sub_batch]
+            evidence_text = "\n".join(lines).strip()
+            max_ts = max(max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) for e in sub_batch)
+            thematic_batches.append({
+                "theme_name": sub_label,
+                "section_header": "",
+                "entries": sub_batch,
+                "evidence_text": evidence_text,
+                "max_ts": max_ts,
+            })
+
+    return thematic_batches
 
 
 STATUS_LABELS = {
@@ -559,12 +743,19 @@ async def run_profile_evolution():
 # Evolution core
 # ---------------------------------------------------------------------------
 
-async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
+async def _call_ollama(
+    messages: list[dict],
+    num_predict: int = -1,
+    temperature_override: float | None = None,
+    think_override: bool | None = None,
+) -> str:
     """Async helper to call Ollama.
 
     Args:
         messages: List of message dictionaries.
         num_predict: Maximum prediction tokens (-1 for unlimited).
+        temperature_override: Optional temperature override.
+        think_override: Optional thinking tag toggle (defaults to True).
 
     Returns:
         str: Response content from the model.
@@ -573,13 +764,16 @@ async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
     override = getattr(cfg, "PROFILE_EVOLUTION_MODEL_OVERRIDE", "default")
     model = cfg.MODEL_NAME if override == "default" else override
 
+    temp = temperature_override if temperature_override is not None else cfg.TEMPERATURE
+    think = think_override if think_override is not None else True
+
     options = {
         "num_ctx": cfg.NUM_CTX,
         "num_predict": num_predict,
         **{
             key: val
             for key, val in {
-                "temperature": cfg.TEMPERATURE,
+                "temperature": temp,
                 "min_p": cfg.MIN_P,
                 "top_k": cfg.TOP_K,
                 "top_p": cfg.TOP_P,
@@ -596,11 +790,11 @@ async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
         "messages": messages,
         "stream": True,
         "options": options,
-        "think": True,  # Proposing evolution requires thinking / reasoning
+        "think": think,
     }
 
     content_buffer = ""
-    timeout = getattr(cfg, "PROFILE_EVOLUTION_TIMEOUT", 180)
+    timeout = getattr(cfg, "PROFILE_EVOLUTION_TIMEOUT", 240)
 
     async with (
         httpx.AsyncClient(timeout=timeout) as client,
@@ -608,16 +802,115 @@ async def _call_ollama(messages: list[dict], num_predict: int = -1) -> str:
     ):
         resp.raise_for_status()
         async for line in resp.aiter_lines():
-                if not line.strip():
-                    continue
-                try:
-                    chunk = json.loads(line)
-                    msg = chunk.get("message", {})
-                    content_buffer += msg.get("content", "")
-                except json.JSONDecodeError:
-                    continue
+            if not line.strip():
+                continue
+            try:
+                chunk = json.loads(line)
+                msg = chunk.get("message", {})
+                content_buffer += msg.get("content", "")
+            except json.JSONDecodeError:
+                continue
 
     return content_buffer.strip()
+
+
+async def _proofread_document(filename: str, proposed_body: str) -> str:
+    """Perform a dedicated low-temperature editorial proofreading pass.
+
+    Catches and corrects typos, subword concatenation glitches, broken quotes,
+    punctuation anomalies, and grammar errors without altering content, tone,
+    or markdown headers.
+
+    Args:
+        filename: Document basename (e.g. 'Ricky_Narrative_Profile.md').
+        proposed_body: Proposed markdown document body.
+
+    Returns:
+        str: Proofread markdown body, or original body on failure/validation error.
+    """
+    if not getattr(cfg, "PROFILE_EVOLUTION_PROOFREAD_ENABLED", True):
+        return proposed_body
+
+    if not proposed_body or not proposed_body.strip():
+        return proposed_body
+
+    rules = DOCUMENT_RULES.get(filename, {})
+    perspective = rules.get("perspective", "appropriate perspective")
+
+    proofread_prompt = (
+        f"You are a strict, meticulous copyeditor and proofreader for an AI system's core persona and directives documents.\n\n"
+        f"DOCUMENT: {filename}\n"
+        f"TARGET PERSPECTIVE: {perspective}\n\n"
+        f"DOCUMENT TEXT TO PROOFREAD:\n"
+        f"---\n"
+        f"{proposed_body}\n"
+        f"---\n\n"
+        f"PROOFREADING INSTRUCTIONS:\n"
+        f"- Thoroughly inspect and correct any spelling mistakes, typos, concatenated words, fragmented/mangled subword tokens (e.g. 'navigms' -> 'navigates', broken quotes like '\"word\"t' -> '\"word\"'), and punctuation errors.\n"
+        f"- Ensure grammatical correctness and smooth phrasing while strictly preserving the existing narrative style and TARGET PERSPECTIVE.\n"
+        f"- DO NOT summarize, shorten, remove, or add factual content. Preserve all sections, details, and bullet points.\n"
+        f"- DO NOT change any markdown headers ('#', '##', '###'), WikiLinks ('[[...]]'), or proper names.\n"
+        f"- Output ONLY the fully corrected markdown document body, with no conversational preamble or markdown code fence wrappers."
+    )
+
+    proofread_messages = [
+        {
+            "role": "system",
+            "content": "You are a precise proofreader. Output the clean, error-free markdown document body only.",
+        },
+        {"role": "user", "content": proofread_prompt},
+    ]
+
+    import task_manager
+    task_manager.set_running(
+        "profile_evolver",
+        phase=f"Proofreading & Editorial Polish ({filename})",
+        sub_status={"current_doc": filename, "phase": "proofread"},
+    )
+
+    try:
+        proofread_result = await _call_ollama(
+            proofread_messages,
+            temperature_override=0.1,
+            think_override=False,
+        )
+        if not proofread_result:
+            return proposed_body
+
+        cleaned = extract_markdown_content(proofread_result)
+        cleaned = normalize_document_text(cleaned)
+
+        # Safety validation:
+        # 1. Output must not be significantly truncated (at least 85% of original length)
+        # 2. Major markdown headers must be preserved
+        if len(cleaned) < len(proposed_body) * 0.85:
+            print(
+                f"[PROFILE EVOLVER WARNING] {filename}: Proofread result suspiciously short "
+                f"({len(cleaned)} vs {len(proposed_body)} chars). Retaining pre-proofread body.",
+                flush=True,
+            )
+            return proposed_body
+
+        orig_headers = [line.strip() for line in proposed_body.splitlines() if line.startswith("#")]
+        new_headers = [line.strip() for line in cleaned.splitlines() if line.startswith("#")]
+        missing_headers = [h for h in orig_headers if h not in new_headers]
+        if missing_headers:
+            print(
+                f"[PROFILE EVOLVER WARNING] {filename}: Proofread result missing headers ({missing_headers}). "
+                "Retaining pre-proofread body.",
+                flush=True,
+            )
+            return proposed_body
+
+        print(f"[PROFILE EVOLVER] {filename}: Proofreading pass completed successfully.", flush=True)
+        return cleaned
+
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
+        print(
+            f"[PROFILE EVOLVER ERROR] {filename}: Proofreading pass failed: {e}. Retaining pre-proofread body.",
+            flush=True,
+        )
+        return proposed_body
 
 
 async def _evolve_document(filename: str, new_entries: list[dict], state: dict) -> bool:
@@ -736,43 +1029,42 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             flush=True,
         )
     else:
-        batches = [
-            remaining_entries[i:i + batch_size]
-            for i in range(0, len(remaining_entries), batch_size)
-        ]
-        total_batches   = len(batches)
-        already_done    = len(sorted_entries) - len(remaining_entries)
-        global_total    = len(sorted_entries)
+        thematic_batches = _cluster_entries_by_theme(
+            filename,
+            remaining_entries,
+            batch_size=batch_size,
+        )
+        total_thematic_passes = len(thematic_batches)
 
         # ---------------------------------------------------------------------------
-        # Batched accumulation
+        # Thematic accumulation loop
         # ---------------------------------------------------------------------------
-        for batch_idx, batch in enumerate(batches, 1):
-            global_pass = already_done // batch_size + batch_idx
-            global_total_passes = (global_total + batch_size - 1) // batch_size
+        for batch_idx, t_batch in enumerate(thematic_batches, 1):
+            theme_name = t_batch["theme_name"]
+            section_hint = t_batch.get("section_header", "")
+            batch_entries = t_batch["entries"]
+            evidence_block = t_batch["evidence_text"]
+            batch_max_ts = t_batch["max_ts"]
+            is_final_batch = batch_idx == total_thematic_passes
 
-            formatted_entries = [
-                f"- [{e.get('date', 'Unknown Date')}] {e.get('observation', '')}"
-                for e in batch
-            ]
-            evidence_block = "\n".join(formatted_entries)
-
-            is_final_batch = batch_idx == total_batches
-
-            if global_total_passes == 1:
-                pass_note = ""
+            if total_thematic_passes == 1:
+                pass_note = f"\nACTIVE THEMATIC FOCUS: {theme_name}\n"
+                if section_hint:
+                    pass_note += f"PRIMARY TARGET SECTION: {section_hint}\n"
             elif is_final_batch:
                 pass_note = (
-                    f"\nNOTE: This is the final evidence batch "
-                    f"(pass {global_pass}/{global_total_passes}). "
-                    "Produce the complete, finalized document body — this output will be used as the proposal."
+                    f"\nACTIVE THEMATIC FOCUS: {theme_name}\n"
+                    f"PRIMARY TARGET SECTION: {section_hint}\n\n"
+                    f"NOTE: This is the final evidence pass ({batch_idx}/{total_thematic_passes}). "
+                    "Produce the complete, finalized document body — this output will be formatted and staged as the proposal."
                 )
             else:
                 pass_note = (
-                    f"\nNOTE: This is evidence batch {global_pass} of {global_total_passes}. "
-                    "Incorporate this batch into the working document body. More evidence follows — "
-                    "keep the body complete and coherent, but you will have further "
-                    "opportunities to refine it."
+                    f"\nACTIVE THEMATIC FOCUS: {theme_name}\n"
+                    f"PRIMARY TARGET SECTION: {section_hint}\n\n"
+                    f"NOTE: This is evidence pass {batch_idx} of {total_thematic_passes}. "
+                    f"Incorporate this thematic evidence into the working document body (focusing on '{section_hint or theme_name}'). "
+                    "More evidence follows in subsequent passes — keep the body complete and coherent."
                 )
 
             prompt = (
@@ -791,10 +1083,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"---\n"
                 f"{accumulated}\n"
                 f"---\n\n"
-                f"ACCUMULATED EVIDENCE (recent memory updates):\n"
+                f"ACCUMULATED THEMATIC EVIDENCE ({theme_name}):\n"
                 f"{evidence_block}\n\n"
                 f"INSTRUCTIONS:\n"
-                f"- Evolve the document body authentically based on the accumulated evidence.\n"
+                f"- Evolve the document body authentically based on the thematic evidence.\n"
                 f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
                 f"- PRIORITIZE BEHAVIORAL DIRECTIVES & CORE TRAITS: Focus on personality traits, psychological/health conditions (e.g., anxiety, core identity), governing ethics, voice/cadence guidelines, relationship rules/boundaries, routines, and interaction preferences.\n"
                 f"- IMPORTANCE HIERARCHY: Core behavioral directives, psychological/health traits, and governing ethics are high priority. Casual preferences (e.g. food/snack likes, minor item interests) must NEVER displace or replace core traits or directives.\n"
@@ -820,22 +1112,23 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 {"role": "user", "content": prompt},
             ]
 
-            if global_total_passes > 1:
+            if total_thematic_passes > 1:
                 print(
-                    f"[PROFILE EVOLVER] {filename}: Evidence pass {global_pass}/{global_total_passes} "
-                    f"({len(batch)} entries)...",
+                    f"[PROFILE EVOLVER] {filename}: Thematic pass {batch_idx}/{total_thematic_passes} "
+                    f"({theme_name}: {len(batch_entries)} entries)...",
                     flush=True,
                 )
 
             import task_manager
             task_manager.set_running(
                 "profile_evolver",
-                phase=f"Evolving {filename} (Pass {global_pass}/{global_total_passes})",
+                phase=f"Evolving {filename} (Pass {batch_idx}/{total_thematic_passes}: {theme_name})",
                 sub_status={
                     "current_doc": filename,
-                    "pass": global_pass,
-                    "total_passes": global_total_passes,
-                    "entries_count": len(batch),
+                    "pass": batch_idx,
+                    "total_passes": total_thematic_passes,
+                    "theme": theme_name,
+                    "entries_count": len(batch_entries),
                 },
             )
 
@@ -844,14 +1137,14 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             except asyncio.CancelledError:
                 # Propagate cancellation — draft already saved from prior passes
                 print(
-                    f"[PROFILE EVOLVER] {filename}: Cancelled at pass {global_pass}. "
+                    f"[PROFILE EVOLVER] {filename}: Cancelled at pass {batch_idx}. "
                     "Draft saved; will resume next idle window.",
                     flush=True,
                 )
                 raise
             except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
                 print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: Failed on pass {global_pass}: {e}",
+                    f"[PROFILE EVOLVER ERROR] {filename}: Failed on pass {batch_idx} ({theme_name}): {e}",
                     flush=True,
                 )
                 if batch_idx == 1 and draft_cursor == 0.0:
@@ -861,7 +1154,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
             if not result:
                 print(
-                    f"[PROFILE EVOLVER] {filename}: Empty response on pass {global_pass}. "
+                    f"[PROFILE EVOLVER] {filename}: Empty response on pass {batch_idx} ({theme_name}). "
                     f"{'Aborting — no draft to save.' if batch_idx == 1 and draft_cursor == 0.0 else 'Draft from prior passes preserved.'}",
                     flush=True,
                 )
@@ -878,7 +1171,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             # Safeguard validation checks to prevent catastrophic data loss or laziness
             if len(result) < len(accumulated) * 0.3:
                 print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response is suspiciously short on pass {global_pass} "
+                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response is suspiciously short on pass {batch_idx} "
                     f"({len(result)} chars vs original {len(accumulated)} chars). "
                     f"Discarding to prevent data deletion.",
                     flush=True,
@@ -888,19 +1181,13 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             placeholders = ["remains unchanged", "remains the same", "same as original", "no changes"]
             if any(p in result.lower() for p in placeholders) and len(result) < len(accumulated) * 0.9:
                 print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response contains lazy placeholders on pass {global_pass}. "
+                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response contains lazy placeholders on pass {batch_idx}. "
                     f"Discarding to prevent data loss.",
                     flush=True,
                 )
                 return False
 
             accumulated = result
-
-            # Advance cursor to max last_touched of this batch's entries
-            batch_max_ts = max(
-                max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0)
-                for e in batch
-            )
             draft_cursor = max(draft_cursor, batch_max_ts)
 
             # Persist draft and cursor after every successful pass
@@ -909,13 +1196,13 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 state["draft_cursor_per_doc"][filename] = draft_cursor
                 _save_evolution_state(state)
                 print(
-                    f"[PROFILE EVOLVER] {filename}: Pass {global_pass} complete. "
+                    f"[PROFILE EVOLVER] {filename}: Pass {batch_idx}/{total_thematic_passes} complete. "
                     f"Draft saved (cursor={datetime.datetime.fromtimestamp(draft_cursor, tz=datetime.UTC).astimezone().strftime('%Y-%m-%d %H:%M')}).",
                     flush=True,
                 )
             except OSError as e:
                 print(
-                    f"[PROFILE EVOLVER] Warning: could not save draft after pass {global_pass}: {e}",
+                    f"[PROFILE EVOLVER] Warning: could not save draft after pass {batch_idx}: {e}",
                     flush=True,
                 )
 
@@ -998,6 +1285,11 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     )
         except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
             print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass failed: {e}", flush=True)
+
+    # ---------------------------------------------------------------------------
+    # Editorial Proofreading & Polish Pass
+    # ---------------------------------------------------------------------------
+    proposed_body = await _proofread_document(filename, proposed_body)
 
     # ---------------------------------------------------------------------------
     # Proposal creation

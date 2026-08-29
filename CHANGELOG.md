@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 07:47:57
+date modified: 2026-08-29 08:29:29
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.021] - 2026-08-29 — *Profile Evolver Thematic Clustering & Editorial Proofreading Pass*
+
+### Added & Enhanced
+- **Thematic Section Pre-Clustering & Entity Aggregation (`Evelyn/tools/profile_evolver.py`)**:
+  - Replaced naive chronological entry chunking with structured thematic partitioning (`DOCUMENT_THEMES`, `_cluster_entries_by_theme()`), grouping qualifying memory entries by canonical document sections (Identity & Values, Relationship Dynamics, Interaction Preferences, Routines, and Directives).
+  - Implemented entity-level pre-aggregation to group interspersed observations sharing entities/tags (e.g. social connections, routines) under dedicated topic subheadings, eliminating cross-topic context switching and reducing redundant additions.
+  - Slices large thematic groups into cleanly numbered sub-batches (`Part 1`, `Part 2`) when exceeding `PROFILE_EVOLUTION_BATCH_SIZE`.
+
+- **Dedicated Editorial & Proofreading Pass (`Evelyn/tools/profile_evolver.py`, `evelyn_config.py`)**:
+  - Implemented `_proofread_document()` executed post-compaction prior to proposal creation.
+  - Operates at low temperature (`temperature: 0.1`, `think: False`) to detect and eliminate subword tokenizer artifacts (e.g. `navigms` -> `navigates`), broken quotes, concatenated stems, and grammatical errors without altering voice, narrative tone, or factual meaning.
+  - Added structural validation guardrails ensuring proofread text retains original section headers and maintains at least 85% length before acceptance.
+  - Added configuration toggle `PROFILE_EVOLUTION_PROOFREAD_ENABLED = True` and raised `PROFILE_EVOLUTION_TIMEOUT` to 240s in `evelyn_config.py`.
+
+- **Automated Verification (`Evelyn/tests/test_profile_evolver_thematic.py`)**:
+  - Added 6 unit tests covering thematic clustering, entity sub-topic formatting, batch splitting, unassigned category fallbacks, proofreading error correction, and structural length fallback mechanisms.
+
+---
 
 ## [000.006.020] - 2026-08-29 — *Live Procedures Cleanup, Fact Migration & write_dream_entry Tool*
 

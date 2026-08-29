@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-28 21:06:31
+# date modified: 2026-08-29 08:29:29
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -676,8 +676,11 @@ PROFILE_EVOLUTION_BATCH_SIZE = 40
 PROFILE_EVOLUTION_DOC_TIMEOUT = 1500
 
 # Per-request HTTP timeout in seconds for individual Ollama inference calls during profile evolution.
-# Default: 180 seconds (3 minutes).
-PROFILE_EVOLUTION_TIMEOUT = 180
+# Default: 240 seconds (4 minutes).
+PROFILE_EVOLUTION_TIMEOUT = 240
+
+# Enable automated low-temperature editorial proofreading pass prior to proposal creation.
+PROFILE_EVOLUTION_PROOFREAD_ENABLED = True
 
 # Target word limits for persona/profile evolution documents.
 # Keeping these compact prevents prompt dilution and attention decay in long chats.
