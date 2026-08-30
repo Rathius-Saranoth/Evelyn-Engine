@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 16:04:50
+date modified: 2026-08-29 20:16:30
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,28 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.026] - 2026-08-29 — *Cognitive Task Tiers & Digital Dreaming Circadian Scheduling*
+
+### Added & Architecture
+- **Cognitive Task Tiers & Circadian Model (`Evelyn/tools/task_manager.py`, `evelyn_config.py`)**:
+  - Implemented `TaskSchedule` enum classifying all engine tasks into biological cognitive tiers:
+    - **`REFLEX`** (24/7 reactive housekeeping, idle $\ge$ 5m): `extractor`, `tag_librarian`, `refresh_memory`, `vault_map`, `sync`.
+    - **`NOCTURNAL`** (Overnight "Digital Dreaming" / heavy semantic clustering, 21:00–06:00, idle $\ge$ 5m): `consolidator`, `procedure_consolidator`, `profile_evolver`.
+    - **`DIURNAL`** (Daytime active cognition / Deep Research, 06:00–21:00, idle $\ge$ 30m): `task_<id>`.
+  - Added Digital Dreaming circadian window parameters in `evelyn_config.py`: `DREAMING_ACTIVE_HOURS_START = 21` (9 PM), `DREAMING_ACTIVE_HOURS_END = 6` (6 AM), `IDLE_DISPATCHER_THRESHOLD = 300` (5 minutes).
+  - Implemented `get_current_circadian_phase()` with midnight-crossing support and `is_task_runnable()` with manual override support (`metadata={"manual": True}`).
+
+### Fixed & Enhanced
+- **Eliminated Dispatcher Double-Gating & Head-of-Line Blocking (`evelyn_server.py`, `task_manager.py`)**:
+  - Removed redundant second-stage per-task idle checks from `_idle_task_dispatcher_loop()`.
+  - Added `acquire_next_runnable_task()` to dispatch the oldest eligible task from `_idle_queue`, safely skipping closed circadian schedules without blocking daytime reflex tasks.
+- **Global Tail Re-Queueing on Chat Preemption (`Evelyn/tools/task_manager.py`)**:
+  - Enhanced `cancel_all_idle_tasks("chat_preemption")` to automatically re-enqueue interrupted active tasks to the **tail** (`append`) of `_idle_queue`, preserving execution state while ensuring fast reflex tasks run first when idle.
+- **Automated Test Suite (`Evelyn/tests/test_idle_task_queue.py`)**:
+  - Added 5 new unit tests verifying tier mapping, circadian midnight evaluation, runnable queue acquisition skipping closed schedules, manual overrides, and preemption tail re-queueing (11/11 tests passing).
+
+---
 
 ## [000.006.025] - 2026-08-29 — *Fact Extractor Timeout Hardening & Stop Sequence Guard*
 

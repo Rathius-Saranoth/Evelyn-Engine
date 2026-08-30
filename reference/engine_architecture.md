@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-29 13:21:00
+date modified: 2026-08-29 20:21:04
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -281,12 +281,14 @@ The Evelyn ecosystem operates in tandem with external environments and local sys
 | `task_manager.start_watchdog(interval=30.0)` | Start 30s background loop for handle reconciliation & dynamic soft-timeouts |
 | `task_manager.get_dynamic_timeout(name)` | Calculate dynamic soft-timeout threshold using historical statistics ($\mu + 3\sigma$) |
 | `task_manager.enqueue_idle_task(task_name, ...)` | Enqueue a task at the tail of the persistent FIFO idle queue |
-| `task_manager.acquire_next_idle_task()` | Pop and return the next runnable task from the front of the FIFO queue |
+| `task_manager.acquire_next_idle_task()` | Pop and return the next task from the front of the FIFO queue |
+| `task_manager.acquire_next_runnable_task(idle_seconds)` | Pop and return the oldest runnable task matching its cognitive schedule tier |
+| `task_manager.get_task_schedule(name)` | Classify task into its cognitive tier (`REFLEX`, `DIURNAL`, `NOCTURNAL`) |
 | `task_manager.should_yield(task_name)` | Cooperative yield check — returns `True` if peer tasks are queued or chat is active |
 | `task_manager.set_chat_preemption(bool)` | Set/clear chat preemption flag and cancel active idle tasks for zero-delay inference |
 | `task_manager.load_persistent_queue()` | Reconcile disk queue on boot and restore interrupted running tasks to the front |
 
-**How it works:** `task_manager` coordinates mutual exclusion, fair scheduling, and cooperative batching across all background processes. It maintains a persistent FIFO idle queue (`data/evelyn_task_queue.json`) ensuring long backlogs (e.g. 20k+ chat messages for `fact_extractor`) drain continuously without starving peer tasks (`tag_librarian`, `consolidator`, `profile_evolver`). After each batch, tools commit their progress to SQLite and call `should_yield()`; if peer tasks are waiting, the tool re-enqueues at the tail and yields. When user chats begin, `set_chat_preemption(True)` instantly preempts idle tasks to give 100% compute to conversation turns. Interrupted running tasks on reboot are placed at the front of the queue to resume seamlessly after a 60s boot grace period (`IDLE_STARTUP_GRACE_PERIOD`).
+**How it works:** `task_manager` coordinates mutual exclusion, fair scheduling, and cooperative batching across all background processes. It classifies tasks into **Cognitive Tiers** (`REFLEX` 24/7 reactive housekeeping, `NOCTURNAL` overnight Digital Dreaming, `DIURNAL` daytime research) and maintains a persistent FIFO idle queue (`data/evelyn_task_queue.json`). Long backlogs drain continuously without starving peer tasks or causing Head-of-Line blocking. After each batch, tools commit progress and call `should_yield()`. When user chats begin, `set_chat_preemption(True)` instantly preempts active tasks and re-enqueues them to the tail of the idle queue, ensuring fast reflex tasks run first once the 5-minute quiet threshold is satisfied.
 
 ### 5.2 Mandatory Rules for All Heavy Tasks
 

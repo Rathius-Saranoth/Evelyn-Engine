@@ -1,5 +1,6 @@
 # test_idle_task_queue.py
 # date created: 2026-08-27
+# date modified: 2026-08-29 20:16:09
 # tags: #tests, #tasks, #idle_queue, #fifo, #concurrency
 
 """Unit tests for the Persistent FIFO Idle Task Queue and cooperative batch catch-up."""
@@ -140,6 +141,94 @@ class TestIdleTaskQueue(unittest.TestCase):
 
         with patch("Evelyn.tools.task_manager._boot_ts", time.time() - 120):
             self.assertFalse(task_manager.is_boot_grace_period_active())
+
+    def test_task_schedule_tier_mapping(self):
+        """Verify tasks map to their correct cognitive tiers."""
+        self.assertEqual(task_manager.get_task_schedule("extractor"), task_manager.TaskSchedule.REFLEX)
+        self.assertEqual(task_manager.get_task_schedule("tag_librarian"), task_manager.TaskSchedule.REFLEX)
+        self.assertEqual(task_manager.get_task_schedule("refresh_memory"), task_manager.TaskSchedule.REFLEX)
+        self.assertEqual(task_manager.get_task_schedule("consolidator"), task_manager.TaskSchedule.NOCTURNAL)
+        self.assertEqual(task_manager.get_task_schedule("procedure_consolidator"), task_manager.TaskSchedule.NOCTURNAL)
+        self.assertEqual(task_manager.get_task_schedule("profile_evolver"), task_manager.TaskSchedule.NOCTURNAL)
+        self.assertEqual(task_manager.get_task_schedule("task_1787311024_e75fcde1"), task_manager.TaskSchedule.DIURNAL)
+
+    def test_circadian_phase_and_midnight_crossing(self):
+        """Verify Digital Dreaming circadian phase calculation."""
+        # 14:00 (2 PM) should be diurnal
+        with patch("time.localtime") as mock_time:
+            mock_time.return_value.tm_hour = 14
+            self.assertEqual(task_manager.get_current_circadian_phase(), "diurnal")
+
+        # 23:00 (11 PM) should be nocturnal
+        with patch("time.localtime") as mock_time:
+            mock_time.return_value.tm_hour = 23
+            self.assertEqual(task_manager.get_current_circadian_phase(), "nocturnal")
+
+        # 03:00 (3 AM) should be nocturnal
+        with patch("time.localtime") as mock_time:
+            mock_time.return_value.tm_hour = 3
+            self.assertEqual(task_manager.get_current_circadian_phase(), "nocturnal")
+
+        # 08:00 (8 AM) should be diurnal
+        with patch("time.localtime") as mock_time:
+            mock_time.return_value.tm_hour = 8
+            self.assertEqual(task_manager.get_current_circadian_phase(), "diurnal")
+
+    def test_acquire_next_runnable_task_skips_closed_schedules(self):
+        """Verify that acquire_next_runnable_task skips non-runnable nocturnal tasks during daytime."""
+        # Enqueue nocturnal task first, then reflex task second
+        task_manager.enqueue_idle_task("consolidator")
+        task_manager.enqueue_idle_task("extractor")
+
+        self.assertEqual(len(task_manager.get_idle_queue()), 2)
+
+        # During daytime (14:00) with 350s idle: consolidator is non-runnable, extractor IS runnable
+        with patch("time.localtime") as mock_time:
+            mock_time.return_value.tm_hour = 14
+            item = task_manager.acquire_next_runnable_task(idle_seconds=350.0)
+
+            self.assertIsNotNone(item)
+            self.assertEqual(item["task"], "extractor")
+
+            # Consolidator should still be waiting in the queue
+            remaining = task_manager.get_idle_queue()
+            self.assertEqual(len(remaining), 1)
+            self.assertEqual(remaining[0]["task"], "consolidator")
+
+    def test_manual_override_bypasses_circadian_window(self):
+        """Verify manual=True metadata allows nocturnal task to run during daytime."""
+        task_manager.enqueue_idle_task("consolidator", metadata={"manual": True})
+
+        with patch("time.localtime") as mock_time:
+            mock_time.return_value.tm_hour = 14  # Daytime
+            item = task_manager.acquire_next_runnable_task(idle_seconds=10.0)
+
+            self.assertIsNotNone(item)
+            self.assertEqual(item["task"], "consolidator")
+
+    def test_chat_preemption_tail_requeues_interrupted_task(self):
+        """Verify active task interrupted by chat preemption is re-enqueued at tail."""
+        from unittest.mock import MagicMock
+
+        mock_handle = MagicMock()
+        mock_handle.done.return_value = False
+        task_manager._active_handles["tag_librarian"] = mock_handle
+
+        task_manager.enqueue_idle_task("extractor")
+        self.assertEqual(len(task_manager.get_idle_queue()), 1)
+
+        # Trigger chat preemption
+        task_manager.set_chat_preemption(True)
+
+        # Handle was cancelled
+        mock_handle.cancel.assert_called_once()
+
+        # tag_librarian should now be re-enqueued at the TAIL (behind extractor)
+        q = task_manager.get_idle_queue()
+        self.assertEqual(len(q), 2)
+        self.assertEqual(q[0]["task"], "extractor")
+        self.assertEqual(q[1]["task"], "tag_librarian")
+        self.assertEqual(q[1]["metadata"].get("interrupted_by"), "chat_preemption")
 
 
 class TestFactExtractorBatchLoop(unittest.IsolatedAsyncioTestCase):

@@ -401,8 +401,15 @@ FACT_EXTRACTION_MAX_BATCHES_PER_SESSION = 0
 FACT_EXTRACTION_BACKLOG_DELAY = 5
 
 # Seconds of startup warm-up grace period before idle tasks can be dispatched.
-# Prevents heavy tasks and deep research from firing immediately upon reboot.
 IDLE_STARTUP_GRACE_PERIOD = 60
+
+# Baseline idle inactivity threshold before the FIFO dispatcher executes tasks (seconds).
+IDLE_DISPATCHER_THRESHOLD = 300  # 5 minutes
+
+# Circadian window for Digital Dreaming / Nocturnal heavy tasks (consolidation, evolution).
+# Overnight hours (local time, defined by USER_TIMEZONE).
+DREAMING_ACTIVE_HOURS_START = 21  # 21:00 (9:00 PM) local time
+DREAMING_ACTIVE_HOURS_END   = 6   # 06:00 (6:00 AM) local time
 
 # Persistent task queue state file
 TASK_QUEUE_STATE_FILE = os.path.join(DATA_DIR, "evelyn_task_queue.json")

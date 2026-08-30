@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-29 13:17:27
+# date modified: 2026-08-29 20:15:36
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2273,40 +2273,19 @@ async def lifespan(app: FastAPI):
             if is_any_heavy_task_running():
                 continue
 
-            # 4. Check if any task is waiting in the idle queue
-            next_task_info = task_manager.peek_next_idle_task()
-            if not next_task_info:
-                continue
-
-            task_name = next_task_info.get("task")
-
-            # 5. Check task-specific idle time requirement
+            # 4. Check if any runnable task is waiting in the idle queue
             idle_seconds = time.time() - _last_activity_ts
-            required_idle = 60  # baseline fallback
-            if task_name == "extractor":
-                required_idle = getattr(cfg, "FACT_EXTRACTION_IDLE_THRESHOLD", 300)
-            elif task_name in ("consolidator", "procedure_consolidator"):
-                required_idle = getattr(cfg, "CONSOLIDATION_IDLE_THRESHOLD", 600)
-            elif task_name == "profile_evolver":
-                required_idle = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 3600)
-            elif task_name == "tag_librarian":
-                required_idle = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
-            elif task_name == "refresh_memory":
-                required_idle = 2700
-            elif task_name and task_name.startswith("task_"):
-                required_idle = getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
-
-            if idle_seconds < required_idle:
-                continue
-
-            # 6. Dequeue and dispatch the task
-            item = task_manager.acquire_next_idle_task()
+            item = task_manager.acquire_next_runnable_task(idle_seconds)
             if not item:
                 continue
 
             dispatched_task = item.get("task")
+            if not dispatched_task:
+                continue
+
+            sched = task_manager.get_task_schedule(dispatched_task).value
             print(
-                f"{_CYN}[IDLE DISPATCHER]{_RST} Dispatched task '{dispatched_task}' (server idle for {idle_seconds / 60:.1f}m).",
+                f"{_CYN}[IDLE DISPATCHER]{_RST} Dispatched task '{dispatched_task}' (tier={sched}, idle={idle_seconds / 60:.1f}m).",
                 flush=True,
             )
 

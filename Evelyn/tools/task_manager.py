@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-28 21:01:56
+# date modified: 2026-08-29 20:15:24
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -37,12 +37,33 @@ import sqlite3
 import subprocess
 import sys
 import time
+from enum import StrEnum
 
 import psutil
 
 # ---------------------------------------------------------------------------
-# Heavy task key definitions
+# Heavy task key definitions & Cognitive Scheduling Tiers
 # ---------------------------------------------------------------------------
+
+
+class TaskSchedule(StrEnum):
+    """Cognitive scheduling tiers for Evelyn background tasks."""
+
+    REFLEX = "reflex"  # 24/7 reactive housekeeping (idle >= 5m)
+    DIURNAL = "diurnal"  # Daytime active cognition / Deep Research (06:00–21:00, idle >= 30m)
+    NOCTURNAL = "nocturnal"  # Overnight Digital Dreaming / Heavy consolidation (21:00–06:00, idle >= 5m)
+
+
+TASK_SCHEDULE_MAP: dict[str, TaskSchedule] = {
+    "extractor": TaskSchedule.REFLEX,
+    "tag_librarian": TaskSchedule.REFLEX,
+    "refresh_memory": TaskSchedule.REFLEX,
+    "vault_map": TaskSchedule.REFLEX,
+    "sync": TaskSchedule.REFLEX,
+    "consolidator": TaskSchedule.NOCTURNAL,
+    "procedure_consolidator": TaskSchedule.NOCTURNAL,
+    "profile_evolver": TaskSchedule.NOCTURNAL,
+}
 
 # All known heavy-task keys. Used for documentation and validation only —
 # no runtime enforcement, so adding a new task requires no change here.
@@ -604,6 +625,75 @@ def enqueue_idle_task(name: str, metadata: dict | None = None) -> bool:
     return True
 
 
+def get_task_schedule(name: str) -> TaskSchedule:
+    """Return the TaskSchedule tier for a given task name."""
+    if name.startswith("task_"):
+        return TaskSchedule.DIURNAL
+    return TASK_SCHEDULE_MAP.get(name, TaskSchedule.REFLEX)
+
+
+def get_current_circadian_phase() -> str:
+    """Return 'nocturnal' if current local hour is in Digital Dreaming window, else 'diurnal'.
+
+    Evaluates DREAMING_ACTIVE_HOURS_START and DREAMING_ACTIVE_HOURS_END from evelyn_config.
+    """
+    try:
+        import evelyn_config as cfg
+
+        start = getattr(cfg, "DREAMING_ACTIVE_HOURS_START", 21)
+        end = getattr(cfg, "DREAMING_ACTIVE_HOURS_END", 6)
+    except (ImportError, AttributeError):
+        start, end = 21, 6
+
+    if start == 0 and end == 0:
+        return "diurnal"
+
+    current_hour = time.localtime().tm_hour
+    is_nocturnal = (current_hour >= start or current_hour < end) if start > end else (start <= current_hour < end)
+    return "nocturnal" if is_nocturnal else "diurnal"
+
+
+def is_task_runnable(
+    name: str,
+    metadata: dict | None = None,
+    idle_seconds: float = 0.0,
+) -> bool:
+    """Evaluate whether a queued task is eligible to run right now.
+
+    Args:
+        name: The task key (e.g. 'extractor', 'consolidator', 'task_123').
+        metadata: Optional metadata dictionary associated with the task run.
+        idle_seconds: Seconds since last user chat activity.
+
+    Returns:
+        bool: True if the task meets all scheduling and idle constraints.
+    """
+    try:
+        import evelyn_config as cfg
+
+        reflex_idle = getattr(cfg, "IDLE_DISPATCHER_THRESHOLD", 300)
+        research_idle = getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800)
+    except (ImportError, AttributeError):
+        reflex_idle = 300
+        research_idle = 1800
+
+    # Manual user overrides bypass circadian time-of-day windows
+    if metadata and (metadata.get("manual") or metadata.get("force")):
+        return True
+
+    sched = get_task_schedule(name)
+    phase = get_current_circadian_phase()
+
+    if sched == TaskSchedule.REFLEX:
+        return idle_seconds >= reflex_idle
+    if sched == TaskSchedule.NOCTURNAL:
+        return phase == "nocturnal" and idle_seconds >= reflex_idle
+    if sched == TaskSchedule.DIURNAL:
+        return phase == "diurnal" and idle_seconds >= research_idle
+
+    return idle_seconds >= reflex_idle
+
+
 def acquire_next_idle_task() -> dict | None:
     """Pop and return the next task from the front of the FIFO idle queue.
 
@@ -618,6 +708,35 @@ def acquire_next_idle_task() -> dict | None:
     save_persistent_queue()
     print(f"[TASK QUEUE] Dispatched '{item.get('task')}' from front (remaining in queue: {len(_idle_queue)}).", flush=True)
     return item
+
+
+def acquire_next_runnable_task(idle_seconds: float = 0.0) -> dict | None:
+    """Find, pop, and return the oldest runnable task from the idle queue.
+
+    Skips items whose circadian schedule is closed without blocking runnable tasks behind them.
+
+    Args:
+        idle_seconds: Number of seconds the server has been continuously idle.
+
+    Returns:
+        dict | None: The popped runnable queue item, or None if no tasks are eligible.
+    """
+    if _chat_preempted or not _idle_queue:
+        return None
+
+    for idx, item in enumerate(_idle_queue):
+        task_name = item.get("task")
+        metadata = item.get("metadata")
+        if task_name and is_task_runnable(task_name, metadata, idle_seconds):
+            popped = _idle_queue.pop(idx)
+            save_persistent_queue()
+            print(
+                f"[TASK QUEUE] Dispatched runnable task '{task_name}' (schedule={get_task_schedule(task_name).value}, idle={idle_seconds/60:.1f}m, remaining: {len(_idle_queue)}).",
+                flush=True,
+            )
+            return popped
+
+    return None
 
 
 def peek_next_idle_task() -> dict | None:
@@ -650,12 +769,17 @@ def should_yield(name: str) -> bool:
 def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
     """Cancel all active idle/background tasks to free resources immediately.
 
-    Used during user chat interaction or server shutdown.
+    Used during user chat interaction or server shutdown. When interrupted by chat,
+    active running tasks are automatically re-enqueued at the tail of the idle queue
+    so they resume when the system is next idle.
 
     Args:
         reason: Description of why cancellation was triggered.
     """
     import contextlib
+
+    interrupted_tasks = []
+
     # 1. Cancel in-memory handles for idle tasks
     for name, handle in list(_active_handles.items()):
         if name.startswith("test_"):
@@ -663,6 +787,8 @@ def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
         try:
             if hasattr(handle, "cancel") and callable(handle.cancel) and not handle.done():
                 handle.cancel()
+                if name not in interrupted_tasks:
+                    interrupted_tasks.append(name)
                 print(f"[TASK MANAGER] Cancelled active handle for '{name}' ({reason}).", flush=True)
         except (RuntimeError, OSError) as e:
             print(f"[TASK MANAGER] Error cancelling handle for '{name}': {e}", flush=True)
@@ -670,7 +796,37 @@ def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
     # 2. Call tool-specific cancellation hooks if available
     with contextlib.suppress(ImportError, AttributeError):
         from Evelyn.tools import fact_extractor
+
+        if getattr(fact_extractor, "_extracting", False) and "extractor" not in interrupted_tasks:
+            interrupted_tasks.append("extractor")
         fact_extractor.cancel_pending_extraction(reason=reason)
+
+    # 3. Check background registry for any tasks that were marked running
+    tasks = _get_background_tasks() or {}
+    for t_name, info in tasks.items():
+        if t_name.startswith(("test_", "task_")):
+            continue
+        if (
+            isinstance(info, dict)
+            and (info.get("status") in RUNNING_STATUSES or info.get("status") == "running")
+            and t_name not in interrupted_tasks
+        ):
+            interrupted_tasks.append(t_name)
+
+    # 4. If interrupted by chat preemption, re-enqueue interrupted tasks to the tail of the queue
+    if reason in ("chat_request", "chat_preemption"):
+        requeued_any = False
+        for t_name in interrupted_tasks:
+            if not is_task_queued(t_name):
+                _idle_queue.append({
+                    "task": t_name,
+                    "enqueued_at": time.time(),
+                    "metadata": {"interrupted_by": reason},
+                })
+                requeued_any = True
+                print(f"[TASK QUEUE] Re-enqueued interrupted task '{t_name}' at tail of idle queue.", flush=True)
+        if requeued_any:
+            save_persistent_queue()
 
 
 def save_persistent_queue() -> None:
