@@ -810,15 +810,23 @@ def _time_of_day_label(ts: float | None) -> str:
         return ""
 
 
+def _estimate_message_tokens(msg: dict[str, Any]) -> int:
+    """Conservative token estimate for a single message dictionary (~3 characters/token + role overhead)."""
+    content = msg.get("content") or ""
+    return max(1, len(content) // 3 + 4)
+
+
 def load_history() -> list[dict]:
-    """Load recent chat history bounded by day boundaries, thread breaks, and caps.
+    """Load recent chat history bounded by day boundaries, thread breaks, and token budgets.
 
     Rules:
       1. Loads 100% of today's messages (ts >= midnight).
       2. Plus up to 6 messages from the previous day (for evening/transition context).
-      3. Overall bounded by cfg.MAX_HISTORY_MESSAGES (hard limit).
-      4. Bounded by the latest [THREAD_BREAK] marker if present.
-      5. Inject explicit date boundary markers with journal isolation instructions.
+      3. Bounded by the latest [THREAD_BREAK] marker if present.
+      4. Governed by a conservative safe token budget derived from cfg.NUM_CTX.
+      5. If history exceeds the safe token budget, prunes older messages while preserving
+         turn integrity, recent active turns, and system date boundary markers.
+      6. Injects explicit date boundary markers with journal isolation instructions.
 
     Returns:
         list[dict]: A list of message dictionaries with "role" and "content".
@@ -831,27 +839,21 @@ def load_history() -> list[dict]:
     ).fetchone()
     after_id = brk["id"] if brk else 0
 
-    limit = cfg.MAX_HISTORY_MESSAGES
     from datetime import time as dtime
 
     today_start = datetime.combine(datetime.now(UTC).astimezone().date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
 
-    # 1. Fetch today's messages (newest first)
+    # 1. Fetch all today's messages (newest first, no arbitrary message-count limit)
     today_rows = con.execute(
-        "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts >= ? ORDER BY id DESC LIMIT ?",
-        (after_id, today_start, limit),
+        "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts >= ? ORDER BY id DESC",
+        (after_id, today_start),
     ).fetchall()
 
-    # 2. Fetch up to 6 messages from yesterday (if limit headroom permits)
-    remaining_limit = max(0, limit - len(today_rows))
-    prev_day_limit = min(6, remaining_limit)
-
-    prev_rows = []
-    if prev_day_limit > 0:
-        prev_rows = con.execute(
-            "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts < ? ORDER BY id DESC LIMIT ?",
-            (after_id, today_start, prev_day_limit),
-        ).fetchall()
+    # 2. Fetch up to 6 messages from yesterday (for morning/transition context)
+    prev_rows = con.execute(
+        "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts < ? ORDER BY id DESC LIMIT 6",
+        (after_id, today_start),
+    ).fetchall()
 
     con.close()
 
@@ -908,8 +910,42 @@ def load_history() -> list[dict]:
     while messages and messages[-1]["role"] in ("user", "system"):
         messages.pop()
 
+    # Calculate safe token budget against NUM_CTX
+    num_ctx = getattr(cfg, "NUM_CTX", 32768)
+    tool_predict = getattr(cfg, "TOOL_LOOP_NUM_PREDICT", 8192)
+    # Reserved overhead: System Prompt + Persona (~3500) + Tool schemas (~1500) + RAG context (~2500) + Output buffer (tool_predict) + Safety margin (1000)
+    reserved_overhead = 3500 + 1500 + 2500 + tool_predict + 1000
+    safe_history_budget = max(4000, num_ctx - reserved_overhead)
+
+    total_tokens = sum(_estimate_message_tokens(m) for m in messages)
+
+    # If exceeding token budget, prune older messages while preserving turn integrity
+    # and ensuring system date markers remain intact.
+    if total_tokens > safe_history_budget and len(messages) > 4:
+        dlog(f"History token budget exceeded ({total_tokens} > {safe_history_budget}). Pruning older messages...")
+
+        # Prune from front until within budget, preserving turn integrity
+        while len(messages) > 4 and total_tokens > safe_history_budget:
+            # Pop the oldest non-system message if possible
+            first_idx = 0
+            if messages[0].get("role") == "system":
+                first_idx = 1 if len(messages) > 1 and messages[1].get("role") != "system" else 0
+
+            removed = messages.pop(first_idx)
+            total_tokens -= _estimate_message_tokens(removed)
+
+        # After pruning, clean up any leading assistant message
+        while messages and messages[0]["role"] == "assistant":
+            removed = messages.pop(0)
+            total_tokens -= _estimate_message_tokens(removed)
+
+        # Strip any trailing user/system messages
+        while messages and messages[-1]["role"] in ("user", "system"):
+            removed = messages.pop()
+            total_tokens -= _estimate_message_tokens(removed)
+
     dlog(
-        f"History: loaded {len(today_rows)} today + {len(prev_rows)} prev day = {len(messages)} total msgs"
+        f"History: loaded {len(today_rows)} today + {len(prev_rows)} prev day = {len(messages)} total msgs (~{total_tokens} est tokens)"
     )
     return messages
 

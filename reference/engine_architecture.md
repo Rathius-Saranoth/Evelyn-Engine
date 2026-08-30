@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-29 20:21:04
+date modified: 2026-08-30 15:16:07
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -139,7 +139,7 @@ graph TD
 
 ### 2.1 The Orchestrator
 The runtime core that manages user connections, model prompts, memory assembly, and active tool routing.
-* **[[evelyn_server.py]]**: Main FastAPI server codebase. Exposes `/chat` (streaming response), `/regenerate` (response regeneration), and `/edit` (`edit_last_user_message()`) endpoints alongside history, status, and system tool APIs. Implements **adaptive day-bound history loading** (`load_history()`: 100% of today's messages + up to 6 from yesterday, bounded by `MAX_HISTORY_MESSAGES`), date-filtered journal isolation, and **dynamic thinking effort** via a multi-tiered architecture: fast pre-classification (`classify_message_effort`), model self-election in Tool Round 0, tool-driven effort escalation (`TOOL_THINK_EFFORT`), and manual UI override. Surfaces normalized phase thinking events (`[Initial]`, `[Tool N]`, `[Response]`) to the UI and permanently records resolved effort and resolution source (`think_effort`, `think_source`) in SQLite `message_metrics`. Loop rounds use a configurable token budget (`TOOL_LOOP_NUM_PREDICT`) distinct from the full response budget.
+* **[[evelyn_server.py]]**: Main FastAPI server codebase. Exposes `/chat` (streaming response), `/regenerate` (response regeneration), and `/edit` (`edit_last_user_message()`) endpoints alongside history, status, and system tool APIs. Implements **adaptive day-bound history loading** (`load_history()`: 100% of today's messages + up to 6 from yesterday, governed by safe token budgeting and turn-integrity pruning against `NUM_CTX`), date-filtered journal isolation, and **dynamic thinking effort** via a multi-tiered architecture: fast pre-classification (`classify_message_effort`), model self-election in Tool Round 0, tool-driven effort escalation (`TOOL_THINK_EFFORT`), and manual UI override. Surfaces normalized phase thinking events (`[Initial]`, `[Tool N]`, `[Response]`) to the UI and permanently records resolved effort and resolution source (`think_effort`, `think_source`) in SQLite `message_metrics`. Loop rounds use a configurable token budget (`TOOL_LOOP_NUM_PREDICT`) distinct from the full response budget.
 * **[[evelyn_config.py]]**: Single source of truth config file. Controls LLM parameters, on-demand memory thresholds, allowed Tailscale CORS origins, and system path settings. Key agentic & thinking parameters: `THINK` (default response effort: `"medium"`), `THINK_TOOL_LOOP` (tool round effort: `False` / disabled to prevent duplicate pre-drafting reasoning), `THINK_SELF_ELECT` (enable model effort self-election), `TOOL_LOOP_NUM_PREDICT` (per-round token budget: `1024`), `NUM_PREDICT` (streaming response generation budget: `8192`), `SHOW_TOOL_LOOP_THINKING` (surface intermediate reasoning to UI), `MAX_TOOL_ROUNDS` (loop cap).
 
 ### 2.2 Memory & RAG Retrieval Engine

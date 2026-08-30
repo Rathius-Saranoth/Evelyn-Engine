@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-30 11:55:36
+# date modified: 2026-08-30 14:58:35
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.028"
-VERSION_NAME = "Canonical Section Invariance & Topic Density Guardrails"
+__version__ = "000.006.029"
+VERSION_NAME = "Persona-Agnostic Journaling Protocol & Adaptive Day History"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

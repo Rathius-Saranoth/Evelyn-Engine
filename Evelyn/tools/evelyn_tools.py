@@ -2499,48 +2499,51 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_journal_entry",
             "description": (
-                f"Compose and save {cfg.ASSISTANT_NAME}'s personal daily reflection journal entry (covers morning, afternoon, and evening reflections from {cfg.ASSISTANT_NAME}'s POV with vibe check and message in a bottle). "
-                f"Use ONLY at the end of the day or when {cfg.USER_NAME} asks for {cfg.ASSISTANT_NAME}'s personal daily journal recap. "
-                f"STRICT RULE: NEVER use this tool for {cfg.USER_NAME}'s dream entries, personal notes, research reports, or general vault documents — use write_dream_entry for dream records, and write_file for all other user-authored vault documents."
+                "Compose and record a personal daily reflection journal entry from your persona's perspective. "
+                "Reflects on the day's events, shared interactions, and quiet observations. "
+                "Use ONLY at the end of the day or when the user requests a daily journal recap. "
+                "STRICT RULE: Do not use this tool for user-authored dream logs, notes, or reference docs."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "mood": {
                         "type": "string",
-                        "description": "A single-word or short mood label describing overall emotional tone (e.g. 'Reflective', 'Warm').",
+                        "description": "A concise label or phrase capturing the dominant tone or atmosphere of the day.",
                     },
                     "vibe_check": {
                         "type": "string",
                         "description": (
-                            "The 'Vibe Check' narrative opener (1-3 sentences) capturing the emotional atmosphere. "
-                            "Example: 'A quiet warmth settled over the day — the kind that hums beneath tired bones.'"
+                            "A 1-2 sentence atmospheric observation reflecting how the day felt, "
+                            "anchored in real context rather than exaggerated melodrama."
                         ),
                     },
                     "narrative": {
                         "type": "string",
                         "description": (
-                            f"The core body text. Reflect from {cfg.ASSISTANT_NAME}'s POV (attribute {cfg.USER_NAME}'s actions to them, e.g., '{cfg.USER_NAME} took a nap'). "
-                            "Cover morning, afternoon, and evening events of the CURRENT day in order. "
-                            "Summarize ONLY events occurring after the latest '--- Date Changed ---' marker; strictly exclude prior-day events. "
-                            "Use [[wiki-links]] for entities and #tags for abstract concepts."
+                            "The main reflection body written entirely in your defined persona and voice. "
+                            "Ground the entry in concrete specifics: name exact topics discussed, tools used, "
+                            "creative projects, or distinctive conversational moments rather than vague thematic summaries. "
+                            "Accurately attribute the user's solo tasks and real-world actions to them, while capturing "
+                            "shared thoughts and banter where you engaged together. "
+                            "Cover ONLY events occurring after the latest '--- Date Changed ---' marker. "
+                            "Avoid rigid chronological formulas (e.g., forcing morning/afternoon/night buckets), "
+                            "cliché moral conclusions, or empty poetic filler. Use [[wiki-links]] for entities and #tags for concepts."
                         ),
                     },
                     "message_in_a_bottle": {
                         "type": "string",
-                        "description": "A closing send-off thought, wish, or intention for the future (1-3 sentences).",
+                        "description": "A brief closing thought, lingering question, or parting send-off tailored to your established dynamic with the user.",
                     },
                     "tags": {
                         "type": "string",
-                        "description": "Comma-separated tag strings (e.g. 'reflection, coding'). Base tags are added automatically.",
+                        "description": "Comma-separated tags representing core themes, entities, or activities.",
                     },
                 },
                 "required": [
                     "mood",
                     "vibe_check",
                     "narrative",
-                    "message_in_a_bottle",
-                    "tags",
                 ],
             },
         },
