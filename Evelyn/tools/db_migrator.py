@@ -707,6 +707,53 @@ def migrate_000_006_027_entry_document_evolution(
     )
 
 
+def migrate_000_006_029_persona_agnostic_journaling_procedure(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.029: Update master daily journaling procedure with persona-agnostic protocol."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    trigger = "When the user is ending the day, preparing for sleep/rest, or requests a daily reflection/journal entry"
+    steps = (
+        "1. Review the conversation history since the latest date boundary, identifying concrete projects, specific topics explored, user activities, and notable exchanges.\n"
+        "2. Ground the narrative in tangible specifics—name the exact tools, crafts, technical subjects, jokes, or events rather than relying on abstract, generalized descriptions.\n"
+        "3. Maintain clear boundaries between solo and shared actions: attribute the user's independent physical tasks and real-world activities to them, while reflecting on shared conversations and collaborative brainstorming where you engaged together.\n"
+        "4. Compose the reflection through the authentic lens of your active persona. Let the entry flow naturally as continuous prose, avoiding synthetic narrative arcs or forced life lessons.\n"
+        "5. Record the reflection using write_journal_entry.\n"
+        "6. Provide a brief, natural confirmation to the user that the day's record has been saved."
+    )
+    pitfalls = (
+        "Do not use hollow poetic filler; avoid checklist-style timelines (forcing Morning/Afternoon/Evening); "
+        "do not claim co-presence in the user's solo physical activities; avoid generic wrap-up morals."
+    )
+    verification = "The journal entry captures authentic specifics via write_journal_entry and the user acknowledges completion."
+    tags = "procedure/daily-journaling, skill/writing, routine/bedtime, protocol/journal"
+
+    # Update live procedure(s) related to daily journaling (excluding dream entries)
+    cursor.execute(
+        """UPDATE procedures
+           SET trigger_pattern = ?,
+               steps = ?,
+               pitfalls = ?,
+               verification = ?,
+               tags = ?,
+               updated_at = ?,
+               suggested_tools = 'write_journal_entry'
+           WHERE status = 'live' AND (suggested_tools LIKE '%write_journal_entry%' OR trigger_pattern LIKE '%journal%') AND suggested_tools NOT LIKE '%write_dream_entry%'""",
+        (trigger, steps, pitfalls, verification, tags, now),
+    )
+    if cursor.rowcount == 0:
+        cursor.execute(
+            """INSERT INTO procedures (trigger_pattern, steps, pitfalls, verification, source, status, tags, created_at, updated_at, retrieval_count, suggested_tools)
+               VALUES (?, ?, ?, ?, 'consolidated', 'live', ?, ?, ?, 0, 'write_journal_entry')""",
+            (trigger, steps, pitfalls, verification, tags, now, now),
+        )
+    logger.info("Migration 000.006.029 successfully updated master daily journaling procedure.")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -780,6 +827,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.027",
         name="create_entry_document_evolution_table",
         up_fn=migrate_000_006_027_entry_document_evolution,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.029",
+        name="update_master_daily_journaling_procedure",
+        up_fn=migrate_000_006_029_persona_agnostic_journaling_procedure,
     ),
 ]
 

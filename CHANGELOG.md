@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-30 11:55:36
+date modified: 2026-08-30 14:59:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.029] - 2026-08-30 — *Persona-Agnostic Journaling Protocol & Adaptive Day History*
+
+### Added & Architecture
+- **Persona-Agnostic Tool Declaration Schema (`Evelyn/tools/evelyn_tools.py`)**:
+  - Generalized `write_journal_entry` in `MODEL_TOOL_DEFINITIONS` to be strictly persona-agnostic, using relational role definitions (`the user`, `your persona`) to eliminate persona leakage while preserving repository modularity.
+  - Refactored `narrative` parameter guidance to enforce concrete nouns, exact project/tool names, specific conversational banter, and accurate attribution of solo physical tasks vs. shared discussions, while explicitly forbidding rigid tripartite timelines (Morning/Afternoon/Evening) and hollow poetic filler.
+  - Made `required` parameters `["mood", "vibe_check", "narrative"]`, granting natural flexibility for optional send-off thoughts.
+- **Adaptive Day-Bound History Assembly & Token Budgeting (`evelyn_server.py`, `Evelyn/tests/test_adaptive_day_history.py`)**:
+  - Replaced the arbitrary 40-message ceiling in `load_history()` with full-day message retrieval (`ts >= today_start`) plus up to 6 transition messages from the previous day.
+  - Implemented dynamic safe history token budget calculations derived from `NUM_CTX` (32K), subtracting reserved overhead for system prompts, tools schemas, RAG context, and generation buffers.
+  - Built turn-integrity-preserving token pruning that gracefully sheds older turns during heavy multi-turn days without splitting assistant tool calls from results or dropping system date boundary markers (`--- Date Changed ---`).
+- **Database Migration `000.006.029` (`Evelyn/tools/db_migrator.py`)**:
+  - Registered and executed migration updating master Procedure `#656` in `evelyn_memory.db` with the persona-agnostic protocol, concrete-first extraction steps, and explicit anti-filler pitfalls.
+
+---
 
 ## [000.006.028] - 2026-08-30 — *Canonical Section Invariance & Topic Density Guardrails*
 
