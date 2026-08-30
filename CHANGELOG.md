@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-30 08:06:05
+date modified: 2026-08-30 11:55:36
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.028] - 2026-08-30 — *Canonical Section Invariance & Topic Density Guardrails*
+
+### Added & Architecture
+- **Canonical Section Structural Invariance (`CANONICAL_DOCUMENT_SECTIONS`, `Evelyn/tools/profile_evolver.py`)**:
+  - Registered canonical required section schemas for all system prompt documents (`Evelyn_Narrative_Persona.md`, `Ricky_Narrative_Profile.md`, `System_Directives.md`).
+  - Implemented `extract_sections()`, `validate_document_structure()`, and `repair_missing_sections()` to prevent the LLM from merging, deleting, or renaming section headings during thematic evolution, compaction, or editorial proofreading.
+- **Topic Density & Minimum Section Coverage Guardrails**:
+  - Enforced minimum substantive content thresholds ($\ge 15$ words per required section) across all transformation stages.
+  - If a section is hollowed out or dropped during compaction/proofreading, the system automatically repairs and restores the baseline section content from the prior draft rather than losing category coverage.
+
+### Fixed & Enhanced
+- **Hardened Compaction & Proofreading Prompts (`Evelyn/tools/profile_evolver.py`)**:
+  - Added explicit `STRUCTURAL INVARIANCE` and `TOPIC DENSITY & BALANCED COVERAGE` directives to both the thematic accumulation and compaction prompts.
+  - Directly injected the document's required canonical section list into the compaction prompt skeleton.
+  - Aligned Assistant `DOCUMENT_THEMES` section header hints to exact canonical headers (`## Identity & Presence / ## Persona & Appearance`, `## Intellectual & Creative Style / ## Voice & Communication`, `## Relationship & Support`).
+
+---
 
 ## [000.006.027] - 2026-08-30 — *Per-Document Evolution Tracking & Multi-Profile Extensibility*
 

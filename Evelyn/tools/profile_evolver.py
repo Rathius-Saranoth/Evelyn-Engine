@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-08-29 08:29:29
+# date modified: 2026-08-30 11:55:36
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -91,13 +91,36 @@ DOCUMENT_CATEGORIES = {
 }
 
 # ---------------------------------------------------------------------------
+# Canonical structural schema (Required section headers per document)
+# Prevents topical erosion, category merging, or accidental header deletion
+# ---------------------------------------------------------------------------
+CANONICAL_DOCUMENT_SECTIONS: dict[str, list[str]] = {
+    cfg.PERSONA_FILE_ASSISTANT: [
+        "## Identity & Presence",
+        "## Persona & Appearance",
+        "## Intellectual & Creative Style",
+        "## Voice & Communication",
+        "## Relationship & Support",
+    ],
+    cfg.PERSONA_FILE_USER: [
+        "## Identity & Core Values",
+        "## Relationship Dynamics",
+        "## Interaction Preferences & Constraints",
+        "## Personal Context",
+    ],
+    cfg.PERSONA_FILE_DIRECTIVES: [
+        "## Directives",
+    ],
+}
+
+# ---------------------------------------------------------------------------
 # Thematic section mapping per document to group evidence and align with document sections
 # ---------------------------------------------------------------------------
 DOCUMENT_THEMES = {
     cfg.PERSONA_FILE_ASSISTANT: [
         {
             "theme_name": "Narrative Persona, Archetypes & Identity",
-            "section_header": "## Narrative_Persona",
+            "section_header": "## Identity & Presence / ## Persona & Appearance",
             "categories": [
                 f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -106,7 +129,7 @@ DOCUMENT_THEMES = {
         },
         {
             "theme_name": "Values, Voice & Intellectual Exploration",
-            "section_header": "## Narrative_Persona",
+            "section_header": "## Intellectual & Creative Style / ## Voice & Communication",
             "categories": [
                 f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
@@ -117,7 +140,7 @@ DOCUMENT_THEMES = {
         },
         {
             "theme_name": "Relational Anchor, Synergy & Boundaries",
-            "section_header": "## Narrative_Persona",
+            "section_header": "## Relationship & Support",
             "categories": [
                 f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat06-{cfg.SUBJECT_CODE_USER}",
@@ -358,6 +381,120 @@ def normalize_document_text(text: str) -> str:
     lines = [line.rstrip() for line in text.splitlines()]
 
     return "\n".join(lines).strip()
+
+
+def extract_sections(markdown_text: str) -> dict[str, str]:
+    """Parse markdown text into a mapping of section headers to their respective body content.
+
+    Captures primary headers (#, ##) and preserves the associated paragraph and bullet blocks.
+
+    Args:
+        markdown_text: Full or partial markdown text.
+
+    Returns:
+        dict[str, str]: Map of header string (e.g. '## Identity & Presence') to section body text.
+    """
+    sections: dict[str, list[str]] = {}
+    current_header = "__preamble__"
+    sections[current_header] = []
+
+    for line in markdown_text.splitlines():
+        trimmed = line.strip()
+        if trimmed.startswith(("# ", "## ")):
+            current_header = trimmed
+            if current_header not in sections:
+                sections[current_header] = []
+        else:
+            sections[current_header].append(line)
+
+    return {hdr: "\n".join(lines).strip() for hdr, lines in sections.items() if hdr != "__preamble__" or "\n".join(lines).strip()}
+
+
+def validate_document_structure(
+    filename: str,
+    original_body: str,
+    candidate_body: str,
+    min_section_words: int = 15,
+) -> tuple[bool, str, list[str]]:
+    """Validate that candidate body preserves canonical headers and topic density.
+
+    Args:
+        filename: Document basename (e.g. 'Evelyn_Narrative_Persona.md').
+        original_body: Pre-transformation reference markdown body.
+        candidate_body: Post-transformation candidate markdown body.
+        min_section_words: Minimum substantive word count per section.
+
+    Returns:
+        tuple[bool, str, list[str]]:
+            - is_valid: True if all structural checks pass.
+            - reason: Descriptive status or failure reason.
+            - failed_headers: List of headers that failed invariance checks.
+    """
+    canonical_headers = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
+    if not canonical_headers:
+        return True, "No canonical section rules defined", []
+
+    candidate_sections = extract_sections(candidate_body)
+    candidate_headers = set(candidate_sections.keys())
+
+    missing_headers = [h for h in canonical_headers if h not in candidate_headers]
+    if missing_headers:
+        return False, f"Missing canonical section headers: {missing_headers}", missing_headers
+
+    hollow_headers = []
+    for h in canonical_headers:
+        content = candidate_sections.get(h, "")
+        word_count = len(content.split())
+        if word_count < min_section_words:
+            hollow_headers.append(f"{h} ({word_count}w < {min_section_words}w)")
+
+    if hollow_headers:
+        return False, f"Section topic density below threshold: {hollow_headers}", hollow_headers
+
+    return True, "Structure and topic density valid", []
+
+
+def repair_missing_sections(filename: str, original_body: str, candidate_body: str) -> str:
+    """Repair missing or hollowed-out canonical sections by restoring baseline content.
+
+    Args:
+        filename: Document basename.
+        original_body: Previous valid document body.
+        candidate_body: Newly generated candidate document body with potential missing sections.
+
+    Returns:
+        str: Repaired markdown document body with all canonical sections restored.
+    """
+    canonical_headers = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
+    if not canonical_headers:
+        return candidate_body
+
+    orig_sections = extract_sections(original_body)
+    cand_sections = extract_sections(candidate_body)
+
+    # Reconstruct document following canonical order
+    reconstructed_blocks: list[str] = []
+
+    # Preserve top # title if present
+    for line in candidate_body.splitlines():
+        if line.strip().startswith("# ") and not line.strip().startswith("## "):
+            reconstructed_blocks.append(line.strip())
+            break
+    if not reconstructed_blocks:
+        for line in original_body.splitlines():
+            if line.strip().startswith("# ") and not line.strip().startswith("## "):
+                reconstructed_blocks.append(line.strip())
+                break
+
+    for h in canonical_headers:
+        cand_content = cand_sections.get(h, "")
+        if cand_content and len(cand_content.split()) >= 15:
+            reconstructed_blocks.append(f"{h}\n{cand_content}")
+        else:
+            orig_content = orig_sections.get(h, "")
+            reconstructed_blocks.append(f"{h}\n{orig_content}")
+
+    return "\n\n".join(reconstructed_blocks).strip()
 
 
 def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: int = 40) -> list[dict]:
@@ -944,7 +1081,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
 
         # Safety validation:
         # 1. Output must not be significantly truncated (at least 85% of original length)
-        # 2. Major markdown headers must be preserved
+        # 2. Canonical and major markdown headers must be preserved and substantive
         if len(cleaned) < len(proposed_body) * 0.85:
             print(
                 f"[PROFILE EVOLVER WARNING] {filename}: Proofread result suspiciously short "
@@ -953,16 +1090,14 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
             )
             return proposed_body
 
-        orig_headers = [line.strip() for line in proposed_body.splitlines() if line.startswith("#")]
-        new_headers = [line.strip() for line in cleaned.splitlines() if line.startswith("#")]
-        missing_headers = [h for h in orig_headers if h not in new_headers]
-        if missing_headers:
+        is_valid, reason, _failed_headers = validate_document_structure(filename, proposed_body, cleaned)
+        if not is_valid:
             print(
-                f"[PROFILE EVOLVER WARNING] {filename}: Proofread result missing headers ({missing_headers}). "
-                "Retaining pre-proofread body.",
+                f"[PROFILE EVOLVER WARNING] {filename}: Proofread result structural failure ({reason}). "
+                "Attempting canonical section repair...",
                 flush=True,
             )
-            return proposed_body
+            cleaned = repair_missing_sections(filename, proposed_body, cleaned)
 
         print(f"[PROFILE EVOLVER] {filename}: Proofreading pass completed successfully.", flush=True)
         return cleaned
@@ -1129,6 +1264,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     "More evidence follows in subsequent passes — keep the body complete and coherent."
                 )
 
+            canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
+            canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
+            canonical_note = f"\nREQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n" if canonical_sections_str else ""
+
             prompt = (
                 f"You are refining the content body of a living persona/directives document based on "
                 f"accumulated evidence from recent conversations.\n\n"
@@ -1149,6 +1288,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"{evidence_block}\n\n"
                 f"INSTRUCTIONS:\n"
                 f"- Evolve the document body authentically based on the thematic evidence.\n"
+                f"- STRUCTURAL INVARIANCE: You MUST preserve all existing '##' section headings. You are strictly forbidden from removing, renaming, or merging section headers.\n"
+                f"- TOPIC DENSITY & BALANCED COVERAGE: Ensure every section maintains substantive guidance. Do NOT allow any single section to swallow other distinct sections.\n"
                 f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
                 f"- PRIORITIZE BEHAVIORAL DIRECTIVES & CORE TRAITS: Focus on personality traits, psychological/health conditions (e.g., anxiety, core identity), governing ethics, voice/cadence guidelines, relationship rules/boundaries, routines, and interaction preferences.\n"
                 f"- IMPORTANCE HIERARCHY: Core behavioral directives, psychological/health traits, and governing ethics are high priority. Casual preferences (e.g. food/snack likes, minor item interests) must NEVER displace or replace core traits or directives.\n"
@@ -1163,6 +1304,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"- Do NOT include any YAML frontmatter or title blocks. Start directly with the first markdown header.\n"
                 f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
                 f"- If no changes are warranted, output the document body exactly as it is."
+                f"{canonical_note}"
                 f"{pass_note}"
             )
 
@@ -1184,29 +1326,22 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             import task_manager
             task_manager.set_running(
                 "profile_evolver",
-                phase=f"Evolving {filename} (Pass {batch_idx}/{total_thematic_passes}: {theme_name})",
+                phase=f"Evolving {filename} (Thematic Pass {batch_idx}/{total_thematic_passes}: {theme_name})",
                 sub_status={
                     "current_doc": filename,
-                    "pass": batch_idx,
-                    "total_passes": total_thematic_passes,
                     "theme": theme_name,
-                    "entries_count": len(batch_entries),
+                    "pass_index": batch_idx,
+                    "total_passes": total_thematic_passes,
+                    "batch_size": len(batch_entries),
                 },
             )
 
             try:
                 result = await _call_ollama(messages)
-            except asyncio.CancelledError:
-                # Propagate cancellation — draft already saved from prior passes
-                print(
-                    f"[PROFILE EVOLVER] {filename}: Cancelled at pass {batch_idx}. "
-                    "Draft saved; will resume next idle window.",
-                    flush=True,
-                )
-                raise
             except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
                 print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: Failed on pass {batch_idx} ({theme_name}): {e}",
+                    f"[PROFILE EVOLVER ERROR] {filename}: Thematic pass {batch_idx} ({theme_name}) failed: {e}. "
+                    f"{'Aborting — no draft to save.' if batch_idx == 1 and draft_cursor == 0.0 else 'Draft from prior passes preserved.'}",
                     flush=True,
                 )
                 if batch_idx == 1 and draft_cursor == 0.0:
@@ -1249,6 +1384,16 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 )
                 return False
 
+            # Validate canonical section structure and repair if dropped during pass
+            is_valid, reason, _failed_headers = validate_document_structure(filename, accumulated, result)
+            if not is_valid:
+                print(
+                    f"[PROFILE EVOLVER WARNING] {filename}: Thematic pass {batch_idx} structural failure ({reason}). "
+                    "Repairing canonical sections from previous draft...",
+                    flush=True,
+                )
+                result = repair_missing_sections(filename, accumulated, result)
+
             accumulated = result
             draft_cursor = max(draft_cursor, batch_max_ts)
 
@@ -1281,6 +1426,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"Invoking Compaction Pass...",
             flush=True,
         )
+        canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
+        canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
+        canonical_note = f"\nREQUIRED CANONICAL SECTION HEADERS (You MUST preserve every one):\n{canonical_sections_str}\n" if canonical_sections_str else ""
+
         compaction_prompt = (
             f"You are a strict editor refining a persona/directives document for an AI. "
             f"The document is currently {word_count} words, which exceeds the limit of {target_limit} words.\n\n"
@@ -1298,12 +1447,15 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"---\n\n"
             f"INSTRUCTIONS:\n"
             f"- Condense and prune the document body so it is strictly under {target_limit} words.\n"
+            f"- STRUCTURAL INVARIANCE: You MUST preserve all existing '##' section headings exactly as they appear in OVER-LENGTH DOCUMENT BODY. You are strictly forbidden from deleting, renaming, combining, or dropping section headers during compaction.\n"
+            f"- TOPIC DENSITY & MINIMUM COVERAGE: Every section must retain substantive behavioral and narrative guidance (at least 1-2 focused sentences/paragraphs). Do NOT hollow out or erase any section.\n"
             f"- Focus 100% on high-level behavioral directives, tone guidelines, communication rules, and operational routines.\n"
             f"- Completely remove specific episodic/factual memories, historical anecdotes, dates, physical locations, or lists of symptoms (e.g. Navy details, family relocation events). These are handled by RAG and are redundant here.\n"
             f"- Ensure there is zero duplicate info with the OTHER ACTIVE SYSTEM PROMPT DOCUMENTS listed above.\n"
             f"- Maintain the correct TARGET PERSPECTIVE and PERSPECTIVE RULES strictly.\n"
             f"- Do NOT use placeholders or summary statements. Output the entire document in full.\n"
             f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it."
+            f"{canonical_note}"
         )
 
         compaction_messages = [
@@ -1330,6 +1482,16 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             if compacted_result:
                 compacted_result = extract_markdown_content(compacted_result)
                 compacted_result = normalize_document_text(compacted_result)
+
+                # Validate structural invariance post-compaction
+                is_valid, reason, _failed_headers = validate_document_structure(filename, proposed_body, compacted_result)
+                if not is_valid:
+                    print(
+                        f"[PROFILE EVOLVER WARNING] {filename}: Compaction result structural failure ({reason}). "
+                        "Repairing canonical sections...",
+                        flush=True,
+                    )
+                    compacted_result = repair_missing_sections(filename, proposed_body, compacted_result)
 
                 compacted_word_count = len(compacted_result.split())
                 if compacted_word_count < word_count:

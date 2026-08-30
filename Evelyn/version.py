@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-30 08:04:02
+# date modified: 2026-08-30 11:55:36
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.027"
-VERSION_NAME = "Per-Document Evolution Tracking & Multi-Profile Extensibility"
+__version__ = "000.006.028"
+VERSION_NAME = "Canonical Section Invariance & Topic Density Guardrails"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
