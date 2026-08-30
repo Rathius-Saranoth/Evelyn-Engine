@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-30 16:36:47
+date modified: 2026-08-30 16:47:00
 tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
@@ -89,6 +89,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Canonical XML Telemetry Envelopes & Context Hardening**: Unified in-flight prompt context injection standard (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) with centralized escaping, automatic token pruning, deterministic multi-envelope stacking, and strict anti-leakage system prompt contracts.
 
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
+- [ ] **Dynamic Configuration UI & Runtime Settings Manager**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct CLI or file edits.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard**: Comprehensive metrics dashboard to track engine usage, prompt sentiment/volume, evaluation regressions, RAG/vault knowledge utilization, research outcomes, VAD telemetry, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Chat History Soft-Deletion & Observability Preserving**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context and memory extraction.
