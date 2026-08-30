@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-30 15:44:57
+# date modified: 2026-08-30 16:34:29
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2365,6 +2365,12 @@ async def lifespan(app: FastAPI):
                     auto_journaler._auto_journal_task = t_aj
                     _server_background_tasks.add(t_aj)
                     t_aj.add_done_callback(_server_background_tasks.discard)
+                elif dispatched_task == "ambient_reflector":
+                    from Evelyn.tools import ambient_reflector
+
+                    t_ar = asyncio.create_task(ambient_reflector.run_ambient_reflection())
+                    _server_background_tasks.add(t_ar)
+                    t_ar.add_done_callback(_server_background_tasks.discard)
                 else:
                     print(
                         f"{_YEL}[IDLE DISPATCHER]{_RST} Unknown task '{dispatched_task}' in queue.",
@@ -2401,6 +2407,28 @@ async def lifespan(app: FastAPI):
         f"  {_GRN}Auto-Journal:{_RST} idle timer started "
         f"(window={getattr(cfg, 'AUTO_JOURNAL_START_HOUR', 23)}:00–{getattr(cfg, 'AUTO_JOURNAL_END_HOUR', 4)}:00, "
         f"idle={getattr(cfg, 'AUTO_JOURNAL_IDLE_THRESHOLD', 5400) // 60}m)"
+    )
+
+    # Idle-time ambient reflector loop — enqueues into central task queue during daytime
+    async def _idle_ambient_reflector_loop():
+        """Background loop that periodically evaluates daytime ambient reflection eligibility."""
+        from Evelyn.tools import ambient_reflector
+
+        while True:
+            await asyncio.sleep(getattr(cfg, "AMBIENT_REFLECTIONS_CHECK_INTERVAL", 1800))
+            importlib.reload(cfg)
+            if not getattr(cfg, "AMBIENT_REFLECTIONS_ENABLED", True):
+                continue
+            idle_seconds = time.time() - _last_activity_ts
+            eligible, _ = ambient_reflector.should_generate_idle_thought(idle_seconds=idle_seconds)
+            if eligible:
+                task_manager.enqueue_idle_task("ambient_reflector")
+
+    _lifespan_tasks.append(asyncio.create_task(_idle_ambient_reflector_loop()))
+    print(
+        f"  {_GRN}Ambient Island:{_RST} idle timer started "
+        f"(window={getattr(cfg, 'AMBIENT_REFLECTIONS_START_HOUR', 9)}:00–{getattr(cfg, 'AMBIENT_REFLECTIONS_END_HOUR', 21)}:00, "
+        f"idle={getattr(cfg, 'AMBIENT_REFLECTIONS_MIN_IDLE_SECONDS', 7200) // 60}m)"
     )
 
     # Idle-time consolidation loop — enqueues into central task queue
@@ -3608,6 +3636,46 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
             raise HTTPException(status_code=404, detail="Research report not found")
     else:
         raise HTTPException(status_code=400, detail="Unknown artifact type")
+
+
+@app.get("/ambient/feed")
+async def get_ambient_feed_endpoint(
+    limit: int = 10,
+    type: str | None = None,
+    _: None = Depends(check_auth),
+):
+    """Retrieve active (undismissed) ambient impressions (thoughts, media shares, alerts) for the UI."""
+    from Evelyn.tools import memory_db
+
+    items = memory_db.get_active_ambient_feed(limit=limit, type_filter=type)
+    return {"status": "ok", "items": items, "count": len(items)}
+
+
+class DismissAmbientRequest(BaseModel):
+    """Pydantic model representing a request to dismiss an ambient impression in the UI."""
+
+    id: int
+
+
+@app.post("/ambient/dismiss")
+async def dismiss_ambient_endpoint(
+    req: DismissAmbientRequest,
+    _: None = Depends(check_auth),
+):
+    """Mark an ambient impression as dismissed in the UI."""
+    from Evelyn.tools import memory_db
+
+    success = memory_db.mark_ambient_impression_dismissed(req.id)
+    return {"status": "ok", "updated": success}
+
+
+@app.get("/thought_bubble")
+async def get_thought_bubble_endpoint(_: None = Depends(check_auth)):
+    """Fast single-thought endpoint for backwards-compatible UI ambient chip."""
+    from Evelyn.tools import memory_db
+
+    item = memory_db.get_latest_ambient_impression(type_filter="thought")
+    return {"status": "ok", "latest_thought": item}
 
 
 class ApproveJournalRequest(BaseModel):

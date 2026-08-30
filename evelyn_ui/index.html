@@ -102,6 +102,95 @@
         background: rgba(139, 92, 246, 0.1);
       }
 
+      /* Dynamic Ambient Header Island */
+      .ambient-header-island {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        margin: 0 auto;
+        padding: 4px 10px;
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(176, 106, 247, 0.22);
+        border-radius: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        transition: all 0.25s ease;
+        max-width: 440px;
+        z-index: 10;
+      }
+      .ambient-header-island:hover {
+        border-color: var(--accent);
+        box-shadow: 0 0 12px rgba(176, 106, 247, 0.25);
+      }
+      .ambient-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: var(--text);
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        transition: all 0.2s ease;
+        max-width: 260px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ambient-pill:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .ambient-pill .pill-snippet {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ambient-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 6px;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 600;
+        background: var(--accent);
+        color: #fff;
+      }
+      .ambient-popover {
+        position: absolute;
+        top: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(90vw, 380px);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+        z-index: 100;
+        display: none;
+        animation: popover-fade 0.2s ease;
+      }
+      .ambient-popover.active {
+        display: block;
+      }
+      @keyframes popover-fade {
+        from { opacity: 0; transform: translate(-50%, -6px); }
+        to { opacity: 1; transform: translate(-50%, 0); }
+      }
+      @media (max-width: 640px) {
+        .ambient-pill .pill-snippet {
+          display: none;
+        }
+        .ambient-header-island {
+          padding: 3px 8px;
+          margin: 0 8px 0 auto;
+        }
+      }
+
       /* Thread divider */
       .thread-divider {
         display: flex;
@@ -1470,6 +1559,36 @@
         <h1>Evelyn</h1>
         <span id="status-text">Ready</span>
       </div>
+
+      <!-- Dynamic Ambient Header Island -->
+      <div class="ambient-header-island" id="ambient-header-island">
+        <button class="ambient-pill" id="ambient-thought-pill" onclick="toggleAmbientPopover(event)" title="Click to view daytime thought">
+          <span>💭</span>
+          <span class="pill-snippet" id="ambient-thought-snippet">Thinking...</span>
+        </button>
+        <button class="ambient-pill" id="ambient-media-pill" style="display:none;" onclick="openAmbientMedia(event)" title="Proactive media share">
+          <span>🖼️</span>
+          <span class="ambient-badge" id="ambient-media-badge">1</span>
+        </button>
+        <button class="ambient-pill" id="ambient-alert-pill" style="display:none;" onclick="toggleAmbientPopover(event)" title="Ambient alerts">
+          <span>🔔</span>
+          <span class="ambient-badge" id="ambient-alert-badge">0</span>
+        </button>
+      </div>
+
+      <!-- Floating Ambient Card Popover -->
+      <div class="ambient-popover" id="ambient-thought-popover">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11px; color: var(--accent); font-weight: 600; letter-spacing: 0.05em;" id="ambient-popover-tag">💭 DAYTIME THOUGHT</span>
+          <span style="font-size: 10px; color: var(--text-dim);" id="ambient-popover-time">Just now</span>
+        </div>
+        <div id="ambient-popover-content" style="font-size: 13px; line-height: 1.5; color: var(--text); margin-bottom: 12px;"></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="dismissAmbientThought()">Dismiss</button>
+          <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="closeAmbientPopover()">Close</button>
+        </div>
+      </div>
+
       <div class="header-actions">
         <button
           class="btn-ghost"
@@ -4416,6 +4535,114 @@
         }
       }
       updateDevUIBadge();
+
+      // ---------------------------------------------------------------------------
+      // Dynamic Ambient Island & Thought Bubble Client Functions
+      // ---------------------------------------------------------------------------
+      let currentAmbientThoughtId = null;
+
+      async function fetchAmbientFeed() {
+        if (document.hidden) return;
+        try {
+          const res = await fetch("/ambient/feed?limit=5", { headers: headers() });
+          if (!res.ok) return;
+          const data = await res.json();
+          const items = data.items || [];
+          const island = document.getElementById("ambient-header-island");
+          const thoughtPill = document.getElementById("ambient-thought-pill");
+          const thoughtSnippet = document.getElementById("ambient-thought-snippet");
+          const mediaPill = document.getElementById("ambient-media-pill");
+          const mediaBadge = document.getElementById("ambient-media-badge");
+
+          const latestThought = items.find((i) => i.type === "thought" && !i.dismissed);
+          const mediaItems = items.filter((i) => i.type === "media_share" && !i.dismissed);
+
+          if (latestThought) {
+            currentAmbientThoughtId = latestThought.id;
+            if (thoughtSnippet) thoughtSnippet.textContent = latestThought.content;
+            if (thoughtPill) thoughtPill.style.display = "inline-flex";
+
+            const popoverContent = document.getElementById("ambient-popover-content");
+            const popoverTime = document.getElementById("ambient-popover-time");
+            const popoverTag = document.getElementById("ambient-popover-tag");
+            if (popoverContent) popoverContent.textContent = latestThought.content;
+            if (popoverTime && latestThought.ts) {
+              const d = new Date(latestThought.ts * 1000);
+              popoverTime.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            }
+            if (popoverTag && latestThought.metadata && latestThought.metadata.mood) {
+              popoverTag.textContent = `💭 ${latestThought.metadata.mood.toUpperCase()} THOUGHT`;
+            }
+          } else {
+            if (thoughtPill) thoughtPill.style.display = "none";
+          }
+
+          if (mediaItems.length > 0) {
+            if (mediaPill) mediaPill.style.display = "inline-flex";
+            if (mediaBadge) mediaBadge.textContent = mediaItems.length;
+          } else {
+            if (mediaPill) mediaPill.style.display = "none";
+          }
+
+          if (island) {
+            if (latestThought || mediaItems.length > 0) {
+              island.style.display = "inline-flex";
+            } else {
+              island.style.display = "none";
+            }
+          }
+        } catch (err) {
+          // Ignore transient fetch errors
+        }
+      }
+
+      function toggleAmbientPopover(event) {
+        if (event) event.stopPropagation();
+        const popover = document.getElementById("ambient-thought-popover");
+        if (popover) popover.classList.toggle("active");
+      }
+
+      function closeAmbientPopover() {
+        const popover = document.getElementById("ambient-thought-popover");
+        if (popover) popover.classList.remove("active");
+      }
+
+      async function dismissAmbientThought() {
+        if (currentAmbientThoughtId) {
+          try {
+            await fetch("/ambient/dismiss", {
+              method: "POST",
+              headers: headers({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ id: currentAmbientThoughtId }),
+            });
+          } catch (e) {
+            console.error("Failed to dismiss ambient thought:", e);
+          }
+        }
+        closeAmbientPopover();
+        fetchAmbientFeed();
+      }
+
+      function openAmbientMedia(event) {
+        if (event) event.stopPropagation();
+        // Hook into existing media inspector lightbox
+        console.debug("Opening ambient media share modal");
+      }
+
+      document.addEventListener("click", (e) => {
+        const popover = document.getElementById("ambient-thought-popover");
+        const island = document.getElementById("ambient-header-island");
+        if (popover && !popover.contains(e.target) && island && !island.contains(e.target)) {
+          popover.classList.remove("active");
+        }
+      });
+
+      // Poll ambient feed periodically (every 30s) and on tab focus
+      setInterval(fetchAmbientFeed, 30000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) fetchAmbientFeed();
+      });
+      fetchAmbientFeed();
     </script>
     <div id="lightbox-modal" class="lightbox-modal" onclick="onLightboxBackdropClick(event)">
       <div class="lightbox-dialog" onclick="event.stopPropagation()">

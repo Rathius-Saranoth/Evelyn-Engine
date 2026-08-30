@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-30 08:13:19
+date modified: 2026-08-30 16:36:55
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -347,6 +347,24 @@ Endpoints driving the background research engine and the interactive developer d
 * **Purpose**: Updates the markdown content of a vault note on disk or updates a context entry observation in `context_entries`, and triggers immediate vector re-indexing into ChromaDB.
 * **Payload**: `{"path": "...", "content": "..."}`
 * **Returns**: `{"status": "ok", "path": "..."}`
+
+---
+
+## 10. Ambient Feed & Thought Bubble Endpoints
+
+### `GET /ambient/feed`
+* **Purpose**: Retrieves active (undismissed) ambient impressions from `daily_ambient_impressions` in `evelyn_memory.db` ordered newest-first (`ts DESC`).
+* **Query Parameters**: `limit` (int, default 10), `type` (optional filter: `"thought"`, `"media_share"`, `"system_alert"`).
+* **Returns**: `{"status": "ok", "items": [{"id": 1, "ts": 1788110000.0, "date": "2026-08-30", "type": "thought", "content": "...", "metadata": {...}, "consumed": 0, "dismissed": 0}], "count": 1}`
+
+### `POST /ambient/dismiss`
+* **Purpose**: Marks a specific ambient impression as dismissed/read in the Chat UI.
+* **Payload**: `{"id": 1}`
+* **Returns**: `{"status": "ok", "updated": true}`
+
+### `GET /thought_bubble`
+* **Purpose**: Backwards-compatible fast endpoint returning the single most recent active thought bubble for ambient UI chips.
+* **Returns**: `{"status": "ok", "latest_thought": {"id": 1, "content": "...", "metadata": {"mood": "Inspired"}}}`
 
 ---
 
