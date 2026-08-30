@@ -1,6 +1,6 @@
 # auto_journaler.py
 # date created: 2026-08-30 15:45:00
-# date modified: 2026-08-30 15:54:47
+# date modified: 2026-08-30 16:34:47
 # tags: #journal, #autonomous, #daemon, #map-reduce, #compaction, #nightly
 
 """
@@ -340,9 +340,12 @@ async def run_auto_journaling(
         )
 
         # 4. System prompt + Procedure retrieval
+        from Evelyn.tools import memory_db
+
         task_manager.set_running(TASK_NAME, phase="synthesis")
         system = evelyn_server.load_system_prompt()
         proc = memory_db.get_procedure(656)
+        retrieval_blocks = []
         if proc:
             proc_children = [
                 f"<steps>\n{escape_xml_content(proc['steps'])}\n</steps>",
@@ -353,7 +356,24 @@ async def run_auto_journaling(
             protocol_xml = wrap_xml_envelope(
                 "protocol", body=proc_children, trigger_pattern=proc.get("trigger_pattern", "")
             )
-            context_retrieval_xml = f"<context_retrieval>\n{protocol_xml}\n</context_retrieval>"
+            retrieval_blocks.append(protocol_xml)
+
+        # Query daytime ambient impressions for cross-layer synthesis
+        unconsumed_impressions = memory_db.get_unconsumed_ambient_impressions(target_date_str)
+        consumed_ids = [imp["id"] for imp in unconsumed_impressions]
+        if unconsumed_impressions:
+            impressions_lines = []
+            for imp in unconsumed_impressions:
+                imp_type = imp.get("type", "thought")
+                imp_ts = imp.get("ts")
+                time_str = datetime.fromtimestamp(imp_ts, tz=now_dt.tzinfo).strftime("%H:%M") if imp_ts else ""
+                imp_content = escape_xml_content(imp.get("content", ""))
+                impressions_lines.append(f'  <impression type="{imp_type}" time="{time_str}">{imp_content}</impression>')
+            ambient_stream_xml = wrap_xml_envelope("ambient_stream", body=impressions_lines)
+            retrieval_blocks.append(ambient_stream_xml)
+
+        if retrieval_blocks:
+            context_retrieval_xml = "<context_retrieval>\n" + "\n\n".join(retrieval_blocks) + "\n</context_retrieval>"
             system += f"\n\n{context_retrieval_xml}"
 
         prompt_messages = [
@@ -424,6 +444,9 @@ async def run_auto_journaling(
                 mood=mood,
                 tags=tags,
             )
+            # Mark ambient impressions as consumed strictly after confirmed disk write
+            if consumed_ids:
+                memory_db.mark_ambient_impressions_consumed(consumed_ids)
 
         duration = time.time() - start_time
         summary_txt = f"Auto-journaled {target_date_str} (Mood: {mood}) in {duration:.1f}s"

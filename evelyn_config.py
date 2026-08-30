@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-30 15:43:54
+# date modified: 2026-08-30 16:33:29
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -384,6 +384,25 @@ AUTO_JOURNAL_MIN_MESSAGES = 4
 
 # Map-Reduce compaction chunk size for high-turn conversation days.
 AUTO_JOURNAL_CHUNK_SIZE = 25
+
+# --- Daytime Ambient Reflections & Thought Bubbles ---
+# Master switch — when True, Evelyn generates spontaneous daytime micro-reflections
+# during afternoon pauses in conversation and exposes them to the ambient UI feed.
+AMBIENT_REFLECTIONS_ENABLED = True
+
+# How often (seconds) the background idle loop evaluates ambient reflection eligibility.
+AMBIENT_REFLECTIONS_CHECK_INTERVAL = 1800  # 30 minutes
+
+# Seconds of server inactivity required before a daytime thought bubble can trigger.
+# Default: 2 hours (7200s) of conversational pause.
+AMBIENT_REFLECTIONS_MIN_IDLE_SECONDS = 7200  # 2 hours
+
+# Daytime diurnal window (local hours) when thought reflections are permitted to fire.
+AMBIENT_REFLECTIONS_START_HOUR = 9   # 9:00 AM
+AMBIENT_REFLECTIONS_END_HOUR = 21    # 9:00 PM
+
+# Maximum number of spontaneous thought bubbles allowed per local calendar day.
+AMBIENT_REFLECTIONS_MAX_THOUGHTS_PER_DAY = 3
 
 # =============================================================================
 # Fact Extraction

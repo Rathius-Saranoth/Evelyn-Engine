@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-30 15:46:31
+# date modified: 2026-08-30 16:33:17
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.030"
-VERSION_NAME = "Autonomous After-Hours Journal Daemon & Map-Reduce Compaction"
+# Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
+__version__ = "000.006.031"
+__version_info__ = (0, 6, 31)
+__version_name__ = "Multi-Modal Ambient Feed, Thought Bubbles & Dynamic Header Island"
+VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

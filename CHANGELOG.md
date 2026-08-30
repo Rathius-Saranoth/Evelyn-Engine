@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-30 15:46:31
+date modified: 2026-08-30 16:36:36
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.031] - 2026-08-30 — *Multi-Modal Ambient Feed, Thought Bubbles & Dynamic Header Island*
+
+### Added & Architecture
+- **Multi-Modal Ambient Impression Substrate (`daily_ambient_impressions`, `Evelyn/tools/memory_db.py`, `Evelyn/tools/db_migrator.py`)**:
+  - Registered database migration `000.006.031` creating polymorphic `daily_ambient_impressions` table supporting spontaneous daytime `thought` bubbles, multi-modal `media_share` items (outfits, library artifacts), `proactive_msg` drafts, and `system_alert` insights.
+  - Added composite indexes `idx_ambient_feed(dismissed, ts DESC)` and `idx_ambient_type_feed(type, dismissed, ts DESC)` ensuring $O(\log N)$ sorted feed retrieval without temporary B-tree file sorting.
+  - Implemented CRUD helpers in `memory_db.py` for recording impressions, querying unconsumed impressions by local date, fetching active feeds, dismissing UI items, and marking impressions consumed.
+- **Diurnal Thought Generator Daemon (`Evelyn/tools/ambient_reflector.py`, `evelyn_config.py`)**:
+  - Implemented `run_ambient_reflection()` to autonomously capture spontaneous 1–2 sentence private wandering thoughts and realizations during daytime conversational pauses.
+  - Added multi-gate evaluation in `should_generate_idle_thought()` checking the diurnal circadian window (`09:00`–`21:00` local), conversational inactivity ($\ge 2$h), daily count cap ($\le 3$ per local date), and verifying new conversation turns occurred in `evelyn_chat.db` since the last reflection.
+  - Added extensible multi-modal helpers `record_media_share()` and `record_system_alert()`.
+- **Cognitive Task Scheduling & Lifespan Integration (`Evelyn/tools/task_manager.py`, `evelyn_server.py`)**:
+  - Registered `ambient_reflector` in `TASK_SCHEDULE_MAP` under `TaskSchedule.DIURNAL` with soft timeout of 5 minutes (`300.0s`) and added to `HEAVY_TASK_KEYS`.
+  - Added `_idle_ambient_reflector_loop()` background monitor in server lifespan to evaluate eligibility and enqueue tasks into the cooperative FIFO idle queue.
+  - Added API endpoints `GET /ambient/feed`, `POST /ambient/dismiss`, and backwards-compatible `GET /thought_bubble`.
+- **Dynamic Ambient Header Island in Chat UI (`evelyn_ui/index.html`)**:
+  - Built centered glassmorphic header island (`.ambient-header-island`) featuring interactive pills with desktop ellipsis truncation, responsive mobile collapsing (<640px) to icon badges, unread dot indicators, and floating thought popovers with instant dismissal.
+  - Added visibility-aware client polling (`document.visibilityState === "hidden"`) to eliminate idle engine load.
+- **Cross-Layer Journal Synthesis & Failure Isolation (`Evelyn/tools/auto_journaler.py`)**:
+  - Automatically queries all unconsumed daytime ambient impressions and injects them into structured `<ambient_stream>` XML telemetry for nightly reflection synthesis.
+  - Strictly enforces failure isolation: `mark_ambient_impressions_consumed()` executes only after confirmed Obsidian vault disk writes, preserving `consumed` and `dismissed` state orthogonality.
+- **Automated Test Suite (`Evelyn/tests/test_ambient_reflector.py`)**:
+  - Added 5 unit tests verifying schema migration, active feed ordering, gate conditions, failure isolation, and API endpoint contracts (234/234 workspace tests passing).
+
+---
 
 ## [000.006.030] - 2026-08-30 — *Autonomous After-Hours Journal Daemon & Map-Reduce Compaction*
 

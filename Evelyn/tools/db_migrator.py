@@ -1,7 +1,7 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-08-29 07:46:44
-# tags:
+# date modified: 2026-08-30 16:32:41
+# tags: 
 
 """
 Evelyn Engine Database Migration Framework.
@@ -286,6 +286,26 @@ CREATE INDEX IF NOT EXISTS idx_media_hash ON media_assets(file_hash);
 CREATE INDEX IF NOT EXISTS idx_media_type ON media_assets(media_type);
 CREATE INDEX IF NOT EXISTS idx_links_msg ON chat_media_links(message_id);
 CREATE INDEX IF NOT EXISTS idx_links_media ON chat_media_links(media_id);
+"""
+
+CREATE_DAILY_AMBIENT_IMPRESSIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS daily_ambient_impressions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          REAL NOT NULL,
+    date        TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    source_ref  TEXT,
+    media_id    TEXT,
+    metadata    TEXT,
+    consumed    INTEGER DEFAULT 0,
+    dismissed   INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_ambient_date ON daily_ambient_impressions(date, consumed);
+CREATE INDEX IF NOT EXISTS idx_ambient_type ON daily_ambient_impressions(type, dismissed);
+CREATE INDEX IF NOT EXISTS idx_ambient_feed ON daily_ambient_impressions(dismissed, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_ambient_type_feed ON daily_ambient_impressions(type, dismissed, ts DESC);
 """
 
 # Master Migration Registry
@@ -833,6 +853,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.029",
         name="update_master_daily_journaling_procedure",
         up_fn=migrate_000_006_029_persona_agnostic_journaling_procedure,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.031",
+        name="create_daily_ambient_impressions_table",
+        up_sql=CREATE_DAILY_AMBIENT_IMPRESSIONS_TABLE_SQL,
     ),
 ]
 

@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-08-29 07:46:29
+# date modified: 2026-08-30 16:33:03
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -35,6 +35,7 @@ All functions use short-lived connections (no module-level state).
 """
 
 import contextlib
+from datetime import UTC, datetime
 import json
 import re
 import sqlite3
@@ -1401,3 +1402,188 @@ def get_all_queued_procedure_split_ids() -> set[int]:
     """Return a set of procedure IDs currently waiting in the split queue."""
     items = get_procedure_split_queue(status="pending")
     return {item["proc_id"] for item in items}
+
+
+# ---------------------------------------------------------------------------
+# Ambient Impressions & Ephemeral Feed Support
+# ---------------------------------------------------------------------------
+
+
+def record_ambient_impression(
+    type: str,
+    content: str,
+    source_ref: str | None = None,
+    media_id: str | None = None,
+    metadata: dict | None = None,
+    target_date: str | None = None,
+    ts: float | None = None,
+) -> int:
+    """Record an ambient impression (thought, media share, alert) in the memory database.
+
+    Args:
+        type: Impression type ("thought", "media_share", "proactive_msg", "system_alert").
+        content: The substantive thought text, media caption, or observation.
+        source_ref: Optional origin reference (e.g. "chat:30928", "task:178811").
+        media_id: Optional media UUID referencing evelyn_media.db.
+        metadata: Optional metadata dictionary (tags, mood, thumbnail URL).
+        target_date: Optional local date string (YYYY-MM-DD). Defaults to local today.
+        ts: Optional UNIX timestamp. Defaults to current time.
+
+    Returns:
+        int: The newly created impression row ID.
+    """
+    now_ts = ts if ts is not None else time.time()
+    if target_date is None:
+        target_date = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+
+    meta_json = json.dumps(metadata) if metadata is not None else None
+
+    con = get_db()
+    try:
+        cur = con.execute(
+            """INSERT INTO daily_ambient_impressions
+               (ts, date, type, content, source_ref, media_id, metadata, consumed, dismissed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)""",
+            (now_ts, target_date, type, content.strip(), source_ref, media_id, meta_json),
+        )
+        con.commit()
+        return int(cur.lastrowid or 0)
+    finally:
+        con.close()
+
+
+def get_unconsumed_ambient_impressions(
+    target_date: str,
+    types: list[str] | None = None,
+) -> list[dict]:
+    """Retrieve all unconsumed impressions for a given local date (for journal compilation).
+
+    Args:
+        target_date: Local calendar date string (YYYY-MM-DD).
+        types: Optional list of impression types to filter by.
+
+    Returns:
+        list[dict]: Unconsumed impression records ordered chronologically.
+    """
+    con = get_db()
+    try:
+        if types:
+            placeholders = ",".join("?" for _ in types)
+            query = f"""SELECT id, ts, date, type, content, source_ref, media_id, metadata, consumed, dismissed
+                        FROM daily_ambient_impressions
+                        WHERE date = ? AND consumed = 0 AND type IN ({placeholders})
+                        ORDER BY ts ASC"""
+            rows = con.execute(query, (target_date, *types)).fetchall()
+        else:
+            query = """SELECT id, ts, date, type, content, source_ref, media_id, metadata, consumed, dismissed
+                       FROM daily_ambient_impressions
+                       WHERE date = ? AND consumed = 0
+                       ORDER BY ts ASC"""
+            rows = con.execute(query, (target_date,)).fetchall()
+
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get("metadata"):
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    d["metadata"] = json.loads(d["metadata"])
+            results.append(d)
+        return results
+    finally:
+        con.close()
+
+
+def get_active_ambient_feed(
+    limit: int = 10,
+    type_filter: str | None = None,
+) -> list[dict]:
+    """Retrieve active (undismissed) ambient feed items ordered newest-first.
+
+    Utilizes idx_ambient_feed or idx_ambient_type_feed for optimized index scans.
+
+    Args:
+        limit: Maximum number of records to return.
+        type_filter: Optional type string ("thought", "media_share", etc.).
+
+    Returns:
+        list[dict]: Active ambient feed records.
+    """
+    con = get_db()
+    try:
+        if type_filter:
+            query = """SELECT id, ts, date, type, content, source_ref, media_id, metadata, consumed, dismissed
+                       FROM daily_ambient_impressions
+                       WHERE type = ? AND dismissed = 0
+                       ORDER BY ts DESC LIMIT ?"""
+            rows = con.execute(query, (type_filter, limit)).fetchall()
+        else:
+            query = """SELECT id, ts, date, type, content, source_ref, media_id, metadata, consumed, dismissed
+                       FROM daily_ambient_impressions
+                       WHERE dismissed = 0
+                       ORDER BY ts DESC LIMIT ?"""
+            rows = con.execute(query, (limit,)).fetchall()
+
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get("metadata"):
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    d["metadata"] = json.loads(d["metadata"])
+            results.append(d)
+        return results
+    finally:
+        con.close()
+
+
+def mark_ambient_impressions_consumed(impression_ids: list[int]) -> None:
+    """Mark a list of ambient impression IDs as consumed by the daily journal compiler.
+
+    Args:
+        impression_ids: List of impression primary keys.
+    """
+    if not impression_ids:
+        return
+    con = get_db()
+    try:
+        placeholders = ",".join("?" for _ in impression_ids)
+        con.execute(
+            f"UPDATE daily_ambient_impressions SET consumed = 1 WHERE id IN ({placeholders})",
+            impression_ids,
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def mark_ambient_impression_dismissed(impression_id: int) -> bool:
+    """Mark a single ambient impression as dismissed/read in the UI.
+
+    Args:
+        impression_id: Primary key of the impression.
+
+    Returns:
+        bool: True if updated, False otherwise.
+    """
+    con = get_db()
+    try:
+        cur = con.execute(
+            "UPDATE daily_ambient_impressions SET dismissed = 1 WHERE id = ?",
+            (impression_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def get_latest_ambient_impression(type_filter: str = "thought") -> dict | None:
+    """Retrieve the single most recent ambient impression of a given type.
+
+    Args:
+        type_filter: Impression type string (defaults to "thought").
+
+    Returns:
+        dict | None: The latest matching record, or None if none exist.
+    """
+    items = get_active_ambient_feed(limit=1, type_filter=type_filter)
+    return items[0] if items else None
