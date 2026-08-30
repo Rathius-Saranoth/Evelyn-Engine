@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-30 14:58:35
+# date modified: 2026-08-30 15:46:31
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.029"
-VERSION_NAME = "Persona-Agnostic Journaling Protocol & Adaptive Day History"
+__version__ = "000.006.030"
+VERSION_NAME = "Autonomous After-Hours Journal Daemon & Map-Reduce Compaction"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 

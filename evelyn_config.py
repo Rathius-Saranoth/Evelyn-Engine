@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-29 16:03:56
+# date modified: 2026-08-30 15:43:54
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -360,6 +360,30 @@ RAG_REFORMULATE_TIMEOUT = 10     # Seconds before falling back to raw message
 # (Evelyn's Journal) instead of the Pending_Approvals quarantine folder.
 # Context entries always go to their in-vault Pending folder regardless.
 JOURNAL_DIRECT_WRITE = True
+
+# --- Autonomous After-Hours Journaling ---
+# Master switch — when True, Evelyn autonomously generates and writes the daily journal
+# late at night if the user steps away without requesting a manual bedtime recap.
+AUTO_JOURNAL_ENABLED = True
+
+# How often (seconds) the background idle loop checks for auto-journaling eligibility.
+AUTO_JOURNAL_CHECK_INTERVAL = 900  # 15 minutes
+
+# Seconds of server inactivity required before after-hours journaling is triggered.
+# Default: 90 minutes (5400s) to ensure the user is truly asleep/done for the day.
+AUTO_JOURNAL_IDLE_THRESHOLD = 5400  # 90 minutes
+
+# Late-night circadian window (local hours) when auto-journaling is allowed to fire.
+# Spans late evening to early morning (e.g. 23:00 to 04:00).
+AUTO_JOURNAL_START_HOUR = 23  # 11:00 PM
+AUTO_JOURNAL_END_HOUR = 4    # 4:00 AM
+
+# Minimum number of valid conversation messages that must have occurred today for
+# auto-journaling to trigger (prevents generating hollow entries on zero-activity days).
+AUTO_JOURNAL_MIN_MESSAGES = 4
+
+# Map-Reduce compaction chunk size for high-turn conversation days.
+AUTO_JOURNAL_CHUNK_SIZE = 25
 
 # =============================================================================
 # Fact Extraction

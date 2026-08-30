@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-30 14:59:38
+date modified: 2026-08-30 15:46:31
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.030] - 2026-08-30 — *Autonomous After-Hours Journal Daemon & Map-Reduce Compaction*
+
+### Added & Architecture
+- **Autonomous After-Hours Journal Daemon (`Evelyn/tools/auto_journaler.py`, `evelyn_config.py`)**:
+  - Implemented `run_auto_journaling()` background worker capable of autonomously evaluating late-night circadian windows (`23:00`–`04:00`), inactivity thresholds (`AUTO_JOURNAL_IDLE_THRESHOLD = 5400s` or 02:30 AM failsafe), and minimum day turn thresholds (`AUTO_JOURNAL_MIN_MESSAGES = 4`).
+  - Added robust midnight crossover handling in `resolve_target_journal_date()` to resolve the logical target date to yesterday when running during early morning hours (`00:00`–`04:00`).
+  - Added strict vault collision prevention (`journal_manager._resolve_journal_filepath()`) to prevent duplicate entry generation when a manual reflection was already recorded.
+- **Chronological Map-Reduce History Compaction (`compact_history_map_reduce()`)**:
+  - Built an in-memory chronological Map-Reduce compressor that slices heavy transcripts into blocks of ~25 turns and extracts dense bullet digests of concrete actions, tools, creative projects, and banter via `ollama_client.query_ollama`.
+  - Merges chunk digests into structured `<day_history_digest>` telemetry paired with recent raw evening turns, ensuring zero context loss on 100+ turn marathon conversation days without overflowing the tool loop context budget.
+- **Cognitive Task Scheduling & Lifespan Integration (`Evelyn/tools/task_manager.py`, `evelyn_server.py`)**:
+  - Registered `auto_journaler` in `TASK_SCHEDULE_MAP` under `TaskSchedule.NOCTURNAL` with inclusion in `HEAVY_TASK_KEYS` and `DEFAULT_SOFT_TIMEOUTS` (15m).
+  - Added `_idle_auto_journal_loop()` background monitor in `evelyn_server.py` lifespan to periodically evaluate eligibility and enqueue tasks into the cooperative FIFO idle queue.
+  - Implemented chat preemption checks throughout compaction and synthesis to yield GPU resources immediately upon incoming user interaction.
+- **Automated Test Suite (`Evelyn/tests/test_auto_journaler.py`)**:
+  - Added unit test suite covering circadian window date resolution, multi-gate trigger evaluation, Map-Reduce chunking, and preemption safety.
+
+---
 
 ## [000.006.029] - 2026-08-30 — *Persona-Agnostic Journaling Protocol & Adaptive Day History*
 

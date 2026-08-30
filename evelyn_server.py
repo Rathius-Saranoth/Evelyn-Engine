@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-29 20:15:36
+# date modified: 2026-08-30 15:44:57
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2358,6 +2358,13 @@ async def lifespan(app: FastAPI):
                     t_rm = asyncio.create_task(start_refresh_memory_internal())
                     _server_background_tasks.add(t_rm)
                     t_rm.add_done_callback(_server_background_tasks.discard)
+                elif dispatched_task == "auto_journaler":
+                    from Evelyn.tools import auto_journaler
+
+                    t_aj = asyncio.create_task(auto_journaler.run_auto_journaling())
+                    auto_journaler._auto_journal_task = t_aj
+                    _server_background_tasks.add(t_aj)
+                    t_aj.add_done_callback(_server_background_tasks.discard)
                 else:
                     print(
                         f"{_YEL}[IDLE DISPATCHER]{_RST} Unknown task '{dispatched_task}' in queue.",
@@ -2372,6 +2379,28 @@ async def lifespan(app: FastAPI):
     _lifespan_tasks.append(asyncio.create_task(_idle_task_dispatcher_loop()))
     print(
         f"  {_GRN}Idle Dispatcher:{_RST} started central FIFO queue worker (grace={getattr(cfg, 'IDLE_STARTUP_GRACE_PERIOD', 60)}s)"
+    )
+
+    # Idle-time auto-journaling loop — enqueues into central task queue during late night
+    async def _idle_auto_journal_loop():
+        """Background loop that periodically evaluates late-night autonomous journaling eligibility."""
+        from Evelyn.tools import auto_journaler
+
+        while True:
+            await asyncio.sleep(getattr(cfg, "AUTO_JOURNAL_CHECK_INTERVAL", 900))
+            importlib.reload(cfg)
+            if not getattr(cfg, "AUTO_JOURNAL_ENABLED", True):
+                continue
+            idle_seconds = time.time() - _last_activity_ts
+            eligible, _ = auto_journaler.should_trigger_auto_journal(idle_seconds=idle_seconds)
+            if eligible:
+                task_manager.enqueue_idle_task("auto_journaler")
+
+    _lifespan_tasks.append(asyncio.create_task(_idle_auto_journal_loop()))
+    print(
+        f"  {_GRN}Auto-Journal:{_RST} idle timer started "
+        f"(window={getattr(cfg, 'AUTO_JOURNAL_START_HOUR', 23)}:00–{getattr(cfg, 'AUTO_JOURNAL_END_HOUR', 4)}:00, "
+        f"idle={getattr(cfg, 'AUTO_JOURNAL_IDLE_THRESHOLD', 5400) // 60}m)"
     )
 
     # Idle-time consolidation loop — enqueues into central task queue

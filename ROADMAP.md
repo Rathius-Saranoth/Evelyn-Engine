@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-30 14:59:38
+date modified: 2026-08-30 15:46:31
 tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
@@ -57,7 +57,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Cognitive Task Scheduling & Digital Dreaming**: Formalized 3-tier task execution (`REFLEX` 24/7, `DIURNAL` daytime research, `NOCTURNAL` overnight semantic dreaming), non-blocking runnable queue dispatching, and preemption tail re-queueing.
 - [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, Oura Ring Cloud API v2 vitals, and high-resolution intraday heart rate / activity biometrics.
 - [x] **Persona-Agnostic Journaling Protocol & Adaptive Day History**: Upgraded daily journaling to a persona-agnostic reflection schema, updated master procedure `#656` in SQLite memory DB with vector re-indexing, and implemented token-budgeted day-bound history loading with turn-integrity pruning.
-- [ ] **Autonomous After-Hours Journal Daemon & Map-Reduce Compaction**: Autonomous late-night journaling daemon in cooperative idle queue with map-reduce compaction fallback for high-turn conversation days.
+- [x] **Autonomous After-Hours Journal Daemon & Map-Reduce Compaction**: Autonomous late-night journaling daemon in cooperative nocturnal idle queue with midnight crossover resolution, vault collision checks, and Map-Reduce compaction for high-turn transcripts.
 - [ ] **Organic Daytime Thought Bubbles & Journal Synthesis**: Daytime idle micro-reflection generator storing ephemeral cognitive impressions (`daily_idle_thoughts`) synthesized into evening journal recaps.
 - [ ] **Multi-Entity & Third-Party Individual Profiles**: Dynamic evolution and autonomous profiling for external individuals/users encountered across channels (e.g. Discord server members, collaborators) into dedicated profile notes using the per-document evolution architecture.
 - [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category + vector distance memory retrieval for profile evolution to dynamically ingest cross-domain facts without rigid category boundaries.
