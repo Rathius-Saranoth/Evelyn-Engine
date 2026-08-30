@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-29 20:15:24
+# date modified: 2026-08-30 15:44:02
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -63,6 +63,7 @@ TASK_SCHEDULE_MAP: dict[str, TaskSchedule] = {
     "consolidator": TaskSchedule.NOCTURNAL,
     "procedure_consolidator": TaskSchedule.NOCTURNAL,
     "profile_evolver": TaskSchedule.NOCTURNAL,
+    "auto_journaler": TaskSchedule.NOCTURNAL,
 }
 
 # All known heavy-task keys. Used for documentation and validation only —
@@ -72,6 +73,7 @@ HEAVY_TASK_KEYS = frozenset({
     "consolidator",
     "procedure_consolidator",
     "profile_evolver",
+    "auto_journaler",
     "refresh_memory",
     "sync",
     "vault_map",
@@ -88,6 +90,7 @@ DEFAULT_SOFT_TIMEOUTS = {
     "consolidator": 2100.0,          # 35 minutes
     "procedure_consolidator": 900.0, # 15 minutes
     "profile_evolver": 4500.0,        # 75 minutes (up to 3 documents * 25m per doc ceiling)
+    "auto_journaler": 900.0,         # 15 minutes
     "refresh_memory": 1800.0,        # 30 minutes
     "vault_map": 600.0,              # 10 minutes
     "sync": 1800.0,                  # 30 minutes

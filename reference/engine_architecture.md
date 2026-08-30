@@ -1,7 +1,7 @@
 ---
 title: engine_architecture.md
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-30 15:16:07
+date modified: 2026-08-30 15:46:31
 tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
 
@@ -182,6 +182,7 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[fact_consolidator.py]]**: Idle-time database cleaner and consolidator. Scans context databases for duplicate, compound, or superseded facts. Generates merge, supersede, recategorize, and split/decomposition proposals for bloated compound entries.
 * **[[procedure_consolidator.py]]**: Idle-time procedure consolidation engine. Merges overlapping procedural rules into unified specifications.
 * **[[profile_evolver.py]]**: Idle-time profile evolver. Scans context entries in the memory database to propose updates to narrative persona, profile, and directives files. Features **thematic section pre-clustering** (`DOCUMENT_THEMES`, `_cluster_entries_by_theme()`) and entity topic pre-aggregation to group related observations under topic subheadings, eliminating cross-topic context switching. Processes large entry sets in **configurable batches** (default 40 entries/pass) to avoid context-window saturation. Features **fault-isolated per-document timeouts** (`PROFILE_EVOLUTION_DOC_TIMEOUT = 1500`), **draft persistence** (saving working document and cursor after each pass so interrupted runs resume smoothly), and a **dedicated editorial proofreading pass** (`_proofread_document()` at `temperature: 0.1`) that eliminates subword tokenizer artifacts and typos before proposal creation.
+* **[[auto_journaler.py]]**: Autonomous after-hours journal daemon. Evaluates late-night circadian windows (23:00–04:00), inactivity thresholds, and minimum conversation turn gates to autonomously compose daily reflection entries without requiring a manual user bedtime prompt. Features **midnight crossover resolution** (mapping early morning runs 00:00–04:00 to the previous calendar day), **strict vault collision prevention**, **preemption safety**, and **chronological Map-Reduce compaction** (`compact_history_map_reduce()`) for high-turn marathon conversation days.
 * **[[docstring_guide.md]] §7**: Detailed reference containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[terminal_agent.py]]**: Manages shell command execution and file write safety checks, staging operations for user approval and persisting approvals to disk to survive server restarts.
 * **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
@@ -321,6 +322,7 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 | `sync` | `evelyn_server.py` | daemon thread |
 | `vault_map` | `vault_indexer.py` (`evelyn_server.py`) | subprocess / thread |
 | `tag_librarian` | `tag_librarian.py` | asyncio coroutine |
+| `auto_journaler` | `auto_journaler.py` | asyncio coroutine |
 
 > [!CAUTION]
 > *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED. Adding a new heavy task without routing it through `task_manager` is a bug, not a feature. New tasks must: (1) call `task_manager.set_running()` at start, (2) call `task_manager.clear_running()` in `finally`, (3) check `task_manager.is_any_running()` before beginning work.*
