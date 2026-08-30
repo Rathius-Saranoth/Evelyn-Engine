@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-29 20:16:30
+date modified: 2026-08-30 08:06:05
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.027] - 2026-08-30 — *Per-Document Evolution Tracking & Multi-Profile Extensibility*
+
+### Added & Architecture
+- **Per-Document Evolution Tracking (`entry_document_evolution`, `Evelyn/tools/memory_db.py`, `Evelyn/tools/db_migrator.py`)**:
+  - Implemented migration `000.006.027` introducing normalized junction table `entry_document_evolution (entry_id, document_name, evolved_at, PRIMARY KEY (entry_id, document_name))` in `evelyn_memory.db`.
+  - Added `get_entries_by_category_for_document(category, document_name, status)` using a SQL `LEFT JOIN` on `entry_document_evolution` to isolate evolution state across independent persona, profile, and directives documents.
+  - Enhanced `touch_entry_evolved(entry_id, document_name, timestamp)` to record evolution timestamps per document while maintaining global fallback timestamps on `context_entries`.
+  - Enabled SQLite foreign key enforcement (`PRAGMA foreign_keys = ON`) in `get_db()` to ensure clean cascade deletes when context entries are pruned.
+- **Dirty Record Protection During Human Review (`evelyn_server.py`)**:
+  - Profile update proposal approval and denial handlers now stamp `entry_document_evolution` using `prop["created_at"]` rather than `now()`. Any context entries modified or split during human review (`updated_at > created_at`) are recognized as dirty and remain eligible for re-evaluation in the next cycle.
+
+### Fixed & Enhanced
+- **Eliminated Cross-Document Context Starvation (`Evelyn/tools/profile_evolver.py`, `scripts/trigger_profile_evolution.py`)**:
+  - Refactored `run_profile_evolution()` and manual CLI triggers to query qualifying context per target document, preventing proposals approved for one document from locking out context from other documents.
+  - Aligned `DOCUMENT_CATEGORIES` and `DOCUMENT_THEMES` with the authoritative `Cat00 - Index.md` taxonomy, adding previously omitted categories (`Cat07` Motivations/Aspirations, `Cat02-U` Core Values, `Cat15` Lexicon) and mapping shared cross-domain categories (`Cat06` Relationship Dynamics, `Cat09` Cognitive Style, `Cat10` Humor & Play, `Cat12` Emotional States, `Cat16` Protocols & Routines) across Assistant, User, and Directives documents.
+  - Hardened proposal denial (`deny`) to stamp target document evolution state and advance cooldowns, preventing infinite proposal generation loops on unchanged entries.
+
+---
 
 ## [000.006.026] - 2026-08-29 — *Cognitive Task Tiers & Digital Dreaming Circadian Scheduling*
 

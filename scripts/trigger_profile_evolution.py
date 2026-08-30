@@ -80,16 +80,12 @@ async def main() -> None:
         state["last_run_per_doc"].get(filename, 0.0)
         draft_exists = await asyncio.to_thread(os.path.exists, _draft_path(filename))
 
-        # Collect entries not yet evolved OR whose observation has changed since last evolution.
+        # Collect entries qualifying for this specific document.
         # Mirrors the selection logic in profile_evolver.run_profile_evolution().
         changed_entries: list[dict] = []
         for cat in categories:
-            entries = memory_db.get_entries_by_category(cat, status="live")
-            for entry in entries:
-                updated_at      = entry.get("updated_at", 0.0) or 0.0
-                last_evolved_at = entry.get("last_evolved_at")
-                if last_evolved_at is None or updated_at > last_evolved_at:
-                    changed_entries.append(entry)
+            entries = memory_db.get_entries_by_category_for_document(cat, document_name=filename, status="live")
+            changed_entries.extend(entries)
 
         resume_note = " (draft on disk — will resume)" if draft_exists else ""
         print(f"[TRIGGER] {filename}: {len(changed_entries)} qualifying entries (need {MIN_ENTRIES}){resume_note}.")

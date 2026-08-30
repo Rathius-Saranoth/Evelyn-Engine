@@ -55,6 +55,7 @@ def get_db() -> sqlite3.Connection:
     con = sqlite3.connect(cfg.MEMORY_DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")  # Concurrent reads during writes
+    con.execute("PRAGMA foreign_keys = ON")
     return con
 
 
@@ -169,6 +170,16 @@ def init_db() -> None:
         )
     """)
 
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS entry_document_evolution (
+            entry_id      INTEGER NOT NULL,
+            document_name TEXT NOT NULL,
+            evolved_at    REAL NOT NULL,
+            PRIMARY KEY (entry_id, document_name),
+            FOREIGN KEY(entry_id) REFERENCES context_entries(id) ON DELETE CASCADE
+        )
+    """)
+
     # Indexes — IF NOT EXISTS prevents errors on re-init
     for stmt in [
         "CREATE INDEX IF NOT EXISTS idx_ce_category ON context_entries(category)",
@@ -181,6 +192,7 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_csq_status ON chroma_sync_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_csq_source ON chroma_sync_queue(source_path, collection_name)",
         "CREATE INDEX IF NOT EXISTS idx_sq_status ON split_queue(status)",
+        "CREATE INDEX IF NOT EXISTS idx_ede_doc_entry ON entry_document_evolution(document_name, entry_id)",
     ]:
         con.execute(stmt)
 
@@ -341,18 +353,85 @@ def update_entry(entry_id: int, **fields) -> bool:
     return affected > 0
 
 
-def touch_entry_evolved(entry_id: int, timestamp: float | None = None) -> None:
-    """Update last_evolved_at timestamp for a context entry.
+def get_entries_by_category_for_document(
+    category: str, document_name: str, status: str = "live"
+) -> list[dict]:
+    """Fetch qualifying un-evolved (or modified since evolution) entries for a specific document.
 
-    Called when an entry has been processed into a profile_update proposal.
+    Uses a LEFT JOIN on entry_document_evolution for the target document so that
+    entries evolved for other documents remain eligible for this document.
+
+    Args:
+        category: Category code, e.g. 'Cat05-U'.
+        document_name: Target document filename, e.g. 'Ricky_Narrative_Profile.md'.
+        status: Filter by status. Default 'live'.
+
+    Returns:
+        list[dict]: A list of qualifying entry dictionaries, sorted chronologically.
+    """
+    con = get_db()
+    query = """
+        SELECT ce.*
+        FROM context_entries ce
+        LEFT JOIN entry_document_evolution ede
+               ON ede.entry_id = ce.id
+              AND ede.document_name = ?
+        WHERE ce.category = ?
+          AND ce.status = ?
+          AND (ede.evolved_at IS NULL OR ce.updated_at > ede.evolved_at)
+        ORDER BY ce.date ASC, ce.id ASC
+    """
+    rows = con.execute(query, (document_name, category, status)).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def get_entry_document_evolutions(entry_id: int) -> dict[str, float]:
+    """Fetch all per-document evolution timestamps for a given entry.
 
     Args:
         entry_id: Row ID of the context entry.
+
+    Returns:
+        dict[str, float]: Mapping of document_name to evolved_at timestamp.
+    """
+    con = get_db()
+    rows = con.execute(
+        "SELECT document_name, evolved_at FROM entry_document_evolution WHERE entry_id = ?",
+        (entry_id,),
+    ).fetchall()
+    con.close()
+    return {r["document_name"]: r["evolved_at"] for r in rows}
+
+
+def touch_entry_evolved(
+    entry_id: int,
+    document_name: str | None = None,
+    timestamp: float | None = None,
+) -> None:
+    """Update evolution timestamp for a context entry.
+
+    When document_name is provided, records the evolution event specifically
+    for that target document in entry_document_evolution. Also maintains the
+    legacy last_evolved_at column on context_entries as a global fallback.
+
+    Args:
+        entry_id: Row ID of the context entry.
+        document_name: Optional target document filename (e.g. 'Ricky_Narrative_Profile.md').
         timestamp: Unix timestamp. Defaults to current time.
     """
     ts = timestamp or time.time()
     try:
         con = get_db()
+        if document_name:
+            con.execute(
+                """
+                INSERT INTO entry_document_evolution (entry_id, document_name, evolved_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(entry_id, document_name) DO UPDATE SET evolved_at = excluded.evolved_at
+                """,
+                (entry_id, document_name, ts),
+            )
         con.execute(
             "UPDATE context_entries SET last_evolved_at = ? WHERE id = ?",
             (ts, entry_id),
@@ -360,7 +439,9 @@ def touch_entry_evolved(entry_id: int, timestamp: float | None = None) -> None:
         con.commit()
         con.close()
     except sqlite3.Error as e:
-        print(f"[MEMORY_DB] Warning: failed to update last_evolved_at for entry {entry_id}: {e}")
+        print(
+            f"[MEMORY_DB] Warning: failed to update evolution state for entry {entry_id} (doc={document_name}): {e}"
+        )
 
 
 def increment_entry_observed(entry_id: int, count_delta: int = 1) -> None:

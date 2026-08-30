@@ -5235,6 +5235,14 @@ async def action_proposal(
     from Evelyn.tools import memory_db
 
     if action == "deny":
+        proposals = memory_db.get_pending_proposals()
+        prop = next((p for p in proposals if p["id"] == id), None)
+        if prop and prop["type"] == "profile_update":
+            target_filename = os.path.basename(prop["suggested_category"])
+            prop_ts = prop.get("created_at") or time.time()
+            for eid in prop.get("source_ids", []):
+                memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
+            advance_doc_run_timestamp(target_filename, "BELOW_THRESHOLD", "Proposal denied; entries stamped")
         memory_db.reject_proposal(id)
         return {"status": "ok"}
     elif action in ("delete", "hard_delete"):
@@ -5281,24 +5289,24 @@ async def action_proposal(
             memory_db.apply_proposal(id)
         elif prop["type"] == "profile_update":
             # Repurposed suggested_category contains the target filename (e.g. Evelyn_Narrative_Persona.md)
-            target_file = PERSONA_DIR / prop["suggested_category"]
+            target_filename = os.path.basename(prop["suggested_category"])
+            target_file = PERSONA_DIR / target_filename
             if not target_file.exists():
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Target file not found: {prop['suggested_category']}",
+                    detail=f"Target file not found: {target_filename}",
                 )
             target_file.write_text(final_text, encoding="utf-8")
             memory_db.update_proposal(id, merged_observation=final_text)
             memory_db.apply_proposal(id)
-            # Stamp last_evolved_at on all source entries so they are not re-evaluated
-            # until their observation content actually changes.
-            now_ts = time.time()
+            # Stamp entry_document_evolution on all source entries with proposal created_at timestamp.
+            # Using prop["created_at"] guarantees that any entries edited/split during human review
+            # (updated_at > created_at) are recognized as dirty and remain eligible for re-evaluation.
+            prop_ts = prop.get("created_at") or time.time()
             for eid in prop.get("source_ids", []):
-                memory_db.touch_entry_evolved(eid, now_ts)
-            # Reset the per-document cooldown from approval time, not proposal generation
-            # time. Without this, the evolver's cooldown runs from when the proposal was
-            # staged (potentially hours earlier), causing immediate re-evaluation overnight.
-            advance_doc_run_timestamp(prop["suggested_category"])
+                memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
+            # Reset the per-document cooldown from approval time, not proposal generation time.
+            advance_doc_run_timestamp(target_filename, "APPROVED", "Proposal approved & applied to profile note")
             # Run update_frontmatter script to update date modified/tags
             import subprocess
 

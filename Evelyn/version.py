@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-29 20:16:19
+# date modified: 2026-08-30 08:04:02
 # tags: #versioning, #release
 
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import re
 
-__version__ = "000.006.026"
-VERSION_NAME = "Cognitive Task Tiers & Digital Dreaming Circadian Scheduling"
+__version__ = "000.006.027"
+VERSION_NAME = "Per-Document Evolution Tracking & Multi-Profile Extensibility"
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
