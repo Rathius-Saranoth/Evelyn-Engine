@@ -1,7 +1,7 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
 # date modified: 2026-08-29 07:46:44
-# tags: 
+# tags:
 
 """
 Evelyn Engine Database Migration Framework.
@@ -646,6 +646,67 @@ def migrate_000_006_020_live_procedures_cleanup(conn: sqlite3.Connection, db_map
     logger.info("Migration 000.006.020 successfully cleaned up live procedures and migrated misclassified facts.")
 
 
+def migrate_000_006_027_entry_document_evolution(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    config_obj: object,
+) -> None:
+    """Create entry_document_evolution table and backfill legacy last_evolved_at records."""
+    cursor = conn.cursor()
+
+    # 1. Create table and index
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entry_document_evolution (
+            entry_id      INTEGER NOT NULL,
+            document_name TEXT NOT NULL,
+            evolved_at    REAL NOT NULL,
+            PRIMARY KEY (entry_id, document_name),
+            FOREIGN KEY(entry_id) REFERENCES context_entries(id) ON DELETE CASCADE
+        );
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ede_doc_entry ON entry_document_evolution(document_name, entry_id);
+    """)
+
+    # 2. Backfill existing evolved entries to their primary legacy target document
+    assistant_doc = getattr(config_obj, "PERSONA_FILE_ASSISTANT", "Evelyn_Narrative_Persona.md")
+    user_doc = getattr(config_obj, "PERSONA_FILE_USER", "Ricky_Narrative_Profile.md")
+    directives_doc = getattr(config_obj, "PERSONA_FILE_DIRECTIVES", "System_Directives.md")
+    subj_user = getattr(config_obj, "SUBJECT_CODE_USER", "U")
+    subj_asst = getattr(config_obj, "SUBJECT_CODE_ASSISTANT", "A")
+
+    cursor.execute("SELECT id, category, last_evolved_at FROM context_entries WHERE last_evolved_at IS NOT NULL")
+    rows = cursor.fetchall()
+
+    backfill_rows = []
+    for row in rows:
+        eid, cat, evolved_at = row[0], row[1] or "", row[2]
+        if not evolved_at:
+            continue
+
+        # Primary legacy target mapping
+        if cat in (f"Cat14-{subj_asst}", f"Cat16-{subj_asst}", f"Cat16-{subj_user}"):
+            target_doc = directives_doc
+        elif cat.endswith(f"-{subj_asst}"):
+            target_doc = assistant_doc
+        elif cat.endswith(f"-{subj_user}"):
+            target_doc = user_doc
+        else:
+            target_doc = user_doc
+
+        backfill_rows.append((eid, target_doc, evolved_at))
+
+    if backfill_rows:
+        cursor.executemany(
+            "INSERT OR IGNORE INTO entry_document_evolution (entry_id, document_name, evolved_at) VALUES (?, ?, ?)",
+            backfill_rows,
+        )
+
+    logger.info(
+        f"Migration 000.006.027 successfully initialized entry_document_evolution and backfilled {len(backfill_rows)} legacy records."
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -713,6 +774,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.020",
         name="live_procedures_cleanup_and_fact_migration",
         up_fn=migrate_000_006_020_live_procedures_cleanup,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.027",
+        name="create_entry_document_evolution_table",
+        up_fn=migrate_000_006_027_entry_document_evolution,
     ),
 ]
 

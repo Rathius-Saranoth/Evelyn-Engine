@@ -1,7 +1,7 @@
 ---
 title: ROADMAP.md
 date created: 2026-03-14 22:34:06
-date modified: 2026-08-29 20:20:54
+date modified: 2026-08-30 08:05:58
 tags: [roadmap, goals, features, implementation, planning, evelyn]
 ---
 
@@ -56,6 +56,8 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Temporal Management Subsystem (`time_manager`)**: Dedicated subsystem providing timezone-aware normalization, role-agnostic silence tracking, structured `<temporal_context>` XML telemetry envelopes, and always-on proactive heartbeat evaluation.
 - [x] **Cognitive Task Scheduling & Digital Dreaming**: Formalized 3-tier task execution (`REFLEX` 24/7, `DIURNAL` daytime research, `NOCTURNAL` overnight semantic dreaming), non-blocking runnable queue dispatching, and preemption tail re-queueing.
 - [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, Oura Ring Cloud API v2 vitals, and high-resolution intraday heart rate / activity biometrics.
+- [ ] **Multi-Entity & Third-Party Individual Profiles**: Dynamic evolution and autonomous profiling for external individuals/users encountered across channels (e.g. Discord server members, collaborators) into dedicated profile notes using the per-document evolution architecture.
+- [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category + vector distance memory retrieval for profile evolution to dynamically ingest cross-domain facts without rigid category boundaries.
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
 - [ ] **System-Event Prompting Flow**: Inject proactive notifications into conversation turns for background triggers (agenda alerts, completed research, health anomalies).
 - [ ] **Spell Breaker (Focus Check-In Timer)**: Reverse "Do Not Disturb" timer in Chat UI that dispatches a proactive system event to Evelyn when a project timer expires, prompting an autonomous break or check-in response.

@@ -54,18 +54,37 @@ DOCUMENT_CATEGORIES = {
         f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat06-{cfg.SUBJECT_CODE_USER}",
+        f"Cat07-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat09-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat15-{cfg.SUBJECT_CODE_ASSISTANT}",
     ],
     cfg.PERSONA_FILE_USER: [
         f"Cat01-{cfg.SUBJECT_CODE_USER}",
+        f"Cat02-{cfg.SUBJECT_CODE_USER}",
         f"Cat03-{cfg.SUBJECT_CODE_USER}",
         f"Cat04-{cfg.SUBJECT_CODE_USER}",
         f"Cat06-{cfg.SUBJECT_CODE_USER}",
+        f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat07-{cfg.SUBJECT_CODE_USER}",
         f"Cat09-{cfg.SUBJECT_CODE_USER}",
+        f"Cat10-{cfg.SUBJECT_CODE_USER}",
         f"Cat12-{cfg.SUBJECT_CODE_USER}",
+        f"Cat13-{cfg.SUBJECT_CODE_USER}",
+        f"Cat16-{cfg.SUBJECT_CODE_USER}",
     ],
     cfg.PERSONA_FILE_DIRECTIVES: [
+        f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat04-{cfg.SUBJECT_CODE_USER}",
+        f"Cat06-{cfg.SUBJECT_CODE_USER}",
+        f"Cat09-{cfg.SUBJECT_CODE_USER}",
+        f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat12-{cfg.SUBJECT_CODE_USER}",
         f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat15-{cfg.SUBJECT_CODE_ASSISTANT}",
+        f"Cat15-{cfg.SUBJECT_CODE_USER}",
         f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat16-{cfg.SUBJECT_CODE_USER}",
     ],
@@ -79,56 +98,101 @@ DOCUMENT_THEMES = {
         {
             "theme_name": "Narrative Persona, Archetypes & Identity",
             "section_header": "## Narrative_Persona",
-            "categories": [f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}", f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}"],
+            "categories": [
+                f"Cat01-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat02-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat07-{cfg.SUBJECT_CODE_ASSISTANT}",
+            ],
         },
         {
             "theme_name": "Values, Voice & Intellectual Exploration",
             "section_header": "## Narrative_Persona",
-            "categories": [f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}", f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}"],
+            "categories": [
+                f"Cat03-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat09-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat15-{cfg.SUBJECT_CODE_ASSISTANT}",
+            ],
         },
         {
             "theme_name": "Relational Anchor, Synergy & Boundaries",
             "section_header": "## Narrative_Persona",
-            "categories": [f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}"],
+            "categories": [
+                f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat06-{cfg.SUBJECT_CODE_USER}",
+                f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
+            ],
         },
     ],
     cfg.PERSONA_FILE_USER: [
         {
             "theme_name": "Identity & Core Values",
             "section_header": "## Identity & Core Values",
-            "categories": [f"Cat01-{cfg.SUBJECT_CODE_USER}", f"Cat04-{cfg.SUBJECT_CODE_USER}"],
+            "categories": [
+                f"Cat01-{cfg.SUBJECT_CODE_USER}",
+                f"Cat02-{cfg.SUBJECT_CODE_USER}",
+                f"Cat04-{cfg.SUBJECT_CODE_USER}",
+                f"Cat07-{cfg.SUBJECT_CODE_USER}",
+            ],
         },
         {
             "theme_name": "Relationship Dynamics & Social Connections",
             "section_header": "## Relationship Dynamics",
-            "categories": [f"Cat06-{cfg.SUBJECT_CODE_USER}"],
+            "categories": [
+                f"Cat06-{cfg.SUBJECT_CODE_USER}",
+                f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat10-{cfg.SUBJECT_CODE_USER}",
+            ],
         },
         {
             "theme_name": "Interaction Preferences & Constraints",
             "section_header": "## Interaction Preferences & Constraints",
-            "categories": [f"Cat09-{cfg.SUBJECT_CODE_USER}", f"Cat12-{cfg.SUBJECT_CODE_USER}"],
+            "categories": [
+                f"Cat09-{cfg.SUBJECT_CODE_USER}",
+                f"Cat12-{cfg.SUBJECT_CODE_USER}",
+            ],
         },
         {
             "theme_name": "Personal Context & State",
             "section_header": "## Personal Context",
-            "categories": [f"Cat03-{cfg.SUBJECT_CODE_USER}"],
+            "categories": [
+                f"Cat03-{cfg.SUBJECT_CODE_USER}",
+                f"Cat13-{cfg.SUBJECT_CODE_USER}",
+                f"Cat16-{cfg.SUBJECT_CODE_USER}",
+            ],
         },
     ],
     cfg.PERSONA_FILE_DIRECTIVES: [
         {
             "theme_name": "Conversation, Formatting & Persona Directives",
             "section_header": "## Directives",
-            "categories": [f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}"],
+            "categories": [
+                f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat04-{cfg.SUBJECT_CODE_USER}",
+                f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat15-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat15-{cfg.SUBJECT_CODE_USER}",
+            ],
         },
         {
             "theme_name": "Tool & Operational Execution Guidelines",
             "section_header": "## Directives",
-            "categories": [f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}"],
+            "categories": [
+                f"Cat09-{cfg.SUBJECT_CODE_USER}",
+                f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
+            ],
         },
         {
             "theme_name": "Routines, Rituals & Strategic Boundaries",
             "section_header": "## Directives",
-            "categories": [f"Cat16-{cfg.SUBJECT_CODE_USER}"],
+            "categories": [
+                f"Cat06-{cfg.SUBJECT_CODE_USER}",
+                f"Cat12-{cfg.SUBJECT_CODE_USER}",
+                f"Cat16-{cfg.SUBJECT_CODE_USER}",
+            ],
         },
     ],
 }
@@ -529,19 +593,22 @@ def get_profile_evolution_statuses() -> dict:
     return statuses
 
 
-def advance_doc_run_timestamp(filename: str) -> None:
+def advance_doc_run_timestamp(filename: str, status_code: str = "APPROVED", details: str = "Proposal approved & applied to profile note") -> None:
     """Advance last_run_per_doc for a document to the current time.
 
-    Called when a profile_update proposal is approved by the user. Resets the
-    per-document cooldown clock from the approval timestamp rather than from the
-    original proposal generation time and updates the document status to APPROVED.
+    Called when a profile_update proposal is approved or denied by the user. Resets the
+    per-document cooldown clock from the resolution timestamp rather than from the
+    original proposal generation time and updates the document status.
 
     Args:
-        filename: Document basename, e.g. 'Ricky_Narrative_Profile.md'.
+        filename: Document basename or path, e.g. 'Ricky_Narrative_Profile.md'.
+        status_code: Status label key, default 'APPROVED'.
+        details: Detail string for status reporting.
     """
+    norm_filename = os.path.basename(filename)
     state = _load_evolution_state()
-    state["last_run_per_doc"][filename] = time.time()
-    update_doc_status(state, filename, "APPROVED", "Proposal approved & applied to profile note")
+    state["last_run_per_doc"][norm_filename] = time.time()
+    update_doc_status(state, norm_filename, status_code, details)
 
 # ---------------------------------------------------------------------------
 # Infrastructure & Mutual Exclusion
@@ -648,21 +715,16 @@ async def run_profile_evolution():
                 update_doc_status(state, filename, "COOLDOWN_ACTIVE", f"Cooldown active ({rem_h}h remaining)")
                 continue
 
-            # Collect all entries changed since the last *completed* run.
+            # Collect all entries qualifying for this specific document.
             # The draft_cursor tracks what's already incorporated in the draft,
             # so entries up to draft_cursor are silently skipped inside
             # _evolve_document() — they're already in the working document.
             changed_entries = []
             for cat in categories:
-                entries = memory_db.get_entries_by_category(cat, status="live")
-                for entry in entries:
-                    entry.get("created_at", 0.0) or 0.0
-                    updated_at      = entry.get("updated_at", 0.0)  or 0.0
-                    last_evolved_at = entry.get("last_evolved_at")
-
-                    # Qualifies if it has never been evolved OR if observation content was updated after evolution
-                    if last_evolved_at is None or updated_at > last_evolved_at:
-                        changed_entries.append(entry)
+                entries = memory_db.get_entries_by_category_for_document(
+                    cat, document_name=filename, status="live"
+                )
+                changed_entries.extend(entries)
 
             min_entries = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
 

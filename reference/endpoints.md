@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-28 16:44:29
+date modified: 2026-08-30 08:13:19
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -145,12 +145,12 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 * **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str) and/or `source_id` (int).
 * **Actions**:
   * `approve`: Executes the proposal based on type:
-    * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `last_evolved_at` on all source entries, resets the per-document evolution cooldown to the approval timestamp (prevents immediate re-evaluation on the next idle cycle), runs `update_frontmatter.py`, and marks the proposal applied.
+    * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `entry_document_evolution` for the specific target document on all source entries with the proposal's `created_at` timestamp (recognizing entries modified during review as dirty so they re-qualify), resets the per-document evolution cooldown to the approval timestamp, runs `update_frontmatter.py`, and marks the proposal applied.
     * `merge` / `supersede` — deletes source entries and inserts the merged fact (using `modified_text` if provided).
     * `split` — deletes the source compound entry and inserts decomposed atomic child context facts parsed from `final_text` as YAML/JSON.
     * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
     * `procedure_merge` — deletes source procedures and inserts a new consolidated procedure parsed from `final_text` as YAML.
-  * `deny`: Rejects the proposal (`reject_proposal`). Deleted from the queue.
+  * `deny`: Rejects the proposal (`reject_proposal`). For `profile_update`, stamps source entries in `entry_document_evolution` for that document with proposal `created_at` and advances cooldown to prevent immediate repeat proposals.
   * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
 
 ### `POST /api/context/split_preview`
