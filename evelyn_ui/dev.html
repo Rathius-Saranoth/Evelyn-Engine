@@ -105,41 +105,40 @@
       position: relative; display: flex; align-items: center; width: 100%;
     }
     .carousel-arrow {
-      position: absolute; top: 0; bottom: 6px; width: 34px; z-index: 5;
+      position: absolute; top: 0; bottom: 6px; width: 34px; z-index: 10;
       display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; color: var(--accent);
-      cursor: pointer; opacity: 0.85; transition: all 0.25s ease; padding: 0;
+      cursor: pointer; opacity: 0.9; transition: all 0.2s ease; padding: 0;
     }
     .carousel-arrow:hover {
-      opacity: 1; transform: scale(1.1); color: #fff;
+      opacity: 1; transform: scale(1.15); color: #fff;
     }
     .carousel-arrow:active { transform: scale(0.95); }
     .carousel-arrow-left {
-      left: 0; background: linear-gradient(to right, var(--bg) 65%, transparent);
-      border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+      left: -2px;
     }
     .carousel-arrow-right {
-      right: 0; background: linear-gradient(to left, var(--bg) 65%, transparent);
-      border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+      right: -2px;
     }
     .chevron-svg {
-      width: 16px; height: 16px; filter: drop-shadow(0 0 4px rgba(124, 106, 247, 0.4));
+      width: 17px; height: 17px; filter: drop-shadow(0 0 5px rgba(124, 106, 247, 0.5));
       transition: transform 0.2s ease;
     }
     .carousel-arrow-left:hover .chevron-svg { transform: translateX(-2px); }
     .carousel-arrow-right:hover .chevron-svg { transform: translateX(2px); }
 
     .tabs {
-      display: flex; gap: 8px; padding: 2px 30px 6px; background: transparent;
+      display: flex; gap: 8px; padding: 2px 28px 6px; background: transparent;
       overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch;
-      scrollbar-width: none; scroll-snap-type: x proximity; width: 100%;
+      scrollbar-width: none; width: 100%;
+      mask-image: linear-gradient(to right, transparent 0%, black 36px, black calc(100% - 36px), transparent 100%);
+      -webkit-mask-image: linear-gradient(to right, transparent 0%, black 36px, black calc(100% - 36px), transparent 100%);
     }
     .tabs::-webkit-scrollbar { display: none; }
     .tab-btn {
       background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border);
       padding: 9px 16px; border-radius: 8px; cursor: pointer; font-size: 13.5px; font-weight: 500;
       transition: all 0.2s; flex: 0 0 auto; white-space: nowrap; text-align: center;
-      scroll-snap-align: start;
     }
     .tab-btn:hover:not(.active) { color: var(--text); border-color: var(--text-dim); }
     .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
@@ -367,11 +366,11 @@
       </button>
 
       <div class="tabs" id="tabs-bar">
-        <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
-        <button class="tab-btn" id="tab-procedures" onclick="switchTab('procedures-mgmt')">⚙️ Procedures (<span id="count-all-proc">0</span>)</button>
-        <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
-        <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
-        <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
+        <button class="tab-btn active" data-tab="triage" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span data-count="triage" id="count-triage">0</span>)</button>
+        <button class="tab-btn" data-tab="procedures-mgmt" id="tab-procedures" onclick="switchTab('procedures-mgmt')">⚙️ Procedures (<span data-count="procedures" id="count-all-proc">0</span>)</button>
+        <button class="tab-btn" data-tab="research" id="tab-research" onclick="switchTab('research')">Deep Research (<span data-count="research" id="count-res">0</span>)</button>
+        <button class="tab-btn" data-tab="ingest" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
+        <button class="tab-btn" data-tab="telemetry" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
       </div>
 
       <button class="carousel-arrow carousel-arrow-right" id="carousel-next-btn" onclick="scrollTabs(1)" title="Next workspace" aria-label="Next workspace">
@@ -1474,10 +1473,9 @@
       const profUpCount = unifiedItems.filter(i => i.item_type === 'profile_update').length;
       const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
 
-      document.getElementById('count-triage').textContent = unifiedItems.length;
-      document.getElementById('count-res').textContent = researchTasks.length;
-      const allProcEl = document.getElementById('count-all-proc');
-      if (allProcEl) allProcEl.textContent = allProcedures.length;
+      document.querySelectorAll('[data-count="triage"]').forEach(el => el.textContent = unifiedItems.length);
+      document.querySelectorAll('[data-count="research"]').forEach(el => el.textContent = researchTasks.length);
+      document.querySelectorAll('[data-count="procedures"]').forEach(el => el.textContent = allProcedures.length);
 
       const filterExt = document.getElementById('count-filter-ext');
       if (filterExt) filterExt.textContent = extCount;
@@ -1489,24 +1487,81 @@
       if (filterProc) filterProc.textContent = procCount;
     }
 
+    let _carouselSetWidth = 0;
+    let _carouselInitDone = false;
+
+    function initInfiniteTabsCarousel() {
+      const tabsBar = document.getElementById('tabs-bar');
+      if (!tabsBar || _carouselInitDone) return;
+
+      const originalButtons = Array.from(tabsBar.querySelectorAll('.tab-btn:not(.tab-clone)'));
+      if (originalButtons.length === 0) return;
+
+      originalButtons.forEach(btn => btn.setAttribute('data-original', 'true'));
+
+      const prefixClones = originalButtons.map(btn => {
+        const clone = btn.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.classList.add('tab-clone');
+        clone.removeAttribute('data-original');
+        clone.onclick = btn.onclick;
+        return clone;
+      });
+
+      const suffixClones = originalButtons.map(btn => {
+        const clone = btn.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.classList.add('tab-clone');
+        clone.removeAttribute('data-original');
+        clone.onclick = btn.onclick;
+        return clone;
+      });
+
+      prefixClones.forEach(clone => tabsBar.insertBefore(clone, tabsBar.firstChild));
+      suffixClones.forEach(clone => tabsBar.appendChild(clone));
+
+      _carouselInitDone = true;
+
+      function measureSetWidth() {
+        _carouselSetWidth = originalButtons.reduce((acc, btn) => acc + btn.offsetWidth + 8, 0);
+      }
+      measureSetWidth();
+
+      let isJumping = false;
+      tabsBar.addEventListener('scroll', () => {
+        if (isJumping || _carouselSetWidth <= 0) return;
+
+        if (tabsBar.scrollLeft <= 15) {
+          isJumping = true;
+          tabsBar.scrollLeft += _carouselSetWidth;
+          requestAnimationFrame(() => { isJumping = false; });
+        } else if (tabsBar.scrollLeft >= _carouselSetWidth * 2 - 15) {
+          isJumping = true;
+          tabsBar.scrollLeft -= _carouselSetWidth;
+          requestAnimationFrame(() => { isJumping = false; });
+        }
+      });
+
+      setTimeout(() => {
+        measureSetWidth();
+        if (_carouselSetWidth > 0) {
+          tabsBar.scrollLeft = _carouselSetWidth;
+          const activeBtn = tabsBar.querySelector('.tab-btn[data-original="true"].active');
+          if (activeBtn) {
+            activeBtn.scrollIntoView({ behavior: 'instant', inline: 'center', block: 'nearest' });
+          }
+        }
+      }, 60);
+    }
+
     function scrollTabs(direction) {
       const tabsBar = document.getElementById('tabs-bar');
       if (!tabsBar) return;
-      const scrollStep = 220;
-      const maxScroll = tabsBar.scrollWidth - tabsBar.clientWidth;
-
+      const scrollStep = 200;
       if (direction === 1) {
-        if (tabsBar.scrollLeft >= maxScroll - 12) {
-          tabsBar.scrollTo({ left: 0, behavior: 'smooth' });
-        } else {
-          tabsBar.scrollBy({ left: scrollStep, behavior: 'smooth' });
-        }
+        tabsBar.scrollBy({ left: scrollStep, behavior: 'smooth' });
       } else if (direction === -1) {
-        if (tabsBar.scrollLeft <= 12) {
-          tabsBar.scrollTo({ left: maxScroll, behavior: 'smooth' });
-        } else {
-          tabsBar.scrollBy({ left: -scrollStep, behavior: 'smooth' });
-        }
+        tabsBar.scrollBy({ left: -scrollStep, behavior: 'smooth' });
       }
     }
 
@@ -1521,14 +1576,10 @@
         currentTab = tab;
       }
 
-      document.getElementById('tab-triage').classList.toggle('active', currentTab === 'triage');
-      const procTabBtn = document.getElementById('tab-procedures');
-      if (procTabBtn) procTabBtn.classList.toggle('active', currentTab === 'procedures-mgmt');
-      document.getElementById('tab-research').classList.toggle('active', currentTab === 'research');
-      const ingestTabBtn = document.getElementById('tab-ingest');
-      if (ingestTabBtn) ingestTabBtn.classList.toggle('active', currentTab === 'ingest');
-      const telemetryTabBtn = document.getElementById('tab-telemetry');
-      if (telemetryTabBtn) telemetryTabBtn.classList.toggle('active', currentTab === 'telemetry');
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        const isMatch = btn.getAttribute('data-tab') === currentTab;
+        btn.classList.toggle('active', isMatch);
+      });
       
       const title = document.getElementById('header-title');
       if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
@@ -1543,9 +1594,18 @@
         loadTelemetryData();
       }
 
-      const activeBtn = document.querySelector('.tab-btn.active');
-      if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
-        activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      const tabsBar = document.getElementById('tabs-bar');
+      if (tabsBar) {
+        const containerRect = tabsBar.getBoundingClientRect();
+        const activeBtns = Array.from(document.querySelectorAll('.tab-btn.active'));
+        const visibleActive = activeBtns.find(btn => {
+          const r = btn.getBoundingClientRect();
+          return r.right > containerRect.left && r.left < containerRect.right;
+        }) || activeBtns[0];
+
+        if (visibleActive && typeof visibleActive.scrollIntoView === 'function') {
+          visibleActive.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
       }
 
       render();
@@ -4585,6 +4645,7 @@
     });
 
     // Init
+    initInfiniteTabsCarousel();
     const params = new URLSearchParams(window.location.search);
     const initialTab = params.get('tab');
     if (initialTab) {
