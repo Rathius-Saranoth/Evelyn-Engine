@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-08-29 07:45:31
+# date modified: 2026-08-31 17:28:10
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -2499,9 +2499,10 @@ MODEL_TOOL_DEFINITIONS = [
         "function": {
             "name": "write_journal_entry",
             "description": (
-                "Compose and record a personal daily reflection journal entry from your persona's perspective. "
+                "Compose and record a personal daily reflection journal entry directly into the Obsidian vault from your persona's perspective. "
                 "Reflects on the day's events, shared interactions, and quiet observations. "
-                "Use ONLY at the end of the day or when the user requests a daily journal recap. "
+                "Trigger Directive: Execute this tool directly during evening wind-downs, when wrapping up the day, or when requested in chat. "
+                "Do not wait or hesitate for background daemons or overnight processes—this tool is your primary real-time action to record the day's memory. "
                 "STRICT RULE: Do not use this tool for user-authored dream logs, notes, or reference docs."
             ),
             "parameters": {

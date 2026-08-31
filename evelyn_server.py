@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-30 16:34:29
+# date modified: 2026-08-31 17:36:20
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1624,6 +1624,12 @@ async def _agentic_stream_loop(
                         }
                         approval_id_or_data = approval_id
                         yield f"data: {json.dumps({'type': 'approval_required', 'approval_id': approval_id, 'tool': fn_name, 'args': fn_args})}\n\n"
+                    elif fn_name == "write_journal_entry":
+                        m_journal_date = re.search(r"Journal Entry (\d{4}-\d{2}-\d{2})\.md", str(result))
+                        target_date_str = m_journal_date.group(1) if m_journal_date else datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+                        tool_entry = f"{fn_name}[{target_date_str}]"
+                        meta_entry["data"] = {"date": target_date_str, "file": f"Journal Entry {target_date_str}.md"}
+                        approval_id_or_data = target_date_str
 
                 tools_used_list.append(tool_entry)
                 tool_metadata_list.append(meta_entry)
@@ -1778,11 +1784,34 @@ async def _process_chat_background(
 
         research_ctx = get_research_context()
         try:
-            from Evelyn.tools.string_utils import inject_envelope_to_turn, stack_envelopes
+            from Evelyn.tools.string_utils import escape_xml_content, inject_envelope_to_turn, stack_envelopes, wrap_xml_envelope
         except ImportError:
-            from string_utils import inject_envelope_to_turn, stack_envelopes
+            from string_utils import escape_xml_content, inject_envelope_to_turn, stack_envelopes, wrap_xml_envelope
 
-        envelope_stack = stack_envelopes(temporal_envelope, research_ctx)
+        # Build daytime ambient stream context if unconsumed daytime impressions exist
+        ambient_stream_ctx = ""
+        try:
+            from Evelyn.tools import memory_db
+            now_local = datetime.now(UTC).astimezone()
+            today_str = now_local.strftime("%Y-%m-%d")
+            unconsumed = memory_db.get_unconsumed_ambient_impressions(today_str)
+            if unconsumed:
+                is_evening = now_local.hour >= 17 or now_local.hour < 5
+                msg_lower = user_message.lower()
+                is_journal_query = any(k in msg_lower for k in ("journal", "wind down", "wrap up", "day recap", "reflect on today", "bedtime", "goodnight"))
+                if is_evening or is_journal_query:
+                    imp_lines = []
+                    for imp in unconsumed:
+                        imp_type = imp.get("type", "thought")
+                        imp_ts = imp.get("ts")
+                        time_str = datetime.fromtimestamp(imp_ts, tz=now_local.tzinfo).strftime("%H:%M") if imp_ts else ""
+                        imp_content = escape_xml_content(imp.get("content", ""))
+                        imp_lines.append(f'  <impression type="{imp_type}" time="{time_str}">{imp_content}</impression>')
+                    ambient_stream_ctx = wrap_xml_envelope("ambient_stream", body=imp_lines)
+        except (sqlite3.Error, OSError, ValueError, RuntimeError, AttributeError) as e:
+            dlog(f"Ambient stream build error: {e}")
+
+        envelope_stack = stack_envelopes(temporal_envelope, research_ctx, ambient_stream_ctx)
         user_msg_for_model = inject_envelope_to_turn(user_message, envelope_stack)
 
         messages = [{"role": "system", "content": system}, *history]
