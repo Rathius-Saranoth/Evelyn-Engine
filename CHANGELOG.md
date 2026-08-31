@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 18:06:18
+date modified: 2026-08-31 18:17:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.037] - 2026-08-31 — *True Circular Infinite Swipe Carousel & CSS Mask-Image Edge Fading*
+
+### Fixed & Enhanced
+- **True Circular Infinite Swipe Loop (`evelyn_ui/dev.html`)**:
+  - Implemented vanilla JS triple-buffered circular carousel (`initInfiniteTabsCarousel()`) that enables seamless touch/swipe and keyboard scrolling in both directions with instantaneous sub-frame teleportation across boundaries.
+  - Selecting or switching to any tab seamlessly centers the visible item in the viewport with smooth acceleration.
+  - Synchronized badge count selectors across all cloned sets via `data-count="..."`.
+- **CSS `mask-image` Gradient Edge Fading (`evelyn_ui/dev.html`)**:
+  - Replaced fixed gradient overlays with native CSS `mask-image` and `-webkit-mask-image` linear alpha masks on the tabs scroll container, eliminating all corner artifacts, brightness clipping, and background color mismatches with 100% pixel-perfect edge dissolving.
+
+---
 
 ## [000.006.036] - 2026-08-31 — *Infinite Carousel Gradient Double-Chevrons for Workspace Navigation*
 
