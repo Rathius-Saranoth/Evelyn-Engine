@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 17:47:26
+date modified: 2026-08-31 17:56:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.035] - 2026-08-31 — *Responsive Horizontal Tab Scroll & Workspace Header Navigation*
+
+### Fixed & Enhanced
+- **Mobile Responsive Tab Bar & Header Separation (`evelyn_ui/dev.html`)**:
+  - Transformed the workspace tabs into a smooth, horizontal touch-scrolling container (`overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none`) with `scroll-snap-type` alignment and `white-space: nowrap; flex: 0 0 auto` button sizing, preventing tabs from getting squished or crushed on mobile screens.
+  - Added a dedicated section header (`🗂️ Workspaces & Tools`) above the tab bar to visually separate the interactive tool tabs from the Heavy Tasks Monitor panel.
+  - Added programmatic auto-centering (`scrollIntoView`) on active tabs when switching views.
+  - Added responsive `@media (max-width: 600px)` rules for header, panel, and card padding.
+
+---
 
 ## [000.006.034] - 2026-08-31 — *Global Pytest Vault Sandbox & Hermetic Test Isolation Protocol*
 
