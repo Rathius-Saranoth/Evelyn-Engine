@@ -104,7 +104,7 @@
 
       /* Dynamic Ambient Header Island */
       .ambient-header-island {
-        display: none;
+        display: inline-flex;
         align-items: center;
         gap: 6px;
         margin: 0 auto;
@@ -142,6 +142,12 @@
       }
       .ambient-pill:hover {
         background: rgba(255, 255, 255, 0.08);
+      }
+      .ambient-pill.ambient-idle-pill {
+        color: var(--text-dim);
+      }
+      .ambient-pill.ambient-idle-pill:hover {
+        color: var(--text);
       }
       .ambient-pill .pill-snippet {
         overflow: hidden;
@@ -1562,7 +1568,11 @@
 
       <!-- Dynamic Ambient Header Island -->
       <div class="ambient-header-island" id="ambient-header-island">
-        <button class="ambient-pill" id="ambient-thought-pill" onclick="toggleAmbientPopover(event)" title="Click to view daytime thought">
+        <button class="ambient-pill ambient-idle-pill" id="ambient-idle-pill" onclick="toggleAmbientPopover(event)" title="Ambient status">
+          <span id="ambient-idle-icon">☀️</span>
+          <span class="pill-snippet" id="ambient-idle-snippet">Daytime Quiet</span>
+        </button>
+        <button class="ambient-pill" id="ambient-thought-pill" style="display:none;" onclick="toggleAmbientPopover(event)" title="Click to view daytime thought">
           <span>💭</span>
           <span class="pill-snippet" id="ambient-thought-snippet">Thinking...</span>
         </button>
@@ -1584,7 +1594,7 @@
         </div>
         <div id="ambient-popover-content" style="font-size: 13px; line-height: 1.5; color: var(--text); margin-bottom: 12px;"></div>
         <div style="display: flex; justify-content: flex-end; gap: 8px;">
-          <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="dismissAmbientThought()">Dismiss</button>
+          <button class="btn-ghost" id="ambient-dismiss-btn" style="padding: 3px 8px; font-size: 11px;" onclick="dismissAmbientThought()">Dismiss</button>
           <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="closeAmbientPopover()">Close</button>
         </div>
       </div>
@@ -4541,6 +4551,18 @@
       // ---------------------------------------------------------------------------
       let currentAmbientThoughtId = null;
 
+      function getCircadianStatus() {
+        const hour = new Date().getHours();
+        const isDiurnal = hour >= 9 && hour < 21;
+        return {
+          icon: isDiurnal ? "☀️" : "🌙",
+          label: isDiurnal ? "Daytime Quiet" : "Nighttime Rest",
+          description: isDiurnal
+            ? "Evelyn is active and listening. Spontaneous daytime thoughts appear here during pauses in conversation."
+            : "Evelyn is in nocturnal quiet/rest hours. Ambient thought generation pauses until morning.",
+        };
+      }
+
       async function fetchAmbientFeed() {
         if (document.hidden) return;
         try {
@@ -4549,32 +4571,52 @@
           const data = await res.json();
           const items = data.items || [];
           const island = document.getElementById("ambient-header-island");
+          const idlePill = document.getElementById("ambient-idle-pill");
+          const idleIcon = document.getElementById("ambient-idle-icon");
+          const idleSnippet = document.getElementById("ambient-idle-snippet");
           const thoughtPill = document.getElementById("ambient-thought-pill");
           const thoughtSnippet = document.getElementById("ambient-thought-snippet");
           const mediaPill = document.getElementById("ambient-media-pill");
           const mediaBadge = document.getElementById("ambient-media-badge");
+          const dismissBtn = document.getElementById("ambient-dismiss-btn");
+          const popoverContent = document.getElementById("ambient-popover-content");
+          const popoverTime = document.getElementById("ambient-popover-time");
+          const popoverTag = document.getElementById("ambient-popover-tag");
 
           const latestThought = items.find((i) => i.type === "thought" && !i.dismissed);
           const mediaItems = items.filter((i) => i.type === "media_share" && !i.dismissed);
+          const circadian = getCircadianStatus();
+
+          if (island) island.style.display = "inline-flex";
 
           if (latestThought) {
             currentAmbientThoughtId = latestThought.id;
-            if (thoughtSnippet) thoughtSnippet.textContent = latestThought.content;
+            if (idlePill) idlePill.style.display = "none";
             if (thoughtPill) thoughtPill.style.display = "inline-flex";
+            if (thoughtSnippet) thoughtSnippet.textContent = latestThought.content;
 
-            const popoverContent = document.getElementById("ambient-popover-content");
-            const popoverTime = document.getElementById("ambient-popover-time");
-            const popoverTag = document.getElementById("ambient-popover-tag");
             if (popoverContent) popoverContent.textContent = latestThought.content;
             if (popoverTime && latestThought.ts) {
               const d = new Date(latestThought.ts * 1000);
               popoverTime.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             }
-            if (popoverTag && latestThought.metadata && latestThought.metadata.mood) {
-              popoverTag.textContent = `💭 ${latestThought.metadata.mood.toUpperCase()} THOUGHT`;
+            if (popoverTag) {
+              const mood = latestThought.metadata?.mood || "Reflective";
+              popoverTag.textContent = `💭 ${mood.toUpperCase()} THOUGHT`;
             }
+            if (dismissBtn) dismissBtn.style.display = "inline-block";
           } else {
+            currentAmbientThoughtId = null;
             if (thoughtPill) thoughtPill.style.display = "none";
+            if (idlePill) {
+              idlePill.style.display = "inline-flex";
+              if (idleIcon) idleIcon.textContent = circadian.icon;
+              if (idleSnippet) idleSnippet.textContent = circadian.label;
+            }
+            if (popoverContent) popoverContent.textContent = circadian.description;
+            if (popoverTime) popoverTime.textContent = "";
+            if (popoverTag) popoverTag.textContent = `${circadian.icon} AMBIENT STATUS`;
+            if (dismissBtn) dismissBtn.style.display = "none";
           }
 
           if (mediaItems.length > 0) {
@@ -4582,14 +4624,6 @@
             if (mediaBadge) mediaBadge.textContent = mediaItems.length;
           } else {
             if (mediaPill) mediaPill.style.display = "none";
-          }
-
-          if (island) {
-            if (latestThought || mediaItems.length > 0) {
-              island.style.display = "inline-flex";
-            } else {
-              island.style.display = "none";
-            }
           }
         } catch (err) {
           // Ignore transient fetch errors

@@ -404,6 +404,9 @@ AMBIENT_REFLECTIONS_END_HOUR = 21    # 9:00 PM
 # Maximum number of spontaneous thought bubbles allowed per local calendar day.
 AMBIENT_REFLECTIONS_MAX_THOUGHTS_PER_DAY = 3
 
+# Max tokens allocated for generation (provides headroom for model thinking traces).
+AMBIENT_REFLECTIONS_NUM_PREDICT = 1024
+
 # =============================================================================
 # Fact Extraction
 # =============================================================================

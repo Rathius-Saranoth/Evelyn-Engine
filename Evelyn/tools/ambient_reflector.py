@@ -1,6 +1,6 @@
 # ambient_reflector.py
 # date created: 2026-08-30 16:35:00
-# date modified: 2026-08-30 16:34:06
+# date modified: 2026-08-31 16:44:21
 # tags: #ambient, #thought-bubbles, #diurnal, #autonomous, #multi-modal
 
 """
@@ -14,11 +14,12 @@ in evelyn_memory.db (thoughts, media shares, alerts), and feeds the ambient UI s
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, time as dtime
 import logging
 import os
 import sqlite3
 import time
+from datetime import UTC, datetime
+from datetime import time as dtime
 from typing import Any
 
 import evelyn_config as cfg
@@ -229,13 +230,14 @@ async def run_ambient_reflection(
         )
 
         # 4. Inference call
+        num_predict = getattr(cfg, "AMBIENT_REFLECTIONS_NUM_PREDICT", 1024)
         loop = asyncio.get_running_loop()
         raw_response = await loop.run_in_executor(
             None,
             lambda: ollama_client.query_ollama(
                 prompt=user_content,
                 system=system_prompt,
-                options={"temperature": 0.7, "num_predict": 256},
+                options={"temperature": 0.7, "num_predict": num_predict},
                 timeout=120,
                 strip_thinking=True,
             ),

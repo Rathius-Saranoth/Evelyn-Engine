@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-30 16:36:36
+date modified: 2026-08-31 16:44:33
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.032] - 2026-08-31 — *Ambient Reflector Token Budget & Dynamic Circadian Header Island*
+
+### Fixed & Enhanced
+- **Ambient Thinking Token Budget (`Evelyn/tools/ambient_reflector.py`, `evelyn_config.py`)**:
+  - Introduced `AMBIENT_REFLECTIONS_NUM_PREDICT = 1024` to resolve token exhaustion where reasoning models (`gemma4:12b`) exhausted `num_predict: 256` entirely within internal thinking traces, resulting in empty content outputs.
+  - Generous token budget provides ample headroom for autonomous internal deliberation while strictly preserving concise 1–2 sentence reflection outputs.
+- **Dynamic Circadian Header Island & Persistent Idle State (`evelyn_ui/index.html`)**:
+  - Updated `.ambient-header-island` to remain persistently visible in the UI header instead of hiding on 0 active events.
+  - Implemented circadian-aware idle state displaying `☀️ Daytime Quiet` during diurnal hours (09:00–21:00) and `🌙 Nighttime Rest` during nocturnal hours (21:00–09:00).
+  - Added interactive status popover explaining ambient system activity when idle, transitioning smoothly to `💭 <thought>` or media share badges when new impressions arrive.
+
+---
 
 ## [000.006.031] - 2026-08-30 — *Multi-Modal Ambient Feed, Thought Bubbles & Dynamic Header Island*
 
