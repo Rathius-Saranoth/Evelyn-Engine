@@ -107,11 +107,11 @@
     .carousel-arrow {
       position: absolute; top: 0; bottom: 6px; width: 34px; z-index: 10;
       display: flex; align-items: center; justify-content: center;
-      background: transparent; border: none; color: var(--accent);
-      cursor: pointer; opacity: 0.9; transition: all 0.2s ease; padding: 0;
+      background: transparent; border: none; color: var(--warning);
+      cursor: pointer; opacity: 0.95; transition: all 0.2s ease; padding: 0;
     }
     .carousel-arrow:hover {
-      opacity: 1; transform: scale(1.15); color: #fff;
+      opacity: 1; transform: scale(1.18); color: #fde68a;
     }
     .carousel-arrow:active { transform: scale(0.95); }
     .carousel-arrow-left {
@@ -121,7 +121,7 @@
       right: -2px;
     }
     .chevron-svg {
-      width: 17px; height: 17px; filter: drop-shadow(0 0 5px rgba(124, 106, 247, 0.5));
+      width: 17px; height: 17px; filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.65));
       transition: transform 0.2s ease;
     }
     .carousel-arrow-left:hover .chevron-svg { transform: translateX(-2px); }
@@ -1473,9 +1473,10 @@
       const profUpCount = unifiedItems.filter(i => i.item_type === 'profile_update').length;
       const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
 
-      document.querySelectorAll('[data-count="triage"]').forEach(el => el.textContent = unifiedItems.length);
-      document.querySelectorAll('[data-count="research"]').forEach(el => el.textContent = researchTasks.length);
-      document.querySelectorAll('[data-count="procedures"]').forEach(el => el.textContent = allProcedures.length);
+      document.getElementById('count-triage').textContent = unifiedItems.length;
+      document.getElementById('count-res').textContent = researchTasks.length;
+      const allProcEl = document.getElementById('count-all-proc');
+      if (allProcEl) allProcEl.textContent = allProcedures.length;
 
       const filterExt = document.getElementById('count-filter-ext');
       if (filterExt) filterExt.textContent = extCount;
@@ -1487,81 +1488,24 @@
       if (filterProc) filterProc.textContent = procCount;
     }
 
-    let _carouselSetWidth = 0;
-    let _carouselInitDone = false;
-
-    function initInfiniteTabsCarousel() {
-      const tabsBar = document.getElementById('tabs-bar');
-      if (!tabsBar || _carouselInitDone) return;
-
-      const originalButtons = Array.from(tabsBar.querySelectorAll('.tab-btn:not(.tab-clone)'));
-      if (originalButtons.length === 0) return;
-
-      originalButtons.forEach(btn => btn.setAttribute('data-original', 'true'));
-
-      const prefixClones = originalButtons.map(btn => {
-        const clone = btn.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.classList.add('tab-clone');
-        clone.removeAttribute('data-original');
-        clone.onclick = btn.onclick;
-        return clone;
-      });
-
-      const suffixClones = originalButtons.map(btn => {
-        const clone = btn.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.classList.add('tab-clone');
-        clone.removeAttribute('data-original');
-        clone.onclick = btn.onclick;
-        return clone;
-      });
-
-      prefixClones.forEach(clone => tabsBar.insertBefore(clone, tabsBar.firstChild));
-      suffixClones.forEach(clone => tabsBar.appendChild(clone));
-
-      _carouselInitDone = true;
-
-      function measureSetWidth() {
-        _carouselSetWidth = originalButtons.reduce((acc, btn) => acc + btn.offsetWidth + 8, 0);
-      }
-      measureSetWidth();
-
-      let isJumping = false;
-      tabsBar.addEventListener('scroll', () => {
-        if (isJumping || _carouselSetWidth <= 0) return;
-
-        if (tabsBar.scrollLeft <= 15) {
-          isJumping = true;
-          tabsBar.scrollLeft += _carouselSetWidth;
-          requestAnimationFrame(() => { isJumping = false; });
-        } else if (tabsBar.scrollLeft >= _carouselSetWidth * 2 - 15) {
-          isJumping = true;
-          tabsBar.scrollLeft -= _carouselSetWidth;
-          requestAnimationFrame(() => { isJumping = false; });
-        }
-      });
-
-      setTimeout(() => {
-        measureSetWidth();
-        if (_carouselSetWidth > 0) {
-          tabsBar.scrollLeft = _carouselSetWidth;
-          const activeBtn = tabsBar.querySelector('.tab-btn[data-original="true"].active');
-          if (activeBtn) {
-            activeBtn.scrollIntoView({ behavior: 'instant', inline: 'center', block: 'nearest' });
-          }
-        }
-      }, 60);
-    }
-
     function scrollTabs(direction) {
       const tabsBar = document.getElementById('tabs-bar');
       if (!tabsBar) return;
       const scrollStep = 200;
+      const maxScroll = tabsBar.scrollWidth - tabsBar.clientWidth;
+
       if (direction === 1) {
-        tabsBar.scrollBy({ left: scrollStep, behavior: 'smooth' });
+        if (tabsBar.scrollLeft >= maxScroll - 15) {
+          tabsBar.scrollTo({ left: 0, behavior: 'smooth' });
+        } else {
+          tabsBar.scrollBy({ left: scrollStep, behavior: 'smooth' });
+        }
       } else if (direction === -1) {
-        tabsBar.scrollBy({ left: -scrollStep, behavior: 'smooth' });
+        if (tabsBar.scrollLeft <= 15) {
+          tabsBar.scrollTo({ left: maxScroll, behavior: 'smooth' });
+        } else {
+          tabsBar.scrollBy({ left: -scrollStep, behavior: 'smooth' });
+        }
       }
     }
 
@@ -1577,10 +1521,10 @@
       }
 
       document.querySelectorAll('.tab-btn').forEach(btn => {
-        const isMatch = btn.getAttribute('data-tab') === currentTab;
+        const isMatch = btn.getAttribute('data-tab') === currentTab || btn.id === `tab-${currentTab}`;
         btn.classList.toggle('active', isMatch);
       });
-      
+
       const title = document.getElementById('header-title');
       if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
       else if (currentTab === 'procedures-mgmt') {
@@ -1594,18 +1538,9 @@
         loadTelemetryData();
       }
 
-      const tabsBar = document.getElementById('tabs-bar');
-      if (tabsBar) {
-        const containerRect = tabsBar.getBoundingClientRect();
-        const activeBtns = Array.from(document.querySelectorAll('.tab-btn.active'));
-        const visibleActive = activeBtns.find(btn => {
-          const r = btn.getBoundingClientRect();
-          return r.right > containerRect.left && r.left < containerRect.right;
-        }) || activeBtns[0];
-
-        if (visibleActive && typeof visibleActive.scrollIntoView === 'function') {
-          visibleActive.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
+      const activeBtn = document.querySelector('.tab-btn.active');
+      if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+        activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       }
 
       render();
@@ -4645,7 +4580,6 @@
     });
 
     // Init
-    initInfiniteTabsCarousel();
     const params = new URLSearchParams(window.location.search);
     const initialTab = params.get('tab');
     if (initialTab) {

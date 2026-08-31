@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-31 18:17:05
+# date modified: 2026-08-31 18:32:27
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.037"
-__version_info__ = (0, 6, 37)
-__version_name__ = "True Circular Infinite Swipe Carousel & CSS Mask-Image Edge Fading"
+__version__ = "000.006.038"
+__version_info__ = (0, 6, 38)
+__version_name__ = "Responsive Golden Chevron Tab Navigation & CSS Mask Edge Dissolves"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
