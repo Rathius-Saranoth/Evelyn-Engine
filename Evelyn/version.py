@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-30 16:33:17
+# date modified: 2026-08-31 16:44:24
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.031"
-__version_info__ = (0, 6, 31)
-__version_name__ = "Multi-Modal Ambient Feed, Thought Bubbles & Dynamic Header Island"
+__version__ = "000.006.032"
+__version_info__ = (0, 6, 32)
+__version_name__ = "Ambient Reflector Token Budget & Dynamic Circadian Header Island"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
