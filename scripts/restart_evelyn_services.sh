@@ -65,10 +65,11 @@ fi
 # 5. Wait for FastAPI backend initialization & verify status probe
 echo "⏳ Waiting for Evelyn Engine to initialize..."
 HEALTHY=false
+API_KEY=$(grep -oP '(?<=EVELYN_API_KEY=)[^\"]+' /etc/systemd/system/evelyn.service 2>/dev/null || echo "${EVELYN_API_KEY:-}")
 for i in {1..12}; do
     sleep 1
-    # Check if port 7860 is listening and endpoint responds
-    if curl -sk https://127.0.0.1:7860/status >/dev/null 2>&1 || curl -s http://127.0.0.1:7860/status >/dev/null 2>&1; then
+    # Check if port 7860 is listening and endpoint responds with 200 OK
+    if curl -sk -H "X-Evelyn-Key: ${API_KEY}" https://127.0.0.1:7860/status | grep -q '"status":"ok"'; then
         HEALTHY=true
         break
     fi
