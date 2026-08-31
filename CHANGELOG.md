@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 17:56:21
+date modified: 2026-08-31 18:06:18
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,16 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.036] - 2026-08-31 — *Infinite Carousel Gradient Double-Chevrons for Workspace Navigation*
+
+### Fixed & Enhanced
+- **Gradient Double-Chevron Carousel Navigation (`evelyn_ui/dev.html`)**:
+  - Implemented left and right edge gradient overlay buttons featuring horizontal double-chevrons with graduated opacity (`opacity: 0.45` trailing, solid leading).
+  - Integrated infinite carousel navigation (`scrollTabs(direction)`) that smoothly scrolls or automatically wraps around to the beginning/end when clicking past boundaries.
+  - Added subtle glowing drop-shadows and hover translations on chevrons for enhanced visual PKM affordance.
+
+---
 
 ## [000.006.035] - 2026-08-31 — *Responsive Horizontal Tab Scroll & Workspace Header Navigation*
 

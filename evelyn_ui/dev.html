@@ -101,10 +101,38 @@
     .tabs-scroll-hint {
       display: none; font-size: 11px; color: var(--text-dim); opacity: 0.7;
     }
+    .tabs-carousel-wrapper {
+      position: relative; display: flex; align-items: center; width: 100%;
+    }
+    .carousel-arrow {
+      position: absolute; top: 0; bottom: 6px; width: 34px; z-index: 5;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; border: none; color: var(--accent);
+      cursor: pointer; opacity: 0.85; transition: all 0.25s ease; padding: 0;
+    }
+    .carousel-arrow:hover {
+      opacity: 1; transform: scale(1.1); color: #fff;
+    }
+    .carousel-arrow:active { transform: scale(0.95); }
+    .carousel-arrow-left {
+      left: 0; background: linear-gradient(to right, var(--bg) 65%, transparent);
+      border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+    }
+    .carousel-arrow-right {
+      right: 0; background: linear-gradient(to left, var(--bg) 65%, transparent);
+      border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+    }
+    .chevron-svg {
+      width: 16px; height: 16px; filter: drop-shadow(0 0 4px rgba(124, 106, 247, 0.4));
+      transition: transform 0.2s ease;
+    }
+    .carousel-arrow-left:hover .chevron-svg { transform: translateX(-2px); }
+    .carousel-arrow-right:hover .chevron-svg { transform: translateX(2px); }
+
     .tabs {
-      display: flex; gap: 8px; padding: 2px 2px 6px; background: transparent;
+      display: flex; gap: 8px; padding: 2px 30px 6px; background: transparent;
       overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch;
-      scrollbar-width: none; scroll-snap-type: x proximity;
+      scrollbar-width: none; scroll-snap-type: x proximity; width: 100%;
     }
     .tabs::-webkit-scrollbar { display: none; }
     .tab-btn {
@@ -330,12 +358,28 @@
       <div class="tabs-title">🗂️ Workspaces & Tools</div>
       <div class="tabs-scroll-hint">← Swipe to explore →</div>
     </div>
-    <div class="tabs" id="tabs-bar">
-      <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
-      <button class="tab-btn" id="tab-procedures" onclick="switchTab('procedures-mgmt')">⚙️ Procedures (<span id="count-all-proc">0</span>)</button>
-      <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
-      <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
-      <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
+    <div class="tabs-carousel-wrapper">
+      <button class="carousel-arrow carousel-arrow-left" id="carousel-prev-btn" onclick="scrollTabs(-1)" title="Previous workspace" aria-label="Previous workspace">
+        <svg class="chevron-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 17l-5-5 5-5" opacity="0.45"/>
+          <path d="M18 17l-5-5 5-5"/>
+        </svg>
+      </button>
+
+      <div class="tabs" id="tabs-bar">
+        <button class="tab-btn active" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span id="count-triage">0</span>)</button>
+        <button class="tab-btn" id="tab-procedures" onclick="switchTab('procedures-mgmt')">⚙️ Procedures (<span id="count-all-proc">0</span>)</button>
+        <button class="tab-btn" id="tab-research" onclick="switchTab('research')">Deep Research (<span id="count-res">0</span>)</button>
+        <button class="tab-btn" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
+        <button class="tab-btn" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
+      </div>
+
+      <button class="carousel-arrow carousel-arrow-right" id="carousel-next-btn" onclick="scrollTabs(1)" title="Next workspace" aria-label="Next workspace">
+        <svg class="chevron-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 17l5-5-5-5" opacity="0.45"/>
+          <path d="M13 17l5-5-5-5"/>
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -1443,6 +1487,27 @@
       if (filterProfUp) filterProfUp.textContent = profUpCount;
       const filterProc = document.getElementById('count-filter-proc');
       if (filterProc) filterProc.textContent = procCount;
+    }
+
+    function scrollTabs(direction) {
+      const tabsBar = document.getElementById('tabs-bar');
+      if (!tabsBar) return;
+      const scrollStep = 220;
+      const maxScroll = tabsBar.scrollWidth - tabsBar.clientWidth;
+
+      if (direction === 1) {
+        if (tabsBar.scrollLeft >= maxScroll - 12) {
+          tabsBar.scrollTo({ left: 0, behavior: 'smooth' });
+        } else {
+          tabsBar.scrollBy({ left: scrollStep, behavior: 'smooth' });
+        }
+      } else if (direction === -1) {
+        if (tabsBar.scrollLeft <= 12) {
+          tabsBar.scrollTo({ left: maxScroll, behavior: 'smooth' });
+        } else {
+          tabsBar.scrollBy({ left: -scrollStep, behavior: 'smooth' });
+        }
+      }
     }
 
     function switchTab(tab) {
