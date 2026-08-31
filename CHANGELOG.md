@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 17:28:10
+date modified: 2026-08-31 17:47:26
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.034] - 2026-08-31 — *Global Pytest Vault Sandbox & Hermetic Test Isolation Protocol*
+
+### Fixed & Enhanced
+- **Global Pytest Vault Sandbox (`Evelyn/tests/conftest.py`)**:
+  - Implemented an `autouse=True` function-scoped pytest fixture that automatically redirects all vault write paths (`cfg.VAULT_BASE_DIR`, `cfg.JOURNAL_DIR`, `cfg.LISTS_DIR`, `cfg.PENDING_DIR`, etc.) into an ephemeral, hermetic `/tmp/evelyn_test_vault_XXXX/` sandbox for every test.
+  - Guarantees zero vault leakage: test suites and agent verification runs can never write files directly to or pollute the user's production Obsidian vault.
+- **Hermetic Test Isolation Protocol (`AGENTS.md`)**:
+  - Added strict workspace protocol requiring all test runs, CLI verifications, and mock scripts to execute exclusively inside sandboxed or `:memory:` environments.
+
+---
 
 ## [000.006.033] - 2026-08-31 — *Unified Journal Pipeline & Single Source of Truth Architecture*
 

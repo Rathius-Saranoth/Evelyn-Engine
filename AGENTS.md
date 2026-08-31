@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-30 14:59:38
+date modified: 2026-08-31 17:47:04
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -25,6 +25,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   ```
 - **No Ad-Hoc Inline Scripts**: Do not write unvalidated inline `python3 -c "import sqlite3..."` shell commands to guess column names or print unbounded stdout dumps. Check table schemas via `describe_table` or `.schema` before querying.
 - **Data Hygiene & Test Cleanup**: Dummy test records, mock entries, or test proposals created during verification must be purged immediately from production databases (`evelyn_chat.db`, `evelyn_memory.db`, `evelyn_vault.db`) once testing is complete.
+- **Hermetic Test Isolation & Sandbox Protocol**: All test executions (pytest, unit tests, mock verifications) must run inside hermetic sandboxes (`Evelyn/tests/conftest.py`, `tempfile.TemporaryDirectory()`, in-memory `:memory:` databases, or mock targets). Tests and verification scripts are strictly forbidden from writing files directly to or modifying production Obsidian vault paths (`~/obsidian_vault`), production databases (`data/evelyn_*.db`), or active ChromaDB collections.
 - **Databases Map**:
   - `chat`: `/home/rathius/evelyn/data/evelyn_chat.db`
   - `memory`: `/home/rathius/evelyn/data/evelyn_memory.db`
