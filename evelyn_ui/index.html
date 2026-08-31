@@ -2436,6 +2436,14 @@
             }
             badge.className = "write-badge";
             badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
+          } else if (t.name === "write_journal_entry" && (!t.data || (!t.data.startsWith("write_") && !t.data.startsWith("cmd_")))) {
+            const entryDate = t.data || new Date().toISOString().slice(0, 10);
+            badge = document.createElement("button");
+            badge.className = "write-badge";
+            badge.style.cursor = "pointer";
+            badge.title = "Click to preview journal entry";
+            badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
+            badge.onclick = () => openModal("journal", `Journal Entry ${entryDate}.md`);
           } else if (t.name === "run_command" || t.name === "write_file" || (t.name === "write_journal_entry" && t.data && (t.data.startsWith("write_") || t.data.startsWith("cmd_")))) {
             if (!t.data) continue;
             const statusItem = approvalStatuses[t.data];

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-08-31 16:44:24
+# date modified: 2026-08-31 17:28:10
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.032"
-__version_info__ = (0, 6, 32)
-__version_name__ = "Ambient Reflector Token Budget & Dynamic Circadian Header Island"
+__version__ = "000.006.033"
+__version_info__ = (0, 6, 33)
+__version_name__ = "Unified Journal Pipeline & Single Source of Truth Architecture"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

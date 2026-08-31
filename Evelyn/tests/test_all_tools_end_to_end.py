@@ -1,7 +1,7 @@
 # test_all_tools_end_to_end.py
 # date created: 2026-08-19 20:26:51
-# date modified: 2026-08-19 20:26:51
-# tags:
+# date modified: 2026-08-31 17:36:34
+# tags: 
 # Comprehensive Unit and End-to-End Test Suite for Evelyn Tools
 
 import os
@@ -167,17 +167,33 @@ class TestAllToolsEndToEnd(unittest.TestCase):
                 if orig_lists_dir:
                     cfg.LISTS_DIR = orig_lists_dir
 
-    def test_16_write_journal_entry_unified_staging(self):
-        """Test write_journal_entry routes through unified terminal_agent staging."""
-        res = evelyn_tools.write_journal_entry(
-            mood="Reflective",
-            vibe_check="Testing unified staging pipeline.",
-            narrative="Verified journal writes stage without creating temp files.",
-            message_in_a_bottle="Keep files clean.",
-            tags="staging, test"
-        )
-        self.assertIn("Approval ID: write_", res)
-        self.assertIn("Journal Entry", res)
+    def test_16_write_journal_entry_direct_write_and_staging(self):
+        """Test write_journal_entry supports both direct write and staging modes."""
+        orig_direct = getattr(cfg, "JOURNAL_DIRECT_WRITE", True)
+        try:
+            # 1. Direct write mode (default)
+            cfg.JOURNAL_DIRECT_WRITE = True
+            res_direct = evelyn_tools.write_journal_entry(
+                mood="Reflective",
+                vibe_check="Testing direct write pipeline.",
+                narrative="Verified journal writes directly to vault.",
+                message_in_a_bottle="Keep files clean.",
+                tags="direct, test"
+            )
+            self.assertTrue("successfully" in res_direct or "Journal Entry" in res_direct)
+
+            # 2. Staging mode
+            cfg.JOURNAL_DIRECT_WRITE = False
+            res_staged = evelyn_tools.write_journal_entry(
+                mood="Reflective",
+                vibe_check="Testing staging pipeline.",
+                narrative="Verified journal staging.",
+                message_in_a_bottle="Keep files clean.",
+                tags="staging, test"
+            )
+            self.assertIn("Approval ID: write_", res_staged)
+        finally:
+            cfg.JOURNAL_DIRECT_WRITE = orig_direct
 
     def test_17_load_recent_messages_tool_context(self):
         """Test that load_recent_messages injects [Tools Executed: ...] for assistant turns."""

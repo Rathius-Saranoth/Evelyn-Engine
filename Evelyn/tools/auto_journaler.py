@@ -1,6 +1,6 @@
 # auto_journaler.py
 # date created: 2026-08-30 15:45:00
-# date modified: 2026-08-30 16:34:47
+# date modified: 2026-08-31 17:28:10
 # tags: #journal, #autonomous, #daemon, #map-reduce, #compaction, #nightly
 
 """
@@ -24,7 +24,8 @@ import os
 import sqlite3
 import sys
 import time
-from datetime import UTC, date, datetime, time as dtime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
 from typing import Any
 
 # Anchoring paths
@@ -36,7 +37,7 @@ for _d in (ROOT_DIR, TOOLS_DIR):
 
 import evelyn_config as cfg
 import evelyn_server
-from Evelyn.tools import journal_manager, memory_db, ollama_client, task_manager
+from Evelyn.tools import journal_manager, ollama_client, task_manager
 from Evelyn.tools.evelyn_tools import MODEL_TOOL_DEFINITIONS
 from Evelyn.tools.string_utils import escape_xml_content, wrap_xml_envelope
 
@@ -218,7 +219,7 @@ async def compact_history_map_reduce(
             )
             if digest.strip():
                 block_digests.append(f"### Activity Digest (Part {b_idx})\n{digest.strip()}")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"[AUTO-JOURNAL] Warning: Compaction block {b_idx} extraction failed: {e}")
 
     compiled_digest_text = "\n\n".join(block_digests)
@@ -339,28 +340,14 @@ async def run_auto_journaling(
             raw_messages, chunk_size=chunk_size, safe_budget=safe_budget
         )
 
-        # 4. System prompt + Procedure retrieval
+        # 4. System prompt + Ambient Stream
         from Evelyn.tools import memory_db
 
         task_manager.set_running(TASK_NAME, phase="synthesis")
         system = evelyn_server.load_system_prompt()
-        proc = memory_db.get_procedure(656)
-        retrieval_blocks = []
-        if proc:
-            proc_children = [
-                f"<steps>\n{escape_xml_content(proc['steps'])}\n</steps>",
-                f"<suggested_tools>{escape_xml_content(proc.get('suggested_tools', 'write_journal_entry'))}</suggested_tools>",
-                f"<pitfalls>{escape_xml_content(proc.get('pitfalls', ''))}</pitfalls>",
-                f"<verification>{escape_xml_content(proc.get('verification', ''))}</verification>",
-            ]
-            protocol_xml = wrap_xml_envelope(
-                "protocol", body=proc_children, trigger_pattern=proc.get("trigger_pattern", "")
-            )
-            retrieval_blocks.append(protocol_xml)
 
         # Query daytime ambient impressions for cross-layer synthesis
         unconsumed_impressions = memory_db.get_unconsumed_ambient_impressions(target_date_str)
-        consumed_ids = [imp["id"] for imp in unconsumed_impressions]
         if unconsumed_impressions:
             impressions_lines = []
             for imp in unconsumed_impressions:
@@ -370,10 +357,7 @@ async def run_auto_journaling(
                 imp_content = escape_xml_content(imp.get("content", ""))
                 impressions_lines.append(f'  <impression type="{imp_type}" time="{time_str}">{imp_content}</impression>')
             ambient_stream_xml = wrap_xml_envelope("ambient_stream", body=impressions_lines)
-            retrieval_blocks.append(ambient_stream_xml)
-
-        if retrieval_blocks:
-            context_retrieval_xml = "<context_retrieval>\n" + "\n\n".join(retrieval_blocks) + "\n</context_retrieval>"
+            context_retrieval_xml = f"<context_retrieval>\n{ambient_stream_xml}\n</context_retrieval>"
             system += f"\n\n{context_retrieval_xml}"
 
         prompt_messages = [
@@ -433,7 +417,7 @@ async def run_auto_journaling(
             else tags_arg
         )
 
-        # 6. Save via journal_manager
+        # 6. Save via journal_manager (automatically handles ambient consumption upon disk write)
         if dry_run:
             result_str = f"[Dry-run success] Generated entry for {target_date_str} (Mood: {mood})"
         else:
@@ -443,10 +427,8 @@ async def run_auto_journaling(
                 message_in_a_bottle=message_in_a_bottle,
                 mood=mood,
                 tags=tags,
+                date_str=target_date_str,
             )
-            # Mark ambient impressions as consumed strictly after confirmed disk write
-            if consumed_ids:
-                memory_db.mark_ambient_impressions_consumed(consumed_ids)
 
         duration = time.time() - start_time
         summary_txt = f"Auto-journaled {target_date_str} (Mood: {mood}) in {duration:.1f}s"

@@ -1,6 +1,6 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-08-29 07:53:50
+# date modified: 2026-08-31 17:36:20
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
@@ -23,6 +23,7 @@ This module is imported and hot-reloaded by ``evelyn_tools.py``.
 import datetime
 import importlib
 import os
+import sqlite3
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
 from Evelyn.tools.frontmatter_utils import render_frontmatter
@@ -102,11 +103,12 @@ def create_journal_entry(
     message_in_a_bottle: str,
     mood: str,
     tags: list | None = None,
+    date_str: str | None = None,
 ):
     """
     Writes a journal entry markdown file to the structured Journal Entries archive.
 
-    If a file for today's date already exists in the archive, the new
+    If a file for the target date already exists in the archive, the new
     content is appended as a "Supplemental Entry" section rather than
     overwriting the existing file. This preserves multiple sessions in a
     single day's entry.
@@ -121,20 +123,29 @@ def create_journal_entry(
         mood: Single-word or short mood label (e.g. ``"Reflective"``). Written
             into the YAML frontmatter and Vibe Check section.
         tags: Optional list of tag strings (with or without leading ``#``).
+        date_str: Optional target date string in YYYY-MM-DD format (defaults to current date).
 
     Returns:
         str: Confirmation message stating whether a new entry was created or
         an existing one was appended to.
     """
-    today = datetime.datetime.now(datetime.UTC).astimezone().date()
-    filename = f"Journal Entry {today.strftime('%Y-%m-%d')}.md"
+    if date_str:
+        try:
+            target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC).date()
+        except ValueError:
+            target_date = datetime.datetime.now(datetime.UTC).astimezone().date()
+    else:
+        target_date = datetime.datetime.now(datetime.UTC).astimezone().date()
+
+    target_date_str = target_date.strftime("%Y-%m-%d")
+    filename = f"Journal Entry {target_date_str}.md"
 
     # Determine write target: check existing archive file or create in structured year/month dir
-    existing_filepath = _resolve_journal_filepath(today.strftime("%Y-%m-%d"))
+    existing_filepath = _resolve_journal_filepath(target_date_str)
     if existing_filepath and os.path.exists(existing_filepath):
         filepath = existing_filepath
     else:
-        target_dir = _resolve_journal_dir(today)
+        target_dir = _resolve_journal_dir(target_date)
         filepath = os.path.join(target_dir, filename)
 
     if tags is None:
@@ -143,14 +154,14 @@ def create_journal_entry(
     # Strip any '#' from tags for valid YAML
     clean_tags = [t.strip().lstrip("#") for t in tags]
 
-    base_tags = [f"CY-{today.strftime('%Y/%m/%d')}"]
+    base_tags = [f"CY-{target_date.strftime('%Y/%m/%d')}"]
     for t in base_tags:
         if t not in clean_tags:
             clean_tags.append(t)
 
     append_content = f"\n\n---\n\n## Supplemental Entry ({datetime.datetime.now(datetime.UTC).astimezone().strftime('%H:%M')})\n### Vibe Check\n*Mood: {mood}*\n{vibe_check}\n\n### The Narrative\n{narrative}\n\n### Message in a Bottle\n*{message_in_a_bottle}*\n"
 
-    body = f"""# Journal Entry {today.strftime("%Y-%m-%d")}
+    body = f"""# Journal Entry {target_date_str}
 
 ## Vibe Check
 *Mood: {mood}*
@@ -164,11 +175,38 @@ def create_journal_entry(
 """
     file_content = render_frontmatter({"mood": mood, "tags": clean_tags}, body=body)
 
-    from Evelyn.tools import terminal_agent
-    if os.path.exists(filepath):
-        return terminal_agent.write_file(filepath, append_content, mode="append")
+    from Evelyn.tools import memory_db
+    direct_write = getattr(cfg, "JOURNAL_DIRECT_WRITE", True)
+
+    if direct_write:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        if os.path.exists(filepath):
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(append_content)
+            res = f"Supplemental entry successfully appended to {filepath}"
+        else:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(file_content)
+            res = f"Journal entry successfully written to {filepath}"
     else:
-        return terminal_agent.write_file(filepath, file_content, mode="overwrite")
+        from Evelyn.tools import terminal_agent
+        if os.path.exists(filepath):
+            res = terminal_agent.write_file(filepath, append_content, mode="append")
+        else:
+            res = terminal_agent.write_file(filepath, file_content, mode="overwrite")
+
+    # Automatically mark unconsumed daytime ambient impressions as consumed for target date
+    try:
+        unconsumed = memory_db.get_unconsumed_ambient_impressions(target_date_str)
+        if unconsumed:
+            consumed_ids = [imp["id"] for imp in unconsumed]
+            memory_db.mark_ambient_impressions_consumed(consumed_ids)
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
+        logger_name = "evelyn.journal_manager"
+        import logging
+        logging.getLogger(logger_name).warning(f"Error marking ambient impressions consumed: {e}")
+
+    return res
 
 
 def read_journal_entry(date_str: str | None = None) -> str:

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 16:44:33
+date modified: 2026-08-31 17:28:10
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.033] - 2026-08-31 — *Unified Journal Pipeline & Single Source of Truth Architecture*
+
+### Fixed & Enhanced
+- **Single Source of Truth Tool Architecture (`Evelyn/tools/evelyn_tools.py`, `Evelyn/tools/journal_manager.py`)**:
+  - Sharpened `MODEL_TOOL_DEFINITIONS["write_journal_entry"]` with an explicit anti-hesitation trigger directive instructing the model to execute the tool immediately during evening wind-downs without deferring to background daemons.
+  - Unified ambient impression consumption inside `journal_manager.create_journal_entry()`: every journal write (chat turn, background daemon, CLI) automatically marks all daytime impressions (`daily_ambient_impressions`) as consumed upon confirmed vault write.
+- **Autonomous Daemon Decoupling (`Evelyn/tools/auto_journaler.py`)**:
+  - Stripped all hardcoded/separate procedure lookups and `<protocol>` envelopes; `write_journal_entry` tool definition serves as the canonical single source of truth for reflection schema and formatting.
+- **Evening Chat `<ambient_stream>` Ingestion (`evelyn_server.py`)**:
+  - Automatically queries unconsumed daytime impressions during evening chat turns ($\ge 17:00$) and injects `<ambient_stream>` XML into prompt telemetry, giving the persona full real-time awareness of spontaneous daytime thoughts during live evening reflections.
+
+---
 
 ## [000.006.032] - 2026-08-31 — *Ambient Reflector Token Budget & Dynamic Circadian Header Island*
 
