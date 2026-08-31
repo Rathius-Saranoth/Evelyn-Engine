@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 18:17:12
+date modified: 2026-08-31 18:32:35
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.038] - 2026-08-31 — *Responsive Golden Chevron Tab Navigation & CSS Mask Edge Dissolves*
+
+### Fixed & Enhanced
+- **Clean Single-DOM Tab Navigation Architecture (`evelyn_ui/dev.html`)**:
+  - Reverted artificial DOM element cloning in favor of a clean, deterministic single-DOM sequence that eliminates duplicate active buttons and phantom visual pops during momentum touch scrolling.
+  - Retained rock-solid smooth tab auto-centering (`scrollIntoView`) on tap and view switch.
+- **Golden Activity Chevrons & Edge Dissolves (`evelyn_ui/dev.html`)**:
+  - Styled left and right double-chevron controls in glowing activity amber (`var(--warning)` `#fbbf24`) with smooth wrapping and boundary loop navigation.
+  - Implemented pixel-perfect native CSS `mask-image` linear fades dissolving edges to 0% opacity with zero corner artifacts.
+
+---
 
 ## [000.006.037] - 2026-08-31 — *True Circular Infinite Swipe Carousel & CSS Mask-Image Edge Fading*
 
