@@ -2,7 +2,7 @@
 description: How to cleanly and safely restart Evelyn's core services, flush WAL logs, and verify engine readiness
 title: restart-services.md
 date created: 2026-08-27 12:22:00
-date modified: 2026-08-27 12:22:00
+date modified: 2026-08-31 16:53:57
 tags: [services, restart, reboot, ecosystem, guide, workflow, evelyn]
 ---
 
@@ -48,7 +48,9 @@ Use `evelyn-sqlite` MCP tool: `get_server_status`
 
 ### Via CLI:
 ```bash
-curl -sk https://127.0.0.1:7860/status
+# Extract configured service key or use environment variable
+API_KEY=$(grep -oP '(?<=EVELYN_API_KEY=)[^\"]+' /etc/systemd/system/evelyn.service 2>/dev/null || echo "${EVELYN_API_KEY:-}")
+curl -sk -H "X-Evelyn-Key: ${API_KEY}" https://127.0.0.1:7860/status
 ```
 
 Expected output: `{"status": "ok", "engine_version": "...", "model": "gemma4:12b", ...}`
