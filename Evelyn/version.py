@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-01 17:41:09
+# date modified: 2026-09-01 18:15:31
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.041"
-__version_info__ = (0, 6, 41)
-__version_name__ = "Universal Persistent Inactivity Architecture & Task Manager Idle Integration"
+__version__ = "000.006.042"
+__version_info__ = (0, 6, 42)
+__version_name__ = "System Directives Canonical Schema & Persona Separation Standardization"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-08-30 11:55:36
+# date modified: 2026-09-01 18:14:45
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -76,15 +76,10 @@ DOCUMENT_CATEGORIES = {
         f"Cat16-{cfg.SUBJECT_CODE_USER}",
     ],
     cfg.PERSONA_FILE_DIRECTIVES: [
-        f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat04-{cfg.SUBJECT_CODE_USER}",
-        f"Cat06-{cfg.SUBJECT_CODE_USER}",
         f"Cat09-{cfg.SUBJECT_CODE_USER}",
-        f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat12-{cfg.SUBJECT_CODE_USER}",
         f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
-        f"Cat15-{cfg.SUBJECT_CODE_ASSISTANT}",
-        f"Cat15-{cfg.SUBJECT_CODE_USER}",
         f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat16-{cfg.SUBJECT_CODE_USER}",
     ],
@@ -109,7 +104,13 @@ CANONICAL_DOCUMENT_SECTIONS: dict[str, list[str]] = {
         "## Personal Context",
     ],
     cfg.PERSONA_FILE_DIRECTIVES: [
-        "## Directives",
+        "## Conversation & Formatting",
+        "## Authenticity & Operational Transparency",
+        "## Operational Guidelines",
+        "## Tool & Action Directives",
+        "## Engineering & Code Quality",
+        "## Routines & Rituals",
+        "## Anti-Drafting Constraint",
     ],
 }
 
@@ -188,31 +189,26 @@ DOCUMENT_THEMES = {
     ],
     cfg.PERSONA_FILE_DIRECTIVES: [
         {
-            "theme_name": "Conversation, Formatting & Persona Directives",
-            "section_header": "## Directives",
+            "theme_name": "Conversation Cadence & Operational Transparency",
+            "section_header": "## Conversation & Formatting / ## Authenticity & Operational Transparency",
             "categories": [
-                f"Cat04-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat04-{cfg.SUBJECT_CODE_USER}",
-                f"Cat10-{cfg.SUBJECT_CODE_ASSISTANT}",
+                f"Cat09-{cfg.SUBJECT_CODE_USER}",
                 f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
-                f"Cat15-{cfg.SUBJECT_CODE_ASSISTANT}",
-                f"Cat15-{cfg.SUBJECT_CODE_USER}",
             ],
         },
         {
-            "theme_name": "Tool & Operational Execution Guidelines",
-            "section_header": "## Directives",
+            "theme_name": "Tool Execution, Data Integrity & Engineering Guidelines",
+            "section_header": "## Operational Guidelines / ## Tool & Action Directives / ## Engineering & Code Quality",
             "categories": [
-                f"Cat09-{cfg.SUBJECT_CODE_USER}",
                 f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
             ],
         },
         {
-            "theme_name": "Routines, Rituals & Strategic Boundaries",
-            "section_header": "## Directives",
+            "theme_name": "Routines, Rituals & Behavioral Boundaries",
+            "section_header": "## Routines & Rituals / ## Anti-Drafting Constraint",
             "categories": [
-                f"Cat06-{cfg.SUBJECT_CODE_USER}",
                 f"Cat12-{cfg.SUBJECT_CODE_USER}",
                 f"Cat16-{cfg.SUBJECT_CODE_USER}",
             ],
@@ -246,7 +242,7 @@ DOCUMENT_RULES = {
         ),
     },
     cfg.PERSONA_FILE_DIRECTIVES: {
-        "description": "Behavioral constraints, routines, and instructions for the AI.",
+        "description": "Behavioral constraints, routines, operational rules, and execution directives for the AI.",
         "perspective": "Second-person (using 'You', 'your', 'yours') addressing the AI.",
         "guidelines": (
             "- Direct the AI's behavior in the second person.\n"
@@ -445,8 +441,10 @@ def validate_document_structure(
     for h in canonical_headers:
         content = candidate_sections.get(h, "")
         word_count = len(content.split())
-        if word_count < min_section_words:
-            hollow_headers.append(f"{h} ({word_count}w < {min_section_words}w)")
+        # Anti-Drafting Constraint is a concise 1-sentence directive (typically 10-15 words)
+        min_words = 5 if "Anti-Drafting" in h else min_section_words
+        if word_count < min_words:
+            hollow_headers.append(f"{h} ({word_count}w < {min_words}w)")
 
     if hollow_headers:
         return False, f"Section topic density below threshold: {hollow_headers}", hollow_headers
@@ -488,7 +486,8 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
 
     for h in canonical_headers:
         cand_content = cand_sections.get(h, "")
-        if cand_content and len(cand_content.split()) >= 15:
+        min_words = 5 if "Anti-Drafting" in h else 15
+        if cand_content and len(cand_content.split()) >= min_words:
             reconstructed_blocks.append(f"{h}\n{cand_content}")
         else:
             orig_content = orig_sections.get(h, "")

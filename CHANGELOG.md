@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 17:41:16
+date modified: 2026-09-01 18:15:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,21 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.042] - 2026-09-01 — *System Directives Canonical Schema & Persona Separation Standardization*
+
+### Fixed & Enhanced
+- **System Directives Canonical Structure (`Evelyn/persona/System_Directives.md`)**:
+  - Standardized `System_Directives.md` to use canonical Level 2 (`## `) markdown headings (`## Conversation & Formatting`, `## Authenticity & Operational Transparency`, `## Operational Guidelines`, `## Tool & Action Directives`, `## Engineering & Code Quality`, `## Routines & Rituals`, `## Anti-Drafting Constraint`).
+  - Pruned redundant narrative persona lore (*"fae of dreams"*, *"Asymptomptically In Love"*, *"Feral Crafting"*), preserving narrative identity strictly within `Evelyn_Narrative_Persona.md` and focusing directives on operational execution and behavioral constraints.
+- **Profile Evolver Canonical Schema Invariance (`Evelyn/tools/profile_evolver.py`)**:
+  - Updated `CANONICAL_DOCUMENT_SECTIONS` for `System_Directives.md` to protect all 7 Level 2 section headers from deletion or merging during evolution passes.
+  - Refined `DOCUMENT_CATEGORIES` and `DOCUMENT_THEMES` for `System_Directives.md` to strictly ingest operational and constraint categories (`Cat04-U`, `Cat09-U`, `Cat12-U`, `Cat14-A`, `Cat16-A`, `Cat16-U`), preventing persona category bleed.
+  - Updated `validate_document_structure()` and `repair_missing_sections()` to handle short directive constraints (e.g. `## Anti-Drafting Constraint`) without triggering false hollow-section density errors.
+- **Test Invariants Suite (`Evelyn/tests/test_profile_section_invariants.py`)**:
+  - Added unit test coverage verifying `System_Directives.md` structure validation, anti-drafting constraint preservation, and automatic canonical section repair.
+
+---
 
 ## [000.006.041] - 2026-09-01 — *Universal Persistent Inactivity Architecture & Task Manager Idle Integration*
 
