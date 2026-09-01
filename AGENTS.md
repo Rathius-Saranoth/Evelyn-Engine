@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-08-31 17:47:04
+date modified: 2026-09-01 17:41:03
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -69,6 +69,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - `path_utils.py`: Vault relative/absolute conversions with traversal security (`to_vault_relpath`, `to_vault_abspath`), path normalization, and ignore-list matching.
   - `frontmatter_utils.py`: Parsing (`parse_frontmatter`), rendering (`render_frontmatter`), in-place line updating (`update_frontmatter_field`), and file writes (`write_file_with_frontmatter`).
   - `ollama_client.py`: Local Ollama inference gateway (`query_ollama`, `query_ollama_json`, `get_ollama_status`).
+  - `time_manager.py`: Conversational chronology, agenda/gap evaluation, and universal persistent user idle calculation (`get_user_idle_seconds`).
 - **Strict Anti-Duplication Rule**: Writing ad-hoc regex frontmatter parsers, inline `urllib.request` Ollama HTTP callers, duplicate `clean_gist()` / `slugify()` routines, or custom YAML list formatters across engine tools or scripts is strictly forbidden. Always import and reuse canonical functions.
 
 ## 9. In-Flight Context Injection & Structured XML Envelopes

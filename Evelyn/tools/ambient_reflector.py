@@ -1,6 +1,6 @@
 # ambient_reflector.py
 # date created: 2026-08-30 16:35:00
-# date modified: 2026-08-31 16:44:21
+# date modified: 2026-09-01 17:29:50
 # tags: #ambient, #thought-bubbles, #diurnal, #autonomous, #multi-modal
 
 """
@@ -41,8 +41,7 @@ def should_generate_idle_thought(
       2. Circadian diurnal window (`AMBIENT_REFLECTIONS_START_HOUR` to `AMBIENT_REFLECTIONS_END_HOUR` local time).
       3. Conversational silence duration (`idle_seconds >= AMBIENT_REFLECTIONS_MIN_IDLE_SECONDS`).
       4. Daily thought quota (`count < AMBIENT_REFLECTIONS_MAX_THOUGHTS_PER_DAY` on local date).
-      5. Active conversation verification (new user/assistant turns exist in `evelyn_chat.db`
-         since the last generated thought bubble).
+      5. Spacing cooldown check: ensure consecutive thoughts are spaced apart by `min_idle`.
 
     Args:
         now_dt: Optional local datetime object (defaults to current system time).
@@ -66,6 +65,11 @@ def should_generate_idle_thought(
 
     # 2. Conversational inactivity threshold check (e.g. >= 2 hours of quiet)
     min_idle = getattr(cfg, "AMBIENT_REFLECTIONS_MIN_IDLE_SECONDS", 7200)
+    if idle_seconds <= 0.0:
+        chat_db_path = getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_chat.db"))
+        from Evelyn.tools import time_manager
+        idle_seconds = time_manager.get_user_idle_seconds(chat_db_path)
+
     if idle_seconds < min_idle:
         return False, f"Inactivity ({int(idle_seconds)}s) below required threshold ({min_idle}s)"
 
@@ -94,34 +98,13 @@ def should_generate_idle_thought(
     if thought_count >= max_thoughts:
         return False, f"Daily thought limit reached ({thought_count}/{max_thoughts} for {today_str})"
 
-    # 4. Chat history verification — ensure new turns occurred today after last_thought_ts
-    day_start = datetime.combine(now_dt.date(), dtime.min).replace(tzinfo=now_dt.tzinfo).timestamp()
-    query_start_ts = max(day_start, last_thought_ts)
+    # 4. Spacing cooldown check — ensure consecutive thoughts are spaced apart
+    if last_thought_ts > 0:
+        time_since_last_thought = now_dt.timestamp() - last_thought_ts
+        if time_since_last_thought < min_idle:
+            return False, f"Thought cooldown active ({int(time_since_last_thought)}s elapsed since last reflection, required {min_idle}s)"
 
-    chat_db_path = getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_chat.db"))
-    if not os.path.exists(chat_db_path):
-        return False, "Chat database file not found"
-
-    con_chat = sqlite3.connect(chat_db_path)
-    try:
-        chat_row = con_chat.execute(
-            """SELECT COUNT(*) FROM messages
-               WHERE ts > ? AND role IN ('user', 'assistant')
-                 AND content != '[THREAD_BREAK]'
-                 AND content NOT LIKE '[PLACEHOLDER]%'""",
-            (query_start_ts,),
-        ).fetchone()
-        new_turns = chat_row[0] if chat_row else 0
-    except sqlite3.Error as e:
-        logger.warning(f"[AMBIENT-REFLECTOR] Error querying chat messages: {e}")
-        return False, f"Chat database error: {e}"
-    finally:
-        con_chat.close()
-
-    if new_turns < 2:
-        return False, f"Insufficient new conversation turns ({new_turns}) since last reflection"
-
-    return True, f"Eligible for daytime thought reflection ({thought_count}/{max_thoughts} used today, {new_turns} new turns)"
+    return True, f"Eligible for daytime thought reflection ({thought_count}/{max_thoughts} used today)"
 
 
 async def run_ambient_reflection(
@@ -133,7 +116,7 @@ async def run_ambient_reflection(
     Steps:
       1. Register task start in `task_manager`.
       2. Evaluate preemption and gate conditions (unless `force` or `dry_run`).
-      3. Retrieve recent conversation turns from today.
+      3. Retrieve recent conversation turns from today (or recent history).
       4. Query Ollama for a lightweight 1–2 sentence wandering thought.
       5. Strip thinking tags and persist to `daily_ambient_impressions` with `type="thought"`.
       6. Return execution metrics and generated impression payload.
@@ -177,7 +160,7 @@ async def run_ambient_reflection(
 
         task_manager.set_running(TASK_NAME, phase="retrieving_history")
 
-        # 2. Retrieve recent conversation turns from today (up to 15 turns)
+        # 2. Retrieve recent conversation turns (up to 15 turns) for context grounding
         day_start = datetime.combine(now_dt.date(), dtime.min).replace(tzinfo=now_dt.tzinfo).timestamp()
         chat_db_path = getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_chat.db"))
         con = sqlite3.connect(chat_db_path)
@@ -190,17 +173,20 @@ async def run_ambient_reflection(
                ORDER BY id DESC LIMIT 15""",
             (day_start,),
         ).fetchall()
+        if not rows:
+            rows = con.execute(
+                """SELECT role, content FROM messages
+                   WHERE role IN ('user', 'assistant')
+                     AND content != '[THREAD_BREAK]'
+                     AND content NOT LIKE '[PLACEHOLDER]%'
+                   ORDER BY id DESC LIMIT 10""",
+            ).fetchall()
         con.close()
 
-        if not rows:
-            task_manager.clear_running(TASK_NAME, status="idle", summary="No messages found today")
-            return {"status": "skipped", "reason": "No messages found today"}
-
-        # Reverse to chronological order
-        recent_turns = list(reversed(rows))
+        recent_turns = list(reversed(rows)) if rows else []
         history_transcript = "\n".join(
             f"{r['role'].upper()}: {r['content']}" for r in recent_turns
-        )
+        ) if recent_turns else "No recent active turns recorded."
 
         task_manager.set_running(TASK_NAME, phase="generating_thought")
 
@@ -213,20 +199,20 @@ async def run_ambient_reflection(
         system_prompt = (
             f"You are {assistant_name}, an authentic companion.\n"
             f"We are currently taking a pause in our daytime conversation.\n"
-            f"Reflect privately in 1–2 authentic sentences in your defined persona on an interesting technical detail, creative idea, shared moment, or private observation from our conversations earlier today.\n\n"
+            f"Reflect privately in 1–2 authentic sentences in your defined persona on an interesting technical detail, creative idea, shared memory, wandering curiosity, or private observation from our conversations, journal memories, or notes.\n\n"
             f"Guidelines:\n"
             f"- Output strictly your 1–2 sentence private wandering thought.\n"
             f"- Do NOT summarize the whole day or write a timeline recap.\n"
-            f"- Capture a single distinct realization, lingering curiosity, or warm impression.\n"
+            f"- Capture a single distinct realization, lingering curiosity, fond memory, or warm impression.\n"
             f"- Avoid generic wrap-up morals or hollow poetic clichés.\n"
             f"- Use natural, continuous prose."
         )
 
         user_content = (
-            f"<today_conversation_sample>\n"
+            f"<conversation_context_sample>\n"
             f"{history_transcript}\n"
-            f"</today_conversation_sample>\n\n"
-            f"Please share a single spontaneous 1–2 sentence private thought or observation based on our conversation today."
+            f"</conversation_context_sample>\n\n"
+            f"Please share a single spontaneous 1–2 sentence private wandering thought, memory, or observation."
         )
 
         # 4. Inference call

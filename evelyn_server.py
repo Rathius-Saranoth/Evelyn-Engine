@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-08-31 17:36:20
+# date modified: 2026-09-01 17:40:45
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -126,6 +126,19 @@ _last_window_warn_ts: float = 0.0
 _active_research_processes = {}
 _last_research_spawn_ts: float = 0.0  # Layer 2: spawn debounce
 _error_resume_ts: dict = {}  # Layer 3: per-task error cooldown
+
+
+def _get_current_idle_seconds() -> float:
+    """Return elapsed seconds of silence since the last user message in evelyn_chat.db.
+
+    Fallback to in-memory _last_activity_ts if DB query fails.
+    """
+    try:
+        from Evelyn.tools import time_manager
+
+        return time_manager.get_user_idle_seconds()
+    except (ImportError, sqlite3.Error, OSError, ValueError):
+        return max(0.0, time.time() - _last_activity_ts)
 
 # ---------------------------------------------------------------------------
 # In-Memory Stream Buffer & Session Management
@@ -2339,7 +2352,7 @@ async def lifespan(app: FastAPI):
                 continue
 
             # 4. Check if any runnable task is waiting in the idle queue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             item = task_manager.acquire_next_runnable_task(idle_seconds)
             if not item:
                 continue
@@ -2426,7 +2439,7 @@ async def lifespan(app: FastAPI):
             importlib.reload(cfg)
             if not getattr(cfg, "AUTO_JOURNAL_ENABLED", True):
                 continue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             eligible, _ = auto_journaler.should_trigger_auto_journal(idle_seconds=idle_seconds)
             if eligible:
                 task_manager.enqueue_idle_task("auto_journaler")
@@ -2448,7 +2461,7 @@ async def lifespan(app: FastAPI):
             importlib.reload(cfg)
             if not getattr(cfg, "AMBIENT_REFLECTIONS_ENABLED", True):
                 continue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             eligible, _ = ambient_reflector.should_generate_idle_thought(idle_seconds=idle_seconds)
             if eligible:
                 task_manager.enqueue_idle_task("ambient_reflector")
@@ -2468,7 +2481,7 @@ async def lifespan(app: FastAPI):
             importlib.reload(cfg)
             if not cfg.CONSOLIDATION_ENABLED:
                 continue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             if idle_seconds >= cfg.CONSOLIDATION_IDLE_THRESHOLD:
                 task_manager.enqueue_idle_task("consolidator")
 
@@ -2487,7 +2500,7 @@ async def lifespan(app: FastAPI):
             importlib.reload(cfg)
             if not cfg.FACT_EXTRACTION_ENABLED:
                 continue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             if idle_seconds >= cfg.FACT_EXTRACTION_IDLE_THRESHOLD:
                 task_manager.enqueue_idle_task("extractor")
 
@@ -2510,8 +2523,7 @@ async def lifespan(app: FastAPI):
             if not getattr(cfg, "RESEARCH_ENABLED", True):
                 continue
 
-            idle_seconds = time.time() - _last_activity_ts
-
+            idle_seconds = _get_current_idle_seconds()
             # Check research active-hours window. Topic generation, auto-resume,
             # and queue starts are all gated here. An already-executing step is
             # never hard-killed by the window — it runs to its natural step
@@ -2803,7 +2815,7 @@ async def lifespan(app: FastAPI):
         while True:
             await asyncio.sleep(300)  # Check every 5 minutes
             importlib.reload(cfg)
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             if idle_seconds >= 2700 and time.time() - last_enqueued_time >= 7200:
                 task_manager.enqueue_idle_task("refresh_memory")
                 last_enqueued_time = time.time()
@@ -2821,7 +2833,7 @@ async def lifespan(app: FastAPI):
             importlib.reload(cfg)
             if not getattr(cfg, "PROFILE_EVOLUTION_ENABLED", False):
                 continue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             threshold = getattr(cfg, "PROFILE_EVOLUTION_IDLE_THRESHOLD", 3600)
             if idle_seconds >= threshold:
                 task_manager.enqueue_idle_task("profile_evolver")
@@ -2877,7 +2889,7 @@ async def lifespan(app: FastAPI):
             importlib.reload(cfg)
             if not getattr(cfg, "TAG_LIBRARIAN_ENABLED", False):
                 continue
-            idle_seconds = time.time() - _last_activity_ts
+            idle_seconds = _get_current_idle_seconds()
             threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
             if idle_seconds >= threshold:
                 task_manager.enqueue_idle_task("tag_librarian")

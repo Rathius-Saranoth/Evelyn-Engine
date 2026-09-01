@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-08-30 16:33:53
+# date modified: 2026-09-01 17:40:16
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -669,11 +669,20 @@ def is_task_runnable(
     Args:
         name: The task key (e.g. 'extractor', 'consolidator', 'task_123').
         metadata: Optional metadata dictionary associated with the task run.
-        idle_seconds: Seconds since last user chat activity.
+        idle_seconds: Seconds since last user chat activity. If <= 0, automatically
+                     calculated from time_manager.get_user_idle_seconds().
 
     Returns:
         bool: True if the task meets all scheduling and idle constraints.
     """
+    if idle_seconds <= 0.0:
+        try:
+            from Evelyn.tools import time_manager
+
+            idle_seconds = time_manager.get_user_idle_seconds()
+        except (ImportError, sqlite3.Error, OSError, ValueError):
+            pass
+
     try:
         import evelyn_config as cfg
 
@@ -722,13 +731,22 @@ def acquire_next_runnable_task(idle_seconds: float = 0.0) -> dict | None:
     Skips items whose circadian schedule is closed without blocking runnable tasks behind them.
 
     Args:
-        idle_seconds: Number of seconds the server has been continuously idle.
+        idle_seconds: Number of seconds the server has been continuously idle. If <= 0,
+                     automatically calculated from time_manager.get_user_idle_seconds().
 
     Returns:
         dict | None: The popped runnable queue item, or None if no tasks are eligible.
     """
     if _chat_preempted or not _idle_queue:
         return None
+
+    if idle_seconds <= 0.0:
+        try:
+            from Evelyn.tools import time_manager
+
+            idle_seconds = time_manager.get_user_idle_seconds()
+        except (ImportError, sqlite3.Error, OSError, ValueError):
+            pass
 
     for idx, item in enumerate(_idle_queue):
         task_name = item.get("task")

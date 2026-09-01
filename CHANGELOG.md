@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 20:49:05
+date modified: 2026-09-01 17:41:16
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.041] - 2026-09-01 — *Universal Persistent Inactivity Architecture & Task Manager Idle Integration*
+
+### Fixed & Enhanced
+- **Engine-Wide Universal Idle Calculation (`evelyn_server.py`, `Evelyn/tools/task_manager.py`)**:
+  - Wired `_get_current_idle_seconds()` across all 9 background lifespan loops in `evelyn_server.py` (`_idle_task_dispatcher_loop`, `_idle_auto_journal_loop`, `_idle_ambient_reflector_loop`, `_idle_consolidation_loop`, `_idle_extraction_loop`, `_idle_research_loop`, `_idle_memory_refresh_loop`, `_idle_profile_evolution_loop`, `_idle_tag_librarian_loop`).
+  - Updated `task_manager.is_task_runnable()` and `task_manager.acquire_next_runnable_task()` to automatically default to `time_manager.get_user_idle_seconds()` whenever `idle_seconds <= 0.0`.
+  - Eliminates server reboot amnesia where restarting the server would reset in-memory silence counters to 0s and delay scheduled background tasks.
+- **Architectural Documentation (`reference/engine_architecture.md`, `AGENTS.md`)**:
+  - Documented Section 5.5 (*Universal Inactivity Architecture*) in `reference/engine_architecture.md`.
+  - Registered `time_manager.py` as a canonical utility module under Section 8 of `AGENTS.md`.
+
+---
+
+## [000.006.040] - 2026-09-01 — *Universal Idle Inactivity Evaluation & Autonomous Thought Decoupling*
+
+### Fixed & Enhanced
+- **Universal User Idle Calculation (`Evelyn/tools/time_manager.py`, `Evelyn/tools/auto_journaler.py`)**:
+  - Implemented `get_user_idle_seconds()` in `time_manager.py` as a canonical helper querying the latest user timestamp in `evelyn_chat.db`.
+  - Fixed an autonomous journaling regression where `run_auto_journaling()` called `should_trigger_auto_journal()` without arguments, causing `idle_seconds` to default to `0.0` and erroneously fail the inactivity gate check. `should_trigger_auto_journal()` now automatically computes elapsed user silence from the chat database when `idle_seconds <= 0.0`.
+- **Autonomous Thought Bubble Decoupling & Spacing (`Evelyn/tools/ambient_reflector.py`)**:
+  - Decoupled diurnal thought reflections from requiring mandatory new user/assistant turns between thoughts, allowing spontaneous reflections on journal memories, vault notes, and roaming thoughts.
+  - Implemented thought cooldown spacing to ensure daytime thought reflections are naturally paced (minimum `AMBIENT_REFLECTIONS_MIN_IDLE_SECONDS` between consecutive thoughts) up to the configured daily cap.
+  - Updated fallback context retrieval to ground the model on recent conversation history when no active turns have occurred on the current calendar day.
+
+---
 
 ## [000.006.039] - 2026-08-31 — *Tag Taxonomy Singular Concept Principle & Multi-Entity Underscore Normalization*
 
