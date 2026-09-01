@@ -1,6 +1,6 @@
 # auto_journaler.py
 # date created: 2026-08-30 15:45:00
-# date modified: 2026-08-31 17:28:10
+# date modified: 2026-09-01 17:29:27
 # tags: #journal, #autonomous, #daemon, #map-reduce, #compaction, #nightly
 
 """
@@ -111,6 +111,11 @@ def should_trigger_auto_journal(
 
     # 2. Inactivity threshold check (allow standard threshold or fixed 2:30 AM failsafe)
     idle_threshold = getattr(cfg, "AUTO_JOURNAL_IDLE_THRESHOLD", 5400)
+    if idle_seconds <= 0.0:
+        chat_db_path = getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_chat.db"))
+        from Evelyn.tools import time_manager
+        idle_seconds = time_manager.get_user_idle_seconds(chat_db_path)
+
     is_late_failsafe = now_dt.hour == 2 and now_dt.minute >= 30 and idle_seconds >= 1800
     if idle_seconds < idle_threshold and not is_late_failsafe:
         return False, f"Inactivity duration ({idle_seconds / 60:.1f}m) below threshold ({idle_threshold / 60:.1f}m)."

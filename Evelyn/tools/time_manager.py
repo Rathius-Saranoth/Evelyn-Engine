@@ -1,6 +1,6 @@
 # time_manager.py
 # date created: 2026-08-29
-# date modified: 2026-08-29 13:20:35
+# date modified: 2026-09-01 17:29:20
 # tags: #temporal, #time-manager, #agenda, #heartbeat, #scheduling
 
 """time_manager.py — Evelyn Temporal Management Subsystem.
@@ -10,12 +10,39 @@ XML temporal envelope construction, and proactive heartbeat tick evaluation for
 autonomous operations.
 """
 
+import os
 import sqlite3
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import evelyn_config as cfg
+
+
+def get_user_idle_seconds(db_path: str | None = None) -> float:
+    """Calculate elapsed seconds of silence since the last user message in chat history.
+
+    Args:
+        db_path: Optional explicit chat DB path. Defaults to cfg.CHAT_DB_PATH.
+
+    Returns:
+        float: Elapsed seconds since the latest user message, or a large fallback (999999.0)
+        if no user messages exist or the database cannot be queried.
+    """
+    target_path = db_path or getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_chat.db"))
+    if not os.path.exists(target_path):
+        return 999999.0
+
+    try:
+        con = sqlite3.connect(target_path)
+        row = con.execute("SELECT MAX(ts) FROM messages WHERE role = 'user'").fetchone()
+        con.close()
+        if row and row[0] is not None:
+            return max(0.0, time.time() - float(row[0]))
+    except (sqlite3.Error, OSError):
+        pass
+    return 999999.0
 
 
 class TimeManager:

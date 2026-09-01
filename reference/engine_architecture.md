@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-08-30 16:37:01
+date modified: 2026-09-01 17:40:55
 ---
 # Evelyn Engine Architecture Map
 
@@ -323,6 +323,17 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 | `tag_librarian` | `tag_librarian.py` | asyncio coroutine |
 | `auto_journaler` | `auto_journaler.py` | asyncio coroutine |
 | `ambient_reflector` | `ambient_reflector.py` | asyncio coroutine |
+
+### 5.5 Universal Inactivity Architecture (`time_manager.get_user_idle_seconds()`)
+
+To guarantee that conversational silence calculations survive server reboots, redeployments, and subagent invocations, all idle-gated operations derive user inactivity from the persistent chat store:
+
+- **Canonical Function**: `time_manager.get_user_idle_seconds()` in `Evelyn/tools/time_manager.py`.
+- **Mechanism**: Executes `SELECT MAX(ts) FROM messages WHERE role = 'user'` against `evelyn_chat.db` to calculate true silence in seconds.
+- **Enforcement**:
+  - `task_manager.is_task_runnable()` and `task_manager.acquire_next_runnable_task()` default to `get_user_idle_seconds()` when `idle_seconds <= 0.0`.
+  - All background lifespan loops in `evelyn_server.py` query `_get_current_idle_seconds()`, preventing server restarts from resetting the idle clock.
+  - Autonomous workers (`auto_journaler`, `ambient_reflector`) evaluate eligibility against this universal store.
 
 > [!CAUTION]
 > *Any deviation from this unified coordination architecture is STRICTLY PROHIBITED. Adding a new heavy task without routing it through `task_manager` is a bug, not a feature. New tasks must: (1) call `task_manager.set_running()` at start, (2) call `task_manager.clear_running()` in `finally`, (3) check `task_manager.is_any_running()` before beginning work.*

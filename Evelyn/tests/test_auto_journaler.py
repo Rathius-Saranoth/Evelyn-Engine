@@ -1,18 +1,14 @@
 # test_auto_journaler.py
 # date created: 2026-08-30 15:46:00
-# date modified: 2026-08-30 15:46:31
+# date modified: 2026-09-01 17:30:20
 # tags: #test, #auto_journaler, #map-reduce, #daemon, #journal
+
+from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-import pathlib
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
-
-ROOT_DIR = str(pathlib.Path(__file__).resolve().parent.parent.parent)
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
 import evelyn_config as cfg
 from Evelyn.tools import auto_journaler, task_manager
@@ -84,11 +80,18 @@ class TestAutoJournaler(unittest.TestCase):
             self.assertFalse(eligible)
             self.assertIn("insufficient conversation turns", reason.lower())
 
-        # 6. Test all gates passing (eligible)
+        # 6. Test all gates passing (eligible with explicit idle_seconds)
         mock_cursor.execute.return_value.fetchone.return_value = (18,)  # 18 messages
         mock_con.execute.return_value.fetchone.return_value = (18,)
         with patch("os.path.exists", return_value=False):
             eligible, reason = auto_journaler.should_trigger_auto_journal(now_dt=night_dt, idle_seconds=6000)
+            self.assertTrue(eligible)
+            self.assertIn("eligible", reason.lower())
+
+        # 7. Test automatic idle_seconds calculation from chat DB when omitted/zero
+        with patch("os.path.exists", return_value=False), \
+             patch("Evelyn.tools.time_manager.get_user_idle_seconds", return_value=7200.0):
+            eligible, reason = auto_journaler.should_trigger_auto_journal(now_dt=night_dt, idle_seconds=0.0)
             self.assertTrue(eligible)
             self.assertIn("eligible", reason.lower())
 

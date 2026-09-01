@@ -1,6 +1,6 @@
 # test_ambient_reflector.py
 # date created: 2026-08-30 16:40:00
-# date modified: 2026-08-30 16:35:57
+# date modified: 2026-09-01 17:30:13
 # tags: #tests, #ambient, #thought-bubbles, #feed, #journal-synthesis
 
 """
@@ -16,12 +16,11 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time as dtime
+from datetime import UTC, datetime
 import os
 import sqlite3
 import tempfile
 import time
-from unittest.mock import patch
 
 import pytest
 from starlette.testclient import TestClient
@@ -158,7 +157,7 @@ def test_cross_layer_journal_synthesis_and_consumption(temp_ambient_dbs):
         content="Wandering thought 2",
         target_date=today_str,
     )
-    id_other_day = memory_db.record_ambient_impression(
+    memory_db.record_ambient_impression(
         type="thought",
         content="Yesterday thought",
         target_date="2026-08-29",
@@ -182,7 +181,7 @@ def test_cross_layer_journal_synthesis_and_consumption(temp_ambient_dbs):
 
 
 def test_ambient_reflector_gate_conditions(temp_ambient_dbs):
-    """Test gate evaluations: circadian window, inactivity threshold, daily cap, and new turns."""
+    """Test gate evaluations: circadian window, inactivity threshold, thought cooldown spacing, and daily cap."""
     # Local time at 14:00 (inside diurnal window 09:00–21:00)
     now_dt = datetime(2026, 8, 30, 14, 0, 0, tzinfo=UTC).astimezone()
 
@@ -197,27 +196,27 @@ def test_ambient_reflector_gate_conditions(temp_ambient_dbs):
     assert eligible is False
     assert "Outside diurnal window" in reason
 
-    # 3. Sufficient silence but no messages in chat DB
-    eligible, reason = ambient_reflector.should_generate_idle_thought(now_dt=now_dt, idle_seconds=7500)
-    assert eligible is False
-    assert "Insufficient new conversation turns" in reason
-
-    # 4. Add conversation messages to chat DB
-    con_chat = sqlite3.connect(temp_ambient_dbs["chat_path"])
-    msg_ts = now_dt.timestamp() - 7500
-    con_chat.execute("INSERT INTO messages (role, content, ts) VALUES ('user', 'Let us discuss scalemail.', ?)", (msg_ts,))
-    con_chat.execute("INSERT INTO messages (role, content, ts) VALUES ('assistant', 'I love the tactile process of scalemail.', ?)", (msg_ts + 10,))
-    con_chat.commit()
-    con_chat.close()
-
+    # 3. Sufficient silence -> Eligible
     eligible, reason = ambient_reflector.should_generate_idle_thought(now_dt=now_dt, idle_seconds=7500)
     assert eligible is True
     assert "Eligible for daytime thought reflection" in reason
 
-    # 5. Max daily thoughts reached (3 used)
+    # 4. Thought cooldown spacing (< 7200s since last thought)
     today_str = now_dt.strftime("%Y-%m-%d")
-    for i in range(3):
-        memory_db.record_ambient_impression(type="thought", content=f"Thought {i}", target_date=today_str)
+    memory_db.record_ambient_impression(
+        type="thought",
+        content="First thought",
+        target_date=today_str,
+        ts=now_dt.timestamp() - 1800,  # 30m ago (< 2h cooldown)
+    )
+
+    eligible, reason = ambient_reflector.should_generate_idle_thought(now_dt=now_dt, idle_seconds=7500)
+    assert eligible is False
+    assert "Thought cooldown active" in reason
+
+    # 5. Max daily thoughts reached (3 used)
+    for i in range(2):
+        memory_db.record_ambient_impression(type="thought", content=f"Thought {i}", target_date=today_str, ts=now_dt.timestamp() - 8000)
 
     eligible, reason = ambient_reflector.should_generate_idle_thought(now_dt=now_dt, idle_seconds=7500)
     assert eligible is False
