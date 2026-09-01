@@ -1,10 +1,9 @@
 ---
 title: engine_architecture.md
+tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
 date modified: 2026-08-30 16:37:01
-tags: [no-rag, architecture, backend, design, systems, map, evelyn]
 ---
-
 # Evelyn Engine Architecture Map
 
 > Navigation: [[README.md]] · [[endpoints.md]] · [[system_specs.md]] · [[SETUP_GUIDE.md]] · [[ROADMAP.md]] · [[AGENTS.md]]

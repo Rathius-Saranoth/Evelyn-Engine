@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-28 12:27:17
+# date modified: 2026-08-31 20:48:44
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -478,6 +478,7 @@ def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
         "   - 'peace' / 'anxiety' / 'reflection' -> #Mood/Peace, #Mood/Anxiety, #Mood/Reflection\n"
         "3. Tag Formatting Rules:\n"
         "   - General semantic concepts MUST use lowercase hyphens for multi-word segments (e.g. 'home-improvement', 'system-update', 'peace-of-mind').\n"
+        "   - Singular Concept Rule: Always use the SINGULAR form for atomic concepts and countable note topics (e.g. 'bad-dream', 'coding-breakthrough', 'weird-dream', 'life-update', 'server'). Reserve plurals ONLY for inherently collective disciplines or aggregates (e.g. 'analytics', 'heuristics', 'settings', 'credentials').\n"
         "   - Proper Nouns / Entities (Person, Place, Thing, Title, Media) MUST use TitleCase with underscores (e.g. 'Ricky_Sekulich', 'Dungeon_Crawler_Carl', 'Evelyn_Engine').\n"
         "   - Sub-hierarchies use forward slashes (e.g. 'Tech/Python/FastAPI', 'Journal/Reflections').\n"
         "4. Clean Replacement: Replace overly flat, vague, or cluttered tags with clean nested equivalents (put old flat tags in 'tags_to_remove' and new nested tags in 'tags_to_add').\n"
