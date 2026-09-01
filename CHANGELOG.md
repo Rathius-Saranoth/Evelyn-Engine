@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-08-31 18:32:35
+date modified: 2026-08-31 20:49:05
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.039] - 2026-08-31 — *Tag Taxonomy Singular Concept Principle & Multi-Entity Underscore Normalization*
+
+### Added & Enhanced
+- **Tag Librarian Singular Concept Taxonomy Directive (`Evelyn/tools/tag_librarian.py`)**:
+  - Embedded the explicit *Singular Concept Principle* into the Tag Librarian's LLM taxonomy prompt, instructing the model to always use singular forms for atomic concepts and countable note topics (e.g. `#bad-dream`, `#coding-breakthrough`, `#weird-dream`, `#life-update`, `#server`), reserving plurals strictly for inherently collective disciplines and aggregate entities (e.g. `#analytics`, `#heuristics`, `#settings`, `#credentials`).
+- **Vault-Wide Tag Taxonomy Normalization**:
+  - Normalized 44 singular/plural split pairs across 120 vault notes into consistent singular concept tags.
+  - Eliminated CamelCase tags in favor of lowercase kebab-case (`#system-architecture`, `#self-care`, `#litrpg`).
+  - Standardized multi-word topic underscores to hyphens while preserving Proper Noun entities with TitleCase and underscores (`#Dungeon_Crawler_Carl`, `#Evelyn_Engine`, `#Diablo_3`, `#Kanai_Cube`, `#Helluva_Boss`, `#Kansas_City`).
+
+---
 
 ## [000.006.038] - 2026-08-31 — *Responsive Golden Chevron Tab Navigation & CSS Mask Edge Dissolves*
 
