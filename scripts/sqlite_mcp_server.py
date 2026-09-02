@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # sqlite_mcp_server.py
 # date created: 2026-08-28 12:29:50
-# date modified: 2026-08-28 12:29:50
-# tags:
+# date modified: 2026-09-01 21:46:05
+# tags: 
 
 """
 sqlite_mcp_server.py — Comprehensive MCP Server for Evelyn's Databases, Chroma Vectors, & FastAPI Services.
@@ -313,7 +313,7 @@ def get_chroma_status() -> str:
                 cur = con.cursor()
                 tbls = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
                 if "chroma_sync_queue" in tbls:
-                    queue_count = cur.execute("SELECT COUNT(*) FROM chroma_sync_queue").fetchone()[0]
+                    queue_count = cur.execute("SELECT COUNT(*) FROM chroma_sync_queue WHERE status = 'pending'").fetchone()[0]
             finally:
                 con.close()
 
