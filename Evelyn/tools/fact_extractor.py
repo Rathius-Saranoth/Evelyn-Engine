@@ -1237,6 +1237,9 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
         stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they"}
         candidate_kws = candidate_words - stopwords
 
+        merge_candidate_id = None
+        best_overlap = 0.0
+
         for ext in existing:
             if ext["trigger_pattern"].lower() == proc["trigger_pattern"].lower():
                 duplicate = True
@@ -1245,9 +1248,12 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
             ext_kws = ext_words - stopwords
             if candidate_kws and ext_kws:
                 jaccard = len(candidate_kws & ext_kws) / len(candidate_kws | ext_kws)
-                if jaccard >= 0.75:
+                if jaccard >= 0.70:
                     duplicate = True
                     break
+                elif jaccard >= 0.35 and ext.get("status") == "live" and jaccard > best_overlap:
+                    best_overlap = jaccard
+                    merge_candidate_id = ext.get("id")
 
         if duplicate:
             print(f"[EXTRACTOR] Skipping duplicate procedure trigger: {proc['trigger_pattern'][:80]}...", flush=True)
@@ -1260,9 +1266,10 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
                 pitfalls=proc.get("pitfalls"),
                 verification=proc.get("verification"),
                 source="extracted",
-                status="extracted", # Always start as extracted (pending review)
+                status="extracted",  # Always start as extracted (pending review)
                 tags=proc.get("tags"),
                 suggested_tools=proc.get("suggested_tools"),
+                merged_into_id=merge_candidate_id,
             )
             written += 1
         except (sqlite3.Error, OSError, ValueError) as e:

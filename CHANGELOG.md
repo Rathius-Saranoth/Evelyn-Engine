@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 20:59:57
+date modified: 2026-09-02 18:21:20
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,67 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.051] - 2026-09-02 — *Tool Starter Procedures & Dynamic Surfacing Alignment*
+
+### Added & Enhanced
+- **Comprehensive Tool Starter Procedures (`Evelyn/tools/db_migrator.py`, `evelyn_memory.db`)**:
+  - Registered and executed migration `000.006.051` (`tool_starter_procedures_and_dynamic_surfacing`) establishing complete starter procedure coverage for all 22 specific-purpose tools in `MODEL_TOOL_DEFINITIONS`:
+    - **Vault Checklists & List Management (`#1104`)**: Dedicated procedure guiding `manage_vault_list` across `Groceries`, `Packing`, `Hardware`, and `To-Dos` with category sections, item parsing, and clear completed workflows.
+    - **Google Calendar Event Scheduling & Management (`#1105`)**: Dedicated procedure guiding `create_calendar_event`, `delete_calendar_event`, and `sync_google_calendar` with start/end time parsing, location notes, and get_agenda pre-checking.
+    - **Google Tasks Triage & Completion Flow (`#1106`)**: Dedicated procedure guiding `list_tasks`, `complete_task`, `delete_task`, and `sync_google_tasks` with task_id resolution and supportive completion acknowledgement.
+    - **Workout & Exercise Session Review (`#1107`)**: Dedicated procedure guiding `get_recent_workouts` to retrieve and synthesize merged Oura Ring and Health Connect workout records, duration, and calories burned.
+    - **Historical Conversation Recall & Archive Search (`#1108`)**: Dedicated procedure guiding `search_history` to search and retrieve past chat dialogue across dates, eras, or keywords.
+    - **Autonomous Deep Research Lifecycle (`#1109`)**: Comprehensive procedure guiding `start_research`, `check_new_research`, `list_research_tasks`, `inspect_research_task`, and `guide_research`, superseding legacy `#574`.
+    - **Health Connect Database Drive Sync (`#1110`)**: Dedicated procedure guiding `sync_google_drive` for refreshing local Health Connect database exports, superseding crude legacy rule `#158`.
+- **Identity Parameterization & Clean Dream Logging (`#657`)**:
+  - Updated procedure `#657` to parameterize legacy hardcoded operator names into persona-agnostic user phrasing per Rule 4, focusing `suggested_tools` exclusively on `write_dream_entry`.
+- **Automated Verification & Tool Coverage Guarantee (`Evelyn/tests/test_procedures_upgrade.py`)**:
+  - Added unit test `test_all_specific_purpose_tools_have_live_procedure_coverage` verifying that 100% of specific-purpose tools (22 of 22) are covered by active live procedures with matching `suggested_tools`.
+
+---
+
+## [000.006.050] - 2026-09-02 — *Operational Procedure Consolidation & Tag Hygiene*
+
+### Added & Enhanced
+- **Operational Procedure Consolidation (`Evelyn/tools/db_migrator.py`, `evelyn_memory.db`)**:
+  - Registered and executed migration `000.006.050` (`operational_procedure_consolidation_and_tag_hygiene`) consolidating 20 fragmented operational procedures into 6 comprehensive Master Procedures:
+    - **Cluster 1 (D&D Magic Item Art, #1062)**: Consolidates IDs `#651`, `#652`, `#653`, `#654` into a single master rule (`suggested_tools='generate_image'`) covering standalone fantasy framing, gnomish/clockwork mechanics, aspect-ratio re-prompting anchors, and material specificity.
+    - **Cluster 2 (Task Reminders & Scheduling, #1063)**: Consolidates IDs `#17`, `#142`, `#620`, `#765`, `#1030` into a single master rule (`suggested_tools='create_task, get_agenda'`) covering agenda de-duplication, Google Tasks creation, recurrence handling, and supportive non-commanding tone.
+    - **Cluster 3 (Character & Persona Visuals, #1064)**: Consolidates IDs `#136`, `#621`, `#1025` into a single master rule (`suggested_tools='generate_image'`) combining anatomical profiles, clothing continuity across progressive turns, and classical life drawing context.
+    - **Cluster 4 (Text Prose Editing, #1065)**: Consolidates IDs `#114`, `#115` into a single master rule (`suggested_tools='write_file'`) covering prose flow, rhythm, vivid vocabulary, authorial voice preservation, and exact character/length constraints.
+    - **Cluster 5 (AI Downtime Narratives, #1066)**: Consolidates IDs `#899`, `#900` into a single master rule covering creative downtime world lore (the Library, companion narratives), grounded temporal consistency, and strict epistemic boundaries separating fiction from real-world telemetry.
+    - **Cluster 6 (Biometrics & ME/CFS Pacing, #1067)**: Consolidates IDs `#16`, `#49`, `#105`, `#160` into a single master rule (`suggested_tools='get_health_metrics'`) covering vitals evaluation, post-exertional malaise checks, restful presence, low-cognitive-load transitions, and persona-agnostic operator identity.
+  - All 20 source procedures transitioned to `status='merged'` with `merged_into_id` lineage pointers, reducing live active procedure count from 49 to 28 (43% reduction in active context clutter).
+- **System-Wide Tag Hygiene & Tool Modernization (`Evelyn/tools/pending_reviewer.py`, `evelyn_server.py`, `Evelyn/tools/procedure_consolidator.py`)**:
+  - Purged all legacy `'procedure, merged'` clutter tags from `procedures.tags` across the database.
+  - Enforced that operational lifecycle states (`merged`, `split`) are strictly managed via database schema columns (`status='merged'`, `merged_into_id`, `source='split'`) rather than cluttering the `tags` column.
+  - Updated proposal approval handlers in `pending_reviewer.py` and `evelyn_server.py` to insert the master procedure and call `memory_db.merge_procedure(eid, new_proc_id)` instead of soft-deleting.
+- **Unit Testing (`Evelyn/tests/test_procedures_upgrade.py`)**:
+  - Added unit test `test_procedure_tag_hygiene_and_proposal_merge_linkage` validating proposal tag sanitation, merge linkage, and strict exclusion of generic tags.
+
+---
+
+## [000.006.049] - 2026-09-02 — *Procedure Status Expansion & Master Journal Consolidation*
+
+### Added & Enhanced
+- **Procedure Status Taxonomy Expansion (`Evelyn/tools/memory_db.py`, `evelyn_memory.db`)**:
+  - Registered and executed migration `000.006.049` (`procedure_status_expansion_and_master_journaling`) adding `merged_into_id INTEGER` and an index (`idx_proc_merged_into`) to the `procedures` table.
+  - Formalized procedure lifecycle statuses: `live` (active in RAG), `extracted` (pending triage), `merged` (incorporated into a master procedure with target pointer), `rejected` (explicitly dismissed during triage), and `archived` (deprecated/sunset).
+  - Added `reject_procedure(proc_id)` and `merge_procedure(source_id, target_id)` primitives to `memory_db.py`.
+- **Master Daily Journaling Procedure Consolidation (`evelyn_memory.db`)**:
+  - Synthesized and inserted Master Daily Journaling Procedure (`#1034`) as the single active `write_journal_entry` operational specification (`status='live'`).
+  - Supplemented the tool description by focusing strictly on conversational pacing, wind-down shift, gentle verification, emotional resonance, and bedtime closure.
+  - Migrated 7 redundant live journal procedures (`#972`, `#973`, `#974`, `#1010`, `#1026`, `#1027`, `#1033`) to `status='merged'` referencing `#1034`.
+  - Linked 13 historical archived journal procedures (`#28`, `#52`, `#55`, `#86`, `#101`, `#106`, `#107`, `#190`, `#195`, `#458`, `#575`, `#583`, `#619`) to `merged_into_id=1034`.
+- **Triage Deduplication & Nuance Preservation (`Evelyn/tools/fact_extractor.py`, `evelyn_ui/dev.html`, `evelyn_server.py`)**:
+  - Implemented Jaccard similarity deduplication in `fact_extractor.py`: candidate triggers with $\ge 0.70$ overlap are deduplicated on extraction, while candidates with $0.35 \le \text{overlap} < 0.70$ against a live master procedure are staged with `merged_into_id` pointing to the candidate master.
+  - Added `action="reject"` and `action="merge"` with `target_id` support to `/api/review/procedures/{id}/{action}` in `evelyn_server.py`.
+  - Updated Touch-Optimized Developer UI (`dev.html`) with candidate match badges (`⚡ MATCHES MASTER #ID`), a dedicated **Merge into Master** button, a **Reject** button, and filter pills for `Merged` and `Rejected` procedures.
+- **Unit Testing (`Evelyn/tests/test_procedures_upgrade.py`)**:
+  - Added unit test `test_procedure_status_expansion_lifecycle` validating insertion with `merged_into_id`, `merge_procedure`, `reject_procedure`, and strict RAG filtering.
+
+---
 
 ## [000.006.048] - 2026-09-01 — *User Name Preference & Record Harmonization*
 

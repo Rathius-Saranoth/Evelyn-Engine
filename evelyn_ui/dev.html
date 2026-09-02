@@ -1905,7 +1905,7 @@
     }
 
 
-    async function handleProcedureAction(id, action) {
+    async function handleProcedureAction(id, action, targetId = null) {
       if (action === 'delete') {
         if (!confirm('Are you sure you want to PERMANENTLY delete this procedure? This cannot be undone.')) return;
       }
@@ -1928,6 +1928,8 @@
           tags: tags || null,
           suggested_tools: suggestedTools || null
         });
+      } else if (action === 'merge') {
+        body = JSON.stringify({ target_id: targetId });
       }
       
       try {
@@ -3151,8 +3153,11 @@
         return `
           <div class="card">
             <div class="card-header">
-              <span class="badge extraction" style="background: var(--accent); color: #fff;">PROCEDURE</span>
-              <span>ID: ${item.id}</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="badge extraction" style="background: var(--accent); color: #fff;">PROCEDURE</span>
+                <span>ID: ${item.id}</span>
+                ${item.merged_into_id ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px;">⚡ MATCHES MASTER #${item.merged_into_id}</span>` : ''}
+              </div>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
               <div>
@@ -3180,9 +3185,11 @@
                 <input type="text" id="proc-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
             </div>
-            <div class="card-actions" style="display: flex; gap: 8px;">
-              <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve')">Approve Procedure</button>
-              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'deny')">Archive</button>
+            <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve')">Approve (Live)</button>
+              ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id})">⚡ Merge into Master #${item.merged_into_id}</button>` : ''}
+              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject')">Reject</button>
+              <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny')">Archive</button>
               <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete')">🗑️ Delete</button>
             </div>
           </div>
@@ -3631,12 +3638,16 @@
 
       const liveCount = allProcedures.filter(p => p.status === 'live').length;
       const extractedCount = allProcedures.filter(p => p.status === 'extracted').length;
+      const mergedCount = allProcedures.filter(p => p.status === 'merged').length;
+      const rejectedCount = allProcedures.filter(p => p.status === 'rejected').length;
       const archivedCount = allProcedures.filter(p => p.status === 'archived').length;
 
       filtersEl.innerHTML = `
         <button class="filter-pill ${procMgmtFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtFilter('all')">All (${allProcedures.length})</button>
         <button class="filter-pill ${procMgmtFilter === 'live' ? 'active' : ''}" onclick="setProcMgmtFilter('live')">Live (${liveCount})</button>
         <button class="filter-pill ${procMgmtFilter === 'extracted' ? 'active' : ''}" onclick="setProcMgmtFilter('extracted')">Pending Review (${extractedCount})</button>
+        <button class="filter-pill ${procMgmtFilter === 'merged' ? 'active' : ''}" onclick="setProcMgmtFilter('merged')">Merged (${mergedCount})</button>
+        <button class="filter-pill ${procMgmtFilter === 'rejected' ? 'active' : ''}" onclick="setProcMgmtFilter('rejected')">Rejected (${rejectedCount})</button>
         <button class="filter-pill ${procMgmtFilter === 'archived' ? 'active' : ''}" onclick="setProcMgmtFilter('archived')">Archived (${archivedCount})</button>
       `;
 
@@ -3684,7 +3695,11 @@
           ? `<span class="badge" style="background: #10b981; color: #fff;">LIVE</span>`
           : (p.status === 'extracted'
             ? `<span class="badge" style="background: #f59e0b; color: #fff;">PENDING REVIEW</span>`
-            : `<span class="badge" style="background: #6b7280; color: #fff;">ARCHIVED</span>`);
+            : (p.status === 'merged'
+              ? `<span class="badge" style="background: #3b82f6; color: #fff;">MERGED${p.merged_into_id ? ' -> #' + p.merged_into_id : ''}</span>`
+              : (p.status === 'rejected'
+                ? `<span class="badge" style="background: #ef4444; color: #fff;">REJECTED</span>`
+                : `<span class="badge" style="background: #6b7280; color: #fff;">ARCHIVED</span>`)));
 
         const queuedBadge = p.is_queued_merge
           ? `<span class="badge" style="background: #3b82f6; color: #fff;">⚡ QUEUED FOR MERGE</span>`

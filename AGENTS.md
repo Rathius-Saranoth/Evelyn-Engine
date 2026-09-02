@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-01 17:41:03
+date modified: 2026-09-02 18:24:30
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -76,4 +76,10 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **No Unstructured Bracket Annotations**: Never inject dynamic background context (timestamps, session telemetry, retrieved knowledge/RAG, autonomous triggers) using plain text annotations (`[System Note: ...]`), parentheses, or informal prefixes. This causes role bleeding and prompt confusion.
 - **Semantic XML Envelopes**: All dynamic in-flight context injections must use standardized semantic XML tags (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`).
 - **Canonical Standards & System Contract**: Adhere strictly to `reference/xml_injection_conventions.md` for tag taxonomy, token pruning (never emit empty envelopes), turn boundary placement, escaping guidelines, and required system prompt parsing contracts.
+
+## 10. Model-Facing Tool Protocol & Starter Procedure Mandate
+- **Starter Procedure Requirement**: Whenever introducing or surfacing a new specific-purpose model-facing tool in `Evelyn/tools/evelyn_tools.py` (`MODEL_TOOL_DEFINITIONS`), agents and developers must simultaneously author and register a corresponding operational starter procedure in `procedures` via a versioned database migration in `Evelyn/tools/db_migrator.py`.
+- **Procedural Specification Standards**: Each starter procedure must define a comprehensive `trigger_pattern`, step-by-step execution directives (`steps`), common failure modes (`pitfalls`), success criteria (`verification`), hierarchical domain tags (`tags`), and explicitly assign the tool name(s) to `suggested_tools` to enable dynamic tool surfacing in RAG.
+- **Historical Grounding Discovery**: To craft natural, accurate trigger patterns and steps, agents must inspect historical conversation context (`data/evelyn_chat.db`) to identify real-world user prompts, conversational phrasing, and scenarios where the tool would or could have been engaged.
+- **General Purpose Exemptions**: Broad general-purpose utility primitives (e.g. `read_file`, `write_file`, `run_command`, `web_search`) are exempt from dedicated starter procedures unless specialized operational protocols are explicitly requested.
 

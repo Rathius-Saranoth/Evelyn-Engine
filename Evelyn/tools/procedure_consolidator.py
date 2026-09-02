@@ -404,7 +404,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
 
         # If model generated generic or empty tags, prefer inherited tags
         parsed_tags_set = {t.strip().lower() for t in parsed_tags.split(",") if t.strip()}
-        if not parsed_tags or parsed_tags_set.issubset({"procedure", "merged", "merge", "consolidated", "none"}):
+        if not parsed_tags or parsed_tags_set.issubset({"procedure", "merged", "merge", "split", "consolidated", "none"}):
             final_tags = inherited_tags
         else:
             # Combine any missing inherited domain tags with model's tags
@@ -412,7 +412,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
             combined.update(source_tags_set)
             # Remove purely generic tags if specific tags exist
             if len(combined) > 1:
-                combined = {t for t in combined if t.lower() not in ("procedure", "merged", "merge", "consolidated", "none")}
+                combined = {t for t in combined if t.lower() not in ("procedure", "merged", "merge", "split", "consolidated", "none")}
             final_tags = ", ".join(sorted(combined)) if combined else "procedure"
 
         # Build merged procedure dict for storage as JSON/YAML in merged_observation

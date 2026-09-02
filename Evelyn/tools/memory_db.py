@@ -1064,6 +1064,7 @@ def insert_procedure(
     status: str = "live",
     tags: str | None = None,
     suggested_tools: str | None = None,
+    merged_into_id: int | None = None,
 ) -> int:
     """Insert a new procedure and return its row ID.
 
@@ -1072,10 +1073,11 @@ def insert_procedure(
         steps: Markdown list of instructions to carry out.
         pitfalls: Mistakes or warnings.
         verification: Success confirmation.
-        source: 'extracted', 'manual', or 'model'.
-        status: 'live', 'extracted', or 'archived'.
+        source: 'extracted', 'manual', 'model', or 'consolidated'.
+        status: 'live', 'extracted', 'merged', 'rejected', or 'archived'.
         tags: Semantic tags.
         suggested_tools: Comma-separated list of engine tool names (e.g. 'write_file, read_file').
+        merged_into_id: Optional ID of the master procedure this procedure was merged into.
 
     Returns:
         int: The database row ID of the new procedure.
@@ -1084,15 +1086,15 @@ def insert_procedure(
     cur = con.execute(
         """INSERT INTO procedures
            (trigger_pattern, steps, pitfalls, verification, source, status,
-            tags, suggested_tools, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            tags, suggested_tools, merged_into_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (trigger_pattern, steps, pitfalls, verification, source, status,
-         tags, suggested_tools, time.time()),
+         tags, suggested_tools, merged_into_id, time.time()),
     )
     row_id = cur.lastrowid
     con.commit()
     con.close()
-    return row_id
+    return row_id if row_id is not None else 0
 
 
 def get_procedure(proc_id: int) -> dict | None:
@@ -1116,7 +1118,7 @@ def get_all_procedures(status: str | None = "live") -> list[dict]:
     """Fetch all procedures matching a given status (or all if status is None or 'all').
 
     Args:
-        status: Status filter, e.g. 'live', 'extracted', 'archived', or None/'all'.
+        status: Status filter, e.g. 'live', 'extracted', 'merged', 'rejected', 'archived', or None/'all'.
 
     Returns:
         list[dict]: A list of procedure dictionaries.
@@ -1211,6 +1213,7 @@ def update_procedure(proc_id: int, **fields) -> bool:
     valid_cols = {
         "trigger_pattern", "steps", "pitfalls", "verification",
         "source", "status", "tags", "suggested_tools", "last_retrieved_at", "retrieval_count",
+        "merged_into_id",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -1239,6 +1242,33 @@ def delete_procedure(proc_id: int) -> bool:
         bool: True if archived, False otherwise.
     """
     return update_procedure(proc_id, status="archived")
+
+
+def reject_procedure(proc_id: int) -> bool:
+    """Reject an extracted procedure during triage by setting status to 'rejected'.
+
+    Args:
+        proc_id: Database ID of the procedure.
+
+    Returns:
+        bool: True if rejected, False otherwise.
+    """
+    return update_procedure(proc_id, status="rejected")
+
+
+def merge_procedure(source_id: int, target_id: int) -> bool:
+    """Mark a procedure as merged into a master procedure.
+
+    Sets status to 'merged' and references the target master procedure ID.
+
+    Args:
+        source_id: Database ID of the procedure being merged.
+        target_id: Database ID of the master procedure absorbing it.
+
+    Returns:
+        bool: True if merged, False otherwise.
+    """
+    return update_procedure(source_id, status="merged", merged_into_id=target_id)
 
 
 def hard_delete_procedure(proc_id: int) -> bool:

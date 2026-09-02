@@ -5571,15 +5571,16 @@ async def action_proposal(
                             "procedure",
                             "merged",
                             "merge",
+                            "split",
                             "consolidated",
                             "none",
                         ):
                             source_tags_set.add(cleaned_t)
-                memory_db.delete_procedure(eid)
             try:
                 parsed_proc = yaml.safe_load(final_text)
             except (yaml.YAMLError, ValueError, TypeError):
                 parsed_proc = {}
+            new_proc_id = None
             if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
                 proc_tags = parsed_proc.get("tags")
                 if isinstance(proc_tags, list):
@@ -5595,7 +5596,7 @@ async def action_proposal(
                     t.strip().lower() for t in proc_tags_str.split(",") if t.strip()
                 }
                 if not proc_tags_str or parsed_tags_set.issubset(
-                    {"procedure", "merged", "merge", "consolidated", "none"}
+                    {"procedure", "merged", "merge", "split", "consolidated", "none"}
                 ):
                     final_tags = (
                         ", ".join(sorted(source_tags_set))
@@ -5616,6 +5617,7 @@ async def action_proposal(
                                 "procedure",
                                 "merged",
                                 "merge",
+                                "split",
                                 "consolidated",
                                 "none",
                             )
@@ -5624,7 +5626,7 @@ async def action_proposal(
                         ", ".join(sorted(combined)) if combined else "procedure"
                     )
 
-                memory_db.insert_procedure(
+                new_proc_id = memory_db.insert_procedure(
                     trigger_pattern=parsed_proc["trigger_pattern"],
                     steps=parsed_proc.get("steps", ""),
                     pitfalls=parsed_proc.get("pitfalls"),
@@ -5634,6 +5636,13 @@ async def action_proposal(
                     tags=final_tags,
                     suggested_tools=parsed_proc.get("suggested_tools"),
                 )
+
+            for eid in source_ids:
+                if new_proc_id:
+                    memory_db.merge_procedure(eid, new_proc_id)
+                else:
+                    memory_db.delete_procedure(eid)
+
             memory_db.apply_proposal(id)
         elif prop["type"] == "procedure_split":
             import yaml
@@ -5888,6 +5897,8 @@ class ProcedureReviewBody(BaseModel):
     verification: str | None = None
     tags: str | None = None
     suggested_tools: str | None = None
+    target_id: int | None = None
+    merged_into_id: int | None = None
 
 
 class ProcedureQueueMergeRequest(BaseModel):
@@ -5902,6 +5913,7 @@ class ProcedureUpdateRequest(BaseModel):
     tags: str | None = None
     suggested_tools: str | None = None
     status: str | None = None
+    merged_into_id: int | None = None
 
 
 @app.get("/api/review/procedures")
@@ -5919,23 +5931,36 @@ async def action_procedure(
     body: ProcedureReviewBody | None = None,
     _: None = Depends(check_auth),
 ):
-    """Approve, edit and approve, or deny/archive an extracted procedure.
+    """Approve, edit and approve, deny, reject, merge, or delete an extracted procedure.
 
     Args:
         id:     Procedure row ID.
-        action: "approve" | "deny" | "edit".
-        body:   Optional edits to the procedure trigger/steps/pitfalls/verification/tags/suggested_tools.
+        action: "approve" | "deny" | "reject" | "merge" | "edit" | "delete".
+        body:   Optional edits or merge target ID.
     """
     from Evelyn.tools import memory_db
 
     if action in ("deny", "archive"):
         memory_db.delete_procedure(id)
         return {"status": "ok"}
+    elif action in ("reject",):
+        memory_db.reject_procedure(id)
+        return {"status": "ok"}
+    elif action in ("merge",):
+        target_id = (body.target_id or body.merged_into_id) if body else None
+        if not target_id:
+            # Fallback to existing merged_into_id on the record if set by extractor
+            existing_proc = memory_db.get_procedure(id)
+            target_id = existing_proc.get("merged_into_id") if existing_proc else None
+        if not target_id:
+            raise HTTPException(status_code=400, detail="target_id required for merge action")
+        memory_db.merge_procedure(id, target_id)
+        return {"status": "ok", "merged_into_id": target_id}
     elif action in ("delete", "hard_delete"):
         memory_db.hard_delete_procedure(id)
         return {"status": "ok"}
     elif action == "edit":
-        update_fields = {}
+        update_fields: dict[str, Any] = {}
         if body:
             if body.trigger_pattern is not None:
                 update_fields["trigger_pattern"] = body.trigger_pattern
@@ -5949,6 +5974,8 @@ async def action_procedure(
                 update_fields["tags"] = body.tags
             if body.suggested_tools is not None:
                 update_fields["suggested_tools"] = body.suggested_tools
+            if body.merged_into_id is not None:
+                update_fields["merged_into_id"] = body.merged_into_id
 
         success = memory_db.update_procedure(id, **update_fields)
         if not success:
@@ -5957,7 +5984,7 @@ async def action_procedure(
             )
         return {"status": "ok"}
     elif action == "approve":
-        update_fields = {}
+        update_fields: dict[str, Any] = {}
         if body:
             if body.trigger_pattern is not None:
                 update_fields["trigger_pattern"] = body.trigger_pattern
@@ -5985,7 +6012,7 @@ async def action_procedure(
 
 @app.get("/api/procedures")
 async def get_procedures(status: str | None = None, _: None = Depends(check_auth)):
-    """Return all procedures matching status ('live', 'extracted', 'archived', or 'all')."""
+    """Return all procedures matching status ('live', 'extracted', 'merged', 'rejected', 'archived', or 'all')."""
     from Evelyn.tools import memory_db
 
     target_status = status if status and status != "all" else None
@@ -6005,9 +6032,23 @@ async def patch_procedure(
     """Update fields of an existing procedure."""
     from Evelyn.tools import memory_db
 
-    fields = {}
+    fields: dict[str, Any] = {}
     if body.trigger_pattern is not None:
         fields["trigger_pattern"] = body.trigger_pattern
+    if body.steps is not None:
+        fields["steps"] = body.steps
+    if body.pitfalls is not None:
+        fields["pitfalls"] = body.pitfalls
+    if body.verification is not None:
+        fields["verification"] = body.verification
+    if body.tags is not None:
+        fields["tags"] = body.tags
+    if body.suggested_tools is not None:
+        fields["suggested_tools"] = body.suggested_tools
+    if body.status is not None:
+        fields["status"] = body.status
+    if body.merged_into_id is not None:
+        fields["merged_into_id"] = body.merged_into_id
     if body.steps is not None:
         fields["steps"] = body.steps
     if body.pitfalls is not None:
