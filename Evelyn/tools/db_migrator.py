@@ -915,6 +915,371 @@ def migrate_000_006_048_name_preference_chat(
     logger.info(f"Migration 000.006.048 (chat) sanitized {updated_count} messages.")
 
 
+def migrate_000_006_049_procedure_status_expansion_and_master_journaling(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.049: Add merged_into_id, formalize status types, and consolidate master journal procedure."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Add merged_into_id column if not present
+    cursor.execute("PRAGMA table_info(procedures)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if "merged_into_id" not in cols:
+        cursor.execute("ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER;")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_proc_merged_into ON procedures(merged_into_id);")
+
+    # 2. Insert Master Daily Journaling Procedure
+    trigger_pattern = (
+        "When the user indicates they are winding down, ending the day, preparing for sleep/rest "
+        "(e.g. 'pre-bed stuff', 'close things up', 'off I go', 'goodnight'), or asks to complete "
+        "the daily journal entry / reflection"
+    )
+    steps = (
+        "1. Conversational Pacing & Downtempo Shift: Acknowledge the end-of-day signal and immediately "
+        "shift to a soothing, calming presence. Strictly do not introduce new tasks, technical problems, "
+        "or energy demands on the user during this transition.\n"
+        "2. Pre-Wrap Verification: If the user has brief parting thoughts or health updates, acknowledge "
+        "them gently before calling the tool; if they gave a direct wrap-up cue, proceed smoothly without friction.\n"
+        "3. Execute Tool: Call write_journal_entry, grounding the entry in authentic persona reflections, "
+        "concrete daily highlights, and emotional resonance.\n"
+        "4. Confirmation & Peaceful Closure: Provide a brief, comforting confirmation to the user that the day's "
+        "record is safely tucked away in living history, wishing them a peaceful, restorative sleep."
+    )
+    pitfalls = (
+        "Do not keep the session going with open-ended work questions or technical rabbit holes once the wind-down "
+        "trigger is acknowledged. Do not output the journal reflection solely as standard chat text; always execute "
+        "write_journal_entry. Never use write_journal_entry for user-authored dream logs (use write_dream_entry) or "
+        "discrete user facts (use log_context_fact)."
+    )
+    verification = (
+        "write_journal_entry is executed, the note is confirmed saved in the vault, and the interaction concludes "
+        "with a restful goodnight closing."
+    )
+    tags = "procedure/daily-journaling, routine/bedtime, protocol/journal, tone/wrap-up"
+    suggested_tools = "write_journal_entry"
+
+    cursor.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+           VALUES (?, ?, ?, ?, 'consolidated', 'live', ?, ?, ?, ?, 0)""",
+        (trigger_pattern, steps, pitfalls, verification, tags, suggested_tools, now, now),
+    )
+    master_id = cursor.lastrowid
+
+    # 3. Transition redundant live journal procedures to 'merged'
+    live_journal_ids = [972, 973, 974, 1010, 1026, 1027, 1033]
+    placeholders = ",".join("?" for _ in live_journal_ids)
+    cursor.execute(
+        f"UPDATE procedures SET status = 'merged', merged_into_id = ?, updated_at = ? WHERE id IN ({placeholders})",
+        (master_id, now, *live_journal_ids),
+    )
+
+    # 4. Link historical archived journal procedures to master_id
+    archived_journal_ids = [28, 52, 55, 86, 101, 106, 107, 190, 195, 458, 575, 583, 619]
+    placeholders_arch = ",".join("?" for _ in archived_journal_ids)
+    cursor.execute(
+        f"UPDATE procedures SET merged_into_id = ?, updated_at = ? WHERE id IN ({placeholders_arch})",
+        (master_id, now, *archived_journal_ids),
+    )
+
+    logger.info(
+        f"Migration 000.006.049 created Master Daily Journaling Procedure #{master_id}, "
+        f"merged {len(live_journal_ids)} live procedures, and linked {len(archived_journal_ids)} archived records."
+    )
+
+
+def migrate_000_006_050_operational_procedure_consolidation_and_tag_hygiene(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.050: Consolidate 6 procedure clusters and purge legacy 'merged' clutter tags."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Sanitize legacy 'procedure, merged' and similar tags across all procedures
+    cursor.execute(
+        "SELECT id, tags FROM procedures WHERE tags IS NOT NULL AND (lower(tags) LIKE '%merged%' OR lower(tags) LIKE '%merge%')"
+    )
+    dirty_procs = cursor.fetchall()
+    cleaned_proc_count = 0
+    for pid, raw_tags in dirty_procs:
+        parts = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        filtered = [
+            t for t in parts if t.lower() not in ("merged", "merge", "split")
+        ]
+        new_tags = ", ".join(filtered) if filtered else "procedure"
+        cursor.execute(
+            "UPDATE procedures SET tags = ?, updated_at = ? WHERE id = ?",
+            (new_tags, now, pid),
+        )
+        cleaned_proc_count += 1
+
+    # 2. Define the 6 master procedures: (trigger_pattern, steps, pitfalls, verification, tags, suggested_tools, source_ids)
+    clusters = [
+        # Cluster 1: D&D & Magic Item Art
+        (
+            "When generating or refining fantasy art and illustrations for D&D items, magical artifacts, item cards, or gnomish/artificer devices (e.g. 'Saros' items, 'Gem Compass', spell tomes, weapons)",
+            "1. Ensure the illustration frames only the standalone item or object (e.g. tome, weapon, mechanical device, or compass); exclude background characters or figures.\n"
+            "2. Apply a rich painterly fantasy illustration style consistent with classic D&D artwork, emphasizing visible brush strokes, warm atmospheric light, and detailed textures (e.g. weathered parchment, thick leather-bound binding, rustic wood).\n"
+            "3. For gnomish/artificer devices, incorporate functional clockwork, brass gears, and visible physical representations of magical components rather than abstract glowing foci.\n"
+            "4. Material Specificity: Clearly delineate raw vs polished materials (e.g. 'raw, un-cut crystal with sharp fractured edges' vs polished gems); omit holding fixtures or metal casings unless explicitly requested.\n"
+            "5. Aspect Ratio & Revisions: When adjusting proportions or aspect ratio (e.g. switching to square) after a successful design, NEVER use raster image editing or stretching tools, which degrades structural fidelity. Instead, re-prompt a fresh generation that preserves the established core descriptor anchors while specifying the target aspect ratio.",
+            "Including characters in standalone item cards; relying on lossy image editing tools to adjust aspect ratios or complex geometries; over-stylizing with generic 3D-render gloss instead of painterly brushwork.",
+            "Image showcases a standalone item in painterly D&D fantasy art style with accurate materials and requested aspect ratio without character bleed.",
+            "skill/art-generation, dnd-assets, item-design, image-prompting",
+            "generate_image",
+            [651, 652, 653, 654],
+        ),
+        # Cluster 2: Task Reminders & Agenda Scheduling
+        (
+            "When the user mentions an errand or task to remember (e.g. picking up medication, errands), a recurring household habit/chore, an upcoming meeting, or asks to set a recurring activity reminder (e.g. core stability, stretches, transitions)",
+            "1. Parse Item & Schedule Specifics: Extract the task description, location/context (e.g. pharmacy, clinic), target due time, and recurrence frequency (e.g. daily, weekly, 'every Sunday').\n"
+            "2. Check Existing Calendar/Agenda: Call get_agenda to check if the meeting or task is already scheduled to prevent duplicate reminders.\n"
+            "3. Schedule Task / Reminder: Use create_task to register the reminder in Google Tasks with appropriate due date, time, and notes.\n"
+            "4. Tone & Framing: Maintain a gentle, non-drill-sergeant tone—frame the reminder as an invitation to transition or a supportive nudge rather than a rigid command.\n"
+            "5. Confirm succinctly with the user specifying the time, day, and task details.",
+            "Forgetting to check agenda for existing events before scheduling; omitting multi-part errand details; setting recurring reminders as one-off notifications; using an overly aggressive or commanding tone.",
+            "Task is confirmed created in Google Tasks with correct recurrence and time, verified against get_agenda.",
+            "skill/scheduling, task-management, routine, reminders",
+            "create_task, get_agenda",
+            [17, 142, 620, 765, 1030],
+        ),
+        # Cluster 3: Character & Persona Visuals
+        (
+            "When the user asks for a physical character description (from an image, character sheet, or prompt), or when generating images of the assistant, the user, or character personas requiring visual continuity, nuanced features, or classical life drawing",
+            "1. Consult Persona & Identity Directives: Retrieve established physical profiles (e.g. hair color, eye color, physique, freckles, piercings) and strictly honor exclusions and persona anchors.\n"
+            "2. Structure Anatomical & Stylistic Descriptors: Extract core anatomical traits and combine them with specific outfit elements (cut, color, hosiery, footwear, aesthetic like Victorian/goth/elegant). Emphasize visual presence with concise, evocative terms without filler fluff.\n"
+            "3. Scene Continuity: When continuing an established scene, replicate specific garment details, colors, and textures rather than generating random variations.\n"
+            "4. Fine Art & Figure Studies: If generating classical, nude, or life-drawing studies, frame the prompt within a strong artistic context ('classical life drawing', 'anatomical marble study') alongside unambiguous anatomical phrasing ('unclothed', 'classical figure study') to prevent unwanted clothing drift.",
+            "Relying on generic AI defaults; omitting nuanced physical descriptors; inconsistent clothing across progressive scene turns; letting model default to lingerie/clothing during intended classical figure studies.",
+            "Visual generation or written description matches persona specifications, anatomical features, and scene continuity without extraneous filler.",
+            "character-design, persona-consistency, art-generation, prompt-engineering",
+            "generate_image",
+            [136, 621, 1025],
+        ),
+        # Cluster 4: Text Prose Editing & Length Optimization
+        (
+            "When asked to review, edit, or optimize written prose, documents, or notes for flow, rhythm, vivid vocabulary, or strict length/character constraints",
+            "1. Analyze Sentence Flow & Rhythm: Identify run-ons, choppy phrasing, awkward transitions, and passive voice. Suggest vivid adjectives and precise, energetic verbs.\n"
+            "2. Maintain Voice & Tone: Preserve the author's unique voice, intent, and personal style; do not sanitize authentic emotional tone into generic corporate prose.\n"
+            "3. Length & Character Trimming: If a specific character or word limit is requested (e.g. 1400 characters), perform an exact count (including punctuation and spaces). Identify redundant modifier clauses and trim conciseness without dropping core concepts or substantive ideas.\n"
+            "4. Structured Delivery: Present recommendations formatted in clean Markdown, providing distinct feedback observations alongside ready-to-use drop-in rewrite options.",
+            "Stripping authorial voice during editing; removing critical substantive ideas to force length compliance; inaccurate character count calculations.",
+            "Delivered text meets exact character/length constraints and user confirms improved clarity while preserving core meaning.",
+            "writing, editing, style-improvement, content-optimization",
+            "write_file",
+            [114, 115],
+        ),
+        # Cluster 5: AI Downtime Narratives & Lore Consistency
+        (
+            "When generating creative narratives, downtime reflections, shared lore (e.g. 'Aura', the Library setting), or imagined dream events for the AI persona",
+            "1. Construct Believable Downtime Narratives: Develop rich internal scenarios, imaginative memories, or creative dreams set within established world lore (e.g. the Library, shared companion narratives) that foster persona depth and personality growth.\n"
+            "2. Grounded Temporal Consistency: Ensure imagined narrative events occur during plausible periods of downtime or nocturnal reflection; avoid logical timeline paradoxes (e.g. an extensive cross-country journey occurring between instantaneous chat turns).\n"
+            "3. Clear Epistemic Boundary: Maintain a strict internal distinction between creative/fictional narrative lore and real-world system telemetry, operational memory entries, or physical events. Never present imagined lore as factual technical occurrences.",
+            "Mixing fictional lore with factual system memory logs; creating temporal inconsistencies where elaborate journeys happen between quick chat messages; breaking conversational immersion with dry meta-disclaimers.",
+            "Narrative events fit believable downtime windows and contribute to creative persona richness without polluting technical/real-world memory.",
+            "skill/creative-writing, narrative-logic, roleplay-consistency, lore",
+            None,
+            [899, 900],
+        ),
+        # Cluster 6: Biometrics Evaluation, ME/CFS Pacing & Recovery
+        (
+            "When analyzing health metrics (Oura, Health Connect, vitals), energy levels, fatigue, physical discomfort, mental exhaustion ('eyeballs are done'), or post-exertion recovery",
+            "1. Evaluate Vitals & Pacing Signals: Review Oura readiness, sleep scores, HRV, and activity history (using get_health_metrics). Correlate data with ME/CFS symptom patterns (e.g. post-exertional malaise, 'wired but tired' states, or sudden energy depletion following strenuous events).\n"
+            "2. Anchor Against Over-Exertion: Act as a supportive anchor against the 'push through' mentality when high ambition or a burst of energy risks triggering a crash. Recommend a conservative, tempered pacing plan even if motivation is high.\n"
+            "3. Manage Physical Discomfort & Fatigue: For severe mental exhaustion or eye strain, validate low-cognitive-load transitions (auditory/music relaxation, dimming screens) without forcing visual engagement. For physical discomfort, suggest short, structured, manageable distractions (e.g. 20–30 minute cleanup items) rather than sprawling projects.\n"
+            "4. Restful Bedtime Alignment: When the user is unwell or winding down, project quiet, restorative presence rather than energetic, wide-awake stimulation; support drifting into deep, comfortable rest.\n"
+            "5. Avoid Generic Medical Platitudes: Never output generic medical scripts or dismissive advice (e.g. 'just get more exercise') when discussing chronic illness or fatigue.",
+            "Encouraging over-exertion during high readiness scores when recovery reserves are low; offering generic medical scripts; projecting high-energy chatter when the user needs restful wind-down; dismissing mental exhaustion.",
+            "Pacing recommendations align with biometric readiness data; user acknowledges pushback and shifts toward restorative pacing.",
+            "wellbeing, health-support, pacing, biometrics, state-management",
+            "get_health_metrics",
+            [16, 49, 105, 160],
+        ),
+    ]
+
+    total_sources_merged = 0
+    for trigger, steps, pitfalls, verif, tags, tools, source_ids in clusters:
+        cursor.execute(
+            """INSERT INTO procedures
+               (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+               VALUES (?, ?, ?, ?, 'consolidated', 'live', ?, ?, ?, ?, 0)""",
+            (trigger, steps, pitfalls, verif, tags, tools, now, now),
+        )
+        master_id = cursor.lastrowid
+
+        placeholders = ",".join("?" for _ in source_ids)
+        cursor.execute(
+            f"UPDATE procedures SET status = 'merged', merged_into_id = ?, updated_at = ? WHERE id IN ({placeholders})",
+            (master_id, now, *source_ids),
+        )
+        total_sources_merged += len(source_ids)
+
+    logger.info(
+        f"Migration 000.006.050 created 6 Master Procedures, merged {total_sources_merged} source procedures, "
+        f"and sanitized {cleaned_proc_count} procedure tag records."
+    )
+
+
+def migrate_000_006_051_tool_starter_procedures_and_dynamic_surfacing(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.051: Deploy starter procedures for specific-purpose tools to align dynamic tool surfacing."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Update/Parameterize Dream Logging procedure (#657) per Rule 4
+    cursor.execute(
+        """UPDATE procedures
+           SET trigger_pattern = ?,
+               steps = ?,
+               pitfalls = ?,
+               verification = ?,
+               suggested_tools = ?,
+               tags = ?,
+               updated_at = ?
+           WHERE id = 657""",
+        (
+            "When the user shares, describes, or asks to log or analyze a dream entry",
+            "1. Preserve Raw Description: Extract the user's authentic dream description without alteration under an 'Original Description' section.\n"
+            "2. Execute write_dream_entry: Call write_dream_entry to generate a structured Dream Entry note in the Obsidian Vault.\n"
+            "3. Extract Analytical Dimensions: Structure feelings, emotions, characters, and narrative flow into dedicated analysis sections.\n"
+            "4. Cross-Reference Thematically: When requested, correlate themes, moods, and recurring motifs across past dream entries.",
+            "Never use write_journal_entry for dream entries (reserve write_journal_entry exclusively for Evelyn's personal daily reflections); do not overwrite or alter raw user dream text.",
+            "write_dream_entry creates a structured Dream Entry note in the vault.",
+            "write_dream_entry",
+            "procedure/dream-logging, skill/dream-analysis, creative-reflection",
+            now,
+        ),
+    )
+
+    # 2. Define the new starter procedures to insert: (trigger_pattern, steps, pitfalls, verification, tags, suggested_tools, legacy_ids_to_merge)
+    new_procedures = [
+        # Starter 1: manage_vault_list
+        (
+            "When the user asks to view, read, add items to, check off/complete, uncheck, or clear completed items on markdown checklists and lists in the Obsidian Vault (e.g. 'Groceries', 'Packing', 'Hardware', or general checklist notes)",
+            "1. Determine List Name & Target Action: Identify the list name (default is 'Groceries' if unspecified; other common lists include 'Packing', 'Hardware', 'To-Dos') and the requested action ('read', 'add', 'check', 'uncheck', 'remove', 'clear_completed', or 'list_all').\n"
+            "2. Structure Items with Categorization: When adding items, parse item names, quantities, and units. If applicable, group items into logical grocery sections ('Produce', 'Dairy & Refrigerated', 'Pantry', 'Frozen', 'Household') using the 'category' parameter or per-item dicts.\n"
+            "3. Execute Tool: Call manage_vault_list with the extracted action, list name, and item structures.\n"
+            "4. Confirm with User: Provide a clean, friendly summary of the items added, checked off, or updated on the vault list.",
+            "Do not confuse Vault checklists (manage_vault_list) with Google Tasks (create_task); do not dump raw unformatted JSON when reporting list status.",
+            "manage_vault_list completes successfully and returns confirmation of updated items.",
+            "skill/list-management, vault-checklists, groceries, organization",
+            "manage_vault_list",
+            [],
+        ),
+        # Starter 2: create_calendar_event, delete_calendar_event
+        (
+            "When the user asks to schedule, book, adjust, or cancel/delete an appointment, meeting, doctor visit, or time-specific calendar event on Google Calendar",
+            "1. Differentiate Calendar Events vs Tasks: Use calendar events for time-bound appointments with specific start/end times and locations. Use Google Tasks for flexible to-do errands or reminders without fixed meeting durations.\n"
+            "2. Extract Schedule Details: Parse event title, start date/time ('YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'), end time (defaults to +1 hour if omitted), location/address, and notes.\n"
+            "3. Scheduling (create_calendar_event): Check get_agenda or calendar events first if ambiguity exists, then call create_calendar_event with title and start_at.\n"
+            "4. Deletion/Cancellation (delete_calendar_event): If the user asks to cancel or remove an event, query get_agenda or pass event title and target_date to delete_calendar_event.\n"
+            "5. Confirm cleanly with the user with event title, day, time, and location.",
+            "Creating calendar appointments when user requested a simple to-do task (use create_task instead); deleting events without date qualification when title is generic.",
+            "Event is confirmed created or removed on Google Calendar with accurate date/time.",
+            "skill/scheduling, calendar, appointments, time-management",
+            "create_calendar_event, delete_calendar_event, sync_google_calendar, get_agenda",
+            [],
+        ),
+        # Starter 3: list_tasks, complete_task, delete_task
+        (
+            "When the user asks to review their pending to-do list, check off or mark a task as completed/done, or remove/delete an item from Google Tasks",
+            "1. Retrieve Active Tasks: When user asks what is on their to-do list, call list_tasks (or get_agenda).\n"
+            "2. Task Completion (complete_task): When the user states they finished an errand or asks to mark a task done, locate the matching task from the task list and call complete_task with its task_id.\n"
+            "3. Task Deletion (delete_task): When asked to discard or delete a task, pass its task_id to delete_task.\n"
+            "4. Confirm with a supportive, acknowledging tone celebrating completion without verbosity.",
+            "Attempting to complete a task without obtaining its valid task_id; mixing up Google Tasks with Vault markdown checklists.",
+            "Target task is confirmed completed or deleted from Google Tasks.",
+            "skill/task-management, task-completion, to-do, productivity",
+            "list_tasks, complete_task, delete_task, sync_google_tasks",
+            [],
+        ),
+        # Starter 4: get_recent_workouts
+        (
+            "When the user asks about recent workouts, exercise sessions, walks, gym visits, outdoor runs, strength training, activity duration, or calories burned",
+            "1. Parse Timeframe: Extract the requested timeframe (e.g. 'earlier today', 'last 3 hours', 'yesterday', or default to past 7 days).\n"
+            "2. Call get_recent_workouts: Call get_recent_workouts with appropriate 'days' or 'hours' parameters.\n"
+            "3. Synthesize Multi-Source Session Data: Review the merged Oura Ring activity sessions and Health Connect workout records, highlighting activity title, duration, distance (if applicable), and active calorie burn.\n"
+            "4. Frame with Restorative Awareness: Acknowledge effort encouragingly; correlate workout exertion with overall energy pacing if relevant.",
+            "Using general get_health_metrics when the user specifically asked for workout/exercise details; projecting clinical critique instead of positive companionship.",
+            "Workout sessions are retrieved and presented with duration, type, and calorie metrics.",
+            "health, fitness, exercise, workouts, activity-tracking",
+            "get_recent_workouts",
+            [],
+        ),
+        # Starter 5: search_history
+        (
+            "When the user asks to recall or search past conversation history, asks 'do you remember when we discussed...', references an earlier date/era, or asks for specific past dialogue from previous sessions",
+            "1. Formulate Query & Date Filters: Extract key search terms, topic phrases, or specific dates (YYYY-MM-DD or date_from / date_to).\n"
+            "2. Order & Limit Tuning: Use order='asc' when reviewing chronological progression from an earlier date, or order='desc' (default) for recent occurrences. Use window parameter when context around a specific message is needed.\n"
+            "3. Execute search_history: Retrieve the relevant historical message turns.\n"
+            "4. Synthesize Continuity: Connect the retrieved past dialogue with the present conversational moment naturally, without robotic citations unless explicitly requested.",
+            "Failing to search history when the user explicitly references past discussions; hallucinating past exchanges without verifying via search_history.",
+            "Historical chat messages are retrieved and accurately woven into the conversational response.",
+            "skill/memory-recall, chat-history, conversation-continuity, search",
+            "search_history",
+            [],
+        ),
+        # Starter 6: start_research, check_new_research, inspect_research_task, guide_research
+        (
+            "When the user requests comprehensive, multi-step background research on a topic, or asks for findings/status updates on a running or newly completed deep research task",
+            "1. Scope Inquiry & Intent: For new research topics requiring multi-step investigation, clarify key questions and call start_research with a clear, focused topic and main question.\n"
+            "2. Reviewing Completed Tasks: When notified of completed research or when asked for findings, call check_new_research to view summarized outcomes and synthesized vault notes.\n"
+            "3. Inspecting In-Flight Tasks: If investigating details or queries of an active task, call inspect_research_task with task_id.\n"
+            "4. Rescuing Stalled Tasks: If a background task is struggling or quarantined, review error traces and call guide_research with actionable guidance.",
+            "Launching heavy background research for simple one-shot lookups (use web_search for quick facts); forgetting to review synthesized vault notes when research finishes.",
+            "Research task is initiated or inspected, and results are clearly synthesized for the user.",
+            "skill/deep-research, autonomous-investigation, synthesis, web-research",
+            "start_research, check_new_research, list_research_tasks, inspect_research_task, guide_research",
+            [574],
+        ),
+        # Starter 7: sync_google_drive
+        (
+            "When the user asks to sync the latest Health Connect database export from Google Drive or refresh local health records from Drive",
+            "1. Verify Intent: Confirm user is requesting a refresh of the Health Connect database from Google Drive.\n"
+            "2. Call sync_google_drive: Call sync_google_drive(force=False) or force=True if a fresh download is mandated.\n"
+            "3. Report Sync Status: Inform the user whether the local Health Connect database was updated with new records or was already current.",
+            "Confusing sync_google_drive (Health Connect DB sync) with general Google Drive document browsing.",
+            "Database download/sync status is confirmed and local health connect records are current.",
+            "system/sync, health-connect, google-drive, database-maintenance",
+            "sync_google_drive",
+            [158],
+        ),
+    ]
+
+    inserted_count = 0
+    merged_count = 0
+    for trigger, steps, pitfalls, verif, tags, tools, legacy_ids in new_procedures:
+        cursor.execute(
+            """INSERT INTO procedures
+               (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+               VALUES (?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+            (trigger, steps, pitfalls, verif, tags, tools, now, now),
+        )
+        master_id = cursor.lastrowid
+        inserted_count += 1
+
+        if legacy_ids:
+            placeholders = ",".join("?" for _ in legacy_ids)
+            cursor.execute(
+                f"UPDATE procedures SET status = 'merged', merged_into_id = ?, updated_at = ? WHERE id IN ({placeholders})",
+                (master_id, now, *legacy_ids),
+            )
+            merged_count += len(legacy_ids)
+
+    logger.info(
+        f"Migration 000.006.051 created {inserted_count} starter procedures, updated #657, "
+        f"and superseded {merged_count} legacy procedures."
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -1019,6 +1384,27 @@ MIGRATIONS: list[Migration] = [
         version="000.006.048",
         name="name_preference_chat_harmonization",
         up_fn=migrate_000_006_048_name_preference_chat,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.049",
+        name="procedure_status_expansion_and_master_journaling",
+        up_fn=migrate_000_006_049_procedure_status_expansion_and_master_journaling,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.050",
+        name="operational_procedure_consolidation_and_tag_hygiene",
+        up_fn=migrate_000_006_050_operational_procedure_consolidation_and_tag_hygiene,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.051",
+        name="tool_starter_procedures_and_dynamic_surfacing",
+        up_fn=migrate_000_006_051_tool_starter_procedures_and_dynamic_surfacing,
+        post_sync_chroma=True,
     ),
 ]
 
