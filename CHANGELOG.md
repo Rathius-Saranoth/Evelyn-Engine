@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 20:56:33
+date modified: 2026-09-01 20:59:57
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
