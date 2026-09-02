@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-08-30 16:32:41
+# date modified: 2026-09-01 20:59:01
 # tags: 
 
 """
@@ -13,8 +13,10 @@ schema validation.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import time
@@ -536,7 +538,7 @@ def migrate_000_006_020_live_procedures_cleanup(conn: sqlite3.Connection, db_map
     import time
     cursor = conn.cursor()
     now = time.time()
-    user_name = getattr(cfg_obj, "USER_NAME", "Ricky")
+    user_name = getattr(cfg_obj, "USER_NAME", "User")
 
     # 1. Migrate 5 misclassified procedures to context_entries
     facts_to_insert = [
@@ -696,7 +698,7 @@ def migrate_000_006_027_entry_document_evolution(
 
     # 2. Backfill existing evolved entries to their primary legacy target document
     assistant_doc = getattr(config_obj, "PERSONA_FILE_ASSISTANT", "Evelyn_Narrative_Persona.md")
-    user_doc = getattr(config_obj, "PERSONA_FILE_USER", "Ricky_Narrative_Profile.md")
+    user_doc = getattr(config_obj, "PERSONA_FILE_USER", "User_Narrative_Profile.md")
     directives_doc = getattr(config_obj, "PERSONA_FILE_DIRECTIVES", "System_Directives.md")
     subj_user = getattr(config_obj, "SUBJECT_CODE_USER", "U")
     subj_asst = getattr(config_obj, "SUBJECT_CODE_ASSISTANT", "A")
@@ -778,6 +780,139 @@ def migrate_000_006_029_persona_agnostic_journaling_procedure(
             (trigger, steps, pitfalls, verification, tags, now, now),
         )
     logger.info("Migration 000.006.029 successfully updated master daily journaling procedure.")
+
+
+def migrate_000_006_048_name_preference_memory(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.048: Sanitize user address references and frame preferences affirmatively."""
+    cursor = conn.cursor()
+    user_name = getattr(cfg_obj, "USER_NAME", "User")
+    legacy_aliases = [a for a in getattr(cfg_obj, "USER_LEGACY_ALIASES", []) if a]
+    if not legacy_aliases:
+        return
+
+    alias_group = "|".join(re.escape(a) for a in legacy_aliases)
+    negative_pattern = re.compile(
+        rf'(?:explicitly stating that he does not like to be called|does not like to be called|never|not|avoid)\s+[\"\'\‘\’]?(?:{alias_group})[\"\'\‘\’]?(?:\s*(?:or|/)\s*[\"\'\‘\’]?(?:{alias_group})[\"\'\‘\’]?)?',
+        re.I,
+    )
+    alias_exact_pattern = re.compile(rf"\b(?:{alias_group})\b", re.I)
+
+    # 1. Sanitize context_entries
+    cursor.execute("SELECT id, observation, tags, subject FROM context_entries")
+    rows = cursor.fetchall()
+    updated_entries = 0
+    for eid, obs, tags, subj in rows:
+        text_to_check = f"{obs or ''} {tags or ''} {subj or ''}"
+        if not alias_exact_pattern.search(text_to_check):
+            continue
+
+        new_obs = negative_pattern.sub(f"preferring to go by {user_name} in all communications", obs or "")
+        new_obs = alias_exact_pattern.sub(user_name, new_obs)
+
+        new_tags = tags or ""
+        if new_tags:
+            new_tags = alias_exact_pattern.sub(user_name.lower(), new_tags)
+
+        new_subj = subj or ""
+        if new_subj:
+            new_subj = alias_exact_pattern.sub(user_name, new_subj)
+
+        if new_obs != obs or new_tags != tags or new_subj != subj:
+            cursor.execute(
+                "UPDATE context_entries SET observation = ?, tags = ?, subject = ? WHERE id = ?",
+                (new_obs, new_tags, new_subj, eid),
+            )
+            updated_entries += 1
+
+    # 2. Sanitize proposals
+    cursor.execute("SELECT id, merged_observation, reason, topic, merged_tags FROM proposals")
+    p_rows = cursor.fetchall()
+    for pid, obs, rsn, top, tags in p_rows:
+        text_to_check = f"{obs or ''} {rsn or ''} {top or ''} {tags or ''}"
+        if not alias_exact_pattern.search(text_to_check):
+            continue
+
+        new_obs = negative_pattern.sub(f"preferring to go by {user_name} in all communications", obs or "")
+        new_obs = alias_exact_pattern.sub(user_name, new_obs)
+
+        new_rsn = alias_exact_pattern.sub(user_name, rsn or "") if rsn else ""
+        new_top = alias_exact_pattern.sub(user_name, top or "") if top else ""
+        new_tags = alias_exact_pattern.sub(user_name.lower(), tags or "") if tags else ""
+
+        cursor.execute(
+            "UPDATE proposals SET merged_observation = ?, reason = ?, topic = ?, merged_tags = ? WHERE id = ?",
+            (new_obs, new_rsn, new_top, new_tags, pid),
+        )
+
+    # 3. Synchronize ChromaDB if available
+    try:
+        import chromadb
+        chroma_path = getattr(cfg_obj, "CHROMA_DB_PATH", None)
+        if chroma_path and os.path.exists(chroma_path):
+            client = chromadb.PersistentClient(path=chroma_path)
+            try:
+                coll = client.get_collection("evelyn_memory")
+                res = coll.get(ids=["sqlite::context_entry::1008::chunk-0"])
+                if res and res["documents"]:
+                    doc = res["documents"][0]
+                    new_doc = negative_pattern.sub(f"preferring to go by {user_name} in all communications", doc)
+                    new_doc = alias_exact_pattern.sub(user_name, new_doc)
+                    coll.update(ids=["sqlite::context_entry::1008::chunk-0"], documents=[new_doc])
+            except (OSError, RuntimeError, ValueError, KeyError) as e:
+                logger.warning(f"Chroma sync warning during migration: {e}")
+    except ImportError:
+        pass
+
+    logger.info(f"Migration 000.006.048 (memory) sanitized {updated_entries} context entries and proposals.")
+
+
+def migrate_000_006_048_name_preference_chat(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.048: Sanitize messages content and thinking traces in chat database."""
+    cursor = conn.cursor()
+    user_name = getattr(cfg_obj, "USER_NAME", "User")
+    legacy_aliases = [a for a in getattr(cfg_obj, "USER_LEGACY_ALIASES", []) if a]
+    if not legacy_aliases:
+        return
+
+    alias_group = "|".join(re.escape(a) for a in legacy_aliases)
+    negative_check_pattern = re.compile(
+        rf"\((?:not|avoid)\s+[\"\'\‘\’]?(?:{alias_group})[\"\'\‘\’]?(?:\s*(?:or|/)\s*[\"\'\‘\’]?(?:{alias_group})[\"\'\‘\’]?)?\)|(?:never|No)\s+[\"\'\‘\’]?(?:{alias_group})[\"\'\‘\’]?(?:\s*(?:or|/)\s*[\"\'\‘\’]?(?:{alias_group})[\"\'\‘\’]?)?\??(?:\s*Checked\.)?",
+        re.I,
+    )
+    alias_exact_pattern = re.compile(rf"\b(?:{alias_group})\b", re.I)
+
+    cursor.execute("SELECT id, content, thinking FROM messages")
+    rows = cursor.fetchall()
+    updated_count = 0
+    for mid, content, thinking in rows:
+        text_to_check = f"{content or ''} {thinking or ''}"
+        if not alias_exact_pattern.search(text_to_check):
+            continue
+
+        new_c = alias_exact_pattern.sub(user_name, content) if content else content
+
+        new_th = thinking
+        if new_th:
+            new_th = negative_check_pattern.sub(f"(Address as {user_name})", new_th)
+            new_th = alias_exact_pattern.sub(user_name, new_th)
+
+        if new_c != content or new_th != thinking:
+            cursor.execute("UPDATE messages SET content = ?, thinking = ? WHERE id = ?", (new_c, new_th, mid))
+            updated_count += 1
+
+    # Rebuild FTS table if it exists
+    with contextlib.suppress(sqlite3.Error):
+        cursor.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+
+    logger.info(f"Migration 000.006.048 (chat) sanitized {updated_count} messages.")
 
 
 MIGRATIONS: list[Migration] = [
@@ -871,6 +1006,19 @@ MIGRATIONS: list[Migration] = [
         version="000.006.044",
         name="add_channel_id_to_messages",
         up_sql=MIGRATE_000_006_044_CHAT_CHANNELS_SQL,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.048",
+        name="name_preference_memory_harmonization",
+        up_fn=migrate_000_006_048_name_preference_memory,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="chat",
+        version="000.006.048",
+        name="name_preference_chat_harmonization",
+        up_fn=migrate_000_006_048_name_preference_chat,
     ),
 ]
 

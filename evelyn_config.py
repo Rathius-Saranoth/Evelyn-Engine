@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-01 20:10:19
+# date modified: 2026-09-01 20:59:01
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -72,6 +72,9 @@ USER_NAME = "Ricky"          # The human operator's name
 # in display contexts.
 SUBJECT_CODE_USER = "U"       # Migrated from "R" (User)
 SUBJECT_CODE_ASSISTANT = "A"  # Migrated from "E" (Assistant)
+
+# Legacy or alternate user names/aliases to harmonize during database migrations
+USER_LEGACY_ALIASES: list[str] = ["Rick", "Richard"]
 
 # Persona document basenames — dynamically named from identity config.
 PERSONA_FILE_ASSISTANT = f"{ASSISTANT_NAME}_Narrative_Persona.md"

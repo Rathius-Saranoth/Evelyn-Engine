@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 20:33:46
+date modified: 2026-09-01 20:56:33
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.048] - 2026-09-01 — *User Name Preference & Record Harmonization*
+
+### Changed & Sanitized
+- **Affirmative User Name Preference Harmonization (`Evelyn/tools/db_migrator.py`, `evelyn_memory.db`, `evelyn_chat.db`, `chroma_db`)**:
+  - Implemented migration `000.006.048` (`name_preference_memory_harmonization` and `name_preference_chat_harmonization`) to eliminate negative name phrasing and standardize all records to use the configured user identity.
+  - Reframed negative address preferences in memory context entries (e.g. `Cat04-U`, Entry ID 1008) and proposals from negative constraints into affirmative statements (*"User established a clear preference regarding their address, preferring to go by their designated name in all communications."*).
+  - Sanitized historical chat message content and internal chain-of-thought (`thinking`) self-check traces in `evelyn_chat.db`, converting legacy negative check patterns into affirmative checks.
+  - Rebuilt full-text search index (`messages_fts`) to reflect sanitized messages.
+  - Updated vector embeddings in ChromaDB (`evelyn_memory` collection) and sanitized historical journal entries in the Obsidian vault.
+
+---
 
 ## [000.006.047] - 2026-09-01 — *Precision RAG Section & Abstract Targeting*
 
@@ -292,7 +304,7 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
 
 ### Added & Architecture
 - **Canonical Section Structural Invariance (`CANONICAL_DOCUMENT_SECTIONS`, `Evelyn/tools/profile_evolver.py`)**:
-  - Registered canonical required section schemas for all system prompt documents (`Evelyn_Narrative_Persona.md`, `Ricky_Narrative_Profile.md`, `System_Directives.md`).
+  - Registered canonical required section schemas for all system prompt documents (`Evelyn_Narrative_Persona.md`, `<USER_NAME>_Narrative_Profile.md`, `System_Directives.md`).
   - Implemented `extract_sections()`, `validate_document_structure()`, and `repair_missing_sections()` to prevent the LLM from merging, deleting, or renaming section headings during thematic evolution, compaction, or editorial proofreading.
 - **Topic Density & Minimum Section Coverage Guardrails**:
   - Enforced minimum substantive content thresholds ($\ge 15$ words per required section) across all transformation stages.
@@ -1124,7 +1136,7 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
 ### Changed
 - **Reference Library & Vault PDF Standardization**:
   - Normalized and extracted 26 Owner's Manuals and Spec Sheets into zero-padded chapter notes in `Reference Library/Owner's Manuals/`.
-  - Converted medical psychology reports in `Ricky/Medical/Psychology/` and Python reference notes into structured chapter notes.
+  - Converted medical psychology reports in `Personal/Medical/Psychology/` and Python reference notes into structured chapter notes.
   - Relocated all remaining 31 loose PDFs across the entire vault into `Attachments/Source Material/<Domain>/` with interactive Sidecar markdown notes in their place.
 
 ---
