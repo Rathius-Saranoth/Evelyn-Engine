@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-01 20:59:57
+# date modified: 2026-09-02 18:49:27
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.051"
-__version_info__ = (0, 6, 51)
-__version_name__ = "Tool Starter Procedures & Dynamic Surfacing Alignment"
+__version__ = "000.006.053"
+__version_info__ = (0, 6, 53)
+__version_name__ = "Real-Time Cross-Tab State Synchronization & Immediate Deletion"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
