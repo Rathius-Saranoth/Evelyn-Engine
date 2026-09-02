@@ -501,6 +501,7 @@
     let procedures = [];
     let allProcedures = [];
     let procMgmtFilter = 'all';
+    let procMgmtSourceFilter = 'all';
     let procMgmtSearch = '';
     let selectedProcIds = new Set();
     let researchTasks = [];
@@ -870,7 +871,7 @@
       if (!queryString || !queryString.trim()) return null;
       
       const tokens = [];
-      const regex = /(-?tags?:"[^"]+"|-tags?:[^\s]+|-[a-zA-Z0-9_\/-]+|tags?:"[^"]+"|tags?:[^\s]+|"[^"]+"|[^\s]+)/gi;
+      const regex = /(-?tags?:"[^"]+"|-tags?:[^\s]+|-?sources?:"[^"]+"|-sources?:[^\s]+|-[a-zA-Z0-9_\/-]+|tags?:"[^"]+"|tags?:[^\s]+|sources?:"[^"]+"|sources?:[^\s]+|"[^"]+"|[^\s]+)/gi;
       let match;
       while ((match = regex.exec(queryString)) !== null) {
         tokens.push(match[1]);
@@ -880,7 +881,9 @@
         includeWords: [],
         excludeWords: [],
         includeTags: [],
-        excludeTags: []
+        excludeTags: [],
+        includeSources: [],
+        excludeSources: []
       };
 
       for (let t of tokens) {
@@ -895,6 +898,12 @@
         } else if (lower.startsWith('tag:') || lower.startsWith('tags:')) {
           const val = clean.replace(/^tags?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
           if (val) parsed.includeTags.push(val);
+        } else if (lower.startsWith('-source:') || lower.startsWith('-sources:')) {
+          const val = clean.replace(/^-sources?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.excludeSources.push(val);
+        } else if (lower.startsWith('source:') || lower.startsWith('sources:')) {
+          const val = clean.replace(/^sources?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.includeSources.push(val);
         } else if (clean.startsWith('-') && clean.length > 1) {
           const val = clean.substring(1).replace(/^"|"$/g, '').trim().toLowerCase();
           if (val) parsed.excludeWords.push(val);
@@ -904,7 +913,7 @@
         }
       }
 
-      if (!parsed.includeWords.length && !parsed.excludeWords.length && !parsed.includeTags.length && !parsed.excludeTags.length) {
+      if (!parsed.includeWords.length && !parsed.excludeWords.length && !parsed.includeTags.length && !parsed.excludeTags.length && !parsed.includeSources.length && !parsed.excludeSources.length) {
         return null;
       }
       return parsed;
@@ -931,17 +940,33 @@
         }
       }
 
-      // 3. Check include tags (all must match)
+      // 3. Check exclude sources
+      if (queryParsed.excludeSources && queryParsed.excludeSources.length > 0) {
+        const itemSource = String(item.source || '').toLowerCase();
+        for (const exSrc of queryParsed.excludeSources) {
+          if (itemSource.includes(exSrc)) return false;
+        }
+      }
+
+      // 4. Check include tags (all must match)
       for (const incTag of queryParsed.includeTags) {
         if (!allTagsText.includes(incTag) && !tagsList.some(t => t.includes(incTag))) {
           return false;
         }
       }
 
-      // 4. Check include words (all must match)
+      // 5. Check include words (all must match)
       for (const incWord of queryParsed.includeWords) {
         if (!allText.includes(incWord) && !allTagsText.includes(incWord)) {
           return false;
+        }
+      }
+
+      // 6. Check include sources (all must match)
+      if (queryParsed.includeSources && queryParsed.includeSources.length > 0) {
+        const itemSource = String(item.source || '').toLowerCase();
+        for (const incSrc of queryParsed.includeSources) {
+          if (!itemSource.includes(incSrc)) return false;
         }
       }
 
@@ -950,7 +975,7 @@
 
     function getProcedureSearchableFields(p) {
       return {
-        text: [p.trigger_pattern, p.steps, p.pitfalls, p.verification, p.suggested_tools, p.id ? String(p.id) : ''],
+        text: [p.trigger_pattern, p.steps, p.pitfalls, p.verification, p.suggested_tools, p.source, p.id ? String(p.id) : ''],
         tags: p.tags ? String(p.tags).split(',').map(t => t.trim()).filter(Boolean) : []
       };
     }
@@ -963,7 +988,7 @@
         };
       } else if (item.item_type === 'procedure') {
         return {
-          text: [item.trigger_pattern, item.steps, item.pitfalls, item.verification, item.suggested_tools, item.id ? String(item.id) : ''],
+          text: [item.trigger_pattern, item.steps, item.pitfalls, item.verification, item.suggested_tools, item.source, item.id ? String(item.id) : ''],
           tags: item.tags ? String(item.tags).split(',').map(t => t.trim()).filter(Boolean) : []
         };
       } else if (item.item_type === 'proposal') {
@@ -1092,16 +1117,10 @@
       return lines.join('\n');
     }
 
-    async function loadData() {
+    async function loadReviewData() {
       try {
-        const [resUnified, resRes, resTasks] = await Promise.all([
-          fetch(`${API_BASE}/api/review/unified`, { headers: headers() }),
-          fetch(`${API_BASE}/research/list`, { headers: headers() }),
-          fetch(`${API_BASE}/api/heavy_tasks`, { headers: headers() })
-        ]);
-        
-        checkUnauthorized(resUnified || resRes || resTasks);
-
+        const resUnified = await fetch(`${API_BASE}/api/review/unified`, { headers: headers() });
+        checkUnauthorized(resUnified);
         if (resUnified.ok) {
           unifiedItems = await resUnified.json();
         } else {
@@ -1122,11 +1141,28 @@
             ...procedures.map(pr => ({ ...pr, item_type: 'procedure' }))
           ];
         }
+        updateCounts();
+        if (currentTab === 'triage') {
+          render();
+        }
+      } catch (e) {
+        console.error('Error loading review data:', e);
+      }
+    }
+
+    async function loadData() {
+      try {
+        const [resRes, resTasks] = await Promise.all([
+          fetch(`${API_BASE}/research/list`, { headers: headers() }),
+          fetch(`${API_BASE}/api/heavy_tasks`, { headers: headers() })
+        ]);
+        
+        checkUnauthorized(resRes || resTasks);
 
         if (resRes.ok) researchTasks = await resRes.json();
         if (resTasks.ok) heavyTasksData = await resTasks.json();
 
-        await loadAllProcedures();
+        await Promise.all([loadReviewData(), loadAllProcedures()]);
 
         updateCounts();
         renderHeavyTasks();
@@ -1144,6 +1180,10 @@
           allProcedures = await res.json();
           const procCountEl = document.getElementById('count-all-proc');
           if (procCountEl) procCountEl.textContent = allProcedures.length;
+          if (currentTab === 'procedures-mgmt') {
+            renderProceduresHeader();
+            renderProceduresList();
+          }
         }
       } catch (e) {
         console.error('Error loading all procedures:', e);
@@ -1526,12 +1566,20 @@
       });
 
       const title = document.getElementById('header-title');
-      if (currentTab === 'triage') title.textContent = 'Unified Triage Queue';
+      if (currentTab === 'triage') {
+        title.textContent = 'Unified Triage Queue';
+        loadReviewData();
+      }
       else if (currentTab === 'procedures-mgmt') {
         title.textContent = '⚙️ Operational Procedures Management';
         loadAllProcedures();
       }
-      else if (currentTab === 'research') title.textContent = 'Deep Research Dashboard';
+      else if (currentTab === 'research') {
+        title.textContent = 'Deep Research Dashboard';
+        fetch(`${API_BASE}/research/list`, { headers: headers() })
+          .then(r => r.ok && r.json())
+          .then(data => { if (data) { researchTasks = data; updateCounts(); render(); } });
+      }
       else if (currentTab === 'ingest') title.textContent = 'Document Ingestion & Staging';
       else if (currentTab === 'telemetry') {
         title.textContent = 'Analytics & Feedback';
@@ -1550,6 +1598,7 @@
     function setTriageFilter(filter) {
       triageFilter = filter;
       render();
+      loadReviewData();
     }
 
     function handleTriageSearch(val) {
@@ -1781,11 +1830,19 @@
       try {
         const res = await fetch(endpoint, { method: 'POST', headers: headers() });
         if (res.ok) {
+          allProcedures = allProcedures.filter(p => p.id !== procId);
+          procedures = procedures.filter(p => p.id !== procId);
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === procId));
           const item = unifiedItems.find(x => x.id === proposalId);
           if (item) {
             if (item.source_entries) item.source_entries = item.source_entries.filter(e => e.id !== procId);
             if (item.source_ids) item.source_ids = item.source_ids.filter(id => id !== procId);
           }
+          updateCounts();
+          render();
+
+          await Promise.all([loadAllProcedures(), loadReviewData()]);
+          updateCounts();
           render();
         } else {
           alert('Failed to delete procedure.');
@@ -1940,7 +1997,22 @@
         });
         if (res.ok) {
           unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
-          await loadAllProcedures();
+          if (action === 'delete') {
+            allProcedures = allProcedures.filter(p => p.id !== id);
+          } else if (action === 'approve') {
+            const proc = allProcedures.find(p => p.id === id);
+            if (proc) proc.status = 'live';
+          } else if (action === 'reject') {
+            const proc = allProcedures.find(p => p.id === id);
+            if (proc) proc.status = 'rejected';
+          } else if (action === 'deny') {
+            const proc = allProcedures.find(p => p.id === id);
+            if (proc) proc.status = 'archived';
+          }
+          updateCounts();
+          render();
+
+          await Promise.all([loadAllProcedures(), loadReviewData()]);
           updateCounts();
           render();
         } else {
@@ -3462,6 +3534,18 @@
       procMgmtFilter = filter;
       renderProceduresHeader();
       renderProceduresList();
+      loadAllProcedures();
+    }
+
+    function setProcMgmtSourceFilter(source) {
+      if (procMgmtSourceFilter === source) {
+        procMgmtSourceFilter = 'all';
+      } else {
+        procMgmtSourceFilter = source;
+      }
+      renderProceduresHeader();
+      renderProceduresList();
+      loadAllProcedures();
     }
 
     function toggleProcSelection(id) {
@@ -3480,6 +3564,9 @@
       let visible = allProcedures;
       if (procMgmtFilter !== 'all') {
         visible = visible.filter(p => p.status === procMgmtFilter);
+      }
+      if (procMgmtSourceFilter !== 'all') {
+        visible = visible.filter(p => (p.source || 'user').trim() === procMgmtSourceFilter);
       }
       if (queryParsed) {
         visible = visible.filter(p => matchesAdvancedQuery(p, queryParsed, getProcedureSearchableFields));
@@ -3584,7 +3671,14 @@
           headers: headers()
         });
         if (res.ok) {
-          await loadAllProcedures();
+          const proc = allProcedures.find(p => p.id === id);
+          if (proc) proc.status = 'archived';
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          updateCounts();
+          render();
+
+          await Promise.all([loadAllProcedures(), loadReviewData()]);
+          updateCounts();
           render();
         } else {
           alert('Failed to archive procedure.');
@@ -3602,7 +3696,14 @@
           body: JSON.stringify({ status: 'live' })
         });
         if (res.ok) {
-          await loadAllProcedures();
+          const proc = allProcedures.find(p => p.id === id);
+          if (proc) proc.status = 'live';
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          updateCounts();
+          render();
+
+          await Promise.all([loadAllProcedures(), loadReviewData()]);
+          updateCounts();
           render();
         } else {
           alert('Failed to restore procedure.');
@@ -3621,7 +3722,18 @@
         });
         if (res.ok) {
           selectedProcIds.delete(id);
-          await loadAllProcedures();
+          allProcedures = allProcedures.filter(p => p.id !== id);
+          procedures = procedures.filter(p => p.id !== id);
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          unifiedItems.forEach(item => {
+            if (item.source_entries) item.source_entries = item.source_entries.filter(s => s.id !== id);
+            if (item.source_ids) item.source_ids = item.source_ids.filter(sid => sid !== id);
+          });
+          updateCounts();
+          render();
+
+          await Promise.all([loadAllProcedures(), loadReviewData()]);
+          updateCounts();
           render();
         } else {
           alert('Failed to delete procedure.');
@@ -3642,13 +3754,42 @@
       const rejectedCount = allProcedures.filter(p => p.status === 'rejected').length;
       const archivedCount = allProcedures.filter(p => p.status === 'archived').length;
 
+      // Discover all unique sources dynamically from allProcedures
+      const rawSources = Array.from(new Set(allProcedures.map(p => (p.source || 'user').trim()))).filter(Boolean);
+      const priority = ['consolidated', 'starter', 'extracted'];
+      const sortedSources = [
+        ...priority.filter(s => rawSources.includes(s)),
+        ...rawSources.filter(s => !priority.includes(s)).sort()
+      ];
+
+      if (procMgmtSourceFilter !== 'all' && !rawSources.includes(procMgmtSourceFilter)) {
+        procMgmtSourceFilter = 'all';
+      }
+
+      const sourcePillsHtml = sortedSources.map(src => {
+        const count = allProcedures.filter(p => (p.source || 'user').trim() === src).length;
+        const displayName = src.charAt(0).toUpperCase() + src.slice(1);
+        const isActive = procMgmtSourceFilter === src;
+        return `<button class="filter-pill ${isActive ? 'active' : ''}" onclick="setProcMgmtSourceFilter('${escapeHtml(src)}')">${escapeHtml(displayName)} (${count})</button>`;
+      }).join('');
+
       filtersEl.innerHTML = `
-        <button class="filter-pill ${procMgmtFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtFilter('all')">All (${allProcedures.length})</button>
-        <button class="filter-pill ${procMgmtFilter === 'live' ? 'active' : ''}" onclick="setProcMgmtFilter('live')">Live (${liveCount})</button>
-        <button class="filter-pill ${procMgmtFilter === 'extracted' ? 'active' : ''}" onclick="setProcMgmtFilter('extracted')">Pending Review (${extractedCount})</button>
-        <button class="filter-pill ${procMgmtFilter === 'merged' ? 'active' : ''}" onclick="setProcMgmtFilter('merged')">Merged (${mergedCount})</button>
-        <button class="filter-pill ${procMgmtFilter === 'rejected' ? 'active' : ''}" onclick="setProcMgmtFilter('rejected')">Rejected (${rejectedCount})</button>
-        <button class="filter-pill ${procMgmtFilter === 'archived' ? 'active' : ''}" onclick="setProcMgmtFilter('archived')">Archived (${archivedCount})</button>
+        <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; min-width: 55px;">Status:</span>
+            <button class="filter-pill ${procMgmtFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtFilter('all')">All (${allProcedures.length})</button>
+            <button class="filter-pill ${procMgmtFilter === 'live' ? 'active' : ''}" onclick="setProcMgmtFilter('live')">Live (${liveCount})</button>
+            <button class="filter-pill ${procMgmtFilter === 'extracted' ? 'active' : ''}" onclick="setProcMgmtFilter('extracted')">Pending Review (${extractedCount})</button>
+            <button class="filter-pill ${procMgmtFilter === 'merged' ? 'active' : ''}" onclick="setProcMgmtFilter('merged')">Merged (${mergedCount})</button>
+            <button class="filter-pill ${procMgmtFilter === 'rejected' ? 'active' : ''}" onclick="setProcMgmtFilter('rejected')">Rejected (${rejectedCount})</button>
+            <button class="filter-pill ${procMgmtFilter === 'archived' ? 'active' : ''}" onclick="setProcMgmtFilter('archived')">Archived (${archivedCount})</button>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; min-width: 55px;">Source:</span>
+            <button class="filter-pill ${procMgmtSourceFilter === 'all' ? 'active' : ''}" onclick="setProcMgmtSourceFilter('all')">All Sources (${allProcedures.length})</button>
+            ${sourcePillsHtml}
+          </div>
+        </div>
       `;
 
       if (selectionBarEl) {
@@ -3677,6 +3818,9 @@
       let filtered = allProcedures;
       if (procMgmtFilter !== 'all') {
         filtered = filtered.filter(p => p.status === procMgmtFilter);
+      }
+      if (procMgmtSourceFilter !== 'all') {
+        filtered = filtered.filter(p => (p.source || 'user').trim() === procMgmtSourceFilter);
       }
 
       const queryParsed = parseAdvancedQuery(procMgmtSearch);
@@ -3716,7 +3860,10 @@
                 ${statusBadge}
                 ${queuedBadge}
               </div>
-              <div style="font-size: 12px; color: var(--text-dim);">Source: ${escapeHtml(p.source || 'user')}</div>
+              <div style="font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 4px;">
+                <span>Source:</span>
+                <span class="badge" style="background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-size: 11px; text-transform: uppercase; font-weight: 600;">${escapeHtml(p.source || 'user')}</span>
+              </div>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
               <div>
@@ -3774,7 +3921,7 @@
         container.innerHTML = `
           <div id="proc-mgmt-filters" class="filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px;"></div>
           <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
-            <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures (e.g. journal, -dream, -tag:sleep, tag:routine)..." value="${escapeHtml(procMgmtSearch)}" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+            <input type="text" id="proc-mgmt-search" placeholder="🔍 Search procedures (e.g. journal, source:consolidated, -source:extracted, -tag:sleep)..." value="${escapeHtml(procMgmtSearch)}" style="flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
             <button class="filter-pill" onclick="selectAllVisibleProcedures(true)">Select All Visible</button>
           </div>
           <div id="proc-mgmt-selection-bar"></div>

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-02 18:21:20
+date modified: 2026-09-02 18:49:39
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,34 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.053] - 2026-09-02 — *Real-Time Cross-Tab State Synchronization & Immediate Deletion*
+
+### Fixed & Enhanced
+- **Immediate In-Memory Cross-Tab Deletion Sync (`evelyn_ui/dev.html`)**:
+  - Fixed issue where deleting a procedure from the Procedures Management tab (`procedures-mgmt`) remained visible on the Unified Triage Queue (`triage`) until manual page refresh.
+  - Implemented immediate zero-latency in-memory state purging across `unifiedItems`, `allProcedures`, `procedures`, and proposal `source_entries`/`source_ids` on permanent deletion, archival, or restoration.
+  - Synchronized triage review and procedure states bidirectionally whenever actions are executed in either tab.
+- **Dynamic Tab & Filter Switch Data Revalidation (`evelyn_ui/dev.html`)**:
+  - Added dedicated `loadReviewData()` routine and wired it into `switchTab('triage')` and `setTriageFilter()`.
+  - Added live background revalidation to `setProcMgmtFilter()` and `setProcMgmtSourceFilter()`, ensuring all internal tab switches and filter toggles reflect fresh backend state without needing a browser reload.
+
+---
+
+## [000.006.052] - 2026-09-02 — *Procedure Management Source Filtering & Dynamic Classification*
+
+### Added & Enhanced
+- **Procedures Management Dynamic Source Filtering (`evelyn_ui/dev.html`)**:
+  - Implemented dynamic source filter pills (`All Sources`, `Consolidated`, `Starter`, `Extracted`, etc.) in the Operational Procedures Management dashboard (`procedures-mgmt`).
+  - Added dynamic source discovery that auto-detects any existing or future procedure `source` attributes without hardcoded limits.
+  - Implemented orthogonal multi-filtering allowing simultaneous filtering by status (`Live`, `Pending Review`, `Merged`, `Rejected`, `Archived`) and source type.
+  - Enhanced selection bar and bulk operations (`Select All Visible`, `Merge Selected`) to respect active status and source filters.
+  - Added distinct visual source badges (`source: <type>`) to procedure cards in the dashboard.
+- **Advanced Query Parser Source Operators (`evelyn_ui/dev.html`)**:
+  - Extended `parseAdvancedQuery` and `matchesAdvancedQuery` with support for `source:<type>` and `-source:<type>` operators, enabling granular positive and negative source filtering in the search bar.
+  - Added procedure `source` to `getProcedureSearchableFields` and `getTriageSearchableFields` for global full-text search matching.
+
+---
 
 ## [000.006.051] - 2026-09-02 — *Tool Starter Procedures & Dynamic Surfacing Alignment*
 
