@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-01 17:40:45
+# date modified: 2026-09-01 20:11:33
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -84,7 +84,12 @@ if str(TOOLS_DIR) not in sys.path:
 PERSONA_DIR = BASE_DIR / "Evelyn" / "persona"
 
 from chroma_rag import build_rag_context
-from evelyn_tools import MODEL_TOOL_DEFINITIONS, TOOL_FUNCTIONS, TOOL_THINK_EFFORT
+from evelyn_tools import (
+    MODEL_TOOL_DEFINITIONS,
+    TOOL_FUNCTIONS,
+    TOOL_THINK_EFFORT,
+    get_active_tools,
+)
 from fact_consolidator import cancel_pending_consolidation, run_consolidation
 from fact_extractor import cancel_pending_extraction, run_extraction
 from procedure_consolidator import (
@@ -1395,6 +1400,7 @@ async def _agentic_stream_loop(
     msgs: list[dict],
     think_effort=None,
     ui_override: bool = False,
+    tools: list[dict] | None = None,
 ):
     """
     Unified agentic streaming loop.
@@ -1406,6 +1412,7 @@ async def _agentic_stream_loop(
         msgs: Conversation history messages to send to Ollama.
         think_effort: Initial thinking effort ("low", "medium", "high", "max").
         ui_override: True if user explicitly selected thinking effort in UI.
+        tools: Optional curated list of active tool definitions. Defaults to MODEL_TOOL_DEFINITIONS.
 
     Yields:
         str: SSE formatted JSON event lines.
@@ -1434,9 +1441,11 @@ async def _agentic_stream_loop(
     OPEN_TAG = "<think>"
     CLOSE_TAG = "</think>"
 
+    active_tool_set = tools if tools is not None else MODEL_TOOL_DEFINITIONS
+
     for round_num in range(1, cfg.MAX_TOOL_ROUNDS + 1):
         is_terminal_round = round_num >= cfg.MAX_TOOL_ROUNDS
-        tools_for_round = None if is_terminal_round else MODEL_TOOL_DEFINITIONS
+        tools_for_round = None if is_terminal_round else active_tool_set
 
         round_thinking = ""
         round_content = ""
@@ -1873,11 +1882,15 @@ async def _process_chat_background(
             user_turn["images"] = images
         messages.append(user_turn)
 
+        active_tools = get_active_tools(user_message=user_message)
         await put("status", msg="Querying model...")
 
         # Unified Agentic Stream Loop
         async for event in _agentic_stream_loop(
-            messages, think_effort=think_effort, ui_override=ui_override
+            messages,
+            think_effort=think_effort,
+            ui_override=ui_override,
+            tools=active_tools,
         ):
             if event.startswith("data: "):
                 try:

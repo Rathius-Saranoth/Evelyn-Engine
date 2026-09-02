@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-08-30 16:33:29
+# date modified: 2026-09-01 20:10:19
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -183,6 +183,47 @@ SHOW_TOOL_LOOP_THINKING = True
 # classifier but not a UI chip override. Set to False to disable self-election.
 THINK_SELF_ELECT = True
 
+# --- Dynamic Tool Tiering & Intent Patterns ---
+# Core tools are always included in the system prompt for routine conversational turns.
+CORE_TOOL_NAMES: list[str] = [
+    "write_journal_entry",
+    "web_search",
+    "get_agenda",
+    "list_tasks",
+    "get_health_metrics",
+    "generate_image",
+]
+
+# Fast regex/keyword intent patterns for direct specialist tool activation.
+SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
+    "manage_vault_list": [
+        r"\b(add|put|insert|append|check|remove|delete|update|mark|cross)\b.*(grocery|shopping|todo|list|vault)",
+        r"\b(grocery|shopping|todo|list|vault)\b.*(add|put|insert|append|check|remove|delete|update|mark|cross)",
+    ],
+    "run_command": [r"\b(run|execute|exec|bash|terminal|shell|cli|command)\b"],
+    "read_file": [r"\b(read|cat|open|view|inspect)\s+(file|script|code|path)\b"],
+    "write_file": [r"\b(write|create|save|export)\s+(file|script|code|report|note)\b"],
+    "create_calendar_event": [r"\b(calendar|event|schedule|meeting|appointment|remind\s+me\s+at)\b"],
+    "delete_calendar_event": [r"\b(cancel|delete|remove)\s+(calendar|event|meeting|appointment)\b"],
+    "sync_google_calendar": [r"\b(sync|refresh)\s+(calendar|google\s+calendar)\b"],
+    "create_task": [r"\b(create|add|new)\s+task\b"],
+    "complete_task": [r"\b(complete|finish|done|check\s+off)\s+task\b"],
+    "delete_task": [r"\b(delete|remove)\s+task\b"],
+    "sync_google_tasks": [r"\b(sync|refresh)\s+(tasks|google\s+tasks)\b"],
+    "sync_google_drive": [r"\b(sync|refresh|download|upload)\s+(drive|google\s+drive)\b"],
+    "start_research": [r"\b(deep\s+research|start\s+research|investigate|study\s+topic|research\s+paper)\b"],
+    "list_research_tasks": [r"\b(list|show|check|status\s+of)\s+research\b"],
+    "inspect_research_task": [r"\b(inspect|review|read|details\s+of)\s+research\b"],
+    "guide_research": [r"\b(guide|direct|steer|clarify)\s+research\b"],
+    "check_new_research": [r"\b(new|completed|latest)\s+research\b"],
+    "search_history": [r"\b(search\s+chat|chat\s+history|past\s+conversation|earlier\s+we\s+talked)\b"],
+    "recall_specific_memory": [r"\b(recall|specific\s+memory|exact\s+fact|memory\s+id)\b"],
+    "sync_context_memory": [r"\b(sync|consolidate|update)\s+memory\b"],
+    "get_recent_workouts": [r"\b(workout|exercise|training|gym|lift|cardio|run|walk)\b"],
+    "write_dream_entry": [r"\b(dream|dreamscape|night\s+vision)\b.*(log|write|record|journal)"],
+    "read_dream_entry": [r"\b(dream|dreamscape)\b.*(read|recall|find|search)"],
+}
+
 # --- Context Summarizer (DEPRECATED & DISABLED) ---
 # Context summarizer has been removed to eliminate prompt clutter and temporal
 # hallucinations in journal writing. Active conversation history (MAX_HISTORY_MESSAGES=40)
@@ -346,12 +387,12 @@ RAG_PRIORITY_MULTIPLIERS = {
 RAG_PINNED_MAX_CHUNKS = 2
 
 # --- RAG Query Reformulation ---
-# Uses the already-loaded LLM to extract search keywords from conversational
-# messages before embedding. Adds ~1-2s latency but dramatically improves
-# retrieval accuracy for casual/conversational messages.
-RAG_REFORMULATE_ENABLED = True    # Master switch — set False to bypass
-RAG_REFORMULATE_MIN_WORDS = 4    # Skip reformulation for messages with fewer words
-RAG_REFORMULATE_TIMEOUT = 10     # Seconds before falling back to raw message
+# Direct semantic search on dense embeddings (bge-large-en-v1.5) provides 15x faster
+# retrieval (85ms vs 1266ms) with parity in similarity, eliminating pre-search GPU stalls.
+# Set True only if experimenting with synchronous LLM keyword rewrites.
+RAG_REFORMULATE_ENABLED = False   # Master switch — False = direct zero-latency semantic search
+RAG_REFORMULATE_MIN_WORDS = 4     # Skip reformulation for messages with fewer words
+RAG_REFORMULATE_TIMEOUT = 10      # Seconds before falling back to raw message
 
 # =============================================================================
 # Entry Management
