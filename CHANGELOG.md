@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 18:15:38
+date modified: 2026-09-01 19:06:43
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,41 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.044] - 2026-09-01 — *Chat History De-duplication, Context Retrieval Hardening & Channel Isolation*
+
+### Added
+- **Database Schema Migration `000.006.044` (`Evelyn/tools/db_migrator.py`, `data/evelyn_chat.db`)**:
+  - Added `channel_id TEXT DEFAULT 'main'` to `messages` table in `evelyn_chat.db`.
+  - Created composite index `idx_messages_channel_id_id ON messages(channel_id, id)` for indexed history loading and multi-channel namespace isolation.
+  - Updated `BASELINE_CHAT_SQL` in `db_migrator.py` to match the canonical schema.
+
+### Fixed & Enhanced
+- **Chat History Prompt De-duplication (`evelyn_server.py`)**:
+  - Bounded `load_history(before_id=user_row_id, channel_id=channel_id)` to `id < before_id`, ensuring the active user prompt is never duplicated into the conversation history context.
+  - Preserved prior interrupted/failed user turns without aggressive tail stripping when `before_id` is supplied.
+  - Updated `/regenerate` and `/edit` endpoints to capture `target_user_row_id` and pass it to `chat_stream()`, maintaining strict history turn boundaries.
+- **Context Retrieval Telemetry Hardening (`Evelyn/tools/string_utils.py`, `Evelyn/tools/chroma_rag.py`, `evelyn_server.py`)**:
+  - Updated `build_context_retrieval_envelope()` to omit `query="..."` from output XML tags by default, preventing the LLM from misinterpreting active prompt queries as vault knowledge or quoted speech.
+  - Clarified `<system_telemetry_directives>` in `load_system_prompt()` to explicitly instruct the model that `<context_retrieval>` excerpts are background reference materials rather than user quotes.
+- **Documentation & Test Coverage (`reference/xml_injection_conventions.md`, `Evelyn/tests/`)**:
+  - Updated `reference/xml_injection_conventions.md` to reflect the updated `<context_retrieval>` schema.
+  - Added `Evelyn/tests/test_history_bounding.py` and updated existing test suites across the engine.
+
+---
+
+## [000.006.043] - 2026-09-01 — *Deliberation & Reasoning Protocol Optimization*
+
+### Fixed & Enhanced
+- **Deliberation & Reasoning Protocol (`Evelyn/persona/System_Directives.md`, `evelyn_server.py`)**:
+  - Replaced the negative `## Anti-Drafting Constraint` with the affirmative, operational `## Deliberation & Reasoning Protocol`.
+  - Re-framed thinking directives from negative prohibitions (*"never draft, outline, or rehearse"*) into a positive non-diegetic, third-person planning protocol to eliminate semantic attention priming (where the model generated explicit drafting headers) and reduce token overhead/latency on local hardware.
+  - Enforced clear mode separation: thinking is strictly for abstract intent mapping, tool evaluation, and state checks; surface dialogue, candidate quotes, and persona emotes belong exclusively in the visible response stream.
+- **Profile Evolver Canonical Schema Invariance (`Evelyn/tools/profile_evolver.py`, `Evelyn/tests/test_profile_section_invariants.py`)**:
+  - Updated canonical section schemas (`CANONICAL_DOCUMENT_SECTIONS`, `DOCUMENT_THEMES`) and topic density validations to guard `## Deliberation & Reasoning Protocol`.
+  - Updated test suite invariants and repair assertions in `test_profile_section_invariants.py`.
+
+---
 
 ## [000.006.042] - 2026-09-01 — *System Directives Canonical Schema & Persona Separation Standardization*
 

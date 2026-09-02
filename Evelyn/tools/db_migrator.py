@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS messages (
     thinking      TEXT,
     ts            REAL NOT NULL,
     tools_used    TEXT,
-    tool_metadata TEXT
+    tool_metadata TEXT,
+    channel_id    TEXT DEFAULT 'main'
 );
 
 CREATE TABLE IF NOT EXISTS message_metrics (
@@ -306,6 +307,11 @@ CREATE INDEX IF NOT EXISTS idx_ambient_date ON daily_ambient_impressions(date, c
 CREATE INDEX IF NOT EXISTS idx_ambient_type ON daily_ambient_impressions(type, dismissed);
 CREATE INDEX IF NOT EXISTS idx_ambient_feed ON daily_ambient_impressions(dismissed, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_ambient_type_feed ON daily_ambient_impressions(type, dismissed, ts DESC);
+"""
+
+MIGRATE_000_006_044_CHAT_CHANNELS_SQL = """
+ALTER TABLE messages ADD COLUMN channel_id TEXT DEFAULT 'main';
+CREATE INDEX IF NOT EXISTS idx_messages_channel_id_id ON messages (channel_id, id);
 """
 
 # Master Migration Registry
@@ -859,6 +865,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.031",
         name="create_daily_ambient_impressions_table",
         up_sql=CREATE_DAILY_AMBIENT_IMPRESSIONS_TABLE_SQL,
+    ),
+    Migration(
+        target_db="chat",
+        version="000.006.044",
+        name="add_channel_id_to_messages",
+        up_sql=MIGRATE_000_006_044_CHAT_CHANNELS_SQL,
     ),
 ]
 

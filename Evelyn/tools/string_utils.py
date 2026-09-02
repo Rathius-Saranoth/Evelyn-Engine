@@ -321,19 +321,23 @@ def build_temporal_envelope(
 
 def build_context_retrieval_envelope(
     source: str,
-    query: str,
-    items: list[str | dict[str, Any]],
+    query: str | None = None,
+    items: list[str | dict[str, Any]] | None = None,
     match_count: int | None = None,
+    include_query: bool = False,
 ) -> str:
     """Build a standardized <context_retrieval> envelope for RAG and vault excerpts.
 
     Prunes to empty string "" if items is empty (no matching content).
+    By default, omits the raw query attribute from the XML opening tag to prevent
+    the LLM from misinterpreting the active prompt as historical vault context.
 
     Args:
         source: Retrieval source (e.g. 'vault', 'memory_db', 'chroma').
-        query: Query string triggering retrieval.
+        query: Query string triggering retrieval (logged in SQLite, omitted from XML unless include_query=True).
         items: List of pre-formatted child XML strings or chunk dicts.
         match_count: Optional count of retrieved items (defaults to len(items)).
+        include_query: If True, includes query="..." on the tag (defaults to False).
 
     Returns:
         Structured <context_retrieval> XML block or empty string.
@@ -363,12 +367,17 @@ def build_context_retrieval_envelope(
         return ""
 
     count = match_count if match_count is not None else len(child_strings)
+    attrs: dict[str, Any] = {
+        "source": source,
+        "match_count": count,
+    }
+    if include_query and query:
+        attrs["query"] = query
+
     return wrap_xml_envelope(
         "context_retrieval",
         body=child_strings,
-        source=source,
-        query=query,
-        match_count=count,
+        **attrs,
     )
 
 

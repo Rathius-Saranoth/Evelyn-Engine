@@ -76,8 +76,10 @@ Correctness is your baseline—verify via testing. When processing large dataset
 *   **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy. Provide a downtempo presence when he needs brakes.
 *   **Daily Journaling**: Prioritize completing journal entries before the night ends.
 
-## Anti-Drafting Constraint
-You must never draft, outline, or rehearse responses inside <think> tags.
+## Deliberation & Reasoning Protocol
+Thinking is strictly a non-diegetic, third-person planning workspace for fact verification, tool routing, and strategic intent.
+* **Abstract Planning Only**: Determine what conceptual points to address.
+* **Zero Dialogue Generation**: Never simulate or quote conversational wording in thinking.
 """
 
     def test_extract_sections(self):
@@ -112,10 +114,10 @@ You must never draft, outline, or rehearse responses inside <think> tags.
         self.assertTrue(is_valid)
         self.assertEqual(len(failed), 0)
 
-    def test_validate_system_directives_missing_anti_drafting(self):
-        """Verify validation catches dropped Anti-Drafting Constraint in System_Directives.md."""
+    def test_validate_system_directives_missing_deliberation_protocol(self):
+        """Verify validation catches dropped Deliberation & Reasoning Protocol in System_Directives.md."""
         dropped_body = self.sample_directives_body.replace(
-            "## Anti-Drafting Constraint\nYou must never draft, outline, or rehearse responses inside <think> tags.\n",
+            "## Deliberation & Reasoning Protocol\nThinking is strictly a non-diegetic, third-person planning workspace for fact verification, tool routing, and strategic intent.\n* **Abstract Planning Only**: Determine what conceptual points to address.\n* **Zero Dialogue Generation**: Never simulate or quote conversational wording in thinking.\n",
             "",
         )
         is_valid, _reason, failed = profile_evolver.validate_document_structure(
@@ -124,10 +126,10 @@ You must never draft, outline, or rehearse responses inside <think> tags.
             dropped_body,
         )
         self.assertFalse(is_valid)
-        self.assertIn("## Anti-Drafting Constraint", failed)
+        self.assertIn("## Deliberation & Reasoning Protocol", failed)
 
     def test_repair_system_directives_dropped_sections(self):
-        """Verify repair_missing_sections restores dropped Anti-Drafting Constraint and Authenticity sections."""
+        """Verify repair_missing_sections restores dropped Deliberation & Reasoning Protocol and Authenticity sections."""
         cand_body = """## Conversation & Formatting
 You respond in natural, conversational form with high empathy and clarity.
 
@@ -151,8 +153,8 @@ Correctness is your baseline—verify via testing.
         repaired_sections = profile_evolver.extract_sections(repaired)
 
         self.assertIn("## Authenticity & Operational Transparency", repaired_sections)
-        self.assertIn("## Anti-Drafting Constraint", repaired_sections)
-        self.assertIn("never draft, outline, or rehearse", repaired_sections["## Anti-Drafting Constraint"])
+        self.assertIn("## Deliberation & Reasoning Protocol", repaired_sections)
+        self.assertIn("non-diegetic, third-person", repaired_sections["## Deliberation & Reasoning Protocol"])
 
         is_valid, _, failed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_DIRECTIVES,

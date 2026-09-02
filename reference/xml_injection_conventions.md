@@ -1,7 +1,7 @@
 ---
 title: xml_injection_conventions.md
 date created: 2026-08-29 12:55:00
-date modified: 2026-08-29 12:55:45
+date modified: 2026-09-01 19:04:57
 tags: [markdown, reference, xml, injection, prompt-engineering, telemetry, evelyn]
 ---
 
@@ -68,7 +68,7 @@ Engine components and background workers must use standardized tag names to prev
 | Tag Name | Purpose | Primary Attributes | Body Content |
 | :--- | :--- | :--- | :--- |
 | `<temporal_context>` | Current timestamp, timezone, and session idle gap. | `status`, `idle_duration`, `last_interaction` | `<current_time>` child tag |
-| `<context_retrieval>` | RAG search results from Obsidian vault or ChromaDB. | `source`, `query`, `match_count` | `<document id="..." score="...">` child tags |
+| `<context_retrieval>` | RAG search results from Obsidian vault or ChromaDB. | `source`, `match_count` | `<document id="..." score="...">` child tags |
 | `<autonomous_trigger>` | Proactive scheduler events, task notifications, or alarms. | `type`, `entity_id`, `severity` | `<summary>`, `<directive>` child tags |
 | `<system_event>` | Runtime telemetry, tool execution outcomes, or daemon status. | `event`, `timestamp`, `status` | Human-readable event description |
 | `<memory_context>` | Fast memory facts injected from `evelyn_memory.db`. | `category`, `subject` | Extracted fact / observation statement |
@@ -89,7 +89,7 @@ Engine components and background workers must use standardized tag names to prev
 ### B. Retrieved Knowledge / Vector Search (RAG)
 
 ```xml
-<context_retrieval source="vault" query="solar panel specs" match_count="1">
+<context_retrieval source="vault" match_count="1">
   <document id="Hardware/Power/Solar.md" score="0.89">
     Output voltage peaks at 24V under optimal sunlight conditions. Charging controller cuts off at 28.4V.
   </document>

@@ -25,7 +25,8 @@ def test_full_day_history_loading_without_40_msg_cap():
                 thinking TEXT,
                 ts REAL NOT NULL,
                 tools_used TEXT,
-                tool_metadata TEXT
+                tool_metadata TEXT,
+                channel_id TEXT DEFAULT 'main'
             )
         """)
 
@@ -74,7 +75,8 @@ def test_history_token_budget_pruning_and_turn_integrity():
                 thinking TEXT,
                 ts REAL NOT NULL,
                 tools_used TEXT,
-                tool_metadata TEXT
+                tool_metadata TEXT,
+                channel_id TEXT DEFAULT 'main'
             )
         """)
 
