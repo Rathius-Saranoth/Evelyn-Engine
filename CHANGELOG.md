@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 20:12:04
+date modified: 2026-09-01 20:33:46
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.047] - 2026-09-01 — *Precision RAG Section & Abstract Targeting*
+
+### Added & Enhanced
+- **Upstream Ingestion Sanitization (`Evelyn/tools/chroma_rag.py`, `Evelyn/tools/ingest_obsidian_knowledge.py`)**:
+  - Implemented `preprocess_markdown_for_indexing()` to sanitize markdown notes *before* chunking and vector embedding on `bge-large-en-v1.5`.
+  - Canonical YAML frontmatter parsing via `frontmatter_utils.parse_frontmatter()`, preventing raw YAML delimiter blocks (`--- ... ---`) from polluting chunk embeddings.
+  - Automatically extracts Executive Callouts (`[!ABSTRACT]`) into ChromaDB metadata (`metadata["abstract"]`).
+  - Strips top-of-file breadcrumbs (`> Navigation: ...`, `[!NAV]`) and trailing link-index footers (`## 🔗 Related Notes`, `## 📌 Related Notes`, `## Footnotes`) with Unicode/emoji-resilient regexes.
+- **Abstract Anchoring & Downstream Safety Net (`Evelyn/tools/chroma_rag.py`)**:
+  - Implemented `clean_rag_chunk_content()` as a downstream safety net for legacy/un-synced chunks.
+  - Updated `build_rag_context()` to perform abstract anchoring: when a query matches mid-document chunks (e.g. Chunk 2 or 3), prepends the document's executive summary (`[!ABSTRACT]`) to provide parent-level semantic grounding. Standard notes without abstracts render cleanly without placeholder padding.
+- **Unit Testing (`Evelyn/tests/test_rag_precision_targeting.py`)**:
+  - Added dedicated test suite verifying frontmatter extraction, abstract callout parsing, navigation removal, emoji footer resilience, and XML envelope purity.
+
+---
 
 ## [000.006.046] - 2026-09-01 — *Direct High-Speed Vector RAG & Dynamic Tool Surfacing*
 
