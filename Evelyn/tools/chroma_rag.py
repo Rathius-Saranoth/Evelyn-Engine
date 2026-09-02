@@ -1,7 +1,7 @@
 
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-01 20:32:54
+# date modified: 2026-09-01 21:57:25
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 # Chroma Rag.py
@@ -31,6 +31,7 @@ Priority/Pinning: rag_priority multiplier adjusts cosine distance before thresho
 """
 
 
+import datetime
 import fcntl
 import json
 import os
@@ -228,6 +229,44 @@ def clean_rag_chunk_content(content: str) -> str:
     )
 
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def sanitize_chroma_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize metadata dictionary to ensure all keys and values conform to ChromaDB constraints.
+
+    ChromaDB requires:
+    - Values must be str, int, float, bool, or a non-empty list of str/int/float/bool.
+    - datetime / date objects must be converted to ISO format strings.
+    - Empty lists, dicts, or unsupported objects must be converted to strings or filtered.
+    """
+    clean: dict[str, Any] = {}
+    for k, v in meta.items():
+        if v is None:
+            continue
+        if isinstance(v, (bool, int, float)):
+            clean[k] = v
+        elif isinstance(v, str):
+            clean[k] = v
+        elif isinstance(v, (datetime.date, datetime.datetime)):
+            clean[k] = v.isoformat()
+        elif isinstance(v, (list, tuple, set)):
+            if not v:
+                clean[k] = ""
+            else:
+                clean_list = []
+                for item in v:
+                    if isinstance(item, (datetime.date, datetime.datetime)):
+                        clean_list.append(item.isoformat())
+                    elif isinstance(item, (str, int, float, bool)):
+                        clean_list.append(item)
+                    elif item is not None:
+                        clean_list.append(str(item))
+                clean[k] = clean_list if clean_list else ""
+        elif isinstance(v, dict):
+            clean[k] = json.dumps(v, default=str)
+        else:
+            clean[k] = str(v)
+    return clean
 
 
 def chunk_text(content: str) -> list[str]:
@@ -503,7 +542,7 @@ def direct_upsert(file_path: str, content: str, collection_name: str,
             meta.setdefault("rag_priority", "normal")
             meta.setdefault("rag_pinned", False)
             meta.setdefault("aliases", "")
-            metadatas.append(meta)
+            metadatas.append(sanitize_chroma_metadata(meta))
 
         col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
         return True
