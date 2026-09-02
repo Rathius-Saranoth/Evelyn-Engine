@@ -25,7 +25,8 @@ def test_date_break_injection_in_load_history():
                 thinking TEXT,
                 ts REAL NOT NULL,
                 tools_used TEXT,
-                tool_metadata TEXT
+                tool_metadata TEXT,
+                channel_id TEXT DEFAULT 'main'
             )
         """)
 

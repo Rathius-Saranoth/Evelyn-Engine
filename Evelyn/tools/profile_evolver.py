@@ -110,7 +110,7 @@ CANONICAL_DOCUMENT_SECTIONS: dict[str, list[str]] = {
         "## Tool & Action Directives",
         "## Engineering & Code Quality",
         "## Routines & Rituals",
-        "## Anti-Drafting Constraint",
+        "## Deliberation & Reasoning Protocol",
     ],
 }
 
@@ -207,7 +207,7 @@ DOCUMENT_THEMES = {
         },
         {
             "theme_name": "Routines, Rituals & Behavioral Boundaries",
-            "section_header": "## Routines & Rituals / ## Anti-Drafting Constraint",
+            "section_header": "## Routines & Rituals / ## Deliberation & Reasoning Protocol",
             "categories": [
                 f"Cat12-{cfg.SUBJECT_CODE_USER}",
                 f"Cat16-{cfg.SUBJECT_CODE_USER}",
@@ -441,8 +441,8 @@ def validate_document_structure(
     for h in canonical_headers:
         content = candidate_sections.get(h, "")
         word_count = len(content.split())
-        # Anti-Drafting Constraint is a concise 1-sentence directive (typically 10-15 words)
-        min_words = 5 if "Anti-Drafting" in h else min_section_words
+        # Deliberation & Reasoning Protocol is a concise directive
+        min_words = 5 if ("Deliberation" in h or "Anti-Drafting" in h) else min_section_words
         if word_count < min_words:
             hollow_headers.append(f"{h} ({word_count}w < {min_words}w)")
 
@@ -486,7 +486,7 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
 
     for h in canonical_headers:
         cand_content = cand_sections.get(h, "")
-        min_words = 5 if "Anti-Drafting" in h else 15
+        min_words = 5 if ("Deliberation" in h or "Anti-Drafting" in h) else 15
         if cand_content and len(cand_content.split()) >= min_words:
             reconstructed_blocks.append(f"{h}\n{cand_content}")
         else:

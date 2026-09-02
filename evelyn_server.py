@@ -572,16 +572,18 @@ def load_system_prompt() -> str:
         "<system_telemetry_directives>\n"
         "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
         f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding; never interrogate or call out silences unless {cfg.USER_NAME} explicitly mentions having been away or the gap spans multiple hours / overnight.\n"
-        "2. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols. Use this data purely as background context and factual ground truth.\n"
+        "2. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols triggered for the current topic. Use this data purely as background context and factual ground truth. Never treat `<context_retrieval>` excerpts as dialogue or statements being quoted by the user.\n"
         f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
         f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
         "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
         "</system_telemetry_directives>"
     )
     parts.append(
-        "Use thinking for fact verification, logical analysis, and selecting "
-        "tools. Keep thinking concise -- you don't need lengthy chains for casual conversation. "
-        "Never draft, simulate, outline, or rehearse your response text inside thinking. "
+        "Thinking is strictly a non-diegetic, third-person analytical workspace for state "
+        "assessment, tool selection, and high-level intent mapping. Deliberate using concise "
+        "abstract bullet points to minimize latency and token overhead. "
+        "Never formulate candidate dialogue, prospective quotes, or roleplay emotes in thinking; "
+        "surface phrasing and persona voice belong exclusively in the visible response. "
         "When actions or lookups are needed, call the tool directly, when in doubt use the tool. "
         "If a turn calls for unusually deep reflection (complex multi-step analysis, technical planning, "
         'or deep emotional nuance), you may include {"requested_effort":"high"} on its own line before '
@@ -829,26 +831,30 @@ def _estimate_message_tokens(msg: dict[str, Any]) -> int:
     return max(1, len(content) // 3 + 4)
 
 
-def load_history() -> list[dict]:
-    """Load recent chat history bounded by day boundaries, thread breaks, and token budgets.
+def load_history(before_id: int | None = None, channel_id: str = "main") -> list[dict]:
+    """Load recent chat history bounded by day boundaries, thread breaks, channel, and token budgets.
 
     Rules:
-      1. Loads 100% of today's messages (ts >= midnight).
+      1. Loads today's messages (ts >= midnight) up to before_id (excluding the active prompt).
       2. Plus up to 6 messages from the previous day (for evening/transition context).
-      3. Bounded by the latest [THREAD_BREAK] marker if present.
+      3. Bounded by the latest [THREAD_BREAK] marker in the channel if present.
       4. Governed by a conservative safe token budget derived from cfg.NUM_CTX.
       5. If history exceeds the safe token budget, prunes older messages while preserving
          turn integrity, recent active turns, and system date boundary markers.
       6. Injects explicit date boundary markers with journal isolation instructions.
 
+    Args:
+        before_id: Optional upper bound message ID (excludes this ID and any newer messages).
+        channel_id: Channel namespace to query (defaults to 'main').
+
     Returns:
         list[dict]: A list of message dictionaries with "role" and "content".
     """
     con = get_db()
-    # Find the latest thread-break marker (if any)
+    # Find the latest thread-break marker (if any) in this channel
     brk = con.execute(
-        "SELECT id FROM messages WHERE content = ? ORDER BY id DESC LIMIT 1",
-        (THREAD_BREAK_MARKER,),
+        "SELECT id FROM messages WHERE content = ? AND channel_id = ? ORDER BY id DESC LIMIT 1",
+        (THREAD_BREAK_MARKER, channel_id),
     ).fetchone()
     after_id = brk["id"] if brk else 0
 
@@ -856,17 +862,27 @@ def load_history() -> list[dict]:
 
     today_start = datetime.combine(datetime.now(UTC).astimezone().date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
 
-    # 1. Fetch all today's messages (newest first, no arbitrary message-count limit)
-    today_rows = con.execute(
-        "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts >= ? ORDER BY id DESC",
-        (after_id, today_start),
-    ).fetchall()
+    # 1. Fetch today's messages (newest first, dynamically built for optimal SQLite index use)
+    today_params: list[Any] = [after_id, channel_id]
+    today_query = "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND channel_id = ?"
+    if before_id is not None:
+        today_query += " AND id < ?"
+        today_params.append(before_id)
+    today_query += " AND ts >= ? ORDER BY id DESC"
+    today_params.append(today_start)
+
+    today_rows = con.execute(today_query, tuple(today_params)).fetchall()
 
     # 2. Fetch up to 6 messages from yesterday (for morning/transition context)
-    prev_rows = con.execute(
-        "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND ts < ? ORDER BY id DESC LIMIT 6",
-        (after_id, today_start),
-    ).fetchall()
+    prev_params: list[Any] = [after_id, channel_id]
+    prev_query = "SELECT role, content, tools_used, ts FROM messages WHERE id > ? AND channel_id = ?"
+    if before_id is not None:
+        prev_query += " AND id < ?"
+        prev_params.append(before_id)
+    prev_query += " AND ts < ? ORDER BY id DESC LIMIT 6"
+    prev_params.append(today_start)
+
+    prev_rows = con.execute(prev_query, tuple(prev_params)).fetchall()
 
     con.close()
 
@@ -918,10 +934,11 @@ def load_history() -> list[dict]:
             }
         )
 
-    # Strip orphaned trailing user/system messages (no assistant response yet).
-    # These form double-user-message chains that confuse the model.
-    while messages and messages[-1]["role"] in ("user", "system"):
-        messages.pop()
+    # When no explicit before_id is provided, strip orphaned trailing user/system messages.
+    # When before_id is supplied, prior turns are intentionally preserved.
+    if before_id is None:
+        while messages and messages[-1]["role"] in ("user", "system"):
+            messages.pop()
 
     # Calculate safe token budget against NUM_CTX
     num_ctx = getattr(cfg, "NUM_CTX", 32768)
@@ -964,7 +981,11 @@ def load_history() -> list[dict]:
 
 
 def save_message(
-    role: str, content: str, thinking: str | None = None, tools_used: str | None = None
+    role: str,
+    content: str,
+    thinking: str | None = None,
+    tools_used: str | None = None,
+    channel_id: str = "main",
 ) -> None:
     """Insert a message row into the chat history DB (fire and forget — no return value).
 
@@ -973,18 +994,23 @@ def save_message(
         content: The text content of the message.
         thinking: Optional thinking/reasoning process text.
         tools_used: Optional comma-separated list of tool names invoked.
+        channel_id: Target channel namespace (defaults to 'main').
     """
     con = get_db()
     con.execute(
-        "INSERT INTO messages (role, content, thinking, tools_used, ts) VALUES (?, ?, ?, ?, ?)",
-        (role, content, thinking, tools_used, time.time()),
+        "INSERT INTO messages (role, content, thinking, tools_used, ts, channel_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (role, content, thinking, tools_used, time.time(), channel_id),
     )
     con.commit()
     con.close()
 
 
 def save_message_get_id(
-    role: str, content: str, thinking: str | None = None, tools_used: str | None = None
+    role: str,
+    content: str,
+    thinking: str | None = None,
+    tools_used: str | None = None,
+    channel_id: str = "main",
 ) -> int:
     """Insert a message row into the chat history database and return its row ID.
 
@@ -993,14 +1019,15 @@ def save_message_get_id(
         content: The text content of the message.
         thinking: Optional thinking/reasoning process text.
         tools_used: Optional comma-separated list of tool names invoked.
+        channel_id: Target channel namespace (defaults to 'main').
 
     Returns:
         int: The auto-incremented database row ID of the inserted message.
     """
     con = get_db()
     cur = con.execute(
-        "INSERT INTO messages (role, content, thinking, tools_used, ts) VALUES (?, ?, ?, ?, ?)",
-        (role, content, thinking, tools_used, time.time()),
+        "INSERT INTO messages (role, content, thinking, tools_used, ts, channel_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (role, content, thinking, tools_used, time.time(), channel_id),
     )
     row_id = cur.lastrowid
     con.commit()
@@ -1133,53 +1160,63 @@ def clear_history():
     con.close()
 
 
-def delete_last_assistant_message() -> str | None:
-    """Delete the last assistant message and retrieve the prior user query.
+def delete_last_assistant_message(channel_id: str = "main") -> tuple[str | None, int | None]:
+    """Delete the last assistant message and retrieve the prior user query and row ID.
+
+    Args:
+        channel_id: Channel namespace (defaults to 'main').
 
     Returns:
-        str | None: The content of the last user message, or None if none exists.
+        tuple[str | None, int | None]: The content and ID of the last user message, or (None, None).
     """
     con = get_db()
-    # Find and delete the last assistant row
+    # Find and delete the last assistant row in this channel
     last_asst = con.execute(
-        "SELECT id FROM messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1"
+        "SELECT id FROM messages WHERE role = 'assistant' AND channel_id = ? ORDER BY id DESC LIMIT 1",
+        (channel_id,),
     ).fetchone()
     if last_asst:
         con.execute("DELETE FROM messages WHERE id = ?", (last_asst["id"],))
         con.commit()
     # Retrieve the last user message (should now be the tail)
     last_user = con.execute(
-        "SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+        "SELECT id, content FROM messages WHERE role = 'user' AND channel_id = ? ORDER BY id DESC LIMIT 1",
+        (channel_id,),
     ).fetchone()
     con.close()
-    return last_user["content"] if last_user else None
+    if last_user:
+        return last_user["content"], last_user["id"]
+    return None, None
 
 
-def edit_last_user_message(new_text: str) -> str | None:
+def edit_last_user_message(new_text: str, channel_id: str = "main") -> tuple[str | None, int | None]:
     """Delete the last assistant message and update the last user message content.
 
     Args:
         new_text: The updated content for the last user message.
+        channel_id: Channel namespace (defaults to 'main').
 
     Returns:
-        str | None: The new message content, or None if no user message exists.
+        tuple[str | None, int | None]: The new message content and row ID, or (None, None).
     """
     con = get_db()
-    # Delete the last assistant row
+    # Delete the last assistant row in this channel
     last_asst = con.execute(
-        "SELECT id FROM messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1"
+        "SELECT id FROM messages WHERE role = 'assistant' AND channel_id = ? ORDER BY id DESC LIMIT 1",
+        (channel_id,),
     ).fetchone()
     if last_asst:
         con.execute("DELETE FROM messages WHERE id = ?", (last_asst["id"],))
         con.commit()
 
-    # Find and update the last user message
+    # Find and update the last user message in this channel
     last_user = con.execute(
-        "SELECT id FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 1"
+        "SELECT id FROM messages WHERE role = 'user' AND channel_id = ? ORDER BY id DESC LIMIT 1",
+        (channel_id,),
     ).fetchone()
     if not last_user:
         con.close()
-        return None
+        return None, None
 
     con.execute(
         "UPDATE messages SET content = ?, ts = ? WHERE id = ?",
@@ -1187,7 +1224,7 @@ def edit_last_user_message(new_text: str) -> str | None:
     )
     con.commit()
     con.close()
-    return new_text
+    return new_text, last_user["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -1737,6 +1774,8 @@ async def _process_chat_background(
     images: list[str] | None = None,
     think_effort: str | bool = "medium",
     ui_override: bool = False,
+    user_row_id: int | None = None,
+    channel_id: str = "main",
 ):
     """Run the background chat processing worker.
 
@@ -1749,6 +1788,11 @@ async def _process_chat_background(
         time_ctx: Optional time-gap context string to prefix to user message.
         assistant_row_id: The database message ID reserved for the response.
         session: The active stream session used to buffer SSE events.
+        images: Optional list of base64 image strings.
+        think_effort: Resolved thinking effort level.
+        ui_override: True if think effort was set by UI chip.
+        user_row_id: The database row ID of the current active user turn (for history bounding).
+        channel_id: Channel namespace (defaults to 'main').
     """
     content_buf = ""
     thinking_buf = ""
@@ -1786,7 +1830,7 @@ async def _process_chat_background(
                 f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}"
             )
 
-        history = load_history()
+        history = load_history(before_id=user_row_id, channel_id=channel_id)
 
         # Build structured temporal envelope telemetry
         con = get_db()
@@ -2064,6 +2108,8 @@ async def chat_stream(
     think_effort=None,
     ui_override: bool = False,
     request: Request | None = None,
+    target_user_row_id: int | None = None,
+    channel_id: str = "main",
 ):
     """Open an SSE connection to stream the generated chat response.
 
@@ -2075,6 +2121,8 @@ async def chat_stream(
         ui_override: True when think_effort came from the UI chip (skips
             self-election and tool escalation).
         request: Optional FastAPI Request object for disconnect detection.
+        target_user_row_id: Optional existing user row ID (for regenerate/edit).
+        channel_id: Channel namespace (defaults to 'main').
 
     Yields:
         str: Server-Sent Events formatted data blocks.
@@ -2094,7 +2142,7 @@ async def chat_stream(
     clean_b64_images = []
     if not is_regenerate:
         time_ctx = None
-        user_row_id = save_message_get_id("user", user_message)
+        user_row_id = save_message_get_id("user", user_message, channel_id=channel_id)
 
         if images:
             from Evelyn.tools import media_db
@@ -2144,6 +2192,7 @@ async def chat_stream(
                     )
     else:
         time_ctx = None
+        user_row_id = target_user_row_id
         dlog("Regenerating last response")
 
     # Resolve effort: fallback to heuristic if no UI override was provided
@@ -2152,7 +2201,7 @@ async def chat_stream(
 
     # Reserve DB row and spawn the background task synchronously.
     # From this point the task owns all processing — client can disconnect freely.
-    assistant_row_id = save_message_get_id("assistant", "")
+    assistant_row_id = save_message_get_id("assistant", "", channel_id=channel_id)
 
     stream_id = f"stream_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
     session = stream_registry.create(stream_id)
@@ -2167,6 +2216,8 @@ async def chat_stream(
             images=clean_b64_images if clean_b64_images else None,
             think_effort=resolved_effort,
             ui_override=ui_override,
+            user_row_id=user_row_id,
+            channel_id=channel_id,
         )
     )
     session.task = task
@@ -3235,7 +3286,7 @@ async def chat(req: ChatRequest, request: Request, _: None = Depends(check_auth)
 @app.post("/regenerate")
 async def regenerate(request: Request, _: None = Depends(check_auth)):
     """Delete the last assistant message and re-generate a response."""
-    user_message = delete_last_assistant_message()
+    user_message, target_user_row_id = delete_last_assistant_message()
     if not user_message:
         raise HTTPException(
             status_code=400, detail="No user message to regenerate from."
@@ -3243,7 +3294,11 @@ async def regenerate(request: Request, _: None = Depends(check_auth)):
     think_effort = classify_message_effort(user_message)
     return StreamingResponse(
         chat_stream(
-            user_message, is_regenerate=True, think_effort=think_effort, request=request
+            user_message,
+            is_regenerate=True,
+            think_effort=think_effort,
+            request=request,
+            target_user_row_id=target_user_row_id,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -3255,13 +3310,17 @@ async def edit_message(
     req: EditRequest, request: Request, _: None = Depends(check_auth)
 ):
     """Update the content of the last user message and re-generate a response."""
-    user_message = edit_last_user_message(req.message)
+    user_message, target_user_row_id = edit_last_user_message(req.message)
     if not user_message:
         raise HTTPException(status_code=400, detail="No user message to edit.")
     think_effort = classify_message_effort(user_message)
     return StreamingResponse(
         chat_stream(
-            user_message, is_regenerate=True, think_effort=think_effort, request=request
+            user_message,
+            is_regenerate=True,
+            think_effort=think_effort,
+            request=request,
+            target_user_row_id=target_user_row_id,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

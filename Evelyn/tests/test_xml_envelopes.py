@@ -104,13 +104,18 @@ class TestXMLEnvelopes(unittest.TestCase):
         ]
         xml = build_context_retrieval_envelope(source="vault", query="solar power", items=items)
 
-        self.assertTrue(xml.startswith('<context_retrieval source="vault" query="solar power" match_count="2">'))
+        self.assertTrue(xml.startswith('<context_retrieval source="vault" match_count="2">'))
         self.assertTrue(xml.endswith("</context_retrieval>"))
+        self.assertNotIn('query="solar power"', xml)
         self.assertIn('id="Hardware/Solar.md"', xml)
         self.assertIn('title="Solar Specs"', xml)
         self.assertIn('score="0.89"', xml)
         self.assertIn("24V nominal output.", xml)
         self.assertIn("<protocol name='backup'>", xml)
+
+        # When include_query=True
+        xml_with_q = build_context_retrieval_envelope(source="vault", query="solar power", items=items, include_query=True)
+        self.assertTrue(xml_with_q.startswith('<context_retrieval source="vault" match_count="2" query="solar power">') or 'query="solar power"' in xml_with_q)
 
     def test_build_autonomous_trigger_envelope(self):
         """Verify autonomous trigger formats type, severity, summary, and directive."""
