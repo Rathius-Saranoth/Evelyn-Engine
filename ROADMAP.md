@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-01 20:12:12
+date modified: 2026-09-01 20:33:52
 ---
 # Evelyn Project Roadmap
 
@@ -88,8 +88,8 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Canonical XML Telemetry Envelopes & Context Hardening**: Unified in-flight prompt context injection standard (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) with centralized escaping, automatic token pruning, deterministic multi-envelope stacking, and strict anti-leakage system prompt contracts.
 - [x] **Chat History Prompt De-duplication & Context Retrieval Hardening (v000.006.044)**: Bounded history retrieval (`id < before_id`) with composite indexed multi-channel isolation, omitted raw query reflection from `<context_retrieval>` XML tags, and streamlined non-diegetic abstract thinking protocols.
 - [x] **Direct High-Speed Vector RAG & Dynamic Tool Surfacing (v000.006.046)**: Replaced slow synchronous LLM query reformulation with 15x faster direct dense vector search (`bge-large-en-v1.5`), implemented dynamic tool tiering (Core 8 vs Specialist Tools) coupled to Procedures and intent heuristics, and enforced affirmative profile evolution.
+- [x] **Precision RAG Section & Abstract Targeting (v000.006.047)**: Pre-chunk sanitization of YAML frontmatter, navigation breadcrumbs, and link-index footers before embedding, paired with abstract callout extraction (`[!ABSTRACT]`) and mid-document excerpt anchoring.
 
-- [ ] **Precision RAG Section & Abstract Targeting (Phase 2)**: Extract and inject concise note abstracts (`[!ABSTRACT]`) and targeted section headers rather than full document chunks, reducing prompt token bloat and maximizing factual density.
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
 - [ ] **Dynamic Configuration UI & Runtime Settings Manager**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct CLI or file edits.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.

@@ -1,7 +1,7 @@
 
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-08-29 13:17:27
+# date modified: 2026-09-01 20:32:54
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 # Chroma Rag.py
@@ -41,11 +41,17 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager, suppress
+from typing import Any
 
 import chromadb
 from chromadb.utils import embedding_functions
 
 import evelyn_config as cfg
+
+try:
+    from Evelyn.tools.frontmatter_utils import parse_frontmatter
+except ImportError:
+    from frontmatter_utils import parse_frontmatter
 
 _CHROMA_DIR = getattr(cfg, "CHROMA_DB_PATH", r"/home/rathius/evelyn/data/chroma_db")
 CHROMA_LOCK_FILE = os.path.join(_CHROMA_DIR, ".chroma_write.lock")
@@ -107,6 +113,121 @@ def acquire_chroma_write_lock(timeout: float = 60.0, non_blocking: bool = False)
 # and preserve full paragraphs without truncation.
 CHUNK_SIZE    = 1600  # chars per chunk (fits ~400 tokens)
 CHUNK_OVERLAP = 200   # chars of overlap between consecutive chunks
+
+
+def extract_abstract_callout(body: str) -> str:
+    """Extract text from an Obsidian Visual PKM [!ABSTRACT] callout block if present.
+
+    Args:
+        body: Markdown body text.
+
+    Returns:
+        str: Extracted callout text (with leading '>' stripped), or empty string.
+    """
+    if not body:
+        return ""
+    # Matches > [!ABSTRACT] followed by blockquote lines
+    match = re.search(
+        r"(?m)^\s*>\s*\[!ABSTRACT\][^\n]*\n((?:[ \t]*>[^\n]*\n?)+)",
+        body,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        raw_lines = match.group(1).splitlines()
+        cleaned_lines = [re.sub(r"^[ \t]*>[ \t]?", "", line) for line in raw_lines]
+        return "\n".join(cleaned_lines).strip()
+
+    # Single-line callout variant: > [!ABSTRACT] Some text...
+    single_match = re.search(
+        r"(?m)^\s*>\s*\[!ABSTRACT\][ \t]+([^\n]+)",
+        body,
+        flags=re.IGNORECASE,
+    )
+    if single_match:
+        return single_match.group(1).strip()
+
+    return ""
+
+
+def preprocess_markdown_for_indexing(content: str) -> tuple[str, dict[str, Any]]:
+    """Preprocess markdown content before chunking and embedding into ChromaDB.
+
+    Performs:
+    1. Canonical YAML frontmatter extraction via frontmatter_utils.
+    2. Executive Callout ([!ABSTRACT]) extraction into metadata['abstract'].
+    3. Top-of-note navigation header and breadcrumb removal (> Navigation: ...).
+    4. Trailing link list / footer removal (## 🔗 Related Notes, ## Navigation, ## Footnotes).
+    5. Normalization of blank line spacing.
+
+    Args:
+        content: Raw markdown text (including frontmatter).
+
+    Returns:
+        tuple[str, dict[str, Any]]: (clean_body, extracted_meta)
+    """
+    if not content or not content.strip():
+        return "", {}
+
+    meta, body = parse_frontmatter(content)
+    extracted_meta: dict[str, Any] = dict(meta) if meta else {}
+
+    # 1. Extract abstract if present
+    abstract = extract_abstract_callout(body)
+    if abstract:
+        extracted_meta["abstract"] = abstract
+
+    # 2. Strip top-of-file breadcrumbs & navigation lines
+    body = re.sub(r"(?mi)^\s*>\s*Navigation:.*$\n?", "", body)
+    body = re.sub(r"(?mi)^\s*>\s*\[!NAV\].*$\n?", "", body)
+    body = re.sub(r"(?mi)^\s*\[!NAV\].*$\n?", "", body)
+
+    # 3. Strip trailing link lists, related notes, footnotes with Unicode/emoji support
+    body = re.sub(
+        r"(?mi)\n##\s*[^\n]*?\b(?:related\s*notes|navigation|footnotes|see\s*also)\b[\s\S]*$",
+        "",
+        body,
+    )
+
+    # 4. Normalize excessive blank lines
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    return body, extracted_meta
+
+
+def clean_rag_chunk_content(content: str) -> str:
+    """Downstream safety net to sanitize retrieved chunks before context assembly.
+
+    Strips any leftover frontmatter delimiters, severed frontmatter lines,
+    navigation headers, and excessive whitespace from legacy or un-synced chunks.
+
+    Args:
+        content: Raw chunk text.
+
+    Returns:
+        str: Sanitized chunk text.
+    """
+    if not content:
+        return ""
+
+    text = content
+    # Strip complete leading YAML frontmatter if present
+    text = re.sub(r"^---\n.*?\n---\n?", "", text, count=1, flags=re.DOTALL)
+    # Strip severed single frontmatter lines at the top (e.g. "tags: [...]" or "title: ...")
+    if text.startswith("---"):
+        text = re.sub(r"^---[^\n]*\n", "", text)
+
+    # Strip navigation lines
+    text = re.sub(r"(?mi)^\s*>\s*Navigation:.*$\n?", "", text)
+    text = re.sub(r"(?mi)^\s*>\s*\[!NAV\].*$\n?", "", text)
+    text = re.sub(r"(?mi)^\s*\[!NAV\].*$\n?", "", text)
+
+    # Strip trailing related notes / footers if chunk captured them
+    text = re.sub(
+        r"(?mi)\n##\s*[^\n]*?\b(?:related\s*notes|navigation|footnotes|see\s*also)\b[\s\S]*$",
+        "",
+        text,
+    )
+
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def chunk_text(content: str) -> list[str]:
@@ -369,12 +490,14 @@ def direct_upsert(file_path: str, content: str, collection_name: str,
         col = get_or_create_collection(collection_name)
         _delete_chunks_by_source(col, file_path)
 
-        clean_content = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
+        clean_content, extracted_meta = preprocess_markdown_for_indexing(content)
         chunks = chunk_text(clean_content)
         ids = [f"{file_path}::chunk-{i}" for i in range(len(chunks))]
         metadatas = []
         for i in range(len(chunks)):
-            meta = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
+            meta: dict[str, Any] = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
+            if extracted_meta:
+                meta.update(extracted_meta)
             if extra_metadata:
                 meta.update(extra_metadata)
             meta.setdefault("rag_priority", "normal")
@@ -1188,7 +1311,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     for src, chunks in pinned_by_source.items():
         chunks.sort(key=lambda x: x.get("metadata", {}).get("chunk", 0))
         rel_path = get_vault_relative_path(src)
-        content_parts = [c["content"] for c in chunks]
+        content_parts = [clean_rag_chunk_content(c.get("content", "")) for c in chunks if clean_rag_chunk_content(c.get("content", ""))]
         full_content = "\n...\n".join(content_parts)
         retrieval_items.append(
             wrap_xml_envelope(
@@ -1211,7 +1334,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
             )
         )
 
-    # 3. Vault Documents: Show direct relevant content chunks
+    # 3. Vault Documents: Show direct relevant content chunks with abstract anchoring
     for src, chunks in normal_files_by_source.items():
         chunks.sort(key=lambda x: x.get("metadata", {}).get("chunk", 0))
         rel_path = get_vault_relative_path(src)
@@ -1223,8 +1346,15 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
 
         tags_raw = first_meta.get("tags", "")
 
-        content_parts = [c["content"] for c in chunks]
+        content_parts = [clean_rag_chunk_content(c.get("content", "")) for c in chunks if clean_rag_chunk_content(c.get("content", ""))]
         matched_content = "\n...\n".join(content_parts)
+
+        # Abstract anchoring: If abstract is available in metadata and not already in excerpt
+        abstract = first_meta.get("abstract", "")
+        if abstract and isinstance(abstract, str) and abstract.strip():
+            abstract_clean = abstract.strip()
+            if abstract_clean not in matched_content:
+                matched_content = f"[!ABSTRACT]\n{abstract_clean}\n\n{matched_content}"
 
         doc_attrs = {
             "path": rel_path,
