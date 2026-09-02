@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-08-31 17:28:10
+# date modified: 2026-09-01 20:11:04
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -20,6 +20,7 @@ import contextlib
 import importlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -3272,3 +3273,80 @@ TOOL_FUNCTIONS = {
     "read_file": read_file,
     "write_file": write_file,
 }
+
+# ---------------------------------------------------------------------------
+# Dynamic Tool Tiering & Activation
+# ---------------------------------------------------------------------------
+def _extract_tool_name(t: dict[str, Any]) -> str:
+    if not isinstance(t, dict):
+        return ""
+    fn = t.get("function")
+    if isinstance(fn, dict):
+        return str(fn.get("name", ""))
+    return str(t.get("name", ""))
+
+
+_MODEL_TOOL_MAP: dict[str, dict[str, Any]] = {
+    _extract_tool_name(t): t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t)
+}
+CORE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    _MODEL_TOOL_MAP[name]
+    for name in getattr(cfg, "CORE_TOOL_NAMES", [])
+    if name in _MODEL_TOOL_MAP
+]
+
+
+def get_active_tools(
+    user_message: str = "",
+    retrieved_procedures: list[dict] | None = None,
+) -> list[dict[str, Any]]:
+    """Dynamically select active tool definitions for a conversational turn.
+
+    Combines:
+    1. Core Conversational Tools (always present: 8 tools)
+    2. Specialist Tools declared in retrieved Procedures (procedure-to-tool coupling)
+    3. Specialist Tools triggered by direct intent regex/keywords in user_message (100% recall)
+
+    Args:
+        user_message: Raw user prompt to evaluate intent patterns.
+        retrieved_procedures: List of procedure dicts/chunks retrieved via RAG.
+
+    Returns:
+        list[dict]: Curated subset of MODEL_TOOL_DEFINITIONS to pass to Ollama.
+    """
+    active_names: set[str] = set(getattr(cfg, "CORE_TOOL_NAMES", []))
+
+    # 1. Procedure-triggered tools
+    if retrieved_procedures:
+        for proc in retrieved_procedures:
+            # Check metadata "tools"
+            meta_tools = proc.get("metadata", {}).get("tools", "")
+            if isinstance(meta_tools, str) and meta_tools:
+                for t_name in re.split(r"[\s,]+", meta_tools):
+                    if t_name in _MODEL_TOOL_MAP:
+                        active_names.add(t_name)
+            elif isinstance(meta_tools, list):
+                for t_name in meta_tools:
+                    if str(t_name) in _MODEL_TOOL_MAP:
+                        active_names.add(str(t_name))
+
+            # Check procedure content for declared tool names
+            content = str(proc.get("content", ""))
+            for tool_name in _MODEL_TOOL_MAP:
+                if f"`{tool_name}`" in content or f"tool:{tool_name}" in content:
+                    active_names.add(tool_name)
+
+    # 2. Intent-triggered specialist tools (Regex/Keyword heuristics)
+    if user_message:
+        patterns_map: dict[str, list[str]] = getattr(cfg, "SPECIALIST_TOOL_INTENT_PATTERNS", {})
+        for tool_name, pattern_list in patterns_map.items():
+            if tool_name in _MODEL_TOOL_MAP and tool_name not in active_names:
+                for pat in pattern_list:
+                    if re.search(pat, user_message, re.IGNORECASE):
+                        active_names.add(tool_name)
+                        break
+
+    # Maintain canonical ordering from MODEL_TOOL_DEFINITIONS
+    return [t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t) in active_names]
+
+

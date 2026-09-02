@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-01 18:14:45
+# date modified: 2026-09-01 20:11:44
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -248,7 +248,7 @@ DOCUMENT_RULES = {
             f"- Refer to {cfg.USER_NAME} in the third person.\n"
             f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should respond casually' -> 'You respond in natural conversational form.'\n"
             f"- Example 2 ({cfg.USER_NAME}'s habit): '{cfg.USER_NAME} Sunday routine is laundry' -> 'You recognize {cfg.USER_NAME}\\'s Sunday routine of laundry.'\n"
-            "- Must always preserve the anti-drafting constraint: AI must never draft, outline, or rehearse responses inside <think> tags."
+            "- Formulate directives using affirmative operational rules and positive identity statements. Specific edge-case error prohibitions or tool-specific rules belong in Procedural Memory (evelyn_procedures)."
         ),
     },
 }

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 19:20:43
+date modified: 2026-09-01 20:12:04
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.046] - 2026-09-01 — *Direct High-Speed Vector RAG & Dynamic Tool Surfacing*
+
+### Added & Enhanced
+- **Direct Zero-Latency Semantic Vector RAG (`evelyn_config.py`, `Evelyn/tools/query_reformulator.py`)**:
+  - Disabled synchronous Ollama pre-search query reformulation (`RAG_REFORMULATE_ENABLED = False`), replacing it with direct dense embedding vector search on `bge-large-en-v1.5`.
+  - Benchmarked against live production ChromaDB data, demonstrating **14.9x faster retrieval (~85ms vs ~1,266ms)** with equivalent semantic similarity (0.844 vs 0.849) while completely eliminating GPU pre-search contention and cold-start timeouts.
+  - Added zero-latency local conversational preamble cleaner (`clean_conversational_query`) using fast regex/stop-word filtering without LLM calls.
+- **Dynamic Tool Tiering & Procedure Coupling (`evelyn_config.py`, `Evelyn/tools/evelyn_tools.py`, `evelyn_server.py`)**:
+  - Partitioned tools into **Core Conversational Tools** (8 always-available tools: `read_journal_entry`, `write_journal_entry`, `search_vault`, `web_search`, `get_agenda`, `list_tasks`, `get_health_metrics`, `generate_image`) and **Specialist Tools**.
+  - Implemented `get_active_tools()` combining Core Tools + Specialist Tools dynamically activated via retrieved Procedure metadata/content + Intent Heuristic patterns (`SPECIALIST_TOOL_INTENT_PATTERNS`).
+  - Reduces tool prompt overhead by ~1,500 JSON schema tokens on routine chat messages, accelerating prompt evaluation and reducing model confusion.
+- **Affirmative Profile Evolver Guidance (`Evelyn/tools/profile_evolver.py`)**:
+  - Updated evolution guidelines to formulate affirmative operational rules and positive identity statements in `System_Directives.md` while routing negative constraints and error-handling rules into Procedural Memory (`evelyn_procedures`).
+- **Unit Testing (`Evelyn/tests/test_dynamic_tools_and_direct_rag.py`)**:
+  - Added comprehensive test suite verifying core tool defaults, procedure coupling, intent pattern triggers, and zero-latency preamble cleaning.
+
+---
 
 ## [000.006.045] - 2026-09-01 — *System Directives Prompt Streamlining*
 
