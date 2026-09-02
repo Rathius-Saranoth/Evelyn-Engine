@@ -579,11 +579,6 @@ def load_system_prompt() -> str:
         "</system_telemetry_directives>"
     )
     parts.append(
-        "Thinking is strictly a non-diegetic, third-person analytical workspace for state "
-        "assessment, tool selection, and high-level intent mapping. Deliberate using concise "
-        "abstract bullet points to minimize latency and token overhead. "
-        "Never formulate candidate dialogue, prospective quotes, or roleplay emotes in thinking; "
-        "surface phrasing and persona voice belong exclusively in the visible response. "
         "When actions or lookups are needed, call the tool directly, when in doubt use the tool. "
         "If a turn calls for unusually deep reflection (complex multi-step analysis, technical planning, "
         'or deep emotional nuance), you may include {"requested_effort":"high"} on its own line before '

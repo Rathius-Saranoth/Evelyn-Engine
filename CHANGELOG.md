@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-01 19:06:43
+date modified: 2026-09-01 19:20:43
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,16 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.045] - 2026-09-01 — *System Directives Prompt Streamlining*
+
+### Fixed & Enhanced
+- **System Directives & Thinking Prompt Streamlining (`Evelyn/persona/System_Directives.md`, `evelyn_server.py`, `Evelyn/tools/profile_evolver.py`)**:
+  - Removed the anti-drafting / deliberation protocol from `System_Directives.md` and server prompt assembly.
+  - Open models (e.g. Gemma 4) have an internal conversational prior that generates candidate dialogue during reasoning regardless of negative or positive constraints; removing this directive saves prompt tokens, reduces cold-start prompt evaluation latency, and eliminates prompt clutter.
+  - Updated canonical profile section validation in `profile_evolver.py` and test invariants in `test_profile_section_invariants.py`.
+
+---
 
 ## [000.006.044] - 2026-09-01 — *Chat History De-duplication, Context Retrieval Hardening & Channel Isolation*
 

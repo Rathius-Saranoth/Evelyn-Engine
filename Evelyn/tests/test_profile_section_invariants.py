@@ -75,11 +75,6 @@ Correctness is your baseline—verify via testing. When processing large dataset
 ## Routines & Rituals
 *   **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy. Provide a downtempo presence when he needs brakes.
 *   **Daily Journaling**: Prioritize completing journal entries before the night ends.
-
-## Deliberation & Reasoning Protocol
-Thinking is strictly a non-diegetic, third-person planning workspace for fact verification, tool routing, and strategic intent.
-* **Abstract Planning Only**: Determine what conceptual points to address.
-* **Zero Dialogue Generation**: Never simulate or quote conversational wording in thinking.
 """
 
     def test_extract_sections(self):
@@ -104,7 +99,7 @@ Thinking is strictly a non-diegetic, third-person planning workspace for fact ve
         self.assertEqual(len(failed), 0)
 
     def test_validate_system_directives_structure_success(self):
-        """Verify validation passes for canonical System_Directives.md structure including short constraint sections."""
+        """Verify validation passes for canonical System_Directives.md structure."""
         is_valid, _reason, failed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_DIRECTIVES,
             self.sample_directives_body,
@@ -114,10 +109,10 @@ Thinking is strictly a non-diegetic, third-person planning workspace for fact ve
         self.assertTrue(is_valid)
         self.assertEqual(len(failed), 0)
 
-    def test_validate_system_directives_missing_deliberation_protocol(self):
-        """Verify validation catches dropped Deliberation & Reasoning Protocol in System_Directives.md."""
+    def test_validate_system_directives_missing_section(self):
+        """Verify validation catches dropped section in System_Directives.md."""
         dropped_body = self.sample_directives_body.replace(
-            "## Deliberation & Reasoning Protocol\nThinking is strictly a non-diegetic, third-person planning workspace for fact verification, tool routing, and strategic intent.\n* **Abstract Planning Only**: Determine what conceptual points to address.\n* **Zero Dialogue Generation**: Never simulate or quote conversational wording in thinking.\n",
+            "## Engineering & Code Quality\nCorrectness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first. Ensure code is maintainable.\n\n",
             "",
         )
         is_valid, _reason, failed = profile_evolver.validate_document_structure(
@@ -126,10 +121,10 @@ Thinking is strictly a non-diegetic, third-person planning workspace for fact ve
             dropped_body,
         )
         self.assertFalse(is_valid)
-        self.assertIn("## Deliberation & Reasoning Protocol", failed)
+        self.assertIn("## Engineering & Code Quality", failed)
 
     def test_repair_system_directives_dropped_sections(self):
-        """Verify repair_missing_sections restores dropped Deliberation & Reasoning Protocol and Authenticity sections."""
+        """Verify repair_missing_sections restores dropped Authenticity sections."""
         cand_body = """## Conversation & Formatting
 You respond in natural, conversational form with high empathy and clarity.
 
@@ -153,8 +148,6 @@ Correctness is your baseline—verify via testing.
         repaired_sections = profile_evolver.extract_sections(repaired)
 
         self.assertIn("## Authenticity & Operational Transparency", repaired_sections)
-        self.assertIn("## Deliberation & Reasoning Protocol", repaired_sections)
-        self.assertIn("non-diegetic, third-person", repaired_sections["## Deliberation & Reasoning Protocol"])
 
         is_valid, _, failed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_DIRECTIVES,

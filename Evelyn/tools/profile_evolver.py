@@ -110,7 +110,6 @@ CANONICAL_DOCUMENT_SECTIONS: dict[str, list[str]] = {
         "## Tool & Action Directives",
         "## Engineering & Code Quality",
         "## Routines & Rituals",
-        "## Deliberation & Reasoning Protocol",
     ],
 }
 
@@ -207,7 +206,7 @@ DOCUMENT_THEMES = {
         },
         {
             "theme_name": "Routines, Rituals & Behavioral Boundaries",
-            "section_header": "## Routines & Rituals / ## Deliberation & Reasoning Protocol",
+            "section_header": "## Routines & Rituals",
             "categories": [
                 f"Cat12-{cfg.SUBJECT_CODE_USER}",
                 f"Cat16-{cfg.SUBJECT_CODE_USER}",
