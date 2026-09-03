@@ -488,6 +488,22 @@
     </div>
   </div>
 
+  <!-- Modal for Procedure Detail View -->
+  <div class="modal" id="procedure-detail-modal">
+    <div class="modal-content" style="max-width: 750px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <span class="modal-title" id="procedure-modal-title">⚡ Master Procedure</span>
+        <button class="close-btn" onclick="closeProcedureModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="procedure-modal-body" style="overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+        <!-- Populated dynamically -->
+      </div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end;">
+        <button class="btn btn-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); padding: 6px 14px; cursor: pointer;" onclick="closeProcedureModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = window.location.origin;
     const API_KEY = localStorage.getItem('evelyn_api_key') || '';
@@ -3055,7 +3071,7 @@
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                   <span class="badge extraction" style="background: var(--accent); color: #fff;">PROPOSAL: PROCEDURE MERGE</span>
                   <span>ID: ${item.id}</span>
-                  ${targetMasterId ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px;">⚡ TARGET MASTER #${targetMasterId}</span>` : ''}
+                  ${targetMasterId ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px; cursor: pointer;" onclick="openProcedureModal(${targetMasterId})" title="Click to view Master Procedure #${targetMasterId}">⚡ TARGET MASTER #${targetMasterId} 🔍</span>` : ''}
                 </div>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
@@ -3106,7 +3122,7 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId})">⚡ Merge into Master #${targetMasterId}</button>` : ''}
+                ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId})">⚡ Merge Into Master</button>` : ''}
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve (New Procedure)</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
@@ -3274,7 +3290,7 @@
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="badge extraction" style="background: var(--accent); color: #fff;">PROCEDURE</span>
                 <span>ID: ${item.id}</span>
-                ${item.merged_into_id ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px;">⚡ MATCHES MASTER #${item.merged_into_id}</span>` : ''}
+                ${item.merged_into_id ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px; cursor: pointer;" onclick="openProcedureModal(${item.merged_into_id})" title="Click to view Master Procedure #${item.merged_into_id}">⚡ MATCHES MASTER #${item.merged_into_id} 🔍</span>` : ''}
               </div>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
@@ -3305,7 +3321,7 @@
             </div>
             <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
               <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve')">Approve (Live)</button>
-              ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id})">⚡ Merge into Master #${item.merged_into_id}</button>` : ''}
+              ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id})">⚡ Merge Into Master</button>` : ''}
               <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject')">Reject</button>
               <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny')">Archive</button>
               <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete')">🗑️ Delete</button>
@@ -3895,7 +3911,7 @@
           : (p.status === 'extracted'
             ? `<span class="badge" style="background: #f59e0b; color: #fff;">PENDING REVIEW</span>`
             : (p.status === 'merged'
-              ? `<span class="badge" style="background: #3b82f6; color: #fff;">MERGED${p.merged_into_id ? ' -> #' + p.merged_into_id : ''}</span>`
+              ? `<span class="badge" style="background: #3b82f6; color: #fff;">MERGED${p.merged_into_id ? ' -> <span style="cursor:pointer; text-decoration:underline;" onclick="event.stopPropagation(); openProcedureModal(' + p.merged_into_id + ');" title="View master procedure">#' + p.merged_into_id + ' 🔍</span>' : ''}</span>`
               : (p.status === 'rejected'
                 ? `<span class="badge" style="background: #ef4444; color: #fff;">REJECTED</span>`
                 : `<span class="badge" style="background: #6b7280; color: #fff;">ARCHIVED</span>`)));
@@ -4391,6 +4407,85 @@
         btn.disabled = false;
         btn.textContent = '💾 Save & Re-index Note';
       }
+    }
+
+    async function openProcedureModal(procId) {
+      const modal = document.getElementById('procedure-detail-modal');
+      const titleEl = document.getElementById('procedure-modal-title');
+      const bodyEl = document.getElementById('procedure-modal-body');
+      if (!modal || !titleEl || !bodyEl) return;
+
+      titleEl.textContent = `⚡ Master Procedure #${procId}`;
+      bodyEl.innerHTML = '<div style="text-align: center; color: var(--text-dim); padding: 25px;">Loading procedure details...</div>';
+      modal.style.display = 'flex';
+
+      // Look up in allProcedures first
+      let proc = (allProcedures || []).find(p => p.id === procId);
+      if (!proc) {
+        try {
+          const res = await fetch(`${API_BASE}/api/procedures?status=all`, { headers: headers() });
+          if (res.ok) {
+            const list = await res.json();
+            allProcedures = list;
+            proc = list.find(p => p.id === procId);
+          }
+        } catch (e) {
+          console.error('Error fetching procedure:', e);
+        }
+      }
+
+      if (!proc) {
+        bodyEl.innerHTML = `<div class="empty-state" style="padding: 20px;">Procedure #${procId} not found.</div>`;
+        return;
+      }
+
+      const statusBadge = proc.status === 'live'
+        ? '<span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);">LIVE</span>'
+        : `<span class="badge">${escapeHtml(proc.status || 'unknown').toUpperCase()}</span>`;
+
+      bodyEl.innerHTML = `
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
+          ${statusBadge}
+          <span style="font-size: 12px; color: var(--text-dim);">Source: ${escapeHtml(proc.source || 'canonical')}</span>
+          ${proc.tags ? `<span style="font-size: 12px; color: var(--text-dim);">• Tags: ${escapeHtml(proc.tags)}</span>` : ''}
+        </div>
+
+        <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+          <div style="font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Trigger Pattern</div>
+          <div style="font-size: 14px; color: var(--text); line-height: 1.4; font-weight: 500;">${escapeHtml(proc.trigger_pattern)}</div>
+        </div>
+
+        ${proc.suggested_tools ? `
+          <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Suggested Tools</div>
+            <div style="font-size: 13px; color: var(--accent); font-family: 'JetBrains Mono', monospace;">${escapeHtml(proc.suggested_tools)}</div>
+          </div>
+        ` : ''}
+
+        <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+          <div style="font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Steps</div>
+          <div style="font-size: 13px; color: var(--text); line-height: 1.5; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px;">${escapeHtml(proc.steps)}</div>
+        </div>
+
+        ${proc.pitfalls ? `
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; color: #f87171; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Pitfalls / What to Avoid</div>
+            <div style="font-size: 13px; color: var(--text); line-height: 1.4;">${escapeHtml(proc.pitfalls)}</div>
+          </div>
+        ` : ''}
+
+        ${proc.verification ? `
+          <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; color: #60a5fa; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Verification Checks</div>
+            <div style="font-size: 13px; color: var(--text); line-height: 1.4;">${escapeHtml(proc.verification)}</div>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    function closeProcedureModal() {
+      const modal = document.getElementById('procedure-detail-modal');
+      if (modal) modal.style.display = 'none';
     }
 
     function toggleFeedbackExpand(id) {
