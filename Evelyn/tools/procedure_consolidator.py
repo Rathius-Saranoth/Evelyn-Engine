@@ -1,6 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
-# date modified: 2026-08-29 07:46:15
+# date modified: 2026-09-03 18:05:43
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -29,6 +29,16 @@ import yaml
 
 import evelyn_config as cfg
 from Evelyn.tools import memory_db, task_manager
+from Evelyn.tools.procedure_matcher import (
+    SYNONYM_GROUPS,
+    calculate_procedure_similarity,
+    extract_procedure_keywords,
+    identify_cluster_master,
+)
+
+# Backwards compatibility exports
+_extract_keywords = extract_procedure_keywords
+__all__ = ["SYNONYM_GROUPS", "cancel_pending_procedure_consolidation", "run_procedure_consolidation"]
 
 # Task and state management
 _consolidating = False
@@ -110,40 +120,6 @@ async def run_procedure_consolidation(force: bool = False) -> dict:
 # Core Clustering & Synthesis Logic
 # ---------------------------------------------------------------------------
 
-SYNONYM_GROUPS: dict[str, str] = {
-    "journal": "domain_journal",
-    "journaling": "domain_journal",
-    "bedtime": "domain_journal",
-    "night": "domain_journal",
-    "sleep": "domain_journal",
-    "evening": "domain_journal",
-    "wrap": "domain_journal",
-    "dream": "domain_dream",
-    "dreams": "domain_dream",
-    "outfit": "domain_visual",
-    "portrait": "domain_visual",
-    "clothing": "domain_visual",
-    "illustration": "domain_visual",
-    "image": "domain_visual",
-    "oura": "domain_health",
-    "biometrics": "domain_health",
-    "fatigue": "domain_health",
-    "pacing": "domain_health",
-    "unwell": "domain_health",
-    "exhaustion": "domain_health",
-}
-
-
-def _extract_keywords(text: str) -> set[str]:
-    """Extract lowercase semantic keywords and normalized domain tags from a trigger pattern."""
-    words = re.findall(r"\b[a-z0-9_]{3,}\b", text.lower())
-    stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they", "into", "from", "about"}
-    kws = {w for w in words if w not in stopwords}
-    # Add mapped synonym domain tokens
-    synonym_tokens = {SYNONYM_GROUPS[w] for w in kws if w in SYNONYM_GROUPS}
-    return kws | synonym_tokens
-
-
 def find_procedure_clusters() -> list[list[dict]]:
     """Fetch all live procedures and group entries with high trigger keyword overlap.
 
@@ -180,26 +156,19 @@ def find_procedure_clusters() -> list[list[dict]]:
         if p1["id"] in used_ids:
             continue
 
-        kw1 = _extract_keywords(p1["trigger_pattern"])
-        if not kw1:
-            continue
-
         cluster = [p1]
         for j in range(i + 1, len(unprocessed)):
             p2 = unprocessed[j]
             if p2["id"] in used_ids:
                 continue
 
-            kw2 = _extract_keywords(p2["trigger_pattern"])
-            if not kw2:
-                continue
-
-            overlap = kw1.intersection(kw2)
-            # Check overlap: >=2 shared keywords or matching domain synonym marker
-            domain_overlap = {w for w in overlap if w.startswith("domain_")}
-            raw_overlap = {w for w in overlap if not w.startswith("domain_")}
-
-            if (len(domain_overlap) >= 1 and len(raw_overlap) >= 1) or (len(raw_overlap) >= 2):
+            sim = calculate_procedure_similarity(
+                p1["trigger_pattern"],
+                p2["trigger_pattern"],
+                p1.get("suggested_tools"),
+                p2.get("suggested_tools"),
+            )
+            if sim >= 0.35:
                 cluster.append(p2)
 
         if len(cluster) >= 2:
@@ -233,7 +202,7 @@ async def _do_procedure_consolidation() -> dict:
             cluster = []
             for pid in q_item.get("proc_id_list", []):
                 proc = memory_db.get_procedure(pid)
-                if proc and proc.get("status") == "live":
+                if proc and proc.get("status") in ("live", "extracted"):
                     cluster.append(proc)
 
             if len(cluster) >= 2:
@@ -328,9 +297,21 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
 
     formatted_procs = "\n\n".join(proc_texts)
 
+    master_proc = identify_cluster_master(cluster)
+    target_master_id = master_proc["id"] if master_proc else None
+
+    master_note = ""
+    if target_master_id:
+        master_note = (
+            f"Note: Procedure ID #{target_master_id} is the existing Master Procedure. "
+            f"Preserve its core trigger pattern, structure, and suggested tools as the baseline, "
+            f"and fold in any novel steps, nuances, or trigger keywords from the other procedures.\n"
+        )
+
     prompt = (
         "You are an expert systems archivist consolidating duplicate AI companion procedures.\n"
         "Analyze the following overlapping procedure rules and merge them into ONE single, master procedure.\n\n"
+        f"{master_note}"
         "Active Tools: write_file, read_file, write_dream_entry, write_journal_entry, create_task, complete_task, list_tasks, "
         "get_agenda, get_health_metrics, get_recent_workouts, manage_vault_list, run_command, web_search, start_research, generate_image.\n"
         "Note: Use 'write_dream_entry' for saving structured dream entries to Dream Entries archive. Reserve 'write_journal_entry' ONLY for Evelyn's personal daily narrative reflections. Use 'write_file' for general vault notes.\n\n"
@@ -387,7 +368,11 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
             return None
 
         topic = parsed.get("topic", f"Merged Procedures {proc_ids}")
-        reason = parsed.get("reason", f"Consolidated procedures {proc_ids} into a single master rule.")
+        if target_master_id:
+            default_reason = f"Consolidated procedures {proc_ids} into Master Procedure #{target_master_id}."
+        else:
+            default_reason = f"Consolidated procedures {proc_ids} into a single master rule."
+        reason = parsed.get("reason") or default_reason
 
         tools_val = parsed.get("suggested_tools") or ""
         if isinstance(tools_val, list):
@@ -430,7 +415,7 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
             type="procedure_merge",
             source_ids=proc_ids,
             merged_observation=merged_obs_yaml,
-            suggested_category="procedures",
+            suggested_category=str(target_master_id) if target_master_id else "procedures",
             reason=reason,
             topic=topic,
             confidence="high"

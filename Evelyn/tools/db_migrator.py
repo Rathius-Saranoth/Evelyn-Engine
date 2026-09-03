@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-01 20:59:57
+# date modified: 2026-09-03 18:34:34
 # tags: 
 
 """
@@ -23,6 +23,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import evelyn_config as cfg
 from Evelyn.version import __version__, compare_versions, normalize_version
@@ -1280,6 +1281,105 @@ def migrate_000_006_051_tool_starter_procedures_and_dynamic_surfacing(
     )
 
 
+def migrate_000_006_055_procedure_master_matches_and_deduplication_parity(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """
+    Backfill target master links (merged_into_id) for pending extracted procedures
+    using canonical procedure matching (Evelyn.tools.procedure_matcher).
+    """
+    from Evelyn.tools.procedure_matcher import find_best_master_candidate
+
+    cursor = conn.cursor()
+    now = datetime.now(UTC).isoformat()
+
+    # 1. Fetch live/starter master procedures
+    live_rows = cursor.execute("""
+        SELECT id, trigger_pattern, steps, pitfalls, verification, tags, suggested_tools
+        FROM procedures
+        WHERE status IN ('live', 'starter')
+    """).fetchall()
+
+    live_procedures = [
+        {
+            "id": row[0],
+            "trigger_pattern": row[1] or "",
+            "steps": row[2] or "",
+            "pitfalls": row[3] or "",
+            "verification": row[4] or "",
+            "tags": row[5] or "",
+            "suggested_tools": row[6] or "",
+        }
+        for row in live_rows
+    ]
+
+    # 2. Fetch pending extracted procedures without merged_into_id
+    extracted_rows = cursor.execute("""
+        SELECT id, trigger_pattern, steps, pitfalls, verification, tags, suggested_tools
+        FROM procedures
+        WHERE status = 'extracted' AND merged_into_id IS NULL
+    """).fetchall()
+
+    matched_count = 0
+    for row in extracted_rows:
+        cand = {
+            "id": row[0],
+            "trigger_pattern": row[1] or "",
+            "steps": row[2] or "",
+            "pitfalls": row[3] or "",
+            "verification": row[4] or "",
+            "tags": row[5] or "",
+            "suggested_tools": row[6] or "",
+        }
+        master, _score = find_best_master_candidate(cand, live_procedures, min_threshold=0.30)
+        if master:
+            master_id = master["id"]
+            cursor.execute(
+                "UPDATE procedures SET merged_into_id = ?, updated_at = ? WHERE id = ?",
+                (master_id, now, cand["id"]),
+            )
+            matched_count += 1
+            logger.info(
+                f"Migration 000.006.055: Linked extracted procedure #{cand['id']} to target master #{master_id}."
+            )
+
+    logger.info(
+        f"Migration 000.006.055: Evaluated {len(extracted_rows)} extracted procedures, "
+        f"linked {matched_count} to existing master procedures."
+    )
+
+
+def migrate_000_006_056_fact_merge_queue_and_consolidation_parity(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """
+    Create fact_merge_queue table and collapse exact duplicate context entries.
+    """
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fact_merge_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_ids  TEXT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fmq_status ON fact_merge_queue(status);")
+
+    # Clean up any exact duplicate context entries
+    try:
+        from Evelyn.tools.fact_consolidator import fast_deduplicate_exact_matches
+        dupes_removed = fast_deduplicate_exact_matches()
+        logger.info(f"Migration 000.006.056: Initial fast deduplication removed {dupes_removed} exact duplicates.")
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
+        logger.warning(f"Migration 000.006.056: fast_deduplicate_exact_matches warning: {e}")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -1404,6 +1504,20 @@ MIGRATIONS: list[Migration] = [
         version="000.006.051",
         name="tool_starter_procedures_and_dynamic_surfacing",
         up_fn=migrate_000_006_051_tool_starter_procedures_and_dynamic_surfacing,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.055",
+        name="procedure_master_matches_and_deduplication_parity",
+        up_fn=migrate_000_006_055_procedure_master_matches_and_deduplication_parity,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.056",
+        name="fact_merge_queue_and_consolidation_parity",
+        up_fn=migrate_000_006_056_fact_merge_queue_and_consolidation_parity,
         post_sync_chroma=True,
     ),
 ]

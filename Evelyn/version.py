@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-02 21:30:18
+# date modified: 2026-09-03 18:37:25
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.054"
-__version_info__ = (0, 6, 54)
-__version_name__ = "Modular Ambient Engine & FIFO Queue"
+__version__ = "000.006.056"
+__version_info__ = (0, 6, 56)
+__version_name__ = "Fact Consolidator Parity, In-Place Master Fact Preservation & Merge Queue"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-02 21:30:25
+date modified: 2026-09-03 18:39:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,55 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.056] - 2026-09-03 — *Fact Consolidator Parity, In-Place Master Fact Preservation & Merge Queue*
+
+### Added & Enhanced
+- **In-Place Master Fact Preservation (`Evelyn/tools/memory_db.py`)**:
+  - Implemented canonical `apply_fact_merge(source_entries, merged_text, target_category, merged_tags) -> int`.
+  - In-place preservation updates the oldest/primary entry rather than deleting all source facts and generating a brand new row ID.
+  - Aggregates `observed_count` (sum of all merged entries), `retrieval_count` (sum), earliest `first_observed`, and most recent `last_observed` / `date`, preserving knowledge longevity and preventing vector churn.
+  - Soft-deletes secondary duplicate entries (`status = 'deleted'`) and cleans up corresponding Chroma vector entries.
+- **Fact Merge Queue & Server Endpoint (`Evelyn/tools/memory_db.py`, `evelyn_server.py`)**:
+  - Added `fact_merge_queue` table in SQLite memory database tracking `id`, `entry_ids` (JSON list), `created_at`, and `status`.
+  - Added queue helper functions: `enqueue_fact_merge()`, `get_fact_merge_queue()`, `dequeue_fact_merge()`, and `get_all_queued_fact_merge_ids()`.
+  - Added `POST /api/context/queue_merge` endpoint for multi-item merge queueing from client UIs.
+- **Fast Deduplication & Database Remediation Parity (`Evelyn/tools/fact_consolidator.py`)**:
+  - Hooked `fast_deduplicate_exact_matches()` into `_do_consolidation()` before LLM anchor scanning, immediately consolidating exact whitespace and punctuation duplicate facts without wasting LLM tokens.
+  - Integrated manual `fact_merge_queue` polling in `_do_consolidation()` mirroring `procedure_consolidator.py`.
+  - Guarded `remediate_database_categories()` from touching procedure proposals (`type NOT IN ('profile_update', 'procedure', 'procedure_merge', 'procedure_split')`).
+  - Purged dead legacy regexes and removed hardcoded `"R"` subject fallback strings across `fact_consolidator.py`, `pending_reviewer.py`, and `evelyn_server.py`, strictly adhering to Rule 4 identity parameterization.
+- **DevUI Multi-Select Extraction Merge Queue (`evelyn_ui/dev.html`)**:
+  - Added multi-select checkbox on triage extraction cards.
+  - Added dynamic merge action bar displaying selected count with `🔀 Queue Merge` and `Deselect All` buttons.
+  - Integrated automatic selection pruning on triage data refresh.
+- **Database Migration (`Evelyn/tools/db_migrator.py`)**:
+  - Registered and applied migration `000.006.056`: `fact_merge_queue_and_consolidation_parity`.
+
+---
+
+## [000.006.055] - 2026-09-03 — *Canonical Procedure Matcher & Master Consolidation Parity*
+
+### Added & Enhanced
+- **Canonical Procedure Matcher (`Evelyn/tools/procedure_matcher.py`)**:
+  - Implemented single-source-of-truth utility for procedure trigger keyword extraction, stopword stripping, and domain synonym mappings (`SYNONYM_GROUPS`).
+  - Added normalized similarity scoring (`calculate_procedure_similarity`), deduplication checks (`is_duplicate_procedure`), best master detection (`find_best_master_candidate`), and cluster master identification (`identify_cluster_master`).
+- **Extraction & Consolidation Parity (`Evelyn/tools/fact_extractor.py`, `Evelyn/tools/procedure_consolidator.py`)**:
+  - Refactored `fact_extractor.py` to use `is_duplicate_procedure` and `find_best_master_candidate`, eliminating redundant regex and ad-hoc stopword sets.
+  - Refactored `procedure_consolidator.py` to use canonical token similarity for automated clustering and detect existing Master Procedures within clusters.
+  - Augmented merge proposals with master procedure context and set `suggested_category=str(target_master_id)` to enable target master resolution.
+  - Updated manual merge queue to allow processing extracted and live procedures concurrently.
+- **Server & Proposal Review Endpoint (`evelyn_server.py`)**:
+  - Added `target_id: int | None` to `ProposalActionRequest`.
+  - Added `action == "merge_into_master"` support to `/api/review/proposals/{id}/{action}`, updating the target master procedure in-place with synthesized steps, triggers, tools, and domain tags while marking all other source procedures as `status='merged'` pointing to `merged_into_id`.
+- **DevUI Proposal Review Cards (`evelyn_ui/dev.html`)**:
+  - Added `⚡ TARGET MASTER #ID` badge indicator to Procedure Merge proposal cards when a target master procedure is identified.
+  - Added `⚡ Merge into Master #ID` action button calling `handleAction('proposals', id, 'merge_into_master', targetMasterId)` alongside `Approve (New Procedure)`, `Reject`, and `🗑️ Remove`.
+- **Engineering Standards (`AGENTS.md`)**:
+  - Added `procedure_matcher.py` to Rule 8 canonical utility modules list.
+  - Added **Cross-Pipeline Parity & Existing Tool Migration** clause to Rule 8 mandating that new utility functions or tools verify existing tools/pipelines for similar operations and update them to maintain architectural parity.
+
+---
 
 ## [000.006.054] - 2026-09-02 — *Modular Ambient Engine & FIFO Queue*
 

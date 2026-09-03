@@ -504,6 +504,7 @@
     let procMgmtSourceFilter = 'all';
     let procMgmtSearch = '';
     let selectedProcIds = new Set();
+    let selectedExtractionIds = new Set();
     let researchTasks = [];
     let heavyTasksData = { is_any_running: false, tasks: [], research_tasks: [] };
     let liveUpdatesTimer = null;
@@ -1141,6 +1142,12 @@
             ...procedures.map(pr => ({ ...pr, item_type: 'procedure' }))
           ];
         }
+        const currentExtIds = new Set(unifiedItems.filter(i => i.item_type === 'extraction').map(i => i.id));
+        for (const id of selectedExtractionIds) {
+          if (!currentExtIds.has(id)) {
+            selectedExtractionIds.delete(id);
+          }
+        }
         updateCounts();
         if (currentTab === 'triage') {
           render();
@@ -1611,7 +1618,7 @@
       }
     }
 
-    async function handleAction(type, id, action) {
+    async function handleAction(type, id, action, targetId = null) {
       if (action === 'delete') {
         const typeName = type === 'extractions' ? 'extraction' : (type === 'proposals' ? 'proposal' : type);
         if (!confirm(`Are you sure you want to PERMANENTLY remove this ${typeName}?`)) return;
@@ -1628,7 +1635,7 @@
         const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
         const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
         body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
-      } else if (action === 'approve' && type === 'proposals') {
+      } else if ((action === 'approve' || action === 'merge_into_master') && type === 'proposals') {
         const item = unifiedItems.find(x => x.id === id);
         const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
         if (procTrigger) {
@@ -1646,7 +1653,7 @@
             verification: verification,
             tags: tags
           });
-          body = JSON.stringify({ modified_text: constructedYaml });
+          body = JSON.stringify({ modified_text: constructedYaml, target_id: targetId });
         } else if (item && item.type === 'procedure_split') {
           const currentProcs = parseProcedureSplitYaml(item.merged_observation);
           const updatedProcs = currentProcs.map((proc, idx) => {
@@ -2653,6 +2660,39 @@
       }
     }
 
+    function toggleExtractionSelection(entryId) {
+      if (selectedExtractionIds.has(entryId)) {
+        selectedExtractionIds.delete(entryId);
+      } else {
+        selectedExtractionIds.add(entryId);
+      }
+      render();
+    }
+
+    async function queueSelectedExtractionsMerge() {
+      const ids = Array.from(selectedExtractionIds);
+      if (ids.length < 2) {
+        alert('Please select at least 2 extractions to merge.');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/context/queue_merge`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ entry_ids: ids })
+        });
+        if (res.ok) {
+          selectedExtractionIds.clear();
+          loadData();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Failed to queue merge: ' + (err.detail || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Network error queueing merge: ' + e);
+      }
+    }
+
     function formatDiffTokens(tokens, lcsMask, className) {
       let html = '';
       for (let k = 0; k < tokens.length; k++) {
@@ -2903,6 +2943,7 @@
           <div class="card">
             <div class="card-header">
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input type="checkbox" ${selectedExtractionIds.has(item.id) ? 'checked' : ''} onchange="toggleExtractionSelection(${item.id})" title="Select for merge" style="cursor: pointer; width: 15px; height: 15px;" />
                 <span class="badge extraction">EXTRACTION</span>
                 ${noveltyBadge}
               </div>
@@ -3007,11 +3048,15 @@
 
         if (item.type === 'procedure_merge') {
           const procData = parseProcedureYaml(item.merged_observation);
+          const targetMasterId = (item.suggested_category && !isNaN(item.suggested_category)) ? parseInt(item.suggested_category) : null;
           return `
             <div class="card">
               <div class="card-header">
-                <span class="badge extraction" style="background: var(--accent); color: #fff;">PROPOSAL: PROCEDURE MERGE</span>
-                <span>ID: ${item.id}</span>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span class="badge extraction" style="background: var(--accent); color: #fff;">PROPOSAL: PROCEDURE MERGE</span>
+                  <span>ID: ${item.id}</span>
+                  ${targetMasterId ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px;">⚡ TARGET MASTER #${targetMasterId}</span>` : ''}
+                </div>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
                 <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
@@ -3060,8 +3105,9 @@
                   <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
                 </div>
               </div>
-              <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Procedure Merge</button>
+              <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId})">⚡ Merge into Master #${targetMasterId}</button>` : ''}
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve (New Procedure)</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
               </div>
@@ -3279,6 +3325,14 @@
         const profUpCount = unifiedItems.filter(i => i.item_type === 'profile_update').length;
         const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
 
+        const mergeBarHtml = selectedExtractionIds.size > 0 ? `
+          <div style="display: flex; gap: 12px; align-items: center; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 8px 14px;">
+            <span style="font-size: 13px; color: #60a5fa; font-weight: 500;">${selectedExtractionIds.size} extraction${selectedExtractionIds.size > 1 ? 's' : ''} selected</span>
+            <button class="btn btn-sm" style="background: #2563eb; color: #fff; font-size: 12px; padding: 5px 12px;" onclick="queueSelectedExtractionsMerge()">🔀 Queue Merge (${selectedExtractionIds.size})</button>
+            <button class="btn btn-sm" style="background: transparent; border: 1px solid var(--border); font-size: 12px; padding: 5px 10px; color: var(--text-dim);" onclick="selectedExtractionIds.clear(); render();">Deselect All</button>
+          </div>
+        ` : '';
+
         const filterBarHtml = `
           <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
             <div class="filter-bar" style="margin-bottom: 0;">
@@ -3288,6 +3342,7 @@
               <button class="filter-pill ${triageFilter === 'profile_update' ? 'active' : ''}" onclick="setTriageFilter('profile_update')">Profile Updates (${profUpCount})</button>
               <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')">Procedures (${procCount})</button>
             </div>
+            ${mergeBarHtml}
             <div style="display: flex; gap: 8px; align-items: center;">
               <input type="text" id="triage-search-input" value="${escapeHtml(triageSearch)}" placeholder="🔍 Filter triage queue (e.g. journal, -dream, -tag:sleep, tag:routine)..." oninput="handleTriageSearch(this.value)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
               ${triageSearch ? `<button class="btn btn-sm" onclick="handleTriageSearch('')" style="background: var(--surface); border: 1px solid var(--border); font-size: 12px; padding: 7px 12px; cursor: pointer; color: var(--text-dim);">Clear</button>` : ''}
