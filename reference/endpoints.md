@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-08-30 16:36:55
+date modified: 2026-09-02 21:32:21
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -361,6 +361,11 @@ Endpoints driving the background research engine and the interactive developer d
 * **Purpose**: Marks a specific ambient impression as dismissed/read in the Chat UI.
 * **Payload**: `{"id": 1}`
 * **Returns**: `{"status": "ok", "updated": true}`
+
+### `POST /ambient/dismiss_all`
+* **Purpose**: Marks all active (undismissed) ambient impressions (optionally filtered by type) as dismissed.
+* **Payload**: `{"type": "thought"}` (optional)
+* **Returns**: `{"status": "ok", "dismissed_count": 2}`
 
 ### `GET /thought_bubble`
 * **Purpose**: Backwards-compatible fast endpoint returning the single most recent active thought bubble for ambient UI chips.

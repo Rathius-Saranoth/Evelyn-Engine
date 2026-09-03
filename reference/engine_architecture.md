@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-01 17:40:55
+date modified: 2026-09-02 21:32:28
 ---
 # Evelyn Engine Architecture Map
 
@@ -322,7 +322,7 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 | `vault_map` | `vault_indexer.py` (`evelyn_server.py`) | subprocess / thread |
 | `tag_librarian` | `tag_librarian.py` | asyncio coroutine |
 | `auto_journaler` | `auto_journaler.py` | asyncio coroutine |
-| `ambient_reflector` | `ambient_reflector.py` | asyncio coroutine |
+| `ambient_reflector` | `ambient_reflector.py` (`ambient_providers.py`) | asyncio coroutine |
 
 ### 5.5 Universal Inactivity Architecture (`time_manager.get_user_idle_seconds()`)
 

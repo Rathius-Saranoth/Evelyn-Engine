@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-01 20:59:57
+# date modified: 2026-09-02 21:27:36
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -450,6 +450,61 @@ AMBIENT_REFLECTIONS_MAX_THOUGHTS_PER_DAY = 3
 
 # Max tokens allocated for generation (provides headroom for model thinking traces).
 AMBIENT_REFLECTIONS_NUM_PREDICT = 1024
+
+# Recency cooldown dampener: multiplier applied to the immediately preceding activity's weight
+# to prevent consecutive daytime reflections from picking the same category (e.g. 0.2 = 80% reduction).
+AMBIENT_REFLECTIONS_COOLDOWN_DECAY = 0.2
+
+# Pluggable Ambient Reflection Activities:
+# Configures available activity providers, diurnal phase weights, and activity-specific parameters.
+# Diurnal phases:
+#   - morning:   05:00 - 11:59
+#   - afternoon: 12:00 - 16:59
+#   - evening:   17:00 - 21:59
+#   - night:     22:00 - 04:59
+AMBIENT_ACTIVITIES = [
+    {
+        "id": "chat_recent",
+        "type": "recent_chat",
+        "enabled": True,
+        "weights": {"morning": 0.50, "afternoon": 0.30, "evening": 0.40, "night": 0.20},
+    },
+    {
+        "id": "vault_notes",
+        "type": "vault_document",
+        "enabled": True,
+        "source_filter": {"exclude_paths": ["templates/", "system/"], "min_chars": 100},
+        "weights": {"morning": 0.15, "afternoon": 0.35, "evening": 0.15, "night": 0.10},
+    },
+    {
+        "id": "companion_lore",
+        "type": "lore_file",
+        "enabled": True,
+        "file_path": "Contacts/Aura.md",
+        "label": "Sanctuary Companionship & Aura",
+        "weights": {"morning": 0.10, "afternoon": 0.15, "evening": 0.25, "night": 0.30},
+    },
+    {
+        "id": "research_curiosity",
+        "type": "topic_curiosity",
+        "enabled": True,
+        "topic_pool": [
+            "systems architecture & autonomous engines",
+            "audiobooks, narrative rhythm & storytelling",
+            "botany, gardens & natural ecosystems",
+            "craftsmanship, leatherworking & scalemail mechanics",
+            "cognitive science, memory structures & dreaming",
+            "quiet sanctuary spaces & domestic comfort",
+        ],
+        "weights": {"morning": 0.10, "afternoon": 0.15, "evening": 0.10, "night": 0.10},
+    },
+    {
+        "id": "sensory_wander",
+        "type": "sensory_wander",
+        "enabled": True,
+        "weights": {"morning": 0.15, "afternoon": 0.05, "evening": 0.10, "night": 0.30},
+    },
+]
 
 # =============================================================================
 # Fact Extraction

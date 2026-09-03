@@ -1,6 +1,6 @@
 # ambient_reflector.py
 # date created: 2026-08-30 16:35:00
-# date modified: 2026-09-01 17:29:50
+# date modified: 2026-09-02 21:28:47
 # tags: #ambient, #thought-bubbles, #diurnal, #autonomous, #multi-modal
 
 """
@@ -14,20 +14,71 @@ in evelyn_memory.db (thoughts, media shares, alerts), and feeds the ambient UI s
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import random
 import sqlite3
 import time
 from datetime import UTC, datetime
-from datetime import time as dtime
 from typing import Any
 
 import evelyn_config as cfg
-from Evelyn.tools import memory_db, ollama_client, string_utils, task_manager
+from Evelyn.tools import ambient_providers, memory_db, ollama_client, string_utils, task_manager
 
 logger = logging.getLogger(__name__)
 
 TASK_NAME = "ambient_reflector"
+
+
+def get_diurnal_bucket(hour: int) -> str:
+    """Return the circadian phase string for the given 24h local hour.
+
+    Phases:
+      - morning:   05:00 - 11:59
+      - afternoon: 12:00 - 16:59
+      - evening:   17:00 - 21:59
+      - night:     22:00 - 04:59
+    """
+    if 5 <= hour < 12:
+        return "morning"
+    elif 12 <= hour < 17:
+        return "afternoon"
+    elif 17 <= hour < 22:
+        return "evening"
+    return "night"
+
+
+def select_ambient_activity(
+    activities: list[dict[str, Any]],
+    diurnal_bucket: str,
+    last_activity_id: str | None = None,
+    cooldown_decay: float = 0.2,
+) -> dict[str, Any]:
+    """Select an ambient activity weighted by current diurnal phase and recency dampening.
+
+    Args:
+        activities: List of activity dicts (from cfg.AMBIENT_ACTIVITIES).
+        diurnal_bucket: Current phase ('morning', 'afternoon', 'evening', 'night').
+        last_activity_id: Optional ID of the most recently executed activity today.
+        cooldown_decay: Dampening multiplier (0.0 to 1.0) applied to last_activity_id.
+
+    Returns:
+        dict[str, Any]: Selected activity configuration dictionary.
+    """
+    enabled = [a for a in activities if a.get("enabled", True)]
+    if not enabled:
+        return {"id": "chat_recent", "type": "recent_chat", "enabled": True}
+
+    weights = []
+    for act in enabled:
+        w_map = act.get("weights", {})
+        base_w = float(w_map.get(diurnal_bucket, 0.2))
+        if last_activity_id and act.get("id") == last_activity_id:
+            base_w *= max(0.01, cooldown_decay)
+        weights.append(max(0.001, base_w))
+
+    return random.choices(enabled, weights=weights, k=1)[0]
 
 
 def should_generate_idle_thought(
@@ -158,43 +209,70 @@ async def run_ambient_reflection(
                 task_manager.clear_running(TASK_NAME, status="idle", summary=f"Skipped: {reason}")
                 return {"status": "skipped", "reason": reason}
 
-        task_manager.set_running(TASK_NAME, phase="retrieving_history")
+        task_manager.set_running(TASK_NAME, phase="selecting_activity")
 
-        # 2. Retrieve recent conversation turns (up to 15 turns) for context grounding
-        day_start = datetime.combine(now_dt.date(), dtime.min).replace(tzinfo=now_dt.tzinfo).timestamp()
-        chat_db_path = getattr(cfg, "CHAT_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_chat.db"))
-        con = sqlite3.connect(chat_db_path)
-        con.row_factory = sqlite3.Row
-        rows = con.execute(
-            """SELECT role, content FROM messages
-               WHERE ts >= ? AND role IN ('user', 'assistant')
-                 AND content != '[THREAD_BREAK]'
-                 AND content NOT LIKE '[PLACEHOLDER]%'
-               ORDER BY id DESC LIMIT 15""",
-            (day_start,),
-        ).fetchall()
-        if not rows:
-            rows = con.execute(
-                """SELECT role, content FROM messages
-                   WHERE role IN ('user', 'assistant')
-                     AND content != '[THREAD_BREAK]'
-                     AND content NOT LIKE '[PLACEHOLDER]%'
-                   ORDER BY id DESC LIMIT 10""",
-            ).fetchall()
-        con.close()
+        # 2. Daytime reflections continuity & prior activity tracking
+        mem_db_path = getattr(cfg, "MEMORY_DB_PATH", os.path.join(getattr(cfg, "DATA_DIR", ""), "evelyn_memory.db"))
+        prior_thoughts_today: list[dict[str, Any]] = []
+        last_activity_id: str | None = None
 
-        recent_turns = list(reversed(rows)) if rows else []
-        history_transcript = "\n".join(
-            f"{r['role'].upper()}: {r['content']}" for r in recent_turns
-        ) if recent_turns else "No recent active turns recorded."
+        if os.path.exists(mem_db_path):
+            try:
+                con_mem = sqlite3.connect(mem_db_path)
+                con_mem.row_factory = sqlite3.Row
+                rows_prior = con_mem.execute(
+                    """SELECT ts, content, metadata FROM daily_ambient_impressions
+                       WHERE date = ? AND type = 'thought'
+                       ORDER BY ts ASC""",
+                    (today_str,),
+                ).fetchall()
+                con_mem.close()
 
-        task_manager.set_running(TASK_NAME, phase="generating_thought")
+                for r in rows_prior:
+                    meta_raw = r["metadata"]
+                    meta_dict = {}
+                    if meta_raw:
+                        try:
+                            meta_dict = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+                        except (json.JSONDecodeError, TypeError):
+                            meta_dict = {}
+                    prior_thoughts_today.append({
+                        "ts": r["ts"],
+                        "content": r["content"],
+                        "activity_id": meta_dict.get("activity_id"),
+                        "mood": meta_dict.get("mood"),
+                    })
+
+                if prior_thoughts_today:
+                    last_activity_id = prior_thoughts_today[-1].get("activity_id")
+            except sqlite3.Error as e:
+                logger.warning(f"[AMBIENT-REFLECTOR] Error loading prior thoughts: {e}")
+
+        # 3. Select reflection activity via diurnal weights and recency dampener
+        diurnal_bucket = get_diurnal_bucket(now_dt.hour)
+        activities = getattr(cfg, "AMBIENT_ACTIVITIES", [])
+        cooldown_decay = getattr(cfg, "AMBIENT_REFLECTIONS_COOLDOWN_DECAY", 0.2)
+        activity_cfg = select_ambient_activity(
+            activities=activities,
+            diurnal_bucket=diurnal_bucket,
+            last_activity_id=last_activity_id,
+            cooldown_decay=cooldown_decay,
+        )
+        activity_id = activity_cfg.get("id", "chat_recent")
+        activity_type = activity_cfg.get("type", "recent_chat")
+
+        task_manager.set_running(TASK_NAME, phase=f"fetching_seed:{activity_id}")
+
+        # 4. Fetch seed context from the chosen activity provider
+        provider = ambient_providers.get_provider(activity_type)
+        seed_xml, source_ref, default_mood = provider.fetch_seed_context(activity_cfg, now_dt)
 
         if task_manager.is_chat_preempted():
             task_manager.clear_running(TASK_NAME, status="cancelled", error="Preempted during preparation")
             return {"status": "preempted", "message": "Preempted by user chat interaction"}
 
-        # 3. Prompt formulation
+        # 5. Prompt formulation with narrative continuity (<daily_journal_so_far>)
+        task_manager.set_running(TASK_NAME, phase="generating_thought")
         assistant_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
         system_prompt = (
             f"You are {assistant_name}, an authentic companion.\n"
@@ -208,14 +286,36 @@ async def run_ambient_reflection(
             f"- Use natural, continuous prose."
         )
 
+        daily_journal_block = ""
+        if prior_thoughts_today:
+            journal_lines = []
+            for pt in prior_thoughts_today:
+                time_str = datetime.fromtimestamp(pt["ts"], tz=now_dt.tzinfo).strftime("%I:%M %p")
+                journal_lines.append(f'- [{time_str}] "{pt["content"]}"')
+            formatted_prior = "\n".join(journal_lines)
+            daily_journal_block = (
+                f"<daily_journal_so_far>\n"
+                f"{formatted_prior}\n"
+                f"</daily_journal_so_far>\n\n"
+                f"Daytime narrative continuity guidelines:\n"
+                f"- Continue your authentic journey through the day.\n"
+                f"- Do NOT repeat or closely rephrase the themes, specific topics, or opening phrasing of your earlier thoughts today.\n"
+                f"- Shift focus naturally into the new moment using the context seed below.\n\n"
+            )
+
         user_content = (
-            f"<conversation_context_sample>\n"
-            f"{history_transcript}\n"
-            f"</conversation_context_sample>\n\n"
+            f"<temporal_context>\n"
+            f"Current Time: {now_dt.strftime('%A, %B %d, %Y at %I:%M %p')}\n"
+            f"Circadian Phase: {diurnal_bucket.capitalize()}\n"
+            f"</temporal_context>\n\n"
+            f"{daily_journal_block}"
+            f"<ambient_seed_context mode=\"{activity_id}\">\n"
+            f"{seed_xml}\n"
+            f"</ambient_seed_context>\n\n"
             f"Please share a single spontaneous 1–2 sentence private wandering thought, memory, or observation."
         )
 
-        # 4. Inference call
+        # 6. Inference call
         num_predict = getattr(cfg, "AMBIENT_REFLECTIONS_NUM_PREDICT", 1024)
         loop = asyncio.get_running_loop()
         raw_response = await loop.run_in_executor(
@@ -233,7 +333,7 @@ async def run_ambient_reflection(
             task_manager.clear_running(TASK_NAME, status="cancelled", error="Preempted after inference")
             return {"status": "preempted", "message": "Preempted by user chat interaction"}
 
-        # 5. Clean output
+        # 7. Clean output
         thought_text = string_utils.strip_thinking_tags(raw_response).strip()
         # Strip surrounding markdown quotes if any
         if thought_text.startswith('"') and thought_text.endswith('"') and len(thought_text) > 2:
@@ -244,7 +344,7 @@ async def run_ambient_reflection(
             return {"status": "error", "message": "Model generated empty output"}
 
         # Derive a concise mood label
-        mood = "Reflective"
+        mood = default_mood
         lower_thought = thought_text.lower()
         if any(w in lower_thought for w in ["curious", "wonder", "intriguing", "fascinating"]):
             mood = "Curious"
@@ -253,14 +353,20 @@ async def run_ambient_reflection(
         elif any(w in lower_thought for w in ["peace", "quiet", "gentle", "warm", "smile"]):
             mood = "Serene"
 
-        # 6. Persistence
+        # 8. Persistence
         impression_id = None
         if not dry_run:
             impression_id = memory_db.record_ambient_impression(
                 type="thought",
                 content=thought_text,
-                source_ref=f"chat_turns:{len(recent_turns)}",
-                metadata={"mood": mood, "source": "diurnal_idle"},
+                source_ref=source_ref,
+                metadata={
+                    "mood": mood,
+                    "activity_id": activity_id,
+                    "provider": activity_type,
+                    "source": f"diurnal_idle:{activity_id}",
+                    "diurnal_bucket": diurnal_bucket,
+                },
                 target_date=today_str,
             )
 
@@ -268,7 +374,7 @@ async def run_ambient_reflection(
         task_manager.clear_running(
             TASK_NAME,
             status="done",
-            summary=f"Thought generated: {thought_text[:60]}...",
+            summary=f"Thought generated ({activity_id}): {thought_text[:60]}...",
         )
 
         return {
@@ -276,6 +382,8 @@ async def run_ambient_reflection(
             "id": impression_id,
             "type": "thought",
             "date": today_str,
+            "activity_id": activity_id,
+            "provider": activity_type,
             "thought": thought_text,
             "mood": mood,
             "duration": round(duration, 2),

@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-01 20:11:33
+# date modified: 2026-09-02 21:29:00
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -3775,6 +3775,25 @@ async def dismiss_ambient_endpoint(
 
     success = memory_db.mark_ambient_impression_dismissed(req.id)
     return {"status": "ok", "updated": success}
+
+
+class DismissAllAmbientRequest(BaseModel):
+    """Pydantic model representing a request to dismiss all ambient impressions."""
+
+    type: str | None = None
+
+
+@app.post("/ambient/dismiss_all")
+async def dismiss_all_ambient_endpoint(
+    req: DismissAllAmbientRequest | None = None,
+    _: None = Depends(check_auth),
+):
+    """Mark all active (undismissed) ambient impressions as dismissed."""
+    from Evelyn.tools import memory_db
+
+    type_filter = req.type if req else None
+    count = memory_db.mark_all_ambient_impressions_dismissed(type_filter=type_filter)
+    return {"status": "ok", "dismissed_count": count}
 
 
 @app.get("/thought_bubble")

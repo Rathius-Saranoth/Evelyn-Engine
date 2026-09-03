@@ -1,6 +1,6 @@
 # test_ambient_reflector.py
 # date created: 2026-08-30 16:40:00
-# date modified: 2026-09-01 17:30:13
+# date modified: 2026-09-02 21:29:54
 # tags: #tests, #ambient, #thought-bubbles, #feed, #journal-synthesis
 
 """
@@ -283,3 +283,129 @@ async def test_ambient_api_endpoints(temp_ambient_dbs):
     # After dismissal, feed is empty
     res_after = client.get("/ambient/feed")
     assert len(res_after.json()["items"]) == 0
+
+    # 4. POST /ambient/dismiss_all
+    id_t1 = memory_db.record_ambient_impression(type="thought", content="Thought A", target_date=today_str)
+    id_t2 = memory_db.record_ambient_impression(type="thought", content="Thought B", target_date=today_str)
+    assert id_t1 > 0 and id_t2 > 0
+    res_feed = client.get("/ambient/feed")
+    assert len(res_feed.json()["items"]) == 2
+
+    res_dismiss_all = client.post("/ambient/dismiss_all", json={"type": "thought"})
+    assert res_dismiss_all.status_code == 200
+    assert res_dismiss_all.json()["dismissed_count"] == 2
+
+    res_empty = client.get("/ambient/feed")
+    assert len(res_empty.json()["items"]) == 0
+
+
+def test_ambient_providers_execution(temp_ambient_dbs):
+    """Test ambient provider implementations and fallback behaviors."""
+    from Evelyn.tools import ambient_providers
+
+    now_dt = datetime(2026, 9, 2, 14, 30, 0, tzinfo=UTC).astimezone()
+
+    # 1. RecentChatProvider
+    chat_prov = ambient_providers.get_provider("recent_chat")
+    xml, ref, mood = chat_prov.fetch_seed_context({"id": "chat_recent"}, now_dt)
+    assert "<conversation_context_sample>" in xml
+    assert "chat_turns:" in ref
+    assert mood == "Reflective"
+
+    # 2. VaultDocumentProvider (fallback with empty vault)
+    vault_prov = ambient_providers.get_provider("vault_document")
+    xml, ref, mood = vault_prov.fetch_seed_context({"id": "vault_notes"}, now_dt)
+    assert "<vault_reminiscence" in xml
+    assert "vault:" in ref
+
+    # 3. LoreSnippetProvider (graceful fallback with non-existent file)
+    lore_prov = ambient_providers.get_provider("lore_file")
+    xml, ref, mood = lore_prov.fetch_seed_context({"id": "lore", "file_path": "NonExistent/Aura.md"}, now_dt)
+    assert "<companion_lore" in xml
+    assert "lore:" in ref
+    assert mood == "Serene"
+
+    # 4. TopicCuriosityProvider
+    topic_prov = ambient_providers.get_provider("topic_curiosity")
+    xml, ref, mood = topic_prov.fetch_seed_context({"id": "research", "topic_pool": ["quantum mechanics"]}, now_dt)
+    assert "<intellectual_curiosity" in xml
+    assert "quantum mechanics" in xml
+    assert mood == "Curious"
+
+    # 5. SensoryWanderProvider
+    sensory_prov = ambient_providers.get_provider("sensory_wander")
+    xml, ref, mood = sensory_prov.fetch_seed_context({"id": "sensory"}, now_dt)
+    assert "<sensory_wander" in xml
+    assert "sensory:" in ref
+    assert mood == "Serene"
+
+
+def test_diurnal_bucket_and_activity_selection():
+    """Test circadian phase calculation and weighted activity selection with recency decay."""
+    assert ambient_reflector.get_diurnal_bucket(6) == "morning"
+    assert ambient_reflector.get_diurnal_bucket(13) == "afternoon"
+    assert ambient_reflector.get_diurnal_bucket(19) == "evening"
+    assert ambient_reflector.get_diurnal_bucket(23) == "night"
+
+    activities = [
+        {"id": "act_a", "type": "recent_chat", "enabled": True, "weights": {"morning": 1.0, "afternoon": 0.0}},
+        {"id": "act_b", "type": "sensory_wander", "enabled": True, "weights": {"morning": 0.0, "afternoon": 1.0}},
+        {"id": "act_disabled", "type": "topic_curiosity", "enabled": False, "weights": {"morning": 10.0}},
+    ]
+
+    # In morning, act_a should be chosen
+    selected_morning = ambient_reflector.select_ambient_activity(activities, "morning")
+    assert selected_morning["id"] == "act_a"
+
+    # In afternoon, act_b should be chosen
+    selected_afternoon = ambient_reflector.select_ambient_activity(activities, "afternoon")
+    assert selected_afternoon["id"] == "act_b"
+
+    # Test recency cooldown dampening
+    activities_balanced = [
+        {"id": "act_a", "type": "recent_chat", "enabled": True, "weights": {"morning": 0.5}},
+        {"id": "act_b", "type": "sensory_wander", "enabled": True, "weights": {"morning": 0.5}},
+    ]
+    # If act_a was run last, its weight is dampened by 0.2 (0.1 vs 0.5)
+    # Over 100 trials, act_b should win the vast majority
+    b_wins = sum(
+        1 for _ in range(100)
+        if ambient_reflector.select_ambient_activity(activities_balanced, "morning", last_activity_id="act_a", cooldown_decay=0.01)["id"] == "act_b"
+    )
+    assert b_wins > 80
+
+
+@pytest.mark.asyncio
+async def test_run_ambient_reflection_with_prior_continuity(temp_ambient_dbs, monkeypatch):
+    """Test full run_ambient_reflection cycle with prior reflections injected into prompt."""
+    today_str = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+
+    # Record an earlier thought today
+    memory_db.record_ambient_impression(
+        type="thought",
+        content="First morning contemplation on cedar trees.",
+        metadata={"mood": "Serene", "activity_id": "sensory_wander"},
+        target_date=today_str,
+    )
+
+    captured_prompts = []
+
+    def mock_query_ollama(prompt, system="", options=None, timeout=120, strip_thinking=True):
+        captured_prompts.append({"prompt": prompt, "system": system})
+        return "A curious wandering realization about database indexing and memory structures."
+
+    monkeypatch.setattr("Evelyn.tools.ollama_client.query_ollama", mock_query_ollama)
+
+    res = await ambient_reflector.run_ambient_reflection(dry_run=True, force=True)
+    assert res["status"] == "success"
+    assert res["dry_run"] is True
+    assert "curious" in res["thought"].lower()
+    assert res["mood"] == "Curious"
+    assert res["activity_id"] in [a["id"] for a in cfg.AMBIENT_ACTIVITIES]
+
+    # Verify that <daily_journal_so_far> was included in the user prompt
+    assert len(captured_prompts) == 1
+    prompt_text = captured_prompts[0]["prompt"]
+    assert "<daily_journal_so_far>" in prompt_text
+    assert "First morning contemplation on cedar trees." in prompt_text
+    assert "<ambient_seed_context" in prompt_text
