@@ -1575,6 +1575,7 @@
         <button class="ambient-pill" id="ambient-thought-pill" style="display:none;" onclick="toggleAmbientPopover(event)" title="Click to view daytime thought">
           <span>💭</span>
           <span class="pill-snippet" id="ambient-thought-snippet">Thinking...</span>
+          <span class="ambient-badge" id="ambient-thought-badge" style="display:none; margin-left: 4px;"></span>
         </button>
         <button class="ambient-pill" id="ambient-media-pill" style="display:none;" onclick="openAmbientMedia(event)" title="Proactive media share">
           <span>🖼️</span>
@@ -1593,9 +1594,13 @@
           <span style="font-size: 10px; color: var(--text-dim);" id="ambient-popover-time">Just now</span>
         </div>
         <div id="ambient-popover-content" style="font-size: 13px; line-height: 1.5; color: var(--text); margin-bottom: 12px;"></div>
-        <div style="display: flex; justify-content: flex-end; gap: 8px;">
-          <button class="btn-ghost" id="ambient-dismiss-btn" style="padding: 3px 8px; font-size: 11px;" onclick="dismissAmbientThought()">Dismiss</button>
-          <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="closeAmbientPopover()">Close</button>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 10px; color: var(--text-dim);" id="ambient-popover-queue"></span>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-ghost" id="ambient-dismiss-all-btn" style="display:none; padding: 3px 8px; font-size: 11px;" onclick="dismissAllAmbientThoughts()">Dismiss All</button>
+            <button class="btn-ghost" id="ambient-dismiss-btn" style="padding: 3px 8px; font-size: 11px;" onclick="dismissAmbientThought()">Dismiss</button>
+            <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="closeAmbientPopover()">Close</button>
+          </div>
         </div>
       </div>
 
@@ -4574,7 +4579,7 @@
       async function fetchAmbientFeed() {
         if (document.hidden) return;
         try {
-          const res = await fetch("/ambient/feed?limit=5", { headers: headers() });
+          const res = await fetch("/ambient/feed?limit=10", { headers: headers() });
           if (!res.ok) return;
           const data = await res.json();
           const items = data.items || [];
@@ -4584,38 +4589,63 @@
           const idleSnippet = document.getElementById("ambient-idle-snippet");
           const thoughtPill = document.getElementById("ambient-thought-pill");
           const thoughtSnippet = document.getElementById("ambient-thought-snippet");
+          const thoughtBadge = document.getElementById("ambient-thought-badge");
           const mediaPill = document.getElementById("ambient-media-pill");
           const mediaBadge = document.getElementById("ambient-media-badge");
           const dismissBtn = document.getElementById("ambient-dismiss-btn");
+          const dismissAllBtn = document.getElementById("ambient-dismiss-all-btn");
           const popoverContent = document.getElementById("ambient-popover-content");
           const popoverTime = document.getElementById("ambient-popover-time");
           const popoverTag = document.getElementById("ambient-popover-tag");
+          const popoverQueue = document.getElementById("ambient-popover-queue");
 
-          const latestThought = items.find((i) => i.type === "thought" && !i.dismissed);
+          // Filter undismissed thoughts and sort chronologically (FIFO queue: oldest first)
+          const activeThoughts = items
+            .filter((i) => i.type === "thought" && !i.dismissed)
+            .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+
           const mediaItems = items.filter((i) => i.type === "media_share" && !i.dismissed);
           const circadian = getCircadianStatus();
 
           if (island) island.style.display = "inline-flex";
 
-          if (latestThought) {
-            currentAmbientThoughtId = latestThought.id;
+          if (activeThoughts.length > 0) {
+            const oldestThought = activeThoughts[0];
+            currentAmbientThoughtId = oldestThought.id;
             if (idlePill) idlePill.style.display = "none";
             if (thoughtPill) thoughtPill.style.display = "inline-flex";
-            if (thoughtSnippet) thoughtSnippet.textContent = latestThought.content;
+            if (thoughtSnippet) thoughtSnippet.textContent = oldestThought.content;
 
-            if (popoverContent) popoverContent.textContent = latestThought.content;
-            if (popoverTime && latestThought.ts) {
-              const d = new Date(latestThought.ts * 1000);
+            if (thoughtBadge) {
+              if (activeThoughts.length > 1) {
+                thoughtBadge.textContent = `${activeThoughts.length}`;
+                thoughtBadge.style.display = "inline-flex";
+                thoughtBadge.title = `${activeThoughts.length} unread daytime thoughts`;
+              } else {
+                thoughtBadge.style.display = "none";
+              }
+            }
+
+            if (popoverContent) popoverContent.textContent = oldestThought.content;
+            if (popoverTime && oldestThought.ts) {
+              const d = new Date(oldestThought.ts * 1000);
               popoverTime.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             }
             if (popoverTag) {
-              const mood = latestThought.metadata?.mood || "Reflective";
+              const mood = oldestThought.metadata?.mood || "Reflective";
               popoverTag.textContent = `💭 ${mood.toUpperCase()} THOUGHT`;
             }
+            if (popoverQueue) {
+              popoverQueue.textContent = activeThoughts.length > 1 ? `1 of ${activeThoughts.length}` : "";
+            }
             if (dismissBtn) dismissBtn.style.display = "inline-block";
+            if (dismissAllBtn) {
+              dismissAllBtn.style.display = activeThoughts.length > 1 ? "inline-block" : "none";
+            }
           } else {
             currentAmbientThoughtId = null;
             if (thoughtPill) thoughtPill.style.display = "none";
+            if (thoughtBadge) thoughtBadge.style.display = "none";
             if (idlePill) {
               idlePill.style.display = "inline-flex";
               if (idleIcon) idleIcon.textContent = circadian.icon;
@@ -4624,7 +4654,9 @@
             if (popoverContent) popoverContent.textContent = circadian.description;
             if (popoverTime) popoverTime.textContent = "";
             if (popoverTag) popoverTag.textContent = `${circadian.icon} AMBIENT STATUS`;
+            if (popoverQueue) popoverQueue.textContent = "";
             if (dismissBtn) dismissBtn.style.display = "none";
+            if (dismissAllBtn) dismissAllBtn.style.display = "none";
           }
 
           if (mediaItems.length > 0) {
@@ -4660,6 +4692,20 @@
           } catch (e) {
             console.error("Failed to dismiss ambient thought:", e);
           }
+        }
+        closeAmbientPopover();
+        fetchAmbientFeed();
+      }
+
+      async function dismissAllAmbientThoughts() {
+        try {
+          await fetch("/ambient/dismiss_all", {
+            method: "POST",
+            headers: headers({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ type: "thought" }),
+          });
+        } catch (e) {
+          console.error("Failed to dismiss all ambient thoughts:", e);
         }
         closeAmbientPopover();
         fetchAmbientFeed();

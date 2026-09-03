@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-08-30 16:33:03
+# date modified: 2026-09-02 21:28:55
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -1602,6 +1602,32 @@ def mark_ambient_impression_dismissed(impression_id: int) -> bool:
         )
         con.commit()
         return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def mark_all_ambient_impressions_dismissed(type_filter: str | None = None) -> int:
+    """Mark all active (undismissed) ambient impressions as dismissed.
+
+    Args:
+        type_filter: Optional filter ('thought', 'media_share', etc.). If None, dismisses all.
+
+    Returns:
+        int: Number of records updated.
+    """
+    con = get_db()
+    try:
+        if type_filter:
+            cur = con.execute(
+                "UPDATE daily_ambient_impressions SET dismissed = 1 WHERE type = ? AND dismissed = 0",
+                (type_filter,),
+            )
+        else:
+            cur = con.execute(
+                "UPDATE daily_ambient_impressions SET dismissed = 1 WHERE dismissed = 0",
+            )
+        con.commit()
+        return cur.rowcount
     finally:
         con.close()
 

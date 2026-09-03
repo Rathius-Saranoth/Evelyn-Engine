@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-02 18:49:39
+date modified: 2026-09-02 21:30:25
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.054] - 2026-09-02 — *Modular Ambient Engine & FIFO Queue*
+
+### Added & Enhanced
+- **Pluggable Activity Providers (`Evelyn/tools/ambient_providers.py`, `Evelyn/tools/ambient_reflector.py`)**:
+  - Implemented `BaseAmbientProvider` protocol and 5 specialized activity providers: `RecentChatProvider` (conversation turns), `VaultDocumentProvider` (random vault note reminiscing), `LoreSnippetProvider` (companion, Aura, and sanctuary lore notes), `TopicCuriosityProvider` (configurable topic pool wandering), and `SensoryWanderProvider` (time-grounded sensory daytime musings).
+  - Integrated dynamic provider registry lookup (`get_provider`, `register_provider`) decoupling activity seed generation from core task loop execution.
+- **Diurnal Phase Weighting & Recency Cooldown (`evelyn_config.py`, `Evelyn/tools/ambient_reflector.py`)**:
+  - Added circadian phase detection: `morning` (05:00–11:59), `afternoon` (12:00–16:59), `evening` (17:00–21:59), and `night` (22:00–04:59).
+  - Configured diurnal phase affinity matrix in `AMBIENT_ACTIVITIES` and introduced recency dampening via `AMBIENT_REFLECTIONS_COOLDOWN_DECAY = 0.2` to prevent repetitive consecutive activity selection during long pauses.
+- **Narrative Daytime Continuity (`<daily_journal_so_far>`, `Evelyn/tools/ambient_reflector.py`)**:
+  - Automatically queries earlier thoughts generated today from `daily_ambient_impressions` and injects them as `<daily_journal_so_far>` into prompt context.
+  - Replaces negative prompt constraints with progressive narrative guidelines, giving Evelyn full internal continuity of her daytime thoughts while preventing repetitive topics or opening clauses.
+- **Chronological UI FIFO Queue & Batch Actions (`evelyn_ui/index.html`, `evelyn_server.py`)**:
+  - Updated Chat UI ambient header island to sort thoughts chronologically (`a.ts - b.ts`), presenting the oldest undismissed thought first so the user experiences daytime reflections in true chronological sequence.
+  - Added backlog counter badge (`1 of N`) on the header pill and popover.
+  - Added `POST /ambient/dismiss_all` endpoint and `Dismiss All` button in the popover for one-click queue clearing.
+
+---
 
 ## [000.006.053] - 2026-09-02 — *Real-Time Cross-Tab State Synchronization & Immediate Deletion*
 
