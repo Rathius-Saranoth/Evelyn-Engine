@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-29 16:04:10
+# date modified: 2026-09-03 18:04:24
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -1229,35 +1229,22 @@ def write_extracted_procedures(procedures: list[dict]) -> int:
     written = 0
 
     for proc in procedures:
-        # Check for duplication. We look up existing procedures and compare
-        # their triggers and steps to avoid exact or near duplicates.
-        existing = memory_db.get_all_procedures(status="live") + memory_db.get_all_procedures(status="extracted")
-        duplicate = False
-        candidate_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", proc["trigger_pattern"].lower()))
-        stopwords = {"when", "the", "user", "says", "asks", "tells", "you", "for", "with", "that", "this", "and", "are", "your", "they"}
-        candidate_kws = candidate_words - stopwords
+        existing_live = memory_db.get_all_procedures(status="live")
+        existing_extracted = memory_db.get_all_procedures(status="extracted")
+        existing_all = existing_live + existing_extracted
 
-        merge_candidate_id = None
-        best_overlap = 0.0
+        from Evelyn.tools.procedure_matcher import find_best_master_candidate, is_duplicate_procedure
 
-        for ext in existing:
-            if ext["trigger_pattern"].lower() == proc["trigger_pattern"].lower():
-                duplicate = True
-                break
-            ext_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", ext["trigger_pattern"].lower()))
-            ext_kws = ext_words - stopwords
-            if candidate_kws and ext_kws:
-                jaccard = len(candidate_kws & ext_kws) / len(candidate_kws | ext_kws)
-                if jaccard >= 0.70:
-                    duplicate = True
-                    break
-                elif jaccard >= 0.35 and ext.get("status") == "live" and jaccard > best_overlap:
-                    best_overlap = jaccard
-                    merge_candidate_id = ext.get("id")
-
-        if duplicate:
+        if is_duplicate_procedure(
+            proc["trigger_pattern"],
+            [e["trigger_pattern"] for e in existing_all],
+            threshold=0.70,
+        ):
             print(f"[EXTRACTOR] Skipping duplicate procedure trigger: {proc['trigger_pattern'][:80]}...", flush=True)
             continue
+
+        master, _score = find_best_master_candidate(proc, existing_live, min_threshold=0.35)
+        merge_candidate_id = master["id"] if master else None
 
         try:
             memory_db.insert_procedure(

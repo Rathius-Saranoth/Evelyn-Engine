@@ -1,6 +1,6 @@
 # pending_reviewer.py
 # date created: 2026-05-07 07:18:08
-# date modified: 2026-08-28 07:33:33
+# date modified: 2026-09-03 18:36:09
 # tags: #triage, #consolidation, #review, #terminal, #interactive
 
 """
@@ -269,34 +269,12 @@ def run_review():
                     memory_db.apply_proposal(prop["id"])
 
                 elif prop["type"] in ("merge", "supersede"):
-                    # Apply merge/supersede
-                    # Delete source entries
-                    for entry in source_entries:
-                        memory_db.delete_entry(entry["id"])
-                    # Insert merged entry
-                    # Use subject from the first source entry, default to 'R' if unknown
-                    subject = source_entries[0]["subject"] if source_entries else "R"
-                    date = source_entries[0]["date"] if source_entries else None
-
-                    # Use LLM-generated merged tags if available, else fallback to union
-                    if prop.get("merged_tags"):
-                        merged_tags = prop["merged_tags"]
-                    else:
-                        merged_tags_set = set()
-                        for entry in source_entries:
-                            if entry.get("tags"):
-                                for t in entry["tags"].split(","):
-                                    if t.strip():
-                                        merged_tags_set.add(t.strip())
-                        merged_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
-
-                    memory_db.insert_entry(
-                        category=prop["suggested_category"],
-                        subject=subject,
-                        observation=prop["merged_observation"],
-                        source="consolidated",
-                        date=date,
-                        tags=merged_tags
+                    # Apply in-place master merge/supersede
+                    memory_db.apply_fact_merge(
+                        source_entries=source_entries,
+                        merged_text=prop["merged_observation"],
+                        target_category=prop["suggested_category"],
+                        merged_tags=prop.get("merged_tags"),
                     )
                     memory_db.apply_proposal(prop["id"])
 

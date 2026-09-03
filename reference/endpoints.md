@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-02 21:32:21
+date modified: 2026-09-03 18:44:27
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -142,16 +142,22 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `POST /api/review/proposals/{id}/{action}`
 * **Purpose**: Action triage on proposals.
-* **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str) and/or `source_id` (int).
+* **Payload**: Optional JSON body (`ProposalActionRequest`) carrying `modified_text` (str), `source_id` (int), and/or `target_id` (int).
 * **Actions**:
   * `approve`: Executes the proposal based on type:
     * `profile_update` — writes `modified_text` (or the stored `merged_observation` if none provided) to the target persona file on disk, stamps `entry_document_evolution` for the specific target document on all source entries with the proposal's `created_at` timestamp (recognizing entries modified during review as dirty so they re-qualify), resets the per-document evolution cooldown to the approval timestamp, runs `update_frontmatter.py`, and marks the proposal applied.
-    * `merge` / `supersede` — deletes source entries and inserts the merged fact (using `modified_text` if provided).
+    * `merge` / `supersede` — updates the primary master context entry in-place with aggregated longevity counts (`observed_count`, `retrieval_count`, `first_observed`, `last_observed`), unions domain tags, and soft-deletes secondary duplicates via `apply_fact_merge()`.
     * `split` — deletes the source compound entry and inserts decomposed atomic child context facts parsed from `final_text` as YAML/JSON.
     * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
-    * `procedure_merge` — deletes source procedures and inserts a new consolidated procedure parsed from `final_text` as YAML.
+    * `procedure_merge` — if a `target_id` is supplied or indicated in `suggested_category`, delegates to in-place master merge; otherwise inserts a new consolidated procedure parsed from `final_text` as YAML and soft-deletes source procedures.
+  * `merge_into_master`: Explicit procedure master consolidation action. Updates the target master procedure in-place with synthesized trigger patterns, steps, pitfalls, verification checks, tools, and domain tags, and marks all other source procedures as `status='merged'` pointing to the target master ID.
   * `deny`: Rejects the proposal (`reject_proposal`). For `profile_update`, stamps source entries in `entry_document_evolution` for that document with proposal `created_at` and advances cooldown to prevent immediate repeat proposals.
   * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
+
+### `POST /api/context/queue_merge`
+* **Purpose**: Enqueue a list of context extractions for prioritized manual consolidation by the Fact Consolidator on its next cycle.
+* **Payload**: `ContextMergeRequest` JSON: `{"entry_ids": [101, 102, ...]}`.
+* **Response**: `{"status": "ok", "queue_id": 42}`.
 
 ### `POST /api/context/split_preview`
 * **Purpose**: Decompose a compound or over-merged context entry into atomic child entries with LLM assistance and Vector RAG taxonomy tagging.

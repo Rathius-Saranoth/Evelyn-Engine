@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-02 21:28:55
+# date modified: 2026-09-03 18:34:12
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -172,6 +172,16 @@ def init_db() -> None:
     """)
 
     con.execute("""
+        CREATE TABLE IF NOT EXISTS fact_merge_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_ids  TEXT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+    """)
+
+    con.execute("""
         CREATE TABLE IF NOT EXISTS entry_document_evolution (
             entry_id      INTEGER NOT NULL,
             document_name TEXT NOT NULL,
@@ -193,6 +203,7 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_csq_status ON chroma_sync_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_csq_source ON chroma_sync_queue(source_path, collection_name)",
         "CREATE INDEX IF NOT EXISTS idx_sq_status ON split_queue(status)",
+        "CREATE INDEX IF NOT EXISTS idx_fmq_status ON fact_merge_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_ede_doc_entry ON entry_document_evolution(document_name, entry_id)",
     ]:
         con.execute(stmt)
@@ -602,6 +613,108 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
     return new_ids
 
 
+def apply_fact_merge(
+    source_entries: list[dict],
+    merged_text: str,
+    target_category: str,
+    merged_tags: str | None = None,
+) -> int:
+    """Consolidate multiple context entries into a single primary master entry in place.
+
+    Identifies the primary entry (oldest established by first_observed or lowest ID),
+    aggregates observed_count, retrieval_count, earliest first_observed, latest date,
+    and union of tags, updates the master entry in place, and soft-deletes secondary entries.
+
+    Args:
+        source_entries: List of existing context entry dicts being consolidated.
+        merged_text: The synthesized observation string.
+        target_category: Normalized target category string (e.g. 'Cat05-U').
+        merged_tags: Optional LLM-synthesized tags or None.
+
+    Returns:
+        int: The row ID of the updated master entry (or newly inserted if source_entries empty).
+    """
+    if not source_entries:
+        return insert_entry(
+            category=target_category,
+            subject=getattr(cfg, "USER_NAME", "Ricky"),
+            observation=merged_text,
+            source="consolidated",
+            tags=merged_tags,
+        )
+
+    # Sort entries: prioritize lowest id or earliest first_observed
+    sorted_entries = sorted(
+        source_entries,
+        key=lambda e: (e.get("first_observed") or e.get("created_at") or 0.0, e.get("id", 0))
+    )
+    master_entry = sorted_entries[0]
+    secondary_entries = sorted_entries[1:]
+    master_id = int(master_entry["id"])
+
+    # Aggregate metadata
+    total_observed_count = sum(e.get("observed_count") or 1 for e in source_entries)
+    total_retrieval_count = sum(e.get("retrieval_count") or 0 for e in source_entries)
+
+    first_obs_candidates = [
+        e.get("first_observed") for e in source_entries if e.get("first_observed")
+    ] or [e.get("created_at") for e in source_entries if e.get("created_at")]
+    earliest_first_observed = min(first_obs_candidates) if first_obs_candidates else time.time()
+
+    last_obs_candidates = [
+        e.get("last_observed") for e in source_entries if e.get("last_observed")
+    ]
+    latest_last_observed = max(last_obs_candidates) if last_obs_candidates else time.time()
+
+    dates = [e.get("date") for e in source_entries if e.get("date")]
+    latest_date = max(dates) if dates else master_entry.get("date")
+
+    # Combine tags: existing tags + provided merged_tags
+    all_tags_set = set()
+    for e in source_entries:
+        if e.get("tags"):
+            for t in str(e["tags"]).split(","):
+                cleaned = t.strip()
+                if cleaned:
+                    all_tags_set.add(cleaned)
+    if merged_tags:
+        for t in merged_tags.split(","):
+            cleaned = t.strip()
+            if cleaned:
+                all_tags_set.add(cleaned)
+    final_tags = ", ".join(sorted(all_tags_set)) if all_tags_set else None
+
+    subject = master_entry.get("subject") or getattr(cfg, "USER_NAME", "Ricky")
+
+    # Update master entry in place
+    update_entry(
+        master_id,
+        category=target_category,
+        subject=subject,
+        observation=merged_text,
+        source="consolidated",
+        status="live",
+        date=latest_date,
+        tags=final_tags,
+        first_observed=earliest_first_observed,
+        last_observed=latest_last_observed,
+        observed_count=total_observed_count,
+        retrieval_count=total_retrieval_count,
+    )
+
+    # Soft delete secondary entries and remove from Chroma
+    for sec in secondary_entries:
+        sec_id = int(sec["id"])
+        delete_entry(sec_id)
+        with contextlib.suppress(Exception):
+            from Evelyn.tools import chroma_rag
+            chroma_rag.enqueue_delete(
+                source_path=f"sqlite::context_entry::{sec_id}",
+                collection_name=cfg.CHROMA_MEMORY_COLLECTION,
+            )
+
+    return master_id
+
 
 def count_entries(status: str | None = None) -> int:
     """Count context entries, optionally filtered by status.
@@ -620,7 +733,7 @@ def count_entries(status: str | None = None) -> int:
     else:
         row = con.execute("SELECT COUNT(*) FROM context_entries").fetchone()
     con.close()
-    return row[0]
+    return row[0] if row else 0
 
 
 def count_entries_by_category() -> dict[str, int]:
@@ -639,18 +752,18 @@ def count_entries_by_category() -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# Split queue support (for prioritized consolidator splitting)
+# Split & Merge Review Queues
 # ---------------------------------------------------------------------------
 
 
 def enqueue_split(entry_id: int) -> bool:
-    """Enqueue a context entry to be evaluated for splitting during the next consolidation run.
+    """Enqueue a context entry ID for split evaluation in the background.
 
     Args:
-        entry_id: Row ID of the context entry to queue.
+        entry_id: Row ID of the context entry.
 
     Returns:
-        bool: True if queued successfully.
+        bool: True if successfully enqueued, False on error.
     """
     con = get_db()
     now = time.time()
@@ -712,6 +825,91 @@ def get_all_queued_split_entry_ids() -> set[int]:
     rows = con.execute("SELECT entry_id FROM split_queue WHERE status = 'pending'").fetchall()
     con.close()
     return {r["entry_id"] for r in rows}
+
+
+def enqueue_fact_merge(entry_ids: list[int]) -> int:
+    """Enqueue multiple context entry IDs to be merged in the background.
+
+    Args:
+        entry_ids: List of context entry row IDs to merge.
+
+    Returns:
+        int: Auto-generated queue ID, or 0 on error.
+    """
+    import json
+    unique_ids = sorted(set(entry_ids))
+    if len(unique_ids) < 2:
+        return 0
+    now = time.time()
+    ids_json = json.dumps(unique_ids)
+    con = get_db()
+    try:
+        cur = con.execute(
+            """INSERT INTO fact_merge_queue (entry_ids, status, created_at, updated_at)
+               VALUES (?, 'pending', ?, ?)""",
+            (ids_json, now, now),
+        )
+        con.commit()
+        return cur.lastrowid or 0
+    except sqlite3.Error as e:
+        print(f"[MEMORY_DB] Error enqueueing entries {unique_ids} for merge: {e}")
+        return 0
+    finally:
+        con.close()
+
+
+def get_fact_merge_queue(status: str = "pending") -> list[dict]:
+    """Retrieve all fact merge requests currently in the merge queue.
+
+    Args:
+        status: Filter by queue status. Default 'pending'.
+
+    Returns:
+        list[dict]: List of fact merge queue record dicts.
+    """
+    import json
+    con = get_db()
+    rows = con.execute(
+        "SELECT id, entry_ids, status, created_at, updated_at FROM fact_merge_queue WHERE status = ? ORDER BY created_at ASC",
+        (status,),
+    ).fetchall()
+    con.close()
+    results = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["entry_ids"] = json.loads(d["entry_ids"])
+        except (json.JSONDecodeError, TypeError):
+            d["entry_ids"] = []
+        results.append(d)
+    return results
+
+
+def dequeue_fact_merge(queue_id: int) -> bool:
+    """Remove a fact merge queue entry by ID.
+
+    Args:
+        queue_id: Primary key ID of the fact_merge_queue row.
+
+    Returns:
+        bool: True if deleted.
+    """
+    con = get_db()
+    try:
+        cur = con.execute("DELETE FROM fact_merge_queue WHERE id = ?", (queue_id,))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def get_all_queued_fact_merge_ids() -> set[int]:
+    """Return a set of all entry IDs currently pending in the fact merge queue."""
+    queued = get_fact_merge_queue(status="pending")
+    ids: set[int] = set()
+    for q in queued:
+        ids.update(q.get("entry_ids", []))
+    return ids
 
 
 # ---------------------------------------------------------------------------

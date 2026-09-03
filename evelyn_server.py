@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-02 21:29:00
+# date modified: 2026-09-03 18:37:32
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5441,6 +5441,7 @@ class ProposalActionRequest(BaseModel):
 
     modified_text: str | None = None
     source_id: int | None = None
+    target_id: int | None = None
 
 
 @app.get("/api/review/proposals")
@@ -5523,7 +5524,7 @@ async def action_proposal(
             )
         memory_db.remove_proposal_source_id(id, req.source_id)
         return {"status": "ok"}
-    elif action == "approve":
+    elif action in ("approve", "merge_into_master"):
         proposals = memory_db.get_pending_proposals()
         prop = next((p for p in proposals if p["id"] == id), None)
         if not prop:
@@ -5580,6 +5581,20 @@ async def action_proposal(
             import yaml
 
             source_ids = prop.get("source_ids", [])
+            target_master_id = None
+            if action == "merge_into_master":
+                if req and req.target_id:
+                    target_master_id = req.target_id
+                elif prop.get("suggested_category") and str(prop["suggested_category"]).isdigit():
+                    target_master_id = int(prop["suggested_category"])
+                else:
+                    from Evelyn.tools import procedure_matcher
+                    source_procs = [memory_db.get_procedure(eid) for eid in source_ids]
+                    valid_sources = [p for p in source_procs if p]
+                    cluster_master = procedure_matcher.identify_cluster_master(valid_sources)
+                    if cluster_master:
+                        target_master_id = cluster_master["id"]
+
             source_tags_set = set()
             for eid in source_ids:
                 p_old = memory_db.get_procedure(eid)
@@ -5645,24 +5660,38 @@ async def action_proposal(
                         ", ".join(sorted(combined)) if combined else "procedure"
                     )
 
-                new_proc_id = memory_db.insert_procedure(
-                    trigger_pattern=parsed_proc["trigger_pattern"],
-                    steps=parsed_proc.get("steps", ""),
-                    pitfalls=parsed_proc.get("pitfalls"),
-                    verification=parsed_proc.get("verification"),
-                    source="consolidated",
-                    status="live",
-                    tags=final_tags,
-                    suggested_tools=parsed_proc.get("suggested_tools"),
-                )
+                if target_master_id:
+                    memory_db.update_procedure(
+                        target_master_id,
+                        trigger_pattern=parsed_proc["trigger_pattern"],
+                        steps=parsed_proc.get("steps", ""),
+                        pitfalls=parsed_proc.get("pitfalls"),
+                        verification=parsed_proc.get("verification"),
+                        tags=final_tags,
+                        suggested_tools=parsed_proc.get("suggested_tools"),
+                        status="live",
+                    )
+                    new_proc_id = target_master_id
+                else:
+                    new_proc_id = memory_db.insert_procedure(
+                        trigger_pattern=parsed_proc["trigger_pattern"],
+                        steps=parsed_proc.get("steps", ""),
+                        pitfalls=parsed_proc.get("pitfalls"),
+                        verification=parsed_proc.get("verification"),
+                        source="consolidated",
+                        status="live",
+                        tags=final_tags,
+                        suggested_tools=parsed_proc.get("suggested_tools"),
+                    )
 
             for eid in source_ids:
-                if new_proc_id:
+                if new_proc_id and eid != new_proc_id:
                     memory_db.merge_procedure(eid, new_proc_id)
-                else:
+                elif not new_proc_id:
                     memory_db.delete_procedure(eid)
 
             memory_db.apply_proposal(id)
+            return {"status": "ok", "merged_into_id": target_master_id}
         elif prop["type"] == "procedure_split":
             import yaml
 
@@ -5711,31 +5740,11 @@ async def action_proposal(
                     memory_db.split_entry(source_id, child_entries)
             memory_db.apply_proposal(id)
         elif prop["type"] in ("merge", "supersede"):
-            for entry in source_entries:
-                memory_db.delete_entry(entry["id"])
-            subject = source_entries[0]["subject"] if source_entries else "R"
-            date = source_entries[0]["date"] if source_entries else None
-
-            if prop.get("merged_tags"):
-                merged_tags = prop["merged_tags"]
-            else:
-                merged_tags_set = set()
-                for entry in source_entries:
-                    if entry.get("tags"):
-                        for t in entry["tags"].split(","):
-                            if t.strip():
-                                merged_tags_set.add(t.strip())
-                merged_tags = (
-                    ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
-                )
-
-            memory_db.insert_entry(
-                category=prop["suggested_category"],
-                subject=subject,
-                observation=final_text,
-                source="consolidated",
-                date=date,
-                tags=merged_tags,
+            memory_db.apply_fact_merge(
+                source_entries=source_entries,
+                merged_text=final_text,
+                target_category=prop["suggested_category"],
+                merged_tags=prop.get("merged_tags"),
             )
             memory_db.apply_proposal(id)
         await start_refresh_memory_internal()
@@ -5907,6 +5916,26 @@ async def queue_context_split(id: int, _: None = Depends(check_auth)):
             status_code=500, detail="Failed to enqueue context entry for split"
         )
     return {"status": "ok", "entry_id": id, "queued": True}
+
+
+class ContextMergeRequest(BaseModel):
+    entry_ids: list[int]
+
+
+@app.post("/api/context/queue_merge")
+async def queue_context_merge(req: ContextMergeRequest, _: None = Depends(check_auth)):
+    """Enqueue multiple context entry IDs to be merged in the background."""
+    from Evelyn.tools import memory_db
+
+    if len(req.entry_ids) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 2 context entry IDs are required to queue a merge",
+        )
+    queue_id = memory_db.enqueue_fact_merge(req.entry_ids)
+    if not queue_id:
+        raise HTTPException(status_code=500, detail="Failed to enqueue context merge")
+    return {"status": "ok", "queue_id": queue_id}
 
 
 class ProcedureReviewBody(BaseModel):

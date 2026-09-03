@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-02 18:24:30
+date modified: 2026-09-03 18:11:26
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -70,7 +70,9 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - `frontmatter_utils.py`: Parsing (`parse_frontmatter`), rendering (`render_frontmatter`), in-place line updating (`update_frontmatter_field`), and file writes (`write_file_with_frontmatter`).
   - `ollama_client.py`: Local Ollama inference gateway (`query_ollama`, `query_ollama_json`, `get_ollama_status`).
   - `time_manager.py`: Conversational chronology, agenda/gap evaluation, and universal persistent user idle calculation (`get_user_idle_seconds`).
+  - `procedure_matcher.py`: Operational procedure tokenization, trigger keyword similarity (`calculate_procedure_similarity`), duplicate checking (`is_duplicate_procedure`), and canonical master candidate detection (`find_best_master_candidate`, `identify_cluster_master`).
 - **Strict Anti-Duplication Rule**: Writing ad-hoc regex frontmatter parsers, inline `urllib.request` Ollama HTTP callers, duplicate `clean_gist()` / `slugify()` routines, or custom YAML list formatters across engine tools or scripts is strictly forbidden. Always import and reuse canonical functions.
+- **Cross-Pipeline Parity & Existing Tool Migration**: Whenever a new utility function or tool is created, agents must verify whether existing tools or pipelines perform similar operations and update them to share the canonical implementation, maintaining behavioral and architectural parity across the engine.
 
 ## 9. In-Flight Context Injection & Structured XML Envelopes
 - **No Unstructured Bracket Annotations**: Never inject dynamic background context (timestamps, session telemetry, retrieved knowledge/RAG, autonomous triggers) using plain text annotations (`[System Note: ...]`), parentheses, or informal prefixes. This causes role bleeding and prompt confusion.

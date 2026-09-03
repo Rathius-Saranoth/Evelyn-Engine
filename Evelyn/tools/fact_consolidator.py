@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-08-28 19:15:43
+# date modified: 2026-09-03 18:38:11
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -54,16 +54,16 @@ _background_tasks: set[asyncio.Task] = set()
 # FactRecord = {
 #     "path": str,          absolute path to the file
 #     "rel_path": str,      path relative to CONTEXT_ENTRIES_DIR
-#     "category": str,      "Cat05-R"
+#     "category": str,      "Cat05-U"
 #     "cat_num": int,       5
-#     "subject": str,       "R" | "E"
+#     "subject": str,       "Ricky" | "Evelyn"
 #     "date": datetime,     parsed from filename or frontmatter
 #     "summary": str,       text of **Summary:** line
 #     "filename": str,      basename only
 # }
 #
 # Cluster = {
-#     "category": str,      "Cat05-R"
+#     "category": str,      "Cat05-U"
 #     "topic": str,         LLM-identified topic label e.g. "coffee preferences"
 #     "records": list[FactRecord]
 # }
@@ -76,7 +76,6 @@ _background_tasks: set[asyncio.Task] = set()
 
 _SUMMARY_RE = re.compile(r"\*\*Summary:\*\*\s*(.+)", re.IGNORECASE | re.DOTALL)
 _DATE_FROM_FILENAME_RE = re.compile(r"(?:CE|EX)_(\d{4}-\d{2}-\d{2})")
-_CAT_CODE_RE = re.compile(r"(Cat\d{2}-[ER])", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -335,11 +334,14 @@ def remediate_database_categories() -> None:
                 corrected_entries += 1
                 print(f"[REMEDIATION] Corrected context entry {entry_id} category: '{cat}' -> '{normalized}'", flush=True)
 
-        # 2. Remediate proposals (excluding profile updates and inspecting non-canonical / legacy suffixes)
+        # 2. Remediate proposals (excluding profile updates and procedure proposals)
         rows = con.execute("""
             SELECT id, type, suggested_category, merged_observation FROM proposals
-            WHERE (suggested_category IS NOT NULL AND type != 'profile_update' AND (suggested_category NOT GLOB 'Cat[0-9][0-9]-[UA]' OR suggested_category GLOB 'Cat[0-9][0-9]-[RE]'))
-               OR (merged_observation LIKE '%-R%' OR merged_observation LIKE '%-E%')
+            WHERE (suggested_category IS NOT NULL
+                   AND type NOT IN ('profile_update', 'procedure', 'procedure_merge', 'procedure_split')
+                   AND (suggested_category NOT GLOB 'Cat[0-9][0-9]-[UA]' OR suggested_category GLOB 'Cat[0-9][0-9]-[RE]'))
+               OR ((merged_observation LIKE '%-R%' OR merged_observation LIKE '%-E%')
+                   AND type NOT IN ('profile_update', 'procedure', 'procedure_merge', 'procedure_split'))
         """).fetchall()
         corrected_proposals = 0
         for row in rows:
@@ -349,7 +351,7 @@ def remediate_database_categories() -> None:
             obs = row["merged_observation"] or ""
 
             normalized_cat = cat
-            if cat and ptype != "profile_update" and not cat.endswith(".md"):
+            if cat and ptype not in ("profile_update", "procedure", "procedure_merge", "procedure_split") and not cat.endswith(".md"):
                 norm = validate_and_normalize_category(cat)
                 if norm:
                     normalized_cat = norm
@@ -671,7 +673,7 @@ _CONSOL_DETECT_SYSTEM_PROMPT = (
 # Anchor-based comparison template for finding duplicate/overlapping entries.
 # One call per category per pass. Focused on cluster detection only.
 # Format variables (filled by _build_consol_prompt):
-#   {category}        — category code being audited, e.g. "Cat11-E"
+#   {category}        — category code being audited, e.g. "Cat11-A"
 #   {anchor_text}     — formatted anchor entry string
 #   {comparison_text} — formatted comparison entries block
 # NOTE: This is a .format() template. Any literal { or } must be written as {{ or }}.
@@ -721,7 +723,7 @@ _RECAT_DETECT_SYSTEM_PROMPT = (
 # Evaluates all entries in an anchor batch for correct category placement.
 # Separate from consolidation detection so each task gets focused attention.
 # Format variables (filled by _build_recat_prompt):
-#   {category}     — category code being audited, e.g. "Cat11-E"
+#   {category}     — category code being audited, e.g. "Cat11-A"
 #   {cat_ref}      — Cat00 taxonomy block (required for category audit)
 #   {entries_text} — flat numbered list of all entries in the batch
 # NOTE: This is a .format() template. Any literal { or } must be written as {{ or }}.
@@ -781,7 +783,7 @@ def _get_anchor_batch(
     the last pass), the category state is reset to (anchor=0, offset=0).
 
     Args:
-        category: The category code, e.g. "Cat11-E".
+        category: The category code, e.g. "Cat11-A".
         records:  All FactRecords for this category, sorted oldest-first.
 
     Returns:
@@ -886,7 +888,7 @@ def _build_consol_prompt(
     The anchor entry is always index [1]. Comparison entries follow as [2]..[N].
 
     Args:
-        category:          Category code being audited, e.g. "Cat11-E".
+        category:          Category code being audited, e.g. "Cat11-A".
         anchor:            The fixed FactRecord for this batch.
         comparison_window: Other FactRecords to compare the anchor against.
 
@@ -1282,7 +1284,7 @@ _PROPOSAL_SYSTEM_PROMPT = (
 # ── PROMPT: CONSOLIDATION PROPOSAL ───────────────────────────────────────────
 # Verdict template. One call per detected cluster (think=True).
 # Format variables (filled by generate_consolidation_proposal):
-#   {category}            — category code of the cluster, e.g. "Cat05-R"
+#   {category}            — category code of the cluster, e.g. "Cat05-U"
 #   {entries_text}        — formatted block listing each source entry and summary
 #   {history_instruction} — "Preserve evolution…" or "Use only most recent…"
 #                           (derived from CONSOLIDATION_KEEP_HISTORY config flag)
@@ -1581,33 +1583,15 @@ def _write_proposal(cluster: dict, proposal: dict) -> str | None:
             status=status
         )
 
-        # If auto-applied, perform the merge immediately
+        # If auto-applied, perform the in-place merge immediately
         if status == "auto_applied":
-            for sid in source_ids:
-                memory_db.delete_entry(sid)
-
-            # Union tags for fallback
-            merged_tags_set = set()
-            for r in records:
-                if r.get("tags"):
-                    for t in r["tags"].split(","):
-                        if t.strip():
-                            merged_tags_set.add(t.strip())
-            fallback_tags = ", ".join(sorted(merged_tags_set)) if merged_tags_set else None
-            final_tags = proposal.get("merged_tags") or fallback_tags
-
-            subject = records[0]["subject"] if records else "R"
-            date = records[0]["date"] if records else None
-
-            memory_db.insert_entry(
-                category=target_cat,
-                subject=subject,
-                observation=merged,
-                source="consolidated",
-                date=date,
-                tags=final_tags
+            master_id = memory_db.apply_fact_merge(
+                source_entries=records,
+                merged_text=merged,
+                target_category=target_cat,
+                merged_tags=proposal.get("merged_tags"),
             )
-            print(f"[CONSOLIDATOR] Auto-applied merge (Proposal {pid})", flush=True)
+            print(f"[CONSOLIDATOR] Auto-applied merge into master #{master_id} (Proposal {pid})", flush=True)
             return str(pid)
 
         print(f"[CONSOLIDATOR] Proposal created: ID {pid} ({verdict})", flush=True)
@@ -1661,7 +1645,7 @@ def _write_recategorization_proposal(
         return None
 
 
-def fast_deduplicate_exact_matches() -> int:
+def fast_deduplicate_exact_matches(con: sqlite3.Connection | None = None) -> int:
     """Detect and automatically collapse exact / whitespace-normalized duplicate context entries.
 
     Returns:
@@ -1669,7 +1653,10 @@ def fast_deduplicate_exact_matches() -> int:
     """
 
     deleted_ids: list[int] = []
-    con = memory_db.get_db()
+    own_con = False
+    if con is None:
+        con = memory_db.get_db()
+        own_con = True
     try:
         cur = con.cursor()
         rows = cur.execute(
@@ -1714,7 +1701,8 @@ def fast_deduplicate_exact_matches() -> int:
         print(f"[CONSOLIDATOR] Fast deduplication error (non-fatal): {e}", flush=True)
         return 0
     finally:
-        con.close()
+        if own_con:
+            con.close()
 
     # Enqueue chroma deletions after closing memory DB connection
     for dup_id in deleted_ids:
@@ -1775,6 +1763,11 @@ async def _do_consolidation():
     # Remediate any malformed categories in the database
     remediate_database_categories()
 
+    # Step 0.5 — Fast exact duplicate deduplication (instant SQL metadata merge)
+    dupes_collapsed = fast_deduplicate_exact_matches()
+    if dupes_collapsed > 0:
+        print(f"[CONSOLIDATOR] Pre-flight exact deduplication collapsed {dupes_collapsed} redundant entries.", flush=True)
+
     # Step 1 — Scan vault
     cat00 = load_cat00_index()
     records = scan_context_entries()
@@ -1782,6 +1775,36 @@ async def _do_consolidation():
     if not records:
         print("[CONSOLIDATOR] No context entries found.", flush=True)
         return
+
+    proposals_written = 0
+    proposals_skipped = 0
+
+    # Step 1b — Prioritize explicitly user-queued fact merge requests
+    queued_merges = memory_db.get_fact_merge_queue(status="pending")
+    for q_item in queued_merges:
+        q_id = q_item["id"]
+        entry_ids = q_item.get("entry_ids", [])
+        queued_records = [r for r in records if r["id"] in entry_ids]
+        if len(queued_records) >= 2:
+            q_cluster = {
+                "category": queued_records[0]["category"],
+                "topic": f"Queued Fact Merge {entry_ids}",
+                "reason": "Manually queued fact consolidation",
+                "records": queued_records,
+            }
+            _set_status_in_server(
+                "running",
+                phase=f"merging_queued_{q_cluster['category']}",
+                sub_status={
+                    "active_category": q_cluster["category"],
+                    "queued_merge_id": q_id,
+                    "proposals_written": proposals_written,
+                },
+            )
+            q_res = await generate_consolidation_proposal(q_cluster)
+            if q_res:
+                proposals_written += 1
+        memory_db.dequeue_fact_merge(q_id)
 
     # Step 2 — Detect clusters and recategorization candidates
     clusters, recat_items = await find_consolidation_candidates(records, cat00)
@@ -1801,7 +1824,6 @@ async def _do_consolidation():
         print("[CONSOLIDATOR] No consolidation candidates found.", flush=True)
 
     # Step 4 — Write consolidation proposals via LLM
-    proposals_written = proposals_skipped = 0
     for _idx, cluster in enumerate(clusters):
         # Skip if any source file in this cluster already has an open proposal.
         cluster_ids = [r["id"] for r in cluster["records"]]
@@ -1926,7 +1948,6 @@ async def _do_consolidation():
         try:
             server = sys.modules.get("evelyn_server") or sys.modules.get("__main__")
             if server and hasattr(server, "start_refresh_memory_internal"):
-                import asyncio
                 try:
                     loop = asyncio.get_running_loop()
                     task = loop.create_task(server.start_refresh_memory_internal())
