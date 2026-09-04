@@ -48,6 +48,7 @@
 
       /* Header */
       header {
+        position: relative;
         padding: 14px 20px;
         background: var(--surface);
         border-bottom: 1px solid var(--border);
@@ -104,10 +105,12 @@
 
       /* Dynamic Ambient Header Island */
       .ambient-header-island {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        margin: 0 auto;
         padding: 4px 10px;
         background: rgba(255, 255, 255, 0.04);
         backdrop-filter: blur(12px);
@@ -167,7 +170,7 @@
       }
       .ambient-popover {
         position: absolute;
-        top: 56px;
+        top: calc(100% + 8px);
         left: 50%;
         transform: translateX(-50%);
         width: min(90vw, 380px);
@@ -192,8 +195,16 @@
           display: none;
         }
         .ambient-header-island {
+          position: static;
+          transform: none;
           padding: 3px 8px;
           margin: 0 8px 0 auto;
+        }
+        .ambient-popover {
+          top: calc(100% + 8px);
+          left: auto;
+          right: 12px;
+          transform: none;
         }
       }
 
