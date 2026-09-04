@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-03 19:44:16
+# date modified: 2026-09-03 21:46:34
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5029,7 +5029,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "last_run_audited": last_audited,
                 }
             elif key == "tag_librarian":
-                vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
+                vdb = str(getattr(cfg, "VAULT_DB_PATH", BASE_DIR / "data" / "evelyn_vault.db"))
                 audited = 0
                 total = 0
                 tags_cnt = 0
@@ -5107,7 +5107,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "pending_sync_queue": sync_queue_cnt,
                 }
             elif key == "vault_map":
-                vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
+                vdb = str(getattr(cfg, "VAULT_DB_PATH", BASE_DIR / "data" / "evelyn_vault.db"))
                 indexed_docs = 0
                 exists = os.path.exists(vdb)
                 mtime = os.path.getmtime(vdb) if exists else None

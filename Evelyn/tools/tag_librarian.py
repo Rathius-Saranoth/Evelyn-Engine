@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-08-31 20:48:44
+# date modified: 2026-09-03 21:46:14
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -612,12 +612,22 @@ def seed_master_taxonomy_from_vault() -> int:
 def maintain_master_taxonomy() -> dict[str, Any]:
     """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
-    Updates tag usage counts across the vault and removes zero-usage tags.
+    Updates tag usage counts across the vault and safely removes zero-usage tags.
+    Includes safety circuit breakers to prevent accidental taxonomy wipes.
 
     Returns:
         Dict[str, Any]: Summary of maintenance pass.
     """
     docs = vault_db.get_all_documents()
+    if not docs:
+        print("[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: vault_documents table is empty.")
+        return {
+            "status": "aborted",
+            "reason": "empty_vault_documents",
+            "updated_master_tags": 0,
+            "removed_master_tags": 0,
+        }
+
     current_counts: dict[str, int] = {}
 
     for doc in docs:
@@ -629,28 +639,64 @@ def maintain_master_taxonomy() -> dict[str, Any]:
             if clean and not is_excluded_tag(clean):
                 current_counts[clean] = current_counts.get(clean, 0) + 1
 
+    if not current_counts:
+        print("[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: 0 active tags found in vault documents.")
+        return {
+            "status": "aborted",
+            "reason": "zero_active_tags",
+            "updated_master_tags": 0,
+            "removed_master_tags": 0,
+        }
+
     master_tags = vault_db.get_master_tags()
-    updated_count = 0
-    removed_count = 0
+    if not master_tags:
+        return {
+            "status": "success",
+            "updated_master_tags": 0,
+            "removed_master_tags": 0,
+        }
+
+    tags_to_delete: list[str] = []
+    tags_to_update: list[tuple[str, str, str, int]] = []
 
     for m in master_tags:
         t = m["tag"]
         count = current_counts.get(t, 0)
         if count == 0:
-            vault_db.delete_master_tag(t)
-            delete_tag_from_chroma(t)
-            removed_count += 1
-        elif count != m["usage_count"]:
-            vault_db.upsert_master_tag(t, category=m["category"], description=m["description"], usage_count=count)
-            updated_count += 1
+            tags_to_delete.append(t)
+        elif count != m.get("usage_count", 0):
+            tags_to_update.append((t, m.get("category", "general"), m.get("description", ""), count))
+
+    # Safety Circuit Breaker: Abort if proposed deletions exceed safe threshold
+    max_prune_ratio = getattr(cfg, "TAG_LIBRARIAN_MAX_PRUNE_RATIO", 0.15)
+    if len(master_tags) > 20 and len(tags_to_delete) > max(10, int(len(master_tags) * max_prune_ratio)):
+        print(
+            f"[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: "
+            f"Proposed deletion of {len(tags_to_delete)}/{len(master_tags)} tags exceeds safety threshold ({max_prune_ratio:.0%})."
+        )
+        return {
+            "status": "aborted",
+            "reason": "prune_threshold_exceeded",
+            "proposed_deletions": len(tags_to_delete),
+            "total_master_tags": len(master_tags),
+            "updated_master_tags": 0,
+            "removed_master_tags": 0,
+        }
+
+    for t in tags_to_delete:
+        vault_db.delete_master_tag(t)
+        delete_tag_from_chroma(t)
+
+    for t, cat, desc, count in tags_to_update:
+        vault_db.upsert_master_tag(t, category=cat, description=desc, usage_count=count)
 
     # Sync any updated counts to Chroma
     sync_master_tags_to_vector_db()
 
     return {
         "status": "success",
-        "updated_master_tags": updated_count,
-        "removed_master_tags": removed_count
+        "updated_master_tags": len(tags_to_update),
+        "removed_master_tags": len(tags_to_delete),
     }
 
 
