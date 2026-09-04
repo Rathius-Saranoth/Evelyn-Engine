@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-03 21:48:08
+date modified: 2026-09-04 06:56:35
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,39 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.060] - 2026-09-04 — *DevUI & ChatUI Button Handler Hardening, Dead Code Cleanup & Instant Split Wiring*
+
+### Fixed & Enhanced
+- **Button Handler Hardening & Loading Spinners (`evelyn_ui/dev.html`)**:
+  - Hardened all asynchronous action handlers across `dev.html` to accept explicit `btnElement = null` arguments with resilient fallback to `window.event`:
+    - Source entries: `saveSourceEntry`, `saveSourceProcedure`, `deleteSourceEntry`, `deleteSourceProcedure`, `unlinkSourceEntry`.
+    - Split facts: `saveSplitFact`, `removeSplitFact`, `addSplitFact`.
+    - Procedures management: `saveProcedureEdits`, `queueSingleProcedureSplit`, `restoreProcedureItem`, `archiveProcedureItem`, `deleteProcedureItemPermanently`, `queueSelectedProceduresMerge`.
+    - Multi-select extractions: `queueSelectedExtractionsMerge`.
+    - Autonomous research tasks: `startNowResearchTask`, `resumeResearchTask`, `cancelResearchTask`, `deleteResearchTask`, `restartResearchTask`.
+  - Added button disabling and visual feedback states (`⏳ Saving...`, `⏳ Deleting...`, `⏳ Unlinking...`, `⏳ Applying...`, `⏳ Updating...`) with strict `try ... finally` restoration across all interactive actions to eliminate hanging UI states and double-clicks.
+  - Passed `this` directly from inline template button attributes across cards and selection bars, protecting DOM references against Chromium event-clearing across `confirm()` dialogs.
+- **Instant Split Modal Reconnection & Dual-Workflow Support (`evelyn_ui/dev.html`)**:
+  - Reconnected the previously orphaned `#split-modal` component and its interactive decomposition pipeline (`openSplitModal`, `reDecomposeSplit`, `applySplitModal`).
+  - Added dedicated `⚡ Instant Split` / `⚡ Split...` action buttons alongside `✂️ Queue Split` across extraction cards and proposal source entries, enabling operators to choose between immediate interactive decomposition via popup or asynchronous background processing via agent task queues.
+  - Hardened `applySplitModal` with loading states and graceful error handling.
+- **Dead Code Pruning & Resilient Modal Architecture (`evelyn_ui/index.html`)**:
+  - Pruned orphaned legacy functions `createToolIndicator(name)`, `addSystemNotice(...)`, and `pollTaskStatus(...)` that were left uncalled following the activity feed and thinking trace redesigns.
+  - Hardened `closeModal(e = null)` to support parameterless invocations from keyboard listeners and scripts without throwing undefined reference errors.
+  - Verified 100% button definition and event binding parity across both user interfaces (135/135 onclick bindings in `dev.html` and 25/25 in `index.html` valid).
+
+## [000.006.059] - 2026-09-04 — *DevUI Proposal Action Execution & Async Approval Worker Thread Offloading*
+
+### Fixed & Enhanced
+- **Proposal Action Execution & Variable Scope Fix (`evelyn_ui/dev.html`)**:
+  - Fixed uncaught JavaScript `ReferenceError: btnElement is not defined` in `handleAction()` and `handleProcedureAction()`.
+  - Properly declared `btnElement = null` in the function parameter signatures and established resilient multi-source DOM resolution (`btnElement || window.event?.currentTarget || event?.target`).
+  - Added full loading spinner indicators (`⏳ Working...`, `⏳ Approving...`, `⏳ Deleting...`) with button disabled states and graceful `finally` restorations across all 19 proposal action buttons (splits, profile evolutions, procedure merges/splits, and extractions).
+  - Resolved missing editable field lookups for split proposals and profile updates by adding fallback serialization of `item.merged_observation` and `item.target_category`.
+- **Async Approval Worker Thread Offloading (`evelyn_server.py`)**:
+  - Wrapped proposal approval operations (`POST /api/review/proposals/{id}/{action}`) in `asyncio.to_thread(_execute_approval)` to offload all synchronous SQLite mutations, markdown parsing, profile file updates, and frontmatter script subprocesses to background worker threads.
+  - Prevents prolonged database writes and file modifications during profile evolution and fact splits from starving the FastAPI event loop.
 
 ## [000.006.058] - 2026-09-03 — *Tag Librarian Circuit Breaker, Taxonomy Restoration & Hermetic Vault DB Isolation*
 

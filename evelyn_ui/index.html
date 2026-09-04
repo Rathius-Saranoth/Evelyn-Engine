@@ -2108,27 +2108,6 @@
         };
       }
 
-      // ---------------------------------------------------------------------------
-      // Tool indicator
-      // ---------------------------------------------------------------------------
-      function createToolIndicator(name) {
-        const el = document.createElement("div");
-        el.className = "tool-indicator";
-        const labels = {
-          search_vault: "Searching vault…",
-          recall_specific_memory: "Reading memory…",
-          read_journal: "Reading journal…",
-          read_journal_entry: "Reading journal…",
-          read_recent_journal_entries: "Reviewing recent journal…",
-          write_journal_entry: "Writing journal entry…",
-          log_context_fact: "Logging fact…",
-          update_context_fact: "Updating context…",
-          generate_image: "Generating image…",
-          sync_context_memory: "Syncing memory…",
-        };
-        el.innerHTML = `<div class="spinner"></div><span>${labels[name] || name + "…"}</span>`;
-        return el;
-      }
 
       // ---------------------------------------------------------------------------
       // Message rendering
@@ -2730,7 +2709,7 @@
         await handleApproval(approvalId, false, reason.trim());
       }
 
-      function closeModal(e) {
+      function closeModal(e = null) {
         if (e && e.target !== e.currentTarget && !e.target.classList.contains("modal-close"))
           return;
         document.getElementById("artifact-modal").classList.remove("open");
@@ -4206,76 +4185,6 @@
         });
       }
 
-      function addSystemNotice(icon, text, cssClass = "") {
-        const notice = document.createElement("div");
-        notice.className = "system-notice" + (cssClass ? " " + cssClass : "");
-        notice.innerHTML = `<span>${icon}</span><span>${text}</span>`;
-        document.getElementById("messages").appendChild(notice);
-        scrollBottom();
-        return notice;
-      }
-
-      async function pollTaskStatus(taskName, intervalMs, btn, defaultLabel, notice) {
-        return new Promise((resolve) => {
-          let networkErrors = 0;
-          const MAX_NETWORK_ERRORS = 3;
-
-          function resetBtn() {
-            btn.disabled = false;
-            btn.textContent = defaultLabel;
-            btn.style.borderColor = "";
-            btn.style.color = "";
-          }
-
-          const poll = setInterval(async () => {
-            try {
-              const resp = await fetch(`${API_BASE}/task_status/${taskName}`, {
-                headers: headers(),
-              });
-              const data = await resp.json();
-              networkErrors = 0; // Reset on successful response
-
-              if (data.status === "done") {
-                clearInterval(poll);
-                notice.className = "system-notice done";
-                notice.innerHTML = `<span>✅</span><span>${defaultLabel} completed.</span>`;
-                btn.textContent = `✓ ${defaultLabel} done`;
-                btn.style.borderColor = "var(--tool-text)";
-                btn.style.color = "var(--tool-text)";
-                setTimeout(resetBtn, 4000);
-                resolve("done");
-              } else if (data.status === "error") {
-                clearInterval(poll);
-                notice.className = "system-notice error";
-                notice.innerHTML = `<span>❌</span><span>${defaultLabel} failed: ${data.error || "unknown error"}</span>`;
-                btn.textContent = `✗ ${defaultLabel} failed`;
-                btn.style.borderColor = "#ff6666";
-                btn.style.color = "#ff6666";
-                setTimeout(resetBtn, 4000);
-                resolve("error");
-              } else if (data.status === "unknown") {
-                // Server restarted — task state was lost (in-memory dict cleared)
-                clearInterval(poll);
-                notice.className = "system-notice error";
-                notice.innerHTML = `<span>⚠️</span><span>${defaultLabel} — server restarted, task state lost. Check console for result.</span>`;
-                setTimeout(resetBtn, 4000);
-                resolve("unknown");
-              }
-              // status === 'running' — keep polling
-            } catch {
-              // Network error — give it a few tries before giving up
-              networkErrors++;
-              if (networkErrors >= MAX_NETWORK_ERRORS) {
-                clearInterval(poll);
-                notice.className = "system-notice error";
-                notice.innerHTML = `<span>⚠️</span><span>${defaultLabel} — lost connection to server. Check if it's still running.</span>`;
-                setTimeout(resetBtn, 4000);
-                resolve("disconnected");
-              }
-            }
-          }, intervalMs);
-        });
-      }
 
       // ---------------------------------------------------------------------------
       // Auto-Speech toggle

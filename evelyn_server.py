@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-03 21:46:34
+# date modified: 2026-09-04 06:37:37
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5547,231 +5547,234 @@ async def action_proposal(
         await asyncio.to_thread(memory_db.remove_proposal_source_id, id, req.source_id)
         return {"status": "ok"}
     elif action in ("approve", "merge_into_master"):
-        proposals = await asyncio.to_thread(memory_db.get_pending_proposals)
+        def _execute_approval():
+            proposals = memory_db.get_pending_proposals()
 
-        prop = next((p for p in proposals if p["id"] == id), None)
-        if not prop:
-            raise HTTPException(status_code=404, detail="Proposal not found")
+            prop = next((p for p in proposals if p["id"] == id), None)
+            if not prop:
+                raise HTTPException(status_code=404, detail="Proposal not found")
 
-        final_text = (
-            req.modified_text
-            if (req and req.modified_text is not None)
-            else prop["merged_observation"]
-        )
-
-        source_entries = []
-        for eid in prop.get("source_ids", []):
-            entry = memory_db.get_entry(eid)
-            if entry:
-                source_entries.append(entry)
-
-        if prop["type"] == "recategorize":
-            # final_text intentionally unused here — recategorize only moves entries,
-            # it does not write a merged document.
-            for entry in source_entries:
-                memory_db.update_entry(entry["id"], category=prop["suggested_category"])
-            memory_db.apply_proposal(id)
-        elif prop["type"] == "profile_update":
-            # Repurposed suggested_category contains the target filename (e.g. Evelyn_Narrative_Persona.md)
-            target_filename = os.path.basename(prop["suggested_category"])
-            target_file = PERSONA_DIR / target_filename
-            if not target_file.exists():
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Target file not found: {target_filename}",
-                )
-            target_file.write_text(final_text, encoding="utf-8")
-            memory_db.update_proposal(id, merged_observation=final_text)
-            memory_db.apply_proposal(id)
-            # Stamp entry_document_evolution on all source entries with proposal created_at timestamp.
-            # Using prop["created_at"] guarantees that any entries edited/split during human review
-            # (updated_at > created_at) are recognized as dirty and remain eligible for re-evaluation.
-            prop_ts = prop.get("created_at") or time.time()
-            for eid in prop.get("source_ids", []):
-                memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
-            # Reset the per-document cooldown from approval time, not proposal generation time.
-            advance_doc_run_timestamp(target_filename, "APPROVED", "Proposal approved & applied to profile note")
-            # Run update_frontmatter script to update date modified/tags
-            import subprocess
-
-            await asyncio.to_thread(
-                subprocess.run,
-                [sys.executable, "scripts/update_frontmatter.py", str(target_file)],
-                cwd=str(BASE_DIR),
-                capture_output=True,
+            final_text = (
+                req.modified_text
+                if (req and req.modified_text is not None)
+                else prop["merged_observation"]
             )
-        elif prop["type"] == "procedure_merge":
-            import yaml
 
-            source_ids = prop.get("source_ids", [])
-            target_master_id = None
-            if action == "merge_into_master":
-                if req and req.target_id:
-                    target_master_id = req.target_id
-                elif prop.get("suggested_category") and str(prop["suggested_category"]).isdigit():
-                    target_master_id = int(prop["suggested_category"])
-                else:
-                    from Evelyn.tools import procedure_matcher
-                    source_procs = [memory_db.get_procedure(eid) for eid in source_ids]
-                    valid_sources = [p for p in source_procs if p]
-                    cluster_master = procedure_matcher.identify_cluster_master(valid_sources)
-                    if cluster_master:
-                        target_master_id = cluster_master["id"]
+            source_entries = []
+            for eid in prop.get("source_ids", []):
+                entry = memory_db.get_entry(eid)
+                if entry:
+                    source_entries.append(entry)
 
-            source_tags_set = set()
-            for eid in source_ids:
-                p_old = memory_db.get_procedure(eid)
-                if p_old and p_old.get("tags"):
-                    for t in str(p_old["tags"]).split(","):
-                        cleaned_t = t.strip()
-                        if cleaned_t and cleaned_t.lower() not in (
-                            "procedure",
-                            "merged",
-                            "merge",
-                            "split",
-                            "consolidated",
-                            "none",
-                        ):
-                            source_tags_set.add(cleaned_t)
-            try:
-                parsed_proc = yaml.safe_load(final_text)
-            except (yaml.YAMLError, ValueError, TypeError):
-                parsed_proc = {}
-            new_proc_id = None
-            if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
-                proc_tags = parsed_proc.get("tags")
-                if isinstance(proc_tags, list):
-                    proc_tags_str = ", ".join(
-                        [str(t).strip() for t in proc_tags if str(t).strip()]
+            if prop["type"] == "recategorize":
+                # final_text intentionally unused here — recategorize only moves entries,
+                # it does not write a merged document.
+                for entry in source_entries:
+                    memory_db.update_entry(entry["id"], category=prop["suggested_category"])
+                memory_db.apply_proposal(id)
+            elif prop["type"] == "profile_update":
+                # Repurposed suggested_category contains the target filename (e.g. Evelyn_Narrative_Persona.md)
+                target_filename = os.path.basename(prop["suggested_category"])
+                target_file = PERSONA_DIR / target_filename
+                if not target_file.exists():
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Target file not found: {target_filename}",
                     )
-                else:
-                    proc_tags_str = (
-                        str(proc_tags).strip() if proc_tags is not None else ""
-                    )
+                target_file.write_text(final_text, encoding="utf-8")
+                memory_db.update_proposal(id, merged_observation=final_text)
+                memory_db.apply_proposal(id)
+                # Stamp entry_document_evolution on all source entries with proposal created_at timestamp.
+                # Using prop["created_at"] guarantees that any entries edited/split during human review
+                # (updated_at > created_at) are recognized as dirty and remain eligible for re-evaluation.
+                prop_ts = prop.get("created_at") or time.time()
+                for eid in prop.get("source_ids", []):
+                    memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
+                # Reset the per-document cooldown from approval time, not proposal generation time.
+                advance_doc_run_timestamp(target_filename, "APPROVED", "Proposal approved & applied to profile note")
+                # Run update_frontmatter script to update date modified/tags
+                import subprocess
 
-                parsed_tags_set = {
-                    t.strip().lower() for t in proc_tags_str.split(",") if t.strip()
-                }
-                if not proc_tags_str or parsed_tags_set.issubset(
-                    {"procedure", "merged", "merge", "split", "consolidated", "none"}
-                ):
-                    final_tags = (
-                        ", ".join(sorted(source_tags_set))
-                        if source_tags_set
-                        else (proc_tags_str or "procedure")
-                    )
-                else:
-                    combined = {
-                        t.strip() for t in proc_tags_str.split(",") if t.strip()
-                    }
-                    combined.update(source_tags_set)
-                    if len(combined) > 1:
-                        combined = {
-                            t
-                            for t in combined
-                            if t.lower()
-                            not in (
+                subprocess.run(
+                    [sys.executable, "scripts/update_frontmatter.py", str(target_file)],
+                    cwd=str(BASE_DIR),
+                    capture_output=True,
+                )
+            elif prop["type"] == "procedure_merge":
+                import yaml
+
+                source_ids = prop.get("source_ids", [])
+                target_master_id = None
+                if action == "merge_into_master":
+                    if req and req.target_id:
+                        target_master_id = req.target_id
+                    elif prop.get("suggested_category") and str(prop["suggested_category"]).isdigit():
+                        target_master_id = int(prop["suggested_category"])
+                    else:
+                        from Evelyn.tools import procedure_matcher
+                        source_procs = [memory_db.get_procedure(eid) for eid in source_ids]
+                        valid_sources = [p for p in source_procs if p]
+                        cluster_master = procedure_matcher.identify_cluster_master(valid_sources)
+                        if cluster_master:
+                            target_master_id = cluster_master["id"]
+
+                source_tags_set = set()
+                for eid in source_ids:
+                    p_old = memory_db.get_procedure(eid)
+                    if p_old and p_old.get("tags"):
+                        for t in str(p_old["tags"]).split(","):
+                            cleaned_t = t.strip()
+                            if cleaned_t and cleaned_t.lower() not in (
                                 "procedure",
                                 "merged",
                                 "merge",
                                 "split",
                                 "consolidated",
                                 "none",
-                            )
-                        }
-                    final_tags = (
-                        ", ".join(sorted(combined)) if combined else "procedure"
-                    )
-
-                if target_master_id:
-                    memory_db.update_procedure(
-                        target_master_id,
-                        trigger_pattern=parsed_proc["trigger_pattern"],
-                        steps=parsed_proc.get("steps", ""),
-                        pitfalls=parsed_proc.get("pitfalls"),
-                        verification=parsed_proc.get("verification"),
-                        tags=final_tags,
-                        suggested_tools=parsed_proc.get("suggested_tools"),
-                        status="live",
-                    )
-                    new_proc_id = target_master_id
-                else:
-                    new_proc_id = memory_db.insert_procedure(
-                        trigger_pattern=parsed_proc["trigger_pattern"],
-                        steps=parsed_proc.get("steps", ""),
-                        pitfalls=parsed_proc.get("pitfalls"),
-                        verification=parsed_proc.get("verification"),
-                        source="consolidated",
-                        status="live",
-                        tags=final_tags,
-                        suggested_tools=parsed_proc.get("suggested_tools"),
-                    )
-
-            for eid in source_ids:
-                if new_proc_id and eid != new_proc_id:
-                    memory_db.merge_procedure(eid, new_proc_id)
-                elif not new_proc_id:
-                    memory_db.delete_procedure(eid)
-
-            memory_db.apply_proposal(id)
-            return {"status": "ok", "merged_into_id": target_master_id}
-        elif prop["type"] == "procedure_split":
-            import yaml
-
-            source_ids = prop.get("source_ids", [])
-            for eid in source_ids:
-                memory_db.delete_procedure(eid)
-            try:
-                parsed_data = yaml.safe_load(final_text)
-                child_procs = (
-                    parsed_data.get("procedures", [])
-                    if isinstance(parsed_data, dict)
-                    else (parsed_data if isinstance(parsed_data, list) else [])
-                )
-            except (yaml.YAMLError, ValueError, TypeError):
-                child_procs = []
-            for cp in child_procs:
-                if isinstance(cp, dict) and "trigger_pattern" in cp:
-                    memory_db.insert_procedure(
-                        trigger_pattern=cp["trigger_pattern"],
-                        steps=cp.get("steps", ""),
-                        pitfalls=cp.get("pitfalls"),
-                        verification=cp.get("verification"),
-                        source="split",
-                        status="live",
-                        tags=cp.get("tags"),
-                        suggested_tools=cp.get("suggested_tools"),
-                    )
-            memory_db.apply_proposal(id)
-        elif prop["type"] == "split":
-            import yaml
-
-            source_ids = prop.get("source_ids", [])
-            source_id = source_ids[0] if source_ids else None
-            if source_id:
+                            ):
+                                source_tags_set.add(cleaned_t)
                 try:
-                    parsed_splits = yaml.safe_load(final_text)
-                    if isinstance(parsed_splits, dict) and "entries" in parsed_splits:
-                        child_entries = parsed_splits["entries"]
-                    elif isinstance(parsed_splits, list):
-                        child_entries = parsed_splits
-                    else:
-                        child_entries = []
+                    parsed_proc = yaml.safe_load(final_text)
                 except (yaml.YAMLError, ValueError, TypeError):
-                    child_entries = []
-                if child_entries:
-                    memory_db.split_entry(source_id, child_entries)
-            memory_db.apply_proposal(id)
-        elif prop["type"] in ("merge", "supersede"):
-            memory_db.apply_fact_merge(
-                source_entries=source_entries,
-                merged_text=final_text,
-                target_category=prop["suggested_category"],
-                merged_tags=prop.get("merged_tags"),
-            )
-            memory_db.apply_proposal(id)
+                    parsed_proc = {}
+                new_proc_id = None
+                if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
+                    proc_tags = parsed_proc.get("tags")
+                    if isinstance(proc_tags, list):
+                        proc_tags_str = ", ".join(
+                            [str(t).strip() for t in proc_tags if str(t).strip()]
+                        )
+                    else:
+                        proc_tags_str = (
+                            str(proc_tags).strip() if proc_tags is not None else ""
+                        )
+
+                    parsed_tags_set = {
+                        t.strip().lower() for t in proc_tags_str.split(",") if t.strip()
+                    }
+                    if not proc_tags_str or parsed_tags_set.issubset(
+                        {"procedure", "merged", "merge", "split", "consolidated", "none"}
+                    ):
+                        final_tags = (
+                            ", ".join(sorted(source_tags_set))
+                            if source_tags_set
+                            else (proc_tags_str or "procedure")
+                        )
+                    else:
+                        combined = {
+                            t.strip() for t in proc_tags_str.split(",") if t.strip()
+                        }
+                        combined.update(source_tags_set)
+                        if len(combined) > 1:
+                            combined = {
+                                t
+                                for t in combined
+                                if t.lower()
+                                not in (
+                                    "procedure",
+                                    "merged",
+                                    "merge",
+                                    "split",
+                                    "consolidated",
+                                    "none",
+                                )
+                            }
+                        final_tags = (
+                            ", ".join(sorted(combined)) if combined else "procedure"
+                        )
+
+                    if target_master_id:
+                        memory_db.update_procedure(
+                            target_master_id,
+                            trigger_pattern=parsed_proc["trigger_pattern"],
+                            steps=parsed_proc.get("steps", ""),
+                            pitfalls=parsed_proc.get("pitfalls"),
+                            verification=parsed_proc.get("verification"),
+                            tags=final_tags,
+                            suggested_tools=parsed_proc.get("suggested_tools"),
+                            status="live",
+                        )
+                        new_proc_id = target_master_id
+                    else:
+                        new_proc_id = memory_db.insert_procedure(
+                            trigger_pattern=parsed_proc["trigger_pattern"],
+                            steps=parsed_proc.get("steps", ""),
+                            pitfalls=parsed_proc.get("pitfalls"),
+                            verification=parsed_proc.get("verification"),
+                            source="consolidated",
+                            status="live",
+                            tags=final_tags,
+                            suggested_tools=parsed_proc.get("suggested_tools"),
+                        )
+
+                for eid in source_ids:
+                    if new_proc_id and eid != new_proc_id:
+                        memory_db.merge_procedure(eid, new_proc_id)
+                    elif not new_proc_id:
+                        memory_db.delete_procedure(eid)
+
+                memory_db.apply_proposal(id)
+                return {"status": "ok", "merged_into_id": target_master_id}
+            elif prop["type"] == "procedure_split":
+                import yaml
+
+                source_ids = prop.get("source_ids", [])
+                for eid in source_ids:
+                    memory_db.delete_procedure(eid)
+                try:
+                    parsed_data = yaml.safe_load(final_text)
+                    child_procs = (
+                        parsed_data.get("procedures", [])
+                        if isinstance(parsed_data, dict)
+                        else (parsed_data if isinstance(parsed_data, list) else [])
+                    )
+                except (yaml.YAMLError, ValueError, TypeError):
+                    child_procs = []
+                for cp in child_procs:
+                    if isinstance(cp, dict) and "trigger_pattern" in cp:
+                        memory_db.insert_procedure(
+                            trigger_pattern=cp["trigger_pattern"],
+                            steps=cp.get("steps", ""),
+                            pitfalls=cp.get("pitfalls"),
+                            verification=cp.get("verification"),
+                            source="split",
+                            status="live",
+                            tags=cp.get("tags"),
+                            suggested_tools=cp.get("suggested_tools"),
+                        )
+                memory_db.apply_proposal(id)
+            elif prop["type"] == "split":
+                import yaml
+
+                source_ids = prop.get("source_ids", [])
+                source_id = source_ids[0] if source_ids else None
+                if source_id:
+                    try:
+                        parsed_splits = yaml.safe_load(final_text)
+                        if isinstance(parsed_splits, dict) and "entries" in parsed_splits:
+                            child_entries = parsed_splits["entries"]
+                        elif isinstance(parsed_splits, list):
+                            child_entries = parsed_splits
+                        else:
+                            child_entries = []
+                    except (yaml.YAMLError, ValueError, TypeError):
+                        child_entries = []
+                    if child_entries:
+                        memory_db.split_entry(source_id, child_entries)
+                memory_db.apply_proposal(id)
+            elif prop["type"] in ("merge", "supersede"):
+                memory_db.apply_fact_merge(
+                    source_entries=source_entries,
+                    merged_text=final_text,
+                    target_category=prop["suggested_category"],
+                    merged_tags=prop.get("merged_tags"),
+                )
+                memory_db.apply_proposal(id)
+            return {"status": "ok"}
+
+        res = await asyncio.to_thread(_execute_approval)
         await start_refresh_memory_internal()
-        return {"status": "ok"}
+        return res
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
 

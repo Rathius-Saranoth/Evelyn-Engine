@@ -1634,99 +1634,111 @@
       }
     }
 
-    async function handleAction(type, id, action, targetId = null) {
+    async function handleAction(type, id, action, targetId = null, btnElement = null) {
       if (action === 'delete') {
         const typeName = type === 'extractions' ? 'extraction' : (type === 'proposals' ? 'proposal' : type);
         if (!confirm(`Are you sure you want to PERMANENTLY remove this ${typeName}?`)) return;
       } else if (action === 'deny' && type === 'proposals') {
         if (!confirm('Are you sure you want to reject this proposal?')) return;
       }
-      const endpoint = `${API_BASE}/api/review/${type}/${id}/${action}`;
-      let body = null;
-      
-      if (action === 'edit' && type === 'extractions') {
-        // obs-${id} is the inline edit textarea on the extraction card.
-        const obs = document.getElementById(`obs-${id}`)?.value;
-        const cat = document.getElementById(`ext-cat-${id}`)?.value || document.getElementById(`ce-cat-${id}`)?.value;
-        const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
-        const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
-        body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
-      } else if ((action === 'approve' || action === 'merge_into_master') && type === 'proposals') {
-        const item = unifiedItems.find(x => x.id === id);
-        const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
-        if (procTrigger) {
-          const trigger = procTrigger.value || '';
-          const tools = document.getElementById(`proc-merge-tools-${id}`)?.value || '';
-          const steps = document.getElementById(`proc-merge-steps-${id}`)?.value || '';
-          const pitfalls = document.getElementById(`proc-merge-pitfalls-${id}`)?.value || '';
-          const verification = document.getElementById(`proc-merge-verification-${id}`)?.value || '';
-          const tags = document.getElementById(`proc-merge-tags-${id}`)?.value || '';
-          const constructedYaml = dumpProcedureYaml({
-            trigger_pattern: trigger,
-            suggested_tools: tools,
-            steps: steps,
-            pitfalls: pitfalls,
-            verification: verification,
-            tags: tags
-          });
-          body = JSON.stringify({ modified_text: constructedYaml, target_id: targetId });
-        } else if (item && item.type === 'procedure_split') {
-          const currentProcs = parseProcedureSplitYaml(item.merged_observation);
-          const updatedProcs = currentProcs.map((proc, idx) => {
-            const tr = document.getElementById(`proc-split-trigger-${id}-${idx}`)?.value ?? proc.trigger_pattern;
-            const to = document.getElementById(`proc-split-tools-${id}-${idx}`)?.value ?? proc.suggested_tools;
-            const st = document.getElementById(`proc-split-steps-${id}-${idx}`)?.value ?? proc.steps;
-            const pi = document.getElementById(`proc-split-pitfalls-${id}-${idx}`)?.value ?? proc.pitfalls;
-            const ve = document.getElementById(`proc-split-verification-${id}-${idx}`)?.value ?? proc.verification;
-            const tg = document.getElementById(`proc-split-tags-${id}-${idx}`)?.value ?? proc.tags;
-            return {
-              trigger_pattern: tr,
-              suggested_tools: to,
-              steps: st,
-              pitfalls: pi,
-              verification: ve,
-              tags: tg
-            };
-          }).filter(p => p.trigger_pattern && p.trigger_pattern.trim().length > 0);
-          if (updatedProcs.length > 0) {
-            const constructedYaml = dumpProcedureSplitYaml(updatedProcs, item.topic, item.reason);
-            body = JSON.stringify({ modified_text: constructedYaml });
-          }
-        } else if (item && item.type === 'split') {
-          const currentFacts = parseSplitYaml(item.merged_observation);
-          const updatedFacts = currentFacts.map((fact, idx) => {
-            const cat = document.getElementById(`split-prop-cat-${id}-${idx}`)?.value ?? fact.category;
-            const subj = document.getElementById(`split-prop-subj-${id}-${idx}`)?.value ?? fact.subject;
-            const tags = document.getElementById(`split-prop-tags-${id}-${idx}`)?.value ?? fact.tags;
-            const obs = document.getElementById(`split-prop-obs-${id}-${idx}`)?.value ?? fact.observation;
-            return { category: cat, subject: subj, tags: tags, observation: obs };
-          }).filter(f => f.observation && f.observation.trim().length > 0);
-          if (updatedFacts.length > 0) {
-            const constructedYaml = dumpSplitYaml(updatedFacts);
-            body = JSON.stringify({ modified_text: constructedYaml });
-          }
-        } else {
-          const editArea = document.getElementById(`prop-edit-${id}`);
-          if (editArea) {
-            body = JSON.stringify({ modified_text: editArea.value });
-          }
-        }
-      }
-      
-      const activeBtn = btnElement || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null)
+        || (window.event?.target instanceof HTMLElement ? window.event.target.closest('button') : null)
+        || document.getElementById(`btn-${action}-${id}`);
       const originalText = activeBtn ? activeBtn.innerHTML : '';
       if (activeBtn) {
         activeBtn.disabled = true;
-        activeBtn.innerHTML = '⏳ Working...';
+        activeBtn.innerHTML = action === 'delete' ? '⏳ Deleting...' : '⏳ Working...';
       }
 
       try {
+        const endpoint = `${API_BASE}/api/review/${type}/${id}/${action}`;
+        let body = null;
+        
+        if (action === 'edit' && type === 'extractions') {
+          // obs-${id} is the inline edit textarea on the extraction card.
+          const obs = document.getElementById(`obs-${id}`)?.value;
+          const cat = document.getElementById(`ext-cat-${id}`)?.value || document.getElementById(`ce-cat-${id}`)?.value;
+          const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
+          const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
+          body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
+        } else if ((action === 'approve' || action === 'merge_into_master') && type === 'proposals') {
+          const item = unifiedItems.find(x => x.id == id && (x.item_type === 'proposal' || x.item_type === 'profile_update'));
+          const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
+          if (procTrigger) {
+            const trigger = procTrigger.value || '';
+            const tools = document.getElementById(`proc-merge-tools-${id}`)?.value || '';
+            const steps = document.getElementById(`proc-merge-steps-${id}`)?.value || '';
+            const pitfalls = document.getElementById(`proc-merge-pitfalls-${id}`)?.value || '';
+            const verification = document.getElementById(`proc-merge-verification-${id}`)?.value || '';
+            const tags = document.getElementById(`proc-merge-tags-${id}`)?.value || '';
+            const constructedYaml = dumpProcedureYaml({
+              trigger_pattern: trigger,
+              suggested_tools: tools,
+              steps: steps,
+              pitfalls: pitfalls,
+              verification: verification,
+              tags: tags
+            });
+            body = JSON.stringify({ modified_text: constructedYaml, target_id: targetId });
+          } else if (item && item.type === 'procedure_split') {
+            const currentProcs = parseProcedureSplitYaml(item.merged_observation);
+            const updatedProcs = currentProcs.map((proc, idx) => {
+              const tr = document.getElementById(`proc-split-trigger-${id}-${idx}`)?.value ?? proc.trigger_pattern;
+              const to = document.getElementById(`proc-split-tools-${id}-${idx}`)?.value ?? proc.suggested_tools;
+              const st = document.getElementById(`proc-split-steps-${id}-${idx}`)?.value ?? proc.steps;
+              const pi = document.getElementById(`proc-split-pitfalls-${id}-${idx}`)?.value ?? proc.pitfalls;
+              const ve = document.getElementById(`proc-split-verification-${id}-${idx}`)?.value ?? proc.verification;
+              const tg = document.getElementById(`proc-split-tags-${id}-${idx}`)?.value ?? proc.tags;
+              return {
+                trigger_pattern: tr,
+                suggested_tools: to,
+                steps: st,
+                pitfalls: pi,
+                verification: ve,
+                tags: tg
+              };
+            }).filter(p => p.trigger_pattern && p.trigger_pattern.trim().length > 0);
+            if (updatedProcs.length > 0) {
+              const constructedYaml = dumpProcedureSplitYaml(updatedProcs, item.topic, item.reason);
+              body = JSON.stringify({ modified_text: constructedYaml });
+            } else if (item.merged_observation) {
+              body = JSON.stringify({ modified_text: item.merged_observation });
+            }
+          } else if (item && item.type === 'split') {
+            const currentFacts = parseSplitYaml(item.merged_observation);
+            const updatedFacts = currentFacts.map((fact, idx) => {
+              const cat = document.getElementById(`split-prop-cat-${id}-${idx}`)?.value ?? fact.category;
+              const subj = document.getElementById(`split-prop-subj-${id}-${idx}`)?.value ?? fact.subject;
+              const tags = document.getElementById(`split-prop-tags-${id}-${idx}`)?.value ?? fact.tags;
+              const obs = document.getElementById(`split-prop-obs-${id}-${idx}`)?.value ?? fact.observation;
+              return { category: cat, subject: subj, tags: tags, observation: obs };
+            }).filter(f => f.observation && f.observation.trim().length > 0);
+            if (updatedFacts.length > 0) {
+              const constructedYaml = dumpSplitYaml(updatedFacts);
+              body = JSON.stringify({ modified_text: constructedYaml });
+            } else if (item.merged_observation) {
+              body = JSON.stringify({ modified_text: item.merged_observation });
+            }
+          } else if (item && item.item_type === 'profile_update') {
+            const editArea = document.getElementById(`prop-edit-${id}`);
+            const textToSend = editArea ? editArea.value : item.merged_observation;
+            body = JSON.stringify({ modified_text: textToSend });
+          } else {
+            const editArea = document.getElementById(`prop-edit-${id}`);
+            if (editArea) {
+              body = JSON.stringify({ modified_text: editArea.value });
+            }
+          }
+        }
+
         const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
         if (res.ok) {
           if (type === 'extractions') {
-            unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id === id));
+            unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id == id));
           } else {
-            unifiedItems = unifiedItems.filter(x => !((x.item_type === 'proposal' || x.item_type === 'profile_update') && x.id === id));
+            unifiedItems = unifiedItems.filter(x => !((x.item_type === 'proposal' || x.item_type === 'profile_update') && x.id == id));
           }
           updateCounts();
           render();
@@ -1773,7 +1785,15 @@
       }
     }
 
-    async function saveSourceEntry(proposalId, entryId) {
+    async function saveSourceEntry(proposalId, entryId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Saving...';
+      }
+
       const cat = document.getElementById(`ce-cat-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-cat-${entryId}`)?.value || '';
       const subj = document.getElementById(`ce-subj-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-subj-${entryId}`)?.value || '';
       const obs = document.getElementById(`ce-obs-${proposalId}-${entryId}`)?.value || document.getElementById(`ce-obs-${entryId}`)?.value || '';
@@ -1797,14 +1817,32 @@
           }
           render();
         } else {
-          alert('Failed to save entry.');
+          let errMsg = `Failed to save entry (${res.status})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Failed to save entry: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error while saving entry.');
+        alert(`Network error while saving entry: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function saveSourceProcedure(proposalId, procId) {
+    async function saveSourceProcedure(proposalId, procId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Saving...';
+      }
+
       const trigger = document.getElementById(`proc-src-trigger-${proposalId}-${procId}`)?.value || '';
       const steps = document.getElementById(`proc-src-steps-${proposalId}-${procId}`)?.value || '';
       const pitfalls = document.getElementById(`proc-src-pitfalls-${proposalId}-${procId}`)?.value || '';
@@ -1837,16 +1875,27 @@
           }
           render();
         } else {
-          alert('Failed to save procedure.');
+          let errMsg = `Failed to save procedure (${res.status})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Failed to save procedure: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error while saving procedure.');
+        alert(`Network error while saving procedure: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function deleteSourceEntry(proposalId, entryId) {
+    async function deleteSourceEntry(proposalId, entryId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm('Are you sure you want to soft-delete this context entry?')) return;
-      const activeBtn = window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null;
       const originalText = activeBtn ? activeBtn.innerHTML : '';
       if (activeBtn) {
         activeBtn.disabled = true;
@@ -1880,9 +1929,10 @@
       }
     }
 
-    async function deleteSourceProcedure(proposalId, procId) {
+    async function deleteSourceProcedure(proposalId, procId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm('Are you sure you want to delete this procedure?')) return;
-      const activeBtn = window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null;
       const originalText = activeBtn ? activeBtn.innerHTML : '';
       if (activeBtn) {
         activeBtn.disabled = true;
@@ -1924,7 +1974,14 @@
       }
     }
 
-    async function unlinkSourceEntry(proposalId, entryId) {
+    async function unlinkSourceEntry(proposalId, entryId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Unlinking...';
+      }
       const endpoint = `${API_BASE}/api/review/proposals/${proposalId}/unlink_source`;
       const body = JSON.stringify({ source_id: entryId });
       try {
@@ -1937,10 +1994,20 @@
           }
           render();
         } else {
-          alert('Failed to unlink entry.');
+          let errMsg = `Failed to unlink entry (${res.status})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Failed to unlink entry: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error while unlinking entry.');
+        alert(`Network error while unlinking entry: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
@@ -1951,7 +2018,15 @@
       }
     }
 
-    async function saveSplitFact(proposalId, factIdx) {
+    async function saveSplitFact(proposalId, factIdx, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Saving...';
+      }
+
       const item = unifiedItems.find(x => x.id === proposalId);
       if (!item) return;
       const entries = parseSplitYaml(item.merged_observation);
@@ -1978,11 +2053,18 @@
         }
       } catch (e) {
         console.error('Network error persisting proposal edit', e);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
       render();
     }
 
-    async function removeSplitFact(proposalId, factIdx) {
+    async function removeSplitFact(proposalId, factIdx, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       const item = unifiedItems.find(x => x.id === proposalId);
       if (!item) return;
       const entries = parseSplitYaml(item.merged_observation);
@@ -1990,6 +2072,12 @@
         alert('A split requires at least one atomic fact.');
         return;
       }
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Removing...';
+      }
+
       entries.splice(factIdx, 1);
       const newYaml = dumpSplitYaml(entries);
       item.merged_observation = newYaml;
@@ -2003,11 +2091,24 @@
         });
       } catch (e) {
         console.error('Network error persisting proposal edit', e);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
       render();
     }
 
-    async function addSplitFact(proposalId) {
+    async function addSplitFact(proposalId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Adding...';
+      }
+
       const item = unifiedItems.find(x => x.id === proposalId);
       if (!item) return;
       const entries = parseSplitYaml(item.merged_observation);
@@ -2026,6 +2127,11 @@
         });
       } catch (e) {
         console.error('Network error persisting proposal edit', e);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
       render();
       setTimeout(() => {
@@ -2034,41 +2140,50 @@
     }
 
 
-    async function handleProcedureAction(id, action, targetId = null) {
+    async function handleProcedureAction(id, action, targetId = null, btnElement = null) {
       if (action === 'delete') {
         if (!confirm('Are you sure you want to PERMANENTLY delete this procedure? This cannot be undone.')) return;
       }
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null)
+        || (window.event?.target instanceof HTMLElement ? window.event.target.closest('button') : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = action === 'delete' ? '⏳ Deleting...' : '⏳ Working...';
+      }
+
       const endpoint = `${API_BASE}/api/review/procedures/${id}/${action}`;
       let body = null;
       
-      if (action === 'approve') {
-        const trigger = document.getElementById(`proc-trigger-${id}`).value.trim();
-        const steps = document.getElementById(`proc-steps-${id}`).value.trim();
-        const pitfalls = document.getElementById(`proc-pitfalls-${id}`).value.trim();
-        const verification = document.getElementById(`proc-verification-${id}`).value.trim();
-        const tags = document.getElementById(`proc-tags-${id}`).value.trim();
-        const suggestedTools = document.getElementById(`proc-tools-${id}`) ? document.getElementById(`proc-tools-${id}`).value.trim() : null;
-        
-        body = JSON.stringify({
-          trigger_pattern: trigger,
-          steps: steps,
-          pitfalls: pitfalls || null,
-          verification: verification || null,
-          tags: tags || null,
-          suggested_tools: suggestedTools || null
-        });
-      } else if (action === 'merge') {
-        body = JSON.stringify({ target_id: targetId });
-      }
-      
       try {
+        if (action === 'approve') {
+          const trigger = document.getElementById(`proc-trigger-${id}`)?.value.trim() || '';
+          const steps = document.getElementById(`proc-steps-${id}`)?.value.trim() || '';
+          const pitfalls = document.getElementById(`proc-pitfalls-${id}`)?.value.trim() || '';
+          const verification = document.getElementById(`proc-verification-${id}`)?.value.trim() || '';
+          const tags = document.getElementById(`proc-tags-${id}`)?.value.trim() || '';
+          const suggestedTools = document.getElementById(`proc-tools-${id}`) ? document.getElementById(`proc-tools-${id}`).value.trim() : null;
+          
+          body = JSON.stringify({
+            trigger_pattern: trigger,
+            steps: steps,
+            pitfalls: pitfalls || null,
+            verification: verification || null,
+            tags: tags || null,
+            suggested_tools: suggestedTools || null
+          });
+        } else if (action === 'merge') {
+          body = JSON.stringify({ target_id: targetId });
+        }
+        
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: headers(),
           body: body
         });
         if (res.ok) {
-          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id == id));
           if (action === 'delete') {
             allProcedures = allProcedures.filter(p => p.id !== id);
           } else if (action === 'approve') {
@@ -2088,15 +2203,27 @@
           updateCounts();
           render();
         } else {
-          alert('Action failed.');
+          let errMsg = `Action failed (${res.status} ${res.statusText})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Action failed: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error.');
+        alert(`Network error: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
     // Research Management actions
-    async function startResearchTask() {
+    async function startResearchTask(btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       const query = document.getElementById('research-query').value.trim();
       const scope = document.getElementById('research-scope').value;
       const intentEl = document.getElementById('research-intent');
@@ -2104,6 +2231,11 @@
       if (!query) {
         alert('Please enter a research query.');
         return;
+      }
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Starting...';
       }
       
       try {
@@ -2123,11 +2255,23 @@
         }
       } catch (e) {
         alert('Network error starting research.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function cancelResearchTask(taskId) {
+    async function cancelResearchTask(taskId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm('Are you sure you want to cancel this research task?')) return;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Cancelling...';
+      }
       try {
         const res = await fetch(`${API_BASE}/research/cancel/${taskId}`, { method: 'POST', headers: headers() });
         if (res.ok) {
@@ -2137,11 +2281,23 @@
         }
       } catch (e) {
         alert('Network error cancelling task.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function deleteResearchTask(taskId) {
+    async function deleteResearchTask(taskId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm('Are you sure you want to permanently delete this research task and all its files from disk?')) return;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Deleting...';
+      }
       try {
         const res = await fetch(`${API_BASE}/research/delete/${taskId}`, { method: 'POST', headers: headers() });
         if (res.ok) {
@@ -2151,10 +2307,22 @@
         }
       } catch (e) {
         alert('Network error deleting task.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function resumeResearchTask(taskId) {
+    async function resumeResearchTask(taskId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Resuming...';
+      }
       try {
         const res = await fetch(`${API_BASE}/research/resume/${taskId}`, { method: 'POST', headers: headers() });
         if (res.ok) {
@@ -2164,10 +2332,22 @@
         }
       } catch (e) {
         alert('Network error resuming task.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function startNowResearchTask(taskId) {
+    async function startNowResearchTask(taskId, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Starting...';
+      }
       try {
         const res = await fetch(`${API_BASE}/research/start-now/${taskId}`, { method: 'POST', headers: headers() });
         if (res.ok) {
@@ -2178,11 +2358,23 @@
         }
       } catch (e) {
         alert('Network error starting task.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function restartResearchTask(taskId, query, scope) {
+    async function restartResearchTask(taskId, query, scope, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm(`Are you sure you want to completely restart the research for: "${query}"?\nThis will remove the current quarantined task and create a brand new one.`)) return;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Restarting...';
+      }
       try {
         await fetch(`${API_BASE}/research/delete/${taskId}`, { method: 'POST', headers: headers() });
         const res = await fetch(`${API_BASE}/research/start`, {
@@ -2198,6 +2390,11 @@
         }
       } catch (e) {
         alert('Network error restarting task.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
@@ -2653,7 +2850,11 @@
       }
 
       const btn = document.getElementById('btn-apply-split');
-      if (btn) btn.disabled = true;
+      const originalText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Applying...';
+      }
 
       try {
         const res = await fetch(`${API_BASE}/api/context/split_apply`, {
@@ -2683,7 +2884,10 @@
       } catch (e) {
         alert('Network error applying split.');
       } finally {
-        if (btn) btn.disabled = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
       }
     }
 
@@ -2734,11 +2938,18 @@
       render();
     }
 
-    async function queueSelectedExtractionsMerge() {
+    async function queueSelectedExtractionsMerge(btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       const ids = Array.from(selectedExtractionIds);
       if (ids.length < 2) {
         alert('Please select at least 2 extractions to merge.');
         return;
+      }
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Queueing...';
       }
       try {
         const res = await fetch(`${API_BASE}/api/context/queue_merge`, {
@@ -2755,6 +2966,11 @@
         }
       } catch (e) {
         alert('Network error queueing merge: ' + e);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
@@ -2910,8 +3126,8 @@
                 </div>
                 <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center; flex-wrap: wrap;">
                   <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSourceProcedure(${item.id}, ${s.id})">Edit</button>
-                  <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id})">Unlink</button>
-                  <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceProcedure(${item.id}, ${s.id})">Delete</button>
+                  <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id}, this)">Unlink</button>
+                  <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceProcedure(${item.id}, ${s.id}, this)">Delete</button>
                 </div>
               </div>
               <div style="font-size: 12px; font-weight: 600; color: var(--text-dim);">Trigger: <span style="color: var(--text); font-weight: normal;">${escapeHtml(s.trigger_pattern || '')}</span></div>
@@ -2939,7 +3155,7 @@
                 </div>
                 <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                   <input type="text" id="proc-src-tags-${item.id}-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                  <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceProcedure(${item.id}, ${s.id})">Save</button>
+                  <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceProcedure(${item.id}, ${s.id}, this)">Save</button>
                   <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSourceProcedure(${item.id}, ${s.id})">Cancel</button>
                 </div>
               </div>
@@ -2959,11 +3175,12 @@
                 ${s.is_split_queued ? `
                   <span class="badge" style="font-size: 10px; padding: 2px 6px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">✂️ Queued</span>
                 ` : `
-                  <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="queueEntrySplit(${s.id}, this)">✂️ Split</button>
+                  <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" onclick="queueEntrySplit(${s.id}, this)" title="Queue for background split by agent">✂️ Queue Split</button>
                 `}
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="openSplitModal(${s.id}, 'source', ${item.id})" title="Interactive split modal">⚡ Split...</button>
                 <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Edit</button>
-                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id})">Unlink</button>
-                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id})">Delete</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" onclick="unlinkSourceEntry(${item.id}, ${s.id}, this)">Unlink</button>
+                <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="deleteSourceEntry(${item.id}, ${s.id}, this)">Delete</button>
               </div>` : ''}
             </div>
             <div style="font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap;">${escapeHtml(s.observation || '')}</div>
@@ -2977,7 +3194,7 @@
               <textarea id="ce-obs-${item.id}-${s.id}" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(s.observation)}</textarea>
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <input type="text" id="ce-tags-${item.id}-${s.id}" value="${escapeHtml(s.tags || '')}" placeholder="Tags (comma-separated)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id})">Save</button>
+                <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSourceEntry(${item.id}, ${s.id}, this)">Save</button>
                 <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSourceEntry(${item.id}, ${s.id})">Cancel</button>
               </div>
             </div>` : ''}
@@ -3024,15 +3241,16 @@
               ${suggestionsHTML}
             </div>
             <div class="card-actions">
-              <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve')">Approve</button>
+              <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve', null, this)">Approve</button>
               ${item.is_split_queued ? `
                 <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;">✂️ Queued for Split</span>
               ` : `
-                <button class="btn btn-sm" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;" onclick="queueEntrySplit(${item.id}, this)">✂️ Split</button>
+                <button class="btn btn-sm" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;" onclick="queueEntrySplit(${item.id}, this)" title="Queue for background split by agent">✂️ Queue Split</button>
+                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 11px; padding: 4px 10px;" onclick="openSplitModal(${item.id}, 'extractions')" title="Open interactive modal to split immediately">⚡ Instant Split</button>
               `}
-              <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit')">Save Edit</button>
+              <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit', null, this)">Save Edit</button>
               <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})">Revert</button>
-              <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete')">Delete</button>
+              <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete', null, this)">Delete</button>
             </div>
           </div>
         `;
@@ -3054,7 +3272,7 @@
                     </div>
                     <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center;">
                       <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSplitFact(${item.id}, ${idx})">Edit</button>
-                      <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="removeSplitFact(${item.id}, ${idx})">✕ Remove</button>
+                      <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="removeSplitFact(${item.id}, ${idx}, this)">✕ Remove</button>
                     </div>
                   </div>
                   <div style="font-size: 13px; line-height: 1.4; color: var(--text); white-space: pre-wrap;">${escapeHtml(ce.observation || '')}</div>
@@ -3066,14 +3284,14 @@
                     </div>
                     <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                      <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSplitFact(${item.id}, ${idx})">Save</button>
+                      <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSplitFact(${item.id}, ${idx}, this)">Save</button>
                       <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSplitFact(${item.id}, ${idx})">Cancel</button>
                     </div>
                   </div>
                 </div>
               `).join('')}
               <div style="display: flex; justify-content: flex-start; margin-top: 4px;">
-                <button class="btn btn-sm" style="background: var(--surface); border: 1px dashed var(--border); font-size: 12px; padding: 6px 12px;" onclick="addSplitFact(${item.id})">+ Add Atomic Fact</button>
+                <button class="btn btn-sm" style="background: var(--surface); border: 1px dashed var(--border); font-size: 12px; padding: 6px 12px;" onclick="addSplitFact(${item.id}, this)">+ Add Atomic Fact</button>
               </div>
             </div>
           ` : `<pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap;">${escapeHtml(item.merged_observation)}</pre>`;
@@ -3103,9 +3321,9 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Split</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Split</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
               </div>
             </div>
           `;
@@ -3171,10 +3389,10 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId})">⚡ Merge Into Master</button>` : ''}
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve (New Procedure)</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
+                ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId}, this)">⚡ Merge Into Master</button>` : ''}
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve (New Procedure)</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
               </div>
             </div>
           `;
@@ -3239,9 +3457,9 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Procedure Split</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Procedure Split</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
               </div>
             </div>
           `;
@@ -3281,9 +3499,9 @@
               </div>
             </div>
             <div class="card-actions" style="display: flex; gap: 8px;">
-              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve</button>
-              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject</button>
-              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
+              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve</button>
+              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
             </div>
           </div>
         `;
@@ -3326,9 +3544,9 @@
               <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
             </div>
             <div class="card-actions" style="display: flex; gap: 8px;">
-              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve')">Approve Update</button>
-              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny')">Reject Update</button>
-              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete')">🗑️ Remove</button>
+              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Update</button>
+              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject Update</button>
+              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
             </div>
           </div>
         `;
@@ -3369,11 +3587,11 @@
               </div>
             </div>
             <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve')">Approve (Live)</button>
-              ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id})">⚡ Merge Into Master</button>` : ''}
-              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject')">Reject</button>
-              <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny')">Archive</button>
-              <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete')">🗑️ Delete</button>
+              <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)">Approve (Live)</button>
+              ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id}, this)">⚡ Merge Into Master</button>` : ''}
+              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)">Reject</button>
+              <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny', null, this)">Archive</button>
+              <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete', null, this)">🗑️ Delete</button>
             </div>
           </div>
         `;
@@ -3393,7 +3611,7 @@
         const mergeBarHtml = selectedExtractionIds.size > 0 ? `
           <div style="display: flex; gap: 12px; align-items: center; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 8px 14px;">
             <span style="font-size: 13px; color: #60a5fa; font-weight: 500;">${selectedExtractionIds.size} extraction${selectedExtractionIds.size > 1 ? 's' : ''} selected</span>
-            <button class="btn btn-sm" style="background: #2563eb; color: #fff; font-size: 12px; padding: 5px 12px;" onclick="queueSelectedExtractionsMerge()">🔀 Queue Merge (${selectedExtractionIds.size})</button>
+            <button class="btn btn-sm" style="background: #2563eb; color: #fff; font-size: 12px; padding: 5px 12px;" onclick="queueSelectedExtractionsMerge(this)">🔀 Queue Merge (${selectedExtractionIds.size})</button>
             <button class="btn btn-sm" style="background: transparent; border: 1px solid var(--border); font-size: 12px; padding: 5px 10px; color: var(--text-dim);" onclick="selectedExtractionIds.clear(); render();">Deselect All</button>
           </div>
         ` : '';
@@ -3548,50 +3766,50 @@
             
             let actionButtons = '';
             if (statusText === 'resolved') {
-              actionButtons = `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`;
+              actionButtons = `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}', this)" style="background:#dc2626; color:#fff;">Remove</button>`;
             } else if (statusText === 'done') {
               if (task.quarantined) {
                 actionButtons = [
                   `<button class="btn btn-start-now" onclick="openGuidanceModal('${task.task_id}')">▶ Provide Guidance</button>`,
-                  `<button class="btn btn-action" onclick="restartResearchTask('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}', '${task.scope}')">Restart (Wipe)</button>`,
+                  `<button class="btn btn-action" onclick="restartResearchTask('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}', '${task.scope}', this)">Restart (Wipe)</button>`,
                   `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}')">Read Report</button>`,
-                  `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                  `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}', this)" style="background:#dc2626; color:#fff;">Remove</button>`
                 ].join('');
               } else {
                 actionButtons = [
                   `<button class="btn btn-action" onclick="readReport('${task.task_id}', '${escapeHtml(task.query).replace(/'/g, "\\'")}')">Read Report</button>`,
-                  `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                  `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}', this)" style="background:#dc2626; color:#fff;">Remove</button>`
                 ].join('');
               }
             } else if (statusText === 'queued') {
               actionButtons = [
-                `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
-                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`
+                `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}', this)">▶ Start Now</button>`,
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}', this)">Cancel</button>`
               ].join('');
             } else if (statusText === 'paused') {
               actionButtons = [
-                `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}')">▶ Start Now</button>`,
-                `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume</button>`,
-                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`,
-                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                `<button class="btn btn-start-now" onclick="startNowResearchTask('${task.task_id}', this)">▶ Start Now</button>`,
+                `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}', this)">Resume</button>`,
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}', this)">Cancel</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}', this)" style="background:#dc2626; color:#fff;">Remove</button>`
               ].join('');
             } else if (statusText === 'needs_guidance') {
               actionButtons = [
                 `<button class="btn btn-start-now" onclick="openGuidanceModal('${task.task_id}')">▶ Provide Guidance</button>`,
-                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`,
-                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                `<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}', this)">Cancel</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}', this)" style="background:#dc2626; color:#fff;">Remove</button>`
               ].join('');
             } else if (statusText === 'error' || statusText === 'cancelled') {
               actionButtons = [
-                `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}')">Resume / Retry</button>`,
-                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}')" style="background:#dc2626; color:#fff;">Remove</button>`
+                `<button class="btn btn-action" onclick="resumeResearchTask('${task.task_id}', this)">Resume / Retry</button>`,
+                `<button class="btn btn-reject" onclick="deleteResearchTask('${task.task_id}', this)" style="background:#dc2626; color:#fff;">Remove</button>`
               ].join('');
             } else {
               let buttons = [];
               if (task.struggling) {
                 buttons.push(`<button class="btn btn-start-now" onclick="openGuidanceModal('${task.task_id}')">▶ Provide Guidance</button>`);
               }
-              buttons.push(`<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}')">Cancel</button>`);
+              buttons.push(`<button class="btn btn-reject" onclick="cancelResearchTask('${task.task_id}', this)">Cancel</button>`);
               actionButtons = buttons.join('');
             }
             
@@ -3700,11 +3918,18 @@
       renderProceduresList();
     }
 
-    async function queueSelectedProceduresMerge() {
+    async function queueSelectedProceduresMerge(btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       const ids = Array.from(selectedProcIds);
       if (ids.length < 2) {
         alert('Please select at least 2 procedures to merge.');
         return;
+      }
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Queueing...';
       }
       try {
         const res = await fetch(`${API_BASE}/api/procedures/queue_merge`, {
@@ -3719,16 +3944,28 @@
           await loadData();
           render();
         } else {
-          const err = await res.json();
+          const err = await res.json().catch(() => ({}));
           alert(`Failed to queue merge: ${err.detail || 'Unknown error'}`);
         }
       } catch (e) {
         alert(`Network error queuing merge: ${e.message}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function queueSingleProcedureSplit(id) {
+    async function queueSingleProcedureSplit(id, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm(`Queue procedure #${id} for splitting into distinct atomic procedures?`)) return;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Queueing...';
+      }
       try {
         const res = await fetch(`${API_BASE}/api/procedures/${id}/queue_split`, {
           method: 'POST',
@@ -3739,15 +3976,28 @@
           await loadAllProcedures();
           render();
         } else {
-          const err = await res.json();
+          const err = await res.json().catch(() => ({}));
           alert(`Failed to queue split: ${err.detail || 'Unknown error'}`);
         }
       } catch (e) {
         alert(`Network error queuing split: ${e.message}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function saveProcedureEdits(id) {
+    async function saveProcedureEdits(id, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Saving...';
+      }
+
       const trigger = document.getElementById(`proc-mgmt-trigger-${id}`)?.value.trim();
       const tools = document.getElementById(`proc-mgmt-tools-${id}`)?.value.trim();
       const steps = document.getElementById(`proc-mgmt-steps-${id}`)?.value.trim();
@@ -3775,16 +4025,28 @@
           await loadAllProcedures();
           render();
         } else {
-          const err = await res.json();
+          const err = await res.json().catch(() => ({}));
           alert(`Failed to save procedure: ${err.detail || 'Unknown error'}`);
         }
       } catch (e) {
         alert(`Network error saving procedure: ${e.message}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function archiveProcedureItem(id) {
+    async function archiveProcedureItem(id, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm(`Archive procedure #${id}?`)) return;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Archiving...';
+      }
       try {
         const res = await fetch(`${API_BASE}/api/procedures/${id}/archive`, {
           method: 'POST',
@@ -3805,10 +4067,22 @@
         }
       } catch (e) {
         alert('Network error archiving procedure.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function restoreProcedureItem(id) {
+    async function restoreProcedureItem(id, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Restoring...';
+      }
       try {
         const res = await fetch(`${API_BASE}/api/procedures/${id}`, {
           method: 'PATCH',
@@ -3830,11 +4104,23 @@
         }
       } catch (e) {
         alert('Network error restoring procedure.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
-    async function deleteProcedureItemPermanently(id) {
+    async function deleteProcedureItemPermanently(id, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
       if (!confirm(`Are you sure you want to PERMANENTLY delete Procedure #${id}? This cannot be undone.`)) return;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Deleting...';
+      }
       try {
         const res = await fetch(`${API_BASE}/api/procedures/${id}`, {
           method: 'DELETE',
@@ -3860,6 +4146,11 @@
         }
       } catch (e) {
         alert('Network error deleting procedure.');
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
@@ -3920,7 +4211,7 @@
                 <span>⚡ ${selectedProcIds.size} procedure(s) selected for consolidation</span>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button class="btn btn-action" onclick="queueSelectedProceduresMerge()">Merge Selected (${selectedProcIds.size})</button>
+                <button class="btn btn-action" onclick="queueSelectedProceduresMerge(this)">Merge Selected (${selectedProcIds.size})</button>
                 <button class="btn btn-reject" onclick="selectAllVisibleProcedures(false)">Clear Selection</button>
               </div>
             </div>
@@ -4015,15 +4306,15 @@
             </div>
             <div class="card-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
               <div style="display: flex; gap: 8px; align-items: center;">
-                <button class="btn btn-action" onclick="saveProcedureEdits(${p.id})">💾 Save Changes</button>
-                <button class="btn btn-secondary" onclick="queueSingleProcedureSplit(${p.id})">✂️ Queue Split</button>
+                <button class="btn btn-action" onclick="saveProcedureEdits(${p.id}, this)">💾 Save Changes</button>
+                <button class="btn btn-secondary" onclick="queueSingleProcedureSplit(${p.id}, this)">✂️ Queue Split</button>
               </div>
               <div style="display: flex; gap: 8px; align-items: center;">
                 ${p.status === 'archived'
-                  ? `<button class="btn btn-approve" onclick="restoreProcedureItem(${p.id})">♻️ Restore to Live</button>`
-                  : `<button class="btn btn-reject" onclick="archiveProcedureItem(${p.id})">📦 Archive</button>`
+                  ? `<button class="btn btn-approve" onclick="restoreProcedureItem(${p.id}, this)">♻️ Restore to Live</button>`
+                  : `<button class="btn btn-reject" onclick="archiveProcedureItem(${p.id}, this)">📦 Archive</button>`
                 }
-                <button class="btn btn-delete" onclick="deleteProcedureItemPermanently(${p.id})">🗑️ Delete</button>
+                <button class="btn btn-delete" onclick="deleteProcedureItemPermanently(${p.id}, this)">🗑️ Delete</button>
               </div>
             </div>
           </div>
