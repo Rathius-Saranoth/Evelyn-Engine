@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-03 18:37:32
+# date modified: 2026-09-03 19:44:16
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -634,8 +634,9 @@ def get_time_gap_context() -> str | None:
 
 def get_db():
     """Return a new SQLite connection to the chat history DB with row_factory set."""
-    con = sqlite3.connect(cfg.CHAT_DB_PATH)
+    con = sqlite3.connect(cfg.CHAT_DB_PATH, timeout=30.0)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout = 30000")
     return con
 
 
@@ -1845,7 +1846,12 @@ async def _process_chat_background(
 
         research_ctx = get_research_context()
         try:
-            from Evelyn.tools.string_utils import escape_xml_content, inject_envelope_to_turn, stack_envelopes, wrap_xml_envelope
+            from Evelyn.tools.string_utils import (
+                escape_xml_content,
+                inject_envelope_to_turn,
+                stack_envelopes,
+                wrap_xml_envelope,
+            )
         except ImportError:
             from string_utils import escape_xml_content, inject_envelope_to_turn, stack_envelopes, wrap_xml_envelope
 
@@ -5284,59 +5290,62 @@ async def get_unified_review(_: None = Depends(check_auth)):
     """
     from Evelyn.tools import memory_db
 
-    unified_items = []
-    queued_split_ids = memory_db.get_all_queued_split_entry_ids()
+    def _fetch():
+        unified_items = []
+        queued_split_ids = memory_db.get_all_queued_split_entry_ids()
 
-    # 1. Extractions
-    raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
-    for item in raw_extractions:
-        item["item_type"] = "extraction"
-        item["is_split_queued"] = item["id"] in queued_split_ids
-        unified_items.append(_enrich_extraction_with_taxonomy(item))
+        # 1. Extractions
+        raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
+        for item in raw_extractions:
+            item["item_type"] = "extraction"
+            item["is_split_queued"] = item["id"] in queued_split_ids
+            unified_items.append(_enrich_extraction_with_taxonomy(item))
 
-    # 2. Proposals
-    proposals = memory_db.get_pending_proposals()
-    for p in proposals:
-        source_entries = []
-        for eid in p.get("source_ids", []):
-            if p.get("type") == "procedure_merge":
-                proc = memory_db.get_procedure(eid)
-                if proc:
-                    source_entries.append(
-                        {
-                            "id": proc["id"],
-                            "category": "procedure",
-                            "subject": getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
-                            "trigger_pattern": proc.get("trigger_pattern", ""),
-                            "steps": proc.get("steps", ""),
-                            "pitfalls": proc.get("pitfalls", ""),
-                            "verification": proc.get("verification", ""),
-                            "observation": f"**Trigger:** {proc.get('trigger_pattern', '')}\n**Steps:**\n{proc.get('steps', '')}",
-                            "tags": proc.get("tags", ""),
-                            "is_split_queued": False,
-                            "is_procedure": True,
-                        }
-                    )
+        # 2. Proposals
+        proposals = memory_db.get_pending_proposals()
+        for p in proposals:
+            source_entries = []
+            for eid in p.get("source_ids", []):
+                if p.get("type") == "procedure_merge":
+                    proc = memory_db.get_procedure(eid)
+                    if proc:
+                        source_entries.append(
+                            {
+                                "id": proc["id"],
+                                "category": "procedure",
+                                "subject": getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
+                                "trigger_pattern": proc.get("trigger_pattern", ""),
+                                "steps": proc.get("steps", ""),
+                                "pitfalls": proc.get("pitfalls", ""),
+                                "verification": proc.get("verification", ""),
+                                "observation": f"**Trigger:** {proc.get('trigger_pattern', '')}\n**Steps:**\n{proc.get('steps', '')}",
+                                "tags": proc.get("tags", ""),
+                                "is_split_queued": False,
+                                "is_procedure": True,
+                            }
+                        )
+                else:
+                    entry = memory_db.get_entry(eid)
+                    if entry:
+                        entry["is_split_queued"] = eid in queued_split_ids
+                        source_entries.append(entry)
+            p["source_entries"] = source_entries
+
+            if p.get("type") == "profile_update":
+                p["item_type"] = "profile_update"
             else:
-                entry = memory_db.get_entry(eid)
-                if entry:
-                    entry["is_split_queued"] = eid in queued_split_ids
-                    source_entries.append(entry)
-        p["source_entries"] = source_entries
+                p["item_type"] = "proposal"
+            unified_items.append(p)
 
-        if p.get("type") == "profile_update":
-            p["item_type"] = "profile_update"
-        else:
-            p["item_type"] = "proposal"
-        unified_items.append(p)
+        # 3. Procedures
+        procedures = memory_db.get_all_procedures(status="extracted")
+        for proc in procedures:
+            proc["item_type"] = "procedure"
+            unified_items.append(proc)
 
-    # 3. Procedures
-    procedures = memory_db.get_all_procedures(status="extracted")
-    for proc in procedures:
-        proc["item_type"] = "procedure"
-        unified_items.append(proc)
+        return unified_items
 
-    return unified_items
+    return await asyncio.to_thread(_fetch)
 
 
 class EditEntryRequest(BaseModel):
@@ -5353,8 +5362,11 @@ async def get_extractions(_: None = Depends(check_auth)):
     """Return all extracted (pending review) memory entries with vector taxonomy enrichment."""
     from Evelyn.tools import memory_db
 
-    raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
-    return [_enrich_extraction_with_taxonomy(item) for item in raw_extractions]
+    def _fetch():
+        raw_extractions = memory_db.get_all_entries(statuses=["extracted"])
+        return [_enrich_extraction_with_taxonomy(item) for item in raw_extractions]
+
+    return await asyncio.to_thread(_fetch)
 
 
 @app.post("/api/review/extractions/{id}/{action}")
@@ -5374,10 +5386,10 @@ async def action_extraction(
     from Evelyn.tools import memory_db
 
     if action == "approve":
-        memory_db.update_entry(id, status="live")
+        await asyncio.to_thread(memory_db.update_entry, id, status="live")
         await start_refresh_memory_internal()
     elif action in ("delete", "hard_delete"):
-        memory_db.hard_delete_entry(id)
+        await asyncio.to_thread(memory_db.hard_delete_entry, id)
     elif action == "edit" and req:
         fields = {}
         if req.category is not None:
@@ -5394,10 +5406,13 @@ async def action_extraction(
             # Only promote status to live if the entry is currently extracted.
             # Editing an already-live entry (e.g. a profile_update source entry)
             # should not touch its status.
-            entry = memory_db.get_entry(id)
-            if entry and entry.get("status") == "extracted":
-                fields["status"] = "live"
-            memory_db.update_entry(id, **fields)
+            def _apply_edit():
+                entry = memory_db.get_entry(id)
+                if entry and entry.get("status") == "extracted":
+                    fields["status"] = "live"
+                memory_db.update_entry(id, **fields)
+
+            await asyncio.to_thread(_apply_edit)
             await start_refresh_memory_internal()
     elif action == "edit" and not req:
         raise HTTPException(
@@ -5406,6 +5421,7 @@ async def action_extraction(
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     return {"status": "ok"}
+
 
 
 @app.get("/api/identity")
@@ -5449,34 +5465,37 @@ async def get_proposals(_: None = Depends(check_auth)):
     """Return all pending consolidation/recategorization proposals with their source entries."""
     from Evelyn.tools import memory_db
 
-    proposals = memory_db.get_pending_proposals()
-    for p in proposals:
-        source_entries = []
-        for eid in p.get("source_ids", []):
-            if p.get("type") == "procedure_merge":
-                proc = memory_db.get_procedure(eid)
-                if proc:
-                    source_entries.append(
-                        {
-                            "id": proc["id"],
-                            "category": "procedure",
-                            "subject": getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
-                            "trigger_pattern": proc.get("trigger_pattern", ""),
-                            "steps": proc.get("steps", ""),
-                            "pitfalls": proc.get("pitfalls", ""),
-                            "verification": proc.get("verification", ""),
-                            "observation": f"**Trigger:** {proc.get('trigger_pattern', '')}\n**Steps:**\n{proc.get('steps', '')}",
-                            "tags": proc.get("tags", ""),
-                            "is_split_queued": False,
-                            "is_procedure": True,
-                        }
-                    )
-            else:
-                entry = memory_db.get_entry(eid)
-                if entry:
-                    source_entries.append(entry)
-        p["source_entries"] = source_entries
-    return proposals
+    def _fetch():
+        proposals = memory_db.get_pending_proposals()
+        for p in proposals:
+            source_entries = []
+            for eid in p.get("source_ids", []):
+                if p.get("type") == "procedure_merge":
+                    proc = memory_db.get_procedure(eid)
+                    if proc:
+                        source_entries.append(
+                            {
+                                "id": proc["id"],
+                                "category": "procedure",
+                                "subject": getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
+                                "trigger_pattern": proc.get("trigger_pattern", ""),
+                                "steps": proc.get("steps", ""),
+                                "pitfalls": proc.get("pitfalls", ""),
+                                "verification": proc.get("verification", ""),
+                                "observation": f"**Trigger:** {proc.get('trigger_pattern', '')}\n**Steps:**\n{proc.get('steps', '')}",
+                                "tags": proc.get("tags", ""),
+                                "is_split_queued": False,
+                                "is_procedure": True,
+                            }
+                        )
+                else:
+                    entry = memory_db.get_entry(eid)
+                    if entry:
+                        source_entries.append(entry)
+            p["source_entries"] = source_entries
+        return proposals
+
+    return await asyncio.to_thread(_fetch)
 
 
 @app.post("/api/review/proposals/{id}/{action}")
@@ -5496,25 +5515,28 @@ async def action_proposal(
     from Evelyn.tools import memory_db
 
     if action == "deny":
-        proposals = memory_db.get_pending_proposals()
-        prop = next((p for p in proposals if p["id"] == id), None)
-        if prop and prop["type"] == "profile_update":
-            target_filename = os.path.basename(prop["suggested_category"])
-            prop_ts = prop.get("created_at") or time.time()
-            for eid in prop.get("source_ids", []):
-                memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
-            advance_doc_run_timestamp(target_filename, "BELOW_THRESHOLD", "Proposal denied; entries stamped")
-        memory_db.reject_proposal(id)
+        def _deny():
+            proposals = memory_db.get_pending_proposals()
+            prop = next((p for p in proposals if p["id"] == id), None)
+            if prop and prop["type"] == "profile_update":
+                target_filename = os.path.basename(prop["suggested_category"])
+                prop_ts = prop.get("created_at") or time.time()
+                for eid in prop.get("source_ids", []):
+                    memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
+                advance_doc_run_timestamp(target_filename, "BELOW_THRESHOLD", "Proposal denied; entries stamped")
+            memory_db.reject_proposal(id)
+
+        await asyncio.to_thread(_deny)
         return {"status": "ok"}
     elif action in ("delete", "hard_delete"):
-        memory_db.delete_proposal(id)
+        await asyncio.to_thread(memory_db.delete_proposal, id)
         return {"status": "ok"}
     elif action == "edit":
         if not req or req.modified_text is None:
             raise HTTPException(
                 status_code=400, detail="edit requires modified_text in request body"
             )
-        memory_db.update_proposal(id, merged_observation=req.modified_text)
+        await asyncio.to_thread(memory_db.update_proposal, id, merged_observation=req.modified_text)
         return {"status": "ok"}
     elif action == "unlink_source":
         if not req or req.source_id is None:
@@ -5522,10 +5544,11 @@ async def action_proposal(
                 status_code=400,
                 detail="unlink_source requires source_id in request body",
             )
-        memory_db.remove_proposal_source_id(id, req.source_id)
+        await asyncio.to_thread(memory_db.remove_proposal_source_id, id, req.source_id)
         return {"status": "ok"}
     elif action in ("approve", "merge_into_master"):
-        proposals = memory_db.get_pending_proposals()
+        proposals = await asyncio.to_thread(memory_db.get_pending_proposals)
+
         prop = next((p for p in proposals if p["id"] == id), None)
         if not prop:
             raise HTTPException(status_code=404, detail="Proposal not found")
@@ -5969,7 +5992,7 @@ async def get_procedures_review(_: None = Depends(check_auth)):
     """Return all pending extracted procedures for review."""
     from Evelyn.tools import memory_db
 
-    return memory_db.get_all_procedures(status="extracted")
+    return await asyncio.to_thread(memory_db.get_all_procedures, status="extracted")
 
 
 @app.post("/api/review/procedures/{id}/{action}")
@@ -5989,23 +6012,23 @@ async def action_procedure(
     from Evelyn.tools import memory_db
 
     if action in ("deny", "archive"):
-        memory_db.delete_procedure(id)
+        await asyncio.to_thread(memory_db.delete_procedure, id)
         return {"status": "ok"}
     elif action in ("reject",):
-        memory_db.reject_procedure(id)
+        await asyncio.to_thread(memory_db.reject_procedure, id)
         return {"status": "ok"}
     elif action in ("merge",):
         target_id = (body.target_id or body.merged_into_id) if body else None
         if not target_id:
             # Fallback to existing merged_into_id on the record if set by extractor
-            existing_proc = memory_db.get_procedure(id)
+            existing_proc = await asyncio.to_thread(memory_db.get_procedure, id)
             target_id = existing_proc.get("merged_into_id") if existing_proc else None
         if not target_id:
             raise HTTPException(status_code=400, detail="target_id required for merge action")
-        memory_db.merge_procedure(id, target_id)
+        await asyncio.to_thread(memory_db.merge_procedure, id, target_id)
         return {"status": "ok", "merged_into_id": target_id}
     elif action in ("delete", "hard_delete"):
-        memory_db.hard_delete_procedure(id)
+        await asyncio.to_thread(memory_db.hard_delete_procedure, id)
         return {"status": "ok"}
     elif action == "edit":
         update_fields: dict[str, Any] = {}
@@ -6025,7 +6048,7 @@ async def action_procedure(
             if body.merged_into_id is not None:
                 update_fields["merged_into_id"] = body.merged_into_id
 
-        success = memory_db.update_procedure(id, **update_fields)
+        success = await asyncio.to_thread(memory_db.update_procedure, id, **update_fields)
         if not success:
             raise HTTPException(
                 status_code=404, detail="Procedure not found or not updated"
@@ -6048,7 +6071,7 @@ async def action_procedure(
                 update_fields["suggested_tools"] = body.suggested_tools
 
         update_fields["status"] = "live"
-        success = memory_db.update_procedure(id, **update_fields)
+        success = await asyncio.to_thread(memory_db.update_procedure, id, **update_fields)
         if not success:
             raise HTTPException(
                 status_code=404, detail="Procedure not found or not updated"
@@ -6056,6 +6079,7 @@ async def action_procedure(
         return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
+
 
 
 @app.get("/api/procedures")
