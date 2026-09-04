@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-03 18:39:21
+date modified: 2026-09-03 19:47:36
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.057] - 2026-09-03 — *Non-Blocking Review Endpoints, SQLite Concurrency Hardening & DevUI Feedback*
+
+### Fixed & Enhanced
+- **Non-Blocking Review & Triage Endpoints (`evelyn_server.py`)**:
+  - Offloaded blocking synchronous SQLite calls across review endpoints (`get_unified_review`, `get_extractions`, `action_extraction`, `get_proposals`, `action_proposal`, `get_procedures_review`, and `action_procedure`) to worker threads via `await asyncio.to_thread(...)`.
+  - Prevents SQLite lock acquisition and slow file I/O operations from starving the primary FastAPI ASGI event loop thread and causing server-wide HTTP hangs or request timeouts.
+- **SQLite Concurrency & Busy Timeout Hardening (`Evelyn/tools/memory_db.py`, `evelyn_server.py`)**:
+  - Configured `PRAGMA busy_timeout = 30000` and `timeout=30.0` across SQLite database connection factories in `memory_db.py` and `evelyn_server.py`, permitting internal retry backoff when background workers (such as Chroma sync queues, consolidators, or extractors) acquire write locks.
+  - Relocated repetitive `PRAGMA journal_mode=WAL` from per-connection initialization into `init_db()` to minimize schema lock contention.
+  - Hardened `hard_delete_entry`, `delete_proposal`, and `hard_delete_procedure` with robust `try...finally: con.close()` resource cleanup to prevent connection leaks during errors.
+  - Added missing `procedure_split_queue` and `procedure_merge_queue` DDL and index initialization to `memory_db.init_db()`.
+- **DevUI Action State & Error Visibility (`evelyn_ui/dev.html`)**:
+  - Added button loading indicators (`⏳ Working...`, `⏳ Deleting...`) and disabled states during asynchronous deletion and triage operations (`handleAction`, `deleteSourceEntry`, `deleteSourceProcedure`).
+  - Added user-facing error reporting via alerts with HTTP status codes and response details if database write requests fail, ensuring UI buttons reset gracefully via `finally` blocks.
+- **Automated Review Endpoint Test Suite (`Evelyn/tests/test_review_endpoints.py`)**:
+  - Added isolated, hermetic unit test suite validating non-blocking extraction, proposal, and procedure deletions alongside unified review payload retrieval.
+
+---
 
 ## [000.006.056] - 2026-09-03 — *Fact Consolidator Parity, In-Place Master Fact Preservation & Merge Queue*
 

@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-03 18:44:27
+date modified: 2026-09-03 19:53:01
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -121,6 +121,9 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
 
 ### `GET /api/heavy_tasks`
 * **Purpose**: Returns real-time status of all heavy background tasks (`extractor`, `consolidator`, `procedure_consolidator`, `profile_evolver`, `tag_librarian`, `refresh_memory`, `sync`, `vault_map`), mutual exclusion lock state, runtime timers, and phase descriptions. Includes specialized domain diagnostics (`sub_status`), progress percentages (e.g. `progress_pct` against Max message ID, `audit_pct` for vault notes), total active entry counts, completion summaries (`summary`), and error notes (`error`/`diagnostics`) for all tasks, alongside `profile_evolver` per-document execution status codes (`doc_statuses`: `APPROVED`, `PROPOSAL_STAGED`, `NO_CORE_CHANGES`, `BELOW_THRESHOLD`, `COOLDOWN_ACTIVE`, `PENDING_EXISTS`, `INTERRUPTED_SAVED`, `MODEL_ERROR`).
+
+### `GET /api/review/unified`
+* **Purpose**: Retrieves a unified, combined triage payload of all pending review items across `extractions`, `proposals`, and `procedures` sorted chronologically with `item_type` discriminators for single-request dashboard rendering in `dev.html`.
 
 ### `GET /api/review/extractions`
 * **Purpose**: Retrieves the queue of newly discovered assertions staged in `evelyn_memory.db` by [[fact_extractor.py]].

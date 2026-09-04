@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-03 18:34:12
+# date modified: 2026-09-03 19:46:47
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -35,11 +35,11 @@ All functions use short-lived connections (no module-level state).
 """
 
 import contextlib
-from datetime import UTC, datetime
 import json
 import re
 import sqlite3
 import time
+from datetime import UTC, datetime
 
 import evelyn_config as cfg
 
@@ -48,16 +48,17 @@ import evelyn_config as cfg
 # ---------------------------------------------------------------------------
 
 def get_db() -> sqlite3.Connection:
-    """Open a connection to evelyn_memory.db with row_factory enabled.
+    """Open a connection to evelyn_memory.db with row_factory and busy timeout enabled.
 
     Returns:
         sqlite3.Connection: A database connection configured for dict-like row access.
     """
-    con = sqlite3.connect(cfg.MEMORY_DB_PATH)
+    con = sqlite3.connect(cfg.MEMORY_DB_PATH, timeout=30.0)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")  # Concurrent reads during writes
+    con.execute("PRAGMA busy_timeout = 30000")
     con.execute("PRAGMA foreign_keys = ON")
     return con
+
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,8 @@ def init_db() -> None:
         None
     """
     con = get_db()
+    con.execute("PRAGMA journal_mode = WAL")  # Concurrent reads during writes
+
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS context_entries (
@@ -107,6 +110,8 @@ def init_db() -> None:
         "ALTER TABLE context_entries ADD COLUMN last_observed REAL",
         "ALTER TABLE context_entries ADD COLUMN observed_count INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE context_entries ADD COLUMN vad TEXT",
+        "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
+        "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
     ]:
         with contextlib.suppress(sqlite3.OperationalError):
             con.execute(_migration)
@@ -141,7 +146,9 @@ def init_db() -> None:
             created_at        REAL NOT NULL,
             updated_at        REAL,
             last_retrieved_at REAL,
-            retrieval_count   INTEGER NOT NULL DEFAULT 0
+            retrieval_count   INTEGER NOT NULL DEFAULT 0,
+            suggested_tools   TEXT,
+            merged_into_id    INTEGER
         )
     """)
 
@@ -182,6 +189,26 @@ def init_db() -> None:
     """)
 
     con.execute("""
+        CREATE TABLE IF NOT EXISTS procedure_merge_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            proc_ids   TEXT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL
+        )
+    """)
+
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS procedure_split_queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            proc_id    INTEGER NOT NULL UNIQUE,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL
+        )
+    """)
+
+    con.execute("""
         CREATE TABLE IF NOT EXISTS entry_document_evolution (
             entry_id      INTEGER NOT NULL,
             document_name TEXT NOT NULL,
@@ -200,10 +227,13 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_proposals_type ON proposals(type)",
         "CREATE INDEX IF NOT EXISTS idx_proc_status ON procedures(status)",
         "CREATE INDEX IF NOT EXISTS idx_proc_trigger ON procedures(trigger_pattern)",
+        "CREATE INDEX IF NOT EXISTS idx_proc_merged_into ON procedures(merged_into_id)",
         "CREATE INDEX IF NOT EXISTS idx_csq_status ON chroma_sync_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_csq_source ON chroma_sync_queue(source_path, collection_name)",
         "CREATE INDEX IF NOT EXISTS idx_sq_status ON split_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_fmq_status ON fact_merge_queue(status)",
+        "CREATE INDEX IF NOT EXISTS idx_pmq_status ON procedure_merge_queue(status)",
+        "CREATE INDEX IF NOT EXISTS idx_psq_status ON procedure_split_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_ede_doc_entry ON entry_document_evolution(document_name, entry_id)",
     ]:
         con.execute(stmt)
@@ -532,13 +562,16 @@ def hard_delete_entry(entry_id: int) -> bool:
     Returns:
         bool: True if deleted, False otherwise.
     """
-    con = get_db()
     remove_source_id_from_pending_proposals(entry_id)
-    cur = con.execute("DELETE FROM context_entries WHERE id = ?", (entry_id,))
-    con.commit()
-    affected = cur.rowcount
-    con.close()
-    return affected > 0
+    con = get_db()
+    try:
+        cur = con.execute("DELETE FROM context_entries WHERE id = ?", (entry_id,))
+        con.commit()
+        affected = cur.rowcount
+        return affected > 0
+    finally:
+        con.close()
+
 
 
 def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
@@ -1129,11 +1162,14 @@ def delete_proposal(proposal_id: int) -> bool:
         bool: True if deleted, False otherwise.
     """
     con = get_db()
-    cur = con.execute("DELETE FROM proposals WHERE id = ?", (proposal_id,))
-    con.commit()
-    affected = cur.rowcount
-    con.close()
-    return affected > 0
+    try:
+        cur = con.execute("DELETE FROM proposals WHERE id = ?", (proposal_id,))
+        con.commit()
+        affected = cur.rowcount
+        return affected > 0
+    finally:
+        con.close()
+
 
 
 def update_proposal(proposal_id: int, **fields) -> bool:
@@ -1479,25 +1515,28 @@ def hard_delete_procedure(proc_id: int) -> bool:
         bool: True if deleted, False otherwise.
     """
     con = get_db()
-    con.execute("DELETE FROM procedure_split_queue WHERE proc_id = ?", (proc_id,))
-    # Remove from any pending merge queues
-    cursor = con.execute("SELECT id, proc_ids FROM procedure_merge_queue WHERE status = 'pending'")
-    for q_id, proc_ids_str in cursor.fetchall():
-        ids = [int(x.strip()) for x in proc_ids_str.split(",") if x.strip().isdigit()]
-        if proc_id in ids:
-            remaining = [x for x in ids if x != proc_id]
-            if len(remaining) < 2:
-                con.execute("DELETE FROM procedure_merge_queue WHERE id = ?", (q_id,))
-            else:
-                con.execute(
-                    "UPDATE procedure_merge_queue SET proc_ids = ?, updated_at = ? WHERE id = ?",
-                    (",".join(str(i) for i in remaining), time.time(), q_id),
-                )
-    cur = con.execute("DELETE FROM procedures WHERE id = ?", (proc_id,))
-    con.commit()
-    affected = cur.rowcount
-    con.close()
-    return affected > 0
+    try:
+        con.execute("DELETE FROM procedure_split_queue WHERE proc_id = ?", (proc_id,))
+        # Remove from any pending merge queues
+        cursor = con.execute("SELECT id, proc_ids FROM procedure_merge_queue WHERE status = 'pending'")
+        for q_id, proc_ids_str in cursor.fetchall():
+            ids = [int(x.strip()) for x in proc_ids_str.split(",") if x.strip().isdigit()]
+            if proc_id in ids:
+                remaining = [x for x in ids if x != proc_id]
+                if len(remaining) < 2:
+                    con.execute("DELETE FROM procedure_merge_queue WHERE id = ?", (q_id,))
+                else:
+                    con.execute(
+                        "UPDATE procedure_merge_queue SET proc_ids = ?, updated_at = ? WHERE id = ?",
+                        (",".join(str(i) for i in remaining), time.time(), q_id),
+                    )
+        cur = con.execute("DELETE FROM procedures WHERE id = ?", (proc_id,))
+        con.commit()
+        affected = cur.rowcount
+        return affected > 0
+    finally:
+        con.close()
+
 
 
 # ---------------------------------------------------------------------------

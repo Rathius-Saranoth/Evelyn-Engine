@@ -1713,6 +1713,13 @@
         }
       }
       
+      const activeBtn = btnElement || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Working...';
+      }
+
       try {
         const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
         if (res.ok) {
@@ -1724,10 +1731,20 @@
           updateCounts();
           render();
         } else {
-          alert('Action failed.');
+          let errMsg = `Action failed (${res.status} ${res.statusText})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Action failed: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error.');
+        alert(`Network error: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
@@ -1829,6 +1846,12 @@
 
     async function deleteSourceEntry(proposalId, entryId) {
       if (!confirm('Are you sure you want to soft-delete this context entry?')) return;
+      const activeBtn = window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Deleting...';
+      }
       const endpoint = `${API_BASE}/api/review/extractions/${entryId}/delete`;
       try {
         const res = await fetch(endpoint, { method: 'POST', headers: headers() });
@@ -1840,15 +1863,31 @@
           }
           render();
         } else {
-          alert('Failed to delete entry.');
+          let errMsg = `Failed to delete entry (${res.status})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Failed to delete entry: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error while deleting entry.');
+        alert(`Network error while deleting entry: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
     async function deleteSourceProcedure(proposalId, procId) {
       if (!confirm('Are you sure you want to delete this procedure?')) return;
+      const activeBtn = window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null;
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Deleting...';
+      }
       const endpoint = `${API_BASE}/api/review/procedures/${procId}/delete`;
       try {
         const res = await fetch(endpoint, { method: 'POST', headers: headers() });
@@ -1868,10 +1907,20 @@
           updateCounts();
           render();
         } else {
-          alert('Failed to delete procedure.');
+          let errMsg = `Failed to delete procedure (${res.status})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Failed to delete procedure: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
         }
       } catch (e) {
-        alert('Network error while deleting procedure.');
+        alert(`Network error while deleting procedure: ${e.message || e}`);
+      } finally {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
       }
     }
 
