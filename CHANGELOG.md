@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-03 19:47:36
+date modified: 2026-09-03 21:48:08
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.058] - 2026-09-03 — *Tag Librarian Circuit Breaker, Taxonomy Restoration & Hermetic Vault DB Isolation*
+
+### Fixed & Enhanced
+- **Tag Librarian Safety Circuit Breakers (`Evelyn/tools/tag_librarian.py`)**:
+  - Implemented guard clauses and pruning circuit breakers in `maintain_master_taxonomy()` to prevent mass-deletion accidents.
+  - Automatically aborts maintenance without modifying taxonomy if `vault_documents` is empty or if 0 active tags are discovered across the vault.
+  - Added prune safety threshold (`TAG_LIBRARIAN_MAX_PRUNE_RATIO`, default 15%): if an unattended pass proposes pruning more than 15% of the total taxonomy, execution immediately halts with a high-visibility warning to protect against transient vault detachment or partial scan states.
+- **Master Tag Taxonomy Restoration (`Evelyn/tools/tag_librarian.py`, `evelyn_vault.db`)**:
+  - Executed `seed_master_taxonomy_from_vault()` to restore all **5,199 unique master tags** into SQLite `master_tag_taxonomy` and enqueued them to Chroma vector collection `evelyn_tag_taxonomy`.
+  - Reset `last_tag_audit = NULL` across notes audited during the taxonomy outage so they are evaluated properly against the restored taxonomy.
+- **Hermetic Vault Database Test Isolation (`Evelyn/tests/conftest.py`)**:
+  - Enhanced the global `isolate_test_vault_environment` autouse fixture to isolate `cfg.VAULT_DB_PATH` and `vault_db.DB_PATH` to an ephemeral temporary SQLite database per test.
+  - Prevents automated test executions from writing dummy notes (e.g. `Concepts/TestConcept.md`) or mutating production `data/evelyn_vault.db`.
+- **Dynamic Vault DB Resolution (`evelyn_server.py`)**:
+  - Updated `/api/heavy_tasks` (`tag_librarian` and `vault_map` branches) to resolve `cfg.VAULT_DB_PATH` dynamically, respecting test sandbox environments.
 
 ## [000.006.057] - 2026-09-03 — *Non-Blocking Review Endpoints, SQLite Concurrency Hardening & DevUI Feedback*
 

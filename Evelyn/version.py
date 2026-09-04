@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-03 19:47:30
+# date modified: 2026-09-03 21:47:57
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.057"
-__version_info__ = (0, 6, 57)
-__version_name__ = "Non-Blocking Review Endpoints, SQLite Concurrency Hardening & DevUI Feedback"
+__version__ = "000.006.058"
+__version_info__ = (0, 6, 58)
+__version_name__ = "Tag Librarian Circuit Breaker, Taxonomy Restoration & Hermetic Vault DB Isolation"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
