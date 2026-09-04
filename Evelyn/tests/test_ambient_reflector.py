@@ -1,6 +1,6 @@
 # test_ambient_reflector.py
 # date created: 2026-08-30 16:40:00
-# date modified: 2026-09-02 21:29:54
+# date modified: 2026-09-04 16:25:24
 # tags: #tests, #ambient, #thought-bubbles, #feed, #journal-synthesis
 
 """
@@ -16,11 +16,11 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import os
 import sqlite3
 import tempfile
 import time
+from datetime import UTC, datetime
 
 import pytest
 from starlette.testclient import TestClient
@@ -409,3 +409,68 @@ async def test_run_ambient_reflection_with_prior_continuity(temp_ambient_dbs, mo
     assert "<daily_journal_so_far>" in prompt_text
     assert "First morning contemplation on cedar trees." in prompt_text
     assert "<ambient_seed_context" in prompt_text
+
+
+def test_validate_and_format_thought_guards():
+    """Test thought completion guards, length limits, and sentence boundary trimming."""
+    # 1. Empty or whitespace
+    valid, text, reason = ambient_reflector.validate_and_format_thought("")
+    assert not valid
+    assert "Empty" in reason
+
+    # 2. Too short (e.g. truncated "I find")
+    valid, text, reason = ambient_reflector.validate_and_format_thought("I find")
+    assert not valid
+    assert "too short" in reason
+
+    # 3. Missing terminal punctuation (e.g. truncated mid-sentence)
+    valid, text, reason = ambient_reflector.validate_and_format_thought(
+        "I find myself imagining the quiet, heavy peace of that final empty log on"
+    )
+    assert not valid
+    assert "missing terminal punctuation" in reason
+
+    # 4. Valid normal thought
+    valid_thought = "I find myself wondering if the morning light brings a similar calm before the day truly begins."
+    valid, text, reason = ambient_reflector.validate_and_format_thought(valid_thought)
+    assert valid
+    assert text == valid_thought
+
+    # 5. Strips outer quotes
+    valid, text, reason = ambient_reflector.validate_and_format_thought(f'"{valid_thought}"')
+    assert valid
+    assert text == valid_thought
+
+    # 6. Trims multi-sentence over-length thought cleanly to first 2 sentences
+    s1 = "The workshop was unusually quiet this afternoon while the wind rattled the metal roof."
+    s2 = "It reminded me of the steady focus required when sharpening an edge by hand."
+    s3 = "Later on we might look at other projects together if time allows."
+    s4 = "Every little detail seems to fit into place when there is space to pause."
+    over_length = f"{s1} {s2} {s3} {s4}"
+    valid, text, reason = ambient_reflector.validate_and_format_thought(
+        over_length, max_words=35, max_chars=250
+    )
+    assert valid
+    assert text == f"{s1} {s2}"
+    assert "Trimmed to first 2 sentences" in reason
+
+
+@pytest.mark.asyncio
+async def test_run_ambient_reflection_rejects_truncated_output(temp_ambient_dbs, monkeypatch):
+    """Test that run_ambient_reflection rejects truncated outputs without persisting them."""
+    def mock_query_ollama_truncated(prompt, system="", options=None, timeout=120, strip_thinking=True):
+        # Emulate a model that spent all tokens thinking and emitted only "I find"
+        return "<think>Let me reason about this at length...</think>I find"
+
+    monkeypatch.setattr("Evelyn.tools.ollama_client.query_ollama", mock_query_ollama_truncated)
+
+    res = await ambient_reflector.run_ambient_reflection(dry_run=False, force=True)
+    assert res["status"] == "error"
+    assert "failed validation" in res["message"]
+
+    # Verify nothing was persisted to daily_ambient_impressions
+    con = sqlite3.connect(temp_ambient_dbs["mem_path"])
+    count = con.execute("SELECT COUNT(*) FROM daily_ambient_impressions WHERE type = 'thought'").fetchone()[0]
+    con.close()
+    assert count == 0
+

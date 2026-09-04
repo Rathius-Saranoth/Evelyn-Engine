@@ -1,6 +1,6 @@
 # ambient_reflector.py
 # date created: 2026-08-30 16:35:00
-# date modified: 2026-09-02 21:28:47
+# date modified: 2026-09-04 16:35:32
 # tags: #ambient, #thought-bubbles, #diurnal, #autonomous, #multi-modal
 
 """
@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import random
+import re
 import sqlite3
 import time
 from datetime import UTC, datetime
@@ -156,6 +157,103 @@ def should_generate_idle_thought(
             return False, f"Thought cooldown active ({int(time_since_last_thought)}s elapsed since last reflection, required {min_idle}s)"
 
     return True, f"Eligible for daytime thought reflection ({thought_count}/{max_thoughts} used today)"
+
+
+def validate_and_format_thought(
+    raw_text: str,
+    min_words: int | None = None,
+    max_words: int | None = None,
+    max_chars: int | None = None,
+) -> tuple[bool, str, str]:
+    """Validate and format a textual ambient thought bubble.
+
+    Applies completion guards (terminal punctuation, minimum word count)
+    and natural sentence boundary trimming if the thought is slightly over-length.
+    Does not apply to media shares or system alerts.
+
+    Args:
+        raw_text: Cleaned thought text.
+        min_words: Minimum word threshold (defaults to cfg.AMBIENT_REFLECTIONS_MIN_WORDS).
+        max_words: Maximum word threshold (defaults to cfg.AMBIENT_REFLECTIONS_MAX_WORDS).
+        max_chars: Maximum character threshold (defaults to cfg.AMBIENT_REFLECTIONS_MAX_CHARS).
+
+    Returns:
+        tuple[bool, str, str]: (is_valid, formatted_text, reason)
+    """
+    if min_words is None:
+        min_words = getattr(cfg, "AMBIENT_REFLECTIONS_MIN_WORDS", 6)
+    if max_words is None:
+        max_words = getattr(cfg, "AMBIENT_REFLECTIONS_MAX_WORDS", 60)
+    if max_chars is None:
+        max_chars = getattr(cfg, "AMBIENT_REFLECTIONS_MAX_CHARS", 400)
+
+    text = raw_text.strip()
+    # Strip wrapping quotes if any
+    if ((text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'"))) and len(text) > 2:
+        text = text[1:-1].strip()
+
+    if not text:
+        return False, "", "Empty thought text"
+
+    words = text.split()
+    if len(words) < min_words:
+        return False, text, f"Thought too short ({len(words)} words < {min_words})"
+
+    terminal_chars = ('.', '!', '?', '…')
+    terminal_quotes = ('."', '!"', '?"', '…”', '.”', '!”', '?”', '..."')
+    ends_cleanly = text.endswith(terminal_chars) or text.endswith(terminal_quotes)
+    if not ends_cleanly:
+        return False, text, "Incomplete thought: missing terminal punctuation"
+
+    # If within limits, accept immediately
+    if len(words) <= max_words and len(text) <= max_chars:
+        return True, text, "Valid thought"
+
+    # If over-length, attempt deterministic sentence boundary trimming (take first 1–2 complete sentences)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?…])\s+", text) if s.strip()]
+    if len(sentences) >= 2:
+        candidate_2 = f"{sentences[0]} {sentences[1]}"
+        candidate_2_words = len(candidate_2.split())
+        if min_words <= candidate_2_words <= max_words and len(candidate_2) <= max_chars:
+            return True, candidate_2, "Trimmed to first 2 sentences"
+
+    if sentences:
+        candidate_1 = sentences[0]
+        candidate_1_words = len(candidate_1.split())
+        if min_words <= candidate_1_words <= max_words and len(candidate_1) <= max_chars:
+            return True, candidate_1, "Trimmed to first sentence"
+
+    return False, text, f"Thought exceeds length limits ({len(words)}w / {len(text)}c > {max_words}w / {max_chars}c)"
+
+
+async def compact_thought(
+    text: str,
+    max_words: int | None = None,
+) -> str:
+    """Condense an over-length thought into a 1–2 sentence micro-reflection."""
+    if max_words is None:
+        max_words = getattr(cfg, "AMBIENT_REFLECTIONS_MAX_WORDS", 60)
+
+    assistant_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+    system_prompt = (
+        f"You are a precise editor for {assistant_name}'s private thoughts. "
+        f"Condense the following private reflection into 1–2 authentic, spontaneous sentences under {max_words} words. "
+        f"Preserve persona, emotional depth, and voice. "
+        f"Output ONLY the condensed 1–2 sentences, without quotes or commentary."
+    )
+
+    loop = asyncio.get_running_loop()
+    condensed = await loop.run_in_executor(
+        None,
+        lambda: ollama_client.query_ollama(
+            prompt=text,
+            system=system_prompt,
+            options={"temperature": 0.3, "num_predict": 1024},
+            timeout=60,
+            strip_thinking=True,
+        ),
+    )
+    return condensed.strip()
 
 
 async def run_ambient_reflection(
@@ -316,7 +414,8 @@ async def run_ambient_reflection(
         )
 
         # 6. Inference call
-        num_predict = getattr(cfg, "AMBIENT_REFLECTIONS_NUM_PREDICT", 1024)
+        num_predict = getattr(cfg, "AMBIENT_REFLECTIONS_NUM_PREDICT", 3072)
+        infer_timeout = getattr(cfg, "AMBIENT_REFLECTIONS_TIMEOUT", 300)
         loop = asyncio.get_running_loop()
         raw_response = await loop.run_in_executor(
             None,
@@ -324,7 +423,7 @@ async def run_ambient_reflection(
                 prompt=user_content,
                 system=system_prompt,
                 options={"temperature": 0.7, "num_predict": num_predict},
-                timeout=120,
+                timeout=infer_timeout,
                 strip_thinking=True,
             ),
         )
@@ -333,15 +432,20 @@ async def run_ambient_reflection(
             task_manager.clear_running(TASK_NAME, status="cancelled", error="Preempted after inference")
             return {"status": "preempted", "message": "Preempted by user chat interaction"}
 
-        # 7. Clean output
-        thought_text = string_utils.strip_thinking_tags(raw_response).strip()
-        # Strip surrounding markdown quotes if any
-        if thought_text.startswith('"') and thought_text.endswith('"') and len(thought_text) > 2:
-            thought_text = thought_text[1:-1].strip()
+        # 7. Clean and validate output
+        raw_cleaned = string_utils.strip_thinking_tags(raw_response).strip()
+        is_valid, thought_text, validation_reason = validate_and_format_thought(raw_cleaned)
 
-        if not thought_text:
-            task_manager.clear_running(TASK_NAME, status="error", error="Empty thought output")
-            return {"status": "error", "message": "Model generated empty output"}
+        # If rejected due to length, attempt one compaction pass
+        if not is_valid and "exceeds length limits" in validation_reason:
+            logger.info(f"[AMBIENT-REFLECTOR] Thought exceeded limits ({validation_reason}). Invoking compaction pass...")
+            compacted = await compact_thought(raw_cleaned)
+            is_valid, thought_text, validation_reason = validate_and_format_thought(compacted)
+
+        if not is_valid:
+            logger.warning(f"[AMBIENT-REFLECTOR] Discarding invalid thought: {validation_reason} (Output: {raw_cleaned[:80]!r})")
+            task_manager.clear_running(TASK_NAME, status="error", error=f"Invalid thought: {validation_reason}")
+            return {"status": "error", "message": f"Generated thought failed validation: {validation_reason}"}
 
         # Derive a concise mood label
         mood = default_mood

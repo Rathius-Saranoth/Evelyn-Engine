@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-02 21:27:36
+# date modified: 2026-09-04 16:35:32
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -449,7 +449,13 @@ AMBIENT_REFLECTIONS_END_HOUR = 21    # 9:00 PM
 AMBIENT_REFLECTIONS_MAX_THOUGHTS_PER_DAY = 3
 
 # Max tokens allocated for generation (provides headroom for model thinking traces).
-AMBIENT_REFLECTIONS_NUM_PREDICT = 1024
+AMBIENT_REFLECTIONS_NUM_PREDICT = 3072
+
+# Output guard constraints for ambient thought bubbles
+AMBIENT_REFLECTIONS_MIN_WORDS = 6
+AMBIENT_REFLECTIONS_MAX_WORDS = 60
+AMBIENT_REFLECTIONS_MAX_CHARS = 400
+AMBIENT_REFLECTIONS_TIMEOUT = 300  # 5 minutes socket timeout for generation & reasoning headroom
 
 # Recency cooldown dampener: multiplier applied to the immediately preceding activity's weight
 # to prevent consecutive daytime reflections from picking the same category (e.g. 0.2 = 80% reduction).
