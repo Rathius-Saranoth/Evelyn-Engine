@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-01 20:11:04
+# date modified: 2026-09-04 17:44:24
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -83,12 +83,12 @@ if TOOLS_DIR not in sys.path:
 
 
 import context_manager  # [[context_manager.py]]
+import dream_manager
 import gcal_sync
 import gdrive_sync
 import gtasks_sync
 import health_manager
 import ingest_obsidian_knowledge  # [[ingest_obsidian_knowledge.py]]
-import dream_manager
 import journal_manager  # [[journal_manager.py]]
 import terminal_agent
 import vault_list_manager
@@ -3317,24 +3317,31 @@ def get_active_tools(
     active_names: set[str] = set(getattr(cfg, "CORE_TOOL_NAMES", []))
 
     # 1. Procedure-triggered tools
-    if retrieved_procedures:
-        for proc in retrieved_procedures:
-            # Check metadata "tools"
-            meta_tools = proc.get("metadata", {}).get("tools", "")
-            if isinstance(meta_tools, str) and meta_tools:
-                for t_name in re.split(r"[\s,]+", meta_tools):
-                    if t_name in _MODEL_TOOL_MAP:
-                        active_names.add(t_name)
-            elif isinstance(meta_tools, list):
-                for t_name in meta_tools:
-                    if str(t_name) in _MODEL_TOOL_MAP:
-                        active_names.add(str(t_name))
+    procs_to_check = list(retrieved_procedures) if retrieved_procedures else []
+    if not procs_to_check and user_message:
+        try:
+            from Evelyn.tools import memory_db
+            procs_to_check = memory_db.search_procedures_by_trigger(user_message, status="live")[:3]
+        except (sqlite3.Error, OSError, ValueError, RuntimeError, ImportError):
+            procs_to_check = []
 
-            # Check procedure content for declared tool names
-            content = str(proc.get("content", ""))
-            for tool_name in _MODEL_TOOL_MAP:
-                if f"`{tool_name}`" in content or f"tool:{tool_name}" in content:
-                    active_names.add(tool_name)
+    for proc in procs_to_check:
+        # Check suggested_tools (database column or direct key)
+        sugg = proc.get("suggested_tools") or proc.get("tools") or proc.get("metadata", {}).get("tools", "")
+        if isinstance(sugg, str) and sugg:
+            for t_name in re.split(r"[\s,]+", sugg):
+                if t_name in _MODEL_TOOL_MAP:
+                    active_names.add(t_name)
+        elif isinstance(sugg, list):
+            for t_name in sugg:
+                if str(t_name) in _MODEL_TOOL_MAP:
+                    active_names.add(str(t_name))
+
+        # Check procedure content/steps for declared tool names
+        content = f"{proc.get('content', '')} {proc.get('steps', '')}"
+        for tool_name in _MODEL_TOOL_MAP:
+            if f"`{tool_name}`" in content or f"tool:{tool_name}" in content:
+                active_names.add(tool_name)
 
     # 2. Intent-triggered specialist tools (Regex/Keyword heuristics)
     if user_message:

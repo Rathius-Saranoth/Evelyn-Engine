@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-03 19:46:47
+# date modified: 2026-09-04 17:10:05
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -1381,15 +1381,13 @@ def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]
     Returns:
         list[dict]: List of matching procedure dictionaries sorted by relevance.
     """
-    stopwords = {
-        "when", "what", "with", "that", "this", "your", "have", "from", "about",
-        "user", "says", "asks", "tells", "like", "will", "would", "could", "should",
-        "they", "them", "their", "there", "then", "into", "onto", "over", "under",
-        "make", "want", "need", "some", "time", "just", "also", "been", "were",
-        "here", "more", "done", "know", "good", "well", "very"
-    }
+    try:
+        from Evelyn.tools.procedure_matcher import STOPWORDS
+    except ImportError:
+        from procedure_matcher import STOPWORDS
+
     raw_words = [w.strip(".,;:!?\"'()[]{}") for w in query.lower().split()]
-    query_kws = {w for w in raw_words if len(w) >= 3 and w not in stopwords}
+    query_kws = {w for w in raw_words if len(w) >= 3 and w not in STOPWORDS}
     if not query_kws:
         return []
 
@@ -1401,7 +1399,7 @@ def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]
     for r in rows:
         p_dict = dict(r)
         trigger_text = f"{p_dict.get('trigger_pattern') or ''} {p_dict.get('tags') or ''}".lower()
-        trigger_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", trigger_text)) - stopwords
+        trigger_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", trigger_text)) - STOPWORDS
         overlap = query_kws & trigger_words
         if not overlap:
             continue

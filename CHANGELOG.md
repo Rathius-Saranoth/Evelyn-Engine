@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-04 16:35:32
+date modified: 2026-09-04 17:43:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,51 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.064] - 2026-09-04 — *Deep Research & Technical Procedures Boundary Sharpening Migration*
+
+### Enhanced & Clarified
+- **Boundary Sharpening Migration `000.006.064` (`Evelyn/tools/db_migrator.py`, `data/evelyn_memory.db`)**:
+  - Eliminated "research" keyword collisions and cross-talk across Procedures #1109, #94, and #368:
+    - **Procedure #1109 (Deep Research Engine)**: Replaced ambiguous *"background research"* phrasing (which models confused with historical background inquiries) with explicit task lifecycle phrasing: *"When initiating a deep research task, reviewing synthesized research findings, or managing active research tasks"*.
+    - **Procedure #94 (Technical Problem Triage & System Diagnostics)**: Stripped out *"research"* and *"diagnostic reporting"* to define a clear, non-overlapping boundary: *"When diagnosing technical bugs, system errors, CLI failures, or troubleshooting software issues"* (`web_search, run_command`).
+    - **Procedure #368 (Technical Reference Note Authoring & Verification)**: Stripped out *"research queries"* and generic catch-all *"tasks involving creating or updating files"* to sharply define its role: *"When compiling complex reference notes, formulas, or consolidated technical specifications into the vault"* (`write_file, read_file`).
+- **Automated Test Coverage (`Evelyn/tests/test_dynamic_tools_and_direct_rag.py`)**:
+  - Added `test_sharpened_research_and_troubleshooting_procedures` verifying that deep research requests dynamically surface `start_research` / `check_new_research` via #1109, and system error queries surface `run_command` / `web_search` via #94.
+
+## [000.006.063] - 2026-09-04 — *Live Procedures Catalog Declarative Standardization & Anti-Paralysis Migration*
+
+### Added & Enhanced
+- **Full Catalog Standardization (Migration `000.006.063`) (`Evelyn/tools/db_migrator.py`, `data/evelyn_memory.db`)**:
+  - Audited and standardized all 24 `live` procedures in `evelyn_memory.db` against our declarative operational policy standard and `MODEL_TOOL_DEFINITIONS`.
+  - **Data Corruption Repair (#368)**: Cleaned corrupted YAML text fragments (`' suggested_tools: write_file, read_file\n`) from `steps` and populated `suggested_tools = "write_file, read_file"`.
+  - **Rule 4 Persona & Path Leak Cleanups**:
+    - Parameterized hardcoded operator name (`"Ricky"`) in Procedure #1238 to `"the user"`, converted fractured `3a/3b/4a/4b` sub-steps into a clean 3-step workflow, and assigned `suggested_tools = "read_file, write_file"`.
+    - Removed hardcoded local filesystem path (`/home/rathius/evelyn/...`) in Procedure #97 verification.
+  - **Parenthetical Clutter Removal**: Cleaned noisy parenthetical lists (`(e.g., ...)`) across 9 procedure trigger patterns (#84, #97, #1062, #1063, #1064, #1066, #1067, #1104, #1108) to eliminate prompt bloat and keyword cross-talk.
+  - **Universal Anti-Hallucination Directives**: Injected explicit prohibitions across all tool-bearing procedures against simulating tool calls via raw text annotations (e.g. `[Tools Executed: ...]`) and instructing models to execute tools natively without hesitation.
+  - **Tool Alignment & Tag Cleanliness**:
+    - Equipped missing tools on Procedure #30 (`write_file, read_file, run_command`) and Procedure #94 (`web_search, run_command`).
+    - Upgraded generic `"procedure"` tags on #84 and #94 to specific domain markers (`meta/tool-coordination`, `communication/technical-triage`).
+
+## [000.006.062] - 2026-09-04 — *Procedure Phrasing Standard, Tool Surfacing Wiring & Anti-Paralysis Migration*
+
+### Added & Enhanced
+- **Procedure Phrasing Directives (`Evelyn/tools/procedure_consolidator.py`)**:
+  - Added strict architectural directives to `generate_procedure_merge_proposal()` and `generate_procedure_split_proposal()` prompts:
+    - Enforces declarative operational policies over conversational multi-stage turn-by-turn dialogue scripts (eliminating `"Step 1: Greet -> Step 2: Confirm -> Step 3: Run tool -> Step 4: Say goodbye"` anti-patterns).
+    - Requires clean trigger patterns stating operational scenarios without noisy parenthetical lists of example phrases (`(e.g. foo, bar)`).
+    - Mandates accurate assignment of `suggested_tools` from the Active Tools registry.
+    - Explicitly forbids simulating tool execution via raw text annotations (e.g. `[Tools Executed: ...]`) and instructs models not to hesitate on tool invocations.
+- **Dynamic Tool Surfacing & Database Column Support (`Evelyn/tools/evelyn_tools.py`)**:
+  - Enhanced `get_active_tools()` to inspect the canonical database column `proc.get("suggested_tools")` as well as `proc.get("tools")` and `metadata.tools`.
+  - Added automatic live procedure lookup fallback: when callers omit `retrieved_procedures`, `get_active_tools(user_message=user_message)` automatically queries matching live procedures via `memory_db.search_procedures_by_trigger(user_message, status="live")[:3]`, dynamically surfacing coupled specialist tools out-of-the-box.
+- **Canonical Stopwords & Keyword Matching Parity (`Evelyn/tools/procedure_matcher.py`, `Evelyn/tools/memory_db.py`)**:
+  - Expanded `STOPWORDS` in `procedure_matcher.py` with common conversational filler and pronouns (`"you"`, `"how"`, `"are"`, `"can"`, `"hello"`, `"hey"`, `"them"`, `"then"`, `"our"`).
+  - Updated `memory_db.search_procedures_by_trigger()` to import and reuse canonical `STOPWORDS` from `procedure_matcher.py`, eliminating false-positive procedure matches on casual conversational greetings.
+- **Database Migration `000.006.062` (`Evelyn/tools/db_migrator.py`, `data/evelyn_memory.db`)**:
+  - Applied migration `000.006.062` (`rewrite_procedure_1034_declarative_phrasing`) targeting `memory` DB.
+  - Rewrote Procedure #1034 (`write_journal_entry`) with a clean trigger pattern (`"When winding down for the evening, preparing for rest, or wrapping up the day"`), declarative operational steps, anti-hallucination pitfalls forbidding raw `[Tools Executed: ...]` text tags, and explicit verification criteria.
 
 ## [000.006.061] - 2026-09-04 — *Ambient Reflector Headroom Expansion, Completion Guard & Sentence Compaction*
 

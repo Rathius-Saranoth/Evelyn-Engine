@@ -1,6 +1,6 @@
 # procedure_matcher.py
 # date created: 2026-09-03 18:09:14
-# date modified: 2026-09-03 18:09:14
+# date modified: 2026-09-04 17:44:24
 # tags: 
 
 """Canonical utility for procedure tokenization, similarity scoring, deduplication, and master detection.
@@ -20,6 +20,9 @@ STOPWORDS: set[str] = {
     "that", "this", "and", "are", "your", "they", "into", "from", "about",
     "how", "what", "which", "there", "their", "want", "wants", "asked",
     "can", "could", "should", "would", "where", "whom", "will", "been",
+    "have", "has", "had", "like", "onto", "over", "under", "make", "need",
+    "some", "time", "just", "also", "were", "here", "more", "done", "know",
+    "good", "well", "very", "hello", "hey", "them", "then", "our", "all",
 }
 
 # Domain synonym dictionary mapping colloquial words to normalized domain markers
