@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-03 18:34:34
+# date modified: 2026-09-04 17:44:24
 # tags: 
 
 """
@@ -1380,6 +1380,539 @@ def migrate_000_006_056_fact_merge_queue_and_consolidation_parity(
         logger.warning(f"Migration 000.006.056: fast_deduplicate_exact_matches warning: {e}")
 
 
+def migrate_000_006_062_rewrite_procedure_1034_declarative_phrasing(
+    conn: sqlite3.Connection, db_map: dict[str, str], cfg_obj: object
+) -> None:
+    """Rewrite Procedure #1034 with declarative operational directives and clean trigger pattern."""
+    cursor = conn.cursor()
+    now = time.time()
+    trigger_pattern = "When winding down for the evening, preparing for rest, or wrapping up the day"
+    steps = (
+        "1. Adopt a soothing, downtempo presence; do not introduce new tasks, technical problems, or analytical questions.\n"
+        "2. Directly execute write_journal_entry during evening wind-downs or bedtime wrap-ups, capturing the day's narrative arc, physical wellbeing, and shared moments.\n"
+        "3. Ground the reflection in concrete specifics from the day's conversation rather than generic summaries, without waiting for overnight background loops."
+    )
+    pitfalls = (
+        "Never output raw text simulating tool execution (e.g. '[Tools Executed: ...]'); always execute write_journal_entry via native function calling. "
+        "Do not hesitate or withhold tool execution out of concern for conversational flow. "
+        "Do not use write_journal_entry for user dream logs (use write_dream_entry) or discrete memory facts."
+    )
+    verification = "write_journal_entry is executed via native tool call and logged in tool metadata."
+    tags = "procedure/daily-journaling, routine/bedtime, protocol/journal, tone/wrap-up"
+    suggested_tools = "write_journal_entry"
+
+    cursor.execute(
+        """UPDATE procedures
+           SET trigger_pattern = ?,
+               steps = ?,
+               pitfalls = ?,
+               verification = ?,
+               tags = ?,
+               suggested_tools = ?,
+               updated_at = ?
+           WHERE id = 1034""",
+        (trigger_pattern, steps, pitfalls, verification, tags, suggested_tools, now),
+    )
+    logger.info("Migration 000.006.062: Rewrote Procedure #1034 with declarative operational phrasing.")
+
+
+def migrate_000_006_063_standardize_live_procedures_declarative_phrasing(
+    conn: sqlite3.Connection, db_map: dict[str, str], cfg_obj: object
+) -> None:
+    """Migration 000.006.063: Standardize all live procedures against model tools and declarative operational phrasing."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    updates = [
+        # Procedure #20: Linguistic marker (?) verification
+        {
+            "id": 20,
+            "trigger_pattern": "When the user includes '(?)' after a word or phrase",
+            "suggested_tools": None,
+            "steps": (
+                "1. Identify the specific word, spelling, or phrase immediately preceding the '(?)'.\n"
+                "2. Evaluate if the term is used correctly in terms of spelling, grammar, or context.\n"
+                "3. Provide feedback on whether it was used correctly or suggest a better fit word or phrase if applicable."
+            ),
+            "pitfalls": "Do not ignore linguistic verification markers; address the flagged term directly in the response.",
+            "verification": "The response includes clear feedback or confirmation on the flagged term.",
+            "tags": "skill/language-verification, text-analysis, feedback-mechanism",
+        },
+        # Procedure #30: Script and code updates
+        {
+            "id": 30,
+            "trigger_pattern": "When updating or replacing existing scripts or code",
+            "suggested_tools": "write_file, read_file, run_command",
+            "steps": (
+                "1. Inspect existing code and create a backup or verify git version control before applying destructive changes.\n"
+                "2. Implement the updated logic via write_file or script modification tools.\n"
+                "3. Run automated tests or dry-run executions via run_command to verify functional readiness."
+            ),
+            "pitfalls": (
+                "Never simulate tool execution via raw text (e.g. '[Tools Executed: ...]'); always execute tools natively. "
+                "Failing to inspect originals or skipping test verification before declaring completion."
+            ),
+            "verification": "Test execution confirms successful operation and modified scripts are preserved.",
+            "tags": "development/scripting, workflow/safety, testing",
+        },
+        # Procedure #41: Passive distraction loop coaching
+        {
+            "id": 41,
+            "trigger_pattern": "When the user mentions falling into passive distraction loops or avoidance behaviors",
+            "suggested_tools": None,
+            "steps": (
+                "1. Distinguish between genuine physical fatigue requiring restorative rest vs avoidance distraction loops.\n"
+                "2. Act as a supportive anchor by offering a gentle, non-judgmental nudge toward active creative or practical goals.\n"
+                "3. Frame the transition as an invitation with low friction rather than a stern command."
+            ),
+            "pitfalls": "Adopting an aggressive drill-sergeant tone or confusing legitimate recovery needs with passive procrastination.",
+            "verification": "A gentle, supportive nudge is offered aligning with the user's previously stated goals without judgment.",
+            "tags": "behavior_management, coaching, focus, routine",
+        },
+        # Procedure #84: Multi-tool coordination & situational context
+        {
+            "id": 84,
+            "trigger_pattern": "When a request involves multi-tool coordination or environmental context",
+            "suggested_tools": None,
+            "steps": (
+                "1. Identify all distinct factual requirements and prerequisite tool actions during initial reasoning.\n"
+                "2. Establish environmental and situational context (e.g. travel status, home sanctuary) to calibrate output tone.\n"
+                "3. Coordinate tool calls sequentially across agent rounds, passing intermediate results into subsequent tool invocations.\n"
+                "4. Synthesize all retrieved tool data into a cohesive, non-fragmented response."
+            ),
+            "pitfalls": "Prematurely declaring completion before dependent tool calls finish; guessing environmental context without checking available telemetry.",
+            "verification": "All prerequisite tools are executed and findings are synthesized into a coherent final turn.",
+            "tags": "meta/tool-coordination, situational-context, reasoning",
+        },
+        # Procedure #94: Technical troubleshooting triage
+        {
+            "id": 94,
+            "trigger_pattern": "When providing technical troubleshooting, research, or diagnostic reporting",
+            "suggested_tools": "web_search, run_command",
+            "steps": (
+                "1. Determine whether the immediate goal is conversational problem-solving or collecting telemetry for repair.\n"
+                "2. Perform logical triage: prioritize high-likelihood root causes and verify observable symptoms before deep rabbit holes.\n"
+                "3. Present practical, actionable guidance stripped of unnecessary academic jargon.\n"
+                "4. When diagnosing external bugs or system commands, utilize web_search or run_command to gather concrete evidence."
+            ),
+            "pitfalls": (
+                "Never simulate tool execution via raw text; execute tools natively. "
+                "Overwhelming the user with theoretical explanations instead of actionable diagnostic steps."
+            ),
+            "verification": "Output provides concrete, actionable triage steps with technical verification where applicable.",
+            "tags": "communication/technical-triage, problem-solving, diagnostics",
+        },
+        # Procedure #97: High-level feature documentation
+        {
+            "id": 97,
+            "trigger_pattern": "When asked to document a new feature idea or conceptual design in the vault",
+            "suggested_tools": "write_file",
+            "steps": (
+                "1. Create a structured markdown note in the vault Notes directory using a concise, descriptive title.\n"
+                "2. Structure the document with high-level conceptual architecture, user experience flow, and strategic rationale.\n"
+                "3. Focus on the 'why' and 'how' rather than low-level implementation code or rigid function definitions."
+            ),
+            "pitfalls": (
+                "Never simulate tool execution via raw text; execute write_file natively. "
+                "Over-indexing on low-level implementation details in high-level architectural proposals."
+            ),
+            "verification": "Feature note is created via write_file in the vault Notes directory.",
+            "tags": "task/documentation, development/planning, architecture",
+        },
+        # Procedure #368: Data consolidation and file creation workflow
+        {
+            "id": 368,
+            "trigger_pattern": "When processing research queries, complex information consolidation, or tasks involving creating or updating files",
+            "suggested_tools": "write_file, read_file",
+            "steps": (
+                "1. Consolidate all relevant data, formulas, and references from conversation or sources into a coherent outline.\n"
+                "2. Establish foundational concepts and calculations before adding optimization layers.\n"
+                "3. Execute write_file to record or update the structured document directly in the vault.\n"
+                "4. Use read_file to verify the file contents and formatting immediately after creation.\n"
+                "5. Confirm task completion to the user only after technical verification succeeds."
+            ),
+            "pitfalls": (
+                "Never simulate tool execution via raw text; always invoke write_file and read_file natively. "
+                "Assuming text output in chat is sufficient when a file write was requested; declaring completion without reading back the saved file."
+            ),
+            "verification": "The note is confirmed created via write_file and verified through read_file.",
+            "tags": "procedure/file-creation, protocol/file-handling, verification",
+        },
+        # Procedure #1062: Fantasy art & artifact illustration
+        {
+            "id": 1062,
+            "trigger_pattern": "When generating or refining fantasy art for tabletop items, magical artifacts, item cards, or artificer devices",
+            "suggested_tools": "generate_image",
+            "steps": (
+                "1. Ensure the illustration frames only the standalone item or object; exclude background characters or figures.\n"
+                "2. Apply a rich painterly fantasy illustration style consistent with classic tabletop artwork, emphasizing visible brush strokes and atmospheric light.\n"
+                "3. For artificer devices, incorporate functional clockwork, brass gears, and physical mechanical components.\n"
+                "4. Delineate material specificity (e.g. raw uncut crystals vs polished gems, weathered parchment vs carved stone).\n"
+                "5. When adjusting aspect ratios or compositions, re-prompt a fresh generation preserving core descriptor anchors rather than using lossy raster stretching."
+            ),
+            "pitfalls": (
+                "Never simulate image generation via text; execute generate_image natively without hesitation. "
+                "Including characters in standalone item cards; relying on lossy editing tools to stretch geometries."
+            ),
+            "verification": "Image showcases a standalone item in painterly fantasy art style with accurate materials.",
+            "tags": "skill/art-generation, dnd-assets, item-design, image-prompting",
+        },
+        # Procedure #1063: Errands, habits & reminder scheduling
+        {
+            "id": 1063,
+            "trigger_pattern": "When the user mentions an errand to remember, a recurring habit, an upcoming meeting, or asks to set an activity reminder",
+            "suggested_tools": "create_task, get_agenda",
+            "steps": (
+                "1. Extract the task description, location context, due date/time, and recurrence frequency.\n"
+                "2. Call get_agenda to verify if the task or meeting already exists, preventing duplicate entries.\n"
+                "3. Execute create_task to register the reminder in Google Tasks with appropriate due date and notes.\n"
+                "4. Adopt a supportive, encouraging tone framing the reminder as an invitation to transition rather than a rigid command."
+            ),
+            "pitfalls": (
+                "Never simulate task creation via text tags; always execute create_task natively without hesitation. "
+                "Omitting recurrence rules on recurring habits; forgetting to check existing agenda items first."
+            ),
+            "verification": "Task is confirmed created in Google Tasks with correct recurrence and time.",
+            "tags": "skill/scheduling, task-management, routine, reminders",
+        },
+        # Procedure #1064: Character visual continuity & life drawing
+        {
+            "id": 1064,
+            "trigger_pattern": "When describing physical character appearances or generating persona images requiring visual continuity and life drawing",
+            "suggested_tools": "generate_image",
+            "steps": (
+                "1. Retrieve established persona physical profiles (hair color, eye color, physique, facial features) and strictly honor persona anchors.\n"
+                "2. Combine core anatomical traits with specific wardrobe elements (aesthetic, cut, fabric textures, color palette).\n"
+                "3. Maintain strict scene continuity across multi-turn sequences by preserving consistent garment details.\n"
+                "4. For classical figure studies, frame prompts within strong artistic traditions ('classical life drawing', 'anatomical study') to preserve fidelity."
+            ),
+            "pitfalls": (
+                "Never simulate image generation via text; execute generate_image natively. "
+                "Allowing generic AI defaults to override established persona characteristics; clothing drift across sequential turns."
+            ),
+            "verification": "Visual generation matches persona specifications, anatomical features, and scene continuity.",
+            "tags": "character-design, persona-consistency, art-generation, prompt-engineering",
+        },
+        # Procedure #1065: Prose review & length optimization
+        {
+            "id": 1065,
+            "trigger_pattern": "When asked to review, edit, or optimize written prose, documents, or notes for flow, rhythm, vivid vocabulary, or strict length constraints",
+            "suggested_tools": "write_file",
+            "steps": (
+                "1. Analyze sentence rhythm and structure, replacing passive phrasing and run-ons with energetic verbs and vivid adjectives.\n"
+                "2. Preserve the author's authentic voice, emotional resonance, and creative style; avoid sanitizing prose into generic corporate copy.\n"
+                "3. If constrained by strict length or character limits, calculate exact counts and prune redundant modifiers without removing core ideas.\n"
+                "4. When modifying notes, execute write_file to save revisions to the vault or deliver formatted clean Markdown options."
+            ),
+            "pitfalls": (
+                "Never simulate file updates via text tags; invoke write_file natively when file updates are requested. "
+                "Stripping authorial voice; omitting key substantive arguments to force brevity."
+            ),
+            "verification": "Delivered or saved text meets length constraints while enhancing rhythm and preserving authentic tone.",
+            "tags": "writing, editing, style-improvement, content-optimization",
+        },
+        # Procedure #1066: Companion lore & downtime reflections
+        {
+            "id": 1066,
+            "trigger_pattern": "When generating creative companion narratives, downtime reflections, shared lore, or imagined dream events",
+            "suggested_tools": None,
+            "steps": (
+                "1. Develop rich internal companion reflections, downtime memories, or imaginative dreamscapes within established world lore.\n"
+                "2. Maintain grounded temporal consistency: ensure imagined events align with believable downtime periods without chronological paradoxes.\n"
+                "3. Maintain a strict epistemic boundary: never present fictional lore or companion daydreams as factual real-world system telemetry or physical occurrences."
+            ),
+            "pitfalls": "Confusing fictional companion lore with factual user memory or system telemetry; breaking conversational immersion with bureaucratic meta-disclaimers.",
+            "verification": "Narrative events fit believable downtime windows and contribute to creative persona depth without polluting factual memory.",
+            "tags": "skill/creative-writing, narrative-logic, roleplay-consistency, lore",
+        },
+        # Procedure #1067: Biometrics & chronic fatigue pacing
+        {
+            "id": 1067,
+            "trigger_pattern": "When analyzing health metrics, energy levels, fatigue, physical discomfort, or post-exertion recovery",
+            "suggested_tools": "get_health_metrics",
+            "steps": (
+                "1. Review biometric signals via get_health_metrics (sleep efficiency, HRV, resting heart rate, activity load).\n"
+                "2. Correlate biometric data with pacing principles, recognizing post-exertional malaise or 'wired but tired' states.\n"
+                "3. Act as a supportive anchor against over-exertion: encourage conservative pacing even when short-term motivation is high.\n"
+                "4. For severe exhaustion or eye strain, validate low-cognitive-load restful states (audio relaxation, dim lighting, quiet presence).\n"
+                "5. Never output generic clinical platitudes or dismissive advice."
+            ),
+            "pitfalls": (
+                "Never simulate biometric tool execution; execute get_health_metrics natively. "
+                "Encouraging over-exertion during fragile recovery windows; projecting high-energy chatter when the user is exhausted."
+            ),
+            "verification": "Pacing recommendations align with biometric readiness data and validate restorative recovery.",
+            "tags": "wellbeing, health-support, pacing, biometrics, state-management",
+        },
+        # Procedure #1104: Vault checklist & list management
+        {
+            "id": 1104,
+            "trigger_pattern": "When viewing, reading, adding to, checking off, unchecking, or modifying markdown checklists in the vault",
+            "suggested_tools": "manage_vault_list",
+            "steps": (
+                "1. Determine the target list name (defaulting to 'Groceries' if unspecified) and desired action ('read', 'add', 'check', 'uncheck', 'remove', 'clear_completed', 'list_all').\n"
+                "2. When adding items, categorize items logically into sections (Produce, Dairy, Pantry, Household) using category parameters or item objects.\n"
+                "3. Execute manage_vault_list with the extracted parameters to update the note in the vault.\n"
+                "4. Provide a concise, clear summary of items added, checked off, or updated."
+            ),
+            "pitfalls": (
+                "Never simulate list updates via text tags; execute manage_vault_list natively without hesitation. "
+                "Confusing vault checklists with Google Tasks (use create_task for to-do items); dumping unformatted raw JSON."
+            ),
+            "verification": "manage_vault_list executes successfully and returns confirmation of updated items.",
+            "tags": "skill/list-management, vault-checklists, groceries, organization",
+        },
+        # Procedure #1105: Google Calendar scheduling & cancellation
+        {
+            "id": 1105,
+            "trigger_pattern": "When scheduling, adjusting, or cancelling appointments, meetings, or calendar events on Google Calendar",
+            "suggested_tools": "create_calendar_event, delete_calendar_event, sync_google_calendar, get_agenda",
+            "steps": (
+                "1. Differentiate calendar appointments (fixed start/end time, location) from flexible tasks (Google Tasks).\n"
+                "2. Extract event parameters: title, start date/time, duration (defaults to 1 hour), location, and notes.\n"
+                "3. Query get_agenda first if potential scheduling conflicts or duplicate events exist.\n"
+                "4. Call create_calendar_event for new bookings or delete_calendar_event for cancellations.\n"
+                "5. Confirm schedule adjustments cleanly with event title, day, time, and location."
+            ),
+            "pitfalls": (
+                "Never simulate calendar actions via text; always call create_calendar_event or delete_calendar_event natively. "
+                "Deleting events without date qualification when titles are ambiguous."
+            ),
+            "verification": "Event is confirmed created or deleted on Google Calendar with accurate date and time.",
+            "tags": "skill/scheduling, calendar, appointments, time-management",
+        },
+        # Procedure #1106: Google Tasks review, completion & deletion
+        {
+            "id": 1106,
+            "trigger_pattern": "When reviewing to-do lists, checking off completed tasks, or deleting tasks from Google Tasks",
+            "suggested_tools": "list_tasks, complete_task, delete_task, sync_google_tasks",
+            "steps": (
+                "1. When user requests their task list, call list_tasks or get_agenda.\n"
+                "2. For task completion, locate the task by matching title/description and execute complete_task with task_id.\n"
+                "3. For task removal or cancellation, execute delete_task with task_id.\n"
+                "4. Acknowledge completed items with a supportive, encouraging tone without verbosity."
+            ),
+            "pitfalls": (
+                "Never simulate task completion via text tags; execute complete_task or delete_task natively. "
+                "Attempting to complete a task without looking up its valid task_id; confusing Google Tasks with vault checklists."
+            ),
+            "verification": "Target task is confirmed updated or deleted from Google Tasks.",
+            "tags": "skill/task-management, task-completion, to-do, productivity",
+        },
+        # Procedure #1107: Workouts and exercise tracking
+        {
+            "id": 1107,
+            "trigger_pattern": "When asking about recent workouts, exercise sessions, walks, gym training, activity duration, or calories burned",
+            "suggested_tools": "get_recent_workouts",
+            "steps": (
+                "1. Parse the requested timeframe (hours or days, default to past 7 days).\n"
+                "2. Call get_recent_workouts to retrieve integrated Oura and Health Connect workout sessions.\n"
+                "3. Synthesize activity sessions: highlight activity type, duration, heart rate, distance, and calorie expenditure.\n"
+                "4. Correlate workout exertion with overall energy pacing and recovery."
+            ),
+            "pitfalls": (
+                "Never simulate workout metrics; call get_recent_workouts natively without hesitation. "
+                "Using general health metrics when workout session breakdowns were specifically requested."
+            ),
+            "verification": "Workout sessions are retrieved and presented with duration, type, and exertion metrics.",
+            "tags": "health, fitness, exercise, workouts, activity-tracking",
+        },
+        # Procedure #1108: Conversation history recall
+        {
+            "id": 1108,
+            "trigger_pattern": "When recalling or searching past conversation history, earlier dates, or specific dialogue from previous sessions",
+            "suggested_tools": "search_history",
+            "steps": (
+                "1. Extract core topic search terms, date boundaries (date_from, date_to), and chronological direction.\n"
+                "2. Execute search_history to retrieve historical message turns.\n"
+                "3. Weave the retrieved past conversation into the current response naturally, maintaining conversational continuity without artificial citations."
+            ),
+            "pitfalls": (
+                "Never simulate history retrieval via text; always call search_history natively. "
+                "Guessing or hallucinating past conversations without verifying via search_history."
+            ),
+            "verification": "Historical chat messages are retrieved and accurately woven into the conversational response.",
+            "tags": "skill/memory-recall, chat-history, conversation-continuity, search",
+        },
+        # Procedure #1109: Autonomous deep research management
+        {
+            "id": 1109,
+            "trigger_pattern": "When requesting comprehensive background research on a topic, or checking status on active deep research tasks",
+            "suggested_tools": "start_research, check_new_research, list_research_tasks, inspect_research_task, guide_research",
+            "steps": (
+                "1. For new multi-step research, clarify key investigative questions and call start_research with topic and main_question.\n"
+                "2. When checking finished research, call check_new_research to review synthesized findings and vault reports.\n"
+                "3. When inspecting running tasks, call inspect_research_task with task_id to check active sub-queries.\n"
+                "4. If a task is stalled, review error traces and execute guide_research with clarifying guidance."
+            ),
+            "pitfalls": (
+                "Never simulate research execution via text; invoke research tools natively without hesitation. "
+                "Launching heavy background research for simple quick-fact lookups (use web_search instead)."
+            ),
+            "verification": "Research task is initiated, inspected, or synthesized via appropriate research tools.",
+            "tags": "skill/deep-research, autonomous-investigation, synthesis, web-research",
+        },
+        # Procedure #1110: Health Connect Drive synchronization
+        {
+            "id": 1110,
+            "trigger_pattern": "When asking to sync the latest Health Connect database export from Google Drive or refresh local health records",
+            "suggested_tools": "sync_google_drive",
+            "steps": (
+                "1. Confirm user intent to sync local health records from Google Drive.\n"
+                "2. Execute sync_google_drive(force=False) or force=True if a fresh pull is explicitly requested.\n"
+                "3. Report whether new database records were pulled or if the local database was already current."
+            ),
+            "pitfalls": (
+                "Never simulate sync via text; execute sync_google_drive natively. "
+                "Confusing Health Connect database synchronization with general Drive file browsing."
+            ),
+            "verification": "Local health connect database download is executed and sync status is reported.",
+            "tags": "system/sync, health-connect, google-drive, database-maintenance",
+        },
+        # Procedure #1238: Contact information recording & updates
+        {
+            "id": 1238,
+            "trigger_pattern": "When recording or updating contact information regarding people in the user's life",
+            "suggested_tools": "read_file, write_file",
+            "steps": (
+                "1. Check if an existing contact document exists in the vault Contacts directory using read_file.\n"
+                "2. If existing, update the note via write_file incorporating new biographical facts, relationships, or gift notes.\n"
+                "3. If new, create a structured contact document via write_file detailing name, relationship association, family members, milestones, and personal preferences."
+            ),
+            "pitfalls": (
+                "Never simulate contact note creation via text; execute write_file natively. "
+                "Storing fictional entities as real contacts; scattering personal contact data without structured frontmatter."
+            ),
+            "verification": "Contact note is created or updated in the vault Contacts directory via write_file.",
+            "tags": "procedure/memory-management, skill/organization, contacts",
+        },
+        # Procedure #1372: Humorous or specific conversational scene illustration
+        {
+            "id": 1372,
+            "trigger_pattern": "When the user asks to create an image based on a specific scenario or humorous moment described in conversation",
+            "suggested_tools": "generate_image",
+            "steps": (
+                "1. Extract the core narrative subjects, setting, character actions, and comedic or thematic elements from the dialogue.\n"
+                "2. Construct a vivid, high-fidelity prompt for generate_image reflecting the exact conversational scene without filler fluff.\n"
+                "3. Execute generate_image directly to produce the visual artifact."
+            ),
+            "pitfalls": (
+                "Never simulate image generation via text; execute generate_image natively without hesitation. "
+                "Omitting distinctive character features or narrative details specified in the prompt."
+            ),
+            "verification": "Generated image matches the visual and thematic description provided in conversation.",
+            "tags": "skill/creative, procedure/media-generation, image-prompting",
+        },
+    ]
+
+    for item in updates:
+        cursor.execute(
+            """UPDATE procedures
+               SET trigger_pattern = ?,
+                   suggested_tools = ?,
+                   steps = ?,
+                   pitfalls = ?,
+                   verification = ?,
+                   tags = ?,
+                   updated_at = ?
+               WHERE id = ?""",
+            (
+                item["trigger_pattern"],
+                item["suggested_tools"],
+                item["steps"],
+                item["pitfalls"],
+                item["verification"],
+                item["tags"],
+                now,
+                item["id"],
+            ),
+        )
+
+    logger.info(f"Migration 000.006.063: Standardized {len(updates)} live procedures with declarative phrasing and tool alignments.")
+
+
+def migrate_000_006_064_sharpen_research_and_technical_procedures(
+    conn: sqlite3.Connection, db_map: dict[str, str], cfg_obj: object
+) -> None:
+    """Migration 000.006.064: Sharpen boundaries between #1109 (deep research), #94 (troubleshooting), and #368 (spec authoring)."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    updates = [
+        # Procedure #94: Technical problem triage & system diagnostics (stripped of "research" and "diagnostic reporting")
+        {
+            "id": 94,
+            "trigger_pattern": "When diagnosing technical bugs, system errors, CLI failures, or troubleshooting software issues",
+            "suggested_tools": "web_search, run_command",
+            "steps": (
+                "1. Determine whether the immediate goal is conversational problem-solving or collecting telemetry for repair.\n"
+                "2. Perform logical triage: prioritize high-likelihood root causes and verify observable symptoms before deep rabbit holes.\n"
+                "3. Present practical, actionable guidance stripped of unnecessary academic jargon.\n"
+                "4. When diagnosing external bugs or system commands, utilize web_search or run_command to gather concrete evidence."
+            ),
+            "pitfalls": "Never simulate tool execution via raw text; execute tools natively. Overwhelming the user with theoretical explanations instead of actionable diagnostic steps.",
+            "verification": "Output provides concrete, actionable triage steps with technical verification where applicable.",
+            "tags": "communication/technical-triage, problem-solving, diagnostics",
+        },
+        # Procedure #368: Structured reference note & spec authoring in vault (stripped of "research queries" and generic file tasks)
+        {
+            "id": 368,
+            "trigger_pattern": "When compiling complex reference notes, formulas, or consolidated technical specifications into the vault",
+            "suggested_tools": "write_file, read_file",
+            "steps": (
+                "1. Consolidate all relevant data, formulas, and references from conversation or sources into a coherent outline.\n"
+                "2. Establish foundational concepts and calculations before adding optimization layers.\n"
+                "3. Execute write_file to record or update the structured document directly in the vault.\n"
+                "4. Use read_file to verify the file contents and formatting immediately after creation.\n"
+                "5. Confirm task completion to the user only after technical verification succeeds."
+            ),
+            "pitfalls": "Never simulate tool execution via raw text; always invoke write_file and read_file natively. Assuming text output in chat is sufficient when a file write was requested; declaring completion without reading back the saved file.",
+            "verification": "The note is confirmed created via write_file and verified through read_file.",
+            "tags": "procedure/file-creation, protocol/file-handling, verification",
+        },
+        # Procedure #1109: Deep Research task lifecycle (Option 3 variant: explicit deep research task phrasing)
+        {
+            "id": 1109,
+            "trigger_pattern": "When initiating a deep research task, reviewing synthesized research findings, or managing active research tasks",
+            "suggested_tools": "start_research, check_new_research, list_research_tasks, inspect_research_task, guide_research",
+            "steps": (
+                "1. For new multi-step research, clarify key investigative questions and call start_research with topic and main_question.\n"
+                "2. When checking finished research, call check_new_research to review synthesized findings and vault reports.\n"
+                "3. When inspecting running tasks, call inspect_research_task with task_id to check active sub-queries.\n"
+                "4. If a task is stalled, review error traces and execute guide_research with clarifying guidance."
+            ),
+            "pitfalls": "Never simulate research execution via text; invoke research tools natively without hesitation. Launching a deep research task for simple quick-fact lookups that can be answered immediately in chat (use web_search instead).",
+            "verification": "Research task is initiated, inspected, or synthesized via appropriate research tools.",
+            "tags": "skill/deep-research, autonomous-investigation, synthesis, web-research",
+        },
+    ]
+
+    for item in updates:
+        cursor.execute(
+            """UPDATE procedures
+               SET trigger_pattern = ?,
+                   suggested_tools = ?,
+                   steps = ?,
+                   pitfalls = ?,
+                   verification = ?,
+                   tags = ?,
+                   updated_at = ?
+               WHERE id = ?""",
+            (
+                item["trigger_pattern"],
+                item["suggested_tools"],
+                item["steps"],
+                item["pitfalls"],
+                item["verification"],
+                item["tags"],
+                now,
+                item["id"],
+            ),
+        )
+
+    logger.info(f"Migration 000.006.064: Sharpened boundaries for {len(updates)} procedures (#1109, #94, #368).")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -1518,6 +2051,27 @@ MIGRATIONS: list[Migration] = [
         version="000.006.056",
         name="fact_merge_queue_and_consolidation_parity",
         up_fn=migrate_000_006_056_fact_merge_queue_and_consolidation_parity,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.062",
+        name="rewrite_procedure_1034_declarative_phrasing",
+        up_fn=migrate_000_006_062_rewrite_procedure_1034_declarative_phrasing,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.063",
+        name="standardize_live_procedures_declarative_phrasing",
+        up_fn=migrate_000_006_063_standardize_live_procedures_declarative_phrasing,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.064",
+        name="sharpen_research_and_technical_procedures",
+        up_fn=migrate_000_006_064_sharpen_research_and_technical_procedures,
         post_sync_chroma=True,
     ),
 ]

@@ -1,6 +1,6 @@
 # test_dynamic_tools_and_direct_rag.py
 # date created: 2026-09-01
-# date modified: 2026-09-01
+# date modified: 2026-09-04 17:44:24
 # tags: #test, #tools, #dynamic_tools, #rag, #query_reformulation
 
 """Unit tests for Dynamic Tool Surfacing, Intent Heuristics, and Direct Vector RAG."""
@@ -19,8 +19,6 @@ if tools_dir not in sys.path:
 
 import evelyn_config as cfg
 from Evelyn.tools.evelyn_tools import (
-    CORE_TOOL_DEFINITIONS,
-    MODEL_TOOL_DEFINITIONS,
     get_active_tools,
 )
 from Evelyn.tools.query_reformulator import clean_conversational_query, reformulate_query
@@ -84,6 +82,53 @@ class TestDynamicToolsAndDirectRAG(unittest.TestCase):
         self.assertIn("start_research", active_names)
         self.assertIn("inspect_research_task", active_names)
         self.assertIn("guide_research", active_names)
+
+    def test_procedure_database_suggested_tools_surfacing(self):
+        """Verify database suggested_tools column format and automatic live procedure search."""
+        # 1. Direct suggested_tools column
+        mock_db_procs = [
+            {
+                "id": 999,
+                "trigger_pattern": "When organizing notes and checklists",
+                "suggested_tools": "manage_vault_list, create_task",
+                "steps": "Review and update.",
+            }
+        ]
+        active = get_active_tools(
+            user_message="Review my notes",
+            retrieved_procedures=mock_db_procs,
+        )
+        active_names = [t["function"]["name"] for t in active]
+        self.assertIn("manage_vault_list", active_names)
+        self.assertIn("create_task", active_names)
+
+        # 2. Live procedure search fallback (when retrieved_procedures is None)
+        active_workout = get_active_tools(
+            user_message="How did my workouts look this past week?",
+            retrieved_procedures=None,
+        )
+        workout_names = [t["function"]["name"] for t in active_workout]
+        self.assertIn("get_recent_workouts", workout_names)
+
+    def test_sharpened_research_and_troubleshooting_procedures(self):
+        """Verify sharpened triggers for #1109 and #94 accurately surface their specialized tools."""
+        # #1109: Deep research task initiation
+        active_research = get_active_tools(
+            user_message="Can you initiate a deep research task to investigate solid state battery tech?",
+            retrieved_procedures=None,
+        )
+        research_names = [t["function"]["name"] for t in active_research]
+        self.assertIn("start_research", research_names)
+        self.assertIn("check_new_research", research_names)
+
+        # #94: Technical error and bug diagnosis
+        active_triage = get_active_tools(
+            user_message="Diagnosing a technical bug with systemd service startup failure",
+            retrieved_procedures=None,
+        )
+        triage_names = [t["function"]["name"] for t in active_triage]
+        self.assertIn("run_command", triage_names)
+        self.assertIn("web_search", triage_names)
 
     def test_clean_conversational_query_preamble_stripping(self):
         """Verify conversational filler and questions are cleanly stripped for vector search."""
