@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-05 18:28:45
+date modified: 2026-09-05 18:41:23
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,14 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.069] - 2026-09-05 — *DevUI Heavy Tasks Cleanup & Master Librarian Card Unification*
+
+### Removed & Cleaned
+- **DevUI Heavy Tasks Dashboard (`evelyn_ui/dev.html`, `evelyn_server.py`)**:
+  - Removed obsolete `tag_librarian` card rendering template from DevUI heavy tasks grid.
+  - Removed `("tag_librarian", "Tag Librarian")` from `known_keys` and pruned redundant standalone `tag_librarian` diagnostics in `/api/heavy_tasks`.
+  - All library curation metrics (Vault Librarian Audit %, Master Taxonomy tag count, Ghost links, and Curation events) now display exclusively in the unified Master Librarian card.
 
 ## [000.006.068] - 2026-09-05 — *Unified Master Librarian Persona & Anti-Loop Engine*
 

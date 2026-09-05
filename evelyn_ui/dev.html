@@ -1388,20 +1388,6 @@
               </div>
             </div>
           `;
-        } else if (t.key === 'tag_librarian' && t.sub_status) {
-          const st = t.sub_status;
-          taskDetailsHtml = `
-            <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
-              <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Vault Audit:</span>
-                <span style="font-weight: 500;"><span style="color: var(--success); font-weight: 600;">${st.audit_pct || 0}%</span> <span style="color: var(--text-dim); font-size: 10px;">(${(st.audited_notes || 0).toLocaleString()} / ${(st.total_notes || 0).toLocaleString()})</span></span>
-              </div>
-              <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Master Taxonomy:</span>
-                <span style="color: var(--accent); font-weight: 500;">${(st.master_tags || 0).toLocaleString()} tags</span>
-              </div>
-            </div>
-          `;
         } else if (t.key === 'master_librarian' && t.sub_status) {
           const st = t.sub_status;
           taskDetailsHtml = `
