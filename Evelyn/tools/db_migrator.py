@@ -1913,6 +1913,43 @@ def migrate_000_006_064_sharpen_research_and_technical_procedures(
     logger.info(f"Migration 000.006.064: Sharpened boundaries for {len(updates)} procedures (#1109, #94, #368).")
 
 
+def migrate_000_006_067_master_librarian_schema(
+    conn: sqlite3.Connection, db_map: dict[str, str], cfg_obj: object
+) -> None:
+    """Add librarian audit columns to vault_documents and create librarian_activity_log."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(vault_documents)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+
+    new_cols = [
+        ("last_link_audit", "REAL DEFAULT 0"),
+        ("last_format_audit", "REAL DEFAULT 0"),
+        ("last_librarian_audit", "REAL DEFAULT 0"),
+        ("ghost_link_count", "INTEGER DEFAULT 0"),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in existing_cols:
+            cur.execute(f"ALTER TABLE vault_documents ADD COLUMN {col_name} {col_def}")
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS librarian_activity_log (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            path                    TEXT NOT NULL,
+            title                   TEXT,
+            category                TEXT,
+            actions_json            TEXT NOT NULL,
+            summary                 TEXT,
+            excerpt                 TEXT,
+            ts                      REAL NOT NULL,
+            last_ambient_thought_at REAL DEFAULT 0
+        );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_librarian_log_ts ON librarian_activity_log(ts);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_librarian_log_path ON librarian_activity_log(path);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_librarian_log_ambient ON librarian_activity_log(last_ambient_thought_at);")
+    logger.info("Migration 000.006.067: Created librarian_activity_log and updated vault_documents schema.")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2073,6 +2110,12 @@ MIGRATIONS: list[Migration] = [
         name="sharpen_research_and_technical_procedures",
         up_fn=migrate_000_006_064_sharpen_research_and_technical_procedures,
         post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.067",
+        name="master_librarian_schema_and_activity_log",
+        up_fn=migrate_000_006_067_master_librarian_schema,
     ),
 ]
 

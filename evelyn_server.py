@@ -2276,6 +2276,36 @@ def is_any_heavy_task_running(exclude_name: str | None = None) -> bool:
     return task_manager.is_any_running(exclude=exclude_name)
 
 
+async def run_master_librarian_task(
+    batch_size: int | None = None, max_batches: int = 1
+):
+    """Runs Master Librarian audit pass for configured batch size in a background thread."""
+    import task_manager
+
+    if is_any_heavy_task_running():
+        return
+    try:
+        from Evelyn.tools import master_librarian
+
+        bs = batch_size or getattr(cfg, "MASTER_LIBRARIAN_BATCH_SIZE", 5)
+        result = await asyncio.to_thread(
+            master_librarian.run_master_librarian_audit,
+            batch_size=bs,
+            max_batches=max_batches,
+        )
+        print(
+            f"{_GRN}[MASTER LIBRARIAN]{_RST} Audit pass finished: processed={result.items_processed}, "
+            f"errors={result.errors_count}, yielded={result.yielded}",
+            flush=True,
+        )
+    except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
+        print(f"[MASTER LIBRARIAN] Error during audit pass: {e}", flush=True)
+        task_manager.clear_running("master_librarian", status="error", error=str(e))
+    finally:
+        if task_manager.get_status("master_librarian") == "running":
+            task_manager.clear_running("master_librarian", status="idle")
+
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -2461,6 +2491,10 @@ async def lifespan(app: FastAPI):
                     t_tl = asyncio.create_task(run_tag_librarian_task())
                     _server_background_tasks.add(t_tl)
                     t_tl.add_done_callback(_server_background_tasks.discard)
+                elif dispatched_task == "master_librarian":
+                    t_ml = asyncio.create_task(run_master_librarian_task())
+                    _server_background_tasks.add(t_ml)
+                    t_ml.add_done_callback(_server_background_tasks.discard)
                 elif dispatched_task == "refresh_memory":
                     t_rm = asyncio.create_task(start_refresh_memory_internal())
                     _server_background_tasks.add(t_rm)
@@ -2962,6 +2996,24 @@ async def lifespan(app: FastAPI):
     _lifespan_tasks.append(asyncio.create_task(_idle_tag_librarian_loop()))
     print(
         f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=45m, limit=1 doc/run)"
+    )
+
+    # Idle-time Master Librarian loop
+    async def _idle_master_librarian_loop():
+        """Background loop that periodically enqueues Master Librarian audit."""
+        while True:
+            await asyncio.sleep(300)  # Check every 5 minutes
+            importlib.reload(cfg)
+            if not getattr(cfg, "MASTER_LIBRARIAN_ENABLED", True):
+                continue
+            idle_seconds = _get_current_idle_seconds()
+            threshold = getattr(cfg, "MASTER_LIBRARIAN_IDLE_THRESHOLD", 300)
+            if idle_seconds >= threshold:
+                task_manager.enqueue_idle_task("master_librarian")
+
+    _lifespan_tasks.append(asyncio.create_task(_idle_master_librarian_loop()))
+    print(
+        f"  {_GRN}Master Librarian:{_RST} idle loop started (threshold=5m, limit=5 docs/run)"
     )
 
     # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)
@@ -4868,6 +4920,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         ("procedure_consolidator", "Procedure Consolidator"),
         ("profile_evolver", "Profile Evolver"),
         ("tag_librarian", "Tag Librarian"),
+        ("master_librarian", "Master Librarian"),
         ("refresh_memory", "Memory Refresh"),
         ("sync", "Chroma Sync"),
         ("vault_map", "Vault Map Generator"),
@@ -5056,6 +5109,39 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "audited_notes": audited,
                     "total_notes": total,
                     "audit_pct": audit_pct,
+                }
+            elif key == "master_librarian":
+                vdb = str(getattr(cfg, "VAULT_DB_PATH", BASE_DIR / "data" / "evelyn_vault.db"))
+                audited = 0
+                total = 0
+                ghosts = 0
+                curations = 0
+                if os.path.exists(vdb):
+                    conn = sqlite3.connect(vdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "SELECT COUNT(*) FROM vault_documents WHERE last_librarian_audit IS NOT NULL AND last_librarian_audit > 0"
+                        )
+                        audited = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM vault_documents")
+                        total = cur.fetchone()[0]
+                        cur.execute("SELECT COALESCE(SUM(ghost_link_count), 0) FROM vault_documents")
+                        ghosts = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM librarian_activity_log")
+                        curations = cur.fetchone()[0]
+                    except (sqlite3.Error, OSError):
+                        pass
+                    finally:
+                        conn.close()
+                audit_pct = round((audited / total * 100), 1) if total > 0 else 0.0
+                sub_status = {
+                    **(sub_status or {}),
+                    "audited_notes": audited,
+                    "total_notes": total,
+                    "audit_pct": audit_pct,
+                    "ghost_links": ghosts,
+                    "curation_events": curations,
                 }
             elif key == "sync":
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")
@@ -6462,6 +6548,46 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
         return {"status": "ok", "path": clean_path}
     except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/librarian/status")
+async def get_librarian_status(_: None = Depends(check_auth)):
+    """Return status of Master Librarian audit progress, ghost links, and activity logs."""
+    from Evelyn.tools import vault_db
+
+    try:
+        summary = await asyncio.to_thread(vault_db.get_librarian_status_summary)
+        recent = await asyncio.to_thread(
+            vault_db.fetch_recent_librarian_curations, limit=10, unreflected_only=False
+        )
+        return {
+            "status": "ok",
+            **summary,
+            "recent_activity": recent,
+        }
+    except (sqlite3.Error, OSError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/librarian/run")
+async def trigger_librarian_audit(
+    batch_size: int = 5,
+    max_batches: int = 1,
+    _: None = Depends(check_auth),
+):
+    """Trigger a Master Librarian curation audit pass directly."""
+    if is_any_heavy_task_running():
+        raise HTTPException(
+            status_code=409,
+            detail="A heavy background task is currently running. Try again when idle.",
+        )
+
+    t_ml = asyncio.create_task(
+        run_master_librarian_task(batch_size=batch_size, max_batches=max_batches)
+    )
+    _server_background_tasks.add(t_ml)
+    t_ml.add_done_callback(_server_background_tasks.discard)
+    return {"status": "started", "batch_size": batch_size, "max_batches": max_batches}
 
 
 if __name__ == "__main__":

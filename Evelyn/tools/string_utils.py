@@ -22,6 +22,8 @@ Exports:
     build_memory_context_envelope() — Constructs standardized <memory_context> envelopes.
     stack_envelopes()       — Deterministically stacks multiple XML envelopes.
     inject_envelope_to_turn() — Prepends envelope(s) to message turns with clean boundary isolation.
+    protect_code_blocks()   — Masks fenced code, inline code, and math blocks with safe tokens.
+    restore_code_blocks()   — Restores original code blocks from placeholder tokens.
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -74,7 +76,12 @@ def clean_llm_gist(text: str) -> str:
     return cleaned
 
 
-def sanitize_filename(name: str, max_length: int = 200, default: str = "untitled") -> str:
+def sanitize_filename(
+    name: str,
+    max_length: int = 200,
+    default: str = "untitled",
+    vault_safe: bool = False,
+) -> str:
     """Strip illegal filesystem characters and collapse whitespace.
 
     Strips characters illegal on Linux/Windows/macOS (/ \\ : * ? " < > |)
@@ -84,6 +91,9 @@ def sanitize_filename(name: str, max_length: int = 200, default: str = "untitled
         name: Desired filename or note title.
         max_length: Maximum allowed character length for the output.
         default: Fallback string if sanitization leaves name empty.
+        vault_safe: If True, enforces strict vault naming rules (only alphanumeric,
+            spaces, dashes '-', and underscores '_'). Parenthetical segments like
+            '(app)' are converted to '- app'.
 
     Returns:
         Safe filesystem filename string.
@@ -93,17 +103,104 @@ def sanitize_filename(name: str, max_length: int = 200, default: str = "untitled
 
     # Normalize unicode
     clean = unicodedata.normalize("NFKC", str(name))
-    # Replace illegal filesystem characters with space
-    clean = re.sub(r'[/\\:*?"<>|\x00-\x1f\x7f]', " ", clean)
-    # Collapse multiple spaces into one
-    clean = re.sub(r"\s+", " ", clean).strip()
+
+    # If filename has an extension, preserve it
+    ext = ""
+    if "." in clean and not clean.startswith("."):
+        stem, potential_ext = clean.rsplit(".", 1)
+        if len(potential_ext) <= 5 and re.match(r"^[A-Za-z0-9]+$", potential_ext):
+            clean = stem
+            ext = "." + potential_ext
+
+    if vault_safe:
+        # Convert parenthetical disambiguation to dash syntax: e.g. "Discord (app)" -> "Discord - app"
+        clean = re.sub(r"\s*\((.*?)\)", r" - \1", clean)
+        # Strip all characters except alphanumeric, whitespace, dash, underscore
+        clean = re.sub(r"[^A-Za-z0-9\s_-]", " ", clean)
+        # Collapse multiple dashes or spaces
+        clean = re.sub(r"\s*-\s*", " - ", clean)
+        clean = re.sub(r"\s+", " ", clean).strip(" -_")
+    else:
+        # Replace illegal filesystem characters with space
+        clean = re.sub(r'[/\\:*?"<>|\x00-\x1f\x7f]', " ", clean)
+        # Collapse multiple spaces into one
+        clean = re.sub(r"\s+", " ", clean).strip()
+
     # Strip leading/trailing dots or spaces (problematic on Windows/SMB)
     clean = clean.strip(". ")
 
     if not clean:
-        return default
+        return default + ext
 
-    return clean[:max_length].rstrip(". ")
+    final_name = clean[:max_length].rstrip(". ") + ext
+    return final_name
+
+
+def protect_code_blocks(text: str) -> tuple[str, dict[str, str]]:
+    """Mask code blocks, inline code, and math blocks with safe placeholder tokens.
+
+    Placeholders use distinct delimiters `@@EVELYN_CODE_{salt}_{i}@@` that do not
+    collide with markdown link or tag regexes or nested protector calls.
+
+    Args:
+        text: Markdown text to protect.
+
+    Returns:
+        tuple[str, dict[str, str]]: (masked_text, placeholder_map)
+    """
+    if not text:
+        return "", {}
+
+    import uuid
+
+    placeholders: dict[str, str] = {}
+    salt = uuid.uuid4().hex[:8]
+    counter = 0
+
+    # Pattern matches:
+    # 1. 4-backtick or 3-backtick fenced code blocks
+    # 2. LaTeX math blocks ($$...$$)
+    # 3. Inline code (`...`)
+    # 4. Inline math ($...$)
+    combined_pattern = re.compile(
+        r"(````[\s\S]*?````|"
+        r"```[\s\S]*?```|"
+        r"\$\$[\s\S]*?\$\$|"
+        r"`[^`\n]+`|"
+        r"\$(?:\\\$|[^\$\n])+\$)",
+        re.MULTILINE,
+    )
+
+    def _replace(match: re.Match) -> str:
+        nonlocal counter
+        token = f"@@EVELYN_CODE_{salt}_{counter}@@"
+        placeholders[token] = match.group(0)
+        counter += 1
+        return token
+
+    masked_text = combined_pattern.sub(_replace, text)
+    return masked_text, placeholders
+
+
+def restore_code_blocks(text: str, placeholders: dict[str, str]) -> str:
+    """Restore original code and math blocks from safe placeholder tokens.
+
+    Args:
+        text: Masked markdown text containing placeholder tokens.
+        placeholders: Dictionary mapping placeholder tokens to original code.
+
+    Returns:
+        str: Fully restored markdown text.
+    """
+    if not text or not placeholders:
+        return text
+
+    restored = text
+    # Replace tokens in reverse insertion order
+    for token, original in reversed(list(placeholders.items())):
+        restored = restored.replace(token, original)
+
+    return restored
 
 
 def slugify(text: str, delimiter: str = "_") -> str:
