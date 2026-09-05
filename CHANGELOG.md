@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-04 17:43:24
+date modified: 2026-09-04 21:39:40
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.065] - 2026-09-04 — *Journal Reflection Schema Purification & Link Librarian Roadmap*
+
+### Changed & Streamlined
+- **Purified Journal Reflection Schema (`Evelyn/tools/evelyn_tools.py`)**:
+  - Removed the inline markup requirement (`"Use [[wiki-links]] for entities and #tags for concepts."`) from `write_journal_entry` description in `MODEL_TOOL_DEFINITIONS`.
+  - Removed `tags` parameter from the JSON Schema presented to Ollama, decoupling taxonomy categorization from the real-time reflective journaling turn.
+  - Preserved `tags: str = ""` in the underlying Python function signature for backwards compatibility with legacy callers and unit tests.
+  - Shifted tag management entirely to the asynchronous Tag Librarian (`tag_librarian.py`), which automatically audits and enriches journal entries during idle cycles based on semantic content.
+- **Refined Link Librarian Architecture on Roadmap (`ROADMAP.md`)**:
+  - Expanded the `link_librarian` Phase 4 milestone to explicitly include background entity alias resolution against `vault_documents`, disambiguation, and ghost-link prevention.
 
 ## [000.006.064] - 2026-09-04 — *Deep Research & Technical Procedures Boundary Sharpening Migration*
 

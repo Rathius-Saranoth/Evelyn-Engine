@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-02 21:30:32
+date modified: 2026-09-04 21:39:40
 ---
 # Evelyn Project Roadmap
 
@@ -95,7 +95,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard**: Comprehensive metrics dashboard to track engine usage, prompt sentiment/volume, evaluation regressions, RAG/vault knowledge utilization, research outcomes, VAD telemetry, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Chat History Soft-Deletion & Observability Preserving**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context and memory extraction.
-- [ ] **Autonomous Link Librarian (`link_librarian`)**: Background agent that traverses vault notes to discover context-appropriate WikiLinks, resolve orphaned knowledge islands, suggest missing cross-references, and propose thematic Maps of Content (MOCs).
+- [ ] **Autonomous Link Librarian (`link_librarian`)**: Background agent and post-save normalizer that resolves unaliased entities against the vault document registry, disambiguates entity mentions, repairs ghost links, and suggests thematic cross-references.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 

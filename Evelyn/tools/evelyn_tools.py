@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-04 17:44:24
+# date modified: 2026-09-04 21:43:30
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -77,7 +77,6 @@ def _prune_log_file(log_path: str, max_lines: int = 2000, keep_lines: int = 1000
                 f.writelines(lines[-keep_lines:])
 
 
-
 if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
 
@@ -115,8 +114,6 @@ def _reload():
             importlib.reload(sys.modules[mod])
 
 
-
-
 # ===========================================================================
 # Tool functions
 # ===========================================================================
@@ -150,16 +147,10 @@ def write_journal_entry(
     message_in_a_bottle = message_in_a_bottle or str(kwargs.get("bottle_message") or kwargs.get("closing") or "")
     tags = tags or str(kwargs.get("tag_list") or kwargs.get("tag_string") or "")
 
-    if (
-        not vibe_check.strip()
-        and not narrative.strip()
-        and not message_in_a_bottle.strip()
-    ):
+    if not vibe_check.strip() and not narrative.strip() and not message_in_a_bottle.strip():
         return "Error: write_journal_entry called with completely blank text fields. Aborted."
     tag_list = [t.strip() for t in tags.split(",")] if tags.strip() else []
-    return journal_manager.create_journal_entry(
-        vibe_check, narrative, message_in_a_bottle, mood, tag_list
-    )
+    return journal_manager.create_journal_entry(vibe_check, narrative, message_in_a_bottle, mood, tag_list)
 
 
 def write_dream_entry(
@@ -187,7 +178,9 @@ def write_dream_entry(
     """
     _reload()
     title = title or str(kwargs.get("dream_title") or kwargs.get("name") or "Untitled Dream")
-    description = description or str(kwargs.get("body") or kwargs.get("text") or kwargs.get("narrative") or kwargs.get("dream_description") or "")
+    description = description or str(
+        kwargs.get("body") or kwargs.get("text") or kwargs.get("narrative") or kwargs.get("dream_description") or ""
+    )
     date = date or str(kwargs.get("date_str") or "")
     feelings = feelings or str(kwargs.get("initial_feelings") or kwargs.get("thoughts") or kwargs.get("mood") or "")
     tags = tags or str(kwargs.get("tag_list") or kwargs.get("tag_string") or "")
@@ -213,11 +206,15 @@ def read_dream_entry(date: str = "", **kwargs) -> str:
     return dream_manager.read_dream_entry(date_str=date)
 
 
-DEPRECATION_LOG_FILE = os.path.join(getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"), "data", "deprecation_warnings.log")
+DEPRECATION_LOG_FILE = os.path.join(
+    getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"), "data", "deprecation_warnings.log"
+)
+
 
 def _log_deprecation(func_name: str, args_summary: str = "") -> None:
     """Log prominent warning to console and append to deprecation_warnings.log with traceback."""
     import traceback
+
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     tb = "".join(traceback.format_stack()[:-1])  # Exclude current call frame
 
@@ -291,9 +288,7 @@ def log_context_fact(category: str = "", summary: str = "", secondary_cats: str 
     secondary_cats = secondary_cats or str(kwargs.get("refs") or kwargs.get("tags") or "")
     if not summary.strip():
         return "Error: log_context_fact called with blank summary. Aborted."
-    refs = (
-        [c.strip() for c in secondary_cats.split(",")] if secondary_cats.strip() else []
-    )
+    refs = [c.strip() for c in secondary_cats.split(",")] if secondary_cats.strip() else []
     return context_manager.append_context_log(category, summary, refs)
 
 
@@ -428,7 +423,7 @@ def web_search(query: str, max_results: int = 5, **kwargs) -> str:
     try:
         try:
             max_results = int(max_results)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             max_results = 5
 
         with DDGS() as ddgs:
@@ -461,8 +456,10 @@ def _is_research_engine_running(task_id: str) -> bool:
         bool: True if a live process is running for this task.
     """
     import os
+
     try:
         from research_engine import get_task_dir
+
         pid_path = os.path.join(get_task_dir(task_id), "engine.pid")
         if not os.path.exists(pid_path):
             return False
@@ -470,22 +467,22 @@ def _is_research_engine_running(task_id: str) -> bool:
             pid = int(f.read().strip())
 
         import psutil
+
         if psutil.pid_exists(pid):
             try:
                 proc = psutil.Process(pid)
                 cmdline = proc.cmdline()
                 if any("research_engine.py" in arg for arg in cmdline):
                     return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except psutil.NoSuchProcess, psutil.AccessDenied:
                 pass
 
         # Dead PID or recycled PID for another process — delete stale pid file
         with contextlib.suppress(OSError):
             os.remove(pid_path)
         return False
-    except (psutil.Error, OSError, ValueError):
+    except psutil.Error, OSError, ValueError:
         return False
-
 
 
 def start_research(
@@ -535,6 +532,7 @@ def start_research(
         # cannot re-launch a topic that is already running or already done.
         if os.path.exists(cfg.RESEARCH_DATA_DIR):
             from research_engine import load_state
+
             for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
                 if folder.startswith("task_"):
                     disk_state = load_state(folder)
@@ -571,6 +569,7 @@ def start_research(
         # Check all task directories on disk for unfinished/active tasks
         if os.path.exists(cfg.RESEARCH_DATA_DIR):
             from research_engine import load_state
+
             for folder in os.listdir(cfg.RESEARCH_DATA_DIR):
                 if not folder.startswith("task_"):
                     continue
@@ -597,20 +596,25 @@ def start_research(
 
             queue = []
             if os.path.exists(queue_file):
-                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(queue_file, encoding="utf-8") as f:
+                with (
+                    contextlib.suppress(OSError, json.JSONDecodeError, ValueError),
+                    open(queue_file, encoding="utf-8") as f,
+                ):
                     queue = json.load(f)
 
             # Check if a very similar query is already queued (Jaccard similarity >= 0.45) to avoid duplicates
             already_exists = any(get_jaccard_similarity(q.get("query", ""), query) >= 0.45 for q in queue)
             if not already_exists:
-                queue.append({
-                    "query": query,
-                    "scope": scope,
-                    "priority": 1,
-                    "source": triggered_by,
-                    "intent_frame": intent_frame,
-                    "created_at": datetime.now(UTC).astimezone().isoformat(),
-                })
+                queue.append(
+                    {
+                        "query": query,
+                        "scope": scope,
+                        "priority": 1,
+                        "source": triggered_by,
+                        "intent_frame": intent_frame,
+                        "created_at": datetime.now(UTC).astimezone().isoformat(),
+                    }
+                )
                 try:
                     with open(queue_file, "w", encoding="utf-8") as f:
                         json.dump(queue, f, indent=2)
@@ -626,6 +630,7 @@ def start_research(
             )
 
         from research_engine import create_research_task
+
         task_id = create_research_task(
             query,
             scope=scope,
@@ -646,31 +651,26 @@ def start_research(
             # Register in server's _background_tasks dict
             bg_tasks = getattr(server, "_background_tasks", None)
             if bg_tasks is not None:
-                bg_tasks[task_id] = {
-                    "status": "running",
-                    "query": query,
-                    "scope": scope,
-                    "started_at": time.time()
-                }
+                bg_tasks[task_id] = {"status": "running", "query": query, "scope": scope, "started_at": time.time()}
 
         def _run_subprocess():
             """Launch research_engine.py as a subprocess, register it, and wait for completion."""
             import os
             import sys
+
             try:
                 # Layer 1: PID lock check — refuse to spawn if a live process already exists
                 # for this task. Works even if server is None or _background_tasks is stale.
                 if _is_research_engine_running(task_id):
                     print(
-                        f"[RESEARCH] Subprocess already alive for {task_id} — "
-                        f"refusing to spawn duplicate.",
+                        f"[RESEARCH] Subprocess already alive for {task_id} — refusing to spawn duplicate.",
                         flush=True,
                     )
                     return
 
                 creationflags = 0
                 if sys.platform == "win32":
-                    creationflags = 0x08000000 # CREATE_NO_WINDOW
+                    creationflags = 0x08000000  # CREATE_NO_WINDOW
 
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 script = os.path.join(base_dir, "Evelyn", "tools", "research_engine.py")
@@ -687,7 +687,7 @@ def start_research(
                             stderr=log_file,
                             creationflags=creationflags,
                         )
-                except (OSError, subprocess.SubprocessError):
+                except OSError, subprocess.SubprocessError:
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=base_dir,
@@ -699,6 +699,7 @@ def start_research(
                 if proc:
                     with contextlib.suppress(Exception):
                         import task_manager
+
                         task_manager.register_subprocess(proc)
                         task_manager._active_handles[task_id] = proc
                     if server:
@@ -710,6 +711,7 @@ def start_research(
 
                     with contextlib.suppress(Exception):
                         import task_manager
+
                         task_manager.unregister_subprocess(proc)
                         task_manager._active_handles.pop(task_id, None)
                     if server:
@@ -719,6 +721,7 @@ def start_research(
 
                     if server and bg_tasks is not None:
                         from research_engine import load_state, save_state
+
                         disk_state = load_state(task_id)
                         if disk_state is None:
                             disk_state = {"status": "error"}
@@ -770,6 +773,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
     _reload()
     try:
         from research_engine import load_state, save_state
+
         state = load_state(task_id)
         if not state:
             return "Research task not found."
@@ -786,7 +790,9 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
             if bg_tasks:
                 for tid, tinfo in bg_tasks.items():
                     if tid.startswith("task_") and tinfo.get("status") in ("running", "searching", "synthesizing"):
-                        return f"Cannot resume task {task_id}: another research task ({tid}) is already actively running."
+                        return (
+                            f"Cannot resume task {task_id}: another research task ({tid}) is already actively running."
+                        )
 
         # Reset status to running on disk so the engine knows it should proceed
         state["status"] = "running"
@@ -808,12 +814,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
             # Register in server's _background_tasks dict
             bg_tasks = getattr(server, "_background_tasks", None)
             if bg_tasks is not None:
-                bg_tasks[task_id] = {
-                    "status": "running",
-                    "query": query,
-                    "scope": scope,
-                    "started_at": time.time()
-                }
+                bg_tasks[task_id] = {"status": "running", "query": query, "scope": scope, "started_at": time.time()}
         else:
             bg_tasks = None
 
@@ -821,20 +822,20 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
             """Launch research_engine.py as a subprocess to resume the task and wait for completion."""
             import os
             import sys
+
             try:
                 # Layer 1: PID lock check — refuse to spawn if a live process already exists
                 # for this task. Works even if server is None or _background_tasks is stale.
                 if _is_research_engine_running(task_id):
                     print(
-                        f"[RESEARCH] Subprocess already alive for {task_id} — "
-                        f"refusing to spawn duplicate.",
+                        f"[RESEARCH] Subprocess already alive for {task_id} — refusing to spawn duplicate.",
                         flush=True,
                     )
                     return
 
                 creationflags = 0
                 if sys.platform == "win32":
-                    creationflags = 0x08000000 # CREATE_NO_WINDOW
+                    creationflags = 0x08000000  # CREATE_NO_WINDOW
 
                 base_dir = getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn")
                 script = os.path.join(base_dir, "Evelyn", "tools", "research_engine.py")
@@ -851,7 +852,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                             stderr=log_file,
                             creationflags=creationflags,
                         )
-                except (OSError, subprocess.SubprocessError):
+                except OSError, subprocess.SubprocessError:
                     proc = subprocess.Popen(
                         [sys.executable, "-u", script, task_id, "--scope", scope],
                         cwd=base_dir,
@@ -863,6 +864,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
                 if proc:
                     with contextlib.suppress(Exception):
                         import task_manager
+
                         task_manager.register_subprocess(proc)
                         task_manager._active_handles[task_id] = proc
                     if server:
@@ -874,6 +876,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
 
                     with contextlib.suppress(Exception):
                         import task_manager
+
                         task_manager.unregister_subprocess(proc)
                         task_manager._active_handles.pop(task_id, None)
                     if server:
@@ -883,6 +886,7 @@ def resume_research_task(task_id: str = "", **kwargs) -> str:
 
                     if server and bg_tasks is not None:
                         from research_engine import load_state, save_state
+
                         disk_state = load_state(task_id)
                         if disk_state is None:
                             disk_state = {"status": "error"}
@@ -923,7 +927,10 @@ def _scan_research_tasks() -> list[dict]:
         if os.path.isdir(task_dir):
             state_file = os.path.join(task_dir, "state.json")
             if os.path.exists(state_file):
-                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(state_file, encoding="utf-8") as f:
+                with (
+                    contextlib.suppress(OSError, json.JSONDecodeError, ValueError),
+                    open(state_file, encoding="utf-8") as f,
+                ):
                     st = json.load(f)
                     if "task_id" not in st:
                         st["task_id"] = folder
@@ -965,14 +972,22 @@ def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[str |
             q_text = (t.get("query") or t.get("original_question") or "").lower()
             aliases = " ".join(t.get("topic_aliases") or []).lower()
             tags = " ".join(t.get("topic_tags") or []).lower()
-            if clean_query in q_text or clean_query in aliases or clean_query in tags or all(term in q_text or term in aliases or term in tags for term in clean_query.split() if len(term) > 2):
+            if (
+                clean_query in q_text
+                or clean_query in aliases
+                or clean_query in tags
+                or all(
+                    term in q_text or term in aliases or term in tags for term in clean_query.split() if len(term) > 2
+                )
+            ):
                 matches.append(t)
         if len(matches) == 1:
             return matches[0]["task_id"], matches[0], None
         elif len(matches) > 1:
             # If multiple match, check if only one is stalled/struggling
             stalled_matches = [
-                t for t in matches
+                t
+                for t in matches
                 if t.get("status") in ("needs_guidance", "quarantined")
                 or t.get("struggling")
                 or any(sq.get("status") == "needs_guidance" for sq in t.get("plan", {}).get("sub_questions", []))
@@ -984,7 +999,8 @@ def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[str |
 
     # 3. If neither task_id nor query matched, check stalled/struggling tasks
     stalled_tasks = [
-        t for t in tasks
+        t
+        for t in tasks
         if t.get("status") in ("needs_guidance", "quarantined")
         or t.get("struggling")
         or any(sq.get("status") == "needs_guidance" for sq in t.get("plan", {}).get("sub_questions", []))
@@ -992,11 +1008,19 @@ def _resolve_research_task_id(task_id: str = "", query: str = "") -> tuple[str |
     if len(stalled_tasks) == 1:
         return stalled_tasks[0]["task_id"], stalled_tasks[0], None
     elif len(stalled_tasks) > 1:
-        opts = "\n".join(f"- `{t['task_id']}`: {t.get('query', 'Unknown')} (Status: {t.get('status')})" for t in stalled_tasks)
-        return None, None, f"Multiple stalled research tasks need guidance:\n{opts}\nPlease specify task_id or topic query."
+        opts = "\n".join(
+            f"- `{t['task_id']}`: {t.get('query', 'Unknown')} (Status: {t.get('status')})" for t in stalled_tasks
+        )
+        return (
+            None,
+            None,
+            f"Multiple stalled research tasks need guidance:\n{opts}\nPlease specify task_id or topic query.",
+        )
 
     # 4. If no stalled tasks and only 1 total active task
-    active_tasks = [t for t in tasks if t.get("status") in ("running", "searching", "synthesizing", "pending", "paused")]
+    active_tasks = [
+        t for t in tasks if t.get("status") in ("running", "searching", "synthesizing", "pending", "paused")
+    ]
     if len(active_tasks) == 1:
         return active_tasks[0]["task_id"], active_tasks[0], None
 
@@ -1027,9 +1051,14 @@ def list_research_tasks(status_filter: str | None = None, limit: int = 10, **kwa
         is_struggling = bool(t.get("struggling"))
         sqs = t.get("plan", {}).get("sub_questions", [])
         has_stuck_sq = any(sq.get("status") == "needs_guidance" for sq in sqs)
-        is_stalled = (st == "needs_guidance" or is_quarantined or is_struggling or has_stuck_sq)
+        is_stalled = st == "needs_guidance" or is_quarantined or is_struggling or has_stuck_sq
 
-        if (filt == "stalled" and not is_stalled) or (filt == "active" and st not in ("running", "searching", "synthesizing", "pending", "paused")) or (filt == "done" and st != "done") or (filt == "quarantined" and not is_quarantined):
+        if (
+            (filt == "stalled" and not is_stalled)
+            or (filt == "active" and st not in ("running", "searching", "synthesizing", "pending", "paused"))
+            or (filt == "done" and st != "done")
+            or (filt == "quarantined" and not is_quarantined)
+        ):
             continue
         filtered.append((t, is_stalled))
 
@@ -1037,7 +1066,7 @@ def list_research_tasks(status_filter: str | None = None, limit: int = 10, **kwa
         return f"No research tasks found matching filter '{filt}'."
 
     # Limit results
-    filtered = filtered[:max(1, limit)]
+    filtered = filtered[: max(1, limit)]
 
     lines = [f"### Research Tasks ({len(filtered)} shown):"]
     for t, is_stalled in filtered:
@@ -1045,7 +1074,9 @@ def list_research_tasks(status_filter: str | None = None, limit: int = 10, **kwa
         query = t.get("query", "Unknown Topic")
         raw_status = t.get("status", "unknown")
         if is_stalled:
-            status_badge = "⚠️ NEEDS GUIDANCE" if raw_status == "needs_guidance" or not t.get("quarantined") else "⛔ QUARANTINED"
+            status_badge = (
+                "⚠️ NEEDS GUIDANCE" if raw_status == "needs_guidance" or not t.get("quarantined") else "⛔ QUARANTINED"
+            )
         elif raw_status == "done":
             status_badge = "✅ COMPLETED"
         elif raw_status in ("running", "searching", "synthesizing"):
@@ -1058,9 +1089,13 @@ def list_research_tasks(status_filter: str | None = None, limit: int = 10, **kwa
         sqs = t.get("plan", {}).get("sub_questions", [])
         sq_info = f"{len(sqs)} SQs" if sqs else "No plan"
         stuck_sq = next((s for s in sqs if s.get("status") == "needs_guidance"), None)
-        stuck_info = f" | Stuck on: '{stuck_sq.get('question') or stuck_sq.get('search_query', '')[:50]}'" if stuck_sq else ""
+        stuck_info = (
+            f" | Stuck on: '{stuck_sq.get('question') or stuck_sq.get('search_query', '')[:50]}'" if stuck_sq else ""
+        )
 
-        lines.append(f"- **`{tid}`** | {status_badge} | {conf}% Conf | Stage: {step} ({sq_info}{stuck_info})\n  *Topic:* {query}")
+        lines.append(
+            f"- **`{tid}`** | {status_badge} | {conf}% Conf | Stage: {step} ({sq_info}{stuck_info})\n  *Topic:* {query}"
+        )
 
     return "\n".join(lines)
 
@@ -1123,7 +1158,7 @@ def inspect_research_task(
     else:
         lines.append(f"\n### Sub-Questions ({len(sqs)}):")
         for i, sq in enumerate(sqs):
-            sid = sq.get("id", f"sq_{i+1:02d}")
+            sid = sq.get("id", f"sq_{i + 1:02d}")
             if sq_id and sq_id.strip() != sid:
                 continue
             s_q = sq.get("question", "")
@@ -1135,7 +1170,9 @@ def inspect_research_task(
             gaps = sq.get("gaps", [])
 
             lines.append(f"\n#### [{sid}] {s_q}")
-            lines.append(f"- **Status**: {s_status} | **Confidence**: {s_conf}% | **Sources Extracted**: {s_sources} | **Search Depth**: {s_depth}")
+            lines.append(
+                f"- **Status**: {s_status} | **Confidence**: {s_conf}% | **Sources Extracted**: {s_sources} | **Search Depth**: {s_depth}"
+            )
             if s_query and s_query != s_q:
                 lines.append(f"- **Current Search Query**: `{s_query}`")
             if gaps:
@@ -1188,7 +1225,9 @@ def inspect_research_task(
         if os.path.exists(report_file):
             with contextlib.suppress(OSError), open(report_file, encoding="utf-8") as f:
                 rep = f.read().strip()
-                rep_snippet = rep[:3000] + ("\n... [Report truncated -- see Obsidian vault for full note]" if len(rep) > 3000 else "")
+                rep_snippet = rep[:3000] + (
+                    "\n... [Report truncated -- see Obsidian vault for full note]" if len(rep) > 3000 else ""
+                )
                 lines.append(f"```markdown\n{rep_snippet}\n```")
 
     return "\n".join(lines)
@@ -1210,6 +1249,7 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
     import os
 
     import evelyn_config as cfg
+
     _reload()
     try:
         # Check flexible guidance argument names
@@ -1227,6 +1267,7 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
             return f"Failed to locate research task: {err}"
 
         from research_engine import load_state, save_state
+
         state = load_state(resolved_id)
         if not state:
             return f"Research task {resolved_id} not found on disk."
@@ -1237,6 +1278,7 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
         if state.get("status") in ("running", "searching", "synthesizing"):
             import sys
             import time
+
             server = sys.modules.get("evelyn_server")
             if not server:
                 server = sys.modules.get("__main__")
@@ -1265,7 +1307,10 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
 
             existing_gaps = []
             if os.path.exists(gaps_file):
-                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(gaps_file, encoding="utf-8") as f:
+                with (
+                    contextlib.suppress(OSError, json.JSONDecodeError, ValueError),
+                    open(gaps_file, encoding="utf-8") as f,
+                ):
                     data = json.load(f)
                     existing_gaps = data.get("gaps", [])
 
@@ -1290,7 +1335,9 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
 
             result = resume_research_task(resolved_id)
             sq_label = target_sq.get("question") or target_sq.get("query", target_sq.get("id"))
-            return f"Guidance injected into sub-question '{sq_label}' for task `{resolved_id}`. Task is resuming. {result}"
+            return (
+                f"Guidance injected into sub-question '{sq_label}' for task `{resolved_id}`. Task is resuming. {result}"
+            )
         else:
             state["intent_frame"] = guidance
             state["struggling"] = False
@@ -1308,7 +1355,9 @@ def guide_research(task_id: str = "", query: str = "", guidance: str = "", **kwa
         return f"Failed to guide research task: {e}"
 
 
-def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: str | None = None, new_search_query: str | None = None, **kwargs) -> str:
+def rewrite_sub_question(
+    task_id: str = "", sq_id: str = "", new_question: str | None = None, new_search_query: str | None = None, **kwargs
+) -> str:
     """Manually rewrite a single sub-question or its search query without resuming the task.
 
     Args:
@@ -1324,9 +1373,11 @@ def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: str |
     import os
 
     import evelyn_config as cfg
+
     _reload()
     try:
         from research_engine import load_state, save_state
+
         state = load_state(task_id)
         if not state:
             return f"Research task {task_id} not found."
@@ -1341,6 +1392,7 @@ def rewrite_sub_question(task_id: str = "", sq_id: str = "", new_question: str |
         if state.get("status") in ("running", "searching", "synthesizing"):
             import sys
             import time
+
             server = sys.modules.get("evelyn_server")
             if not server:
                 server = sys.modules.get("__main__")
@@ -1394,9 +1446,11 @@ def remove_sub_question(task_id: str = "", sq_id: str = "", **kwargs) -> str:
     import os
 
     import evelyn_config as cfg
+
     _reload()
     try:
         from research_engine import load_state, save_state
+
         state = load_state(task_id)
         if not state:
             return f"Research task {task_id} not found."
@@ -1424,6 +1478,7 @@ def remove_sub_question(task_id: str = "", sq_id: str = "", **kwargs) -> str:
 
         # Recalculate true sources count after removal
         from research_engine import recalculate_total_sources
+
         state["total_sources"] = recalculate_total_sources(task_id, state)
 
         save_state(task_id, state, ignore_disk_status=True)
@@ -1445,6 +1500,7 @@ def finalize_guidance(task_id: str = "", **kwargs) -> str:
     _reload()
     try:
         from research_engine import load_state, save_state
+
         state = load_state(task_id)
         if not state:
             return f"Research task {task_id} not found."
@@ -1475,6 +1531,7 @@ def finalize_guidance(task_id: str = "", **kwargs) -> str:
         # Register in the server's _background_tasks memory dictionary so it's picked up by the idle loop
         import sys
         import time
+
         server = sys.modules.get("evelyn_server")
         if not server:
             server = sys.modules.get("__main__")
@@ -1485,7 +1542,7 @@ def finalize_guidance(task_id: str = "", **kwargs) -> str:
                     "status": "paused",
                     "query": state.get("query", ""),
                     "scope": state.get("scope", "standard"),
-                    "started_at": time.time()
+                    "started_at": time.time(),
                 }
 
         return f"Guidance finalized. Task {task_id} has been placed in the waiting queue."
@@ -1506,6 +1563,7 @@ def check_new_research(**kwargs) -> str:
     import os
 
     import evelyn_config as cfg
+
     _reload()
 
     research_dir = cfg.RESEARCH_DATA_DIR
@@ -1519,9 +1577,16 @@ def check_new_research(**kwargs) -> str:
         if os.path.isdir(task_dir):
             state_file = os.path.join(task_dir, "state.json")
             if os.path.exists(state_file):
-                with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(state_file, encoding="utf-8") as f:
+                with (
+                    contextlib.suppress(OSError, json.JSONDecodeError, ValueError),
+                    open(state_file, encoding="utf-8") as f,
+                ):
                     state = json.load(f)
-                    if state.get("status") == "done" and not state.get("quarantined") and not state.get("notified", False):
+                    if (
+                        state.get("status") == "done"
+                        and not state.get("quarantined")
+                        and not state.get("notified", False)
+                    ):
                         query = state.get("query", "Unknown Topic")
                         task_id = state.get("task_id", "")
 
@@ -1529,9 +1594,14 @@ def check_new_research(**kwargs) -> str:
                         report_file = os.path.join(task_dir, "report.md")
                         if os.path.exists(report_file):
                             import re
+
                             with open(report_file, encoding="utf-8") as f:
                                 content = f.read()
-                                summary_match = re.search(r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)", content, re.DOTALL | re.IGNORECASE)
+                                summary_match = re.search(
+                                    r"##\s+(?:Executive Summary|Summary|Findings)\s*\n(.*?)(?=\n##|$)",
+                                    content,
+                                    re.DOTALL | re.IGNORECASE,
+                                )
                                 if summary_match:
                                     summary_text = summary_match.group(1).strip()[:800] + "..."
                                 else:
@@ -1543,7 +1613,9 @@ def check_new_research(**kwargs) -> str:
                         if not summary_text:
                             summary_text = "Detailed report saved in Obsidian Vault."
 
-                        unnotified_reports.append(f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}")
+                        unnotified_reports.append(
+                            f"- Topic: {query}\n  Task ID: {task_id}\n  Key Findings: {summary_text}"
+                        )
 
                         state["notified"] = True
                         with open(state_file, "w", encoding="utf-8") as f:
@@ -1615,48 +1687,46 @@ def search_history(
     ).strip()
 
     raw_date = (
-        date
-        or kwargs.get("target_date")
-        or kwargs.get("day")
-        or kwargs.get("on_date")
-        or kwargs.get("exact_date")
+        date or kwargs.get("target_date") or kwargs.get("day") or kwargs.get("on_date") or kwargs.get("exact_date")
     )
     if raw_date:
         raw_date = str(raw_date).strip()
 
     raw_date_from = (
-        date_from
-        or kwargs.get("start_date")
-        or kwargs.get("from_date")
-        or kwargs.get("after")
-        or kwargs.get("since")
+        date_from or kwargs.get("start_date") or kwargs.get("from_date") or kwargs.get("after") or kwargs.get("since")
     )
     if raw_date_from:
         raw_date_from = str(raw_date_from).strip()
 
     raw_date_to = (
-        date_to
-        or kwargs.get("end_date")
-        or kwargs.get("to_date")
-        or kwargs.get("before")
-        or kwargs.get("until")
+        date_to or kwargs.get("end_date") or kwargs.get("to_date") or kwargs.get("before") or kwargs.get("until")
     )
     if raw_date_to:
         raw_date_to = str(raw_date_to).strip()
 
-    limit_val = kwargs.get("max_results") or kwargs.get("limit") or kwargs.get("n") or kwargs.get("count") or kwargs.get("num_results") or limit or 8
+    limit_val = (
+        kwargs.get("max_results")
+        or kwargs.get("limit")
+        or kwargs.get("n")
+        or kwargs.get("count")
+        or kwargs.get("num_results")
+        or limit
+        or 8
+    )
     try:
         limit_val = max(1, min(int(limit_val), 50))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         limit_val = 8
 
     offset_val = kwargs.get("offset") or kwargs.get("skip") or offset or 0
     try:
         offset_val = max(0, int(offset_val))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         offset_val = 0
 
-    order_param = kwargs.get("order") or kwargs.get("sort") or kwargs.get("direction") or kwargs.get("ordering") or order
+    order_param = (
+        kwargs.get("order") or kwargs.get("sort") or kwargs.get("direction") or kwargs.get("ordering") or order
+    )
     order_val = str(order_param or "desc").strip().lower()
 
     # If single date is provided and caller didn't explicitly request 'desc', default to 'asc' (chronological)
@@ -1668,13 +1738,20 @@ def search_history(
     if mid_val is not None:
         try:
             msg_id = int(mid_val)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             msg_id = None
 
-    win_val = kwargs.get("window") or kwargs.get("context_window") or kwargs.get("around") or kwargs.get("surrounding") or window or 0
+    win_val = (
+        kwargs.get("window")
+        or kwargs.get("context_window")
+        or kwargs.get("around")
+        or kwargs.get("surrounding")
+        or window
+        or 0
+    )
     try:
         win_val = max(0, int(win_val))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         win_val = 0
 
     sort_dir = "ASC" if order_val in ("asc", "ascending", "chronological", "earliest", "first", "forward") else "DESC"
@@ -1764,7 +1841,11 @@ def search_history(
         lines = [header + "\n"]
         for row in rows:
             ts_val = row["ts"]
-            ts_str = datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+            ts_str = (
+                datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                if ts_val
+                else "unknown time"
+            )
             role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
             marker = " [TARGET]" if row["id"] == msg_id and win_val > 0 else ""
             lines.append(f"[ID: {row['id']}]{marker} [{ts_str}] {role_label}:\n{row['content']}\n")
@@ -1791,7 +1872,15 @@ def search_history(
             return f"History retrieval failed: {e}"
 
         if not rows:
-            date_info = f" on date {raw_date}" if raw_date else (f" in date range [{raw_date_from or '...'} → {raw_date_to or '...'}]" if (raw_date_from or raw_date_to) else "")
+            date_info = (
+                f" on date {raw_date}"
+                if raw_date
+                else (
+                    f" in date range [{raw_date_from or '...'} → {raw_date_to or '...'}]"
+                    if (raw_date_from or raw_date_to)
+                    else ""
+                )
+            )
             return f"No chat history messages found{date_info}."
 
         if raw_date:
@@ -1806,7 +1895,11 @@ def search_history(
         lines = [header + "\n"]
         for row in rows:
             ts_val = row["ts"]
-            ts_str = datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+            ts_str = (
+                datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                if ts_val
+                else "unknown time"
+            )
             role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
             lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
         return "\n".join(lines).strip()
@@ -1817,8 +1910,9 @@ def search_history(
     # Reformulate lossy conversational query into keywords
     try:
         from query_reformulator import reformulate_query
+
         fts_query = reformulate_query(raw_query)
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         fts_query = raw_query
 
     def sanitize_fts5(q: str) -> str:
@@ -1885,16 +1979,28 @@ def search_history(
         return f"History keyword search failed: {e}"
 
     if not rows:
-        date_range_label = f" [{raw_date or raw_date_from or '...'} → {raw_date or raw_date_to or '...'}]" if (raw_date or raw_date_from or raw_date_to) else ""
+        date_range_label = (
+            f" [{raw_date or raw_date_from or '...'} → {raw_date or raw_date_to or '...'}]"
+            if (raw_date or raw_date_from or raw_date_to)
+            else ""
+        )
         note = f" (reformulated to: {fts_query!r})" if fts_query != raw_query else ""
         return f"No messages found in chat history matching {raw_query!r}{date_range_label}{note}."
 
-    date_range_label = f" [{raw_date or raw_date_from or '...'} → {raw_date or raw_date_to or '...'}]" if (raw_date or raw_date_from or raw_date_to) else ""
+    date_range_label = (
+        f" [{raw_date or raw_date_from or '...'} → {raw_date or raw_date_to or '...'}]"
+        if (raw_date or raw_date_from or raw_date_to)
+        else ""
+    )
     header = f"Chat history search results for {raw_query!r}{date_range_label} ({len(rows)} matches):"
     lines = [header + "\n"]
     for row in rows:
         ts_val = row["ts"]
-        ts_str = datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts_val else "unknown time"
+        ts_str = (
+            datetime.fromtimestamp(ts_val, tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            if ts_val
+            else "unknown time"
+        )
         role_label = cfg.USER_NAME if row["role"] == "user" else cfg.ASSISTANT_NAME
         lines.append(f"[ID: {row['id']}] [{ts_str}] {role_label}:\n{row['content']}\n")
 
@@ -1952,7 +2058,7 @@ def create_calendar_event(
             end_at=end_at,
             description=description,
             location=location,
-            recurrence=recurrence
+            recurrence=recurrence,
         )
         if result["status"] == "success":
             recur_lbl = f"\n- Recurrence: {recurrence_rule}" if recurrence_rule else ""
@@ -1969,12 +2075,7 @@ def create_calendar_event(
 
 
 def delete_calendar_event(
-    event_id: str = "",
-    query: str = "",
-    title: str = "",
-    target_date: str = "",
-    date: str = "",
-    **kwargs
+    event_id: str = "", query: str = "", title: str = "", target_date: str = "", date: str = "", **kwargs
 ) -> str:
     """Delete an event from Google Calendar using its title/summary or event ID.
 
@@ -2049,11 +2150,7 @@ def create_task(
         result = gtasks_sync.create_gtask(title=title, due=due_at, notes=notes)
         if result.get("status") == "success":
             due_lbl = f"\n- Due: {due_at}" if due_at else ""
-            return (
-                f"Successfully created task on Google Tasks:\n"
-                f"- ID: {result['task_id']}\n"
-                f"- Title: {title}{due_lbl}"
-            )
+            return f"Successfully created task on Google Tasks:\n- ID: {result['task_id']}\n- Title: {title}{due_lbl}"
         else:
             return f"Failed to create task: {result.get('message')}"
     except (sqlite3.Error, OSError, ValueError, KeyError) as e:
@@ -2126,7 +2223,7 @@ def list_tasks(include_completed: bool = False, due_within_days: int | None = No
                 include_completed = bool(kwargs.get("completed"))
             if "days" in kwargs:
                 due_within_days = int(kwargs.get("days"))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             pass
 
         tasks = gtasks_sync.get_cached_tasks(include_completed=include_completed, due_within_days=due_within_days)
@@ -2176,7 +2273,7 @@ def get_agenda(days: int = 7, **kwargs) -> str:
     try:
         try:
             days = int(days or kwargs.get("num_days") or kwargs.get("days_forward") or 7)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             days = 7
         events = gcal_sync.get_cached_gcal_events(days_back=1, days_forward=days)
         tasks = gtasks_sync.get_cached_tasks(include_completed=False, due_within_days=days)
@@ -2209,7 +2306,6 @@ def get_agenda(days: int = 7, **kwargs) -> str:
         return "\n\n".join(sections)
     except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return f"Error fetching agenda: {e}"
-
 
 
 def manage_vault_list(
@@ -2307,7 +2403,7 @@ def read_file(file_path: str = "", max_lines: int = 200, **kwargs) -> str:
     file_path = file_path or str(kwargs.get("path") or kwargs.get("filepath") or "")
     try:
         max_lines = int(max_lines)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         max_lines = 200
     return terminal_agent.read_file(file_path, max_lines)
 
@@ -2352,6 +2448,7 @@ def get_health_metrics(date: str = "today", metric: str = "summary", hours: floa
         str: JSON formatted string containing the requested health metrics.
     """
     import json
+
     _reload()
     date = date or str(kwargs.get("target_date") or kwargs.get("d") or "today")
     metric = (metric or str(kwargs.get("type") or kwargs.get("category") or "summary")).lower().strip()
@@ -2362,7 +2459,7 @@ def get_health_metrics(date: str = "today", metric: str = "summary", hours: floa
         if raw_hours is not None:
             try:
                 hours = float(raw_hours)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 hours = None
 
     if metric in ("heart_rate", "hr", "granular_hr", "heartrate", "pulse"):
@@ -2405,10 +2502,11 @@ def get_recent_workouts(days: int = 7, hours: float | None = None, **kwargs) -> 
         str: JSON formatted string of recent workouts.
     """
     import json
+
     _reload()
     try:
         days = int(days or kwargs.get("num_days") or 7)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         days = 7
 
     if hours is None:
@@ -2416,7 +2514,7 @@ def get_recent_workouts(days: int = 7, hours: float | None = None, **kwargs) -> 
         if raw_hours is not None:
             try:
                 hours = float(raw_hours)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 hours = None
 
     res = health_manager.get_recent_workouts(days=days, hours=hours)
@@ -2472,26 +2570,26 @@ def sync_google_drive(force: bool = False, **kwargs) -> str:
 #   generate_image       → "medium": creative framing
 #   run/read/write_file  → "medium": context-dependent
 TOOL_THINK_EFFORT: dict[str, str] = {
-    "write_journal_entry":   "high",
-    "write_dream_entry":     "medium",
-    "generate_image":        "medium",
-    "web_search":            "medium",
-    "start_research":        "high",
-    "list_research_tasks":   "low",
+    "write_journal_entry": "high",
+    "write_dream_entry": "medium",
+    "generate_image": "medium",
+    "web_search": "medium",
+    "start_research": "high",
+    "list_research_tasks": "low",
     "inspect_research_task": "medium",
-    "guide_research":        "medium",
-    "check_new_research":    "medium",
-    "search_history":        "low",
+    "guide_research": "medium",
+    "check_new_research": "medium",
+    "search_history": "low",
     "create_calendar_event": "low",
     "delete_calendar_event": "low",
-    "sync_google_calendar":  "low",
-    "get_agenda":            "low",
-    "get_health_metrics":    "low",
-    "get_recent_workouts":   "low",
-    "sync_google_drive":     "low",
-    "run_command":           "medium",
-    "read_file":             "medium",
-    "write_file":            "medium",
+    "sync_google_calendar": "low",
+    "get_agenda": "low",
+    "get_health_metrics": "low",
+    "get_recent_workouts": "low",
+    "sync_google_drive": "low",
+    "run_command": "medium",
+    "read_file": "medium",
+    "write_file": "medium",
 }
 
 MODEL_TOOL_DEFINITIONS = [
@@ -2530,27 +2628,23 @@ MODEL_TOOL_DEFINITIONS = [
                             "shared thoughts and banter where you engaged together. "
                             "Cover ONLY events occurring after the latest '--- Date Changed ---' marker. "
                             "Avoid rigid chronological formulas (e.g., forcing morning/afternoon/night buckets), "
-                            "cliché moral conclusions, or empty poetic filler. Use [[wiki-links]] for entities and #tags for concepts."
+                            "cliché moral conclusions, or empty poetic filler."
                         ),
                     },
                     "message_in_a_bottle": {
                         "type": "string",
                         "description": "A brief closing thought, lingering question, or parting send-off tailored to your established dynamic with the user.",
                     },
-                    "tags": {
-                        "type": "string",
-                        "description": "Comma-separated tags representing core themes, entities, or activities.",
-                    },
                 },
                 "required": [
                     "mood",
                     "vibe_check",
                     "narrative",
+                    "message_in_a_bottle",
                 ],
             },
         },
     },
-
     {
         "type": "function",
         "function": {
@@ -2592,7 +2686,6 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
-
     {
         "type": "function",
         "function": {
@@ -3216,11 +3309,17 @@ MODEL_TOOL_DEFINITIONS = [
                             "properties": {
                                 "name": {"type": "string", "description": "Item name"},
                                 "quantity": {"type": "number", "description": "Quantity count/amount"},
-                                "unit": {"type": "string", "description": "Measurement unit (e.g. 'gal', 'boxes', 'lbs', 'bunch')"},
-                                "category": {"type": "string", "description": "Category or section header in the note (e.g. 'Produce', 'Dairy & Refrigerated', 'Pantry')"}
+                                "unit": {
+                                    "type": "string",
+                                    "description": "Measurement unit (e.g. 'gal', 'boxes', 'lbs', 'bunch')",
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Category or section header in the note (e.g. 'Produce', 'Dairy & Refrigerated', 'Pantry')",
+                                },
                             },
-                            "required": ["name"]
-                        }
+                            "required": ["name"],
+                        },
                     },
                     "category": {
                         "type": "string",
@@ -3274,6 +3373,7 @@ TOOL_FUNCTIONS = {
     "write_file": write_file,
 }
 
+
 # ---------------------------------------------------------------------------
 # Dynamic Tool Tiering & Activation
 # ---------------------------------------------------------------------------
@@ -3290,9 +3390,7 @@ _MODEL_TOOL_MAP: dict[str, dict[str, Any]] = {
     _extract_tool_name(t): t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t)
 }
 CORE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
-    _MODEL_TOOL_MAP[name]
-    for name in getattr(cfg, "CORE_TOOL_NAMES", [])
-    if name in _MODEL_TOOL_MAP
+    _MODEL_TOOL_MAP[name] for name in getattr(cfg, "CORE_TOOL_NAMES", []) if name in _MODEL_TOOL_MAP
 ]
 
 
@@ -3321,8 +3419,9 @@ def get_active_tools(
     if not procs_to_check and user_message:
         try:
             from Evelyn.tools import memory_db
+
             procs_to_check = memory_db.search_procedures_by_trigger(user_message, status="live")[:3]
-        except (sqlite3.Error, OSError, ValueError, RuntimeError, ImportError):
+        except sqlite3.Error, OSError, ValueError, RuntimeError, ImportError:
             procs_to_check = []
 
     for proc in procs_to_check:
@@ -3355,5 +3454,3 @@ def get_active_tools(
 
     # Maintain canonical ordering from MODEL_TOOL_DEFINITIONS
     return [t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t) in active_names]
-
-
