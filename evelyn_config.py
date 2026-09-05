@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-04 16:35:32
+# date modified: 2026-09-05 18:26:13
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -912,6 +912,9 @@ TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55   # Cosine distance above which a note dom
 MASTER_LIBRARIAN_ENABLED = True
 MASTER_LIBRARIAN_IDLE_THRESHOLD = 300   # 5 minutes idle (Reflex tier)
 MASTER_LIBRARIAN_BATCH_SIZE = 5         # Process 5 documents per idle burst
+LIBRARIAN_FOLDER_BATCH_CAP = 5          # Max docs processed per directory cluster per run
+LIBRARIAN_AUDIT_COOLDOWN_SECONDS = 3600 # 1 hour minimum before re-auditing clean notes
+LIBRARIAN_GHOST_STUB_MIN_REFS = 2       # Minimum references across vault for Tier 1 autonomous stub creation
 LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",
 ]

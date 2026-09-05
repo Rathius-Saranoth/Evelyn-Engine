@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-05 08:29:30
+# date modified: 2026-09-05 18:28:37
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.067"
-__version_info__ = (0, 6, 67)
-__version_name__ = "Master Librarian & Canonical Backlog Drainer"
+__version__ = "000.006.068"
+__version_info__ = (0, 6, 68)
+__version_name__ = "Unified Master Librarian Persona & Anti-Loop Engine"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

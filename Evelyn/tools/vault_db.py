@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-05 17:44:05
+# date modified: 2026-09-05 18:24:59
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -408,7 +408,11 @@ def get_all_entities() -> list[dict[str, Any]]:
     return entities
 
 
-def fetch_next_document_for_librarian_audit(batch_size: int = 1) -> list[dict[str, Any]]:
+def fetch_next_document_for_librarian_audit(
+    batch_size: int = 1,
+    cooldown_seconds: int = 0,
+    folder_cluster: str | None = None,
+) -> list[dict[str, Any]]:
     """Fetch next vault documents eligible for Master Librarian single-pass audit.
 
     Composite Priority Tiers:
@@ -417,9 +421,12 @@ def fetch_next_document_for_librarian_audit(batch_size: int = 1) -> list[dict[st
         3. Round-robin rotation of previously clean documents (oldest last_librarian_audit first)
 
     Excluded documents (via LIBRARIAN_EXCLUDED_DOCUMENTS or TAG_LIBRARIAN_EXCLUDED_DOCUMENTS) are omitted.
+    Documents recently audited within cooldown_seconds whose mtime has not changed are safely skipped.
 
     Args:
         batch_size: Maximum number of documents to return.
+        cooldown_seconds: Minimum seconds required before re-auditing a clean document.
+        folder_cluster: Optional folder prefix to drain notes from a specific directory.
 
     Returns:
         list[dict[str, Any]]: List of document metadata dicts.
@@ -432,12 +439,27 @@ def fetch_next_document_for_librarian_audit(batch_size: int = 1) -> list[dict[st
         getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", []),
     )
 
-    where_clause = ""
+    where_conditions = []
     params: list[Any] = []
     if excluded_paths:
         placeholders = ", ".join(["?"] * len(excluded_paths))
-        where_clause = f"WHERE path NOT IN ({placeholders})"
-        params = list(excluded_paths)
+        where_conditions.append(f"path NOT IN ({placeholders})")
+        params.extend(excluded_paths)
+
+    if folder_cluster:
+        clean_folder = folder_cluster.replace("\\", "/").strip("/")
+        where_conditions.append("(path LIKE ? OR path LIKE ?)")
+        params.extend([f"{clean_folder}/%", f"{clean_folder}"])
+
+    if cooldown_seconds > 0:
+        now = time.time()
+        # Allow if never audited, if modified after audit, or if audit is older than cooldown
+        where_conditions.append(
+            "(last_librarian_audit IS NULL OR last_librarian_audit = 0 OR mtime > last_librarian_audit OR (? - last_librarian_audit) >= ?)"
+        )
+        params.extend([now, cooldown_seconds])
+
+    where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
 
     query = f"""
         SELECT * FROM vault_documents

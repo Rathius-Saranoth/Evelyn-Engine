@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-05 17:42:38
+# date modified: 2026-09-05 18:26:06
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -28,6 +28,7 @@ from Evelyn.tools import (
     format_librarian,
     link_librarian,
     path_utils,
+    tag_librarian,
     vault_db,
 )
 
@@ -38,20 +39,31 @@ def audit_single_document(
     doc_path: str | None = None,
     vault_root: str | None = None,
     dry_run: bool = False,
+    include_tags: bool = True,
+    enable_llm_tags: bool = False,
+    inherit_parent_tags: bool = True,
+    auto_create_ghost_stubs: bool = True,
 ) -> dict[str, Any]:
-    """Audit and normalize a single vault document in a single pass.
+    """Audit and normalize a single vault document in a single read-transform-write pass.
 
     Pipeline:
         1. Load content and frontmatter once.
         2. Format_Librarian: schema validation, flow arrays, clean icon brackets.
-        3. Link_Librarian: spurious code array wrapping, bare attachments, alias hygiene.
-        4. Atomic write via sibling temporary file + os.replace if changes occurred.
-        5. Update vault_documents audit timestamps and log to librarian_activity_log.
+        3. Tag_Librarian: casing normalization, noise prefix removal, parent collection inheritance,
+           and optional Tag RAG evaluation.
+        4. Link_Librarian: spurious code array wrapping, bare attachments, parent breadcrumbs, ghost links.
+        5. Ghost Link Resolution: Tier 1 stub generation or Tier 2 proposal logging.
+        6. Atomic write via sibling temporary file + os.replace if changes occurred.
+        7. Update vault_documents audit timestamps, tags, and log to librarian_activity_log.
 
     Args:
         doc_path: Optional relative path of document. If None, queries vault_db queue.
         vault_root: Optional vault root directory.
         dry_run: If True, simulates transformations without writing to disk or database.
+        include_tags: Whether to include tag normalization pass.
+        enable_llm_tags: Whether to invoke Ollama for semantic tagging.
+        inherit_parent_tags: Whether to inherit domain tags from parent _index.md.
+        auto_create_ghost_stubs: Whether to synthesize Tier 1 ghost link stubs.
 
     Returns:
         dict[str, Any]: Execution summary dict.
@@ -99,10 +111,55 @@ def audit_single_document(
         content, path=doc_path
     )
 
-    # 2. Link Librarian pass
+    # 2. Tag Librarian pass (with collection inheritance)
+    tag_changed = False
+    tag_details: dict[str, Any] = {}
+    if include_tags:
+        parent_tags: list[str] = []
+        if inherit_parent_tags and "/" in doc_path:
+            dirpath = os.path.dirname(doc_path)
+            parent_index = os.path.join(root, dirpath, "_index.md")
+            if not os.path.exists(parent_index):
+                folder_name = os.path.basename(dirpath)
+                parent_index = os.path.join(root, dirpath, f"{folder_name}_index.md")
+            if os.path.exists(parent_index):
+                try:
+                    with open(parent_index, encoding="utf-8") as pif:
+                        p_meta, _ = tag_librarian.parse_frontmatter(pif.read())
+                        raw_pt = p_meta.get("tags", [])
+                        if isinstance(raw_pt, list):
+                            parent_tags = [str(t) for t in raw_pt if str(t).lower() not in ("moc", "index")]
+                except OSError:
+                    pass
+
+        tag_changed, content, tag_details = tag_librarian.audit_document_tags(
+            content,
+            path=doc_path,
+            vault_root=root,
+            enable_llm=enable_llm_tags,
+            parent_tags=parent_tags,
+        )
+
+    # 3. Link Librarian pass
     link_changed, content, link_details = link_librarian.audit_document_links(
         content, path=doc_path, vault_root=root
     )
+
+    # 4. Optional Tier 1 Ghost Link Stub Synthesis
+    ghost_targets = link_details.get("ghost_targets", [])
+    stubs_created = []
+    if auto_create_ghost_stubs and ghost_targets and not dry_run:
+        min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2)
+        for gt in ghost_targets:
+            res = link_librarian.create_ghost_link_stub(
+                target_name=gt,
+                source_path=doc_path,
+                context_excerpt=content[:250],
+                vault_root=root,
+                min_refs=min_refs,
+            )
+            if res.get("status") == "created_stub":
+                stubs_created.append(gt)
 
     post_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     modified = pre_hash != post_hash
@@ -113,8 +170,14 @@ def audit_single_document(
     actions = []
     if format_changed:
         actions.extend(format_details.get("format_fixes", ["format_updated"]))
+    if tag_changed:
+        actions.append(f"tags_updated:{len(tag_details.get('final_tags', []))}")
     if link_changed:
         actions.extend(link_details.get("actions", ["links_updated"]))
+    if stubs_created:
+        actions.append(f"synthesized_stubs:{len(stubs_created)}")
+
+    tags_str = ", ".join(tag_details.get("final_tags", [])) if tag_details else None
 
     if modified and not dry_run:
         # Atomic sibling file replacement
@@ -129,13 +192,15 @@ def audit_single_document(
 
         new_mtime = os.path.getmtime(abs_path)
         vault_db.update_document_librarian_audit(
-            doc_path, ghost_count=ghost_count, mtime=new_mtime
+            doc_path,
+            ghost_count=ghost_count,
+            tags=tags_str,
+            mtime=new_mtime,
         )
 
         category = (
             os.path.dirname(doc_path).split("/")[0] if "/" in doc_path else "General"
         )
-        # Extract short excerpt from content body (up to 300 chars)
         lines = [
             l.strip()
             for l in content.splitlines()
@@ -143,7 +208,7 @@ def audit_single_document(
         ]
         excerpt = " ".join(lines[:3])[:300] if lines else ""
 
-        summary = f"Tidied frontmatter and links in '{title or doc_path}': {', '.join(actions[:3])}"
+        summary = f"Tended note '{title or doc_path}': {', '.join(actions[:3])}"
         vault_db.log_librarian_activity(
             path=doc_path,
             title=title or doc_path,
@@ -156,7 +221,11 @@ def audit_single_document(
             f"[MASTER LIBRARIAN] Cleaned '{doc_path}' ({len(actions)} actions)."
         )
     elif not dry_run:
-        vault_db.update_document_librarian_audit(doc_path, ghost_count=ghost_count)
+        vault_db.update_document_librarian_audit(
+            doc_path,
+            ghost_count=ghost_count,
+            tags=tags_str,
+        )
 
     elapsed_ms = int((time.time() - t0) * 1000)
 
@@ -168,7 +237,9 @@ def audit_single_document(
         "actions": actions,
         "elapsed_ms": elapsed_ms,
         "format_details": format_details,
+        "tag_details": tag_details,
         "link_details": link_details,
+        "stubs_created": stubs_created,
     }
 
 
@@ -177,6 +248,10 @@ def run_master_librarian_audit(
     max_batches: int = 1,
     deadline: float | None = None,
     auto_re_enqueue: bool = True,
+    cooldown_seconds: int | None = None,
+    folder_cap: int | None = None,
+    include_tags: bool = True,
+    enable_llm_tags: bool = False,
 ) -> backlog_drainer.DrainResult:
     """Execute a batched Master Librarian audit run over the vault documents queue.
 
@@ -185,24 +260,52 @@ def run_master_librarian_audit(
         max_batches: Maximum batches per idle window (1 by default).
         deadline: Optional epoch deadline timestamp.
         auto_re_enqueue: Whether to re-enqueue in task_manager when yielding.
+        cooldown_seconds: Minimum seconds before re-auditing a clean note.
+        folder_cap: Maximum documents processed per folder cluster per run.
+        include_tags: Whether to include tag normalization.
+        enable_llm_tags: Whether to invoke Ollama for semantic Tag RAG.
 
     Returns:
         backlog_drainer.DrainResult: Outcome summary.
     """
+    cooldown = (
+        cooldown_seconds
+        if cooldown_seconds is not None
+        else getattr(cfg, "LIBRARIAN_AUDIT_COOLDOWN_SECONDS", 3600)
+    )
+    cap = (
+        folder_cap
+        if folder_cap is not None
+        else getattr(cfg, "LIBRARIAN_FOLDER_BATCH_CAP", 5)
+    )
+
+    def _get_folder(item: dict[str, Any]) -> str:
+        p = item.get("path", "")
+        return os.path.dirname(p) if "/" in p else ""
+
     drain_cfg = backlog_drainer.DrainConfig(
         batch_size=batch_size,
         max_batches=max_batches,
         deadline=deadline,
         auto_re_enqueue=auto_re_enqueue,
         manage_task_lifecycle=True,
+        group_by_fn=_get_folder,
+        max_items_per_group=cap,
     )
 
     def _fetch(limit: int) -> list[dict[str, Any]]:
-        return vault_db.fetch_next_document_for_librarian_audit(limit)
+        return vault_db.fetch_next_document_for_librarian_audit(
+            batch_size=limit,
+            cooldown_seconds=cooldown,
+        )
 
     def _process(doc: dict[str, Any]) -> None:
         path = doc["path"]
-        audit_single_document(path)
+        audit_single_document(
+            doc_path=path,
+            include_tags=include_tags,
+            enable_llm_tags=enable_llm_tags,
+        )
 
     return backlog_drainer.drain_backlog(
         task_name="master_librarian",
