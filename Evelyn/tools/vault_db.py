@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-08-28 11:41:29
+# date modified: 2026-09-05 17:44:05
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -66,12 +66,35 @@ def init_db() -> None:
             created_at REAL,
             updated_at REAL
         );
+
+        CREATE TABLE IF NOT EXISTS librarian_activity_log (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            path                    TEXT NOT NULL,
+            title                   TEXT,
+            category                TEXT,
+            actions_json            TEXT NOT NULL,
+            summary                 TEXT,
+            excerpt                 TEXT,
+            ts                      REAL NOT NULL,
+            last_ambient_thought_at REAL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_librarian_log_ts ON librarian_activity_log(ts);
+        CREATE INDEX IF NOT EXISTS idx_librarian_log_path ON librarian_activity_log(path);
+        CREATE INDEX IF NOT EXISTS idx_librarian_log_ambient ON librarian_activity_log(last_ambient_thought_at);
     """)
-    # Migration check: Ensure last_tag_audit column exists if table was created previously
+    # Migration checks: Ensure columns exist if table was created by older schema
     import contextlib
 
     with contextlib.suppress(sqlite3.OperationalError):
         con.execute("ALTER TABLE vault_documents ADD COLUMN last_tag_audit REAL")
+    with contextlib.suppress(sqlite3.OperationalError):
+        con.execute("ALTER TABLE vault_documents ADD COLUMN last_link_audit REAL")
+    with contextlib.suppress(sqlite3.OperationalError):
+        con.execute("ALTER TABLE vault_documents ADD COLUMN last_format_audit REAL")
+    with contextlib.suppress(sqlite3.OperationalError):
+        con.execute("ALTER TABLE vault_documents ADD COLUMN last_librarian_audit REAL")
+    with contextlib.suppress(sqlite3.OperationalError):
+        con.execute("ALTER TABLE vault_documents ADD COLUMN ghost_link_count INTEGER DEFAULT 0")
     con.commit()
     con.close()
 
@@ -383,4 +406,219 @@ def get_all_entities() -> list[dict[str, Any]]:
             "aliases": aliases
         })
     return entities
+
+
+def fetch_next_document_for_librarian_audit(batch_size: int = 1) -> list[dict[str, Any]]:
+    """Fetch next vault documents eligible for Master Librarian single-pass audit.
+
+    Composite Priority Tiers:
+        1. Un-audited documents (last_librarian_audit IS NULL or 0)
+        2. Modified documents (mtime > last_librarian_audit)
+        3. Round-robin rotation of previously clean documents (oldest last_librarian_audit first)
+
+    Excluded documents (via LIBRARIAN_EXCLUDED_DOCUMENTS or TAG_LIBRARIAN_EXCLUDED_DOCUMENTS) are omitted.
+
+    Args:
+        batch_size: Maximum number of documents to return.
+
+    Returns:
+        list[dict[str, Any]]: List of document metadata dicts.
+    """
+    init_db()
+    con = get_db()
+    excluded_paths = getattr(
+        cfg,
+        "LIBRARIAN_EXCLUDED_DOCUMENTS",
+        getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", []),
+    )
+
+    where_clause = ""
+    params: list[Any] = []
+    if excluded_paths:
+        placeholders = ", ".join(["?"] * len(excluded_paths))
+        where_clause = f"WHERE path NOT IN ({placeholders})"
+        params = list(excluded_paths)
+
+    query = f"""
+        SELECT * FROM vault_documents
+        {where_clause}
+        ORDER BY
+            CASE
+                WHEN last_librarian_audit IS NULL OR last_librarian_audit = 0 THEN 0
+                WHEN mtime > last_librarian_audit THEN 1
+                ELSE 2
+            END ASC,
+            last_librarian_audit ASC,
+            mtime DESC
+        LIMIT ?
+    """
+    params.append(max(1, batch_size))
+    rows = con.execute(query, params).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def update_document_librarian_audit(
+    path: str,
+    ghost_count: int | None = None,
+    tags: str | None = None,
+    aliases: str | None = None,
+    mtime: float | None = None,
+) -> None:
+    """Update librarian audit timestamps and optional metadata on a vault note.
+
+    Args:
+        path: Relative or absolute path of the document.
+        ghost_count: Optional count of broken wikilinks discovered.
+        tags: Optional updated comma-separated tags string.
+        aliases: Optional updated comma-separated aliases string.
+        mtime: Optional updated modification timestamp.
+    """
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    norm_path = path.replace("\\", "/")
+    norm_vault = vault_base.replace("\\", "/").rstrip("/")
+    if norm_path.startswith(norm_vault + "/"):
+        norm_path = norm_path[len(norm_vault) + 1 :]
+
+    init_db()
+    con = get_db()
+    now = time.time()
+
+    set_clauses = [
+        "last_librarian_audit = ?",
+        "last_link_audit = ?",
+        "last_format_audit = ?",
+    ]
+    vals: list[Any] = [now, now, now]
+
+    if ghost_count is not None:
+        set_clauses.append("ghost_link_count = ?")
+        vals.append(ghost_count)
+    if tags is not None:
+        set_clauses.append("tags = ?")
+        vals.append(tags)
+    if aliases is not None:
+        set_clauses.append("aliases = ?")
+        vals.append(aliases)
+    if mtime is not None:
+        set_clauses.append("mtime = ?")
+        vals.append(mtime)
+
+    vals.append(norm_path)
+    query = f"UPDATE vault_documents SET {', '.join(set_clauses)} WHERE path = ?"
+    con.execute(query, vals)
+    con.commit()
+    con.close()
+
+
+def log_librarian_activity(
+    path: str,
+    title: str,
+    category: str,
+    actions: list[str] | str,
+    summary: str = "",
+    excerpt: str = "",
+) -> int:
+    """Record an audit action in librarian_activity_log for ambient reflections.
+
+    Args:
+        path: Relative path of the document.
+        title: Title of the document.
+        category: High-level category or folder (e.g. 'D&D', 'Personal', 'Tech').
+        actions: List of action strings or JSON-serialized string.
+        summary: Brief human-readable description of what was cleaned.
+        excerpt: Short content snippet or abstract for context.
+
+    Returns:
+        int: Generated record ID.
+    """
+    import json
+
+    actions_json = json.dumps(actions) if isinstance(actions, list) else actions
+    norm_path = path.replace("\\", "/")
+
+    init_db()
+    con = get_db()
+    now = time.time()
+    cur = con.cursor()
+    cur.execute(
+        """INSERT INTO librarian_activity_log
+           (path, title, category, actions_json, summary, excerpt, ts, last_ambient_thought_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+        (norm_path, title, category, actions_json, summary, excerpt, now),
+    )
+    log_id = cur.lastrowid or 0
+    con.commit()
+    con.close()
+    return log_id
+
+
+def fetch_recent_librarian_curations(
+    limit: int = 5,
+    unreflected_only: bool = True,
+) -> list[dict[str, Any]]:
+    """Retrieve recent curation events for the ambient reflector thought generator.
+
+    Args:
+        limit: Max records to return.
+        unreflected_only: If True, prioritizes records where last_ambient_thought_at == 0.
+
+    Returns:
+        list[dict[str, Any]]: List of activity log dicts.
+    """
+    init_db()
+    con = get_db()
+    where = "WHERE last_ambient_thought_at = 0" if unreflected_only else ""
+    query = f"""
+        SELECT * FROM librarian_activity_log
+        {where}
+        ORDER BY last_ambient_thought_at ASC, ts DESC
+        LIMIT ?
+    """
+    rows = con.execute(query, (limit,)).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def mark_librarian_curation_reflected(log_id: int) -> None:
+    """Mark a curation record as reflected to trigger ambient cooldown."""
+    init_db()
+    con = get_db()
+    con.execute(
+        "UPDATE librarian_activity_log SET last_ambient_thought_at = ? WHERE id = ?",
+        (time.time(), log_id),
+    )
+    con.commit()
+    con.close()
+
+
+def get_librarian_status_summary() -> dict[str, Any]:
+    """Get high-level statistics of Master Librarian curation and audit progress."""
+    init_db()
+    con = get_db()
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT COUNT(*) FROM vault_documents")
+        total_notes = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM vault_documents WHERE last_librarian_audit IS NOT NULL AND last_librarian_audit > 0"
+        )
+        audited_notes = cur.fetchone()[0]
+        cur.execute("SELECT COALESCE(SUM(ghost_link_count), 0) FROM vault_documents")
+        ghost_links = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM librarian_activity_log")
+        total_activities = cur.fetchone()[0]
+    finally:
+        con.close()
+
+    audit_pct = round((audited_notes / total_notes * 100), 1) if total_notes > 0 else 0.0
+    return {
+        "total_notes": total_notes,
+        "audited_notes": audited_notes,
+        "audit_pct": audit_pct,
+        "ghost_links": ghost_links,
+        "total_activities": total_activities,
+        "total_modifications": total_activities,
+    }
+
 

@@ -510,6 +510,12 @@ AMBIENT_ACTIVITIES = [
         "enabled": True,
         "weights": {"morning": 0.15, "afternoon": 0.05, "evening": 0.10, "night": 0.30},
     },
+    {
+        "id": "librarian_curation",
+        "type": "librarian_curation",
+        "enabled": True,
+        "weights": {"morning": 0.20, "afternoon": 0.25, "evening": 0.15, "night": 0.10},
+    },
 ]
 
 # =============================================================================
@@ -899,6 +905,16 @@ CHROMA_TAG_COLLECTION = "evelyn_tag_taxonomy"
 CHROMA_MEDIA_COLLECTION = "evelyn_media"
 TAG_LIBRARIAN_TOP_K_TAGS = 35           # Max semantically matched master tags to retrieve
 TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55   # Cosine distance above which a note domain is deemed novel
+
+# =============================================================================
+# Master Librarian Configuration (Unified Vault Health & Governance)
+# =============================================================================
+MASTER_LIBRARIAN_ENABLED = True
+MASTER_LIBRARIAN_IDLE_THRESHOLD = 300   # 5 minutes idle (Reflex tier)
+MASTER_LIBRARIAN_BATCH_SIZE = 5         # Process 5 documents per idle burst
+LIBRARIAN_EXCLUDED_DOCUMENTS = [
+    "Projects/Evelyn Engine/README.md",
+]
 
 
 

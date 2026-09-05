@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-03 19:53:01
+date modified: 2026-09-05 17:54:33
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -379,6 +379,19 @@ Endpoints driving the background research engine and the interactive developer d
 ### `GET /thought_bubble`
 * **Purpose**: Backwards-compatible fast endpoint returning the single most recent active thought bubble for ambient UI chips.
 * **Returns**: `{"status": "ok", "latest_thought": {"id": 1, "content": "...", "metadata": {"mood": "Inspired"}}}`
+
+---
+
+## 11. Master Librarian Endpoints
+
+### `GET /api/librarian/status`
+* **Purpose**: Returns real-time health and progress statistics of Master Librarian vault curation, audited document ratios, ghost link totals, and recent activity records.
+* **Returns**: `{"status": "ok", "total_notes": 4234, "audited_notes": 120, "audit_pct": 2.8, "ghost_links": 45, "total_activities": 12, "total_modifications": 12, "recent_activity": [...]}`
+
+### `POST /api/librarian/run`
+* **Purpose**: Manually initiates an immediate Master Librarian curation audit batch. Rejects with `409 Conflict` if another heavy task currently holds the lock.
+* **Query / Body Parameters**: `batch_size` (int, default 5), `max_batches` (int, default 1).
+* **Returns**: `{"status": "started", "batch_size": 5, "max_batches": 1}`
 
 ---
 

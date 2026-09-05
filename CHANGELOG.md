@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-04 21:39:40
+date modified: 2026-09-05 17:44:31
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,40 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.067] - 2026-09-05 — *Master Librarian Module & Canonical Backlog Drainer*
+
+### Added & Orchestrated
+- **Canonical Backlog Drainer Framework (`Evelyn/tools/backlog_drainer.py`)**:
+  - Created universal synchronous (`drain_backlog`) and asynchronous (`drain_backlog_async`) queue drainer engines configured via `DrainConfig` and reporting through `DrainResult`.
+  - Implemented per-item error isolation with dead-letter handler support, wall-clock deadline guards, cooperative preemption yielding to higher-priority tasks with automatic re-enqueueing, and full `task_manager` lifecycle encapsulation (`manage_task_lifecycle`).
+- **Master Librarian Orchestrator & Sub-Librarians (`Evelyn/tools/master_librarian.py`, `link_librarian.py`, `format_librarian.py`, `index_librarian.py`)**:
+  - `master_librarian.py`: Autonomous single-pass read-transform-write curation pipeline with SHA-256 change detection, atomic sibling temp-file replacement (`.tmp_{pid}`), activity logging, and dry-run simulation mode.
+  - `link_librarian.py`: High-speed link hygiene featuring code-protected spurious array wrapping (`array([[...]])` backtick enclosure outside fenced/inline blocks), bare attachment path resolution to `Attachments/` subdirectories, possessive `'s` and plural `s` pruning, doc-type tag migration, and parent chapter breadcrumb synthesis.
+  - `format_librarian.py`: Single-line flow array quoting and syntax normalization (`normalize_flow_array`), icon bracket unnesting (`clean_icon_brackets`), frontmatter validation.
+  - `index_librarian.py`: Directory TOC synchronization and atomic `_index.md` audit timestamp update.
+- **Database Migration `000.006.067` (`Evelyn/tools/db_migrator.py`, `Evelyn/tools/vault_db.py`)**:
+  - Added audit timestamps (`last_link_audit`, `last_format_audit`, `last_librarian_audit`, `ghost_link_count`) to `vault_documents`.
+  - Created `librarian_activity_log` with indexes on timestamp, path, and ambient reflection cooldown.
+  - Added composite starvation-resistant document selection queue in `vault_db.py` (uninspected notes $\rightarrow$ modified notes $\rightarrow$ round-robin rotation).
+- **Ambient Reflector Integration (`Evelyn/tools/ambient_providers.py`, `evelyn_config.py`)**:
+  - Added `LibrarianCurationProvider` generating `<librarian_curation>` XML envelopes, framing library curation and document tidying as an act of domestic self-care in Evelyn's diurnal thought bubbles.
+  - Added diurnal reflection weights in `evelyn_config.py` (`morning: 0.20, afternoon: 0.25, evening: 0.15, night: 0.10`).
+- **System Service, DevUI & CLI Runner (`evelyn_server.py`, `evelyn_ui/dev.html`, `scripts/master_librarian.py`)**:
+  - Registered `master_librarian` in task schedule map, idle loop (5m idle threshold, limit 5 docs), and `/api/heavy_tasks` dynamic diagnostics.
+  - Added `/api/librarian/status` and `/api/librarian/run` endpoints with DevUI monitor card and manual run action.
+  - Authored standalone CLI runner `scripts/master_librarian.py` with `--limit`, `--dry-run`, `--path`, and `--all`.
+
+## [000.006.066] - 2026-09-05 — *DevUI Proposal Edit Persistence & Persona Ingest Integrity*
+ 
+### Fixed & Hardened
+- **DevUI Proposal Input Clobbering Prevention (`evelyn_ui/dev.html`)**:
+  - Implemented `captureActiveEdits()` called immediately at the entry of `render()`, extracting live DOM textarea values (`prop-edit-${id}`) and procedure merge fields (`proc-merge-...`) back into the in-memory `unifiedItems` cache prior to DOM regeneration. This permanently prevents edits from being silently overwritten when sub-actions (e.g. editing/saving an inline source entry) trigger a triage queue re-render.
+  - Upgraded `updateLiveDiff()` to immediately synchronize `item.merged_observation = textarea.value` in the client memory model on every keystroke.
+  - Added debounced (500ms) background persistence sending `POST /api/review/proposals/${id}/edit` to ensure user edits survive page navigation, tab switching, and accidental browser reloads.
+- **Narrative Persona Typo & Formatting Remediation (`Evelyn/persona/Evelyn_Narrative_Persona.md`)**:
+  - Corrected legacy LLM-generated hallucinated typo `applying a "clearE" coat` back to `applying a "clear coat"`.
+  - Pruned explicit restrictive examples in `## Relationship & Support` from `terms of endearment like "my love" or "darling,"` to `terms of endearment,`, restoring intended conversational flexibility.
 
 ## [000.006.065] - 2026-09-04 — *Journal Reflection Schema Purification & Link Librarian Roadmap*
 

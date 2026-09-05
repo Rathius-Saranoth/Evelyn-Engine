@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-04 21:39:40
+date modified: 2026-09-05 17:44:41
 ---
 # Evelyn Project Roadmap
 
@@ -89,13 +89,13 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Chat History Prompt De-duplication & Context Retrieval Hardening (v000.006.044)**: Bounded history retrieval (`id < before_id`) with composite indexed multi-channel isolation, omitted raw query reflection from `<context_retrieval>` XML tags, and streamlined non-diegetic abstract thinking protocols.
 - [x] **Direct High-Speed Vector RAG & Dynamic Tool Surfacing (v000.006.046)**: Replaced slow synchronous LLM query reformulation with 15x faster direct dense vector search (`bge-large-en-v1.5`), implemented dynamic tool tiering (Core 8 vs Specialist Tools) coupled to Procedures and intent heuristics, and enforced affirmative profile evolution.
 - [x] **Precision RAG Section & Abstract Targeting (v000.006.047)**: Pre-chunk sanitization of YAML frontmatter, navigation breadcrumbs, and link-index footers before embedding, paired with abstract callout extraction (`[!ABSTRACT]`) and mid-document excerpt anchoring.
+- [x] **Master Librarian & Autonomous Link Governance (v000.006.067)**: Unified single-pass vault curation engine (`master_librarian`, `link_librarian`, `format_librarian`, `index_librarian`) powered by the reusable `backlog_drainer` framework, resolving ghost links and bare attachments with code block protection, normalizing YAML flow arrays, maintaining directory TOCs, and grounding ambient thought reflections in domestic library maintenance.
 
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
 - [ ] **Dynamic Configuration UI & Runtime Settings Manager**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct CLI or file edits.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard**: Comprehensive metrics dashboard to track engine usage, prompt sentiment/volume, evaluation regressions, RAG/vault knowledge utilization, research outcomes, VAD telemetry, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Chat History Soft-Deletion & Observability Preserving**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context and memory extraction.
-- [ ] **Autonomous Link Librarian (`link_librarian`)**: Background agent and post-save normalizer that resolves unaliased entities against the vault document registry, disambiguates entity mentions, repairs ghost links, and suggests thematic cross-references.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 

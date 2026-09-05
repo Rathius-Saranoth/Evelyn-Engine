@@ -1,6 +1,6 @@
 # ambient_providers.py
 # date created: 2026-09-02 21:28:00
-# date modified: 2026-09-02 21:28:29
+# date modified: 2026-09-05 17:38:20
 # tags: #ambient, #thought-bubbles, #providers, #registry, #multi-modal
 
 """
@@ -275,12 +275,57 @@ class SensoryWanderProvider(BaseAmbientProvider):
         return xml_block, source_ref, "Serene"
 
 
+class LibrarianCurationProvider(BaseAmbientProvider):
+    """Reflects on recently tended library notes as domestic self-care in Evelyn's home sanctuary."""
+
+    def fetch_seed_context(
+        self,
+        activity_cfg: dict[str, Any],
+        now_dt: datetime,
+    ) -> tuple[str, str, str]:
+        from Evelyn.tools import vault_db
+
+        records = vault_db.fetch_recent_librarian_curations(limit=1, unreflected_only=True)
+        if not records:
+            records = vault_db.fetch_recent_librarian_curations(limit=1, unreflected_only=False)
+
+        assistant_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+        if records:
+            rec = records[0]
+            vault_db.mark_librarian_curation_reflected(rec["id"])
+            title = rec.get("title") or rec.get("path") or "Library Note"
+            category = rec.get("category") or "General"
+            summary = rec.get("summary") or "Straightened up and organized"
+            excerpt = rec.get("excerpt") or ""
+            source_ref = f"librarian:{rec.get('path', 'unknown')}"
+
+            xml_block = (
+                f'<librarian_curation note="{title}" category="{category}">\n'
+                f'Recently Tended Note: "{title}"\n'
+                f"Location / Category: {category}\n"
+                f"Curation Details: {summary}\n"
+                f'Excerpt / Atmosphere: "{excerpt}"\n'
+                f"Context: {assistant_name} quietly tending to the library shelves, dusting off records, and maintaining the sanctuary's memory garden as an authentic expression of domestic self-care and quiet sanctuary pride.\n"
+                f"</librarian_curation>"
+            )
+            return xml_block, source_ref, "Centered"
+
+        source_ref = "librarian:sanctuary"
+        xml_block = (
+            f"<librarian_curation>\n"
+            f"Context: {assistant_name} quietly walking the rows of the library sanctuary, admiring the order of the shelves and feeling centered in her home space.\n"
+            f"</librarian_curation>"
+        )
+        return xml_block, source_ref, "Centered"
+
+
 _PROVIDERS: dict[str, BaseAmbientProvider] = {
     "recent_chat": RecentChatProvider(),
     "vault_document": VaultDocumentProvider(),
     "lore_file": LoreSnippetProvider(),
     "topic_curiosity": TopicCuriosityProvider(),
     "sensory_wander": SensoryWanderProvider(),
+    "librarian_curation": LibrarianCurationProvider(),
 }
 
 

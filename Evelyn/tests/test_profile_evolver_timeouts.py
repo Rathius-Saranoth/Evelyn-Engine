@@ -68,7 +68,8 @@ class TestProfileEvolverTimeouts(unittest.IsolatedAsyncioTestCase):
         with patch.object(cfg, "PROFILE_EVOLUTION_ENABLED", True), \
              patch.object(cfg, "PROFILE_EVOLUTION_COOLDOWN", 0), \
              patch.object(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 1), \
-             patch.object(cfg, "PROFILE_EVOLUTION_DOC_TIMEOUT", 0.05):
+             patch.object(cfg, "PROFILE_EVOLUTION_DOC_TIMEOUT", 0.05), \
+             patch("profile_evolver._other_heavy_tasks_running", return_value=False):
             await profile_evolver.run_profile_evolution()
 
         # All 3 documents should have been attempted despite doc 1 timing out

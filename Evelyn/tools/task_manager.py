@@ -57,6 +57,7 @@ class TaskSchedule(StrEnum):
 TASK_SCHEDULE_MAP: dict[str, TaskSchedule] = {
     "extractor": TaskSchedule.REFLEX,
     "tag_librarian": TaskSchedule.REFLEX,
+    "master_librarian": TaskSchedule.REFLEX,
     "refresh_memory": TaskSchedule.REFLEX,
     "vault_map": TaskSchedule.REFLEX,
     "sync": TaskSchedule.REFLEX,
@@ -80,6 +81,7 @@ HEAVY_TASK_KEYS = frozenset({
     "sync",
     "vault_map",
     "tag_librarian",
+    "master_librarian",
     # Research subprocess tasks are keyed as "task_<id>" — handled by prefix check.
 })
 
@@ -98,6 +100,7 @@ DEFAULT_SOFT_TIMEOUTS = {
     "vault_map": 600.0,              # 10 minutes
     "sync": 1800.0,                  # 30 minutes
     "tag_librarian": 600.0,          # 10 minutes
+    "master_librarian": 600.0,       # 10 minutes
     "research_quick": 2400.0,        # 40 minutes (wall_clock is 1800s + grace buffer)
     "research_standard": 9000.0,     # 2.5 hours (wall_clock is 7200s + grace buffer)
     "research_deep": 32400.0,        # 9 hours (wall_clock is 28800s + grace buffer)
