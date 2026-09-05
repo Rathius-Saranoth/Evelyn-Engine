@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-04 06:37:37
+# date modified: 2026-09-05 18:41:13
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -4876,7 +4876,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         ("consolidator", "Fact Consolidator"),
         ("procedure_consolidator", "Procedure Consolidator"),
         ("profile_evolver", "Profile Evolver"),
-        ("tag_librarian", "Tag Librarian"),
         ("master_librarian", "Master Librarian"),
         ("refresh_memory", "Memory Refresh"),
         ("sync", "Chroma Sync"),
@@ -5037,35 +5036,6 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "total_live_procedures": proc_cnt,
                     "pending_proposals": pending_proposals,
                     "last_run_audited": last_audited,
-                }
-            elif key == "tag_librarian":
-                vdb = str(getattr(cfg, "VAULT_DB_PATH", BASE_DIR / "data" / "evelyn_vault.db"))
-                audited = 0
-                total = 0
-                tags_cnt = 0
-                if os.path.exists(vdb):
-                    conn = sqlite3.connect(vdb, timeout=1.0)
-                    try:
-                        cur = conn.cursor()
-                        cur.execute("SELECT COUNT(*) FROM master_tag_taxonomy")
-                        tags_cnt = cur.fetchone()[0]
-                        cur.execute(
-                            "SELECT COUNT(*) FROM vault_documents WHERE last_tag_audit IS NOT NULL AND last_tag_audit > 0"
-                        )
-                        audited = cur.fetchone()[0]
-                        cur.execute("SELECT COUNT(*) FROM vault_documents")
-                        total = cur.fetchone()[0]
-                    except (sqlite3.Error, OSError):
-                        pass
-                    finally:
-                        conn.close()
-                audit_pct = round((audited / total * 100), 1) if total > 0 else 0.0
-                sub_status = {
-                    **(sub_status or {}),
-                    "master_tags": tags_cnt,
-                    "audited_notes": audited,
-                    "total_notes": total,
-                    "audit_pct": audit_pct,
                 }
             elif key == "master_librarian":
                 vdb = str(getattr(cfg, "VAULT_DB_PATH", BASE_DIR / "data" / "evelyn_vault.db"))
