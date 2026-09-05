@@ -1,6 +1,6 @@
 # backlog_drainer.py
 # date created: 2026-09-05 17:35:00
-# date modified: 2026-09-05 17:35:15
+# date modified: 2026-09-05 18:24:53
 # tags: #queue, #drainer, #backlog, #batch, #cooperative_yielding, #task_manager
 
 """
@@ -46,6 +46,8 @@ class DrainConfig:
     yield_check_interval: int = 1  # Check should_yield every N items
     auto_re_enqueue: bool = True  # Re-enqueue task in task_manager when yielding
     manage_task_lifecycle: bool = True  # Call set_running / clear_running automatically
+    group_by_fn: Callable[[Any], str] | None = None  # Optional clustering key (e.g. folder path)
+    max_items_per_group: int = 0  # 0 = unlimited, >0 limits items processed per cluster group per run
 
 
 @dataclass
@@ -91,6 +93,7 @@ def drain_backlog[T](
         task_manager.set_running(task_name, phase="draining_backlog")
 
     try:
+        group_counts: dict[str, int] = {}
         batch_num = 0
         while True:
             # Check deadline before starting a new batch
@@ -108,7 +111,7 @@ def drain_backlog[T](
             # Fetch next batch
             try:
                 batch = fetch_batch_fn(cfg.batch_size)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.error(f"[{task_name}] Error fetching batch: {e}", exc_info=True)
                 result.errors_count += 1
                 result.errors.append({"stage": "fetch", "error": str(e)})
@@ -125,6 +128,13 @@ def drain_backlog[T](
                     result.deadline_exceeded = True
                     break
 
+                # Check group clustering limit if configured
+                if cfg.group_by_fn and cfg.max_items_per_group > 0:
+                    group_key = cfg.group_by_fn(item)
+                    if group_counts.get(group_key, 0) >= cfg.max_items_per_group:
+                        continue  # Skip item in this run to allow other clusters a turn
+                    group_counts[group_key] = group_counts.get(group_key, 0) + 1
+
                 # Check cooperative yield per interval
                 if (
                     cfg.yield_check_interval > 0
@@ -139,7 +149,7 @@ def drain_backlog[T](
                 try:
                     process_item_fn(item)
                     result.items_processed += 1
-                except Exception as item_err:  # noqa: BLE001
+                except Exception as item_err:
                     result.errors_count += 1
                     err_msg = str(item_err)
                     logger.warning(
@@ -215,6 +225,7 @@ async def drain_backlog_async[T](
         task_manager.set_running(task_name, phase="draining_backlog")
 
     try:
+        group_counts: dict[str, int] = {}
         batch_num = 0
         while True:
             if cfg.deadline is not None and time.time() >= cfg.deadline:
@@ -230,7 +241,7 @@ async def drain_backlog_async[T](
             try:
                 fetch_res = fetch_batch_fn(cfg.batch_size)
                 batch: list[T] = await fetch_res if inspect.isawaitable(fetch_res) else fetch_res  # type: ignore[assignment]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.error(f"[{task_name}] Error fetching batch: {e}", exc_info=True)
                 result.errors_count += 1
                 result.errors.append({"stage": "fetch", "error": str(e)})
@@ -244,6 +255,13 @@ async def drain_backlog_async[T](
                 if cfg.deadline is not None and time.time() >= cfg.deadline:
                     result.deadline_exceeded = True
                     break
+
+                # Check group clustering limit if configured
+                if cfg.group_by_fn and cfg.max_items_per_group > 0:
+                    group_key = cfg.group_by_fn(item)
+                    if group_counts.get(group_key, 0) >= cfg.max_items_per_group:
+                        continue
+                    group_counts[group_key] = group_counts.get(group_key, 0) + 1
 
                 if (
                     cfg.yield_check_interval > 0
@@ -260,7 +278,7 @@ async def drain_backlog_async[T](
                     if inspect.isawaitable(proc_res):
                         await proc_res
                     result.items_processed += 1
-                except Exception as item_err:  # noqa: BLE001
+                except Exception as item_err:
                     result.errors_count += 1
                     err_msg = str(item_err)
                     logger.warning(

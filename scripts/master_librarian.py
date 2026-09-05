@@ -67,6 +67,21 @@ def main():
         help="Simulate transformations without writing to disk or updating database.",
     )
     parser.add_argument(
+        "--no-tags",
+        action="store_true",
+        help="Skip tag normalization and taxonomy inheritance.",
+    )
+    parser.add_argument(
+        "--llm-tags",
+        action="store_true",
+        help="Invoke Ollama for semantic Tag RAG taxonomy audits.",
+    )
+    parser.add_argument(
+        "--rebalance-taxonomy",
+        action="store_true",
+        help="Prune 0-usage orphan master tags and synchronize Chroma vector taxonomy.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print verbose transformation and link details.",
@@ -91,10 +106,29 @@ def main():
     total_ghosts_resolved = 0
     total_flow_normalized = 0
 
+    # Optional taxonomy rebalance pass
+    if args.rebalance_taxonomy:
+        print("\n[LIBRARIAN] Running taxonomy rebalance & Chroma sync...")
+        from Evelyn.tools import tag_librarian
+        m_res = tag_librarian.maintain_master_taxonomy()
+        print(f"  Taxonomy maintenance result: {m_res}")
+        s_count = tag_librarian.sync_master_tags_to_vector_db()
+        print(f"  Synced {s_count} master tags to Chroma staging queue.")
+        if not args.path and args.limit == 5 and not args.all:
+            return
+
+    include_tags = not args.no_tags
+    enable_llm_tags = args.llm_tags
+
     # Single path audit mode
     if args.path:
         print(f"\nTarget Document: {args.path}\n")
-        res = master_librarian.audit_single_document(args.path, dry_run=args.dry_run)
+        res = master_librarian.audit_single_document(
+            args.path,
+            dry_run=args.dry_run,
+            include_tags=include_tags,
+            enable_llm_tags=enable_llm_tags,
+        )
         audited_count = 1
         status = res.get("status")
         changed = res.get("changed", False)
@@ -140,7 +174,12 @@ def main():
                     break
 
                 doc_path = doc.get("path", "")
-                res = master_librarian.audit_single_document(doc_path, dry_run=args.dry_run)
+                res = master_librarian.audit_single_document(
+                    doc_path,
+                    dry_run=args.dry_run,
+                    include_tags=include_tags,
+                    enable_llm_tags=enable_llm_tags,
+                )
                 audited_count += 1
                 status = res.get("status")
                 changed = res.get("changed", False)

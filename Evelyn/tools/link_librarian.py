@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-05 17:38:06
+# date modified: 2026-09-05 18:25:50
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -339,10 +339,11 @@ def audit_document_links(
             changed = True
             details["actions"].append("injected_parent_breadcrumb")
 
-        # 2d. Count ghost links
+        # 2d. Count and track ghost links
         link_matches = re.findall(r"\[\[([^|\]\n#]+)(?:[|#][^\]\n]*)?\]\]", masked_body)
         root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
         ghost_count = 0
+        ghost_targets = []
         for target in link_matches:
             target_clean = target.strip()
             if not target_clean or "/" in target_clean:
@@ -351,7 +352,10 @@ def audit_document_links(
             note_path = os.path.join(root, f"{target_clean}.md")
             if not os.path.exists(note_path):
                 ghost_count += 1
+                if target_clean not in ghost_targets:
+                    ghost_targets.append(target_clean)
         details["ghost_links_count"] = ghost_count
+        details["ghost_targets"] = ghost_targets
 
     finally:
         restored_body = string_utils.restore_code_blocks(masked_body, placeholders)
@@ -377,3 +381,121 @@ def audit_document_links(
         updated_content = content
 
     return changed, updated_content, details
+
+
+def create_ghost_link_stub(
+    target_name: str,
+    source_path: str,
+    context_excerpt: str = "",
+    vault_root: str | None = None,
+    min_refs: int = 2,
+) -> dict[str, Any]:
+    """Evaluate and synthesize a Visual PKM stub note for a recurring ghost link.
+
+    Strict Peer Review Guardrails:
+    - Tier 1 (Autonomous Stub): Only created if the ghost link target is referenced in >= min_refs
+      distinct notes across the vault, or resides in an explicit entity collection.
+    - Tier 2 (Review Queue): If < min_refs, stubs are NOT written autonomously. They are returned
+      as a proposal dictionary for user approval in the DevUI review queue.
+
+    Args:
+        target_name: Stem name of the missing link (e.g. 'Voron StealthBurner').
+        source_path: Path of the document where the link was found.
+        context_excerpt: Surrounding text from the referencing note.
+        vault_root: Optional vault root directory.
+        min_refs: Minimum independent notes citing this link to qualify for Tier 1.
+
+    Returns:
+        dict[str, Any]: Execution status and action summary.
+    """
+    clean_target = target_name.strip()
+    if not clean_target:
+        return {"status": "skipped", "reason": "empty_target"}
+
+    root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    target_relpath = f"{clean_target}.md"
+    target_abspath = os.path.join(root, target_relpath)
+
+    if os.path.exists(target_abspath):
+        return {"status": "already_exists", "path": target_relpath}
+
+    # Count vault references to check Tier 1 qualification
+    from Evelyn.tools import vault_db
+
+    con = vault_db.get_db()
+    # Find how many vault notes reference this target
+    query = "SELECT count(DISTINCT path) FROM vault_documents WHERE gist LIKE ? OR path LIKE ?"
+    pattern = f"%[[{clean_target}%"
+    ref_count = con.execute(query, (pattern, f"%{clean_target}%")).fetchone()[0]
+    con.close()
+
+    if ref_count < min_refs:
+        return {
+            "status": "tier_2_proposal",
+            "target": clean_target,
+            "source": source_path,
+            "ref_count": ref_count,
+            "min_refs": min_refs,
+            "proposal": {
+                "type": "ghost_link_stub",
+                "target": clean_target,
+                "source": source_path,
+                "context": context_excerpt[:300],
+            },
+        }
+
+    # Tier 1 Auto-Synthesis
+    import time
+
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    source_stem = os.path.splitext(os.path.basename(source_path))[0]
+
+    abstract_text = (
+        f"Conceptual entity stub for [[{clean_target}]], referenced from [[{source_stem}]]."
+    )
+    if context_excerpt:
+        abstract_text += f"\n> Context: \"{context_excerpt.strip()[:200]}...\""
+
+    content = (
+        f"---\n"
+        f"title: {clean_target}\n"
+        f"aliases: []\n"
+        f"tags: [stub, concept]\n"
+        f"date created: {now_str}\n"
+        f"date modified: {now_str}\n"
+        f"---\n\n"
+        f"# 🏛️ {clean_target}\n\n"
+        f"> [!ABSTRACT]\n"
+        f"> {abstract_text}\n\n"
+        f"## 🔗 References\n"
+        f"- Linked from [[{source_stem}]]\n"
+    )
+
+    tmp_path = f"{target_abspath}.tmp_{os.getpid()}"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, target_abspath)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    new_mtime = os.path.getmtime(target_abspath)
+    vault_db.upsert_document(
+        path=target_relpath,
+        title=clean_target,
+        mtime=new_mtime,
+        gist=abstract_text[:300],
+        rag_priority="normal",
+        rag_pinned=False,
+        tags="stub,concept",
+        aliases="",
+    )
+    vault_db.update_document_librarian_audit(target_relpath, ghost_count=0, mtime=new_mtime)
+
+    return {
+        "status": "created_stub",
+        "path": target_relpath,
+        "ref_count": ref_count,
+        "tier": 1,
+    }

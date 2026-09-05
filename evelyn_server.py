@@ -2279,13 +2279,13 @@ def is_any_heavy_task_running(exclude_name: str | None = None) -> bool:
 async def run_master_librarian_task(
     batch_size: int | None = None, max_batches: int = 1
 ):
-    """Runs Master Librarian audit pass for configured batch size in a background thread."""
+    """Runs Master Librarian single-pass audit pass in a background thread."""
     import task_manager
 
     if is_any_heavy_task_running():
         return
     try:
-        from Evelyn.tools import master_librarian
+        from Evelyn.tools import master_librarian, tag_librarian
 
         bs = batch_size or getattr(cfg, "MASTER_LIBRARIAN_BATCH_SIZE", 5)
         result = await asyncio.to_thread(
@@ -2298,6 +2298,14 @@ async def run_master_librarian_task(
             f"errors={result.errors_count}, yielded={result.yielded}",
             flush=True,
         )
+
+        # Periodically maintain master taxonomy to balance counts and prune 0-usage tags
+        m_res = await asyncio.to_thread(tag_librarian.maintain_master_taxonomy)
+        if m_res.get("removed_master_tags", 0) > 0:
+            print(
+                f"{_GRN}[MASTER LIBRARIAN]{_RST} Taxonomy maintenance pruned {m_res['removed_master_tags']} orphan tags.",
+                flush=True,
+            )
     except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
         print(f"[MASTER LIBRARIAN] Error during audit pass: {e}", flush=True)
         task_manager.clear_running("master_librarian", status="error", error=str(e))
@@ -2942,61 +2950,10 @@ async def lifespan(app: FastAPI):
         f"  {_GRN}Profile Evolver:{_RST} idle timer started (threshold=60m, cooldown=24h/doc)"
     )
 
-    # Idle-time Tag Librarian loop
+    # Idle-time Tag Librarian alias (routed to Master Librarian)
     async def run_tag_librarian_task():
-        """Runs Tag Librarian audit pass for configured batch size in a background thread."""
-        import task_manager
-
-        if is_any_heavy_task_running():
-            return
-        task_manager.set_running("tag_librarian")
-        try:
-            from Evelyn.tools import tag_librarian
-
-            batch_size = getattr(cfg, "TAG_LIBRARIAN_BATCH_SIZE", 1)
-            for i in range(batch_size):
-                if task_manager.should_yield("tag_librarian"):
-                    print("[TAG LIBRARIAN] Yielding to peer task in queue.", flush=True)
-                    task_manager.enqueue_idle_task("tag_librarian")
-                    break
-                res = await asyncio.to_thread(tag_librarian.audit_single_document)
-                print(
-                    f"{_GRN}[TAG LIBRARIAN]{_RST} Audit pass {i + 1}/{batch_size} result: {res}",
-                    flush=True,
-                )
-                if res.get("status") in ("empty", "error"):
-                    break
-
-            # Periodically maintain master taxonomy to purge zero-usage orphan tags
-            m_res = await asyncio.to_thread(tag_librarian.maintain_master_taxonomy)
-            if m_res.get("removed_master_tags", 0) > 0:
-                print(
-                    f"{_GRN}[TAG LIBRARIAN]{_RST} Taxonomy maintenance pruned {m_res['removed_master_tags']} orphan tags.",
-                    flush=True,
-                )
-        except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
-            print(f"[TAG LIBRARIAN] Error during audit pass: {e}", flush=True)
-            task_manager.clear_running("tag_librarian", status="error", error=str(e))
-        finally:
-            if task_manager.get_status("tag_librarian") == "running":
-                task_manager.clear_running("tag_librarian", status="idle")
-
-    async def _idle_tag_librarian_loop():
-        """Background loop that periodically enqueues Tag Librarian audit."""
-        while True:
-            await asyncio.sleep(600)  # Check every 10 minutes
-            importlib.reload(cfg)
-            if not getattr(cfg, "TAG_LIBRARIAN_ENABLED", False):
-                continue
-            idle_seconds = _get_current_idle_seconds()
-            threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 2700)
-            if idle_seconds >= threshold:
-                task_manager.enqueue_idle_task("tag_librarian")
-
-    _lifespan_tasks.append(asyncio.create_task(_idle_tag_librarian_loop()))
-    print(
-        f"  {_GRN}Tag Librarian:{_RST} idle loop started (threshold=45m, limit=1 doc/run)"
-    )
+        """Alias routing legacy tag_librarian triggers to the unified Master Librarian orchestrator."""
+        await run_master_librarian_task()
 
     # Idle-time Master Librarian loop
     async def _idle_master_librarian_loop():
@@ -5116,6 +5073,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 total = 0
                 ghosts = 0
                 curations = 0
+                master_tags_cnt = 0
                 if os.path.exists(vdb):
                     conn = sqlite3.connect(vdb, timeout=1.0)
                     try:
@@ -5130,8 +5088,10 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         ghosts = cur.fetchone()[0]
                         cur.execute("SELECT COUNT(*) FROM librarian_activity_log")
                         curations = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM master_tag_taxonomy")
+                        master_tags_cnt = cur.fetchone()[0]
                     except (sqlite3.Error, OSError):
-                        pass
+                        master_tags_cnt = 0
                     finally:
                         conn.close()
                 audit_pct = round((audited / total * 100), 1) if total > 0 else 0.0
@@ -5142,6 +5102,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "audit_pct": audit_pct,
                     "ghost_links": ghosts,
                     "curation_events": curations,
+                    "master_tags": master_tags_cnt,
                 }
             elif key == "sync":
                 mdb = str(BASE_DIR / "data" / "evelyn_memory.db")

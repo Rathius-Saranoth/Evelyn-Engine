@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-05 17:44:31
+date modified: 2026-09-05 18:28:45
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.068] - 2026-09-05 — *Unified Master Librarian Persona & Anti-Loop Engine*
+
+### Unified & Orchestrated
+- **Single-Pass Master Librarian Integration (`Evelyn/tools/master_librarian.py`, `tag_librarian.py`)**:
+  - Unified `tag_librarian` into `master_librarian.py` as a native sub-librarian pass, fulfilling the holistic persona vision of Evelyn tending to her library home in single read-transform-write passes across all notes.
+  - Added in-memory tag curation `audit_document_tags(content, path, vault_root, enable_llm, parent_tags)` in `tag_librarian.py`, returning standardized `(changed, updated_content, details)` tuples.
+  - Implemented **Collection Tag Inheritance**: child chapters in multi-document reference books, technical manuals, or modules inherit domain-level tags from parent `_index.md` files, eliminating redundant GPU LLM calls.
+  - Retired standalone `_idle_tag_librarian_loop` and routed legacy `tag_librarian` triggers into `run_master_librarian_task` in `evelyn_server.py`.
+- **Anti-Loop Safeguards & Large Collection Handling (`Evelyn/tools/backlog_drainer.py`, `vault_db.py`)**:
+  - Added folder-cluster grouping (`group_by_fn`) and fair scheduling caps (`max_items_per_group=5`) in `backlog_drainer.py` to prevent multi-chapter books from monopolizing queue passes.
+  - Implemented per-document audit cooldown gating (`LIBRARIAN_AUDIT_COOLDOWN_SECONDS=3600`) and folder prefix querying in `vault_db.fetch_next_document_for_librarian_audit`. Editing an individual note will never re-trigger re-auditing of clean sibling chapters.
+- **Ghost Link Stub Synthesis & Peer Review Guardrails (`Evelyn/tools/link_librarian.py`)**:
+  - Implemented `create_ghost_link_stub` with strict Tier 1 vs Tier 2 guardrails: only links referenced across $\ge 2$ independent notes or designated entity subtrees trigger autonomous stub generation on disk with source-context abstract callouts; single or ambiguous references are routed as proposals for review.
+- **CLI & DevUI Upgrades (`scripts/master_librarian.py`, `evelyn_ui/dev.html`, `evelyn_server.py`)**:
+  - Added `--no-tags`, `--llm-tags`, and `--rebalance-taxonomy` flags to `scripts/master_librarian.py`.
+  - Enriched `/api/heavy_tasks` and the Master Librarian DevUI dashboard card with real-time Master Taxonomy tag count telemetry.
 
 ## [000.006.067] - 2026-09-05 — *Master Librarian Module & Canonical Backlog Drainer*
 

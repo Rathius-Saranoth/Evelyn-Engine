@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-03 21:46:14
+# date modified: 2026-09-05 18:25:35
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -405,6 +405,162 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     )
 
 
+def audit_document_tags(
+    content: str,
+    path: str = "",
+    vault_root: str | None = None,
+    enable_llm: bool = False,
+    parent_tags: list[str] | None = None,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Audit and normalize tags in markdown content in-memory.
+
+    Deterministic rules:
+    - Normalizes multi-word formatting (e.g. concept hyphens, entity TitleCase underscores).
+    - Cleans noise prefixes ('kw/', 'ctx/').
+    - Inherits parent collection tags if provided and missing.
+    - Preserves protected date tags (CY-YYYY/MM/DD).
+
+    Semantic LLM Tagging (when enable_llm=True):
+    - Retrieves candidate master tags via Tag RAG.
+    - Evaluates nested hierarchy classification via Ollama.
+    - Updates Master Tag Taxonomy in SQLite and Chroma if new tags minted.
+
+    Args:
+        content: Raw markdown note text.
+        path: Relative path of the document.
+        vault_root: Optional vault root directory.
+        enable_llm: Whether to invoke Ollama for semantic Tag RAG auditing.
+        parent_tags: Optional list of tags inherited from parent collection/index.
+
+    Returns:
+        tuple[bool, str, dict[str, Any]]: (changed, updated_content, details_dict)
+    """
+    if not content:
+        return False, content, {"status": "empty"}
+
+    current_tags, body = parse_frontmatter_tags(content)
+
+    # 1. Deterministic normalization
+    protected_tags = [t for t in current_tags if is_excluded_tag(t)]
+    auditable_tags = [normalize_tag_format(t) for t in current_tags if not is_excluded_tag(t)]
+
+    # Inherit parent collection tags if present
+    if parent_tags:
+        clean_parents = [
+            normalize_tag_format(pt)
+            for pt in parent_tags
+            if pt and not is_excluded_tag(pt)
+        ]
+        for cpt in clean_parents:
+            if cpt and cpt not in auditable_tags:
+                auditable_tags.append(cpt)
+
+    # Reconstruct normalized tag set
+    normalized_set = set(protected_tags)
+    for t in auditable_tags:
+        if t:
+            normalized_set.add(t)
+
+    final_tags_list = sorted(normalized_set)
+    details: dict[str, Any] = {
+        "previous_tags": current_tags,
+        "final_tags": final_tags_list,
+        "llm_evaluated": False,
+        "new_masters": [],
+    }
+
+    # 2. Semantic LLM Tag RAG (if enabled and applicable)
+    if enable_llm:
+        title = os.path.basename(path).replace(".md", "") if path else "Untitled"
+        doc_info = vault_db.get_document(path) if path else None
+        gist = doc_info.get("gist", "") if doc_info else ""
+
+        candidate_tags, min_dist, novelty_guidance = retrieve_candidate_tags_for_document(
+            title=title,
+            gist=gist,
+            body_sample=body[:1500],
+            current_tags=auditable_tags,
+        )
+        details["min_taxonomy_distance"] = min_dist
+
+        candidate_list_text = (
+            "\n".join([
+                f"- #{c['tag']} (category: {c['category']}, match distance: {c['distance']:.2f}): {c['description'] or 'No description'}"
+                for c in candidate_tags
+            ])
+            if candidate_tags
+            else "No existing master tags matched."
+        )
+
+        system_prompt = (
+            "You are an expert taxonomy librarian maintaining a structured, nested tag hierarchy for a personal Obsidian knowledge vault.\n"
+            "Your goal is to organize notes under clear, domain-level nested tags that reduce clutter, group related concepts, and resolve ambiguous terms using note context.\n\n"
+            "Taxonomy & Nesting Principles:\n"
+            "1. Domain-Level Hierarchies: Group flat concepts into logical multi-tier domains using forward slashes (e.g. #3D-Printing/Slicing, #3D-Modeling/Topology, #AI/LLM/Inference, #AI/RAG/Evaluation, #Mood/Peace, #Lore/Worldbuilding, #Contact/Friend, #Media/Game).\n"
+            "2. Semantic & Contextual Disambiguation: Use the full context of the note to disambiguate polysemous or broad words.\n"
+            "3. Tag Formatting Rules: Lowercase hyphens for concepts, TitleCase with underscores for proper entities.\n"
+            "4. Output Format: Return ONLY a valid JSON object with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
+        )
+
+        user_prompt = (
+            f"Document Title: {title}\n"
+            f"Document Path: {path}\n"
+            f"Document Summary/Gist: {gist}\n"
+            f"Current Auditable Tags: {auditable_tags}\n\n"
+            f"--- SEMANTICALLY MATCHED MASTER TAGS (TAG RAG) ---\n"
+            f"{candidate_list_text}\n\n"
+            f"--- NOVELTY & ALIGNMENT GUIDANCE ---\n"
+            f"{novelty_guidance}\n\n"
+            f"--- NOTE CONTENT SAMPLE ---\n"
+            f"'''\n{body[:1500]}\n'''\n\n"
+            "Evaluate tag suitability for this document. Select 2-5 highly relevant tags from the Master Taxonomy or suggest new nested tags if appropriate."
+        )
+
+        try:
+            response_text = query_ollama(user_prompt, system_prompt)
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group(0))
+                tags_to_keep = [normalize_tag_format(t) for t in parsed.get("tags_to_keep", []) if t]
+                tags_to_add = [normalize_tag_format(t) for t in parsed.get("tags_to_add", []) if t]
+                tags_to_remove = [normalize_tag_format(t) for t in parsed.get("tags_to_remove", []) if t]
+                new_masters = parsed.get("new_master_tags", [])
+
+                working_set = set(protected_tags)
+                for t in tags_to_keep:
+                    if t:
+                        working_set.add(t)
+                for t in tags_to_add:
+                    if t:
+                        working_set.add(t)
+                for t in tags_to_remove:
+                    if t in working_set and not is_excluded_tag(t):
+                        working_set.remove(t)
+
+                final_tags_list = sorted(working_set)
+                details["final_tags"] = final_tags_list
+                details["llm_evaluated"] = True
+                details["new_masters"] = new_masters
+
+                # Upsert newly minted master tags
+                for m in new_masters:
+                    ntag = normalize_tag_format(m.get("tag", ""))
+                    if ntag and not is_excluded_tag(ntag):
+                        cat = m.get("category", ntag.split("/")[0] if "/" in ntag else "general")
+                        desc = m.get("description", f"Obsidian notes tagged under {ntag}")
+                        vault_db.upsert_master_tag(ntag, category=cat, description=desc, usage_count=1)
+                        index_master_tag_in_chroma(ntag, category=cat, description=desc, usage_count=1)
+        except Exception as llm_err:  # noqa: BLE001
+            print(f"[TAG LIBRARIAN] LLM semantic tagging failed for {path}: {llm_err}")
+
+    modified = (set(final_tags_list) != set(current_tags))
+    new_content = content
+    if modified:
+        new_content = update_frontmatter_tags(content, final_tags_list)
+
+    return modified, new_content, details
+
+
 def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
     """Audit a single vault document against the Master Tag Taxonomy using Tag RAG.
 
@@ -419,12 +575,8 @@ def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
         if not doc_info:
             return {"status": "empty", "message": "No documents found in vault DB."}
         doc_path = doc_info["path"]
-        gist = doc_info.get("gist", "")
-        title = doc_info.get("title", "")
     else:
         doc_info = vault_db.get_document(doc_path)
-        gist = doc_info.get("gist", "") if doc_info else ""
-        title = os.path.basename(doc_path)
 
     # Check document path exclusions
     if is_excluded_document(doc_path):
@@ -447,136 +599,41 @@ def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
         vault_db.update_document_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": f"Read error: {e}"}
 
-    current_tags, body = parse_frontmatter_tags(content)
-
-    # Identify protected tags (e.g. CY-YYYY/MM/DD) and normalize auditable tags up front
-    protected_tags = [t for t in current_tags if is_excluded_tag(t)]
-    auditable_tags = [normalize_tag_format(t) for t in current_tags if not is_excluded_tag(t)]
-
-    # Semantic Tag RAG: Retrieve candidate master tags and novelty guidance based on document content
-    candidate_tags, min_dist, novelty_guidance = retrieve_candidate_tags_for_document(
-        title=title,
-        gist=gist,
-        body_sample=body[:1500],
-        current_tags=auditable_tags
+    changed, new_content, details = audit_document_tags(
+        content=content,
+        path=doc_path,
+        vault_root=VAULT_ROOT,
+        enable_llm=True,
     )
 
-    candidate_list_text = "\n".join([
-        f"- #{c['tag']} (category: {c['category']}, match distance: {c['distance']:.2f}): {c['description'] or 'No description'}"
-        for c in candidate_tags
-    ]) if candidate_tags else "No existing master tags matched."
-
-    system_prompt = (
-        "You are an expert taxonomy librarian maintaining a structured, nested tag hierarchy for a personal Obsidian knowledge vault.\n"
-        "Your goal is to organize notes under clear, domain-level nested tags that reduce clutter, group related concepts, and resolve ambiguous terms using note context.\n\n"
-        "Taxonomy & Nesting Principles:\n"
-        "1. Domain-Level Hierarchies: Group flat concepts into logical multi-tier domains using forward slashes (e.g. #3D-Printing/Slicing, #3D-Modeling/Topology, #AI/LLM/Inference, #AI/RAG/Evaluation, #Mood/Peace, #Lore/Worldbuilding, #Contact/Friend, #Media/Game).\n"
-        "2. Semantic & Contextual Disambiguation: Use the full context of the note to disambiguate polysemous or broad words:\n"
-        "   - 'corruption' -> #Lore/Corruption (fantasy/magic), #Politics/Corruption, #Psychology/Corruption\n"
-        "   - 'mesh' -> #3D-Modeling/Mesh, #Networking/Mesh-Topology\n"
-        "   - 'memory' -> #AI/LLM/Memory, #Psychology/Memory, #Hardware/RAM\n"
-        "   - 'peace' / 'anxiety' / 'reflection' -> #Mood/Peace, #Mood/Anxiety, #Mood/Reflection\n"
-        "3. Tag Formatting Rules:\n"
-        "   - General semantic concepts MUST use lowercase hyphens for multi-word segments (e.g. 'home-improvement', 'system-update', 'peace-of-mind').\n"
-        "   - Singular Concept Rule: Always use the SINGULAR form for atomic concepts and countable note topics (e.g. 'bad-dream', 'coding-breakthrough', 'weird-dream', 'life-update', 'server'). Reserve plurals ONLY for inherently collective disciplines or aggregates (e.g. 'analytics', 'heuristics', 'settings', 'credentials').\n"
-        "   - Proper Nouns / Entities (Person, Place, Thing, Title, Media) MUST use TitleCase with underscores (e.g. 'Ricky_Sekulich', 'Dungeon_Crawler_Carl', 'Evelyn_Engine').\n"
-        "   - Sub-hierarchies use forward slashes (e.g. 'Tech/Python/FastAPI', 'Journal/Reflections').\n"
-        "4. Clean Replacement: Replace overly flat, vague, or cluttered tags with clean nested equivalents (put old flat tags in 'tags_to_remove' and new nested tags in 'tags_to_add').\n"
-        "5. Output Format: Return ONLY a valid JSON object with the following fields:\n"
-        "{\n"
-        '  "tags_to_keep": ["tag1", "tag2"],\n'
-        '  "tags_to_add": ["domain/subdomain/tag3"],\n'
-        '  "tags_to_remove": ["flat-tag-being-replaced"],\n'
-        '  "new_master_tags": [{"tag": "domain/subdomain/tag3", "category": "domain", "description": "1-sentence scope"}]\n'
-        "}"
-    )
-
-    user_prompt = (
-        f"Document Title: {title}\n"
-        f"Document Path: {doc_path}\n"
-        f"Document Summary/Gist: {gist}\n"
-        f"Current Auditable Tags: {auditable_tags}\n\n"
-        f"--- SEMANTICALLY MATCHED MASTER TAGS (TAG RAG) ---\n"
-        f"{candidate_list_text}\n\n"
-        f"--- NOVELTY & ALIGNMENT GUIDANCE ---\n"
-        f"{novelty_guidance}\n\n"
-        f"--- NOTE CONTENT SAMPLE ---\n"
-        f"'''\n{body[:1500]}\n'''\n\n"
-        "Evaluate tag suitability for this document. Select 2-5 highly relevant tags from the Master Taxonomy or suggest new nested tags if appropriate."
-    )
-
-    response_text = query_ollama(user_prompt, system_prompt)
-
-    tags_to_keep = auditable_tags
-    tags_to_add = []
-    tags_to_remove = []
-    new_masters = []
-
-    try:
-        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-        if json_match:
-            parsed = json.loads(json_match.group(0))
-            tags_to_keep = [normalize_tag_format(t) for t in parsed.get("tags_to_keep", []) if t]
-            tags_to_add = [normalize_tag_format(t) for t in parsed.get("tags_to_add", []) if t]
-            tags_to_remove = [normalize_tag_format(t) for t in parsed.get("tags_to_remove", []) if t]
-            new_masters = parsed.get("new_master_tags", [])
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        print(f"[TAG LIBRARIAN] JSON parse fallback for {doc_path}: {e}")
-
-    # Build final tag set: protected date tags + kept + added - removed
-    final_tags_set = set(protected_tags)
-    for t in tags_to_keep:
-        if t: final_tags_set.add(t)
-    for t in tags_to_add:
-        if t: final_tags_set.add(t)
-    for t in tags_to_remove:
-        if t in final_tags_set and not is_excluded_tag(t):
-            final_tags_set.remove(t)
-
-    final_tags_list = sorted(final_tags_set)
-    tags_str = ", ".join(final_tags_list)
-
-    # Save changes if tags modified
-    modified = (set(final_tags_list) != set(current_tags))
-    if modified:
-        new_content = update_frontmatter_tags(content, final_tags_list)
+    if changed:
         try:
             write_file_with_frontmatter(abs_path, new_content, preserve_mtime=True)
-            # Re-index modified note in Chroma DB memory collection
+            tags_str = ", ".join(details.get("final_tags", []))
+            target_col = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
             try:
-                target_col = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
                 chroma_rag.ingest_markdown_file(
                     file_path=abs_path,
                     content=new_content,
                     collection_name=target_col,
-                    extra_metadata={"tags": tags_str}
+                    extra_metadata={"tags": tags_str},
                 )
-            except (sqlite3.Error, OSError, RuntimeError, ValueError) as ve:
+            except Exception as ve:  # noqa: BLE001
                 print(f"[TAG LIBRARIAN] Single-file vector update skipped: {ve}")
         except OSError as e:
             vault_db.update_document_tag_audit(doc_path)
             return {"status": "error", "path": doc_path, "message": f"Write error: {e}"}
 
-    # Record new master tags in SQLite and index into Chroma Tag Taxonomy
-    for m in new_masters:
-        ntag = normalize_tag_format(m.get("tag", ""))
-        if ntag and not is_excluded_tag(ntag):
-            category = m.get("category", ntag.split("/")[0] if "/" in ntag else "general")
-            desc = m.get("description", f"Obsidian notes tagged under {ntag}")
-            vault_db.upsert_master_tag(ntag, category=category, description=desc, usage_count=1)
-            index_master_tag_in_chroma(ntag, category=category, description=desc, usage_count=1)
-
-    # Update database audit timestamp & tags
+    tags_str = ", ".join(details.get("final_tags", []))
     vault_db.update_document_tag_audit(doc_path, tags=tags_str)
 
     return {
         "status": "success",
         "path": doc_path,
-        "modified": modified,
-        "previous_tags": current_tags,
-        "final_tags": final_tags_list,
-        "protected_tags": protected_tags,
-        "min_taxonomy_distance": min_dist
+        "modified": changed,
+        "previous_tags": details.get("previous_tags", []),
+        "final_tags": details.get("final_tags", []),
+        "min_taxonomy_distance": details.get("min_taxonomy_distance", 1.0),
     }
 
 

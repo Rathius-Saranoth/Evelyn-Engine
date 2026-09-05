@@ -31,7 +31,7 @@ icon: ["[[avatar.png]]"]
 # Test Note Body
 Here is some text.
 """
-        changed, updated, details = format_librarian.audit_document_format(raw_note)
+        changed, updated, _details = format_librarian.audit_document_format(raw_note)
         self.assertTrue(changed)
         self.assertIn('icon: "Attachments/Icons/avatar.png"', updated)
         self.assertIn("tags: [tech, ai/llm]", updated)
@@ -140,6 +140,74 @@ array([[1.5, 2.5]])
 
                 mock_update.assert_called_once()
                 mock_log.assert_called_once()
+
+    def test_master_librarian_tag_normalization_and_collection_inheritance(self):
+        """Verify that Master Librarian normalizes tags and inherits parent collection tags."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            # Create a mock parent collection with an _index.md
+            book_dir = os.path.join(tmp_vault, "Manuals", "Voron")
+            os.makedirs(book_dir, exist_ok=True)
+            index_path = os.path.join(book_dir, "_index.md")
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Voron Manual\ntags: [3d-printing, hardware/voron, moc]\n---\n# Voron Manual\n")
+
+            # Create a chapter note with flat and inconsistent tags
+            ch_path = os.path.join(book_dir, "001 - Wiring.md")
+            with open(ch_path, "w", encoding="utf-8") as f:
+                f.write("---\ntitle: 001 - Wiring\ntags: [kw/electronics, bad_tag_format]\n---\n# 001 - Wiring\nContent here.\n")
+
+            with patch("Evelyn.tools.vault_db.update_document_librarian_audit"), \
+                 patch("Evelyn.tools.vault_db.log_librarian_activity"):
+
+                res = master_librarian.audit_single_document(
+                    doc_path="Manuals/Voron/001 - Wiring.md",
+                    vault_root=tmp_vault,
+                    inherit_parent_tags=True,
+                )
+
+                self.assertEqual(res["status"], "ok")
+                self.assertTrue(res["modified"])
+
+                with open(ch_path, encoding="utf-8") as f:
+                    updated_text = f.read()
+
+                # Should have cleaned kw/ prefix, normalized format, and inherited 3d-printing & hardware/voron
+                self.assertNotIn("kw/electronics", updated_text)
+                self.assertIn("electronics", updated_text)
+                self.assertIn("3d-printing", updated_text)
+                self.assertIn("hardware/voron", updated_text)
+                # 'moc' should NOT be inherited
+                self.assertNotIn("tags: [moc", updated_text)
+
+    def test_link_librarian_ghost_stub_guardrail(self):
+        """Verify Tier 1 vs Tier 2 ghost link stub guardrail."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            # 1. Single reference should return Tier 2 proposal
+            res_tier2 = link_librarian.create_ghost_link_stub(
+                target_name="ObscureConcept",
+                source_path="Notes/Source.md",
+                context_excerpt="Mentioning [[ObscureConcept]] once.",
+                vault_root=tmp_vault,
+                min_refs=2,
+            )
+            self.assertEqual(res_tier2["status"], "tier_2_proposal")
+            self.assertFalse(os.path.exists(os.path.join(tmp_vault, "ObscureConcept.md")))
+
+            # 2. When min_refs threshold is met (e.g. min_refs=1 or simulated >= 2)
+            res_tier1 = link_librarian.create_ghost_link_stub(
+                target_name="KnownEntity",
+                source_path="Notes/Source.md",
+                context_excerpt="A recurring entity in the vault.",
+                vault_root=tmp_vault,
+                min_refs=0,  # Force Tier 1 creation
+            )
+            self.assertEqual(res_tier1["status"], "created_stub")
+            stub_file = os.path.join(tmp_vault, "KnownEntity.md")
+            self.assertTrue(os.path.exists(stub_file))
+            with open(stub_file, encoding="utf-8") as f:
+                stub_content = f.read()
+            self.assertIn("[!ABSTRACT]", stub_content)
+            self.assertIn("Linked from [[Source]]", stub_content)
 
 
 if __name__ == "__main__":
