@@ -203,6 +203,10 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(add|put|insert|append|check|remove|delete|update|mark|cross)\b.*(grocery|shopping|todo|list|vault)",
         r"\b(grocery|shopping|todo|list|vault)\b.*(add|put|insert|append|check|remove|delete|update|mark|cross)",
     ],
+    "read_url": [
+        r"https?://\S+",
+        r"\b(read|open|browse|check|summarize|inspect|visit)\b.*(link|url|website|webpage|article|site)",
+    ],
     "run_command": [r"\b(run|execute|exec|bash|terminal|shell|cli|command)\b"],
     "read_file": [r"\b(read|cat|open|view|inspect)\s+(file|script|code|path)\b"],
     "write_file": [r"\b(write|create|save|export)\s+(file|script|code|report|note)\b"],

@@ -1,6 +1,6 @@
 # test_procedures_upgrade.py
 # date created: 2026-08-28 07:37:20
-# date modified: 2026-08-29 16:04:22
+# date modified: 2026-09-06 15:59:20
 # tags: 
 
 import pytest
@@ -427,7 +427,7 @@ def test_all_specific_purpose_tools_have_live_procedure_coverage():
                 fn_name = fn_obj.get("name")
                 if isinstance(fn_name, str):
                     all_model_tools.append(fn_name)
-    general_purpose = {"read_file", "write_file", "run_command", "web_search"}
+    general_purpose = {"read_file", "write_file", "run_command", "web_search", "read_url"}
     specific_tools = [t for t in all_model_tools if t not in general_purpose]
 
     live_procs = memory_db.get_all_procedures(status="live")

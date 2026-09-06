@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-06 08:52:33
+# date modified: 2026-09-06 15:51:26
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -20,6 +20,7 @@ import contextlib
 import importlib
 import json
 import os
+import random
 import re
 import sqlite3
 import subprocess
@@ -412,41 +413,156 @@ def sync_context_memory(**kwargs) -> str:
     return "Memory sync initiated in the background. New context will be available shortly."
 
 
+_DDG_CACHE: dict[str, tuple[float, str]] = {}
+_DDG_CACHE_TTL: float = 300.0  # 5-minute TTL for repeat agent search queries
+_DDG_CACHE_MAX: int = 32
+
+
+def read_url(url: str, max_chars: int = 15000, **kwargs) -> str:
+    """Fetch and extract readable text/markdown from a specific webpage or article URL.
+
+    Defensively sanitizes input for Gemma 4 12B, validates scheme, detects edge WAF
+    blocks, neutralizes breaking XML envelope closing tags, and returns clean Markdown.
+
+    Args:
+        url: The full HTTP or HTTPS webpage URL (e.g., 'https://example.com/docs').
+        max_chars: Maximum character count of content to return. Defaults to 15,000.
+        **kwargs: Accepts flexible keyword arguments.
+
+    Returns:
+        str: Clean extracted Markdown text or structured error/recovery instructions.
+    """
+    if not url or not isinstance(url, str):
+        return "Error: A valid URL string must be provided to read_url."
+
+    # Gemma 4 12B defensive parameter sanitization: strip brackets, quotes, whitespace
+    clean_url = url.strip().strip("<>\"'`")
+    # Also handle markdown link format [text](url)
+    md_match = re.search(r"\((https?://[^\s)]+)\)", clean_url)
+    if md_match:
+        clean_url = md_match.group(1)
+
+    if not clean_url.startswith(("http://", "https://")):
+        return f"Error: Invalid URL '{clean_url}'. URL must begin with http:// or https://."
+
+    try:
+        max_chars = int(max_chars)
+    except (ValueError, TypeError):
+        max_chars = 15000
+
+    from Evelyn.tools import web_reader
+
+    scrape_res = web_reader.read_and_extract_url_sync(clean_url, max_chars=max_chars)
+
+    if not scrape_res.get("success"):
+        error_msg = scrape_res.get("error") or "Unknown error fetching URL content."
+        return error_msg
+
+    content = scrape_res.get("content", "")
+
+    # XML Envelope & Delimiter Defense:
+    # Protect server-side SSE stream parsing against raw unescaped XML delimiters
+    # that could mimic Evelyn's injection tags or stream tokens.
+    for tag in ("tool_result", "call", "think", "thought", "temporal_context", "context_retrieval", "autonomous_trigger"):
+        content = re.sub(rf"</?\s*{tag}\b[^>]*>", f"[tag:{tag}]", content, flags=re.IGNORECASE)
+
+    title_part = f"# Content from {clean_url}\n\n"
+    return f"{title_part}{content}"
+
+
 def web_search(query: str, max_results: int = 5, **kwargs) -> str:
     """Search the web via DuckDuckGo and return a brief summary of the top results.
 
+    Includes conversational URL routing to read_url for Gemma 4 12B, query sanitization,
+    in-memory TTL caching, and rate-limit backoff retry with fallback backends.
+
     Args:
-        query: Concise, keyword-based web query.
+        query: Concise, keyword-based web query, or a direct link to read.
         max_results: Max result snippets to fetch. Defaults to 5.
         **kwargs: Accepts flexible keyword arguments.
 
     Returns:
-        str: Summarized search results or error details.
+        str: Summarized search results, extracted link content, or error details.
     """
+    if not query or not isinstance(query, str):
+        return "Error: query must be a non-empty string."
+
+    # Conversational URL routing intercept for Gemma 4 12B
+    url_match = re.search(r"https?://[^\s<>\"']+", query)
+    if url_match:
+        found_url = url_match.group(0)
+        cleaned = re.sub(
+            r"^(please\s+)?(check|read|open|browse|visit|look at|summarize)?\s*",
+            "",
+            query,
+            flags=re.IGNORECASE,
+        ).strip()
+        if cleaned.startswith(found_url) or cleaned == found_url or len(cleaned) <= len(found_url) + 5:
+            max_chars = kwargs.get("max_chars", 15000)
+            return read_url(url=found_url, max_chars=max_chars)
+
+    # Query sanitization: strip trailing punctuation and mismatched quotes
+    sanitized_query = query.strip().strip("?!'\"`").strip()
+    if not sanitized_query:
+        return "Error: Search query is empty after sanitization."
+
+    try:
+        max_results = int(max_results)
+    except (ValueError, TypeError):
+        max_results = 5
+
+    # Check in-memory TTL cache
+    now = time.time()
+    cache_key = f"{sanitized_query.lower()}::{max_results}"
+    if cache_key in _DDG_CACHE:
+        cached_ts, cached_val = _DDG_CACHE[cache_key]
+        if now - cached_ts < _DDG_CACHE_TTL:
+            return cached_val
+
     try:
         from ddgs import DDGS
+        from ddgs.exceptions import DDGSException, RatelimitException, TimeoutException
     except ImportError:
         return "Error: ddgs library is not installed. Run 'pip install ddgs' to enable web search."
 
-    try:
-        try:
-            max_results = int(max_results)
-        except ValueError, TypeError:
-            max_results = 5
-
+    def _execute_search(q: str, limit: int, backend: str = "auto") -> list[dict]:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
-        if not results:
-            return f"No results found for: {query}"
-        lines = [f"Web search results for: {query}\n"]
+            return list(ddgs.text(q, max_results=limit, backend=backend))
+
+    results = []
+    try:
+        results = _execute_search(sanitized_query, max_results)
+    except RatelimitException:
+        # One-shot retry with jitter (1.2–2.0s) and fallback backend
+        time.sleep(1.2 + random.uniform(0.1, 0.8))
+        try:
+            results = _execute_search(sanitized_query, max_results, backend="lite")
+        except (DDGSException, RatelimitException, TimeoutException, OSError, RuntimeError, ValueError) as retry_err:
+            return (
+                f"Web search rate limited. Error: {retry_err}. "
+                f"Please retry in a few moments or use read_url for specific links."
+            )
+    except (DDGSException, TimeoutException, OSError, RuntimeError, ValueError) as e:
+        return f"Web search error: {e}"
+
+    if not results:
+        res_str = f"No results found for: {sanitized_query}"
+    else:
+        lines = [f"Web search results for: {sanitized_query}\n"]
         for i, r in enumerate(results, 1):
             title = r.get("title", "(no title)")
             href = r.get("href", "")
             body = r.get("body", "").strip()
             lines.append(f"{i}. {title}\n   {href}\n   {body[:300]}")
-        return "\n\n".join(lines)
-    except (OSError, RuntimeError, ValueError) as e:
-        return f"Web search error: {e}"
+        res_str = "\n\n".join(lines)
+
+    # Store in TTL cache (LRU-style eviction if over cap)
+    if len(_DDG_CACHE) >= _DDG_CACHE_MAX:
+        oldest_k = min(_DDG_CACHE.keys(), key=lambda k: _DDG_CACHE[k][0])
+        _DDG_CACHE.pop(oldest_k, None)
+    _DDG_CACHE[cache_key] = (now, res_str)
+
+    return res_str
 
 
 def _is_research_engine_running(task_id: str) -> bool:
@@ -2582,6 +2698,7 @@ TOOL_THINK_EFFORT: dict[str, str] = {
     "write_dream_entry": "medium",
     "generate_image": "medium",
     "web_search": "medium",
+    "read_url": "medium",
     "start_research": "high",
     "list_research_tasks": "low",
     "inspect_research_task": "medium",
@@ -2743,6 +2860,31 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_url",
+            "description": (
+                "Fetch and extract readable text/markdown from a specific webpage or article URL. "
+                "Use when a direct HTTP/HTTPS link is provided to inspect, browse, or summarize. "
+                "Do not pass search keywords here; pass only the complete URL."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The full HTTP or HTTPS webpage URL (e.g., 'https://example.com/docs').",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum characters of text to extract. Default 15000.",
+                    },
+                },
+                "required": ["url"],
             },
         },
     },
@@ -3357,6 +3499,7 @@ TOOL_FUNCTIONS = {
     "generate_image": generate_image,
     "sync_context_memory": sync_context_memory,
     "web_search": web_search,
+    "read_url": read_url,
     "start_research": start_research,
     "list_research_tasks": list_research_tasks,
     "inspect_research_task": inspect_research_task,
