@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-06 08:35:57
+# date modified: 2026-09-06 15:10:05
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -271,6 +271,11 @@ array([[1.5, 2.5]])
         for blacklisted in ["Features", "Safety", "Other", "Table of Contents", "_index", "Preface"]:
             valid, _ = link_librarian.is_valid_entity_target(blacklisted)
             self.assertFalse(valid, f"Failed to reject blacklisted target: {blacklisted}")
+
+        # Index notes and MOCs
+        for index_name in ["Visualizing Generative AI_index", "Samsung NE59J7630SS_index", "Core_Architecture_moc", "_index"]:
+            valid, _ = link_librarian.is_valid_entity_target(index_name)
+            self.assertFalse(valid, f"Failed to reject index/MOC target: {index_name}")
 
         # OCR private-use glyphs
         valid, _ = link_librarian.is_valid_entity_target("01 - \uf0ea !")
