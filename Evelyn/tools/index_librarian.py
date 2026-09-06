@@ -1,6 +1,6 @@
 # index_librarian.py
 # date created: 2026-09-05 17:45:00
-# date modified: 2026-09-05 17:38:09
+# date modified: 2026-09-05 20:01:40
 # tags: #librarian, #index, #moc, #table_of_contents, #navigation, #vault
 
 """
@@ -30,12 +30,16 @@ logger = logging.getLogger("evelyn.index_librarian")
 def audit_folder_index(
     folder_relpath: str,
     vault_root: str | None = None,
+    content: str | None = None,
+    dry_run: bool = False,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Audit and update the folder table of contents index note.
 
     Args:
         folder_relpath: Relative folder path within the vault.
         vault_root: Optional vault base directory.
+        content: Optional raw content of the index note if already loaded in memory.
+        dry_run: If True, simulates updates without writing to disk or database.
 
     Returns:
         tuple[bool, str, dict[str, Any]]: (changed, updated_content, details)
@@ -62,18 +66,20 @@ def audit_folder_index(
     index_relpath = f"{norm_folder}/{index_file}" if norm_folder else index_file
     abs_index_path = os.path.join(abs_folder, index_file)
 
-    try:
-        with open(abs_index_path, encoding="utf-8") as f:
-            content = f.read()
-    except OSError as e:
-        logger.warning(f"Error reading index file {abs_index_path}: {e}")
-        return False, "", {"status": "read_error", "error": str(e)}
+    if content is None:
+        try:
+            with open(abs_index_path, encoding="utf-8") as f:
+                content = f.read()
+        except OSError as e:
+            logger.warning(f"Error reading index file {abs_index_path}: {e}")
+            return False, "", {"status": "read_error", "error": str(e)}
 
     # Scan sibling markdown files
-    sibling_files = []
-    for f in os.listdir(abs_folder):
-        if f.endswith(".md") and f != index_file and not f.startswith("."):
-            sibling_files.append(f)
+    sibling_files = [
+        f
+        for f in os.listdir(abs_folder)
+        if f.endswith(".md") and f != index_file and not f.startswith(".")
+    ]
 
     changed = False
     details: dict[str, Any] = {"added_notes": [], "index_path": index_relpath}
@@ -91,14 +97,14 @@ def audit_folder_index(
         # Append missing notes to the bottom or existing table
         fm_dict, body = frontmatter_utils.parse_frontmatter(content)
         addition_lines = ["\n\n## 📑 Additional Notes", ""]
-        for stem, note in missing_notes:
+        for stem, _note in missing_notes:
             addition_lines.append(f"- [[{stem}]]")
             details["added_notes"].append(stem)
         updated_body = body + "\n".join(addition_lines) + "\n"
         content = f"{frontmatter_utils.render_frontmatter(fm_dict)}\n{updated_body}"
         changed = True
 
-    if changed:
+    if changed and not dry_run:
         # Atomic sibling write
         tmp_path = f"{abs_index_path}.tmp_{os.getpid()}"
         try:

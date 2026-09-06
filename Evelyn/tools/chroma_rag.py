@@ -1,10 +1,7 @@
-
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-01 21:57:25
+# date modified: 2026-09-05 19:48:30
 # tags: #rag, #vector, #chromadb, #embeddings, #query
-
-# Chroma Rag.py
 
 """
 chroma_rag.py — Chroma vector DB wrapper for Evelyn's RAG pipeline.
@@ -16,10 +13,13 @@ Exports:
   get_or_create_collection() — Idempotently get a named Chroma collection.
   build_rag_context()        — Query Chroma collection, apply priority boosting and
                                 pinned doc injection; return formatted context block.
-                                Also fires touch_entry_retrieved() for SQLite context
+                                Also fires memory_db.touch_entry_retrieved() for SQLite context
                                 entries served to the model (retrieval tracking).
 
-Collection: evelyn_memory (full markdown files & SQLite context entries)
+Collections:
+  - evelyn_memory: Full markdown vault files and live SQLite context entries.
+  - evelyn_tag_taxonomy: Master Tag Taxonomy embeddings for semantic tag alignment.
+  - evelyn_media: Multimodal OCR text and image caption embeddings.
 
 Embedding model: BAAI/bge-large-en-v1.5 (1024-dim) via local HuggingFace / ONNX runtime.
   CPU-only to avoid VRAM eviction of the chat model.
@@ -243,9 +243,7 @@ def sanitize_chroma_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     for k, v in meta.items():
         if v is None:
             continue
-        if isinstance(v, (bool, int, float)):
-            clean[k] = v
-        elif isinstance(v, str):
+        if isinstance(v, (bool, int, float, str)):
             clean[k] = v
         elif isinstance(v, (datetime.date, datetime.datetime)):
             clean[k] = v.isoformat()

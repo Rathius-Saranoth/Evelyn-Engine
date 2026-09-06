@@ -1,31 +1,28 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-04 17:10:05
+# date modified: 2026-09-05 19:46:45
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
 memory_db.py — SQLite access layer for Evelyn's context memory database.
 
-Provides CRUD operations for the context_entries and proposals tables
-in evelyn_memory.db. Keeps context/memory data separate from chat history
-(evelyn_chat.db).
+Provides CRUD operations for memory and cognition tables in evelyn_memory.db.
+Keeps context, procedures, proposals, and ambient reflections strictly separated
+from conversational chat history (evelyn_chat.db).
 
 Schema:
-  context_entries — Stores all context facts (live, extracted, pending_review).
-                    Replaces the Cat##/Cat##-{U,A}/*.md flat-file layout.
-                    Columns added over time (all idempotent migrations in init_db):
-                      last_retrieved_at / retrieval_count — RAG access tracking (2026-06-14)
-                      last_evolved_at   — Stamps when profile_evolver incorporated entry (2026-07-30)
-                      recategorized_at  — Admin category-change timestamp; kept separate from
-                                          updated_at so category fixes don't retrigger evolution (2026-07-30)
-                      first_observed / last_observed / observed_count — Recurrence tracking (2026-07-30)
-  proposals       — Stores consolidation and recategorization proposals.
-                    Replaces CONSOLIDATION_*.md and RECATEGORIZE_*.md files.
+  context_entries           — Stores all context facts (live, extracted, pending_review).
+                              Columns track RAG access, per-document evolution, observation recurrence,
+                              confidence, source, and domain tags.
+  proposals                 — Stores consolidation, split, and recategorization proposals.
+  procedures                — Stores operational instructions, trigger patterns, and step workflows.
+  entry_document_evolution  — Tracks granular per-document evolution timestamps for context facts.
+  ambient_impressions       — Stores autonomous daytime musings, reflections, and stream items.
 
 Usage:
   import memory_db
   memory_db.init_db()                         # Idempotent — safe to call on every startup
-  entry_id = memory_db.insert_entry(category='Cat05-U', subject='Ricky', ...)
+  entry_id = memory_db.insert_entry(category='Cat05-U', subject=cfg.USER_NAME, ...)
   entries  = memory_db.get_entries_by_category('Cat05-U')
   memory_db.touch_entry_retrieved(entry_id)   # Fire-and-forget RAG retrieval tracking
   memory_db.touch_entry_evolved(entry_id, ts) # Fire-and-forget; called on profile_update approval
@@ -267,7 +264,7 @@ def insert_entry(
 
     Args:
         category: Category code, e.g. 'Cat05-U'.
-        subject: 'Ricky' or 'Evelyn'.
+        subject: Configured user or assistant name (e.g. cfg.USER_NAME or cfg.ASSISTANT_NAME).
         observation: The factual observation text.
         confidence: 'high', 'medium', or 'low'.
         source: 'manual', 'extracted', or 'consolidated'.
@@ -405,7 +402,7 @@ def get_entries_by_category_for_document(
 
     Args:
         category: Category code, e.g. 'Cat05-U'.
-        document_name: Target document filename, e.g. 'Ricky_Narrative_Profile.md'.
+        document_name: Target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
         status: Filter by status. Default 'live'.
 
     Returns:
@@ -459,7 +456,7 @@ def touch_entry_evolved(
 
     Args:
         entry_id: Row ID of the context entry.
-        document_name: Optional target document filename (e.g. 'Ricky_Narrative_Profile.md').
+        document_name: Optional target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
         timestamp: Unix timestamp. Defaults to current time.
     """
     ts = timestamp or time.time()

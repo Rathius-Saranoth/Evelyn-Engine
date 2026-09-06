@@ -1,13 +1,13 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-01 20:11:44
+# date modified: 2026-09-05 19:47:44
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
 profile_evolver.py — Idle-time auto-evolution for Evelyn's persona and profile documents.
 
 Reviews accumulated context entries in memory_db against the three core identity
-documents (Evelyn's persona, Ricky's profile, and System directives) and proposes
+documents (the assistant's persona, user's profile, and system directives) and proposes
 targeted updates staged for human review.
 
 Evolution is split into batches of PROFILE_EVOLUTION_BATCH_SIZE entries per Ollama
@@ -274,7 +274,7 @@ def _draft_path(filename: str) -> str:
     pass so evolution can resume across interrupted runs.
 
     Args:
-        filename: Document basename, e.g. 'Ricky_Narrative_Profile.md'.
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
 
     Returns:
         str: Absolute path to the draft file.
@@ -503,7 +503,7 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
     observations under entity/topic headers to eliminate redundant LLM context switching.
 
     Args:
-        filename: Document basename (e.g. 'Ricky_Narrative_Profile.md').
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
         entries: List of memory entry dictionaries.
         batch_size: Maximum entries per thematic sub-batch.
 
@@ -736,7 +736,7 @@ def advance_doc_run_timestamp(filename: str, status_code: str = "APPROVED", deta
     original proposal generation time and updates the document status.
 
     Args:
-        filename: Document basename or path, e.g. 'Ricky_Narrative_Profile.md'.
+        filename: Document basename or path (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
         status_code: Status label key, default 'APPROVED'.
         details: Detail string for status reporting.
     """
@@ -1019,7 +1019,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
     or markdown headers.
 
     Args:
-        filename: Document basename (e.g. 'Ricky_Narrative_Profile.md').
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
         proposed_body: Proposed markdown document body.
 
     Returns:
@@ -1123,7 +1123,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
       - Left on disk if an error prevents proposal creation — next run resumes.
 
     Args:
-        filename: Document basename, e.g. 'Ricky_Narrative_Profile.md'.
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
         new_entries: All entries changed since the last completed run
             (last_run timestamp). Entries already incorporated in a prior
             partial run are identified via draft_cursor and skipped.

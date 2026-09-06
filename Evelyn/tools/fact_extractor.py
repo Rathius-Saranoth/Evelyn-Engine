@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-03 18:04:24
+# date modified: 2026-09-05 19:46:10
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -877,8 +877,8 @@ def _build_procedure_extraction_prompt(messages: list[dict]) -> str:
         "- Do NOT extract static facts, personal food preferences, consumer dislikes, family entity spellings, or local business hours as procedures — these belong strictly in context entries.\n"
         "- Only extract actionable, repeatable procedural steps and behavioral workflows.\n\n"
         "Active Engine Tools Available for Procedures:\n"
-        "- write_dream_entry: Save structured dream entry notes for Ricky in the Dream Entries vault archive (never use write_journal_entry for dreams)\n"
-        "- write_journal_entry: Reserved EXCLUSIVELY for Evelyn's personal daily reflection / wrap-up journal entry (not dream logs or user notes)\n"
+        f"- write_dream_entry: Save structured dream entry notes for {cfg.USER_NAME} in the Dream Entries vault archive (never use write_journal_entry for dreams)\n"
+        f"- write_journal_entry: Reserved EXCLUSIVELY for {cfg.ASSISTANT_NAME}'s personal daily reflection / wrap-up journal entry (not dream logs or user notes)\n"
         "- write_file: Write or update general notes, feature ideas, or vault documents\n"
         "- read_file: Read files in workspace or vault notes\n"
         "- create_task, complete_task, list_tasks, get_agenda: Manage Google Tasks and schedule\n"

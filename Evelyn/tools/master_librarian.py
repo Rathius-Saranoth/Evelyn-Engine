@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-05 18:26:06
+# date modified: 2026-09-05 20:02:07
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -26,6 +26,7 @@ import evelyn_config as cfg
 from Evelyn.tools import (
     backlog_drainer,
     format_librarian,
+    index_librarian,
     link_librarian,
     path_utils,
     tag_librarian,
@@ -161,6 +162,32 @@ def audit_single_document(
             if res.get("status") == "created_stub":
                 stubs_created.append(gt)
 
+    # 5. Index Librarian pass (Folder Table of Contents synchronization)
+    index_changed = False
+    index_details: dict[str, Any] = {}
+    is_index_doc = os.path.basename(doc_path).endswith("_index.md") or os.path.basename(doc_path) == "_index.md"
+    parent_index_synced_count = 0
+    if is_index_doc:
+        dirpath = os.path.dirname(doc_path)
+        index_changed, content, index_details = index_librarian.audit_folder_index(
+            folder_relpath=dirpath,
+            vault_root=root,
+            content=content,
+            dry_run=dry_run,
+        )
+    elif "/" in doc_path:
+        dirpath = os.path.dirname(doc_path)
+        possible_idx1 = os.path.join(root, dirpath, "_index.md")
+        possible_idx2 = os.path.join(root, dirpath, f"{os.path.basename(dirpath)}_index.md")
+        if os.path.exists(possible_idx1) or os.path.exists(possible_idx2):
+            idx_changed, _, idx_details = index_librarian.audit_folder_index(
+                folder_relpath=dirpath,
+                vault_root=root,
+                dry_run=dry_run,
+            )
+            if idx_changed:
+                parent_index_synced_count = len(idx_details.get("added_notes", []))
+
     post_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     modified = pre_hash != post_hash
 
@@ -176,6 +203,10 @@ def audit_single_document(
         actions.extend(link_details.get("actions", ["links_updated"]))
     if stubs_created:
         actions.append(f"synthesized_stubs:{len(stubs_created)}")
+    if index_changed:
+        actions.append(f"index_synced:{len(index_details.get('added_notes', []))}")
+    if parent_index_synced_count:
+        actions.append(f"parent_index_synced:{parent_index_synced_count}")
 
     tags_str = ", ".join(tag_details.get("final_tags", [])) if tag_details else None
 
@@ -239,6 +270,7 @@ def audit_single_document(
         "format_details": format_details,
         "tag_details": tag_details,
         "link_details": link_details,
+        "index_details": index_details,
         "stubs_created": stubs_created,
     }
 

@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-04 21:43:30
+# date modified: 2026-09-05 19:45:50
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -162,11 +162,11 @@ def write_dream_entry(
     analysis: str = "",
     **kwargs,
 ) -> str:
-    """Compose and save a structured Dream Entry note for Ricky in the Obsidian vault.
+    """Compose and save a structured Dream Entry note for the user in the Obsidian vault.
 
     Args:
         title: Descriptive title for this specific dream scene/narrative.
-        description: Raw, untouched dream narrative from Ricky.
+        description: Raw, untouched dream narrative from the user.
         date: Optional date string in YYYY-MM-DD format (defaults to current date).
         feelings: Optional initial feelings, immediate waking thoughts, or mood.
         tags: Comma-separated list of tags to associate.

@@ -1,20 +1,21 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-08-28 12:28:12
+# date modified: 2026-09-05 19:48:20
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
-ingest_obsidian_knowledge.py — Syncs Evelyn's core memory files into Chroma.
+ingest_obsidian_knowledge.py — Syncs Evelyn's core memory files and vault knowledge into Chroma.
 
-Uploads full markdown files from Evelyn's Obsidian Vault subdirectory (journals,
-context entries, physical description) into the Chroma 'evelyn_memory' collection.
+Performs incremental vector synchronization of all qualifying markdown notes across the Obsidian Vault
+and all live SQLite context entries (from evelyn_memory.db) into the Chroma 'evelyn_memory' collection.
 
 Key behaviour:
-  - State file (vault_sync_state.json) stores mtime per source file.
-  - Only changed files are re-ingested on subsequent runs.
-  - Garbage collection removes Chroma records for deleted/excluded files.
+  - State file (vault_sync_state.json) stores content hash and mtime per source file.
+  - Only new or modified files/entries are re-embedded on subsequent runs.
+  - Garbage collection removes stale Chroma records for deleted or excluded files.
+  - Supports pinned documents, priority boosting, and frontmatter alias indexing.
 
-Run directly or imported via sync_context_memory() in evelyn_tools.py.
+Run directly or invoked via sync_context_memory() in evelyn_tools.py.
 """
 
 import hashlib

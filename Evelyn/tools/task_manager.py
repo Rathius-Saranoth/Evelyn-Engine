@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-09-01 17:40:16
+# date modified: 2026-09-05 19:48:51
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -14,18 +14,23 @@ state through this module. `is_any_running()` is the single canonical source of
 truth for mutual exclusion.
 
 Design notes:
-- No classes, no dataclasses, no abstractions beyond plain dicts. Cheap to import.
+- Lightweight primitives with minimal overhead. Cheap to import.
 - Thread-safe reads via `sys.modules` reference to the server's `_background_tasks`
   dict, which is already accessed this way by all existing modules.
 - The module-level boolean flags (_extracting, _consolidating, etc.) in each
   worker module are preserved as a second layer of protection — this module is
   an additional layer above them, not a replacement.
+- Supports cognitive scheduling tiers (TaskSchedule: reflex, diurnal, nocturnal),
+  priority queuing, dynamic runtime timeouts, and process watchdog monitoring.
 
 Exports:
+    TaskSchedule              — Cognitive scheduling tiers (REFLEX, DIURNAL, NOCTURNAL).
     is_any_running(exclude)   — True if any heavy task is currently running.
     set_running(name)         — Mark a task as running in the server registry.
     clear_running(name)       — Remove a task from the running set.
     get_status(name)          — Return current status string for a named task.
+    enqueue_idle_task(name)   — Enqueue task for background cognitive idle execution.
+    acquire_next_runnable_task(idle_seconds) — Dequeue highest-priority runnable task.
     terminate_task_subprocess(name) — Forcefully terminate subprocess and clean PID locks for a task.
 """
 

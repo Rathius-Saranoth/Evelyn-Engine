@@ -1,12 +1,12 @@
 # dream_manager.py
 # date created: 2026-08-29 07:45:00
-# date modified: 2026-08-29 07:47:43
+# date modified: 2026-09-05 19:45:44
 # tags: #dreams, #management, #entries, #vault, #protocols
 
 """
 dream_manager.py — Dream entry creation and retrieval for Evelyn.
 
-Manages Ricky's dream records, stored as structured markdown files inside
+Manages the user's dream records, stored as structured markdown files inside
 the Obsidian Vault (Dream Entries archive).
 
 Preserves raw user descriptions intact, captures initial feelings/thoughts,
@@ -80,11 +80,11 @@ def create_dream_entry(
     tags: list[str] | str | None = None,
     analysis: str = "",
 ) -> str:
-    """Compose and save a structured Dream Entry note for Ricky in the Obsidian vault.
+    """Compose and save a structured Dream Entry note for the user in the Obsidian vault.
 
     Args:
         title: Descriptive title for this specific dream scene/narrative.
-        description: Raw, untouched dream description from Ricky.
+        description: Raw, untouched dream description from the user.
         date_str: Optional date string (YYYY-MM-DD). Defaults to current date.
         feelings: Optional initial feelings, immediate waking thoughts, or mood.
         tags: Optional tag list or comma-separated tag string.

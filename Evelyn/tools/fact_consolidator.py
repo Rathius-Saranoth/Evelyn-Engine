@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-09-03 18:38:11
+# date modified: 2026-09-05 19:46:01
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -53,14 +53,18 @@ _background_tasks: set[asyncio.Task] = set()
 # Typed data structures (plain dicts — no dataclass overhead)
 # ---------------------------------------------------------------------------
 # FactRecord = {
-#     "path": str,          absolute path to the file
-#     "rel_path": str,      path relative to CONTEXT_ENTRIES_DIR
+#     "id": int,            database primary key from context_entries
+#     "path": str,          stringified id (for backwards-compatible path access)
+#     "rel_path": str,      stringified id
 #     "category": str,      "Cat05-U"
 #     "cat_num": int,       5
-#     "subject": str,       "Ricky" | "Evelyn"
-#     "date": datetime,     parsed from filename or frontmatter
-#     "summary": str,       text of **Summary:** line
-#     "filename": str,      basename only
+#     "subject": str,       cfg.USER_NAME | cfg.ASSISTANT_NAME
+#     "date": datetime,     parsed observation date
+#     "summary": str,       observation text
+#     "observation": str,   observation text
+#     "tags": str,          domain tags
+#     "confidence": str,    confidence level
+#     "source": str,        source origin
 # }
 #
 # Cluster = {
@@ -234,12 +238,12 @@ def validate_and_normalize_category(
 ) -> str | None:
     """Validate and normalize a category string to the canonical format Cat##-[UA].
 
-    Attempts to parse noisy category names (e.g. Ca16, Kat08, Ka11, cad09, Cat05-R, Cat01-E)
+    Attempts to parse noisy category names (e.g. Ca16, Kat08, Ka11, cad09, Cat05-U, Cat01-A)
     and normalize them to canonical Cat##-U (User) or Cat##-A (Assistant).
 
     Args:
         cat_str: The category string to validate.
-        subject: Optional subject (e.g. "Ricky" or "Evelyn") to resolve missing or
+        subject: Optional subject (e.g. cfg.USER_NAME or cfg.ASSISTANT_NAME) to resolve missing or
                  ambiguous suffixes.
 
     Returns:

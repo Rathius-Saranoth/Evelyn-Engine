@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # pdf_staging_worker.py
 # date created: 2026-08-28 11:24:49
-# date modified: 2026-08-28 11:52:11
+# date modified: 2026-09-05 19:46:52
 # tags:
 
 """
@@ -44,9 +44,9 @@ DEFAULT_DOMAINS = [
     {"label": "Notes (Inbox)", "path": "Notes", "domain": "General"},
     {"label": "Reference Library (AI & Tech)", "path": "Reference Library", "domain": "AI"},
     {"label": "Owner's Manuals & Hardware Specs", "path": "Reference Library/Owner's Manuals", "domain": "Hardware"},
-    {"label": "Medical Records (Ricky)", "path": "Ricky/Medical", "domain": "Medical"},
-    {"label": "Financial & Taxes (Ricky)", "path": "Ricky/Financial", "domain": "Financial"},
-    {"label": "Professional & Career (Ricky)", "path": "Ricky/Professional", "domain": "Professional"},
+    {"label": f"Medical Records ({getattr(cfg, 'USER_NAME', 'User')})", "path": f"{getattr(cfg, 'USER_NAME', 'User')}/Medical", "domain": "Medical"},
+    {"label": f"Financial & Taxes ({getattr(cfg, 'USER_NAME', 'User')})", "path": f"{getattr(cfg, 'USER_NAME', 'User')}/Financial", "domain": "Financial"},
+    {"label": f"Professional & Career ({getattr(cfg, 'USER_NAME', 'User')})", "path": f"{getattr(cfg, 'USER_NAME', 'User')}/Professional", "domain": "Professional"},
     {"label": "Family & Legal (Schyler)", "path": "Schyler", "domain": "Family/Schyler"},
     {"label": "Genealogy & Ancestry", "path": "Genealogy", "domain": "Genealogy"},
     {"label": "Creative & Projects", "path": "Projects", "domain": "Creative"},
