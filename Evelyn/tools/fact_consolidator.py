@@ -36,12 +36,13 @@ import sqlite3
 import subprocess
 import sys
 import time
+from typing import Any
 
 import httpx
 import yaml
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import chroma_rag, fact_extractor, memory_db
+from Evelyn.tools import backlog_drainer, chroma_rag, fact_extractor, memory_db
 from Evelyn.tools.fact_extractor import load_cat00_index
 from Evelyn.tools.tag_librarian import normalize_tag_format
 
@@ -1781,30 +1782,45 @@ async def _do_consolidation():
 
     # Step 1b — Prioritize explicitly user-queued fact merge requests
     queued_merges = memory_db.get_fact_merge_queue(status="pending")
-    for q_item in queued_merges:
-        q_id = q_item["id"]
-        entry_ids = q_item.get("entry_ids", [])
-        queued_records = [r for r in records if r["id"] in entry_ids]
-        if len(queued_records) >= 2:
-            q_cluster = {
-                "category": queued_records[0]["category"],
-                "topic": f"Queued Fact Merge {entry_ids}",
-                "reason": "Manually queued fact consolidation",
-                "records": queued_records,
-            }
-            _set_status_in_server(
-                "running",
-                phase=f"merging_queued_{q_cluster['category']}",
-                sub_status={
-                    "active_category": q_cluster["category"],
-                    "queued_merge_id": q_id,
-                    "proposals_written": proposals_written,
-                },
-            )
-            q_res = await generate_consolidation_proposal(q_cluster)
-            if q_res:
-                proposals_written += 1
-        memory_db.dequeue_fact_merge(q_id)
+    if queued_merges:
+        async def _process_queued_merge(q_item: dict[str, Any]) -> None:
+            nonlocal proposals_written
+            q_id = q_item["id"]
+            entry_ids = q_item.get("entry_ids", [])
+            queued_records = [r for r in records if r["id"] in entry_ids]
+            if len(queued_records) >= 2:
+                q_cluster = {
+                    "category": queued_records[0]["category"],
+                    "topic": f"Queued Fact Merge {entry_ids}",
+                    "reason": "Manually queued fact consolidation",
+                    "records": queued_records,
+                }
+                _set_status_in_server(
+                    "running",
+                    phase=f"merging_queued_{q_cluster['category']}",
+                    sub_status={
+                        "active_category": q_cluster["category"],
+                        "queued_merge_id": q_id,
+                        "proposals_written": proposals_written,
+                    },
+                )
+                q_res = await generate_consolidation_proposal(q_cluster)
+                if q_res:
+                    proposals_written += 1
+            memory_db.dequeue_fact_merge(q_id)
+
+        await backlog_drainer.drain_backlog_async(
+            task_name="consolidator",
+            fetch_batch_fn=lambda _limit: queued_merges,
+            process_item_fn=_process_queued_merge,
+            config=backlog_drainer.DrainConfig(
+                batch_size=len(queued_merges),
+                max_batches=1,
+                yield_check_interval=1,
+                auto_re_enqueue=True,
+                manage_task_lifecycle=False,
+            ),
+        )
 
     # Step 2 — Detect clusters and recategorization candidates
     clusters, recat_items = await find_consolidation_candidates(records, cat00)
@@ -1860,36 +1876,51 @@ async def _do_consolidation():
         # 5a. Prioritize explicitly user-queued split review requests
         queued_items = memory_db.get_split_queue(status="pending")
         processed_ids = set()
-        for q_item in queued_items:
-            entry_id = q_item["entry_id"]
-            if memory_db.has_pending_proposal_for([entry_id]):
+        if queued_items:
+            async def _process_queued_split(q_item: dict[str, Any]) -> None:
+                nonlocal proposals_written, splits_written
+                entry_id = q_item["entry_id"]
+                if memory_db.has_pending_proposal_for([entry_id]):
+                    memory_db.dequeue_split(entry_id)
+                    return
+                entry = memory_db.get_entry(entry_id)
+                if entry and entry.get("status") == "live":
+                    rec = {
+                        "id": entry["id"],
+                        "category": entry["category"],
+                        "subject": entry.get("subject", cfg.USER_NAME),
+                        "summary": entry.get("observation", ""),
+                        "tags": entry.get("tags") or "",
+                        "date": entry.get("date") or "",
+                    }
+                    _set_status_in_server(
+                        "running",
+                        phase=f"splitting_queued_{rec['category']}",
+                        sub_status={
+                            "active_category": rec["category"],
+                            "splitting_record": rec["id"],
+                            "proposals_written": proposals_written + splits_written,
+                        },
+                    )
+                    s_res = await generate_split_proposal(rec, cat00)
+                    if s_res:
+                        splits_written += 1
+                        proposals_written += 1
+                    processed_ids.add(entry_id)
                 memory_db.dequeue_split(entry_id)
-                continue
-            entry = memory_db.get_entry(entry_id)
-            if entry and entry.get("status") == "live":
-                rec = {
-                    "id": entry["id"],
-                    "category": entry["category"],
-                    "subject": entry.get("subject", cfg.USER_NAME),
-                    "summary": entry.get("observation", ""),
-                    "tags": entry.get("tags") or "",
-                    "date": entry.get("date") or "",
-                }
-                _set_status_in_server(
-                    "running",
-                    phase=f"splitting_queued_{rec['category']}",
-                    sub_status={
-                        "active_category": rec["category"],
-                        "splitting_record": rec["id"],
-                        "proposals_written": proposals_written + splits_written,
-                    },
-                )
-                s_res = await generate_split_proposal(rec, cat00)
-                if s_res:
-                    splits_written += 1
-                    proposals_written += 1
-                processed_ids.add(entry_id)
-            memory_db.dequeue_split(entry_id)
+
+            await backlog_drainer.drain_backlog_async(
+                task_name="consolidator",
+                fetch_batch_fn=lambda _limit: queued_items,
+                process_item_fn=_process_queued_split,
+                config=backlog_drainer.DrainConfig(
+                    batch_size=len(queued_items),
+                    max_batches=1,
+                    yield_check_interval=1,
+                    auto_re_enqueue=True,
+                    manage_task_lifecycle=False,
+                ),
+            )
 
         # 5b. Find candidates with high word count
         candidate_records = [

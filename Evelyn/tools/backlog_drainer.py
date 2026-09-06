@@ -101,8 +101,11 @@ def drain_backlog[T](
                 result.deadline_exceeded = True
                 break
 
-            # Check cooperative yield before fetching
-            if task_manager.should_yield(task_name):
+            # Check cooperative yield before fetching (chat preemption yields immediately; queue contention yields after >= 1 item processed)
+            if task_manager.is_chat_preempted() or (
+                (result.items_processed > 0 or batch_num > 0)
+                and task_manager.should_yield(task_name)
+            ):
                 result.yielded = True
                 if cfg.auto_re_enqueue:
                     task_manager.enqueue_idle_task(task_name)
@@ -136,8 +139,9 @@ def drain_backlog[T](
                     group_counts[group_key] = group_counts.get(group_key, 0) + 1
 
                 # Check cooperative yield per interval
-                if (
-                    cfg.yield_check_interval > 0
+                if task_manager.is_chat_preempted() or (
+                    (result.items_processed > 0 or idx > 0)
+                    and cfg.yield_check_interval > 0
                     and (idx % cfg.yield_check_interval == 0)
                     and task_manager.should_yield(task_name)
                 ):
@@ -232,7 +236,10 @@ async def drain_backlog_async[T](
                 result.deadline_exceeded = True
                 break
 
-            if task_manager.should_yield(task_name):
+            if task_manager.is_chat_preempted() or (
+                (result.items_processed > 0 or batch_num > 0)
+                and task_manager.should_yield(task_name)
+            ):
                 result.yielded = True
                 if cfg.auto_re_enqueue:
                     task_manager.enqueue_idle_task(task_name)
@@ -263,8 +270,9 @@ async def drain_backlog_async[T](
                         continue
                     group_counts[group_key] = group_counts.get(group_key, 0) + 1
 
-                if (
-                    cfg.yield_check_interval > 0
+                if task_manager.is_chat_preempted() or (
+                    (result.items_processed > 0 or idx > 0)
+                    and cfg.yield_check_interval > 0
                     and (idx % cfg.yield_check_interval == 0)
                     and task_manager.should_yield(task_name)
                 ):

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-05 18:41:23
+date modified: 2026-09-05 19:17:55
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,28 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.070] - 2026-09-05 — *Canonical Backlog Drainer Ecosystem Consolidation*
+
+### Refactored & Consolidated
+- **Conversational Memory Extraction (`Evelyn/tools/fact_extractor.py`)**:
+  - Replaced legacy ad-hoc `while True` extraction loop with `backlog_drainer.drain_backlog_async`.
+  - Enforced strict state persistence invariant: cursor advancement (`_last_extracted_id`) and SQLite state commits execute strictly upon successful batch extraction.
+  - Added structured error and poison-pill containment (`_handle_error`) to log extraction failures without entering hot retry loops.
+  - Preserved cooperative yielding to peer tasks and active chat sessions via native `task_manager.should_yield()` integration.
+- **Vault PDF Staging Ingestion (`Evelyn/tools/pdf_staging_worker.py`)**:
+  - Migrated `process_staging_queue()` to use `backlog_drainer.drain_backlog()` with `yield_check_interval=1`.
+  - Added cooperative preemption to heavy multi-page PDF extractions, ensuring the worker yields gracefully between documents when user chats start.
+  - Guaranteed deterministic file descriptor and stream closure prior to yield evaluation, preventing file-locking contention.
+- **Consolidation Sub-Queues (`Evelyn/tools/fact_consolidator.py`, `procedure_consolidator.py`)**:
+  - Migrated user-queued fact merge requests (`fact_merge_queue`) and fact split requests (`split_queue`) to `drain_backlog_async`.
+  - Migrated manual procedure merge requests (`procedure_merge_queue`) and procedure split requests (`procedure_split_queue`) to `drain_backlog_async`.
+  - Wrapped queue draining with per-item exception isolation, preventing poison pills from aborting full consolidation passes.
+- **CLI & Script Unification (`scripts/master_librarian.py`, `scripts/audit_vault_tags.py`)**:
+  - Refactored `scripts/master_librarian.py` to drive batch note curation via `backlog_drainer.drain_backlog()` with live progress reporting.
+  - Converted legacy standalone `scripts/audit_vault_tags.py` into a deprecation wrapper that warns operators and transparently replaces its process image via `os.execv` to invoke `scripts/master_librarian.py`.
+- **Framework Hardening (`Evelyn/tools/backlog_drainer.py`)**:
+  - Refined cooperative yield evaluation so newly dispatched tasks process at least one item before yielding to peer tasks in the queue, preventing zero-work hot-potato yielding under queue contention while maintaining immediate zero-delay preemption on incoming user chat.
 
 ## [000.006.069] - 2026-09-05 — *DevUI Heavy Tasks Cleanup & Master Librarian Card Unification*
 

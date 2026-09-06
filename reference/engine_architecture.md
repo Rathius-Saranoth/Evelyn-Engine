@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-05 17:54:42
+date modified: 2026-09-05 19:17:55
 ---
 # Evelyn Engine Architecture Map
 
@@ -238,8 +238,8 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **`scripts/extract_pdf_library.py`**: High-fidelity PDF extraction engine featuring PyMuPDF section hierarchy detection, DP title segmentation, dynamic zero-padded chapter generation, Sidecar Index Card synthesis, and nearest-neighbor vector RAG cross-linking.
 * **`scripts/relocate_vault_pdfs.py`**: Vault attachment normalization utility migrating non-markdown documents to `Attachments/Source Material/<Domain>/` while creating interactive Sidecar Note viewers.
 * **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `media`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
-* **`scripts/trigger_profile_evolution.py`**: Manual one-shot trigger for profile evolution. Bypasses the idle-time threshold and heavy-task mutex — safe to run while the server is up. Respects the same draft-resume logic as the idle loop.
-* **`scripts/audit_vault_tags.py`**: Standalone CLI batch taxonomy audit runner prioritizing un-audited notes by urgency (missing tags, multi-dash compound tags, flat tags) with live progress telemetry and interruptibility.
+* **`scripts/master_librarian.py`**: Standalone CLI runner for Evelyn's Master Vault Librarian. Executes single-pass vault auditing (format normalization, tag taxonomy, wikilink governance, and ghost stub synthesis) driven by the canonical `backlog_drainer` framework.
+* **`scripts/audit_vault_tags.py`**: *[DEPRECATED]* Compatibility wrapper forwarding CLI calls to `scripts/master_librarian.py` via `os.execv`.
 * **`templates/`**: Generic persona, profile, directive, and physical description example templates for open-source distributions.
 
 ---
@@ -313,14 +313,15 @@ The research engine (`research_engine.py`) runs as a subprocess, not an asyncio 
 | Task Key | Module | Type |
 |---|---|---|
 | `task_<id>` | `research_engine.py` | subprocess |
-| `extractor` | `fact_extractor.py` | asyncio coroutine |
-| `consolidator` | `fact_consolidator.py` | asyncio coroutine |
-| `procedure_consolidator` | `procedure_consolidator.py` | asyncio coroutine |
+| `extractor` | `fact_extractor.py` (`backlog_drainer.py`) | asyncio coroutine |
+| `consolidator` | `fact_consolidator.py` (`backlog_drainer.py`) | asyncio coroutine |
+| `procedure_consolidator` | `procedure_consolidator.py` (`backlog_drainer.py`) | asyncio coroutine |
 | `profile_evolver` | `profile_evolver.py` | asyncio coroutine |
 | `refresh_memory` | `evelyn_server.py` | asyncio subprocess |
 | `sync` | `evelyn_server.py` | daemon thread |
 | `vault_map` | `vault_indexer.py` (`evelyn_server.py`) | subprocess / thread |
-| `tag_librarian` | `tag_librarian.py` | asyncio coroutine |
+| `pdf_staging_ingestion` | `pdf_staging_worker.py` (`backlog_drainer.py`) | synchronous thread |
+| `tag_librarian` | `master_librarian.py` (`backlog_drainer.py`) | legacy alias |
 | `master_librarian` | `master_librarian.py` (`backlog_drainer.py`) | asyncio coroutine / thread |
 | `auto_journaler` | `auto_journaler.py` | asyncio coroutine |
 | `ambient_reflector` | `ambient_reflector.py` (`ambient_providers.py`) | asyncio coroutine |
