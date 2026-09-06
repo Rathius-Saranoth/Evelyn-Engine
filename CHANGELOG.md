@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-06 15:51:26
+date modified: 2026-09-06 18:31:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,31 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.082] - 2026-09-06 — *Context Delivery Streamlining and Boundary Enforcement*
+
+### Fixed & Hardened
+- **RAG Subdirectory Exclusion Enforcement (`Evelyn/tools/chroma_rag.py`, `Evelyn/tools/ingest_obsidian_knowledge.py`)**:
+  - Wired `cfg.RAG_EXCLUDED_SUBDIRS` into `build_rag_context()`, `_fetch_pinned_chunks()`, and `find_semantic_neighbors()` using canonical `path_utils.is_vault_excluded(path, custom_excludes=...)`. Chunks from excluded directories (such as `Evelyn's Journal`, `Archived`, `Pending_Approvals`) are dropped at retrieval time.
+  - Updated `ingest_obsidian_knowledge.py` to use `RAG_EXCLUDED_SUBDIRS` instead of `VAULT_READ_IGNORE`, guaranteeing that journal reflections and ignored notes are skipped during indexing passes and never written into ChromaDB.
+  - Prevents old reflective journal entries from polluting the RAG context with premature bedtime and end-of-day closure rhetoric during daytime chore discussions.
+- **Chat History Message Capping (`evelyn_server.py`)**:
+  - Enforced `cfg.MAX_HISTORY_MESSAGES` (default 40 messages / 20 turns) as a strict upper bound in `load_history()`, slicing `valid_rows = valid_rows[-max_history_msgs:]`.
+  - Preserved dialog turn integrity by ensuring the sliced history starts on a user turn (`valid_rows[0]["role"] == "user"`).
+  - Breaks runaway in-context feedback loops where 45+ unpruned historical messages (~7,800 tokens of past assistant prose) forced the local model into echoing lengthy theatrical monologues.
+- **System Directives & Persona De-Bloating (`Evelyn/persona/System_Directives.md`, `Evelyn/persona/Evelyn_Narrative_Persona.md`, `Evelyn/persona/Ricky_Narrative_Profile.md`)**:
+  - Pruned conflicting instructions in `System_Directives.md`: removed `"using evocative narrative descriptions to create immersive scenes of comfort"` from routine conversation and eliminated prescriptive `"Transition Rituals: Support his transition periods, including laundry cycles... Facilitate transitions from work toward relaxing"`.
+  - Added explicit physical reality tracking mandate: *"Reflect physical reality and operational facts as stated literally. For real-world, multi-step workflows (e.g., laundry, cooking, cleaning, assembly), tasks remain active until the user explicitly confirms the final step is complete; never assume, infer, or declare task completion on intermediate stages (such as items currently in the wash, dryer, or oven)."*
+  - Reaffirmed strict 2–3 concise sentences default for routine check-ins, banter, and chore updates.
+  - Streamlined `Evelyn_Narrative_Persona.md` to remove mandatory theatrical reaction imperatives (gasps, claps), preserving authentic British wit, dragoness archetype, and dry humor without requiring dramatic stage cues on every turn.
+  - Streamlined `Ricky_Narrative_Profile.md` to replace physical closeness rituals with low-demand, quiet companionship.
+- **Deterministic AST Config-Wiring Test Gate (`Evelyn/tests/test_config_wiring.py`)**:
+  - Implemented an automated AST test parsing `evelyn_config.py` and validating that every uppercase constant is consumed by engine or server modules.
+  - Enhanced symbol resolution to capture `ast.Constant` string literals, preventing false positives from `getattr(cfg, "CONSTANT_NAME", default)` access patterns.
+  - Explicitly asserts that `RAG_EXCLUDED_SUBDIRS` and `MAX_HISTORY_MESSAGES` are actively consumed across the codebase.
+- **Unit Test Coverage (`Evelyn/tests/test_rag_precision_targeting.py`, `Evelyn/tests/test_history_bounding.py`)**:
+  - Added `test_build_rag_context_excludes_rag_excluded_subdirs` verifying journal chunks are rejected at retrieval time.
+  - Added `test_load_history_max_messages_cap` verifying history truncates to 40 messages and maintains proper user-turn start.
 
 ## [000.006.081] - 2026-09-06 — *Direct URL Reading and Web Search Hardening*
 

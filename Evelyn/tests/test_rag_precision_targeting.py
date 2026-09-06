@@ -159,6 +159,49 @@ Some important text from the middle of the document.
             self.assertIn("Architectural guidelines for Evelyn Engine high performance systems.", envelope)
             self.assertIn("## ⚡ Performance Tuning", envelope)
 
+    def test_build_rag_context_excludes_rag_excluded_subdirs(self):
+        """Verify build_rag_context filters out chunks from RAG_EXCLUDED_SUBDIRS (e.g. Evelyn's Journal)."""
+        from Evelyn.tools.chroma_rag import build_rag_context
+
+        journal_chunk = {
+            "source": os.path.join(cfg.VAULT_BASE_DIR, f"{cfg.ASSISTANT_NAME}'s Journal/2026-09-06.md"),
+            "content": "A profound sense of completion has settled over us as the gears stop turning.",
+            "distance": 0.15,
+            "metadata": {
+                "chunk": 0,
+                "total_chunks": 1,
+                "title": "2026-09-06",
+                "tags": "journal, evening",
+            },
+        }
+        allowed_chunk = {
+            "source": os.path.join(cfg.VAULT_BASE_DIR, "House/Laundry_Guide.md"),
+            "content": "Bedding should be washed in warm water and tumble dried on medium.",
+            "distance": 0.20,
+            "metadata": {
+                "chunk": 0,
+                "total_chunks": 1,
+                "title": "Laundry Guide",
+                "tags": "chores, maintenance",
+            },
+        }
+
+        with patch("Evelyn.tools.chroma_rag.query_collection", return_value=[journal_chunk, allowed_chunk]), \
+             patch("Evelyn.tools.chroma_rag._fetch_pinned_chunks", return_value=[]), \
+             patch("Evelyn.tools.chroma_rag._apply_priority_boost", side_effect=lambda x: x), \
+             patch("Evelyn.tools.chroma_rag.log_rag_retrieval"):
+
+            envelope = build_rag_context("bedding wash status")
+
+            # Allowed doc must be present
+            self.assertIn("House/Laundry_Guide.md", envelope)
+            self.assertIn("Laundry Guide", envelope)
+
+            # Journal chunk MUST be excluded
+            self.assertNotIn("Evelyn's Journal", envelope)
+            self.assertNotIn("A profound sense of completion", envelope)
+
 
 if __name__ == "__main__":
     unittest.main()
+

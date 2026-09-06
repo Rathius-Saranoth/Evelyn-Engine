@@ -900,6 +900,14 @@ def load_history(before_id: int | None = None, channel_id: str = "main") -> list
         and r["content"] != THREAD_BREAK_MARKER
     ]
 
+    # Enforce MAX_HISTORY_MESSAGES cap on dialog history turns
+    max_history_msgs = getattr(cfg, "MAX_HISTORY_MESSAGES", 40)
+    if max_history_msgs and len(valid_rows) > max_history_msgs:
+        valid_rows = valid_rows[-max_history_msgs:]
+        # Ensure sliced history starts on a user turn to maintain dialog turn integrity
+        while valid_rows and valid_rows[0]["role"] == "assistant":
+            valid_rows.pop(0)
+
     messages = []
     last_date = None
 

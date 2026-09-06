@@ -54,6 +54,23 @@ try:
 except ImportError:
     from frontmatter_utils import parse_frontmatter
 
+try:
+    from Evelyn.tools.path_utils import is_vault_excluded
+except ImportError:
+    from path_utils import is_vault_excluded
+
+
+def is_rag_excluded_source(source_path: Any) -> bool:
+    """Check if a source path belongs to an excluded subdirectory configured for RAG."""
+    if not source_path:
+        return False
+    src_str = str(source_path)
+    if src_str.startswith("sqlite::"):
+        return False
+    custom_excludes = {d.lower() for d in getattr(cfg, "RAG_EXCLUDED_SUBDIRS", [])}
+    return is_vault_excluded(src_str, custom_excludes=custom_excludes)
+
+
 _CHROMA_DIR = getattr(cfg, "CHROMA_DB_PATH", r"/home/rathius/evelyn/data/chroma_db")
 CHROMA_LOCK_FILE = os.path.join(_CHROMA_DIR, ".chroma_write.lock")
 _MEMORY_DB_PATH = getattr(cfg, "MEMORY_DB_PATH", r"/home/rathius/evelyn/data/evelyn_memory.db")
@@ -973,6 +990,8 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
 
             # Check which pinned docs' aliases appear in the query (using word boundaries)
             for src, aliases in pinned_sources.items():
+                if is_rag_excluded_source(src):
+                    continue
                 if src in seen_sources:
                     continue
                 matched = any(
@@ -1231,7 +1250,9 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
 
     relevant = [
         c for c in all_chunks
-        if c["distance"] <= threshold and c["source"] not in pinned_sources
+        if c["distance"] <= threshold
+        and c["source"] not in pinned_sources
+        and not is_rag_excluded_source(c.get("source", ""))
     ]
 
     # RAG query summary (debug-gated, structured for grep)
@@ -1482,6 +1503,8 @@ def find_semantic_neighbors(
     for chunk in raw_chunks:
         src = chunk.get("source", "")
         if not src or src.startswith("sqlite::"):
+            continue
+        if is_rag_excluded_source(src):
             continue
         src_norm = src.replace('\\', '/').lower()
         if exclude_norm and (exclude_norm in src_norm or src_norm in exclude_norm):
