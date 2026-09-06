@@ -85,8 +85,8 @@ class TestBacklogDrainer(unittest.TestCase):
         items = [1, 2, 3, 4, 5]
         processed = []
 
-        # Yield on the second item (call 1: before batch, call 2: item 0, call 3: item 1)
-        mock_yield.side_effect = [False, False, True]
+        # Yield on the second item (evaluated at idx=1 after first item is processed)
+        mock_yield.side_effect = [True]
 
         def fetch_fn(limit):
             batch = items[:limit]

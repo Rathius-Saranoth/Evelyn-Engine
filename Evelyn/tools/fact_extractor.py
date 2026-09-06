@@ -39,7 +39,7 @@ import httpx
 import yaml
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import chroma_rag, vault_db
+from Evelyn.tools import backlog_drainer, chroma_rag, vault_db
 from Evelyn.tools.tag_librarian import is_excluded_tag, normalize_tag_format
 
 # ---------------------------------------------------------------------------
@@ -344,72 +344,96 @@ async def run_extraction():
     max_batches = getattr(cfg, "FACT_EXTRACTION_MAX_BATCHES_PER_SESSION", 0)
     backlog_delay = getattr(cfg, "FACT_EXTRACTION_BACKLOG_DELAY", 5.0)
 
-    try:
-        while True:
-            # 1. Fetch next batch of unprocessed messages
-            messages, max_id = _fetch_new_messages()
-            min_new = cfg.FACT_EXTRACTION_MIN_MESSAGES
-            if len(messages) < min_new:
-                if _session_batches_this_idle == 0:
-                    print(
-                        f"[EXTRACTOR] Only {len(messages)} new message(s) (need {min_new}). Skipping.",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        f"[EXTRACTOR] Backlog caught up ({len(messages)} remaining < {min_new}). Finishing pass.",
-                        flush=True,
-                    )
-                break
-
-            # 2. Register running status in server registry
-            _set_status_in_server(
-                "running",
-                sub_status={"last_extracted_id": _last_extracted_id},
-            )
-
-            # 3. Perform LLM extraction
-            await _do_extraction(messages)
-
-            # 4. Commit progress cursor atomically to disk & state
-            _last_extracted_id = max_id
-            _session_batches_this_idle += 1
-            _update_last_run_ts()
-            _save_extraction_state(max_id)
-            _set_status_in_server(
-                "idle",
-                summary=f"Extracted {len(messages)} messages (up to id #{max_id})",
-                sub_status={"last_extracted_id": max_id},
-                items_processed=len(messages),
-            )
-            print(
-                f"[EXTRACTOR] Batch {_session_batches_this_idle} complete — advanced to message id={max_id}.",
-                flush=True,
-            )
-
-            # 5. Check if more messages exist in the database
-            remaining_messages, _ = _fetch_new_messages()
-            if len(remaining_messages) < min_new:
-                print("[EXTRACTOR] Backlog fully processed.", flush=True)
-                break
-
-            # 6. Check for cooperative yield: if other peer tasks are waiting or chat arrived
-            if task_manager.should_yield("extractor"):
-                print("[EXTRACTOR] Cooperative yield requested (peer task queued or chat active). Re-enqueueing at tail.", flush=True)
-                task_manager.enqueue_idle_task("extractor")
-                break
-
-            # 7. Check optional session batch limit (if max_batches > 0)
-            if max_batches > 0 and _session_batches_this_idle >= max_batches:
+    def _fetch_batch(_limit: int) -> list[tuple[list[dict], int]]:
+        messages, max_id = _fetch_new_messages()
+        min_new = cfg.FACT_EXTRACTION_MIN_MESSAGES
+        if len(messages) < min_new:
+            if _session_batches_this_idle == 0:
                 print(
-                    f"[EXTRACTOR] Session batch cap reached ({_session_batches_this_idle}/{max_batches}) — yielding.",
+                    f"[EXTRACTOR] Only {len(messages)} new message(s) (need {min_new}). Skipping.",
                     flush=True,
                 )
-                task_manager.enqueue_idle_task("extractor")
-                break
+            else:
+                print(
+                    f"[EXTRACTOR] Backlog caught up ({len(messages)} remaining < {min_new}). Finishing pass.",
+                    flush=True,
+                )
+            return []
+        return [(messages, max_id)]
 
-            # 8. Brief pause between consecutive batches before next extraction
-            await asyncio.sleep(backlog_delay)
+    async def _process_batch(item: tuple[list[dict], int]) -> None:
+        global _last_extracted_id, _session_batches_this_idle
+        messages, max_id = item
+        _set_status_in_server(
+            "running",
+            sub_status={"last_extracted_id": _last_extracted_id},
+        )
+        await _do_extraction(messages)
+
+        # State persistence invariant: strictly advance cursor & commit on successful extraction
+        _last_extracted_id = max_id
+        _session_batches_this_idle += 1
+        _update_last_run_ts()
+        _save_extraction_state(max_id)
+        _set_status_in_server(
+            "idle",
+            summary=f"Extracted {len(messages)} messages (up to id #{max_id})",
+            sub_status={"last_extracted_id": max_id},
+            items_processed=len(messages),
+        )
+        print(
+            f"[EXTRACTOR] Batch {_session_batches_this_idle} complete — advanced to message id={max_id}.",
+            flush=True,
+        )
+
+    def _handle_error(item: tuple[list[dict], int], exc: Exception) -> None:
+        messages, max_id = item
+        err_cls = type(exc).__name__
+        err_msg = str(exc).strip()
+        formatted_err = f"{err_cls}: {err_msg}" if err_msg else err_cls
+        print(
+            f"[EXTRACTOR ERROR] Poison-pill or extraction fault on batch up to id #{max_id} ({len(messages)} msgs): {formatted_err}",
+            flush=True,
+        )
+        _set_status_in_server(
+            "error",
+            error=formatted_err,
+            sub_status={"last_extracted_id": _last_extracted_id},
+        )
+
+    drain_cfg = backlog_drainer.DrainConfig(
+        batch_size=1,
+        max_batches=max_batches,
+        delay_between_batches=backlog_delay,
+        auto_re_enqueue=True,
+        manage_task_lifecycle=False,
+    )
+
+    try:
+        drain_res = await backlog_drainer.drain_backlog_async(
+            task_name="extractor",
+            fetch_batch_fn=_fetch_batch,
+            process_item_fn=_process_batch,
+            config=drain_cfg,
+            error_handler=_handle_error,
+        )
+        if drain_res.exhausted and _session_batches_this_idle > 0:
+            print("[EXTRACTOR] Backlog fully processed.", flush=True)
+        elif drain_res.yielded:
+            print(
+                "[EXTRACTOR] Cooperative yield requested (peer task queued or chat active). Re-enqueueing at tail.",
+                flush=True,
+            )
+        elif (
+            max_batches > 0
+            and drain_res.batches_completed >= max_batches
+            and not drain_res.exhausted
+        ):
+            print(
+                f"[EXTRACTOR] Session batch cap reached ({drain_res.batches_completed}/{max_batches}) — yielding.",
+                flush=True,
+            )
+            task_manager.enqueue_idle_task("extractor")
 
     except asyncio.CancelledError:
         print("[EXTRACTOR] Cancelled — current batch aborted.", flush=True)

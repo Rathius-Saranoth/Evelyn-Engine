@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # master_librarian.py
 # date created: 2026-09-05
-# date modified: 2026-09-05 17:42:44
+# date modified: 2026-09-05 19:16:57
 # tags: #[librarian, #master-librarian, #cli, #maintenance, #vault, #evelyn]
 
 """master_librarian.py — Standalone CLI runner for Evelyn Master Librarian.
@@ -21,9 +21,15 @@ Usage:
 
 import argparse
 import signal
+import sys
 import time
+from pathlib import Path
 
-from Evelyn.tools import master_librarian, vault_db
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from Evelyn.tools import backlog_drainer, master_librarian, vault_db
 
 _stop_requested = False
 
@@ -155,65 +161,80 @@ def main():
         print(f"Batch Size: {args.batch_size}")
         print("Press Ctrl+C at any time to gracefully stop.\n")
 
-        while not _stop_requested:
+        def _fetch_docs(fetch_limit: int) -> list[dict]:
+            if _stop_requested:
+                return []
+            if limit > 0:
+                remaining = limit - audited_count
+                if remaining <= 0:
+                    return []
+                fetch_limit = min(fetch_limit, remaining)
+            return vault_db.fetch_next_document_for_librarian_audit(fetch_limit)
+
+        def _process_doc(doc: dict) -> None:
+            nonlocal audited_count, modified_count, clean_count, error_count
+            nonlocal total_ghosts_resolved, total_flow_normalized
+            if _stop_requested:
+                return
             if limit > 0 and audited_count >= limit:
-                break
+                return
 
-            remaining = limit - audited_count if limit > 0 else args.batch_size
-            fetch_limit = min(args.batch_size, remaining) if limit > 0 else args.batch_size
+            doc_path = doc.get("path", "")
+            res = master_librarian.audit_single_document(
+                doc_path,
+                dry_run=args.dry_run,
+                include_tags=include_tags,
+                enable_llm_tags=enable_llm_tags,
+            )
+            audited_count += 1
+            status = res.get("status")
+            changed = res.get("changed", False)
+            elapsed = res.get("elapsed_ms", 0)
 
-            docs = vault_db.fetch_next_document_for_librarian_audit(fetch_limit)
-            if not docs:
-                print("[LIBRARIAN] No more eligible documents in vault queue.")
-                break
+            if status == "error":
+                error_count += 1
+                print(f"❌ [ERROR] ({audited_count}) {doc_path}: {res.get('message') or res.get('error')}")
+                return
 
-            for doc in docs:
-                if _stop_requested:
-                    break
-                if limit > 0 and audited_count >= limit:
-                    break
+            if changed:
+                modified_count += 1
+                prefix = "✏️  [MODIFIED]"
+            else:
+                clean_count += 1
+                prefix = "✓ [CLEAN]"
 
-                doc_path = doc.get("path", "")
-                res = master_librarian.audit_single_document(
-                    doc_path,
-                    dry_run=args.dry_run,
-                    include_tags=include_tags,
-                    enable_llm_tags=enable_llm_tags,
-                )
-                audited_count += 1
-                status = res.get("status")
-                changed = res.get("changed", False)
-                elapsed = res.get("elapsed_ms", 0)
+            print(
+                f"{prefix} ({audited_count}{f'/{limit}' if limit > 0 else ''}) {doc_path} ({elapsed}ms)"
+            )
 
-                if status == "error":
-                    error_count += 1
-                    print(f"❌ [ERROR] ({audited_count}) {doc_path}: {res.get('error')}")
-                    continue
+            actions = res.get("actions", [])
+            if actions:
+                for act in actions:
+                    print(f"    - {act}")
+                    if "ghost" in act.lower():
+                        total_ghosts_resolved += 1
+                    if "flow array" in act.lower():
+                        total_flow_normalized += 1
 
-                if changed:
-                    modified_count += 1
-                    prefix = "✏️  [MODIFIED]"
-                else:
-                    clean_count += 1
-                    prefix = "✓ [CLEAN]"
+            if args.verbose and res.get("link_details"):
+                ld = res["link_details"]
+                if any(ld.values()):
+                    print(f"    Details: {ld}")
 
-                print(
-                    f"{prefix} ({audited_count}{f'/{limit}' if limit > 0 else ''}) {doc_path} ({elapsed}ms)"
-                )
+        drain_cfg = backlog_drainer.DrainConfig(
+            batch_size=args.batch_size,
+            max_batches=0,
+            yield_check_interval=1,
+            auto_re_enqueue=False,
+            manage_task_lifecycle=False,
+        )
 
-                actions = res.get("actions", [])
-                if actions:
-                    for act in actions:
-                        print(f"    - {act}")
-                        if "ghost" in act.lower():
-                            total_ghosts_resolved += 1
-                        if "flow array" in act.lower():
-                            total_flow_normalized += 1
-
-                if args.verbose and res.get("link_details"):
-                    ld = res["link_details"]
-                    if any(ld.values()):
-                        print(f"    Details: {ld}")
+        backlog_drainer.drain_backlog(
+            task_name="cli_master_librarian",
+            fetch_batch_fn=_fetch_docs,
+            process_item_fn=_process_doc,
+            config=drain_cfg,
+        )
 
     total_elapsed = time.time() - start_time
     print("\n" + "=" * 68)

@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-05 18:28:55
+date modified: 2026-09-05 19:17:55
 ---
 # Evelyn Project Roadmap
 
@@ -88,7 +88,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Canonical XML Telemetry Envelopes & Context Hardening**: Unified in-flight prompt context injection standard (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) with centralized escaping, automatic token pruning, deterministic multi-envelope stacking, and strict anti-leakage system prompt contracts.
 - [x] **Chat History Prompt De-duplication & Context Retrieval Hardening (v000.006.044)**: Bounded history retrieval (`id < before_id`) with composite indexed multi-channel isolation, omitted raw query reflection from `<context_retrieval>` XML tags, and streamlined non-diegetic abstract thinking protocols.
 - [x] **Direct High-Speed Vector RAG & Dynamic Tool Surfacing (v000.006.046)**: Replaced slow synchronous LLM query reformulation with 15x faster direct dense vector search (`bge-large-en-v1.5`), implemented dynamic tool tiering (Core 8 vs Specialist Tools) coupled to Procedures and intent heuristics, and enforced affirmative profile evolution.
-- [x] **Master Librarian & Autonomous Link Governance (v000.006.067 - v000.006.068)**: Unified single-pass vault curation engine (`master_librarian`, `tag_librarian`, `link_librarian`, `format_librarian`, `index_librarian`) powered by the reusable `backlog_drainer` framework. Operates as Evelyn's authentic librarian persona across single read-transform-write passes with collection tag inheritance, code-protected array wrapping, bare attachment resolution, YAML flow array normalization, directory TOC synchronization, Tier 1/Tier 2 ghost stub guardrails, and fair-scheduled anti-loop clustering safeguards.
+- [x] **Master Librarian & Canonical Backlog Drainer Ecosystem Consolidation (v000.006.067 - v000.006.070)**: Unified single-pass vault curation engine (`master_librarian`, `tag_librarian`, `link_librarian`, `format_librarian`, `index_librarian`) and consolidated background queues (`fact_extractor`, `pdf_staging_worker`, `fact_consolidator`, `procedure_consolidator`, and CLI runners) under the canonical `backlog_drainer` framework with cooperative yielding, dead-letter error containment, and seamless `os.execv` script deprecation.
 
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
 - [ ] **Dynamic Configuration UI & Runtime Settings Manager**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct CLI or file edits.

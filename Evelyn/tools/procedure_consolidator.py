@@ -23,12 +23,13 @@ import json
 import re
 import sqlite3
 import time
+from typing import Any
 
 import httpx
 import yaml
 
 import evelyn_config as cfg
-from Evelyn.tools import memory_db, task_manager
+from Evelyn.tools import backlog_drainer, memory_db, task_manager
 from Evelyn.tools.procedure_matcher import (
     SYNONYM_GROUPS,
     calculate_procedure_similarity,
@@ -189,7 +190,8 @@ async def _do_procedure_consolidation() -> dict:
     merge_queue = memory_db.get_procedure_merge_queue(status="pending")
     if merge_queue:
         print(f"[PROC_CONSOLIDATOR] Found {len(merge_queue)} manual procedure merge request(s) in queue.", flush=True)
-        for q_item in merge_queue:
+        async def _process_proc_merge(q_item: dict[str, Any]) -> None:
+            nonlocal proposals_created
             task_manager.set_running(
                 "procedure_consolidator",
                 phase=f"Processing manual merge for procedures: {q_item.get('proc_ids')}",
@@ -212,11 +214,25 @@ async def _do_procedure_consolidation() -> dict:
 
             memory_db.dequeue_procedure_merge(q_item["id"])
 
+        await backlog_drainer.drain_backlog_async(
+            task_name="procedure_consolidator",
+            fetch_batch_fn=lambda _limit: merge_queue,
+            process_item_fn=_process_proc_merge,
+            config=backlog_drainer.DrainConfig(
+                batch_size=len(merge_queue),
+                max_batches=1,
+                yield_check_interval=1,
+                auto_re_enqueue=True,
+                manage_task_lifecycle=False,
+            ),
+        )
+
     # 2. Process manually queued procedure splits
     split_queue = memory_db.get_procedure_split_queue(status="pending")
     if split_queue:
         print(f"[PROC_CONSOLIDATOR] Found {len(split_queue)} manual procedure split request(s) in queue.", flush=True)
-        for s_item in split_queue:
+        async def _process_proc_split(s_item: dict[str, Any]) -> None:
+            nonlocal proposals_created
             pid = s_item["proc_id"]
             proc = memory_db.get_procedure(pid)
             if proc and proc.get("status") == "live":
@@ -234,6 +250,19 @@ async def _do_procedure_consolidation() -> dict:
                     proposals_created += 1
 
             memory_db.dequeue_procedure_split(pid)
+
+        await backlog_drainer.drain_backlog_async(
+            task_name="procedure_consolidator",
+            fetch_batch_fn=lambda _limit: split_queue,
+            process_item_fn=_process_proc_split,
+            config=backlog_drainer.DrainConfig(
+                batch_size=len(split_queue),
+                max_batches=1,
+                yield_check_interval=1,
+                auto_re_enqueue=True,
+                manage_task_lifecycle=False,
+            ),
+        )
 
     # 3. Process automatic clustering on remaining procedures
     clusters = find_procedure_clusters()

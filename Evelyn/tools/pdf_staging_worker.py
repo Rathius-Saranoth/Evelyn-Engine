@@ -31,7 +31,7 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "scripts")):
 import extract_pdf_library
 
 import evelyn_config as cfg
-from Evelyn.tools import task_manager
+from Evelyn.tools import backlog_drainer, task_manager
 from Evelyn.tools.frontmatter_utils import format_yaml_array
 
 VAULT_ROOT = Path(getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault"))
@@ -178,22 +178,52 @@ def process_staging_queue(max_items: int = 10) -> list[dict]:
         print("[STAGING_WORKER] Other heavy tasks currently active. Deferring staging ingestion.", flush=True)
         return []
 
-    task_manager.set_running("pdf_staging_ingestion")
-    processed = []
+    processed: list[dict] = []
 
-    try:
-        # Process Full Extraction queue
-        for f in full_files[:max_items]:
-            res = process_staging_item(f, mode="full")
-            processed.append(res)
+    def _fetch_staged_items(limit: int) -> list[tuple[Path, str]]:
+        items: list[tuple[Path, str]] = []
+        curr_full = [f for f in FULL_EXTRACTION_STAGING.iterdir() if f.is_file() and f.suffix.lower() == ".pdf" and not f.name.endswith(".tmp")]
+        curr_sidecar = [f for f in SIDECAR_ONLY_STAGING.iterdir() if f.is_file() and f.suffix.lower() == ".pdf" and not f.name.endswith(".tmp")]
+        for f in curr_full:
+            if len(items) >= limit:
+                break
+            items.append((f, "full"))
+        for f in curr_sidecar:
+            if len(items) >= limit:
+                break
+            items.append((f, "card"))
+        return items
 
-        # Process Sidecar Only queue
-        for f in sidecar_files[:max_items]:
-            res = process_staging_item(f, mode="card")
-            processed.append(res)
+    def _process_staged_item(item: tuple[Path, str]) -> None:
+        pdf_path, mode = item
+        res = process_staging_item(pdf_path, mode=mode)
+        processed.append(res)
 
-    finally:
-        task_manager.clear_running("pdf_staging_ingestion")
+    def _handle_error(item: tuple[Path, str], exc: Exception) -> None:
+        pdf_path, mode = item
+        print(f"[STAGING_WORKER ERROR] Error processing {pdf_path.name} (mode={mode}): {exc}", flush=True)
+        processed.append({
+            "filename": pdf_path.name,
+            "mode": mode,
+            "status": "error",
+            "error": str(exc),
+        })
+
+    drain_cfg = backlog_drainer.DrainConfig(
+        batch_size=max_items,
+        max_batches=1,
+        yield_check_interval=1,
+        auto_re_enqueue=True,
+        manage_task_lifecycle=True,
+    )
+
+    backlog_drainer.drain_backlog(
+        task_name="pdf_staging_ingestion",
+        fetch_batch_fn=_fetch_staged_items,
+        process_item_fn=_process_staged_item,
+        config=drain_cfg,
+        error_handler=_handle_error,
+    )
 
     return processed
 
