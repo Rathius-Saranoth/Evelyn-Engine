@@ -1,6 +1,6 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-09-05 19:45:33
+# date modified: 2026-09-06 08:52:26
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
@@ -20,39 +20,64 @@ import datetime
 import sqlite3
 
 import evelyn_config as cfg
+from Evelyn.tools import memory_db
+from Evelyn.tools.fact_consolidator import validate_and_normalize_category
 
 
 def append_context_log(
     category_code: str,
     summary: str,
-):
-    """
-    Creates a new Context Entry in the SQLite memory DB, pending review.
+    secondary_cats: list[str] | str | None = None,
+    subject: str | None = None,
+    tags: str | None = None,
+) -> str:
+    """Creates a new Context Entry in the SQLite memory DB, pending review.
 
     Args:
-        category_code: Primary category identifier, e.g. ``"Cat08-U"`` or ``"Cat01-A"``.
+        category_code: Primary category identifier, e.g. "Cat08-U" or "Cat01-A".
         summary: The fact or event to log. Should be a concise, self-contained statement.
+        secondary_cats: Optional secondary category codes or cross-refs.
+        subject: Optional entity name (defaults to inferred entity from category code).
+        tags: Optional comma-separated tags.
 
     Returns:
         str: A human-readable confirmation message with the ID that was created.
     """
-    import memory_db
-
     today = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d")
 
-    # Determine subject from category code suffix
-    subject_code = category_code[-1].upper() if category_code else ""
-    subject = cfg.ASSISTANT_NAME if subject_code == cfg.SUBJECT_CODE_ASSISTANT else (cfg.USER_NAME if subject_code == cfg.SUBJECT_CODE_USER else "Unknown")
+    # Normalize category
+    norm_cat = validate_and_normalize_category(category_code, subject) or category_code
+
+    # Determine subject if not explicitly supplied
+    if not subject or not subject.strip():
+        subject_code = norm_cat[-1].upper() if norm_cat else ""
+        subject = (
+            cfg.ASSISTANT_NAME
+            if subject_code == cfg.SUBJECT_CODE_ASSISTANT
+            else (cfg.USER_NAME if subject_code == cfg.SUBJECT_CODE_USER else "Unknown")
+        )
+
+    # Clean and combine tags / secondary categories
+    combined_tags_list = []
+    if tags:
+        combined_tags_list.extend([t.strip() for t in tags.split(",") if t.strip()])
+    if secondary_cats:
+        if isinstance(secondary_cats, list):
+            combined_tags_list.extend([c.strip() for c in secondary_cats if c.strip()])
+        else:
+            combined_tags_list.extend([c.strip() for c in secondary_cats.split(",") if c.strip()])
+    final_tags = ", ".join(dict.fromkeys(combined_tags_list)) if combined_tags_list else None
 
     try:
         row_id = memory_db.insert_entry(
-            category=category_code,
+            category=norm_cat,
             subject=subject,
             observation=summary,
             confidence="medium",
             source="manual",
             status="pending_review",
-            date=today
+            date=today,
+            tags=final_tags,
         )
     except (sqlite3.Error, OSError, ValueError) as e:
         return f"Error writing context entry: {e}"

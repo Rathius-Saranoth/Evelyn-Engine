@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-05 18:41:13
+# date modified: 2026-09-06 08:29:41
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -30,6 +30,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -5348,6 +5349,29 @@ async def get_unified_review(_: None = Depends(check_auth)):
                         source_entries.append(entry)
             p["source_entries"] = source_entries
 
+            if p.get("type") == "ghost_link_stub":
+                from Evelyn.tools import link_librarian
+
+                p["target"] = p.get("topic")
+                p["source_path"] = p.get("suggested_category")
+                try:
+                    payload = link_librarian.parse_stub_xml(p.get("merged_observation", ""))
+                    p["parsed_payload"] = {
+                        "target_name": payload.target_name,
+                        "source_path": payload.source_path,
+                        "context_excerpt": payload.context_excerpt,
+                        "domain": payload.domain,
+                        "tags": payload.tags,
+                        "ref_count": payload.ref_count,
+                        "min_refs": payload.min_refs,
+                        "sources": payload.sources,
+                        "references": payload.references,
+                        "synthesized_abstract": payload.synthesized_abstract,
+                        "total_context_chars": payload.total_context_chars,
+                    }
+                except (ET.ParseError, ValueError, TypeError):
+                    p["parsed_payload"] = None
+
             if p.get("type") == "profile_update":
                 p["item_type"] = "profile_update"
             else:
@@ -5510,6 +5534,28 @@ async def get_proposals(_: None = Depends(check_auth)):
                     if entry:
                         source_entries.append(entry)
             p["source_entries"] = source_entries
+            if p.get("type") == "ghost_link_stub":
+                from Evelyn.tools import link_librarian
+
+                p["target"] = p.get("topic")
+                p["source_path"] = p.get("suggested_category")
+                try:
+                    payload = link_librarian.parse_stub_xml(p.get("merged_observation", ""))
+                    p["parsed_payload"] = {
+                        "target_name": payload.target_name,
+                        "source_path": payload.source_path,
+                        "context_excerpt": payload.context_excerpt,
+                        "domain": payload.domain,
+                        "tags": payload.tags,
+                        "ref_count": payload.ref_count,
+                        "min_refs": payload.min_refs,
+                        "sources": payload.sources,
+                        "references": payload.references,
+                        "synthesized_abstract": payload.synthesized_abstract,
+                        "total_context_chars": payload.total_context_chars,
+                    }
+                except (ET.ParseError, ValueError, TypeError):
+                    p["parsed_payload"] = None
         return proposals
 
     return await asyncio.to_thread(_fetch)
@@ -5609,9 +5655,6 @@ async def action_proposal(
                     memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
                 # Reset the per-document cooldown from approval time, not proposal generation time.
                 advance_doc_run_timestamp(target_filename, "APPROVED", "Proposal approved & applied to profile note")
-                # Run update_frontmatter script to update date modified/tags
-                import subprocess
-
                 subprocess.run(
                     [sys.executable, "scripts/update_frontmatter.py", str(target_file)],
                     cwd=str(BASE_DIR),
@@ -5786,6 +5829,80 @@ async def action_proposal(
                     target_category=prop["suggested_category"],
                     merged_tags=prop.get("merged_tags"),
                 )
+                memory_db.apply_proposal(id)
+            elif prop["type"] == "ghost_link_stub":
+                from Evelyn.tools import link_librarian, vault_db
+
+                clean_target = (prop.get("topic") or "").strip()
+                source_path = (prop.get("suggested_category") or "").strip()
+
+                payload = None
+                markdown_content = ""
+
+                if final_text and final_text.strip().startswith("<"):
+                    with suppress(ET.ParseError, ValueError, TypeError):
+                        payload = link_librarian.parse_stub_xml(final_text)
+
+                if payload and payload.target_name:
+                    clean_target = payload.target_name
+                    markdown_content = link_librarian.render_stub_markdown(payload)
+                elif final_text and "---" in final_text:
+                    # User provided raw markdown content directly
+                    markdown_content = final_text
+                else:
+                    fallback_payload = link_librarian.StubPayload(
+                        target_name=clean_target or "Unknown",
+                        source_path=source_path,
+                        context_excerpt="",
+                    )
+                    markdown_content = link_librarian.render_stub_markdown(fallback_payload)
+
+                target_filename = os.path.basename(clean_target)
+                if not target_filename.endswith(".md"):
+                    target_filename += ".md"
+
+                vault_root = getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault")
+                dest_path = os.path.join(vault_root, target_filename)
+
+                tmp_path = f"{dest_path}.tmp_{os.getpid()}"
+                try:
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        f.write(markdown_content)
+                    os.replace(tmp_path, dest_path)
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
+                source_stem = (
+                    os.path.splitext(os.path.basename(source_path))[0]
+                    if source_path
+                    else "Vault"
+                )
+                gist_text = (
+                    f"Conceptual entity stub for [[{clean_target}]], referenced from [[{source_stem}]]."
+                )
+                new_mtime = os.path.getmtime(dest_path)
+
+                vault_db.upsert_document(
+                    path=target_filename,
+                    title=clean_target,
+                    mtime=new_mtime,
+                    gist=gist_text,
+                    rag_priority="normal",
+                    rag_pinned=False,
+                    tags="stub,concept",
+                    aliases="",
+                )
+                vault_db.update_document_librarian_audit(
+                    target_filename, ghost_count=0, mtime=new_mtime
+                )
+
+                subprocess.run(
+                    [sys.executable, "scripts/update_frontmatter.py", dest_path],
+                    cwd=str(BASE_DIR),
+                    capture_output=True,
+                )
+
                 memory_db.apply_proposal(id)
             return {"status": "ok"}
 

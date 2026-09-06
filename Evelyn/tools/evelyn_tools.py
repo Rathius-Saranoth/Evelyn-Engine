@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-05 19:45:50
+# date modified: 2026-09-06 08:52:33
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -289,7 +289,15 @@ def log_context_fact(category: str = "", summary: str = "", secondary_cats: str 
     if not summary.strip():
         return "Error: log_context_fact called with blank summary. Aborted."
     refs = [c.strip() for c in secondary_cats.split(",")] if secondary_cats.strip() else []
-    return context_manager.append_context_log(category, summary, refs)
+    subject = kwargs.get("subject") or kwargs.get("subj")
+    tags = kwargs.get("tags")
+    return context_manager.append_context_log(
+        category_code=category,
+        summary=summary,
+        secondary_cats=refs,
+        subject=subject,
+        tags=tags,
+    )
 
 
 def update_context_fact(target_filepaths: list | None = None, new_summary: str = "", **kwargs) -> str:

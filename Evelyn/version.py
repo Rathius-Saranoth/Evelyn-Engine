@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-05 20:02:24
+# date modified: 2026-09-06 09:25:19
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.074"
-__version_info__ = (0, 6, 74)
-__version_name__ = "Integrate Index Librarian into Master Pipeline and Decommission Legacy CLI Tools"
+__version__ = "000.006.079"
+__version_info__ = (0, 6, 79)
+__version_name__ = "Dev UI Procedure Button Mapping, In-Place Edit Persistence, and State Synchronization"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

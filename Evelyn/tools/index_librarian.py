@@ -1,6 +1,6 @@
 # index_librarian.py
 # date created: 2026-09-05 17:45:00
-# date modified: 2026-09-05 20:01:40
+# date modified: 2026-09-06 07:52:31
 # tags: #librarian, #index, #moc, #table_of_contents, #navigation, #vault
 
 """
@@ -96,11 +96,19 @@ def audit_folder_index(
     if missing_notes:
         # Append missing notes to the bottom or existing table
         fm_dict, body = frontmatter_utils.parse_frontmatter(content)
-        addition_lines = ["\n\n## 📑 Additional Notes", ""]
+        header = "## 📑 Additional Notes"
+        addition_items = []
         for stem, _note in missing_notes:
-            addition_lines.append(f"- [[{stem}]]")
+            addition_items.append(f"- [[{stem}]]")
             details["added_notes"].append(stem)
-        updated_body = body + "\n".join(addition_lines) + "\n"
+
+        if header in body:
+            # Insert items directly below the existing header without duplicating it
+            parts = body.split(header, 1)
+            updated_body = parts[0] + header + "\n" + "\n".join(addition_items) + "\n" + parts[1].lstrip("\n")
+        else:
+            updated_body = body.rstrip() + f"\n\n{header}\n\n" + "\n".join(addition_items) + "\n"
+
         content = f"{frontmatter_utils.render_frontmatter(fm_dict)}\n{updated_body}"
         changed = True
 

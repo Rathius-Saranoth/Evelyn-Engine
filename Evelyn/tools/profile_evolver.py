@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-05 19:47:44
+# date modified: 2026-09-06 08:52:47
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -564,26 +564,28 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
             # If entity groups have multiple entries, format with subheadings
             has_meaningful_clusters = any(len(group) >= 2 for group in entity_groups.values())
 
+            def _format_entry_line(entry_dict: dict) -> str:
+                d_str = entry_dict.get("date") or "Unknown Date"
+                c_code = entry_dict.get("category") or ""
+                subj = entry_dict.get("subject") or ""
+                o_text = (entry_dict.get("observation") or "").strip()
+                meta = []
+                if c_code:
+                    meta.append(c_code)
+                if subj:
+                    meta.append(f"Subject: {subj}")
+                pfx = f"[{' | '.join(meta)}] " if meta else ""
+                return f"- [{d_str}] {pfx}{o_text}"
+
             if has_meaningful_clusters:
                 for entity, g_entries in entity_groups.items():
                     grouped_lines.append(f"\n[Topic / Subject: {entity}]")
-                    for e in g_entries:
-                        date_str = e.get("date") or "Unknown Date"
-                        obs = (e.get("observation") or "").strip()
-                        grouped_lines.append(f"- [{date_str}] {obs}")
+                    grouped_lines.extend(_format_entry_line(e) for e in g_entries)
                 if ungrouped:
                     grouped_lines.append("\n[General Observations]")
-                    for e in ungrouped:
-                        date_str = e.get("date") or "Unknown Date"
-                        obs = (e.get("observation") or "").strip()
-                        grouped_lines.append(f"- [{date_str}] {obs}")
+                    grouped_lines.extend(_format_entry_line(e) for e in ungrouped)
             else:
-                for e in sub_batch:
-                    date_str = e.get("date") or "Unknown Date"
-                    cat_code = e.get("category") or ""
-                    obs = (e.get("observation") or "").strip()
-                    cat_prefix = f"[{cat_code}] " if cat_code else ""
-                    grouped_lines.append(f"- [{date_str}] {cat_prefix}{obs}")
+                grouped_lines.extend(_format_entry_line(e) for e in sub_batch)
 
             evidence_text = "\n".join(grouped_lines).strip()
             max_ts = max(max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) for e in sub_batch)
@@ -603,7 +605,19 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
         sub_batches = [unassigned[i:i + batch_size] for i in range(0, len(unassigned), batch_size)]
         for sub_idx, sub_batch in enumerate(sub_batches, 1):
             sub_label = f"General & Unclassified (Part {sub_idx})" if len(sub_batches) > 1 else "General & Unclassified"
-            lines = [f"- [{e.get('date', 'Unknown Date')}] {e.get('observation', '')}" for e in sub_batch]
+            lines = []
+            for e in sub_batch:
+                d_str = e.get("date") or "Unknown Date"
+                c_code = e.get("category") or ""
+                subj = e.get("subject") or ""
+                o_text = (e.get("observation") or "").strip()
+                meta = []
+                if c_code:
+                    meta.append(c_code)
+                if subj:
+                    meta.append(f"Subject: {subj}")
+                pfx = f"[{' | '.join(meta)}] " if meta else ""
+                lines.append(f"- [{d_str}] {pfx}{o_text}")
             evidence_text = "\n".join(lines).strip()
             max_ts = max(max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) for e in sub_batch)
             thematic_batches.append({
