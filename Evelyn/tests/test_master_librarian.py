@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-05 20:02:16
+# date modified: 2026-09-06 08:35:57
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import evelyn_config as cfg
 from Evelyn.tools import format_librarian, link_librarian, master_librarian, string_utils
 
 
@@ -180,34 +181,112 @@ array([[1.5, 2.5]])
                 self.assertNotIn("tags: [moc", updated_text)
 
     def test_link_librarian_ghost_stub_guardrail(self):
-        """Verify Tier 1 vs Tier 2 ghost link stub guardrail."""
+        """Verify Tier 1 vs Tier 2 ghost link stub guardrail and XML envelope payload."""
         with tempfile.TemporaryDirectory() as tmp_vault:
-            # 1. Single reference should return Tier 2 proposal
-            res_tier2 = link_librarian.create_ghost_link_stub(
+            # 1. Single reference should return below_threshold
+            res_below = link_librarian.create_ghost_link_stub(
                 target_name="ObscureConcept",
                 source_path="Notes/Source.md",
-                context_excerpt="Mentioning [[ObscureConcept]] once.",
+                context_excerpt="Mentioning [[ObscureConcept]] once in a note.",
                 vault_root=tmp_vault,
                 min_refs=2,
+                min_context_chars=200,
             )
-            self.assertEqual(res_tier2["status"], "tier_2_proposal")
+            self.assertEqual(res_below["status"], "below_threshold")
             self.assertFalse(os.path.exists(os.path.join(tmp_vault, "ObscureConcept.md")))
 
-            # 2. When min_refs threshold is met (e.g. min_refs=1 or simulated >= 2)
-            res_tier1 = link_librarian.create_ghost_link_stub(
-                target_name="KnownEntity",
-                source_path="Notes/Source.md",
-                context_excerpt="A recurring entity in the vault.",
-                vault_root=tmp_vault,
-                min_refs=0,  # Force Tier 1 creation
-            )
+            # 2. When min_refs and context thresholds are met and auto-stubs enabled
+            with patch.object(cfg, "MASTER_LIBRARIAN_AUTO_STUBS", True):
+                res_tier1 = link_librarian.create_ghost_link_stub(
+                    target_name="KnownEntity",
+                    source_path="Notes/Source.md",
+                    context_excerpt="A recurring entity in the vault.",
+                    vault_root=tmp_vault,
+                    min_refs=0,
+                    min_context_chars=0,
+                    min_snippet_chars=0,
+                )
             self.assertEqual(res_tier1["status"], "created_stub")
+            self.assertIn("xml_payload", res_tier1)
             stub_file = os.path.join(tmp_vault, "KnownEntity.md")
             self.assertTrue(os.path.exists(stub_file))
             with open(stub_file, encoding="utf-8") as f:
                 stub_content = f.read()
             self.assertIn("[!ABSTRACT]", stub_content)
-            self.assertIn("Linked from [[Source]]", stub_content)
+            self.assertIn("[[Source]]", stub_content)
+            self.assertIn('Context: "A recurring entity in the vault."', stub_content)
+
+    def test_stub_xml_envelope_roundtrip_and_rendering(self):
+        """Verify XML stub serialization, deserialization, and callout line safety."""
+        payload = link_librarian.StubPayload(
+            target_name="QuantumProcessor",
+            source_path="Research/Hardware.md",
+            context_excerpt="Testing the new [[QuantumProcessor]] in the lab.\nSecond line should be flattened.",
+            domain="hardware",
+            tags=["stub", "concept", "hardware"],
+            min_refs=2,
+            ref_count=3,
+        )
+        xml_str = link_librarian.render_stub_xml(payload)
+        self.assertIn('<entity_stub target="QuantumProcessor"', xml_str)
+        self.assertIn("<source_path>Research/Hardware.md</source_path>", xml_str)
+
+        # Deserialize back to payload
+        parsed = link_librarian.parse_stub_xml(xml_str)
+        self.assertEqual(parsed.target_name, "QuantumProcessor")
+        self.assertEqual(parsed.source_path, "Research/Hardware.md")
+        self.assertEqual(parsed.ref_count, 3)
+
+        # Render markdown and verify callout integrity
+        md_text = link_librarian.render_stub_markdown(parsed, now_str="2026-09-06 12:00:00")
+        self.assertIn("title: QuantumProcessor", md_text)
+        self.assertIn("> [!ABSTRACT]", md_text)
+        self.assertIn("> Conceptual entity stub for [[QuantumProcessor]]", md_text)
+        # Verify EVERY line in the abstract block starts with '> '
+        abstract_start = md_text.index("> [!ABSTRACT]")
+        abstract_end = md_text.index("## 🧭 Context & Mentions") if "## 🧭 Context & Mentions" in md_text else md_text.index("## 🔗 References")
+        callout_lines = [l for l in md_text[abstract_start:abstract_end].splitlines() if l.strip()]
+        for line in callout_lines:
+            self.assertTrue(line.startswith(">"), f"Line broke callout boundary: {line}")
+
+    def test_target_sanitization_and_exclusion(self):
+        """Verify that .md extensions are stripped and chapter/TOC names are rejected."""
+        # .md stripping for valid entity
+        valid, clean = link_librarian.is_valid_entity_target("Voron StealthBurner.md")
+        self.assertTrue(valid)
+        self.assertEqual(clean, "Voron StealthBurner")
+
+        # Project files and docs rejected
+        for doc_file in ["AGENTS.md", "ROADMAP.md", "README.md", "SUPPORT.md"]:
+            valid, _ = link_librarian.is_valid_entity_target(doc_file)
+            self.assertFalse(valid, f"Failed to reject project file: {doc_file}")
+
+        # Chapter prefix rejection
+        valid, _ = link_librarian.is_valid_entity_target("01 - Introduction")
+        self.assertFalse(valid)
+        valid, _ = link_librarian.is_valid_entity_target("002 - Bottom Freezer")
+        self.assertFalse(valid)
+
+        # Blacklisted generic headings
+        for blacklisted in ["Features", "Safety", "Other", "Table of Contents", "_index", "Preface"]:
+            valid, _ = link_librarian.is_valid_entity_target(blacklisted)
+            self.assertFalse(valid, f"Failed to reject blacklisted target: {blacklisted}")
+
+        # OCR private-use glyphs
+        valid, _ = link_librarian.is_valid_entity_target("01 - \uf0ea !")
+        self.assertFalse(valid)
+
+    def test_extract_link_context_clean_isolation(self):
+        """Verify extract_link_context slices surrounding sentence and omits YAML headers."""
+        raw_body = """
+The system architecture incorporates [[QuantumCore]] for accelerated vector computation.
+Additional bench tests confirmed 4x speedup over baseline models.
+"""
+        context = master_librarian.extract_link_context(raw_body, "QuantumCore")
+        self.assertIn("QuantumCore", context)
+        self.assertIn("accelerated vector computation", context)
+        self.assertNotIn("---", context)
+        self.assertNotIn("\n", context)
 
     def test_index_librarian_toc_synchronization(self):
         """Verify that Master Librarian synchronizes folder table of contents (_index.md)."""
@@ -247,5 +326,120 @@ array([[1.5, 2.5]])
                 self.assertIn("## 📑 Additional Notes", updated_index)
 
 
+    def test_harvest_entity_references(self):
+        """Verify harvesting entity references across multiple vault files with aliases and casing."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            # Note 1: Direct link
+            n1_dir = os.path.join(tmp_vault, "Lore", "History")
+            os.makedirs(n1_dir, exist_ok=True)
+            with open(os.path.join(n1_dir, "Chronicles.md"), "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Chronicles\n---\n# Chronicles\nPrince [[Caladorn]] led the defense of the western frontier during the summer campaign.\n")
+
+            # Note 2: Aliased link
+            n2_dir = os.path.join(tmp_vault, "People")
+            os.makedirs(n2_dir, exist_ok=True)
+            with open(os.path.join(n2_dir, "Queen_Elora.md"), "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Queen Elora\n---\n# Queen Elora\nShe consulted with [[Caladorn|Prince Caladorn]] regarding the diplomatic treaty.\n")
+
+            # Note 3: Case-insensitive link
+            with open(os.path.join(tmp_vault, "Dispatches.md"), "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Dispatches\n---\nUrgent missive from [[caladorn]] arrived at dawn requesting grain supplies.\n")
+
+            # Note 4: Unrelated note
+            with open(os.path.join(tmp_vault, "Unrelated.md"), "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Unrelated\n---\nJust general notes without target.\n")
+
+            refs = link_librarian.harvest_entity_references("Caladorn", vault_root=tmp_vault)
+            self.assertEqual(len(refs), 3)
+            sources = [r["source"] for r in refs]
+            self.assertIn("Lore/History/Chronicles.md", sources)
+            self.assertIn("People/Queen_Elora.md", sources)
+            self.assertIn("Dispatches.md", sources)
+
+            for r in refs:
+                self.assertTrue(len(r["snippet"]) > 20)
+                self.assertNotIn("---", r["snippet"])
+
+    def test_ghost_link_stub_below_threshold_gate(self):
+        """Verify stubs below ref count or context character threshold are rejected as below_threshold."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            n1_dir = os.path.join(tmp_vault, "Notes")
+            os.makedirs(n1_dir, exist_ok=True)
+            # Only one citation with short context
+            with open(os.path.join(n1_dir, "Short.md"), "w", encoding="utf-8") as f:
+                f.write("See [[TrivialTarget]] for more info.")
+
+            res = link_librarian.create_ghost_link_stub(
+                target_name="TrivialTarget",
+                source_path="Notes/Short.md",
+                context_excerpt="See [[TrivialTarget]] for more info.",
+                vault_root=tmp_vault,
+                min_refs=2,
+                min_context_chars=200,
+            )
+
+            self.assertEqual(res["status"], "below_threshold")
+            self.assertIn("Context threshold not met", res["reason"])
+            self.assertEqual(res["ref_count"], 1)
+            self.assertFalse(os.path.exists(os.path.join(tmp_vault, "TrivialTarget.md")))
+
+    def test_ghost_link_stub_meets_threshold_harvest(self):
+        """Verify stubs meeting multi-ref and context thresholds harvest all sources and build XML."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            # File 1: Substantial context (>120 chars)
+            with open(os.path.join(tmp_vault, "NoteA.md"), "w", encoding="utf-8") as f:
+                f.write("# Note A\nThe legendary hero [[Aurelius]] guarded the crystal citadel against all incursions during the long siege of the northern frontier.\n")
+
+            # File 2: Substantial context (>120 chars)
+            with open(os.path.join(tmp_vault, "NoteB.md"), "w", encoding="utf-8") as f:
+                f.write("# Note B\nAccording to ancient records, [[Aurelius|Commander Aurelius]] established the first council of guardians to maintain peace across the five provinces.\n")
+
+            with patch("Evelyn.tools.memory_db.insert_proposal", return_value=123):
+                res = link_librarian.create_ghost_link_stub(
+                    target_name="Aurelius",
+                    source_path="NoteA.md",
+                    vault_root=tmp_vault,
+                    min_refs=2,
+                    min_context_chars=200,
+                    min_snippet_chars=40,
+                )
+
+            self.assertEqual(res["status"], "tier_2_proposal")
+            self.assertEqual(res["ref_count"], 2)
+            self.assertGreaterEqual(res["total_context_chars"], 200)
+
+            # Parse returned XML payload
+            payload = link_librarian.parse_stub_xml(res["xml_payload"])
+            self.assertEqual(payload.target_name, "Aurelius")
+            self.assertEqual(len(payload.sources), 2)
+            self.assertIn("NoteA.md", payload.sources)
+            self.assertIn("NoteB.md", payload.sources)
+            self.assertEqual(len(payload.references), 2)
+            self.assertTrue(len(payload.synthesized_abstract) > 0)
+
+            # Markdown rendering check
+            md = link_librarian.render_stub_markdown(payload)
+            self.assertIn("> [!ABSTRACT]", md)
+            self.assertIn("## 🧭 Context & Mentions", md)
+            self.assertIn("- **[[NoteA]]**:", md)
+            self.assertIn("- **[[NoteB]]**:", md)
+            self.assertIn("## 🔗 References", md)
+            self.assertIn("- [[NoteA]]", md)
+            self.assertIn("- [[NoteB]]", md)
+
+    def test_synthesize_entity_abstract_fallback(self):
+        """Verify fallback abstract synthesis when LLM is unavailable."""
+        references = [
+            {"source": "Chapter1.md", "snippet": "Lord Gregory defended the castle walls with courage and distinction during the conflict."},
+            {"source": "Chapter2.md", "snippet": "Gregory negotiated trade terms with foreign dignitaries to restore local prosperity."},
+        ]
+        # Test fallback directly with synthesis disabled
+        abstract = link_librarian.synthesize_entity_abstract("Gregory", references, use_llm=False)
+        self.assertIn("cited across 2 notes in the vault", abstract)
+        self.assertIn("Chapter1", abstract)
+        self.assertIn("Chapter2", abstract)
+
+
 if __name__ == "__main__":
     unittest.main()
+

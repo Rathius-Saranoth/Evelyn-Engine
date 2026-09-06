@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-05 19:48:30
+# date modified: 2026-09-06 08:53:22
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1359,15 +1359,53 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
             )
         )
 
-    # 2. SQLite Context Entries: Show observation text
+    # 2. SQLite Context Entries: Show observation text with metadata attributes
+    sqlite_entries_map: dict[int, dict] = {}
+    if sqlite_entries:
+        entry_ids = []
+        for chunk in sqlite_entries:
+            with suppress(ValueError):
+                entry_ids.append(int(chunk["source"].rsplit("::", 1)[-1]))
+        if entry_ids:
+            try:
+                con = _memory_db.get_db()
+                placeholders = ",".join("?" * len(entry_ids))
+                rows = con.execute(
+                    f"SELECT id, category, subject, date, observation FROM context_entries WHERE id IN ({placeholders})",
+                    entry_ids,
+                ).fetchall()
+                sqlite_entries_map = {r["id"]: dict(r) for r in rows}
+                con.close()
+            except (sqlite3.Error, OSError, ValueError):
+                sqlite_entries_map = {}
+
     for chunk in sqlite_entries:
         src = chunk["source"]
-        entry_id = src.rsplit("::", 1)[-1]
+        entry_id_str = src.rsplit("::", 1)[-1]
+        try:
+            eid = int(entry_id_str)
+        except ValueError:
+            eid = None
+        db_entry = sqlite_entries_map.get(eid) if eid else None
+
+        envelope_kwargs: dict[str, str] = {"id": entry_id_str}
+        if db_entry:
+            if db_entry.get("category"):
+                envelope_kwargs["category"] = db_entry["category"]
+            if db_entry.get("subject"):
+                envelope_kwargs["subject"] = db_entry["subject"]
+            if db_entry.get("date"):
+                envelope_kwargs["date"] = db_entry["date"]
+            payload_text = db_entry.get("observation") or chunk["content"]
+        else:
+            payload_text = chunk["content"]
+
         retrieval_items.append(
             wrap_xml_envelope(
                 "memory_entry",
-                body=escape_xml_content(chunk["content"]),
-                id=entry_id,
+                body=escape_xml_content(payload_text),
+                self_closing_if_empty=False,
+                **envelope_kwargs,
             )
         )
 

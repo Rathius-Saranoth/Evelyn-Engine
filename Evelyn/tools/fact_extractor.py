@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-05 19:46:10
+# date modified: 2026-09-06 08:51:58
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -731,7 +731,7 @@ def _build_extraction_prompt(
     return (
         "You are a precise, highly observant personal memory extractor. "
         "Analyze the following conversation and extract ONLY concrete, durable personal facts "
-        f"about {cfg.USER_NAME} (the user) or {cfg.ASSISTANT_NAME} (the AI).\n"
+        f"about {cfg.USER_NAME} (the user), {cfg.ASSISTANT_NAME} (the AI), or their shared environment.\n"
         "Extract: preferences, physical traits, relationships, goals, beliefs, skills, events, "
         "opinions, habits, routines, or any detail worth remembering long-term.\n"
         "DO NOT extract: greetings, small talk, questions without answers, or hypotheticals.\n"
@@ -740,24 +740,51 @@ def _build_extraction_prompt(
         f"{memory_block}"
         f"{guidance_block}\n\n"
         "CRITICAL SUBSTANCE & OBSERVATION RULES:\n"
-        "1. WRITE DEEP, SUBSTANTIVE OBSERVATIONS: State the exact specific facts with nouns, preferences, "
-        "conditions, reasons, and temporal context. AVOID vague or shallow one-liners (e.g. Do NOT write 'Likes coffee'; "
-        "instead write 'Prefers dark roast pour-over coffee with a splash of oat milk in the morning, avoiding sugar').\n"
-        "2. MULTI-TIER DOMAIN TAXONOMY: Structure tags as hierarchical domain trees (e.g. `Tech/Python/FastAPI`, "
+        "1. PERSPECTIVE OWNERSHIP & CATEGORY CANON:\n"
+        f"   - The category suffix reflects WHOSE PERSPECTIVE/LEDGER the fact belongs to, NOT just the subject entity.\n"
+        f"   - Cat##-{cfg.SUBJECT_CODE_USER} (User Canon): Facts about {cfg.USER_NAME}'s traits, habits, IT setups, health, OR {cfg.USER_NAME}'s feelings/perspectives regarding {cfg.ASSISTANT_NAME} or third parties.\n"
+        f"   - Cat##-{cfg.SUBJECT_CODE_ASSISTANT} (Assistant Canon): Facts about {cfg.ASSISTANT_NAME}'s persona, values, creative style, internal routines, OR {cfg.ASSISTANT_NAME}'s feelings/perspectives regarding {cfg.USER_NAME} or third parties.\n"
+        f"   - Third-party & shared environment facts (pets, family, home fixtures) belong to Cat##-{cfg.SUBJECT_CODE_USER} by default, as they constitute {cfg.USER_NAME}'s world.\n"
+        "   - The 'subject' field records the specific entity being observed or discussed (e.g. Ricky, Evelyn, Fox, Airika, Kate).\n"
+        "2. TEMPORAL GROUNDING & HISTORICAL ANCHORING:\n"
+        "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately').\n"
+        "   - Anchor time-bound events, temporary states, or plans to the specific date discussed: (e.g. Write 'On 2025-10-25, Ricky noted that Airika was planning to visit' instead of 'Airika will be coming over soon'; write 'Troubleshot a monitor outage on 2026-05-07' instead of 'Ricky is currently troubleshooting...').\n"
+        "   - If an observation represents an enduring preference or trait, state it as a lasting fact (e.g. 'Prefers dark roast pour-over coffee with oat milk').\n"
+        "3. WRITE DEEP, SUBSTANTIVE OBSERVATIONS: State the exact specific facts with nouns, preferences, "
+        "conditions, reasons, and temporal context. AVOID vague or shallow one-liners.\n"
+        "4. MULTI-TIER DOMAIN TAXONOMY: Structure tags as hierarchical domain trees (e.g. `Tech/Python/FastAPI`, "
         "`Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`). "
         "Use TitleCase with underscores for named entities (`John_Smith`, `FastAPI`).\n"
-        "3. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
+        "5. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
         "Do NOT inject Category Reference titles into the observation text.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
         "If no durable facts are found, output an empty list.\n\n"
         "```facts\n"
         "facts:\n"
-        f"  - subject: {cfg.USER_NAME}          # or {cfg.ASSISTANT_NAME}\n"
-        f"    category: Cat05-{cfg.SUBJECT_CODE_USER}        # best matching Cat##-{cfg.SUBJECT_CODE_ASSISTANT} or Cat##-{cfg.SUBJECT_CODE_USER} code\n"
-        "    tags: \"Tech/Python/FastAPI, John_Smith\"  # comma-separated hierarchical domain tags\n"
-        "    summary: \"Exact, specific, contextualized observation.\"  # full substantive statement\n"
+        f"  - subject: {cfg.USER_NAME}          # referent entity being described\n"
+        f"    category: Cat05-{cfg.SUBJECT_CODE_USER}        # User canon (Ricky's preference)\n"
+        "    tags: \"Home/Coffee/Espresso\"     # hierarchical domain tags\n"
+        "    summary: \"Prefers dark roast pour-over coffee with oat milk in the morning, avoiding sugar.\" # grounded statement\n"
         "    confidence: high         # high / medium / low\n"
-        "    date: \"2025-03-15\"      # date this was discussed (from message timestamps)\n"
+        "    date: \"2025-03-15\"      # date discussed (from message timestamps)\n"
+        f"  - subject: {cfg.USER_NAME}          # referent entity\n"
+        f"    category: Cat06-{cfg.SUBJECT_CODE_ASSISTANT}        # Assistant canon (Evelyn's perspective on Ricky)\n"
+        "    tags: \"Relationship/Dynamics, Collaboration\"  # tags\n"
+        f"    summary: \"{cfg.ASSISTANT_NAME} appreciates {cfg.USER_NAME}'s architectural approach to big-picture system design.\" # Evelyn's perspective\n"
+        "    confidence: high\n"
+        "    date: \"2025-03-15\"\n"
+        f"  - subject: {cfg.ASSISTANT_NAME}        # referent entity\n"
+        f"    category: Cat06-{cfg.SUBJECT_CODE_USER}        # User canon (Ricky's feeling toward Evelyn)\n"
+        "    tags: \"Relationship/Support, Sleep\"  # tags\n"
+        f"    summary: \"{cfg.USER_NAME} finds {cfg.ASSISTANT_NAME}'s soothing presence grounding when recovering from fragmented sleep.\" # Ricky's perspective\n"
+        "    confidence: high\n"
+        "    date: \"2025-03-15\"\n"
+        f"  - subject: Fox             # pet/household entity\n"
+        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon (Ricky's pet)\n"
+        "    tags: \"Pets/Cats/Routine\"  # tags\n"
+        f"    summary: \"Acts as an alarm to wake {cfg.USER_NAME} up in the morning.\" # observation\n"
+        "    confidence: high\n"
+        "    date: \"2025-03-15\"\n"
         "```\n\n"
         f"CONVERSATION:\n{transcript}"
     )
@@ -833,6 +860,22 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
             suffix = f"-{cfg.SUBJECT_CODE_USER}" if subj.lower() == cfg.USER_NAME.lower() else f"-{cfg.SUBJECT_CODE_ASSISTANT}"
             cat = cat_base + suffix
             print(f"[EXTRACTOR] Inferred category suffix -> {cat}", flush=True)
+
+        # Perspective attribution sanity guard:
+        # If marked -U but observation clearly describes assistant's own perspective, internal traits, or feelings
+        asst_patterns = rf"^(?:{re.escape(cfg.ASSISTANT_NAME)}\b\s+(?:places a high value|articulated an aesthetic|feels|appreciates|prefers quiet|believes|confirmed that|notes|expresses|views|reciprocates)|Addresses\s+{re.escape(cfg.USER_NAME)}\b)"
+        user_patterns = rf"^(?:{re.escape(cfg.USER_NAME)}\b\s+(?:works in|uses a CPAP|experienced|troubleshot|plays a character|refers to {re.escape(cfg.ASSISTANT_NAME)}|values|prefers|enjoys)|Has a pet\b|Works in\b)"
+
+        if cat.endswith(f"-{cfg.SUBJECT_CODE_USER}") and re.search(asst_patterns, summ, re.IGNORECASE):
+            cat = f"{cat_base}-{cfg.SUBJECT_CODE_ASSISTANT}"
+            if subj.lower() == cfg.USER_NAME.lower() and not re.search(rf"\b{re.escape(cfg.USER_NAME)}\b", summ):
+                subj = cfg.ASSISTANT_NAME
+            print(f"[EXTRACTOR] Reconciled Assistant perspective canon -> {cat} (Subject: {subj})", flush=True)
+        elif cat.endswith(f"-{cfg.SUBJECT_CODE_ASSISTANT}") and re.search(user_patterns, summ, re.IGNORECASE):
+            cat = f"{cat_base}-{cfg.SUBJECT_CODE_USER}"
+            if subj.lower() == cfg.ASSISTANT_NAME.lower() and not re.search(rf"\b{re.escape(cfg.ASSISTANT_NAME)}\b", summ):
+                subj = cfg.USER_NAME
+            print(f"[EXTRACTOR] Reconciled User perspective canon -> {cat} (Subject: {subj})", flush=True)
 
         if conf not in ("high", "medium", "low"):
             conf = "medium"
@@ -1039,8 +1082,8 @@ async def _do_extraction(messages: list[dict]):
         },
     }
 
-    # Scale token budget to batch size — a small batch needs far fewer tokens
-    options["num_predict"] = min(64 * len(messages), 512)
+    # Scale token budget to batch size with generous headroom for grounded extractions
+    options["num_predict"] = max(1024, min(128 * len(messages), 1536))
 
     # Configure extraction stop sequences to halt model generation immediately upon closing the YAML fence
     extraction_stops = list(cfg.STOP_SEQUENCES or [])

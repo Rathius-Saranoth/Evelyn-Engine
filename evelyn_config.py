@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-05 18:26:13
+# date modified: 2026-09-06 08:51:20
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -547,7 +547,7 @@ FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
 FACT_EXTRACTION_BATCH_SIZE = 12
 
 # Per-run Ollama call timeout (seconds).
-FACT_EXTRACTION_TIMEOUT = 450
+FACT_EXTRACTION_TIMEOUT = 600
 
 # Maximum number of sequential batches allowed per continuous idle session.
 # 0 = unlimited / continuous backlog drain while the system is idle.
@@ -914,7 +914,12 @@ MASTER_LIBRARIAN_IDLE_THRESHOLD = 300   # 5 minutes idle (Reflex tier)
 MASTER_LIBRARIAN_BATCH_SIZE = 5         # Process 5 documents per idle burst
 LIBRARIAN_FOLDER_BATCH_CAP = 5          # Max docs processed per directory cluster per run
 LIBRARIAN_AUDIT_COOLDOWN_SECONDS = 3600 # 1 hour minimum before re-auditing clean notes
-LIBRARIAN_GHOST_STUB_MIN_REFS = 2       # Minimum references across vault for Tier 1 autonomous stub creation
+LIBRARIAN_GHOST_STUB_MIN_REFS = 2             # Minimum references across vault for stub qualification
+LIBRARIAN_GHOST_STUB_MIN_CONTEXT_CHARS = 200 # Minimum combined context characters across notes
+LIBRARIAN_GHOST_STUB_MIN_SNIPPET_CHARS = 60  # Minimum single-excerpt context threshold
+LIBRARIAN_STUB_LLM_SYNTHESIS = True          # Enable local Ollama synthesis for multi-reference stub abstracts
+LIBRARIAN_STUB_MAX_HARVEST_REFS = 12         # Maximum referencing notes to harvest per entity stub
+MASTER_LIBRARIAN_AUTO_STUBS = False     # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",
 ]

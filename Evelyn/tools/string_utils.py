@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-08-29 13:17:27
+# date modified: 2026-09-06 08:27:01
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -624,4 +624,35 @@ def inject_envelope_to_turn(user_content: str, envelope: str | list[str] | None)
         return stacked
 
     return f"{stacked}\n\n{clean_content}"
+
+
+def extract_link_context(body: str, target: str, window_chars: int = 180) -> str:
+    """Extract a clean, non-YAML excerpt surrounding a target wikilink in document body.
+
+    Supports case-insensitive matching and aliased wikilinks ([[Target]] or [[Target|Alias]]).
+    Strips internal YAML boundary markers, linebreaks, and bounding non-alphanumeric noise.
+
+    Args:
+        body: Markdown body text (after frontmatter).
+        target: Target entity name of the wikilink.
+        window_chars: Characters of surrounding context before and after the match.
+
+    Returns:
+        str: Clean single-paragraph context string.
+    """
+    if not body or not target:
+        return ""
+    pattern = re.compile(rf"\[\[\s*{re.escape(target)}(?:\|[^\]\n]*)?\s*\]\]", re.IGNORECASE)
+    match = pattern.search(body)
+    if not match:
+        return ""
+    start = max(0, match.start() - window_chars)
+    end = min(len(body), match.end() + window_chars)
+    raw_slice = body[start:end]
+    # Strip markdown table syntax or frontmatter boundaries if slice caught them
+    raw_slice = raw_slice.replace("---", " ").replace("|", " ")
+    clean = " ".join(raw_slice.split())
+    clean = re.sub(r"^[\W_]+|[\W_]+$", "", clean)
+    return clean
+
 

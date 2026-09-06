@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-05 20:02:31
+date modified: 2026-09-06 09:25:25
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,119 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.079] - 2026-09-06 — *Dev UI Procedure Button Mapping, In-Place Edit Persistence, and State Synchronization*
+
+### Added & Integrated
+- **Dev UI Procedure Button Mapping & In-Place Edit Persistence (`evelyn_ui/dev.html`)**:
+  - **Standalone Procedures in Triage Queue**:
+    - Added `💾 Save Changes` button mapped to `handleProcedureAction(item.id, 'edit', null, this)` allowing operators to edit and save extracted procedures directly in the triage queue prior to approving.
+    - Updated `handleProcedureAction()` to support `action === 'edit'`: gathers all procedure fields (`trigger_pattern`, `suggested_tools`, `steps`, `pitfalls`, `verification`, `tags`), submits to `POST /api/review/procedures/{id}/edit`, updates in-place without dropping the card from triage, and provides `✅ Saved!` visual confirmation.
+    - Added state synchronization for `action === 'merge'` updating `allProcedures` status to `'merged'` and setting `merged_into_id`.
+  - **Procedure Merge & Split Proposals in Triage**:
+    - Added `💾 Save Changes` button to both `procedure_merge` and `procedure_split` review cards.
+    - Updated `handleAction()` to support `action === 'edit'` for proposals: serializes live input values using `dumpProcedureYaml()` and `dumpProcedureSplitYaml()`, persists them to `POST /api/review/proposals/{id}/edit`, and preserves the proposal card in triage with `✅ Saved!` feedback.
+  - **Source Procedure Sub-Cards in Proposals**:
+    - Surfaced `suggested_tools` in the collapsed card summary and added `proc-src-tools-` input field to the expandable edit form.
+    - Updated `saveSourceProcedure()` to collect `suggested_tools` and include it in the `POST /api/review/procedures/{procId}/edit` payload while synchronizing `allProcedures` and `source_entries` in memory.
+  - **Procedures Management Tab (`procedures-mgmt`)**:
+    - Replaced blocking browser `alert()` popups with smooth in-place `✅ Saved!` button feedback in `saveProcedureEdits()`.
+    - Added `✅ Approve (Live)` button on cards with `p.status === 'extracted'` (Pending Review) and implemented `approveProcedureFromMgmt()`, allowing operators to approve pending extracted procedures directly from the dedicated management tab.
+  - **Procedure Detail Modal**:
+    - Added `⚙️ Edit in Procedures Tab` button in the modal footer to allow jumping directly to and filtering by that procedure in the management tab.
+  - **Input Preservation across Filtering & Searching (`captureActiveEdits`)**:
+    - Expanded `captureActiveEdits()` to capture inputs from standalone procedures (`proc-trigger-`), procedure splits (`proc-split-trigger-`), and fact splits (`split-prop-cat-`), ensuring in-progress edits are never lost when filtering or searching triage.
+
+## [000.006.078] - 2026-09-06 — *Fast Memory Perspective Decoupling, Temporal Grounding, and RAG Envelope Anchoring*
+
+### Added & Integrated
+- **Perspective Ownership Decoupling & Category Canon (`Evelyn/tools/fact_extractor.py`, `context_manager.py`)**:
+  - Decoupled category canon codes (`Cat##-A` vs `Cat##-U`) from the referent `subject` entity. The category suffix strictly represents perspective/ledger ownership (Assistant's worldview vs. User's worldview), enabling valid cross-entity attributions such as `Cat06-A | Subject: Ricky` (Evelyn's appreciation or feeling toward Ricky) and `Cat06-U | Subject: Evelyn` (Ricky's validation or feeling toward Evelyn).
+  - Enriched `_build_extraction_prompt()` with explicit `PERSPECTIVE OWNERSHIP & CATEGORY CANON` directives and contrasting YAML examples.
+  - Updated `_parse_facts_yaml()` to preserve cross-perspective category attributions and prevent automatic flattening to subject identity.
+  - Scaled extraction output token limits (`num_predict`) from 512 to up to 1536 tokens, and increased extraction timeout to 600s (`FACT_EXTRACTION_TIMEOUT = 600`).
+- **Temporal Grounding & Transient Phrasing Defusal (`Evelyn/tools/fact_extractor.py`, `chroma_rag.py`)**:
+  - Enforced strict extraction prompt directives forbidding unanchored floating adverbs (`currently`, `soon`, `will be coming`, `lately`, `right now`).
+  - Added Tier A deterministic regex temporal anchoring converting progressive in-flight actions (`{Subject} is currently {action}`) into durable date-anchored historical facts (`As of {date}, {Subject} was {action}`) while safely preserving stative adjectives (`willing`, `caring`, `understanding`).
+  - Enriched RAG vector retrieval in `chroma_rag.py` to embed live `category`, `subject`, and `date` attributes onto `<memory_entry>` XML envelopes, providing disambiguated temporal context during conversational RAG injection.
+- **Narrative Profile Evolver Grounding (`Evelyn/tools/profile_evolver.py`)**:
+  - Updated `_cluster_entries_by_theme()` to output both category code and subject entity (`[Cat##-X | Subject: <subject>] <obs>`) on evidence lines, preventing assistant facts from contaminating the user's narrative profile.
+- **Database Migration `000.006.078` (`Evelyn/tools/db_migrator.py`)**:
+  - Applied transactional migration `000.006.078_remediate_fast_memory_taxonomy_and_temporal_anchoring`:
+    - Reclassified 537 assistant-perspective entries from `Cat##-U` to `Cat##-A`.
+    - Reclassified 417 user-personal entries from `Cat##-A` to `Cat##-U`.
+    - Grounded 256 progressive observations into historical date-anchored phrasing.
+    - Pruned 496 contaminated assistant entries from `entry_document_evolution` records for `Ricky_Narrative_Profile.md`.
+- **Tier B LLM Remediation Script (`scripts/remediate_transient_facts.py`)**:
+  - Introduced companion CLI utility supporting dry-run and execution modes with batching to reword lingering complex middle-of-sentence floating adverbs via local Ollama.
+- **Hermetic Unit Tests (`Evelyn/tests/test_category_attribution.py`)**:
+  - Added comprehensive test coverage for perspective validation, cross-entity YAML parsing, extraction prompt rules, RAG XML attribute rendering, evidence line formatting, and regex temporal anchoring.
+
+## [000.006.077] - 2026-09-06 — *Multi-Reference Context Harvesting and Local LLM Abstract Synthesis for Ghost Link Stubs*
+
+### Added & Integrated
+- **Vault-Wide Multi-Reference Context Harvesting (`Evelyn/tools/link_librarian.py`)**:
+  - Implemented `harvest_entity_references(target_name, vault_root, max_refs)`: executes high-speed ripgrep (`rg -i -l`) across all vault markdown notes to discover every note citing the target via case-insensitive wikilinks (`[[Target]]` and `[[Target|Alias]]`), with pure-python disk walk fallback.
+  - Extracts surrounding context sentences/paragraphs for each citing note using canonical `string_utils.extract_link_context()`, safely stripping YAML headers and formatting noise.
+- **Local Ollama LLM Abstract Synthesis (`Evelyn/tools/link_librarian.py`)**:
+  - Implemented `synthesize_entity_abstract(target_name, references, domain, use_llm)`: aggregates harvested quotes across citing notes into an in-flight synthesis prompt processed by local Ollama (`ollama_client.query_ollama`), producing a concise, high-density 2–3 sentence executive abstract.
+  - Robust graceful fallback: if Ollama is unavailable, times out, or returns empty, compiles a deterministic citation summary referencing citing notes directly.
+- **Informational Quality & Threshold Gate Guardrails (`Evelyn/tools/link_librarian.py`, `evelyn_config.py`)**:
+  - Added configurable threshold parameters in `evelyn_config.py`:
+    - `LIBRARIAN_GHOST_STUB_MIN_REFS = 2` (minimum distinct notes citing the entity).
+    - `LIBRARIAN_GHOST_STUB_MIN_CONTEXT_CHARS = 200` (minimum combined context characters across notes, ~2–3 substantive sentences).
+    - `LIBRARIAN_GHOST_STUB_MIN_SNIPPET_CHARS = 60` (minimum single-excerpt context threshold to filter out bare list items).
+    - `MASTER_LIBRARIAN_AUTO_STUBS = False` (defaults to Tier 2 review queue proposals).
+  - Targets failing these thresholds return `status: "below_threshold"`, quietly remaining as ghost links without polluting the vault or flooding the review queue.
+- **Rich Visual PKM Note Formatting (`Evelyn/tools/link_librarian.py`)**:
+  - `render_stub_markdown()` updated to generate:
+    - Strict multi-line `> ` prefixing inside `> [!ABSTRACT]` with the synthesized abstract.
+    - `## 🧭 Context & Mentions` section bulleting citing notes and exact excerpt quotes (`- **[[Note]]**: "..."`).
+    - `## 🔗 References` section with deduplicated backlinks.
+- **FastAPI Review Endpoints & DevUI Integration (`evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - Enriched `parsed_payload` across `/api/review/unified` and `/api/review/proposals` with `sources`, `references`, `synthesized_abstract`, and `total_context_chars`.
+  - Updated DevUI triage search index to query synthesized abstracts and citing source notes.
+  - Rendered rich triage cards displaying the synthesized executive abstract callout, multi-note citation count and character badges, and harvested quote excerpts.
+- **Canonical Utility Reuse & DRY Enforcement (`Evelyn/tools/string_utils.py`, `master_librarian.py`)**:
+  - Promoted `extract_link_context()` to canonical `string_utils.py`, eliminating duplicate implementations across librarian modules.
+- **Hermetic Unit Tests (`Evelyn/tests/test_master_librarian.py`, `test_review_endpoints.py`)**:
+  - Added tests for multi-note reference harvesting, below-threshold quality gate rejection, threshold-passing proposal generation, abstract synthesis fallback, and end-to-end multi-reference review proposal approval.
+
+## [000.006.076] - 2026-09-06 — *Tier 2 Review Queue Integration for Ghost Link Stubs*
+
+### Added & Integrated
+- **FastAPI Review Queue Endpoints (`evelyn_server.py`)**:
+  - Wired `ghost_link_stub` proposals into `/api/review/unified` and `/api/review/proposals`.
+  - Parses incoming XML payloads into structured `parsed_payload` objects containing `target_name`, `source_path`, `context_excerpt`, `domain`, `tags`, `ref_count`, and `min_refs`.
+  - Added approval handler in `/api/review/proposals/{id}/approve` for `ghost_link_stub`: deserializes the semantic XML payload (or accepts human-edited markdown/XML), synthesizes the note atomically in the vault root, registers the record in `vault_documents`, audits librarian timestamps via `vault_db`, updates note frontmatter via `scripts/update_frontmatter.py`, and marks proposal as `applied`.
+  - Preserved denial handler to mark proposal as `rejected` in `memory_db.proposals` without disk mutations.
+- **DevUI Review Card (`evelyn_ui/dev.html`)**:
+  - Added dedicated `PROPOSAL: GHOST LINK STUB` card rendering with target badge (`[[Target]]`), reference count indicator (`ref_count/min_refs`), metadata grid, contextual excerpt preview, and an editable structured XML payload textarea.
+  - Added search indexing support for `ghost_link_stub` targets, sources, excerpts, and tags in `getTriageSearchableFields()`.
+- **Hermetic Unit Tests (`Evelyn/tests/test_review_endpoints.py`)**:
+  - Added `test_ghost_link_stub_proposal_lifecycle`: validates extraction of payload in `/api/review/unified` and `/api/review/proposals`, approves the stub note into an isolated test vault sandbox, verifies file formatting and frontmatter compliance, and asserts `applied` status.
+  - Added `test_ghost_link_stub_proposal_deny`: verifies rejection without file creation.
+
+## [000.006.075] - 2026-09-06 — *Master Librarian Ghost Stub Purge, Semantic XML Envelope, and Vault-Wide Resolution*
+
+### Fixed & Hardened
+- **Master Librarian Context Excerpting (`Evelyn/tools/master_librarian.py`)**:
+  - Replaced flawed `content[:250]` frontmatter-slicing bug with `extract_link_context()` which parses document body after frontmatter, slices the true contextual sentence/paragraph surrounding the target link, and cleans line breaks.
+  - Slices are stripped of YAML frontmatter boundary markers, preventing source YAML headers from bleeding into the abstract callouts of generated stubs.
+- **Link Librarian Ghost Link Detection & Vault-Wide Resolution (`Evelyn/tools/link_librarian.py`)**:
+  - Replaced vault root-only file check with `target_note_exists()`: verifies existence in sibling folder, vault root, and across the entire vault database (`vault_documents` table paths and aliases) before declaring any link a ghost target.
+  - Implemented `is_valid_entity_target()`: strips trailing `.md` extensions (preventing double `.md.md` stubs), rejects chapter numbering prefixes (`01 - `, `002 - `), blacklists generic section headers (`Features`, `Safety`, `Other`, `Table of Contents`, `_index`), and filters private-use Unicode OCR glyph artifacts.
+  - Fixed reference counting: removed `path LIKE ?` substring match from `vault_documents` query, searching strictly for actual incoming wikilinks (`[[target]]` or `[[target|`) in note content.
+- **Semantic XML Envelope Payload Architecture (`Evelyn/tools/link_librarian.py`)**:
+  - Introduced structured `StubPayload` container with `render_stub_xml()`, `parse_stub_xml()`, and `render_stub_markdown()`.
+  - Encapsulates target, source path, cleaned context excerpt, domain, and tags in a clean `<entity_stub>` XML payload.
+  - Enforces callout formatting safety: every line in `> [!ABSTRACT]` is strictly prefixed with `> `, preventing unquoted markdown breaks.
+  - Tier 2 proposals now bundle the semantic XML payload for clean inspection and promotion in the review queue.
+- **Index Librarian Idempotency (`Evelyn/tools/index_librarian.py`)**:
+  - Made `## 📑 Additional Notes` section appending idempotent: updates under existing headers rather than generating duplicate headings.
+- **Vault Cleanup Utility & Spurious Stub Purge (`scripts/cleanup_malformed_stubs.py`)**:
+  - Authored standalone purge tool and safely deleted 119 mal-generated stub files in `/home/rathius/obsidian_vault/*.md`.
+  - Purged corresponding records from `data/evelyn_vault.db` and normalized 13 index notes that had dead links appended.
 
 ## [000.006.074] - 2026-09-05 — *Integrate Index Librarian into Master Pipeline and Decommission Legacy CLI Tools*
 

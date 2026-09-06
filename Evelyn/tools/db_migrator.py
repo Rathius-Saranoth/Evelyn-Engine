@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-05 19:49:07
+# date modified: 2026-09-06 08:57:05
 # tags: 
 
 """
@@ -1950,6 +1950,172 @@ def migrate_000_006_067_master_librarian_schema(
     logger.info("Migration 000.006.067: Created librarian_activity_log and updated vault_documents schema.")
 
 
+def migrate_000_006_078_remediate_fast_memory_taxonomy_and_temporal_anchoring(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """
+    Migration 000.006.078:
+    1. Reclassify Assistant canon facts from Cat##-U to Cat##-A.
+    2. Reclassify User personal canon facts from Cat##-A to Cat##-U.
+    3. Apply Tier A deterministic temporal anchoring on progressive observations.
+    4. Prune contaminated Assistant canon entries from User's narrative profile evolution records.
+    """
+    asst_name = getattr(cfg_obj, "ASSISTANT_NAME", "Evelyn")
+    user_name = getattr(cfg_obj, "USER_NAME", "Ricky")
+    code_user = getattr(cfg_obj, "SUBJECT_CODE_USER", "U")
+    code_asst = getattr(cfg_obj, "SUBJECT_CODE_ASSISTANT", "A")
+    profile_doc = f"{user_name}_Narrative_Profile.md"
+
+    cursor = conn.cursor()
+    now_ts = time.time()
+
+    # Pass 1: Assistant canon facts (Cat##-U -> Cat##-A)
+    # 1A: Where subject is Assistant, observation is not User's action
+    c1_rows = cursor.execute(
+        """
+        SELECT id, category, observation FROM context_entries
+        WHERE subject = ? AND category LIKE ?
+          AND observation NOT LIKE ? AND observation NOT LIKE 'He %'
+        """,
+        (asst_name, f"%{code_user}", f"{user_name} %"),
+    ).fetchall()
+
+    pass1_flipped = 0
+    for row_id, cat, _ in c1_rows:
+        new_cat = cat.rsplit("-", 1)[0] + f"-{code_asst}"
+        cursor.execute(
+            "UPDATE context_entries SET category = ?, recategorized_at = ?, updated_at = ? WHERE id = ?",
+            (new_cat, now_ts, now_ts, row_id),
+        )
+        pass1_flipped += 1
+
+    # 1B: Where subject is User, but observation is explicitly Assistant perspective/canon
+    c2_rows = cursor.execute(
+        """
+        SELECT id, category, observation FROM context_entries
+        WHERE subject = ? AND category LIKE ?
+          AND (observation LIKE ? OR observation LIKE 'Her %'
+               OR observation LIKE 'Addresses Ricky%' OR observation LIKE 'Refers to Ricky%'
+               OR observation LIKE 'Confirmed that the phrase%' OR observation LIKE 'The reassurance regarding%')
+        """,
+        (user_name, f"%{code_user}", f"{asst_name} %"),
+    ).fetchall()
+
+    for row_id, cat, obs in c2_rows:
+        new_cat = cat.rsplit("-", 1)[0] + f"-{code_asst}"
+        # If the observation is strictly about Assistant (does not mention User in active interaction),
+        # normalize subject to Assistant as well.
+        if obs.startswith(f"{asst_name} ") and not any(k in obs for k in [f"{user_name}'s", f"{user_name} ", f"{user_name}."]):
+            cursor.execute(
+                "UPDATE context_entries SET category = ?, subject = ?, recategorized_at = ?, updated_at = ? WHERE id = ?",
+                (new_cat, asst_name, now_ts, now_ts, row_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE context_entries SET category = ?, recategorized_at = ?, updated_at = ? WHERE id = ?",
+                (new_cat, now_ts, now_ts, row_id),
+            )
+        pass1_flipped += 1
+
+    # Pass 2: User personal canon facts (Cat##-A -> Cat##-U)
+    p2_rows = cursor.execute(
+        """
+        SELECT id, category, observation FROM context_entries
+        WHERE subject = ? AND category LIKE ?
+          AND observation NOT LIKE ? AND observation NOT LIKE 'Her %'
+          AND observation NOT LIKE ? AND observation NOT LIKE ? AND observation NOT LIKE ?
+        """,
+        (
+            user_name,
+            f"%{code_asst}",
+            f"{asst_name} %",
+            f"%{asst_name} feels%",
+            f"%{asst_name} expresses%",
+            f"%{asst_name} appreciates%",
+        ),
+    ).fetchall()
+
+    pass2_flipped = 0
+    for row_id, cat, _ in p2_rows:
+        new_cat = cat.rsplit("-", 1)[0] + f"-{code_user}"
+        cursor.execute(
+            "UPDATE context_entries SET category = ?, recategorized_at = ?, updated_at = ? WHERE id = ?",
+            (new_cat, now_ts, now_ts, row_id),
+        )
+        pass2_flipped += 1
+
+    # Pass 3: Tier A Deterministic Temporal Anchoring
+    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}")
+    stative_adjectives = {"willing", "caring", "understanding", "pleasing"}
+
+    all_entries = cursor.execute("SELECT id, date, subject, observation FROM context_entries").fetchall()
+    anchored_count = 0
+    for row_id, dt_str, subj_val, obs_val in all_entries:
+        if not obs_val or obs_val.strip().startswith("As of "):
+            continue
+
+        has_valid_date = bool(dt_str and date_pattern.match(dt_str.strip()) and not dt_str.startswith("0001-01-01"))
+        clean_date = dt_str.strip()[:10] if has_valid_date else None
+        entity = (subj_val or user_name).strip()
+
+        new_obs: str | None = None
+
+        m1 = re.match(r"^([A-Z][a-zA-Z0-9_\']+)\s+is\s+currently\s+([a-z]+ing\b.*)", obs_val, re.IGNORECASE)
+        m2 = re.match(r"^([A-Z][a-zA-Z0-9_\']+)\s+is\s+([a-z]+ing\b.*)", obs_val)
+        m3 = re.match(r"^Is\s+currently\s+([a-z]+ing\b.*)", obs_val, re.IGNORECASE)
+        m4 = re.match(r"^Currently\s+([a-z]+ing\b.*)", obs_val, re.IGNORECASE)
+        m5 = re.match(r"^Currently,?\s+(.*)", obs_val, re.IGNORECASE)
+
+        if m1:
+            s_name, rest = m1.group(1), m1.group(2)
+            new_obs = f"As of {clean_date}, {s_name} was {rest}" if clean_date else f"{s_name} was {rest}"
+        elif m2 and m2.group(2).split()[0] not in stative_adjectives:
+            s_name, rest = m2.group(1), m2.group(2)
+            new_obs = f"As of {clean_date}, {s_name} was {rest}" if clean_date else f"{s_name} was {rest}"
+        elif m3:
+            rest = m3.group(1)
+            new_obs = f"As of {clean_date}, {entity} was {rest}" if clean_date else f"{entity} was {rest}"
+        elif m4:
+            rest = m4.group(1)
+            new_obs = f"As of {clean_date}, {entity} was {rest}" if clean_date else f"{entity} was {rest}"
+        elif m5:
+            rest = m5.group(1)
+            new_obs = (
+                f"As of {clean_date}, {rest}"
+                if clean_date
+                else (rest[0].upper() + rest[1:] if rest else obs_val)
+            )
+
+        if new_obs and new_obs != obs_val:
+            cursor.execute(
+                "UPDATE context_entries SET observation = ?, updated_at = ? WHERE id = ?",
+                (new_obs, now_ts, row_id),
+            )
+            anchored_count += 1
+
+    # Pass 4: Prune contaminated Assistant canon from User's narrative profile evolution records
+    pruned_result = cursor.execute(
+        """
+        DELETE FROM entry_document_evolution
+        WHERE document_name = ?
+          AND entry_id IN (
+              SELECT id FROM context_entries
+              WHERE category LIKE ?
+          )
+        """,
+        (profile_doc, f"%{code_asst}"),
+    )
+    pruned_count = pruned_result.rowcount
+
+    logger.info(
+        f"Migration 000.006.078 completed: {pass1_flipped} entries -> Cat##-{code_asst}, "
+        f"{pass2_flipped} entries -> Cat##-{code_user}, {anchored_count} observations temporally anchored, "
+        f"{pruned_count} entries detached from {profile_doc}."
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2116,6 +2282,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.067",
         name="master_librarian_schema_and_activity_log",
         up_fn=migrate_000_006_067_master_librarian_schema,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.078",
+        name="remediate_fast_memory_taxonomy_and_temporal_anchoring",
+        up_fn=migrate_000_006_078_remediate_fast_memory_taxonomy_and_temporal_anchoring,
+        post_sync_chroma=True,
     ),
 ]
 

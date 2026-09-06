@@ -499,7 +499,8 @@
       <div class="modal-body" id="procedure-modal-body" style="overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 20px;">
         <!-- Populated dynamically -->
       </div>
-      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end;">
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: space-between; align-items: center;">
+        <button id="btn-edit-modal-proc" class="btn btn-sm" style="display: none; background: var(--surface); border: 1px solid var(--border); color: #60a5fa; padding: 6px 14px; cursor: pointer;" onclick="jumpToProcedureInMgmt()">⚙️ Edit in Procedures Tab</button>
         <button class="btn btn-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); padding: 6px 14px; cursor: pointer;" onclick="closeProcedureModal()">Close</button>
       </div>
     </div>
@@ -1025,6 +1026,27 @@
             if (p.tags) allTags.push(...p.tags.split(',').map(t => t.trim()).filter(Boolean));
           }
           return { text: allText, tags: allTags };
+        } else if (item.type === 'ghost_link_stub') {
+          const p = item.parsed_payload || {};
+          const refTexts = Array.isArray(p.references) ? p.references.map(r => `${r.source || ''} ${r.snippet || ''}`).join(' ') : '';
+          const sourcesText = Array.isArray(p.sources) ? p.sources.join(' ') : '';
+          return {
+            text: [
+              item.reason,
+              item.topic,
+              p.target_name,
+              p.source_path,
+              p.context_excerpt,
+              p.synthesized_abstract,
+              sourcesText,
+              refTexts,
+              p.domain,
+              item.suggested_category,
+              item.merged_observation,
+              item.id ? String(item.id) : ''
+            ],
+            tags: (p.tags && Array.isArray(p.tags)) ? p.tags : (item.merged_tags ? String(item.merged_tags).split(',').map(t => t.trim()).filter(Boolean) : [])
+          };
         } else if (item.type === 'split') {
           const facts = parseSplitYaml(item.merged_observation);
           const allText = [item.reason, item.topic, item.id ? String(item.id) : ''];
@@ -1686,7 +1708,7 @@
           const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
           const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
           body = JSON.stringify({ observation: obs, category: cat, subject: subj, tags: tags });
-        } else if ((action === 'approve' || action === 'merge_into_master') && type === 'proposals') {
+        } else if ((action === 'approve' || action === 'merge_into_master' || action === 'edit') && type === 'proposals') {
           const item = unifiedItems.find(x => x.id == id && (x.item_type === 'proposal' || x.item_type === 'profile_update'));
           const procTrigger = document.getElementById(`proc-merge-trigger-${id}`);
           if (procTrigger) {
@@ -1758,6 +1780,38 @@
 
         const res = await fetch(endpoint, { method: 'POST', headers: headers(), body });
         if (res.ok) {
+          if (action === 'edit') {
+            if (type === 'extractions') {
+              const item = unifiedItems.find(x => x.item_type === 'extraction' && x.id == id);
+              if (item) {
+                const obs = document.getElementById(`obs-${id}`)?.value;
+                const cat = document.getElementById(`ext-cat-${id}`)?.value || document.getElementById(`ce-cat-${id}`)?.value;
+                const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
+                const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
+                if (obs !== undefined) item.observation = obs;
+                if (cat !== undefined) item.category = cat;
+                if (subj !== undefined) item.subject = subj;
+                if (tags !== undefined) item.tags = tags;
+              }
+            } else if (type === 'proposals') {
+              const item = unifiedItems.find(x => (x.item_type === 'proposal' || x.item_type === 'profile_update') && x.id == id);
+              if (item && body) {
+                try {
+                  const b = JSON.parse(body);
+                  if (b.modified_text) item.merged_observation = b.modified_text;
+                } catch (_) {}
+              }
+            }
+            if (activeBtn) {
+              activeBtn.innerHTML = '✅ Saved!';
+              setTimeout(() => {
+                activeBtn.disabled = false;
+                activeBtn.innerHTML = originalText;
+              }, 1200);
+            }
+            return;
+          }
+
           if (type === 'extractions') {
             unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id == id));
           } else {
@@ -1888,6 +1942,7 @@
       }
 
       const trigger = document.getElementById(`proc-src-trigger-${proposalId}-${procId}`)?.value || '';
+      const tools = document.getElementById(`proc-src-tools-${proposalId}-${procId}`)?.value || '';
       const steps = document.getElementById(`proc-src-steps-${proposalId}-${procId}`)?.value || '';
       const pitfalls = document.getElementById(`proc-src-pitfalls-${proposalId}-${procId}`)?.value || '';
       const verification = document.getElementById(`proc-src-verification-${proposalId}-${procId}`)?.value || '';
@@ -1896,10 +1951,11 @@
       const endpoint = `${API_BASE}/api/review/procedures/${procId}/edit`;
       const body = JSON.stringify({
         trigger_pattern: trigger,
+        suggested_tools: tools || null,
         steps: steps,
-        pitfalls: pitfalls,
-        verification: verification,
-        tags: tags
+        pitfalls: pitfalls || null,
+        verification: verification || null,
+        tags: tags || null
       });
 
       try {
@@ -1910,6 +1966,7 @@
             const s = item.source_entries.find(e => e.id === procId);
             if (s) {
               s.trigger_pattern = trigger;
+              s.suggested_tools = tools;
               s.steps = steps;
               s.pitfalls = pitfalls;
               s.verification = verification;
@@ -1917,6 +1974,16 @@
               s.observation = `**Trigger:** ${trigger}\n**Steps:**\n${steps}`;
             }
           }
+          const pEntry = allProcedures.find(p => p.id === procId);
+          if (pEntry) {
+            pEntry.trigger_pattern = trigger;
+            pEntry.suggested_tools = tools;
+            pEntry.steps = steps;
+            pEntry.pitfalls = pitfalls;
+            pEntry.verification = verification;
+            pEntry.tags = tags;
+          }
+          toggleEditSourceProcedure(proposalId, procId);
           render();
         } else {
           let errMsg = `Failed to save procedure (${res.status})`;
@@ -2194,14 +2261,14 @@
       const originalText = activeBtn ? activeBtn.innerHTML : '';
       if (activeBtn) {
         activeBtn.disabled = true;
-        activeBtn.innerHTML = action === 'delete' ? '⏳ Deleting...' : '⏳ Working...';
+        activeBtn.innerHTML = action === 'delete' ? '⏳ Deleting...' : (action === 'edit' ? '⏳ Saving...' : '⏳ Working...');
       }
 
       const endpoint = `${API_BASE}/api/review/procedures/${id}/${action}`;
       let body = null;
       
       try {
-        if (action === 'approve') {
+        if (action === 'approve' || action === 'edit') {
           const trigger = document.getElementById(`proc-trigger-${id}`)?.value.trim() || '';
           const steps = document.getElementById(`proc-steps-${id}`)?.value.trim() || '';
           const pitfalls = document.getElementById(`proc-pitfalls-${id}`)?.value.trim() || '';
@@ -2227,6 +2294,42 @@
           body: body
         });
         if (res.ok) {
+          if (action === 'edit') {
+            const trigger = document.getElementById(`proc-trigger-${id}`)?.value.trim() || '';
+            const steps = document.getElementById(`proc-steps-${id}`)?.value.trim() || '';
+            const pitfalls = document.getElementById(`proc-pitfalls-${id}`)?.value.trim() || '';
+            const verification = document.getElementById(`proc-verification-${id}`)?.value.trim() || '';
+            const tags = document.getElementById(`proc-tags-${id}`)?.value.trim() || '';
+            const suggestedTools = document.getElementById(`proc-tools-${id}`) ? document.getElementById(`proc-tools-${id}`).value.trim() : null;
+
+            const item = unifiedItems.find(p => p.item_type === 'procedure' && p.id == id);
+            if (item) {
+              item.trigger_pattern = trigger;
+              item.steps = steps;
+              item.pitfalls = pitfalls || '';
+              item.verification = verification || '';
+              item.tags = tags || '';
+              item.suggested_tools = suggestedTools || '';
+            }
+            const pEntry = allProcedures.find(p => p.id === id);
+            if (pEntry) {
+              pEntry.trigger_pattern = trigger;
+              pEntry.steps = steps;
+              pEntry.pitfalls = pitfalls || '';
+              pEntry.verification = verification || '';
+              pEntry.tags = tags || '';
+              pEntry.suggested_tools = suggestedTools || '';
+            }
+            if (activeBtn) {
+              activeBtn.innerHTML = '✅ Saved!';
+              setTimeout(() => {
+                activeBtn.disabled = false;
+                activeBtn.innerHTML = originalText;
+              }, 1200);
+            }
+            return;
+          }
+
           unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id == id));
           if (action === 'delete') {
             allProcedures = allProcedures.filter(p => p.id !== id);
@@ -2239,6 +2342,12 @@
           } else if (action === 'deny') {
             const proc = allProcedures.find(p => p.id === id);
             if (proc) proc.status = 'archived';
+          } else if (action === 'merge') {
+            const proc = allProcedures.find(p => p.id === id);
+            if (proc) {
+              proc.status = 'merged';
+              proc.merged_into_id = targetId;
+            }
           }
           updateCounts();
           render();
@@ -3175,6 +3284,7 @@
                 </div>
               </div>
               <div style="font-size: 12px; font-weight: 600; color: var(--text-dim);">Trigger: <span style="color: var(--text); font-weight: normal;">${escapeHtml(s.trigger_pattern || '')}</span></div>
+              ${s.suggested_tools ? `<div style="font-size: 11px; color: var(--accent); font-family: 'JetBrains Mono', monospace;"><strong>Tools:</strong> ${escapeHtml(s.suggested_tools)}</div>` : ''}
               <div style="font-size: 13px; color: var(--text); line-height: 1.4; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #07070a; padding: 8px; border-radius: 4px; border: 1px solid var(--border);">${escapeHtml(s.steps || '')}</div>
               ${s.pitfalls ? `<div style="font-size: 11px; color: var(--text-dim);"><strong>Pitfalls:</strong> ${escapeHtml(s.pitfalls)}</div>` : ''}
               ${s.verification ? `<div style="font-size: 11px; color: var(--text-dim);"><strong>Verification:</strong> ${escapeHtml(s.verification)}</div>` : ''}
@@ -3182,6 +3292,10 @@
                 <div>
                   <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">Trigger Pattern</label>
                   <input type="text" id="proc-src-trigger-${item.id}-${s.id}" value="${escapeHtml(s.trigger_pattern || '')}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                </div>
+                <div>
+                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">Suggested Tools (comma-separated)</label>
+                  <input type="text" id="proc-src-tools-${item.id}-${s.id}" value="${escapeHtml(s.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 </div>
                 <div>
                   <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px;">Steps</label>
@@ -3433,6 +3547,7 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
                 ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId}, this)">⚡ Merge Into Master</button>` : ''}
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve (New Procedure)</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
@@ -3500,7 +3615,8 @@
                   <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
                 </div>
               </div>
-              <div class="card-actions" style="display: flex; gap: 8px;">
+              <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Procedure Split</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
@@ -3508,7 +3624,96 @@
             </div>
           `;
         }
-        
+
+        if (item.type === 'ghost_link_stub') {
+          const parsed = item.parsed_payload || {};
+          const targetName = parsed.target_name || item.topic || 'Unknown Target';
+          const sourcePath = parsed.source_path || item.suggested_category || 'Unknown Source';
+          const excerpt = parsed.context_excerpt || '';
+          const abstract = parsed.synthesized_abstract || '';
+          const domain = parsed.domain || '';
+          const tags = (parsed.tags && parsed.tags.length > 0) ? parsed.tags.join(', ') : (item.merged_tags || 'stub, concept');
+          const refCount = parsed.ref_count !== undefined ? parsed.ref_count : (parsed.sources ? parsed.sources.length : 1);
+          const minRefs = parsed.min_refs !== undefined ? parsed.min_refs : 2;
+          const totalChars = parsed.total_context_chars !== undefined ? parsed.total_context_chars : (excerpt ? excerpt.length : 0);
+          const references = Array.isArray(parsed.references) ? parsed.references : [];
+
+          return `
+            <div class="card">
+              <div class="card-header">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span class="badge" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.4); font-weight: 600;">PROPOSAL: GHOST LINK STUB</span>
+                  <span>ID: ${item.id}</span>
+                  <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">[[${escapeHtml(targetName)}]]</span>
+                  <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">${refCount}/${minRefs} Refs</span>
+                  ${totalChars > 0 ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">${totalChars} Context Chars</span>` : ''}
+                </div>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Reason / Trigger</div>
+                  <div style="font-size: 13px; color: var(--text); line-height: 1.4;">${escapeHtml(item.reason || 'Ghost link target referenced across vault notes.')}</div>
+                </div>
+
+                ${abstract ? `
+                  <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                      <div style="font-size: 11px; color: #818cf8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Synthesized Executive Abstract</div>
+                      <span class="badge" style="font-size: 10px; background: rgba(99, 102, 241, 0.2); color: #c7d2fe;">Multi-Reference LLM Synthesis</span>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text); line-height: 1.5; font-style: italic; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border-left: 3px solid #818cf8;">
+                      "${escapeHtml(abstract)}"
+                    </div>
+                  </div>
+                ` : ''}
+
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Stub Metadata</div>
+                    <div style="font-size: 12px; color: var(--text-dim);">${refCount > 1 ? `${refCount} Referencing Notes` : `Referencing Note: <code style="color: #60a5fa;">${escapeHtml(sourcePath)}</code>`}</div>
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; font-size: 13px;">
+                    <div><span style="color: var(--text-dim);">Target Note:</span> <strong style="color: #fff;">[[${escapeHtml(targetName)}]]</strong></div>
+                    <div><span style="color: var(--text-dim);">Domain:</span> <span style="color: var(--accent);">${escapeHtml(domain || 'general')}</span></div>
+                    <div><span style="color: var(--text-dim);">Tags:</span> <span style="font-family: monospace; font-size: 12px; color: var(--text);">${escapeHtml(tags)}</span></div>
+                  </div>
+
+                  ${references.length > 0 ? `
+                    <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+                      <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Harvested Mentions Across Vault (${references.length})</div>
+                      ${references.map(ref => `
+                        <div style="background: #07070a; padding: 8px 10px; border-radius: 4px; border: 1px solid var(--border);">
+                          <div style="font-size: 11px; color: #60a5fa; font-weight: 600; margin-bottom: 3px;">[[${escapeHtml(ref.source)}]]</div>
+                          <div style="font-size: 12px; color: var(--text); font-style: italic; line-height: 1.4;">"${escapeHtml(ref.snippet)}"</div>
+                        </div>
+                      `).join('')}
+                    </div>
+                  ` : (excerpt ? `
+                    <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border);">
+                      <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Referencing Context Excerpt</div>
+                      <div style="font-size: 12px; color: var(--text); font-style: italic; background: #07070a; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); line-height: 1.4;">"${escapeHtml(excerpt)}"</div>
+                    </div>
+                  ` : '')}
+                </div>
+
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Structured XML Payload (Editable prior to approval)</div>
+                  </div>
+                  <textarea id="prop-edit-${item.id}"
+                    style="width: 100%; min-height: 110px; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 6px; resize: vertical;"
+                    spellcheck="false">${escapeHtml(item.merged_observation)}</textarea>
+                </div>
+              </div>
+              <div class="card-actions" style="display: flex; gap: 8px;">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve & Create Stub</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+              </div>
+            </div>
+          `;
+        }
+
         return `
           <div class="card">
             <div class="card-header">
@@ -3631,6 +3836,7 @@
               </div>
             </div>
             <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-action" onclick="handleProcedureAction(${item.id}, 'edit', null, this)">💾 Save Changes</button>
               <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)">Approve (Live)</button>
               ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id}, this)">⚡ Merge Into Master</button>` : ''}
               <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)">Reject</button>
@@ -3672,6 +3878,75 @@
             verification: verification,
             tags: tags
           });
+        }
+      });
+
+      // 3. Standalone extracted procedures in triage
+      document.querySelectorAll('[id^="proc-trigger-"]').forEach(el => {
+        const id = parseInt(el.id.replace('proc-trigger-', ''), 10);
+        const item = unifiedItems.find(x => x.id === id && x.item_type === 'procedure');
+        if (item) {
+          item.trigger_pattern = el.value || '';
+          item.suggested_tools = document.getElementById(`proc-tools-${id}`)?.value || '';
+          item.steps = document.getElementById(`proc-steps-${id}`)?.value || '';
+          item.pitfalls = document.getElementById(`proc-pitfalls-${id}`)?.value || '';
+          item.verification = document.getElementById(`proc-verification-${id}`)?.value || '';
+          item.tags = document.getElementById(`proc-tags-${id}`)?.value || '';
+        }
+      });
+
+      // 4. Procedure split specifications
+      const handledProcSplitIds = new Set();
+      document.querySelectorAll('[id^="proc-split-trigger-"]').forEach(el => {
+        const parts = el.id.replace('proc-split-trigger-', '').split('-');
+        const id = parseInt(parts[0], 10);
+        if (handledProcSplitIds.has(id)) return;
+        handledProcSplitIds.add(id);
+        const item = unifiedItems.find(x => x.id === id && x.type === 'procedure_split');
+        if (item) {
+          const currentProcs = parseProcedureSplitYaml(item.merged_observation);
+          const updatedProcs = currentProcs.map((proc, idx) => {
+            const tr = document.getElementById(`proc-split-trigger-${id}-${idx}`)?.value ?? proc.trigger_pattern;
+            const to = document.getElementById(`proc-split-tools-${id}-${idx}`)?.value ?? proc.suggested_tools;
+            const st = document.getElementById(`proc-split-steps-${id}-${idx}`)?.value ?? proc.steps;
+            const pi = document.getElementById(`proc-split-pitfalls-${id}-${idx}`)?.value ?? proc.pitfalls;
+            const ve = document.getElementById(`proc-split-verification-${id}-${idx}`)?.value ?? proc.verification;
+            const tg = document.getElementById(`proc-split-tags-${id}-${idx}`)?.value ?? proc.tags;
+            return {
+              trigger_pattern: tr,
+              suggested_tools: to,
+              steps: st,
+              pitfalls: pi,
+              verification: ve,
+              tags: tg
+            };
+          }).filter(p => p.trigger_pattern && p.trigger_pattern.trim().length > 0);
+          if (updatedProcs.length > 0) {
+            item.merged_observation = dumpProcedureSplitYaml(updatedProcs, item.topic, item.reason);
+          }
+        }
+      });
+
+      // 5. Fact split specifications
+      const handledFactSplitIds = new Set();
+      document.querySelectorAll('[id^="split-prop-cat-"]').forEach(el => {
+        const parts = el.id.replace('split-prop-cat-', '').split('-');
+        const id = parseInt(parts[0], 10);
+        if (handledFactSplitIds.has(id)) return;
+        handledFactSplitIds.add(id);
+        const item = unifiedItems.find(x => x.id === id && x.type === 'split');
+        if (item) {
+          const currentFacts = parseSplitYaml(item.merged_observation);
+          const updatedFacts = currentFacts.map((fact, idx) => {
+            const cat = document.getElementById(`split-prop-cat-${id}-${idx}`)?.value ?? fact.category;
+            const subj = document.getElementById(`split-prop-subj-${id}-${idx}`)?.value ?? fact.subject;
+            const tags = document.getElementById(`split-prop-tags-${id}-${idx}`)?.value ?? fact.tags;
+            const obs = document.getElementById(`split-prop-obs-${id}-${idx}`)?.value ?? fact.observation;
+            return { category: cat, subject: subj, tags: tags, observation: obs };
+          }).filter(f => f.observation && f.observation.trim().length > 0);
+          if (updatedFacts.length > 0) {
+            item.merged_observation = dumpSplitYaml(updatedFacts);
+          }
         }
       });
     }
@@ -4099,15 +4374,104 @@
           body: JSON.stringify(body)
         });
         if (res.ok) {
-          alert(`Procedure #${id} updated successfully.`);
-          await loadAllProcedures();
-          render();
+          const p = allProcedures.find(x => x.id === id);
+          if (p) {
+            p.trigger_pattern = trigger;
+            p.suggested_tools = tools || null;
+            p.steps = steps;
+            p.pitfalls = pitfalls || null;
+            p.verification = verif || null;
+            p.tags = tags || null;
+          }
+          const uItem = unifiedItems.find(x => x.item_type === 'procedure' && x.id === id);
+          if (uItem) {
+            uItem.trigger_pattern = trigger;
+            uItem.suggested_tools = tools || null;
+            uItem.steps = steps;
+            uItem.pitfalls = pitfalls || null;
+            uItem.verification = verif || null;
+            uItem.tags = tags || null;
+          }
+          if (activeBtn) {
+            activeBtn.innerHTML = '✅ Saved!';
+            setTimeout(() => {
+              activeBtn.disabled = false;
+              activeBtn.innerHTML = originalText;
+            }, 1200);
+          }
         } else {
           const err = await res.json().catch(() => ({}));
           alert(`Failed to save procedure: ${err.detail || 'Unknown error'}`);
         }
       } catch (e) {
         alert(`Network error saving procedure: ${e.message}`);
+      } finally {
+        if (activeBtn && activeBtn.innerHTML !== '✅ Saved!') {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalText;
+        }
+      }
+    }
+
+    async function approveProcedureFromMgmt(id, btnElement = null) {
+      const activeBtn = (btnElement instanceof HTMLElement ? btnElement : null)
+        || (window.event?.currentTarget instanceof HTMLElement ? window.event.currentTarget : null);
+      const originalText = activeBtn ? activeBtn.innerHTML : '';
+      if (activeBtn) {
+        activeBtn.disabled = true;
+        activeBtn.innerHTML = '⏳ Approving...';
+      }
+
+      const trigger = document.getElementById(`proc-mgmt-trigger-${id}`)?.value.trim();
+      const tools = document.getElementById(`proc-mgmt-tools-${id}`)?.value.trim();
+      const steps = document.getElementById(`proc-mgmt-steps-${id}`)?.value.trim();
+      const pitfalls = document.getElementById(`proc-mgmt-pitfalls-${id}`)?.value.trim();
+      const verif = document.getElementById(`proc-mgmt-verif-${id}`)?.value.trim();
+      const tags = document.getElementById(`proc-mgmt-tags-${id}`)?.value.trim();
+
+      const body = {
+        trigger_pattern: trigger,
+        suggested_tools: tools || null,
+        steps: steps,
+        pitfalls: pitfalls || null,
+        verification: verif || null,
+        tags: tags || null
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/review/procedures/${id}/approve`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(body)
+        });
+        if (res.ok) {
+          const proc = allProcedures.find(p => p.id === id);
+          if (proc) {
+            proc.status = 'live';
+            if (trigger) proc.trigger_pattern = trigger;
+            if (tools !== undefined) proc.suggested_tools = tools || null;
+            if (steps) proc.steps = steps;
+            if (pitfalls !== undefined) proc.pitfalls = pitfalls || null;
+            if (verif !== undefined) proc.verification = verif || null;
+            if (tags !== undefined) proc.tags = tags || null;
+          }
+          unifiedItems = unifiedItems.filter(p => !(p.item_type === 'procedure' && p.id === id));
+          updateCounts();
+          render();
+
+          await Promise.all([loadAllProcedures(), loadReviewData()]);
+          updateCounts();
+          render();
+        } else {
+          let errMsg = `Failed to approve procedure (${res.status})`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) errMsg = `Failed to approve: ${errData.detail}`;
+          } catch (_) {}
+          alert(errMsg);
+        }
+      } catch (e) {
+        alert(`Network error approving procedure: ${e.message || e}`);
       } finally {
         if (activeBtn) {
           activeBtn.disabled = false;
@@ -4383,11 +4747,15 @@
               </div>
             </div>
             <div class="card-actions" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <div style="display: flex; gap: 8px; align-items: center;">
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <button class="btn btn-action" onclick="saveProcedureEdits(${p.id}, this)">💾 Save Changes</button>
+                ${p.status === 'extracted'
+                  ? `<button class="btn btn-approve" onclick="approveProcedureFromMgmt(${p.id}, this)">✅ Approve (Live)</button>`
+                  : ''
+                }
                 <button class="btn btn-secondary" onclick="queueSingleProcedureSplit(${p.id}, this)">✂️ Queue Split</button>
               </div>
-              <div style="display: flex; gap: 8px; align-items: center;">
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 ${p.status === 'archived'
                   ? `<button class="btn btn-approve" onclick="restoreProcedureItem(${p.id}, this)">♻️ Restore to Live</button>`
                   : `<button class="btn btn-reject" onclick="archiveProcedureItem(${p.id}, this)">📦 Archive</button>`
@@ -4827,14 +5195,19 @@
       }
     }
 
+    let activeModalProcId = null;
+
     async function openProcedureModal(procId) {
+      activeModalProcId = procId;
       const modal = document.getElementById('procedure-detail-modal');
       const titleEl = document.getElementById('procedure-modal-title');
       const bodyEl = document.getElementById('procedure-modal-body');
+      const editBtn = document.getElementById('btn-edit-modal-proc');
       if (!modal || !titleEl || !bodyEl) return;
 
       titleEl.textContent = `⚡ Master Procedure #${procId}`;
       bodyEl.innerHTML = '<div style="text-align: center; color: var(--text-dim); padding: 25px;">Loading procedure details...</div>';
+      if (editBtn) editBtn.style.display = 'inline-block';
       modal.style.display = 'flex';
 
       // Look up in allProcedures first
@@ -4901,9 +5274,23 @@
       `;
     }
 
+    function jumpToProcedureInMgmt() {
+      if (!activeModalProcId) return;
+      const targetId = activeModalProcId;
+      closeProcedureModal();
+      switchTab('procedures-mgmt');
+      procMgmtSearch = String(targetId);
+      const searchInput = document.getElementById('proc-mgmt-search');
+      if (searchInput) searchInput.value = procMgmtSearch;
+      renderProceduresList();
+    }
+
     function closeProcedureModal() {
       const modal = document.getElementById('procedure-detail-modal');
       if (modal) modal.style.display = 'none';
+      const editBtn = document.getElementById('btn-edit-modal-proc');
+      if (editBtn) editBtn.style.display = 'none';
+      activeModalProcId = null;
     }
 
     function toggleFeedbackExpand(id) {

@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-05 19:17:55
+date modified: 2026-09-06 09:02:03
 ---
 # Evelyn Project Roadmap
 
@@ -29,6 +29,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Memory Databases**: Migrated flat-file context entries and vault map indexes into high-performance SQLite databases (`evelyn_memory.db`, `evelyn_vault.db`).
 - [x] **Semantic RAG Pipeline**: Built full-vault vector indexing in ChromaDB using `BAAI/bge-large-en-v1.5` embeddings with progressive gist-first disclosure and priority boosting.
 - [x] **Memory Management Tools**: Implemented journal writing/reading, context fact extraction, and background consolidation pipelines.
+- [x] **Fast Memory Perspective Decoupling & Temporal Grounding (v000.006.078)**: Decoupled category canon codes (`Cat##-A` vs `Cat##-U`) from referent subjects to preserve cross-perspective attribution, integrated strict temporal grounding in extraction and RAG XML envelopes, and applied transactional database migration remediating legacy memory records.
 
 ---
 

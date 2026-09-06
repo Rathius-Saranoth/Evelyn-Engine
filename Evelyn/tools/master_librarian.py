@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-05 20:02:07
+# date modified: 2026-09-06 08:27:31
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -26,12 +26,14 @@ import evelyn_config as cfg
 from Evelyn.tools import (
     backlog_drainer,
     format_librarian,
+    frontmatter_utils,
     index_librarian,
     link_librarian,
     path_utils,
     tag_librarian,
     vault_db,
 )
+from Evelyn.tools.string_utils import extract_link_context
 
 logger = logging.getLogger("evelyn.master_librarian")
 
@@ -43,7 +45,7 @@ def audit_single_document(
     include_tags: bool = True,
     enable_llm_tags: bool = False,
     inherit_parent_tags: bool = True,
-    auto_create_ghost_stubs: bool = True,
+    auto_create_ghost_stubs: bool | None = None,
 ) -> dict[str, Any]:
     """Audit and normalize a single vault document in a single read-transform-write pass.
 
@@ -64,13 +66,15 @@ def audit_single_document(
         include_tags: Whether to include tag normalization pass.
         enable_llm_tags: Whether to invoke Ollama for semantic tagging.
         inherit_parent_tags: Whether to inherit domain tags from parent _index.md.
-        auto_create_ghost_stubs: Whether to synthesize Tier 1 ghost link stubs.
+        auto_create_ghost_stubs: Whether to synthesize Tier 1 ghost link stubs (defaults to config).
 
     Returns:
         dict[str, Any]: Execution summary dict.
     """
     t0 = time.time()
     root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    if auto_create_ghost_stubs is None:
+        auto_create_ghost_stubs = getattr(cfg, "MASTER_LIBRARIAN_AUTO_STUBS", True)
 
     if not doc_path:
         docs = vault_db.fetch_next_document_for_librarian_audit(1)
@@ -146,21 +150,26 @@ def audit_single_document(
         content, path=doc_path, vault_root=root
     )
 
-    # 4. Optional Tier 1 Ghost Link Stub Synthesis
+    # 4. Optional Ghost Link Stub Synthesis / Tier 2 Proposal Logging
     ghost_targets = link_details.get("ghost_targets", [])
     stubs_created = []
-    if auto_create_ghost_stubs and ghost_targets and not dry_run:
-        min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2)
+    proposals_logged = []
+    if ghost_targets and not dry_run:
+        min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2) if auto_create_ghost_stubs else 999999
+        _, doc_body = frontmatter_utils.parse_frontmatter(content)
         for gt in ghost_targets:
+            excerpt = extract_link_context(doc_body, gt)
             res = link_librarian.create_ghost_link_stub(
                 target_name=gt,
                 source_path=doc_path,
-                context_excerpt=content[:250],
+                context_excerpt=excerpt,
                 vault_root=root,
                 min_refs=min_refs,
             )
             if res.get("status") == "created_stub":
                 stubs_created.append(gt)
+            elif res.get("status") == "tier_2_proposal":
+                proposals_logged.append(gt)
 
     # 5. Index Librarian pass (Folder Table of Contents synchronization)
     index_changed = False
@@ -203,6 +212,8 @@ def audit_single_document(
         actions.extend(link_details.get("actions", ["links_updated"]))
     if stubs_created:
         actions.append(f"synthesized_stubs:{len(stubs_created)}")
+    if proposals_logged:
+        actions.append(f"proposed_stubs:{len(proposals_logged)}")
     if index_changed:
         actions.append(f"index_synced:{len(index_details.get('added_notes', []))}")
     if parent_index_synced_count:
