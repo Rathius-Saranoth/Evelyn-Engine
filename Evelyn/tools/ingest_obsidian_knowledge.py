@@ -39,6 +39,7 @@ import memory_db
 
 import evelyn_config as cfg
 from Evelyn.tools.frontmatter_utils import parse_frontmatter
+
 try:
     from Evelyn.tools.path_utils import is_vault_excluded
 except ImportError:

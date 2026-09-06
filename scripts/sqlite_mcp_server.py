@@ -2,7 +2,7 @@
 # sqlite_mcp_server.py
 # date created: 2026-08-28 12:29:50
 # date modified: 2026-09-01 21:46:05
-# tags: 
+# tags:
 
 """
 sqlite_mcp_server.py — Comprehensive MCP Server for Evelyn's Databases, Chroma Vectors, & FastAPI Services.

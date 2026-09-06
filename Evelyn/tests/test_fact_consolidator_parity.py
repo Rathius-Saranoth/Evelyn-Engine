@@ -1,6 +1,8 @@
 import os
 import tempfile
+
 import pytest
+
 import evelyn_config as cfg
 from Evelyn.tools import memory_db
 from Evelyn.tools.fact_consolidator import fast_deduplicate_exact_matches, remediate_database_categories
@@ -160,8 +162,9 @@ def test_fact_merge_queue_operations(mock_memory_db):
 @pytest.mark.asyncio
 async def test_queue_merge_server_endpoint(monkeypatch):
     """Verify POST /api/context/queue_merge endpoint properly queues IDs."""
-    import evelyn_server
     from fastapi.testclient import TestClient
+
+    import evelyn_server
 
     queued_payload = []
     monkeypatch.setattr(

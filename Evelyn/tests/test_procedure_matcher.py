@@ -1,4 +1,5 @@
 import pytest
+
 from Evelyn.tools import memory_db
 from Evelyn.tools.procedure_matcher import (
     calculate_procedure_similarity,
@@ -119,6 +120,7 @@ def test_identify_cluster_master_precedence():
 async def test_procedure_proposal_merge_into_master_endpoint(monkeypatch):
     """Test in-place update of master procedure and status='merged' on sources."""
     import yaml
+
     from evelyn_server import ProposalActionRequest, action_proposal
 
     # Mock in-memory procedures

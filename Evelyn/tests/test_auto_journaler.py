@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 import unittest
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import evelyn_config as cfg

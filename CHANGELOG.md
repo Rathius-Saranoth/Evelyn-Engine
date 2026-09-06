@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-06 18:31:12
+date modified: 2026-09-06 18:47:09
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.083] - 2026-09-06 — *Deterministic Code Hygiene & Wiring Verification Integration*
+
+### Added & Hardened
+- **Vulture Dead-Code Detection & Single-Source Configuration (`pyproject.toml`, `.vulture_whitelist.py`)**:
+  - Integrated `vulture>=2.16` into `requirements.txt` and configured `[tool.vulture]` in `pyproject.toml` with path exclusions, ignore-names, ignore-decorators, and 70% confidence threshold.
+  - Created `.vulture_whitelist.py` with standard `_.attribute` syntax to whitelist dynamic FastAPI endpoints, background task handles, and MCP entry points without masking uncalled application logic.
+- **Unified Code Hygiene Runner (`scripts/check_code_hygiene.py`)**:
+  - Created a unified 3-stage mechanical verification script executing: (1) Ruff static linting and formatting, (2) AST config-wiring validation via `pytest Evelyn/tests/test_config_wiring.py`, and (3) Vulture compiler-level dead-code inspection.
+  - Returns exit code 0 only when all gates pass, with `--fix` support for automated lint remediation.
+- **Deterministic Workflows & Agent Guidelines (`.agents/workflows/verify-wiring.md`, `quality-review.md`, `AGENTS.md`)**:
+  - Authored `.agents/workflows/verify-wiring.md` establishing the Four-Stage Gate: (1) Declare with Consumer, (2) AST Wiring Gate, (3) Vulture Dead-Code Audit, and (4) Two-File Contract Auditing.
+  - Integrated deterministic hygiene checks and two-file contract diff reviews into `.agents/workflows/quality-review.md` (Section 4).
+  - Added Rule 11 to `AGENTS.md` mandating deterministic gates and prohibiting reliance on probabilistic LLM code reviews for function call paths.
+- **Engine Dead Code Cleanup & Bug Fix (`evelyn_server.py`)**:
+  - Fixed an unreachable timestamp assignment in research auto-recovery cooldown (`_error_resume_ts[task_id] = time.time()` placed after `continue`).
+  - Removed obsolete uncalled helpers `get_upcoming_agenda_prompt_context()` and `get_time_gap_context()`.
 
 ## [000.006.082] - 2026-09-06 — *Context Delivery Streamlining and Boundary Enforcement*
 

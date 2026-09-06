@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-03 18:11:26
+date modified: 2026-09-06 18:47:09
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -11,7 +11,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ## 1. Python Environment & Execution
 - **Virtual Environment**: Always use the project virtual environment at `/home/rathius/evelyn/venv/bin/python` and `/home/rathius/evelyn/venv/bin/pytest`. Never invoke `/usr/bin/python3` directly for workspace tasks or test runs.
 - **PYTHONPATH**: Prefix commands with `PYTHONPATH=.` when executing scripts or running tests from the workspace root (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests`).
-- **Tooling Configuration (Single Source of Truth)**: All Python tool configurations (Pyrefly language server `[tool.pyrefly]`, Ruff linter/formatter `[tool.ruff]`, and Pytest `[tool.pytest.ini_options]`) reside canonically in `pyproject.toml`. Do not introduce separate `ruff.toml` or `pyrefly.toml` files.
+- **Tooling Configuration (Single Source of Truth)**: All Python tool configurations (Pyrefly language server `[tool.pyrefly]`, Ruff linter/formatter `[tool.ruff]`, Vulture dead-code scanner `[tool.vulture]`, and Pytest `[tool.pytest.ini_options]`) reside canonically in `pyproject.toml`. Do not introduce separate config files.
 
 ## 2. Database & Vector Operations (MCP Server & CLI)
 - **Primary Method (MCP Server)**: Use the `evelyn-sqlite` MCP tools:
@@ -84,4 +84,11 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **Procedural Specification Standards**: Each starter procedure must define a comprehensive `trigger_pattern`, step-by-step execution directives (`steps`), common failure modes (`pitfalls`), success criteria (`verification`), hierarchical domain tags (`tags`), and explicitly assign the tool name(s) to `suggested_tools` to enable dynamic tool surfacing in RAG.
 - **Historical Grounding Discovery**: To craft natural, accurate trigger patterns and steps, agents must inspect historical conversation context (`data/evelyn_chat.db`) to identify real-world user prompts, conversational phrasing, and scenarios where the tool would or could have been engaged.
 - **General Purpose Exemptions**: Broad general-purpose utility primitives (e.g. `read_file`, `write_file`, `run_command`, `web_search`) are exempt from dedicated starter procedures unless specialized operational protocols are explicitly requested.
+
+## 11. Deterministic Code Hygiene & Wiring Verification Gate
+- **Deterministic Gates vs LLM Reviews**: Large language models suffer from semantic plausibility bias and attention dilution across large files. Never rely on natural language agent reviews to verify whether configuration constants, tool bindings, or functions are actively executed.
+- **Mandatory Hygiene Check**: After completing any functional change or refactor, agents must run `PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py` and confirm all 3 deterministic stages (Ruff static linting, AST config-wiring pytest, and Vulture compiler-level dead code audit) exit with `0`.
+- **Two-File Contract Auditing**: When modifying or adding producer-consumer relationships (e.g. `evelyn_config.py` <-> `chroma_rag.py`, `evelyn_tools.py` <-> `evelyn_server.py`), audit only the isolated diff pair between caller and callee to prove end-to-end wiring.
+- **Whitelist Discipline**: Dynamic framework hooks (FastAPI route entrypoints, Pydantic response models) belong in `.vulture_whitelist.py`. Whitelisting internal helper functions or unused application logic to mask dead code is strictly forbidden.
+
 

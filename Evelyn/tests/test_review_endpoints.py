@@ -1,7 +1,7 @@
 # test_review_endpoints.py
 # date created: 2026-09-03 19:47:07
 # date modified: 2026-09-06 08:32:06
-# tags: 
+# tags:
 
 """
 Unit tests for review endpoints (extractions, proposals, procedures deletion & lifecycle)
@@ -9,9 +9,9 @@ and SQLite busy timeout resilience.
 """
 
 import os
-from pathlib import Path
 import sqlite3
 import tempfile
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient

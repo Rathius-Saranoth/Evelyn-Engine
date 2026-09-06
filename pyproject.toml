@@ -43,6 +43,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+".vulture_whitelist.py" = ["ALL"]
 "scripts/archive/*" = ["ALL"]
 "Evelyn/tests/*" = ["S", "BLE001", "DTZ"]
 
@@ -68,3 +69,10 @@ known-first-party = ["Evelyn", "evelyn_config"]
 [tool.pytest.ini_options]
 testpaths = ["Evelyn/tests"]
 python_files = ["test_*.py"]
+
+[tool.vulture]
+exclude = ["Evelyn/tests", "venv", "scripts/archive", "data"]
+ignore_decorators = ["@app.get", "@app.post", "@app.put", "@app.delete", "@app.patch", "@app.on_event", "@app.websocket", "@pytest.fixture"]
+ignore_names = ["visit_*", "test_*", "setUp", "tearDown", "db_map", "db_paths", "pending_recat_sources", "all_live_procs"]
+min_confidence = 70
+paths = ["evelyn_server.py", "evelyn_config.py", "Evelyn/", ".vulture_whitelist.py"]
