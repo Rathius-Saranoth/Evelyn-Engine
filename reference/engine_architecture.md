@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-05 19:33:18
+date modified: 2026-09-05 20:01:27
 ---
 # Evelyn Engine Architecture Map
 
@@ -184,9 +184,6 @@ Standalone background processes and tools loaded dynamically by the model during
 * **[[auto_journaler.py]]**: Autonomous after-hours journal daemon. Evaluates late-night circadian windows (23:00–04:00), inactivity thresholds, and minimum conversation turn gates to autonomously compose daily reflection entries without requiring a manual user bedtime prompt. Features **midnight crossover resolution** (mapping early morning runs 00:00–04:00 to the previous calendar day), **strict vault collision prevention**, **preemption safety**, and **chronological Map-Reduce compaction** (`compact_history_map_reduce()`) for high-turn marathon conversation days.
 * **[[docstring_guide.md]] §7**: Detailed reference containing function indexes, architectural flows, and configuration scopes for the background pipelines.
 * **[[terminal_agent.py]]**: Manages shell command execution and file write safety checks, staging operations for user approval and persisting approvals to disk to survive server restarts.
-* **[[pending_reviewer.py]]**: CLI dashboard helper for consolidating or deleting staged facts.
-* **[[context_reviewer.py]]**: CLI dashboard helper for viewing active context queues.
-* **[[undo_thread.py]]**: Interactive debugging script to safely rollback transactions in memory files.
 
 ### 2.6 Standalone Inference Services
 FastAPI and remote inference services designed to isolate heavy model weights and guarantee zero VRAM resource leakage.

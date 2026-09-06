@@ -1,6 +1,6 @@
 # query_reformulator.py
 # date created: 2026-04-26 13:03:48
-# date modified: 2026-09-01 20:10:39
+# date modified: 2026-09-05 19:48:43
 # tags: #query, #reformulation, #search, #keywords, #prompts
 
 """
@@ -11,7 +11,8 @@ Uses the already-loaded LLM to extract concise search keywords with zero VRAM ev
 (same model/options as the chat loop). Falls back to the original message on timeout/error.
 
 Exports:
-  reformulate_query(user_message) — Main entry point; returns reformulated query string.
+  clean_conversational_query(user_message) — Fast zero-latency preamble stripper for dense vector embeddings.
+  reformulate_query(user_message) — Main entry point; returns reformulated query string or cleaned message.
 
 Key config: evelyn_config.py (RAG_REFORMULATE_ENABLED, RAG_REFORMULATE_MIN_WORDS, RAG_REFORMULATE_TIMEOUT)
 Design rationale: reference/docstring_guide.md#query_reformulatorpy--design-rationale

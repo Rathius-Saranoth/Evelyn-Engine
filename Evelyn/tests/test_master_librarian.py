@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-05 17:50:00
+# date modified: 2026-09-05 20:02:16
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -208,6 +208,43 @@ array([[1.5, 2.5]])
                 stub_content = f.read()
             self.assertIn("[!ABSTRACT]", stub_content)
             self.assertIn("Linked from [[Source]]", stub_content)
+
+    def test_index_librarian_toc_synchronization(self):
+        """Verify that Master Librarian synchronizes folder table of contents (_index.md)."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            vol_dir = os.path.join(tmp_vault, "Manuals", "Guide")
+            os.makedirs(vol_dir, exist_ok=True)
+            index_path = os.path.join(vol_dir, "_index.md")
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Guide Index\ntags: [manual]\n---\n# Guide Index\n- [[001 - Setup]]\n")
+
+            # Create existing linked note and unlinked note
+            ch1_path = os.path.join(vol_dir, "001 - Setup.md")
+            with open(ch1_path, "w", encoding="utf-8") as f:
+                f.write("# Setup\nContent")
+            ch2_path = os.path.join(vol_dir, "002 - Advanced.md")
+            with open(ch2_path, "w", encoding="utf-8") as f:
+                f.write("# Advanced\nContent")
+
+            with patch("Evelyn.tools.vault_db.update_document_librarian_audit"), \
+                 patch("Evelyn.tools.vault_db.log_librarian_activity"):
+
+                # Audit the index document itself
+                res = master_librarian.audit_single_document(
+                    doc_path="Manuals/Guide/_index.md",
+                    vault_root=tmp_vault,
+                )
+
+                self.assertEqual(res["status"], "ok")
+                self.assertTrue(res["modified"])
+                self.assertTrue(any("index_synced" in a for a in res["actions"]))
+
+                with open(index_path, encoding="utf-8") as f:
+                    updated_index = f.read()
+
+                # Missing note 002 - Advanced should be added under Additional Notes
+                self.assertIn("[[002 - Advanced]]", updated_index)
+                self.assertIn("## 📑 Additional Notes", updated_index)
 
 
 if __name__ == "__main__":

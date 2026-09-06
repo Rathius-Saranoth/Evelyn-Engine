@@ -1,21 +1,21 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-08-31 17:36:20
+# date modified: 2026-09-05 19:46:17
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
 journal_manager.py — Journal entry creation and retrieval for Evelyn.
 
 Manages Evelyn's personal journal, stored as dated markdown files inside
-the Obsidian Vault.
+the Obsidian Vault structured year/month archive (JOURNAL_DIR/Journal Entries/YYYY/MM-ShortMonth/).
 
-Write behaviour is controlled by ``evelyn_config.JOURNAL_DIRECT_WRITE``:
-  True  — Entries are written directly to ``JOURNAL_DIR`` (live vault).
-  False — Entries land in ``PENDING_DIR`` for manual review first.
+Journal entries are written directly to the structured archive. If an entry already exists
+for the target date, new content is safely appended as a 'Supplemental Entry' section
+to preserve multi-session reflections.
 
 Key path constants:
-  JOURNAL_DIR — Live journal entries inside the Obsidian Vault.
-  PENDING_DIR — Quarantine folder for entries awaiting review (legacy).
+  JOURNAL_DIR — Live journal base folder inside the Obsidian Vault.
+  PENDING_DIR — Legacy quarantine folder checked as a fallback read path.
 
 This module is imported and hot-reloaded by ``evelyn_tools.py``.
 """

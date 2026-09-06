@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-05 19:34:22
+date modified: 2026-09-05 20:02:31
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,53 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.074] - 2026-09-05 — *Integrate Index Librarian into Master Pipeline and Decommission Legacy CLI Tools*
+
+### Added & Integrated
+- **Master Librarian Table of Contents Synchronization (`Evelyn/tools/master_librarian.py`, `index_librarian.py`)**:
+  - Wired `index_librarian.audit_folder_index()` directly into `master_librarian.audit_single_document()`.
+  - When tendering volume index notes (`_index.md` or `<Folder>_index.md`), the pipeline scans sibling markdown notes, identifies missing items, and appends them under `## 📑 Additional Notes` in a single pass.
+  - When tendering child notes inside subfolders containing an index file, automatically synchronizes the parent volume table of contents.
+  - Updated `index_librarian.audit_folder_index()` to accept in-memory `content` and `dry_run` mode, and resolved loop control lint warnings.
+  - Added hermetic unit test `test_index_librarian_toc_synchronization` to `Evelyn/tests/test_master_librarian.py`.
+
+### Removed & Decommissioned
+- **Legacy Thread Undo Utility (`Evelyn/tools/undo_thread.py`)**:
+  - Decommissioned and removed `undo_thread.py`, which was originally written for static thread breaks but has been rendered obsolete by dynamic message sliding windows.
+  - Updated `reference/engine_architecture.md` removing `undo_thread.py`.
+
+## [000.006.073] - 2026-09-05 — *Decommission Obsolete CLI Reviewer Tools*
+
+### Removed & Decommissioned
+- **Legacy Terminal Reviewers (`Evelyn/tools/context_reviewer.py`, `Evelyn/tools/pending_reviewer.py`)**:
+  - Fully removed `context_reviewer.py` and `pending_reviewer.py` from `Evelyn/tools/`.
+  - Both CLI utilities have been entirely superseded by the modern, unified Web UI review dashboard and REST API endpoints (`/api/review/unified`, `/api/review/extractions`, `/api/review/proposals`, `/api/review/procedures`).
+  - Updated `reference/engine_architecture.md` to remove references to the decommissioned CLI scripts.
+
+## [000.006.072] - 2026-09-05 — *Evelyn Tools Docstrings and Operational Documentation Modernization*
+
+### Changed & Modernized
+- **Interactive Review CLI & Web Dashboard (`Evelyn/tools/context_reviewer.py`)**:
+  - Replaced legacy "Phase 1" docstrings and terminal menu with up-to-date documentation referencing both the terminal reviewer and the FastAPI Web UI review dashboard / REST endpoints.
+  - Implemented interactive in-terminal `[E] Edit` capability allowing operators to edit raw observation text and category before approval/promotion.
+- **Fast Memory & Vault Integration (`Evelyn/tools/context_manager.py`)**:
+  - Removed outdated flat-file `PENDING_DIR` and JSON vault map references; documented current SQLite databases (`evelyn_memory.db`, `evelyn_vault.db`) and ChromaDB vector collections.
+  - Standardized docstring category examples to canonical taxonomy (`Cat##-U` / `Cat##-A`).
+- **Pending Reviewer (`Evelyn/tools/pending_reviewer.py`)**:
+  - Documented all 5 active proposal types (`merge/supersede`, `split`, `recategorize`, `procedure_merge`, `procedure_split`) and cleaned path references.
+- **Task Concurrency & Schedulers (`Evelyn/tools/task_manager.py`)**:
+  - Updated design notes and export lists to document `TaskSchedule` cognitive scheduling tiers (`reflex`, `diurnal`, `nocturnal`), priority queueing, dynamic runtime timeouts, and process watchdog monitoring.
+- **Query Reformulation (`Evelyn/tools/query_reformulator.py`)**:
+  - Exported and documented `clean_conversational_query` zero-latency preamble stripper in module docstring.
+- **ChromaDB Vector Retrieval (`Evelyn/tools/chroma_rag.py`)**:
+  - Documented all 3 active collections (`evelyn_memory`, `evelyn_tag_taxonomy`, `evelyn_media`), cleaned metadata type handling, and clarified `memory_db.touch_entry_retrieved()` recency tracking.
+- **Identity Parameterization & Rule 4 Hygiene Across Tools**:
+  - Replaced hardcoded personal operator names with parameterized identity attributes (`cfg.USER_NAME`, `cfg.ASSISTANT_NAME`, `Cat##-U`, `Cat##-A`) across `dream_manager.py`, `evelyn_tools.py`, `fact_consolidator.py`, `fact_extractor.py`, `journal_manager.py`, `memory_db.py`, `pdf_staging_worker.py`, `profile_evolver.py`, and `tag_librarian.py`.
+- **Vault Indexer (`Evelyn/tools/vault_indexer.py`)**:
+  - Updated docstring from legacy LLM Ollama gist generation to current fast regex preview extraction.
+- **Knowledge Ingestion & Undo Threading (`Evelyn/tools/ingest_obsidian_knowledge.py`, `Evelyn/tools/undo_thread.py`)**:
+  - Updated docstrings to document direct SQLite memory ingestion and modern CLI invocation syntax.
 
 ## [000.006.071] - 2026-09-05 — *Script Directory Hygiene and Personal Scripts Organization*
 

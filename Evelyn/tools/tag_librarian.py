@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-05 18:25:35
+# date modified: 2026-09-05 19:47:51
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -86,7 +86,7 @@ def normalize_tag_format(tag: str, is_entity: bool | None = None) -> str:
     Rules:
     - Protected tags (e.g. CY-YYYY/MM/DD) are preserved.
     - Proper Nouns / Entities (Person, Place, Thing, Title - detected by Capitalized/CamelCase words
-      or explicit is_entity flag) use TitleCase with underscores (e.g. 'Dungeon_Crawler_Carl', 'Ricky_Sekulich').
+      or explicit is_entity flag) use TitleCase with underscores (e.g. 'Dungeon_Crawler_Carl', 'Jane_Doe').
     - General concepts (lowercase) use hyphens for multi-word phrases (e.g. 'home-improvement', 'system-update').
     - Hierarchy slashes (e.g. '3D-Printing/Slicing', 'Tech/Python/FastAPI') are preserved.
 
