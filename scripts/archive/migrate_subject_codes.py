@@ -19,7 +19,7 @@ import re
 import sqlite3
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOLS_DIR = os.path.join(ROOT_DIR, "Evelyn", "tools")
 for d in (ROOT_DIR, TOOLS_DIR):
     if d not in sys.path:

@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-05 19:17:55
+date modified: 2026-09-05 19:33:18
 ---
 # Evelyn Engine Architecture Map
 
@@ -234,12 +234,12 @@ Evelyn Engine operations are codified inside interactive workflow files:
 * **`evelyn_setup.py`**: Interactive CLI setup and identity configuration wizard for provisioning assistant names, operator names, vault paths, and starter templates.
 * **`Evelyn/tools/db_migrator.py`**: Multi-database migration framework with transactional DDL, Python data transform callables, and per-database tracking tables (`schema_migrations`).
 * **`scripts/migrate_db.py`**: Standalone CLI migration manager supporting status inspection, execution, dry-runs, and automated Git release tagging.
-* **`scripts/migrate_subject_codes.py`**: Strict taxonomy migration utility converting database context entries and proposals from `-R`/`-E` to `-U`/`-A`.
+* **`scripts/archive/migrate_subject_codes.py`**: *[ARCHIVED]* Historic taxonomy migration utility converting database context entries and proposals from `-R`/`-E` to `-U`/`-A`.
 * **`scripts/extract_pdf_library.py`**: High-fidelity PDF extraction engine featuring PyMuPDF section hierarchy detection, DP title segmentation, dynamic zero-padded chapter generation, Sidecar Index Card synthesis, and nearest-neighbor vector RAG cross-linking.
-* **`scripts/relocate_vault_pdfs.py`**: Vault attachment normalization utility migrating non-markdown documents to `Attachments/Source Material/<Domain>/` while creating interactive Sidecar Note viewers.
+* **`scripts/personal/relocate_vault_pdfs.py`**: *[PERSONAL]* Vault attachment normalization utility migrating non-markdown documents to `Attachments/Source Material/<Domain>/` while creating interactive Sidecar Note viewers.
 * **`scripts/sqlite_mcp_server.py`**: High-performance Model Context Protocol (MCP) server exposing read-only SQLite tools (`chat`, `memory`, `vault`, `media`, `health`), ChromaDB vector operations, and FastAPI/Ollama service telemetry to AI developer agents.
 * **`scripts/master_librarian.py`**: Standalone CLI runner for Evelyn's Master Vault Librarian. Executes single-pass vault auditing (format normalization, tag taxonomy, wikilink governance, and ghost stub synthesis) driven by the canonical `backlog_drainer` framework.
-* **`scripts/audit_vault_tags.py`**: *[DEPRECATED]* Compatibility wrapper forwarding CLI calls to `scripts/master_librarian.py` via `os.execv`.
+* **`scripts/archive/audit_vault_tags.py`**: *[ARCHIVED]* Compatibility wrapper forwarding CLI calls to `scripts/master_librarian.py` via `os.execv`.
 * **`templates/`**: Generic persona, profile, directive, and physical description example templates for open-source distributions.
 
 ---

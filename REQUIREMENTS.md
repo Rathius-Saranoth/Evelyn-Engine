@@ -61,10 +61,10 @@ pip install -r requirements.txt
 | `ddgs`                      | ≥9.0    | DuckDuckGo search — powers the `web_search` tool                                           |
 | `PyMuPDF`                   | ≥1.27   | PDF text extraction and page rendering — `extract_pdf_library.py`, `document_vision_processor.py` |
 | `watchdog`                  | ≥6.0    | Debounced filesystem watcher — `scripts/obsidian_vault_watcher.py`                         |
-| `beautifulsoup4`            | ≥4.13   | HTML DOM parser & asset cleaner — `gdrive_knowledge_importer.py`                           |
+| `beautifulsoup4`            | ≥4.13   | HTML DOM parser & asset cleaner — `scripts/personal/gdrive_knowledge_importer.py`          |
 | `markdownify`               | ≥1.2    | HTML to Obsidian Markdown conversion with table & image preservation                       |
 | `html2text`                 | ≥2024.2 | Fallback HTML to clean text/markdown converter                                             |
-| `google-api-python-client`  | ≥2.100  | Google Drive, Docs, Sheets & Tasks API client — `gdrive_sync.py`, `gdrive_knowledge_importer.py` |
+| `google-api-python-client`  | ≥2.100  | Google Drive, Docs, Sheets & Tasks API client — `gdrive_sync.py`, `scripts/personal/gdrive_knowledge_importer.py` |
 | `google-auth-oauthlib`      | ≥1.2    | Google OAuth 2.0 InstalledAppFlow client credential management                             |
 | `google-auth-httplib2`      | ≥0.2    | Google HTTP transport authentication layer                                                 |
 | `mcp`                       | ≥2.0    | Model Context Protocol SDK for workspace database and vector inspection — `sqlite_mcp_server.py` |
