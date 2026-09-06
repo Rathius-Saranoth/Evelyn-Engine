@@ -128,3 +128,57 @@ def test_load_history_channel_isolation():
             assert all("Main" not in m["content"] for m in sidecar_history)
         finally:
             evelyn_server.get_db = orig_get_db
+
+
+def test_load_history_max_messages_cap():
+    """Verify that load_history truncates history to MAX_HISTORY_MESSAGES and begins with a user turn."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = pathlib.Path(tmp_dir) / "test_chat.db"
+        con = sqlite3.connect(db_path)
+        con.row_factory = sqlite3.Row
+        con.execute("""
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                thinking TEXT,
+                ts REAL NOT NULL,
+                tools_used TEXT,
+                tool_metadata TEXT,
+                channel_id TEXT DEFAULT 'main'
+            )
+        """)
+
+        now_dt = datetime.now(UTC).astimezone()
+        today_midnight = datetime.combine(now_dt.date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
+
+        # Insert 50 alternating messages (25 user, 25 assistant)
+        for i in range(50):
+            role = "user" if i % 2 == 0 else "assistant"
+            con.execute(
+                "INSERT INTO messages (role, content, ts, channel_id) VALUES (?, ?, ?, ?)",
+                (role, f"Message {i} ({role})", today_midnight + 10 + i, "main")
+            )
+        con.commit()
+        con.close()
+
+        orig_get_db = evelyn_server.get_db
+        try:
+            def mock_get_db():
+                c = sqlite3.connect(db_path)
+                c.row_factory = sqlite3.Row
+                return c
+
+            evelyn_server.get_db = mock_get_db
+
+            # load_history with default cap (40)
+            history = evelyn_server.load_history(channel_id="main")
+
+            assert len(history) <= 40, f"Expected at most 40 messages, got {len(history)}"
+            # First message must be a user turn to maintain dialog turn integrity
+            assert history[0]["role"] == "user", f"Expected first message to be user, got {history[0]['role']}"
+            # Verify newest messages are preserved
+            assert history[-1]["content"] == "Message 49 (assistant)"
+        finally:
+            evelyn_server.get_db = orig_get_db
+

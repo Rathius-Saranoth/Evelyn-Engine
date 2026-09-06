@@ -39,11 +39,15 @@ import memory_db
 
 import evelyn_config as cfg
 from Evelyn.tools.frontmatter_utils import parse_frontmatter
+try:
+    from Evelyn.tools.path_utils import is_vault_excluded
+except ImportError:
+    from path_utils import is_vault_excluded
 
 # Paths
 VAULT_DIR          = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 EVELYN_DIR         = getattr(cfg, "ASSISTANT_WRITE_DIR", os.path.join(VAULT_DIR, getattr(cfg, "ASSISTANT_NAME", "Evelyn")))
-EXCLUDED_SUBDIRS   = getattr(cfg, "VAULT_READ_IGNORE", ["Archived", "Pending_Approvals", "Extracted", "Pending"])
+EXCLUDED_SUBDIRS   = getattr(cfg, "RAG_EXCLUDED_SUBDIRS", getattr(cfg, "VAULT_READ_IGNORE", ["Archived", "Pending_Approvals", "Extracted", "Pending"]))
 EXCLUDED_PATTERNS  = getattr(cfg, "RAG_IGNORE_PATTERNS", [])
 EXCLUDED_TAGS      = getattr(cfg, "RAG_EXCLUDE_TAGS", {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"})
 SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json")
@@ -186,8 +190,9 @@ def main() -> None:
     all_files = get_markdown_files(VAULT_DIR)
 
     active_paths = set()
+    custom_excludes = {d.lower() for d in EXCLUDED_SUBDIRS}
     for fp in all_files:
-        if any(ex in fp for ex in EXCLUDED_SUBDIRS):
+        if is_vault_excluded(fp, custom_excludes=custom_excludes):
             continue
         if any(re.search(pat, fp) for pat in EXCLUDED_PATTERNS):
             continue
