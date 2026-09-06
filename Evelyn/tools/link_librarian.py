@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-06 08:34:50
+# date modified: 2026-09-06 15:09:57
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -476,8 +476,14 @@ def is_valid_entity_target(target: str) -> tuple[bool, str]:
     if re.match(r"^\d{1,3}\s*[-–—.]\s*", clean):
         return False, ""
 
+    lower_clean = clean.lower()
+
+    # Reject folder index files, tables of contents, and MOCs (e.g. "_index", "Book_index", "Topic_moc")
+    if lower_clean.endswith(("_index", "_moc")) or lower_clean.startswith("_index"):
+        return False, ""
+
     # Reject generic document sections and filenames
-    if clean.lower() in EXCLUDED_TARGET_STEMS:
+    if lower_clean in EXCLUDED_TARGET_STEMS:
         return False, ""
 
     # Reject purely punctuation or symbol strings

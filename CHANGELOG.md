@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-06 09:25:25
+date modified: 2026-09-06 15:11:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,15 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.080] - 2026-09-06 — *Index and MOC Target Rejection Guardrail in Link Librarian*
+
+### Fixed & Hardened
+- **Index & MOC Target Exclusion (`Evelyn/tools/link_librarian.py`)**:
+  - Hardened `is_valid_entity_target()` to explicitly reject any candidate link target ending in `_index`, starting with `_index`, or ending in `_moc` (e.g., `Visualizing Generative AI_index`, `Samsung NE59J7630SS_index`, `Topic_moc`).
+  - Guarantees that breadcrumb callouts (`> [!abstract] [[Book_index|📖 Book]]`) and Map of Content cross-references are never misidentified as conceptual entity stubs or queued as review proposals if temporarily absent during scanning.
+- **Unit Test Coverage (`Evelyn/tests/test_master_librarian.py`)**:
+  - Added assertions to `test_target_sanitization_and_exclusion` ensuring full immunity against `_index` and `_moc` patterns.
 
 ## [000.006.079] - 2026-09-06 — *Dev UI Procedure Button Mapping, In-Place Edit Persistence, and State Synchronization*
 

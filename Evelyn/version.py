@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-06 09:25:19
+# date modified: 2026-09-06 15:11:05
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.079"
-__version_info__ = (0, 6, 79)
-__version_name__ = "Dev UI Procedure Button Mapping, In-Place Edit Persistence, and State Synchronization"
+__version__ = "000.006.080"
+__version_info__ = (0, 6, 80)
+__version_name__ = "Index and MOC Target Rejection Guardrail in Link Librarian"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
