@@ -40,9 +40,9 @@ Sensitive scopes request access to private personal user data across Google Cale
 | **Google Calendar** | `https://www.googleapis.com/auth/calendar.events` | View and edit events on all your calendars | `scripts/setup_gcal.py`, `Evelyn/tools/evelyn_tools.py` |
 | **Google Calendar** | `https://www.googleapis.com/auth/calendar.events.owned` | Create, change, and delete events on your calendars | `scripts/setup_gcal.py`, `Evelyn/tools/evelyn_tools.py` |
 | **Google Calendar** | `https://www.googleapis.com/auth/calendar.events.readonly` | View events on all your calendars | `scripts/setup_gcal.py`, `Evelyn/tools/gcal_sync.py` |
-| **Google Docs** | `https://www.googleapis.com/auth/documents.readonly` | See all your Google Docs documents | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/gdrive_knowledge_importer.py` |
+| **Google Docs** | `https://www.googleapis.com/auth/documents.readonly` | See all your Google Docs documents | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/personal/gdrive_knowledge_importer.py` |
 | **Google Drive** | `https://www.googleapis.com/auth/drive.apps.readonly` | View your Google Drive connected apps | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py` |
-| **Google Sheets** | `https://www.googleapis.com/auth/spreadsheets.readonly` | See all your Google Sheets spreadsheets | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/gdrive_knowledge_importer.py` |
+| **Google Sheets** | `https://www.googleapis.com/auth/spreadsheets.readonly` | See all your Google Sheets spreadsheets | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/personal/gdrive_knowledge_importer.py` |
 | **Google Tasks** | `https://www.googleapis.com/auth/tasks` | Create, edit, organize, and delete all your tasks | `scripts/setup_gtasks.py`, `scripts/setup_gdrive.py`, `Evelyn/tools/gtasks_sync.py`, `Evelyn/tools/evelyn_tools.py` |
 
 ---
@@ -53,8 +53,8 @@ Restricted scopes request access to sensitive user files and communications.
 
 | Service | API Scope URI | Scope Description | Evelyn Implementation |
 | :--- | :--- | :--- | :--- |
-| **Google Drive** | `https://www.googleapis.com/auth/drive.readonly` | See and download all your Google Drive files | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py` (Daily `Health Connect.zip` sync), `scripts/gdrive_knowledge_importer.py` |
-| **Google Drive** | `https://www.googleapis.com/auth/drive.metadata.readonly` | See information and metadata about your Google Drive files | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/gdrive_knowledge_importer.py` |
+| **Google Drive** | `https://www.googleapis.com/auth/drive.readonly` | See and download all your Google Drive files | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py` (Daily `Health Connect.zip` sync), `scripts/personal/gdrive_knowledge_importer.py` |
+| **Google Drive** | `https://www.googleapis.com/auth/drive.metadata.readonly` | See information and metadata about your Google Drive files | `scripts/setup_gdrive.py`, `Evelyn/tools/gdrive_sync.py`, `scripts/personal/gdrive_knowledge_importer.py` |
 | **Gmail** *(Optional/Future)* | `https://www.googleapis.com/auth/gmail.readonly` | View your email messages and settings | *Planned / Reserved* |
 
 ---

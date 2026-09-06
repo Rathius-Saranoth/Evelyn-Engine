@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-05 18:41:19
+# date modified: 2026-09-05 19:34:15
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.070"
-__version_info__ = (0, 6, 70)
-__version_name__ = "Canonical Backlog Drainer Ecosystem Consolidation"
+__version__ = "000.006.071"
+__version_info__ = (0, 6, 71)
+__version_name__ = "Script Directory Hygiene and Personal Scripts Organization"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

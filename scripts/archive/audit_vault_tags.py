@@ -16,7 +16,9 @@ from pathlib import Path
 
 
 def main():
-    target_script = Path(__file__).resolve().parent / "master_librarian.py"
+    target_script = Path(__file__).resolve().parent.parent / "master_librarian.py"
+    if not target_script.exists():
+        target_script = Path(__file__).resolve().parent / "master_librarian.py"
     if not target_script.exists():
         sys.stderr.write(f"[ERROR] Target script '{target_script}' not found.\n")
         sys.exit(1)

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-05 19:17:55
+date modified: 2026-09-05 19:34:22
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.071] - 2026-09-05 — *Script Directory Hygiene and Personal Scripts Organization*
+
+### Reorganized & Relocated
+- **Personal & Machine-Specific Scripts (`scripts/personal/`)**:
+  - Relocated 8 personal, machine-specific, and private-data-bearing scripts from `scripts/` to `scripts/personal/` (protected by `.gitignore` per AGENTS.md Rule 4):
+    - `wait_for_ollama.ps1`: Windows PowerShell startup probe, unified with existing `.ps1` personal host utilities.
+    - `cleanup_vault_aliases.py`: Targeted one-time vault alias and manual OCR cleanup script.
+    - `remediate_spurious_and_entities.py`: Targeted one-time entity creation and code-fence remediation.
+    - `remediate_vault_structure.py`: Targeted one-time vault link and campaign structural remediation.
+    - `relocate_vault_pdfs.py`: Personal vault PDF attachment relocation to `Attachments/Source Material/`.
+    - `sync_staged_to_vault.py`: Personal staging-to-vault folder routing script.
+    - `content_deduplicator.py`: Staged content and personal EHR medical note deduplication tool.
+    - `gdrive_knowledge_importer.py`: Personal Google Drive staging import pipeline.
+  - Adjusted root path resolution (`ROOT_DIR` / `_PROJECT_ROOT`) in all relocated personal scripts to correctly resolve repo roots and package imports from `scripts/personal/`.
+- **Archived Scripts (`scripts/archive/`)**:
+  - Relocated completed historical migrations and deprecated tools to `scripts/archive/`:
+    - `migrate_subject_codes.py`: Historical one-time Fast Memory category migration (`Cat##-R`/`Cat##-E` to `Cat##-U`/`Cat##-A`), superseded by canonical `scripts/migrate_db.py`.
+    - `audit_vault_tags.py`: Deprecated backwards-compatibility forwarder wrapper for `scripts/master_librarian.py`.
+    - `wait_for_ollama.sh`: Redundant bash polling helper superseded by systemd service dependency management.
+  - Updated relative path resolution in `audit_vault_tags.py` to target `scripts/master_librarian.py`.
+- **Documentation & References**:
+  - Updated script paths in `reference/engine_architecture.md`, `reference/google_access.md`, `requirements.txt`, and `REQUIREMENTS.md`.
 
 ## [000.006.070] - 2026-09-05 — *Canonical Backlog Drainer Ecosystem Consolidation*
 
