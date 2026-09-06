@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-06 08:57:05
+# date modified: 2026-09-06 15:59:20
 # tags: 
 
 """
@@ -2116,6 +2116,53 @@ def migrate_000_006_078_remediate_fast_memory_taxonomy_and_temporal_anchoring(
     )
 
 
+def migrate_000_006_081_starter_procedure_for_read_url(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Register starter procedure for read_url with Gemma 4 12B recovery guidance."""
+    now = datetime.now(UTC).isoformat()
+    cursor = conn.cursor()
+
+    # Check if a live procedure already covers read_url
+    existing = cursor.execute(
+        "SELECT id FROM procedures WHERE suggested_tools LIKE '%read_url%' AND status = 'live'"
+    ).fetchone()
+    if existing:
+        logger.info(f"Migration 000.006.081: Starter procedure for read_url already exists (ID: {existing[0]}).")
+        return
+
+    trigger = (
+        "When the user provides a direct HTTP/HTTPS URL or asks to read, inspect, browse, "
+        "or summarize a specific web link, documentation page, or article"
+    )
+    steps = (
+        "1. Inspect URL: Extract the clean web link (http/https) from the user prompt.\n"
+        "2. Call read_url: Execute read_url(url=...) to fetch clean markdown content from the page.\n"
+        "3. Handle WAF Blocks: If read_url returns [Web Access Blocked], do NOT retry read_url on this link. "
+        "Immediately pivot to web_search using the topic/domain keywords to find public articles, mirrors, or discussions.\n"
+        "4. Synthesize Content: Summarize or address the user's specific query using the extracted text."
+    )
+    pitfalls = (
+        "Passing raw URLs into web_search instead of read_url; attempting to re-read links blocked by Cloudflare; "
+        "guessing page content without calling the tool."
+    )
+    verification = (
+        "Web page content is retrieved and accurately summarized, or properly pivoted to web_search if blocked."
+    )
+    tags = "skill/web-browsing, direct-navigation, url-reader, web-content"
+    suggested_tools = "read_url, web_search"
+
+    cursor.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+           VALUES (?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now),
+    )
+    logger.info(f"Migration 000.006.081: Inserted starter procedure for read_url (ID: {cursor.lastrowid}).")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2288,6 +2335,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.078",
         name="remediate_fast_memory_taxonomy_and_temporal_anchoring",
         up_fn=migrate_000_006_078_remediate_fast_memory_taxonomy_and_temporal_anchoring,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.081",
+        name="starter_procedure_for_read_url",
+        up_fn=migrate_000_006_081_starter_procedure_for_read_url,
         post_sync_chroma=True,
     ),
 ]

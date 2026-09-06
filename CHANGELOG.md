@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-06 15:11:12
+date modified: 2026-09-06 15:51:26
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.081] - 2026-09-06 — *Direct URL Reading and Web Search Hardening*
+
+### Added & Hardened
+- **Direct Web Link Browsing (`read_url` in `Evelyn/tools/evelyn_tools.py`, `Evelyn/tools/web_reader.py`)**:
+  - Registered `read_url(url: str, max_chars: int = 15000)` in `MODEL_TOOL_DEFINITIONS`, `TOOL_THINK_EFFORT` (`"medium"`), and `TOOL_FUNCTIONS`.
+  - Implemented synchronous web page fetching (`fetch_url_sync`) and extraction (`read_and_extract_url_sync`) using `httpx.Client(follow_redirects=True, timeout=15)` and `trafilatura`.
+  - Added desktop client fingerprinting (`User-Agent` Chrome 133, `Sec-CH-UA`, `Sec-Fetch-*`, `Accept-Language`) bypassing basic bot blocks and Turnstile triggers.
+  - Added WAF / Cloudflare challenge diagnostics detecting HTTP 403, 429, and challenge DOM signatures, returning a structured recovery block instructing the model to pivot to `web_search` with keywords rather than retrying.
+  - Implemented defensive parameter sanitization for Gemma 4 12B (`clean_url = url.strip().strip("<>\"'`")` and markdown link extraction).
+  - Protected the server-side SSE stream parser against raw XML envelope tags (`</tool_result>`, `</call>`, `</think>`, etc.) inside extracted web content.
+- **Conversational URL Routing & Web Search Hardening (`web_search` in `Evelyn/tools/evelyn_tools.py`)**:
+  - Implemented conversational URL regex intercept routing prompts like `query="check https://..."` or `query="https://..."` directly to `read_url`.
+  - Added query sanitization stripping trailing punctuation (`?`, `!`, quotes) that cause 0-result DuckDuckGo queries.
+  - Implemented in-memory TTL caching (32 entries, 5-minute expiry) to prevent burning search quotas during multi-round thinking loops.
+  - Added one-shot jittered backoff retry (1.2–2.0s) falling back to `backend="lite"` upon encountering `RatelimitException`.
+- **Dynamic Tool Surfacing & Database Migration (`evelyn_config.py`, `Evelyn/tools/db_migrator.py`)**:
+  - Added `read_url` regexes (`https?://\S+`, `\b(read|open|browse|check|summarize|inspect|visit)\b.*(link|url|website|webpage|article|site)`) to `SPECIALIST_TOOL_INTENT_PATTERNS`.
+  - Registered and executed migration `000.006.081` (`starter_procedure_for_read_url`) on `evelyn_memory.db` providing Gemma 4 12B recovery guidance.
+- **Unit Test Coverage (`Evelyn/tests/test_read_url.py`)**:
+  - Added 10 comprehensive tests covering parameter sanitization, desktop headers, WAF recovery blocks, XML envelope defense, conversational intercept, search caching/retries, intent activation, and migration execution.
 
 ## [000.006.080] - 2026-09-06 — *Index and MOC Target Rejection Guardrail in Link Librarian*
 
