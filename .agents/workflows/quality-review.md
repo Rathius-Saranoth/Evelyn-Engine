@@ -2,7 +2,7 @@
 description: A structured self-review checklist based on the "Notes to Live By" engineering standards
 title: quality-review.md
 date created: 2026-04-26 10:18:20
-date modified: 2026-08-28 14:41:24
+date modified: 2026-09-06 18:47:09
 tags: [quality, review, guidelines, standards, checklist, workflow, evelyn]
 ---
 
@@ -40,7 +40,10 @@ Walk through each gate for the code you just wrote or modified:
 
 ## 4. Verification Checkpoint
 
-- [ ] **Re-read every modified file** — Confirm edits are syntactically correct and complete (no truncated functions, no duplicate blocks)
+- [ ] **Deterministic Code Hygiene (`scripts/check_code_hygiene.py`)** — Run `PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py` and confirm all 3 stages (Ruff, AST Config Wiring, Vulture Dead-Code) pass with exit code `0`.
+- [ ] **Two-File Contract Auditing** — For every new or modified tool, function, or configuration setting, trace the exact caller-callee diff pair to verify end-to-end wiring.
+- [ ] **Pytest Suite** — Run `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests` and confirm all tests pass.
+- [ ] **Re-read every modified file** — Confirm edits are syntactically correct and complete (no truncated functions, no duplicate blocks).
 - [ ] **Run the code** if possible — Confirm it executes without errors. If you cannot run it, state this explicitly and explain why.
 - [ ] **Frontmatter updated** — `python scripts/update_frontmatter.py` has been run on every file you touched.
 

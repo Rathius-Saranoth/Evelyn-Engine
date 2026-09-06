@@ -1,7 +1,7 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
 # date modified: 2026-09-06 15:59:20
-# tags: 
+# tags:
 
 """
 Evelyn Engine Database Migration Framework.

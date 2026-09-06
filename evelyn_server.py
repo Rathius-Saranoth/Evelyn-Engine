@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-06 08:29:41
+# date modified: 2026-09-06 18:44:57
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -545,21 +545,6 @@ def get_research_context() -> str:
     return stack_envelopes(*envelopes)
 
 
-def get_upcoming_agenda_prompt_context() -> str:
-    """Fetch structured temporal and agenda context from TimeManager.
-
-    Returns:
-        str: XML temporal context string.
-    """
-    con = get_db()
-    try:
-        return time_manager.build_temporal_envelope(con)
-    except (sqlite3.Error, OSError, ValueError) as e:
-        return f"\n[Agenda Error] Failed to load agenda notification: {e}"
-    finally:
-        con.close()
-
-
 def load_system_prompt() -> str:
     """Assemble the system prompt from narrative persona files and direct instructions.
 
@@ -604,28 +589,6 @@ def load_system_prompt() -> str:
     # to avoid KV-cache staleness (see Tweak 2 — 2026-06-21).
 
     return "\n\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Time-gap awareness (Legacy compatibility wrapper)
-# ---------------------------------------------------------------------------
-
-
-def get_time_gap_context() -> str | None:
-    """Return a time-gap annotation if enough time has passed since the last message.
-
-    Returns:
-        str | None: A succinct bracketed explanation of the last message time,
-            elapsed time gap, and current time if exceeding 15 minutes, otherwise None.
-    """
-    con = get_db()
-    try:
-        gap = time_manager.evaluate_session_gap(con)
-        if gap:
-            return f"[Last interaction: {gap['last_interaction_ts']} ({gap['duration_str']} ago)]"
-        return None
-    finally:
-        con.close()
 
 
 # ---------------------------------------------------------------------------
@@ -2849,7 +2812,7 @@ async def lifespan(app: FastAPI):
                         last_attempt = _error_resume_ts.get(target_task["task_id"], 0)
                         if time.time() - last_attempt < 600:
                             continue  # Cooldown active — skip silently
-                            _error_resume_ts[target_task["task_id"]] = time.time()
+                        _error_resume_ts[target_task["task_id"]] = time.time()
 
                     print(
                         f"[RESEARCH AUTO-RECOVERY] Server idle for {idle_seconds:.1f}s — auto-resuming unfinished task {target_task['task_id']} (status: {target_task['status']})",

@@ -8,7 +8,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Ensure repo root and Evelyn/tools are on python path
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))

@@ -1,3 +1,8 @@
+# test_config_wiring.py
+# date created: 2026-09-06 18:46:08
+# date modified: 2026-09-06 18:46:08
+# tags: 
+
 """
 Deterministic AST verification test.
 Asserts that every uppercase configuration constant in evelyn_config.py
@@ -7,6 +12,7 @@ Fails immediately upon detecting unwired configuration drift.
 
 import ast
 from pathlib import Path
+
 import pytest
 
 CONFIG_PATH = Path("evelyn_config.py")
@@ -57,7 +63,7 @@ def extract_config_constants(config_path: Path) -> set[str]:
     if not config_path.exists():
         pytest.skip(f"{config_path} not found")
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         tree = ast.parse(f.read(), filename=str(config_path))
 
     constants = set()
@@ -66,9 +72,8 @@ def extract_config_constants(config_path: Path) -> set[str]:
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id.isupper():
                     constants.add(target.id)
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id.isupper():
-                constants.add(node.target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id.isupper():
+            constants.add(node.target.id)
     return constants - CONFIG_WHITELIST
 
 
@@ -105,7 +110,7 @@ def collect_used_symbols() -> set[str]:
         if not p.exists() or p == CONFIG_PATH or "tests" in p.parts:
             continue
         try:
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 tree = ast.parse(f.read(), filename=str(p))
             visitor = SymbolUsageVisitor()
             visitor.visit(tree)

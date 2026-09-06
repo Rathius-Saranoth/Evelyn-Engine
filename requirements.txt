@@ -18,4 +18,4 @@ google-auth-oauthlib>=1.2.0  # Google OAuth2 InstalledAppFlow
 google-auth-httplib2>=0.2.0  # Google HTTP transport auth
 mcp>=2.0.0                   # Model Context Protocol SDK — scripts/sqlite_mcp_server.py
 Pillow>=10.0.0               # Image processing & EXIF/GPS extraction — media_db.py
-
+vulture>=2.16                # Deterministic dead-code & uncalled-function scanner — scripts/check_code_hygiene.py

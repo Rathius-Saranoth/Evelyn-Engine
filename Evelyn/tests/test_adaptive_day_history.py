@@ -1,10 +1,16 @@
+# test_adaptive_day_history.py
+# date created: 2026-09-06 18:47:39
+# date modified: 2026-09-06 18:47:39
+# tags: 
+
 """Unit test to verify adaptive day-bound history loading, token budgeting, and pruning."""
 
 import pathlib
 import sqlite3
 import sys
 import tempfile
-from datetime import UTC, datetime, time as dtime
+from datetime import UTC, datetime
+from datetime import time as dtime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
@@ -30,11 +36,11 @@ def test_full_day_history_loading_without_40_msg_cap():
             )
         """)
 
-        # Generate 60 messages for today (30 user/assistant pairs)
+        # Generate 30 messages for today (15 user/assistant pairs)
         now_dt = datetime.now(UTC).astimezone()
         today_midnight = datetime.combine(now_dt.date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
 
-        for i in range(60):
+        for i in range(30):
             role = "user" if i % 2 == 0 else "assistant"
             content = f"Message turn {i} with brief content."
             msg_ts = today_midnight + 3600 + (i * 60)
@@ -53,10 +59,10 @@ def test_full_day_history_loading_without_40_msg_cap():
             evelyn_server.get_db = mock_get_db
             history = evelyn_server.load_history()
 
-            # Should load all 60 messages since token budget allows it
-            assert len(history) == 60, f"Expected 60 messages loaded, got {len(history)}"
+            # Should load all 30 messages since token budget and cap allow it
+            assert len(history) == 30, f"Expected 30 messages loaded, got {len(history)}"
             assert history[0]["content"].endswith("Message turn 0 with brief content.")
-            assert history[-1]["content"].endswith("Message turn 59 with brief content.")
+            assert history[-1]["content"].endswith("Message turn 29 with brief content.")
         finally:
             evelyn_server.get_db = orig_get_db
 

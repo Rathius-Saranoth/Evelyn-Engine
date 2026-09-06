@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-06 15:09:57
+# date modified: 2026-09-06 18:46:14
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 import re
 import sqlite3
 import subprocess
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import evelyn_config as cfg
@@ -428,8 +428,7 @@ def render_stub_markdown(payload: StubPayload, now_str: str | None = None) -> st
         ref_stems = [os.path.splitext(os.path.basename(payload.source_path))[0]]
 
     ref_lines = ["## 🔗 References"]
-    for stem in sorted(ref_stems):
-        ref_lines.append(f"- [[{stem}]]")
+    ref_lines.extend(f"- [[{stem}]]" for stem in sorted(ref_stems))
     references_block = "\n".join(ref_lines)
 
     body = (

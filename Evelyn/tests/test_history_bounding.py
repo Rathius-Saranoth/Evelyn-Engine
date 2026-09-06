@@ -4,7 +4,8 @@ import pathlib
 import sqlite3
 import sys
 import tempfile
-from datetime import UTC, datetime, time as dtime
+from datetime import UTC, datetime
+from datetime import time as dtime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 

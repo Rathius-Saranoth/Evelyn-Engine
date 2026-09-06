@@ -16,9 +16,10 @@ if repo_root not in sys.path:
 if tools_dir not in sys.path:
     sys.path.insert(0, tools_dir)
 
-import evelyn_config as cfg
 import profile_evolver
 import task_manager
+
+import evelyn_config as cfg
 
 
 class TestProfileEvolverTimeouts(unittest.IsolatedAsyncioTestCase):
