@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-07 15:33:58
+# date modified: 2026-09-07 15:55:07
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.093"
-__version_info__ = (0, 6, 93)
-__version_name__ = "Canonical Persona Triad Migration & Legacy Filename Deprecation"
+__version__ = "000.006.094"
+__version_info__ = (0, 6, 94)
+__version_name__ = "Procedure Card Two-Tier Semantic Action Rows & Split Merge Dropdown"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

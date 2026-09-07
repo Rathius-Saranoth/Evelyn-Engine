@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 15:34:08
+date modified: 2026-09-07 15:55:17
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.094] - 2026-09-07 — *Procedure Card Two-Tier Semantic Action Rows & Split Merge Dropdown*
+
+### Added & Enhanced
+- **Two-Tier Semantic Action Layout (`evelyn_ui/dev.html`)**:
+  - Replaced cramped single-line action bars on procedure review and merge cards with structured, left-aligned, two-tier action groups (`.card-actions-group` / `.card-actions-row`).
+  - **Tier 1 (Constructive / Progression Actions)**: Houses primary actions (`💾 Save Changes`, `Approve (Live)`, and smart merge controls) with natural content width.
+  - **Tier 2 (Triage / Destructive Actions)**: Left-aligned secondary tier cleanly separating terminal actions (`Reject`, `Archive`, `🗑️ Delete`) to eliminate visual crowding and misclicks without forcing excessive page scanning.
+- **Context-Aware Smart Merge Split Button & Overflow Dropdown (`evelyn_ui/dev.html`)**:
+  - Unified redundant merge actions into an adaptive control (`renderMergeControl`):
+    - When a master candidate is detected (`item.merged_into_id` or `targetMasterId`), renders a segmented split button (`⚡ Merge into #<id>` | `▾`). Primary button executes immediate consolidation into the suggested master; dropdown arrow reveals overrides (`🔀 Merge into different procedure...` and `🔍 Preview Master #<id>`).
+    - When no master candidate is detected, renders a clean single button (`🔀 Merge into...`) that opens the manual merge picker modal.
+  - Added global click-outside and `Escape` key dismiss listeners for dropdown menus.
 
 ## [000.006.093] - 2026-09-07 — *Canonical Persona Triad Migration & Legacy Filename Deprecation*
 

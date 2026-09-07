@@ -212,6 +212,109 @@
     
     .card-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .card-actions > .btn { flex: 1; min-width: 100px; }
+    .card-actions-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .card-actions-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+    .card-actions-row > .btn,
+    .card-actions-row > .split-btn-group > .btn {
+      flex: 0 0 auto;
+      min-width: auto;
+    }
+    .btn-merge {
+      background: rgba(147, 51, 234, 0.2);
+      color: #c084fc;
+      border: 1px solid rgba(147, 51, 234, 0.5);
+    }
+    .btn-merge:hover {
+      background: rgba(147, 51, 234, 0.35);
+      color: #e9d5ff;
+    }
+    .split-btn-group {
+      position: relative;
+      display: inline-flex;
+      align-items: stretch;
+      border-radius: 8px;
+    }
+    .split-btn-main {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.5);
+      border-top-right-radius: 0 !important;
+      border-bottom-right-radius: 0 !important;
+      border-right: none !important;
+      padding: 8px 14px;
+    }
+    .split-btn-main:hover {
+      background: rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+    }
+    .split-btn-toggle {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.5);
+      border-top-left-radius: 0 !important;
+      border-bottom-left-radius: 0 !important;
+      padding: 8px 10px;
+      min-width: 32px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .split-btn-toggle:hover {
+      background: rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+    }
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      min-width: 250px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.75);
+      padding: 6px;
+      z-index: 1000;
+    }
+    .dropdown-menu.show {
+      display: block;
+    }
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, color 0.15s;
+      box-sizing: border-box;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    .dropdown-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
     .btn {
       display: inline-flex; align-items: center; justify-content: center;
       padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer;
@@ -3399,6 +3502,52 @@
       }).join('');
     }
 
+    function toggleMergeDropdown(event, dropdownId) {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+      const target = document.getElementById(dropdownId);
+      const wasShown = target && target.classList.contains('show');
+      closeAllDropdowns();
+      if (target && !wasShown) {
+        target.classList.add('show');
+      }
+    }
+
+    function closeAllDropdowns() {
+      document.querySelectorAll('.dropdown-menu.show').forEach(el => el.classList.remove('show'));
+    }
+
+    function renderMergeControl(type, id, masterId) {
+      if (!masterId) {
+        return `<button class="btn btn-merge" onclick="openManualMergeModal('${type}', ${id}, this)">🔀 Merge into...</button>`;
+      }
+
+      const mainAction = type === 'procedure'
+        ? `handleProcedureAction(${id}, 'merge', ${masterId}, this)`
+        : `handleAction('proposals', ${id}, 'merge_into_master', ${masterId}, this)`;
+
+      return `
+        <div class="split-btn-group" id="merge-split-${type}-${id}">
+          <button class="btn split-btn-main" onclick="${mainAction}" title="Merge into suggested master #${masterId}">
+            ⚡ Merge into #${masterId}
+          </button>
+          <button class="btn split-btn-toggle" onclick="toggleMergeDropdown(event, 'merge-dropdown-${type}-${id}')" title="More merge options">
+            ▾
+          </button>
+          <div class="dropdown-menu" id="merge-dropdown-${type}-${id}">
+            <button class="dropdown-item" onclick="closeAllDropdowns(); openManualMergeModal('${type}', ${id}, this.closest('.split-btn-group')?.querySelector('.split-btn-main') || this);">
+              🔀 Merge into different procedure...
+            </button>
+            <button class="dropdown-item" onclick="closeAllDropdowns(); openProcedureModal(${masterId});">
+              🔍 Preview Master #${masterId}
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
     function renderTriageItemCard(item) {
       if (item.item_type === 'extraction') {
         const alignLabel = item.alignment_label || (item.novelty_score < 0.40 ? 'Aligned' : (item.novelty_score < 0.55 ? 'Related' : 'Novel'));
@@ -3594,13 +3743,16 @@
                   <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
                 </div>
               </div>
-              <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
-                ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId}, this)">⚡ Merge Into Master</button>` : ''}
-                <button class="btn" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.5);" onclick="openManualMergeModal('proposal', ${item.id}, this)">🔀 Merge into...</button>
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve (New Procedure)</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+              <div class="card-actions-group">
+                <div class="card-actions-row">
+                  <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
+                  <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve (New Procedure)</button>
+                  ${renderMergeControl('proposal', item.id, targetMasterId)}
+                </div>
+                <div class="card-actions-row">
+                  <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                  <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                </div>
               </div>
             </div>
           `;
@@ -3664,11 +3816,15 @@
                   <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
                 </div>
               </div>
-              <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Procedure Split</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+              <div class="card-actions-group">
+                <div class="card-actions-row">
+                  <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
+                  <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Procedure Split</button>
+                </div>
+                <div class="card-actions-row">
+                  <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                  <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                </div>
               </div>
             </div>
           `;
@@ -3887,14 +4043,17 @@
                 <input type="text" id="proc-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
             </div>
-            <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn btn-action" onclick="handleProcedureAction(${item.id}, 'edit', null, this)">💾 Save Changes</button>
-              <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)">Approve (Live)</button>
-              ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id}, this)">⚡ Merge Into Master</button>` : ''}
-              <button class="btn" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.5);" onclick="openManualMergeModal('procedure', ${item.id}, this)">🔀 Merge into...</button>
-              <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)">Reject</button>
-              <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny', null, this)">Archive</button>
-              <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete', null, this)">🗑️ Delete</button>
+            <div class="card-actions-group">
+              <div class="card-actions-row">
+                <button class="btn btn-action" onclick="handleProcedureAction(${item.id}, 'edit', null, this)">💾 Save Changes</button>
+                <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)">Approve (Live)</button>
+                ${renderMergeControl('procedure', item.id, item.merged_into_id)}
+              </div>
+              <div class="card-actions-row">
+                <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)">Reject</button>
+                <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny', null, this)">Archive</button>
+                <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete', null, this)">🗑️ Delete</button>
+              </div>
             </div>
           </div>
         `;
@@ -4806,7 +4965,7 @@
                   ? `<button class="btn btn-approve" onclick="approveProcedureFromMgmt(${p.id}, this)">✅ Approve (Live)</button>`
                   : ''
                 }
-                <button class="btn" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.5);" onclick="openManualMergeModal('procedure', ${p.id}, this)">🔀 Merge into...</button>
+                ${renderMergeControl('procedure', p.id, p.merged_into_id)}
                 <button class="btn btn-secondary" onclick="queueSingleProcedureSplit(${p.id}, this)">✂️ Queue Split</button>
               </div>
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -6067,11 +6226,19 @@
     // Close modals on Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        closeAllDropdowns();
         closeModal();
         if (typeof closeGuidanceModal === 'function') closeGuidanceModal();
         if (typeof closeSplitModal === 'function') closeSplitModal();
         if (typeof closeFeedbackCommentModal === 'function') closeFeedbackCommentModal();
         if (typeof closeVaultNoteModal === 'function') closeVaultNoteModal();
+      }
+    });
+
+    // Close dropdowns on outside click
+    window.addEventListener('click', (e) => {
+      if (!e.target.closest('.split-btn-group')) {
+        closeAllDropdowns();
       }
     });
 
