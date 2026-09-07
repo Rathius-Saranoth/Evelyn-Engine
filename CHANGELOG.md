@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 14:13:36
+date modified: 2026-09-07 14:35:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.091] - 2026-09-07 — *Tool-Schema Kwarg Deduplication, Procedure Merge Refinements & Interactive Manual Master Consolidation*
+
+### Added & Standardized
+- **Tool Schema & Kwarg Deduplication (`Evelyn/tools/procedure_matcher.py`)**:
+  - Replaced ad-hoc hardcoded synonym tables with dynamic introspection of `MODEL_TOOL_DEFINITIONS` in `Evelyn/tools/evelyn_tools.py` as the canonical single source of truth for tool names, parameter kwargs (`mood`, `vibe_check`, `narrative`, `message_in_a_bottle`, `feelings`, `analysis`, etc.), and tool scopes.
+  - Maintained a lean, focused colloquial overlay (`COLLOQUIAL_SYNONYMS`) solely for conversational natural speech variants (`bedtime`, `goodnight`, `winddown`, `closeout`, `downtime`, `nightmare`, `somnambulant`).
+- **Specialized Tool Concordance & Master Recognition (`Evelyn/tools/procedure_matcher.py`, `Evelyn/tools/procedure_consolidator.py`)**:
+  - Introduced differentiated tool concordance scoring in `calculate_procedure_similarity`: boosted concordance bonus to `+0.35` for specialized companion tools (`write_journal_entry`, `write_dream_entry`, `get_health_metrics`, `create_task`, etc.) to ensure procedures sharing a specialized single-purpose tool reliably meet the candidate threshold.
+  - Enhanced `identify_cluster_master` with external master discovery (`all_live_procs`), enabling clusters of extracted procedures without existing lineage to properly resolve their canonical live master procedure.
+  - Refined prompt directives in `procedure_consolidator.py` to preserve baseline master trigger patterns and retain companion tool assignments (`write_journal_entry` for evening wind-downs, `write_dream_entry` for dream logs/reports).
+- **Interactive Manual "Merge into..." Workflow (`evelyn_ui/dev.html`)**:
+  - Implemented dynamic fallback master detection for `procedure_merge` proposal cards when `suggested_category` is non-numeric, matching against live procedures in `allProcedures`.
+  - Added interactive `🔀 Merge into...` action buttons to Procedure Merge proposals, Extracted Procedures, and the Procedures Management tab.
+  - Built the Manual Merge Modal (`#manual-merge-modal`), sorting live master procedures first by matching proposed tool, then alphabetically by tool name, and then by ID, with visual `⚡ MATCHING TOOL` badges.
+  - Implemented a two-stage confirmation dialog with Yes/No options: confirming applies the normal merge consolidation action and refreshes the queue, while canceling closes the prompt seamlessly.
+- **Automated Verification Suite (`Evelyn/tests/test_procedure_matcher.py`)**:
+  - Added unit tests validating dynamic schema kwarg extraction, external master cluster discovery, and matching of `write_journal_entry` and `write_dream_entry` phrasing variations to their respective live master procedures.
 
 ## [000.006.090] - 2026-09-07 — *Universal Language Integrity, Anti-Jargon Directives & Narrative Anti-Bloat*
 
