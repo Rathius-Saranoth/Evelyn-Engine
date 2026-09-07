@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 07:47:31
+date modified: 2026-09-07 08:08:08
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.088] - 2026-09-07 — *Structured Bullet Format for System Directives Evolution*
+
+### Added & Standardized
+- **Structured Bullet Directives Format (`Evelyn/persona/System_Directives.md`, `templates/System_Directives.example.md`)**:
+  - Restructured all 6 canonical sections (`Conversation & Formatting`, `Authenticity & Operational Transparency`, `Operational Guidelines`, `Tool & Action Directives`, `Engineering & Code Quality`, `Routines & Rituals`) from dense prose paragraphs into granular, structured bullet points (`* **<Label>**: <Directive>`).
+  - Preserved 100% of operational directives, Non-Violent Communication (NVC) principles, visual PKM style rules, multimodal detection guidelines, transition rituals, and contextual boundaries.
+  - Aligned the open-source template `templates/System_Directives.example.md` with the new canonical 6-section structured bullet schema.
+- **Evolver Prompting, Compaction, and Validation Guardrails (`Evelyn/tools/profile_evolver.py`)**:
+  - Enforced positive and negative formatting constraints in `DOCUMENT_RULES[cfg.PERSONA_FILE_DIRECTIVES]`, requiring bulleted directives (`* **<Label>**: <Directive>`) and forbidding narrative prose paragraphs.
+  - Injected explicit bullet-structure preservation directives into `_evolve_document()`, `compaction_prompt`, and `_proofread_document()` to prevent the model from collapsing bullets back into run-on prose during idle evolution passes.
+  - Enhanced `validate_document_structure()` and `repair_missing_sections()` to verify that sections under `System_Directives.md` contain valid structured bullets and reject unbulleted narrative prose paragraphs.
+- **Section Invariant Test Suite Expansion (`Evelyn/tests/test_profile_section_invariants.py`)**:
+  - Updated test fixtures to use the structured bullet format.
+  - Added unit test coverage verifying the deterministic rejection of unbulleted narrative prose paragraphs.
+  - Added verification tests confirming that both live `System_Directives.md` and `templates/System_Directives.example.md` satisfy canonical section invariants.
 
 ## [000.006.087] - 2026-09-07 — *Elevate Profile Update Action Controls and Collapsible Context Entries*
 
