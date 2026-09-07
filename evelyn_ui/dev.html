@@ -506,6 +506,46 @@
     </div>
   </div>
 
+  <!-- Modal for Manual Merge into Master Procedure -->
+  <div class="modal" id="manual-merge-modal">
+    <div class="modal-content" style="max-width: 800px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <span class="modal-title" id="manual-merge-modal-title">🔀 Merge into Master Procedure</span>
+        <button class="close-btn" onclick="closeManualMergeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px 22px;">
+        <!-- Context Card for Item Being Merged -->
+        <div id="manual-merge-source-card" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;"></div>
+
+        <!-- Filter / Search Input -->
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" id="manual-merge-search-input" placeholder="🔍 Filter master procedures by ID, tool, trigger, or tag..." oninput="renderManualMergeList()" style="flex: 1; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; outline: none;" />
+        </div>
+
+        <!-- Confirmation Prompt Banner (Hidden by default, shown when a master is selected) -->
+        <div id="manual-merge-confirm-banner" style="display: none; background: rgba(59, 130, 246, 0.12); border: 1px solid #3b82f6; border-radius: 8px; padding: 16px; flex-direction: column; gap: 12px;">
+          <div style="font-size: 14px; font-weight: 600; color: #93c5fd; display: flex; align-items: center; gap: 8px;">
+            <span>❓ Are you sure you want to merge into this master procedure?</span>
+          </div>
+          <div id="manual-merge-confirm-details" style="font-size: 13px; color: var(--text); line-height: 1.4;"></div>
+          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px;">
+            <button class="btn btn-reject" onclick="cancelMasterSelection()">No, Cancel</button>
+            <button class="btn btn-approve" id="manual-merge-confirm-yes-btn" onclick="executeSelectedManualMerge(this)">Yes, Merge into Master</button>
+          </div>
+        </div>
+
+        <!-- Master Procedures List Container -->
+        <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">
+          Available Master Procedures (Sorted by matching tool, then alphabetically)
+        </div>
+        <div id="manual-merge-masters-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px;">
+        <button class="btn btn-reject" onclick="closeManualMergeModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = window.location.origin;
     const API_KEY = localStorage.getItem('evelyn_api_key') || '';
@@ -3489,7 +3529,17 @@
 
         if (item.type === 'procedure_merge') {
           const procData = parseProcedureYaml(item.merged_observation);
-          const targetMasterId = (item.suggested_category && !isNaN(item.suggested_category)) ? parseInt(item.suggested_category) : null;
+          let targetMasterId = (item.suggested_category && !isNaN(item.suggested_category)) ? parseInt(item.suggested_category) : null;
+          if (!targetMasterId && Array.isArray(allProcedures)) {
+            const proposedTool = (procData.suggested_tools || '').toLowerCase().trim();
+            const liveMasters = allProcedures.filter(p => p.status === 'live');
+            if (proposedTool) {
+              const toolMatch = liveMasters.find(p => (p.suggested_tools || '').toLowerCase().trim() === proposedTool);
+              if (toolMatch) {
+                targetMasterId = toolMatch.id;
+              }
+            }
+          }
           return `
             <div class="card">
               <div class="card-header">
@@ -3549,6 +3599,7 @@
               <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
                 ${targetMasterId ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleAction('proposals', ${item.id}, 'merge_into_master', ${targetMasterId}, this)">⚡ Merge Into Master</button>` : ''}
+                <button class="btn" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.5);" onclick="openManualMergeModal('proposal', ${item.id}, this)">🔀 Merge into...</button>
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve (New Procedure)</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
@@ -3842,6 +3893,7 @@
               <button class="btn btn-action" onclick="handleProcedureAction(${item.id}, 'edit', null, this)">💾 Save Changes</button>
               <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)">Approve (Live)</button>
               ${item.merged_into_id ? `<button class="btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.5);" onclick="handleProcedureAction(${item.id}, 'merge', ${item.merged_into_id}, this)">⚡ Merge Into Master</button>` : ''}
+              <button class="btn" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.5);" onclick="openManualMergeModal('procedure', ${item.id}, this)">🔀 Merge into...</button>
               <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)">Reject</button>
               <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny', null, this)">Archive</button>
               <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete', null, this)">🗑️ Delete</button>
@@ -4756,6 +4808,7 @@
                   ? `<button class="btn btn-approve" onclick="approveProcedureFromMgmt(${p.id}, this)">✅ Approve (Live)</button>`
                   : ''
                 }
+                <button class="btn" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.5);" onclick="openManualMergeModal('procedure', ${p.id}, this)">🔀 Merge into...</button>
                 <button class="btn btn-secondary" onclick="queueSingleProcedureSplit(${p.id}, this)">✂️ Queue Split</button>
               </div>
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -5294,6 +5347,217 @@
       const editBtn = document.getElementById('btn-edit-modal-proc');
       if (editBtn) editBtn.style.display = 'none';
       activeModalProcId = null;
+    }
+
+    let activeMergeSource = null;
+    let selectedMasterCandidateId = null;
+
+    function openManualMergeModal(type, id, btnElement) {
+      let proposedTool = '';
+      let trigger = '';
+      let steps = '';
+      let tags = '';
+
+      if (type === 'proposal') {
+        const item = unifiedItems.find(x => x.id == id && (x.item_type === 'proposal' || x.type === 'procedure_merge'));
+        const procData = item ? parseProcedureYaml(item.merged_observation) : {};
+        const inputTrigger = document.getElementById(`proc-merge-trigger-${id}`);
+        trigger = inputTrigger ? inputTrigger.value : (procData.trigger_pattern || '');
+        const inputTools = document.getElementById(`proc-merge-tools-${id}`);
+        proposedTool = inputTools ? inputTools.value : (procData.suggested_tools || '');
+        const inputSteps = document.getElementById(`proc-merge-steps-${id}`);
+        steps = inputSteps ? inputSteps.value : (procData.steps || '');
+        tags = document.getElementById(`proc-merge-tags-${id}`)?.value || procData.tags || '';
+      } else {
+        const item = unifiedItems.find(x => x.id == id && x.item_type === 'procedure') || allProcedures.find(x => x.id == id);
+        const inputTrigger = document.getElementById(`proc-trigger-${id}`) || document.getElementById(`proc-mgmt-trigger-${id}`);
+        trigger = inputTrigger ? inputTrigger.value : (item ? item.trigger_pattern : '');
+        const inputTools = document.getElementById(`proc-tools-${id}`) || document.getElementById(`proc-mgmt-tools-${id}`);
+        proposedTool = inputTools ? inputTools.value : (item ? item.suggested_tools : '');
+        const inputSteps = document.getElementById(`proc-steps-${id}`) || document.getElementById(`proc-mgmt-steps-${id}`);
+        steps = inputSteps ? inputSteps.value : (item ? item.steps : '');
+        tags = document.getElementById(`proc-tags-${id}`)?.value || document.getElementById(`proc-mgmt-tags-${id}`)?.value || (item ? item.tags : '') || '';
+      }
+
+      activeMergeSource = {
+        type: type,
+        id: id,
+        proposedTool: (proposedTool || '').trim(),
+        trigger: (trigger || '').trim(),
+        steps: (steps || '').trim(),
+        tags: (tags || '').trim(),
+        originalBtn: btnElement
+      };
+      selectedMasterCandidateId = null;
+
+      // Populate source card
+      const sourceCard = document.getElementById('manual-merge-source-card');
+      if (sourceCard) {
+        sourceCard.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+            <span style="font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px;">
+              Source (${type === 'proposal' ? 'Proposal' : 'Procedure'} #${id})
+            </span>
+            ${activeMergeSource.proposedTool ? `<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); font-size: 11px;">TOOL: ${escapeHtml(activeMergeSource.proposedTool)}</span>` : '<span class="badge" style="background: var(--surface); color: var(--text-dim); font-size: 11px;">TOOL: None</span>'}
+          </div>
+          <div style="font-size: 13px; color: var(--text); font-weight: 500; margin-bottom: 4px;">
+            <strong style="color: #9ca3af; font-size: 11px; text-transform: uppercase;">TRIGGER:</strong> ${escapeHtml(activeMergeSource.trigger || '(No trigger specified)')}
+          </div>
+          ${activeMergeSource.steps ? `<div style="font-size: 11px; color: var(--text-dim); font-family: monospace; max-height: 36px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">STEPS: ${escapeHtml(activeMergeSource.steps)}</div>` : ''}
+        `;
+      }
+
+      const searchInput = document.getElementById('manual-merge-search-input');
+      if (searchInput) searchInput.value = '';
+      cancelMasterSelection();
+
+      renderManualMergeList();
+
+      const modal = document.getElementById('manual-merge-modal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function renderManualMergeList() {
+      const container = document.getElementById('manual-merge-masters-container');
+      if (!container || !activeMergeSource) return;
+
+      const search = (document.getElementById('manual-merge-search-input')?.value || '').toLowerCase().trim();
+      const targetTool = (activeMergeSource.proposedTool || '').toLowerCase().trim();
+
+      let liveMasters = (allProcedures || []).filter(p => p.status === 'live' && p.id !== activeMergeSource.id);
+
+      if (search) {
+        liveMasters = liveMasters.filter(p => {
+          const matchId = String(p.id).includes(search);
+          const matchTool = (p.suggested_tools || '').toLowerCase().includes(search);
+          const matchTrigger = (p.trigger_pattern || '').toLowerCase().includes(search);
+          const matchTags = (p.tags || '').toLowerCase().includes(search);
+          return matchId || matchTool || matchTrigger || matchTags;
+        });
+      }
+
+      // Sort: First by matching proposed tool, then alphabetically by tool, then by ID
+      liveMasters.sort((a, b) => {
+        const toolA = (a.suggested_tools || '').toLowerCase().trim();
+        const toolB = (b.suggested_tools || '').toLowerCase().trim();
+
+        const isMatchA = targetTool && toolA && (toolA.includes(targetTool) || targetTool.includes(toolA)) ? 1 : 0;
+        const isMatchB = targetTool && toolB && (toolB.includes(targetTool) || targetTool.includes(toolB)) ? 1 : 0;
+
+        if (isMatchA !== isMatchB) {
+          return isMatchB - isMatchA; // Matching tool first
+        }
+
+        const cmpTool = toolA.localeCompare(toolB);
+        if (cmpTool !== 0) return cmpTool;
+
+        return a.id - b.id;
+      });
+
+      if (liveMasters.length === 0) {
+        container.innerHTML = `<div style="text-align: center; color: var(--text-dim); padding: 25px; font-size: 13px;">No matching live master procedures found.</div>`;
+        return;
+      }
+
+      container.innerHTML = liveMasters.map(p => {
+        const toolStr = (p.suggested_tools || '').toLowerCase().trim();
+        const isMatch = targetTool && toolStr && (toolStr.includes(targetTool) || targetTool.includes(toolStr));
+        const isSelected = selectedMasterCandidateId === p.id;
+
+        return `
+          <div style="cursor: pointer; background: ${isSelected ? 'rgba(59, 130, 246, 0.15)' : 'var(--surface2)'}; border: 1px solid ${isSelected ? '#3b82f6' : (isMatch ? 'rgba(59, 130, 246, 0.4)' : 'var(--border)')}; border-radius: 8px; padding: 12px 14px; transition: border-color 0.15s, background 0.15s;" onclick="selectMasterForMerge(${p.id})">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="color: #fff; font-size: 13px;">Master Procedure #${p.id}</strong>
+                ${isMatch ? `<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-size: 10px; font-weight: 700;">⚡ MATCHING TOOL</span>` : ''}
+              </div>
+              <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 11px;">
+                ${p.suggested_tools ? escapeHtml(p.suggested_tools) : 'None'}
+              </span>
+            </div>
+            <div style="font-size: 13px; color: var(--text); line-height: 1.4; margin-bottom: 6px;">
+              ${escapeHtml(p.trigger_pattern || '')}
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+              <span style="font-size: 11px; color: var(--text-dim);">${p.tags ? 'Tags: ' + escapeHtml(p.tags) : ''}</span>
+              <button class="btn btn-sm" style="background: ${isSelected ? '#2563eb' : 'rgba(59, 130, 246, 0.2)'}; color: ${isSelected ? '#fff' : '#60a5fa'}; border: 1px solid rgba(59, 130, 246, 0.4); font-size: 11px; padding: 4px 10px;" onclick="event.stopPropagation(); selectMasterForMerge(${p.id})">
+                ${isSelected ? '✓ Selected' : 'Select'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectMasterForMerge(masterId) {
+      selectedMasterCandidateId = masterId;
+      const master = (allProcedures || []).find(p => p.id === masterId);
+      if (!master || !activeMergeSource) return;
+
+      const banner = document.getElementById('manual-merge-confirm-banner');
+      const details = document.getElementById('manual-merge-confirm-details');
+      if (banner && details) {
+        details.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div>
+              <strong style="color: #93c5fd;">Selected Master Procedure #${master.id}</strong>
+              ${master.suggested_tools ? `<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); font-size: 11px; margin-left: 6px;">TOOL: ${escapeHtml(master.suggested_tools)}</span>` : ''}
+            </div>
+            <div style="background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px;">
+              <div style="font-size: 11px; color: var(--text-dim); font-weight: 600; margin-bottom: 2px;">TARGET TRIGGER PATTERN:</div>
+              <div style="color: #fff; font-size: 13px;">${escapeHtml(master.trigger_pattern || '')}</div>
+            </div>
+            <div style="font-size: 12px; color: var(--text-dim);">
+              Clicking <strong>Yes, Merge into Master</strong> will apply normal merge consolidation: merging ${activeMergeSource.type === 'proposal' ? 'Proposal' : 'Procedure'} #${activeMergeSource.id} into Master #${master.id}, consolidating trigger variations, steps, and domain tags.
+            </div>
+          </div>
+        `;
+        banner.style.display = 'flex';
+        renderManualMergeList();
+        banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    function cancelMasterSelection() {
+      selectedMasterCandidateId = null;
+      const banner = document.getElementById('manual-merge-confirm-banner');
+      if (banner) banner.style.display = 'none';
+      renderManualMergeList();
+    }
+
+    async function executeSelectedManualMerge(btnElement) {
+      if (!selectedMasterCandidateId || !activeMergeSource) return;
+      const targetId = selectedMasterCandidateId;
+      const source = activeMergeSource;
+
+      if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '⏳ Merging...';
+      }
+
+      try {
+        if (source.type === 'proposal') {
+          await handleAction('proposals', source.id, 'merge_into_master', targetId, source.originalBtn);
+        } else {
+          await handleProcedureAction(source.id, 'merge', targetId, source.originalBtn);
+        }
+        closeManualMergeModal();
+      } catch (err) {
+        console.error('Failed to execute manual merge:', err);
+        alert('Failed to execute merge: ' + err.message);
+      } finally {
+        if (btnElement) {
+          btnElement.disabled = false;
+          btnElement.innerHTML = 'Yes, Merge into Master';
+        }
+      }
+    }
+
+    function closeManualMergeModal() {
+      const modal = document.getElementById('manual-merge-modal');
+      if (modal) modal.style.display = 'none';
+      cancelMasterSelection();
+      activeMergeSource = null;
     }
 
     function toggleFeedbackExpand(id) {

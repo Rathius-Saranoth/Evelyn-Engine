@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-07 09:11:07
+date modified: 2026-09-07 14:35:21
 ---
 # Evelyn Project Roadmap
 
@@ -52,7 +52,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search (DuckDuckGo), pre-search intent mode classification (`[MODE_TECHNICAL]` vs `[MODE_ACADEMIC]`), intent framing, atomic query generation, source evaluation, Obsidian Vault synthesis, inspection tools (`list_research_tasks`, `inspect_research_task`), and resilient fuzzy guidance (`guide_research`).
 - [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
 - [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with canonical naming, structured bullet guardrails, 3-tier pruning, editorial proofreading, and live diff panels in DevUI.
-- [x] **Procedural Knowledge & Lifecycle Consolidation**: Background extraction pipeline with lifecycle status taxonomy (`live`, `extracted`, `merged`, `rejected`, `archived`), lineage tracking (`merged_into_id`), Jaccard deduplication in extractor, and consolidated master procedures.
+- [x] **Procedural Knowledge & Master Consolidation**: Background extraction and consolidation pipeline with lifecycle status taxonomy (`live`, `extracted`, `merged`, `rejected`, `archived`), dynamic tool-schema kwarg deduplication (`MODEL_TOOL_DEFINITIONS`), specialized tool concordance scoring (`+0.35`), and DevUI interactive manual master consolidation ("Merge into...") with tool sorting and confirmation gates.
 - [x] **Temporal Management Subsystem (`time_manager`)**: Dedicated subsystem providing timezone-aware normalization, role-agnostic silence tracking, structured `<temporal_context>` XML telemetry envelopes, and always-on proactive heartbeat evaluation.
 - [x] **Cognitive Task Scheduling & Digital Dreaming**: Formalized 3-tier task execution (`REFLEX` 24/7, `DIURNAL` daytime research, `NOCTURNAL` overnight semantic dreaming), non-blocking runnable queue dispatching, and preemption tail re-queueing.
 - [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, Oura Ring Cloud API v2 vitals, and high-resolution intraday heart rate / activity biometrics.

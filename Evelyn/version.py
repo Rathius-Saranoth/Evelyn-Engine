@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-07 09:02:00
+# date modified: 2026-09-07 14:33:40
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.090"
-__version_info__ = (0, 6, 90)
-__version_name__ = "Universal Language Integrity, Anti-Jargon Directives & Narrative Anti-Bloat"
+__version__ = "000.006.091"
+__version_info__ = (0, 6, 91)
+__version_name__ = "Tool-Schema Kwarg Deduplication, Procedure Merge Refinements & Interactive Manual Master Consolidation"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

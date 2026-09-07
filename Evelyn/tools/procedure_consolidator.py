@@ -1,6 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
-# date modified: 2026-09-04 17:10:05
+# date modified: 2026-09-07 14:33:40
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -326,8 +326,17 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
 
     formatted_procs = "\n\n".join(proc_texts)
 
-    master_proc = identify_cluster_master(cluster)
+    live_procs = memory_db.get_all_procedures(status="live")
+    master_proc = identify_cluster_master(cluster, all_live_procs=live_procs)
     target_master_id = master_proc["id"] if master_proc else None
+    if not target_master_id and live_procs:
+        from Evelyn.tools.procedure_matcher import find_best_master_candidate
+
+        for p in cluster:
+            cand_m, _score = find_best_master_candidate(p, live_procs, min_threshold=0.35)
+            if cand_m:
+                target_master_id = cand_m["id"]
+                break
 
     master_note = ""
     if target_master_id:
@@ -343,12 +352,14 @@ async def generate_procedure_merge_proposal(cluster: list[dict]) -> int | None:
         f"{master_note}"
         "Active Tools: write_file, read_file, write_dream_entry, write_journal_entry, create_task, complete_task, list_tasks, "
         "get_agenda, get_health_metrics, get_recent_workouts, manage_vault_list, run_command, web_search, start_research, generate_image.\n"
-        "Note: Use 'write_dream_entry' for saving structured dream entries to Dream Entries archive. Reserve 'write_journal_entry' ONLY for Evelyn's personal daily narrative reflections. Use 'write_file' for general vault notes.\n\n"
+        "Note: Use 'write_dream_entry' for saving structured dream entries, dream logs, or dream analysis to Dream Entries archive. "
+        "Reserve 'write_journal_entry' ONLY for Evelyn's personal daily narrative reflections, evening wind-downs, and bedtime summaries. "
+        "Use 'write_file' for general vault notes.\n\n"
         "CRITICAL PHRASING DIRECTIVES:\n"
         "1. DECLARATIVE OPERATIONAL POLICIES: Procedures must define operational policies, data requirements, and tool triggers. NEVER script conversational multi-stage dialogue turns (e.g. NEVER write 'Step 1: Greet the user, Step 2: Ask question, Step 3: Run tool, Step 4: Say goodbye'). Tool execution is handled by the agent loop, not sequential chat scripts.\n"
-        "2. CLEAN TRIGGER PATTERNS: State clean operational scenarios (e.g. 'When winding down for the evening, preparing for rest, or wrapping up the day') WITHOUT noisy parenthetical lists of example phrases (avoid '(e.g. foo, bar)').\n"
+        "2. CLEAN TRIGGER PATTERNS: State clean operational scenarios (e.g. 'When winding down for the evening, preparing for rest, or wrapping up the day') WITHOUT noisy parenthetical lists of example phrases (avoid '(e.g. foo, bar)'). If an existing Master Procedure is indicated, preserve its core trigger pattern as the canonical baseline.\n"
         "3. STEPS: Describe functional execution, data to gather, parameters to set, and tools to invoke concisely.\n"
-        "4. SUGGESTED TOOLS: Select or combine accurate 'suggested_tools' (comma-separated if multiple, or None) from Active Tools.\n"
+        "4. SUGGESTED TOOLS: Select or combine accurate 'suggested_tools' (comma-separated if multiple, or None) from Active Tools. Retain specialized companion tools ('write_journal_entry', 'write_dream_entry') whenever present in source procedures.\n"
         "5. PITFALLS: Explicitly forbid simulating tool execution via raw text (e.g. '[Tools Executed: ...]') and forbid hesitating or withholding tool calls.\n"
         "6. PRESERVE DOMAIN TAGS: Combine and retain all specific domain tags from the source procedures. Do NOT replace them with generic tags like 'procedure, merged' or 'merge'.\n"
         "7. Keep tone and constraints intact.\n"

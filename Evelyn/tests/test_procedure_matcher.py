@@ -1,3 +1,8 @@
+# test_procedure_matcher.py
+# date created: 2026-09-07 14:32:39
+# date modified: 2026-09-07 14:33:51
+# tags: 
+
 import pytest
 
 from Evelyn.tools import memory_db
@@ -211,3 +216,78 @@ async def test_procedure_proposal_merge_into_master_endpoint(monkeypatch):
 
     # Verify proposal applied
     assert proposals_db[999]["status"] == "applied"
+
+
+def test_journal_and_dream_master_recognition():
+    """Verify write_journal_entry and write_dream_entry match their respective live masters."""
+    live_procs = [
+        {
+            "id": 1034,
+            "trigger_pattern": "When winding down for the evening, preparing for rest, or wrapping up the day",
+            "suggested_tools": "write_journal_entry",
+            "status": "live",
+        },
+        {
+            "id": 657,
+            "trigger_pattern": "When the user shares, describes, or asks to log or analyze a dream entry",
+            "suggested_tools": "write_dream_entry",
+            "status": "live",
+        },
+    ]
+
+    # Journaling candidate variation with different wording
+    journal_cand = {
+        "id": 9001,
+        "trigger_pattern": "When Ricky asks to end the day or suggests it is time for bed",
+        "suggested_tools": "write_journal_entry",
+    }
+    best_m, score = find_best_master_candidate(journal_cand, live_procs, min_threshold=0.35)
+    assert best_m is not None
+    assert best_m["id"] == 1034
+    assert score >= 0.35
+
+    # Dream candidate variation mentioning 'dream logs'
+    dream_cand = {
+        "id": 9002,
+        "trigger_pattern": "When processing dream logs or reports from last night",
+        "suggested_tools": "write_dream_entry",
+    }
+    best_d, score_d = find_best_master_candidate(dream_cand, live_procs, min_threshold=0.35)
+    assert best_d is not None
+    assert best_d["id"] == 657
+    assert score_d >= 0.35
+
+
+def test_tool_schema_kwarg_extraction():
+    """Verify tool parameter names from MODEL_TOOL_DEFINITIONS map to canonical domains."""
+    from Evelyn.tools.procedure_matcher import SYNONYM_GROUPS
+
+    # Param kwargs from write_journal_entry
+    assert SYNONYM_GROUPS.get("mood") == "domain_journal"
+    assert SYNONYM_GROUPS.get("vibe") == "domain_journal"
+    assert SYNONYM_GROUPS.get("narrative") == "domain_journal"
+
+    # Param kwargs from write_dream_entry
+    assert SYNONYM_GROUPS.get("feelings") == "domain_dream"
+    assert SYNONYM_GROUPS.get("analysis") == "domain_dream"
+
+
+def test_identify_cluster_master_with_external_master():
+    """Verify identify_cluster_master discovers external canonical master when cluster has no established lineage."""
+    cluster = [
+        {"id": 2001, "status": "extracted", "trigger_pattern": "Bedtime routine wrap-up", "suggested_tools": "write_journal_entry"},
+        {"id": 2002, "status": "extracted", "trigger_pattern": "Ending the day conversation", "suggested_tools": "write_journal_entry"},
+    ]
+    all_live = [
+        {
+            "id": 1034,
+            "status": "live",
+            "trigger_pattern": "When winding down for the evening, preparing for rest, or wrapping up the day",
+            "suggested_tools": "write_journal_entry",
+        }
+    ]
+    master_counts = {1034: 4, 2001: 0, 2002: 0}
+    master = identify_cluster_master(cluster, all_live_procs=all_live, master_id_counts=master_counts)
+    assert master is not None
+    assert master["id"] == 1034
+

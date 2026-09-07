@@ -1,7 +1,7 @@
 # procedure_matcher.py
 # date created: 2026-09-03 18:09:14
-# date modified: 2026-09-05 19:49:07
-# tags:
+# date modified: 2026-09-07 14:33:51
+# tags: 
 
 """Canonical utility for procedure tokenization, similarity scoring, deduplication, and master detection.
 
@@ -25,11 +25,57 @@ STOPWORDS: set[str] = {
     "good", "well", "very", "hello", "hey", "them", "then", "our", "all",
 }
 
-# Domain synonym dictionary mapping colloquial words to normalized domain markers
-SYNONYM_GROUPS: dict[str, str] = {
-    # Sleep & Journaling
+# Specialized single-purpose tools where procedure trigger overlap should be strongly concordant
+SPECIALIZED_TOOLS: set[str] = {
+    "write_journal_entry",
+    "write_dream_entry",
+    "get_health_metrics",
+    "get_recent_workouts",
+    "sync_google_calendar",
+    "create_calendar_event",
+    "delete_calendar_event",
+    "create_task",
+    "complete_task",
+    "delete_task",
+    "list_tasks",
+    "sync_google_tasks",
+    "generate_image",
+    "manage_vault_list",
+    "start_research",
+}
+
+TOOL_CANONICAL_DOMAINS: dict[str, str] = {
+    "write_journal_entry": "domain_journal",
+    "write_dream_entry": "domain_dream",
+    "generate_image": "domain_art",
+    "create_task": "domain_task",
+    "complete_task": "domain_task",
+    "delete_task": "domain_task",
+    "list_tasks": "domain_task",
+    "sync_google_tasks": "domain_task",
+    "create_calendar_event": "domain_agenda",
+    "delete_calendar_event": "domain_agenda",
+    "sync_google_calendar": "domain_agenda",
+    "get_agenda": "domain_agenda",
+    "get_health_metrics": "domain_health",
+    "get_recent_workouts": "domain_exercise",
+    "manage_vault_list": "domain_list",
+    "start_research": "domain_research",
+    "list_research_tasks": "domain_research",
+    "inspect_research_task": "domain_research",
+    "guide_research": "domain_research",
+    "check_new_research": "domain_research",
+    "read_url": "domain_web",
+    "web_search": "domain_web",
+    "search_history": "domain_history",
+}
+
+# Lean colloquial synonym overlay for natural spoken variants not present in tool signatures
+COLLOQUIAL_SYNONYMS: dict[str, str] = {
+    # Sleep & Journaling wind-downs
     "sleep": "domain_journal",
     "sleeping": "domain_journal",
+    "bed": "domain_journal",
     "bedtime": "domain_journal",
     "goodnight": "domain_journal",
     "night": "domain_journal",
@@ -40,12 +86,23 @@ SYNONYM_GROUPS: dict[str, str] = {
     "reflecting": "domain_journal",
     "reflection": "domain_journal",
     "reflections": "domain_journal",
+    "winddown": "domain_journal",
+    "winding": "domain_journal",
+    "wind": "domain_journal",
+    "closeout": "domain_journal",
+    "closing": "domain_journal",
     "diary": "domain_journal",
+    "downtime": "domain_journal",
     # Dreams
     "dream": "domain_dream",
     "dreams": "domain_dream",
     "dreaming": "domain_dream",
     "nightmare": "domain_dream",
+    "nightmares": "domain_dream",
+    "lucid": "domain_dream",
+    "somnambulant": "domain_dream",
+    "dreamscape": "domain_dream",
+    "dreamer": "domain_dream",
     # Visuals & Art
     "image": "domain_art",
     "images": "domain_art",
@@ -84,6 +141,59 @@ SYNONYM_GROUPS: dict[str, str] = {
     "explore": "domain_research",
     "investigate": "domain_research",
 }
+
+
+def _build_tool_kwarg_synonyms() -> dict[str, str]:
+    """Derive domain synonym tokens directly from MODEL_TOOL_DEFINITIONS schemas and kwargs."""
+    tool_tokens: dict[str, str] = {}
+    try:
+        from Evelyn.tools.evelyn_tools import MODEL_TOOL_DEFINITIONS
+
+        for defn in MODEL_TOOL_DEFINITIONS:
+            if not isinstance(defn, dict):
+                continue
+            fn = defn.get("function")
+            if not isinstance(fn, dict):
+                continue
+            name = fn.get("name")
+            if not isinstance(name, str) or name not in TOOL_CANONICAL_DOMAINS:
+                continue
+            domain = TOOL_CANONICAL_DOMAINS[name]
+
+            # 1. Tool name tokens (e.g. 'journal', 'dream', 'workout')
+            for part in name.split("_"):
+                if len(part) >= 3 and part not in STOPWORDS:
+                    tool_tokens[part.lower()] = domain
+
+            # 2. Kwarg / parameter names (e.g. 'mood', 'vibe', 'check', 'narrative', 'feelings', 'analysis')
+            params = fn.get("parameters")
+            props = params.get("properties") if isinstance(params, dict) else None
+            if isinstance(props, dict):
+                for p_name in props:
+                    for sub in str(p_name).split("_"):
+                        if (
+                            len(sub) >= 3
+                            and sub not in STOPWORDS
+                            and sub
+                            not in (
+                                "date",
+                                "days",
+                                "type",
+                                "mode",
+                                "hours",
+                                "action",
+                                "query",
+                                "command",
+                            )
+                        ):
+                            tool_tokens[sub.lower()] = domain
+    except (ImportError, AttributeError, KeyError):
+        pass
+    return tool_tokens
+
+
+_TOOL_KWARG_SYNONYMS = _build_tool_kwarg_synonyms()
+SYNONYM_GROUPS: dict[str, str] = {**COLLOQUIAL_SYNONYMS, **_TOOL_KWARG_SYNONYMS}
 
 
 def extract_procedure_keywords(text: str) -> set[str]:
@@ -142,17 +252,25 @@ def calculate_procedure_similarity(
     union = kws1 | kws2
 
     jaccard = len(intersection) / len(union) if union else 0.0
-    containment = len(intersection) / min(len(kws1), len(kws2)) if kws1 and kws2 else 0.0
+    containment = (
+        len(intersection) / min(len(kws1), len(kws2)) if kws1 and kws2 else 0.0
+    )
 
     # Balanced blend: smooths out asymmetric length penalties while requiring strong token overlap
     score = max(jaccard, 0.50 * containment + 0.50 * jaccard)
 
-    # Tool concordance bonus: If suggested_tools match exactly and non-empty, add bonus
+    # Tool concordance bonus: If suggested_tools match
     if tools1 and tools2:
         t1_set = {t.strip().lower() for t in tools1.split(",") if t.strip()}
         t2_set = {t.strip().lower() for t in tools2.split(",") if t.strip()}
-        if t1_set and t2_set and (t1_set & t2_set):
-            score = min(1.0, score + 0.15)
+        shared = t1_set & t2_set
+        if shared:
+            # If both procedures share a specialized single-purpose tool, apply a strong bonus
+            score = (
+                min(1.0, score + 0.35)
+                if any(t in SPECIALIZED_TOOLS for t in shared)
+                else min(1.0, score + 0.15)
+            )
 
     return round(score, 4)
 
@@ -276,6 +394,16 @@ def identify_cluster_master(
             con.close()
         except (sqlite3.Error, OSError, KeyError):
             pass
+
+    # If all_live_procs supplied and no procedure in cluster has established children,
+    # inspect if an external live master is the canonical master for this cluster.
+    if all_live_procs:
+        has_established = any(master_id_counts.get(p.get("id") or 0, 0) > 0 for p in cluster)
+        if not has_established:
+            for item in cluster:
+                cand, _score = find_best_master_candidate(item, all_live_procs, min_threshold=0.35)
+                if cand and master_id_counts.get(cand["id"], 0) > 0:
+                    return cand
 
     def _sort_key(p: dict) -> tuple[int, int, int]:
         pid = p.get("id") or 999999
