@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 16:46:44
+date modified: 2026-09-07 18:04:00
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.096] - 2026-09-07 — *TTS VRAM Lifecycle & Ollama Prefetch Safeguard*
+
+### Fixed & Enhanced
+- **TTS VRAM Deallocation & Allocator Purge (`services/tts/tts_server.py`)**:
+  - Implemented `_teardown_model_vram()` to explicitly dismantle child submodules (`t3`, `s3gen`, `ve`, `conds`, `watermarker`, `tokenizer`) before deleting the model instance, breaking cyclic object references.
+  - Added explicit garbage collection (`gc.collect()`), CUDA cache eviction (`torch.cuda.empty_cache()`), and IPC cache collection (`torch.cuda.ipc_collect()`) to completely return reserved VRAM to the OS/NVIDIA driver.
+  - Enhanced `generate_speech_stream()` to explicitly clear local generator frame references (`del model`) inside the `finally` block, ensuring no dangling references keep Chatterbox resident on the GPU.
+- **VRAM Clearance Verification Gate & Model Allocation Audit (`services/tts/tts_server.py`)**:
+  - Replaced arbitrary static delay in `_prefetch_ollama()` with an active polling gate (up to 6s) that guarantees PyTorch allocated and reserved VRAM drop to idle baselines before requesting Ollama model reload.
+  - Added a post-reload sanity check against Ollama's `/api/ps` endpoint to verify that `gemma4:12b` successfully loaded with 100% GPU allocation, logging prominent warnings if partial CPU offload is detected.
 
 ## [000.006.095] - 2026-09-07 — *Default Thought Process & Actions Collapsed State*
 
