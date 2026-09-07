@@ -1,6 +1,6 @@
 # tts_server.py
 # date created: 2026-05-22 21:36:21
-# date modified: 2026-06-06 19:51:27
+# date modified: 2026-09-07 18:04:00
 # tags: #tts, #chatterbox, #audio, #fastapi, #server
 
 """tts_server.py — Standalone Chatterbox Turbo TTS server for Evelyn.
@@ -28,6 +28,9 @@ import os
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import asyncio
+import contextlib
+import gc
+import json
 import re
 import threading
 import time
@@ -128,6 +131,27 @@ def _load_model():
     print(f"[TTS] Model loaded in {elapsed:.1f}s ({vram_mb:.0f} MB VRAM)", flush=True)
 
 
+def _teardown_model_vram():
+    """Internal helper to dismantle model references, run GC, and purge PyTorch CUDA cache."""
+    global _model
+    if _model is not None:
+        for attr in ("t3", "s3gen", "ve", "conds", "watermarker", "tokenizer"):
+            if hasattr(_model, attr):
+                with contextlib.suppress(AttributeError, TypeError):
+                    delattr(_model, attr)
+        del _model
+        _model = None
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        if hasattr(torch.cuda, "ipc_collect"):
+            torch.cuda.ipc_collect()
+        vram_mb = torch.cuda.memory_allocated() / 1024**2
+        reserved_mb = torch.cuda.memory_reserved() / 1024**2
+        print(f"[TTS] VRAM purged ({vram_mb:.0f} MB allocated, {reserved_mb:.0f} MB reserved remaining)", flush=True)
+
+
 def _unload_model():
     """Unload model and free VRAM. Called by the inactivity timer."""
     global _model
@@ -140,11 +164,7 @@ def _unload_model():
             _schedule_unload()
             return
         print(f"[TTS] Idle for {idle:.0f}s — unloading model to free VRAM", flush=True)
-        del _model
-        _model = None
-        torch.cuda.empty_cache()
-        vram_mb = torch.cuda.memory_allocated() / 1024**2
-        print(f"[TTS] Model unloaded ({vram_mb:.0f} MB VRAM remaining)", flush=True)
+        _teardown_model_vram()
 
 
 def _schedule_unload():
@@ -167,42 +187,50 @@ def _unload_model_force():
         if _model is None:
             return
         print("[TTS] Unloading Chatterbox model immediately to free VRAM for Ollama", flush=True)
-        del _model
-        _model = None
-        torch.cuda.empty_cache()
-        vram_mb = torch.cuda.memory_allocated() / 1024**2
-        print(f"[TTS] Model unloaded ({vram_mb:.0f} MB VRAM remaining)", flush=True)
+        _teardown_model_vram()
 
 
 def _unload_ollama():
     """Instruct Ollama to unload the current model from VRAM."""
     if not cfg:
         return
-    import json
+    import urllib.error
     import urllib.request
     url = f"{cfg.OLLAMA_URL}/api/generate"
     payload = json.dumps({"model": cfg.MODEL_NAME, "keep_alive": 0}).encode()
-    import urllib.error
     try:
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read()
         print(f"[TTS] Sent unload signal for {cfg.MODEL_NAME} to Ollama", flush=True)
         time.sleep(0.8)
-        torch.cuda.empty_cache()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as e:
         print(f"[TTS] Failed to unload Ollama: {e}", flush=True)
 
 
 def _prefetch_ollama():
-    """Trigger Ollama to reload the model into VRAM in the background."""
+    """Trigger Ollama to reload the model into VRAM after verifying VRAM is clear."""
     if not cfg:
         return
-    import json
     import urllib.error
     import urllib.request
-    # Wait 0.5s to ensure the OS/GPU has fully registered the Chatterbox release
-    time.sleep(0.5)
+
+    # Active verification gate: wait up to 6s for VRAM to be fully cleared
+    max_wait_s = 6.0
+    start = time.time()
+    while time.time() - start < max_wait_s:
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            if allocated < 100 and reserved < 600:
+                break
+        time.sleep(0.3)
+
     url = f"{cfg.OLLAMA_URL}/api/generate"
     payload = json.dumps({"model": cfg.MODEL_NAME, "prompt": "", "keep_alive": -1}).encode()
     try:
@@ -212,6 +240,22 @@ def _prefetch_ollama():
         print(f"[TTS] Reloaded {cfg.MODEL_NAME} into Ollama VRAM", flush=True)
     except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as e:
         print(f"[TTS] Failed to prefetch Ollama: {e}", flush=True)
+
+    # Sanity-check Ollama allocation status
+    try:
+        ps_url = f"{cfg.OLLAMA_URL}/api/ps"
+        ps_req = urllib.request.Request(ps_url)
+        with urllib.request.urlopen(ps_req, timeout=5) as ps_resp:
+            ps_data = json.loads(ps_resp.read().decode())
+            for m in ps_data.get("models", []):
+                if m.get("name") == cfg.MODEL_NAME or m.get("model") == cfg.MODEL_NAME:
+                    proc = m.get("details", {}).get("processor", "") or m.get("processor", "")
+                    if "CPU" in proc:
+                        print(f"[TTS] WARNING: {cfg.MODEL_NAME} loaded with partial CPU offload: {proc}", flush=True)
+                    else:
+                        print(f"[TTS] Verified {cfg.MODEL_NAME} on GPU: {proc}", flush=True)
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError, json.JSONDecodeError, KeyError, IndexError):
+        pass
 
 
 def get_model():
@@ -330,16 +374,15 @@ async def generate_speech_stream(data: SpeechRequest):
         # Unload Ollama and load Chatterbox once for the entire job.
         _unload_ollama()
         model = get_model()
+        if model is None:
+            raise RuntimeError("TTS model could not be loaded")
 
         try:
             for i, chunk in enumerate(chunks):
-                wav = await loop.run_in_executor(
-                    None,
-                    lambda c=chunk: model.generate(
-                        text=c,
-                        audio_prompt_path=REF_AUDIO,
-                    )
-                )
+                def _gen(c=chunk, m=model):
+                    return m.generate(text=c, audio_prompt_path=REF_AUDIO)
+
+                wav = await loop.run_in_executor(None, _gen)
                 wav_np = wav.squeeze().cpu().numpy()
 
                 if SENTENCE_SILENCE_S > 0:
@@ -359,6 +402,8 @@ async def generate_speech_stream(data: SpeechRequest):
             print(f"[TTS] Stream generation error: {e}", flush=True)
             yield f'data: {{"error": "{e!s}"}}\n\n'
         finally:
+            with contextlib.suppress(NameError):
+                del model
             _unload_model_force()
             threading.Thread(target=_prefetch_ollama, daemon=True).start()
 
