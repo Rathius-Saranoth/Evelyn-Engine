@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-06 20:10:00
+date modified: 2026-09-07 07:38:05
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.086] - 2026-09-07 — *Prune and Harmonize Sycophantic Memory Records*
+
+### Changed & Sanitized
+- **Sycophancy Pruning and Memory Harmonization (`Evelyn/tools/db_migrator.py`)**:
+  - Implemented migration `000.006.086` to harmonize sycophantic, hyper-devotional descriptors (`"unwavering loyalty"`, `"unwavering support"`, `"unwavering commitment"`, `"mutual adoration"`) across memory context entries and proposal audit logs with grounded, balanced partnership terminology (`"grounded loyalty"`, `"steady support"`, `"strong commitment"`, `"mutual respect"`).
+
+## [000.006.085] - 2026-09-07 — *Harmonize Empathy Terminology Across Context Memory and Chat Records*
+
+### Changed & Sanitized
+- **Empathy Terminology Database Migration (`Evelyn/tools/db_migrator.py`)**:
+  - Implemented migration `000.006.085` to harmonize all legacy occurrences of `"radical empathy"` / `"radical-empathy"` across the system to clean `"empathy"`.
+  - Sanitized `context_entries` observations and tags in `data/evelyn_memory.db` (including live entry #5091 and historical entries).
+  - Sanitized `proposals` merged observations, reasons, and merged tags in `data/evelyn_memory.db`.
+  - Sanitized `chroma_sync_queue` items and performed direct vector update on ChromaDB collection `evelyn_memory` (document `sqlite::context_entry::5091::chunk-0`).
+  - Sanitized historical `messages` content and thinking traces in `data/evelyn_chat.db` to eliminate residual references and maintain alignment with anti-sycophancy principles.
 
 ## [000.006.084] - 2026-09-06 — *Analytics & Feedback RAG Chunk Inspection UI Enhancement*
 
