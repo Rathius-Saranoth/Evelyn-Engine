@@ -1916,6 +1916,7 @@
 
         const details = document.createElement("details");
         details.className = "agent-activity-trace";
+        details.open = false;
 
         const toolsList = toolsUsedStr ? toolsUsedStr.split(",").filter(Boolean) : [];
         const toolsMeta = toolsList.length > 0 ? `${toolsList.length} tool${toolsList.length > 1 ? "s" : ""} used` : "";
@@ -1985,7 +1986,7 @@
           if (!traceEl) {
             traceEl = document.createElement("details");
             traceEl.className = "agent-activity-trace";
-            traceEl.open = true;
+            traceEl.open = false;
             traceEl.innerHTML = `
               <summary class="trace-summary">
                 <span class="trace-summary-left">🧠 <span class="trace-summary-title">Thinking & actions…</span></span>
@@ -3234,6 +3235,7 @@
         }
 
         // 3. Genuine failure: show error card in wrap and offer regeneration button
+        if (currentStream && currentStream.thinkingHandler) currentStream.thinkingHandler.finalize();
         if (currentStream) currentStream.isDone = true;
         sessionStorage.removeItem("active_stream_id");
         if (wrap && !wrap.querySelector(".bubble")) {

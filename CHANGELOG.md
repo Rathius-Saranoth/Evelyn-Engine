@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 15:55:17
+date modified: 2026-09-07 16:46:44
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,14 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.095] - 2026-09-07 — *Default Thought Process & Actions Collapsed State*
+
+### Changed & Enhanced
+- **Collapsible Activity Trace Defaulting (`evelyn_ui/index.html`)**:
+  - Configured the streaming and historical "Thought process & actions" (`.agent-activity-trace`) section to default to collapsed on turn creation (`traceEl.open = false`) rather than auto-expanding during generation.
+  - Preserved turn-completion collapse enforcement in `finalize()`, ensuring the trace remains cleanly collapsed after each message while allowing manual expansion on demand to inspect reasoning rounds and executed tools.
+  - Added thinking handler finalization to `reconcileStreamFailure` on stream error to prevent orphaned unfinalized trace state.
 
 ## [000.006.094] - 2026-09-07 — *Procedure Card Two-Tier Semantic Action Rows & Split Merge Dropdown*
 
