@@ -1362,10 +1362,8 @@
 
         if (t.key === 'profile_evolver' && t.doc_statuses) {
           const docIcons = {
-            [`${currentIdentity.assistant_name}_Narrative_Persona.md`]: `👤 ${currentIdentity.assistant_name} Persona`,
-            [`${currentIdentity.user_name}_Narrative_Profile.md`]: `🙋‍♂️ ${currentIdentity.user_name} Profile`,
-            'Evelyn_Narrative_Persona.md': '👤 Evelyn Persona',
-            'Ricky_Narrative_Profile.md': '🙋‍♂️ Ricky Profile',
+            'Assistant_Profile.md': `👤 ${currentIdentity.assistant_name || 'Assistant'} Profile`,
+            'User_Profile.md': `🙋‍♂️ ${currentIdentity.user_name || 'User'} Profile`,
             'System_Directives.md': '⚙️ Directives',
           };
           const docColorMap = {
@@ -1385,11 +1383,11 @@
             const color = docColorMap[st.code] || 'var(--text-dim)';
             const timeStr = st.timestamp ? new Date(st.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             return `
-              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 4px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,0.06);">
-                <span style="color: var(--text); font-weight: 500;">${shortName}</span>
-                <span style="color: ${color}; display: flex; align-items: center; gap: 4px;" title="${escapeHtml(st.details || st.label)}${timeStr ? ` (${timeStr})` : ''}">
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 4px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,0.06); gap: 6px;">
+                <span style="color: var(--text); font-weight: 500; white-space: nowrap;">${shortName}</span>
+                <span style="color: ${color}; display: flex; align-items: center; gap: 4px; text-align: right;" title="${escapeHtml(st.details || st.label)}${timeStr ? ` (${timeStr})` : ''}">
                   <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></span>
-                  ${escapeHtml(st.label)}
+                  <span style="white-space: nowrap;">${escapeHtml(st.label)}</span>
                 </span>
               </div>
             `;

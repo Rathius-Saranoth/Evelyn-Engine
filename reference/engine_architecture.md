@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-05 20:01:27
+date modified: 2026-09-07 15:31:57
 ---
 # Evelyn Engine Architecture Map
 
@@ -17,8 +17,8 @@ This document serves as the master structural blueprint of the **Evelyn Engine**
 | **API & Integrations** | [[endpoints.md]] · [[google_access.md]] |
 | **Hardware & Environment** | [[system_specs.md]] · [[HPE Server Specs.md]] · [[REQUIREMENTS.md]] · [[SETUP_GUIDE.md]] |
 | **Microservices & Vision** | [[REQUIREMENTS_IMAGE_HOST.md]] |
-| **Persona & Behavior** | [[System_Directives.md]] · [[Evelyn_Narrative_Persona.md]] · [[Ricky_Narrative_Profile.md]] |
-| **Templates & Scaffolding** | [[System_Directives.example.md]] · [[Assistant_Persona.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
+| **Persona & Behavior** | [[System_Directives.md]] · [[Assistant_Profile.md]] · [[User_Profile.md]] |
+| **Templates & Scaffolding** | [[System_Directives.example.md]] · [[Assistant_Profile.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
 | **Standards & Workflows** | [[AGENTS.md]] · [[docstring_guide.md]] · [[quality-review.md]] · [[start-services.md]] · [[restart-services.md]] · [[debug-chat-db.md]] · [[backup-to-github.md]] |
 | **Roadmap & History** | [[ROADMAP.md]] · [[CHANGELOG.md]] · [[ROLLBACK.md]] · [[SUPPORT.md]] |
 
@@ -206,8 +206,8 @@ Handles the end-to-end direct ingestion, metadata extraction, and vector indexin
 
 ### 2.8 The Cognitive Persona & Directives
 The standing narrative parameters, constraints, and profile baselines injected dynamically into the model's system prompt at startup.
-* **[[Evelyn_Narrative_Persona.md]]**: Core psychological identity and conversational style parameters for Evelyn.
-* **[[Ricky_Narrative_Profile.md]]**: User context profile and emotional/cognitive baseline mappings.
+* **[[Assistant_Profile.md]]**: Core psychological identity and conversational style parameters for Evelyn.
+* **[[User_Profile.md]]**: User context profile and emotional/cognitive baseline mappings.
 * **[[System_Directives.md]]**: Definitive instructions governing tool call behaviors, priority matrices, and interaction boundaries.
 
 ### 2.9 Canonical Utilities & Shared Core Layer

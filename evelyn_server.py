@@ -4881,6 +4881,13 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 from Evelyn.tools.profile_evolver import get_profile_evolution_statuses
 
                 doc_statuses = get_profile_evolution_statuses()
+                if doc_statuses:
+                    max_doc_ts = max(
+                        (st.get("timestamp", 0.0) for st in doc_statuses.values() if isinstance(st, dict)),
+                        default=0.0,
+                    )
+                    if max_doc_ts > (last_run_at or 0.0):
+                        last_run_at = max_doc_ts
 
         sub_status = task_data.get("sub_status")
         summary = task_data.get("summary")
@@ -5607,7 +5614,7 @@ async def action_proposal(
                     memory_db.update_entry(entry["id"], category=prop["suggested_category"])
                 memory_db.apply_proposal(id)
             elif prop["type"] == "profile_update":
-                # Repurposed suggested_category contains the target filename (e.g. Evelyn_Narrative_Persona.md)
+                # Repurposed suggested_category contains the target filename (e.g. Assistant_Profile.md)
                 target_filename = os.path.basename(prop["suggested_category"])
                 target_file = PERSONA_DIR / target_filename
                 if not target_file.exists():

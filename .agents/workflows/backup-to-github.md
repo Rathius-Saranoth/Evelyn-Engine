@@ -2,7 +2,7 @@
 description: A protective workflow for backing up the project to GitHub while ensuring private data remains local
 title: backup-to-github.md
 date created: 2026-03-14 22:50:31
-date modified: 2026-08-23 08:04:47
+date modified: 2026-09-07 15:32:13
 tags: [git, github, backup, workflow, command, maintenance, evelyn]
 ---
 
@@ -22,7 +22,7 @@ git status
 ```
 
 > [!WARNING]
-> If you see personal profile files (`*_Narrative_Profile.md`, `Evelyn/persona/`), `scripts/personal/`, or any `.env` files in "Untracked files", DO NOT PROCEED. Update `.gitignore` first.
+> If you see personal profile files (`*_Profile.md`, `Evelyn/persona/`), `scripts/personal/`, or any `.env` files in "Untracked files", DO NOT PROCEED. Update `.gitignore` first.
 
 ## 2. Stage and Commit Changes
 

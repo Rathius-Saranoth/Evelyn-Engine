@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-08-23 08:02:11
+date modified: 2026-09-07 15:32:08
 tags: [setup, guide, installation, configuration, deployment, evelyn]
 ---
 
@@ -109,7 +109,7 @@ python evelyn_setup.py
 1. **Assistant Name**: Custom name for the companion (default: `Evelyn`).
 2. **Operator / User Name**: Your preferred user name (default: `Ricky` or `Operator`).
 3. **Obsidian Vault Path**: Absolute path to your vault (default: `~/obsidian_vault`).
-4. **Deploy Starter Templates**: Copies structured starter notes (`Assistant Narrative Persona.md`, `User Narrative Profile.md`, and `System Directives.md`) directly into your vault.
+4. **Deploy Starter Templates**: Copies structured starter notes (`Assistant Profile.md`, `User Profile.md`, and `System Directives.md`) directly into your vault.
 
 *(For non-interactive / automated provisioning, run `python evelyn_setup.py --defaults`)*.
 

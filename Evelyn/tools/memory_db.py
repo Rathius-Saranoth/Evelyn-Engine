@@ -402,7 +402,7 @@ def get_entries_by_category_for_document(
 
     Args:
         category: Category code, e.g. 'Cat05-U'.
-        document_name: Target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        document_name: Target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
         status: Filter by status. Default 'live'.
 
     Returns:
@@ -456,7 +456,7 @@ def touch_entry_evolved(
 
     Args:
         entry_id: Row ID of the context entry.
-        document_name: Optional target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        document_name: Optional target document filename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
         timestamp: Unix timestamp. Defaults to current time.
     """
     ts = timestamp or time.time()

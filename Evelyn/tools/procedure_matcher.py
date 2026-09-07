@@ -1,7 +1,6 @@
 # procedure_matcher.py
 # date created: 2026-09-03 18:09:14
-# date modified: 2026-09-07 14:33:51
-# tags: 
+# tags: #procedures, #matcher, #tokens, #canonical
 
 """Canonical utility for procedure tokenization, similarity scoring, deduplication, and master detection.
 

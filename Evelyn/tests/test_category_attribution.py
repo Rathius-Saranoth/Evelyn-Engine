@@ -126,7 +126,7 @@ facts:
                 "created_at": 1700000000.0,
             }
         ]
-        batches = profile_evolver._cluster_entries_by_theme("Ricky_Narrative_Profile.md", entries)
+        batches = profile_evolver._cluster_entries_by_theme(cfg.PERSONA_FILE_USER, entries)
         self.assertTrue(len(batches) > 0)
         found = False
         for b in batches:
