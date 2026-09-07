@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 18:04:00
+date modified: 2026-09-07 18:45:31
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.098] - 2026-09-07 — *RAG Telemetry Test Isolation Safeguard*
+
+### Fixed & Enhanced
+- **RAG Telemetry Hermetic Test Isolation (`Evelyn/tests/test_category_attribution.py`)**:
+  - Identified and patched unmocked `log_rag_retrieval` call inside `test_rag_category_attribution_enrichment`, which previously leaked `"engineering background"` telemetry events directly into the production `rag_retrieval_log` table on each test execution.
+  - Purged all legacy test artifact rows with `query = 'engineering background'` from production `evelyn_memory.db` and truncated WAL buffers.
+  - Verified hermetic test execution: all unit tests run with full isolation without side effects on active production telemetry logs.
+
+## [000.006.097] - 2026-09-07 — *Live Stream Thinking Progress & Status Feedback*
+
+### Fixed & Enhanced
+- **Real-Time Thinking Status & Live Word Count Telemetry (`evelyn_ui/index.html`)**:
+  - Resolved UI freeze symptom where `#status-text` remained permanently locked on `"Querying model..."` while the model was streaming intermediate thinking deltas into a collapsed trace drawer.
+  - Added dynamic status updates in `handleStreamEvent` to transition `#status-text` to `Thinking… (<count> words)` in real time on incoming thinking deltas, seamlessly flipping to `Responding…` / `Streaming…` as soon as response text begins.
+  - Added real-time token/word counter and elapsed timer to the collapsed trace summary (`.trace-summary-meta`), displaying live word count and seconds (e.g. `245 words • 18s`) as thinking accumulates.
+- **Visual Thinking Activity Indicator (`evelyn_ui/index.html`)**:
+  - Introduced `.trace-spinner` on `.agent-activity-trace summary` to provide unambiguous visual feedback that reasoning is actively executing even while the drawer is collapsed.
+  - Automatically dismantles the spinner and finalizes title to `"Thought process & actions"` with full word count and latency metrics once response generation begins.
+  - Enhanced historical message rendering in `renderActivityTraceBlock` to display word count alongside tool usage metadata.
 
 ## [000.006.096] - 2026-09-07 — *TTS VRAM Lifecycle & Ollama Prefetch Safeguard*
 
