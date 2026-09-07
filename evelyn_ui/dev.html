@@ -3740,12 +3740,12 @@
                   <pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto;">${escapeHtml(item.merged_observation)}</pre>
                 </div>`
               }
-              <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
-                <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+              <details style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px;">
+                <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;">
                   Supporting Context Entries (${(item.source_entries || []).length})
-                </div>
-                <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
-              </div>
+                </summary>
+                <div class="source-list" style="background: transparent; padding: 10px 0 0 0;">${sourcesHTML}</div>
+              </details>
             </div>
             <div class="card-actions" style="display: flex; gap: 8px;">
               <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve</button>
@@ -3787,15 +3787,18 @@
                 </div>
               </div>
 
-              <div style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">
-                <strong>Supporting Context Entries (${(item.source_entries || []).length}):</strong>
+              <div class="card-actions" style="display: flex; gap: 8px;">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Update</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject Update</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
               </div>
-              <div class="source-list" style="background: transparent; padding: 0;">${sourcesHTML}</div>
-            </div>
-            <div class="card-actions" style="display: flex; gap: 8px;">
-              <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Update</button>
-              <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject Update</button>
-              <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+
+              <details style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 4px;">
+                <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;">
+                  Supporting Context Entries (${(item.source_entries || []).length})
+                </summary>
+                <div class="source-list" style="background: transparent; padding: 10px 0 0 0;">${sourcesHTML}</div>
+              </details>
             </div>
           </div>
         `;

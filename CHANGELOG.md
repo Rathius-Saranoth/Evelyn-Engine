@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 07:38:05
+date modified: 2026-09-07 07:47:31
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,14 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.087] - 2026-09-07 — *Elevate Profile Update Action Controls and Collapsible Context Entries*
+
+### Improved & Enhanced
+- **Profile Update Card Actions Repositioning & Collapsible Context (`evelyn_ui/dev.html`)**:
+  - Relocated the proposal action buttons (`Approve Update`, `Reject Update`, `🗑️ Remove`) to the top section of profile update triage cards, positioning them immediately below the Live Diff Comparison and above the Supporting Context Entries list.
+  - Wrapped **Supporting Context Entries** lists across proposal and profile update triage cards in clean, collapsible `<details>` / `<summary>` accordions (collapsed by default), matching the RAG context retrieval card design.
+  - Eliminates visual clutter and vertical bloat from cards containing hundreds of supporting facts while keeping the full list accessible on click.
 
 ## [000.006.086] - 2026-09-07 — *Prune and Harmonize Sycophantic Memory Records*
 
