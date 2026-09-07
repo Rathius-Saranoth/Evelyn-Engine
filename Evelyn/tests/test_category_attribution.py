@@ -107,6 +107,7 @@ facts:
         mock_conn.execute.return_value.fetchall.return_value = [mock_db_row]
 
         with patch("Evelyn.tools.chroma_rag.query_collection", return_value=mock_chunks), \
+             patch("Evelyn.tools.chroma_rag.log_rag_retrieval"), \
              patch("Evelyn.tools.memory_db.get_db", return_value=mock_conn), \
              patch("memory_db.get_db", return_value=mock_conn, create=True):
             xml_output = chroma_rag.build_rag_context("engineering background")

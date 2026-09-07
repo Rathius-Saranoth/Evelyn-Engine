@@ -409,6 +409,16 @@
         align-items: center;
         gap: 6px;
       }
+      .trace-spinner {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 2px solid var(--text-dim);
+        border-top-color: var(--accent, #7c3aed);
+        animation: spin 0.8s linear infinite;
+        display: inline-block;
+        flex-shrink: 0;
+      }
       .trace-summary-meta {
         margin-left: auto;
         font-size: 11px;
@@ -1918,13 +1928,17 @@
         details.className = "agent-activity-trace";
         details.open = false;
 
+        const words = thinkingText ? (thinkingText.trim().match(/\s+/g) || []).length + (thinkingText.trim() ? 1 : 0) : 0;
         const toolsList = toolsUsedStr ? toolsUsedStr.split(",").filter(Boolean) : [];
         const toolsMeta = toolsList.length > 0 ? `${toolsList.length} tool${toolsList.length > 1 ? "s" : ""} used` : "";
+        const metaParts = [];
+        if (words > 0) metaParts.push(`${words} words`);
+        if (toolsMeta) metaParts.push(toolsMeta);
 
         details.innerHTML = `
           <summary class="trace-summary">
             <span class="trace-summary-left">🧠 <span class="trace-summary-title">Thought process & actions</span></span>
-            <span class="trace-summary-meta">${toolsMeta}</span>
+            <span class="trace-summary-meta">${metaParts.join(" • ")}</span>
             <span class="trace-chevron">▼</span>
           </summary>
           <div class="trace-body"></div>
@@ -1980,7 +1994,9 @@
         let traceBody = null;
         let roundSteps = {};
         let totalTools = 0;
+        let totalThinkingWords = 0;
         let startTime = Date.now();
+        let isFinalized = false;
 
         function ensureTrace() {
           if (!traceEl) {
@@ -1989,8 +2005,12 @@
             traceEl.open = false;
             traceEl.innerHTML = `
               <summary class="trace-summary">
-                <span class="trace-summary-left">🧠 <span class="trace-summary-title">Thinking & actions…</span></span>
-                <span class="trace-summary-meta"></span>
+                <span class="trace-summary-left">
+                  <span class="trace-spinner"></span>
+                  <span>🧠</span>
+                  <span class="trace-summary-title">Thinking…</span>
+                </span>
+                <span class="trace-summary-meta">0 words • 1s</span>
                 <span class="trace-chevron">▼</span>
               </summary>
               <div class="trace-body"></div>
@@ -2030,6 +2050,7 @@
         }
 
         function handleThinking(roundNum, delta) {
+          if (isFinalized) return;
           let r = roundNum;
           const labelMatch = delta.match(/^\[(Initial|Round (\d+)|Tool (\d+)|Response)\]\n/);
           let cleanDelta = delta;
@@ -2043,8 +2064,26 @@
             rObj.thought.textContent += cleanDelta;
             rObj.thought.scrollTop = rObj.thought.scrollHeight;
             traceBody.scrollTop = traceBody.scrollHeight;
+
+            const deltaWords = (cleanDelta.trim().match(/\s+/g) || []).length + (cleanDelta.trim() ? 1 : 0);
+            totalThinkingWords += deltaWords;
+
+            const elapsed = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+            const metaEl = traceEl.querySelector(".trace-summary-meta");
+            if (metaEl) {
+              metaEl.textContent = `${totalThinkingWords} words • ${elapsed}s`;
+            }
           }
           scrollBottom();
+        }
+
+        function finishThinking() {
+          if (traceEl) {
+            const spinner = traceEl.querySelector(".trace-spinner");
+            if (spinner) spinner.remove();
+            const titleEl = traceEl.querySelector(".trace-summary-title");
+            if (titleEl) titleEl.textContent = "Thought process & actions";
+          }
         }
 
         function handleToolStart(roundNum, toolName, args) {
@@ -2076,10 +2115,10 @@
         }
 
         function finalize(metrics) {
+          isFinalized = true;
           if (traceEl) {
-            const titleEl = traceEl.querySelector(".trace-summary-title");
+            finishThinking();
             const metaEl = traceEl.querySelector(".trace-summary-meta");
-            if (titleEl) titleEl.textContent = "Thought process & actions";
 
             let dur = "";
             if (metrics && metrics.total_duration) {
@@ -2088,7 +2127,8 @@
               dur = ((Date.now() - startTime) / 1000).toFixed(1) + "s";
             }
             const toolsText = totalTools > 0 ? ` • ${totalTools} tool${totalTools > 1 ? "s" : ""} used` : "";
-            if (metaEl) metaEl.textContent = `${dur}${toolsText}`;
+            const wordsText = totalThinkingWords > 0 ? `${totalThinkingWords} words • ` : "";
+            if (metaEl) metaEl.textContent = `${wordsText}${dur}${toolsText}`;
 
             // Auto-collapse when turn finishes
             traceEl.open = false;
@@ -2101,11 +2141,13 @@
 
         return {
           handleThinking,
+          finishThinking,
           handleToolStart,
           handleToolEnd,
           handleDelta,
           finalize,
           getTraceElement: () => traceEl,
+          getWordCount: () => totalThinkingWords,
         };
       }
 
@@ -2892,6 +2934,10 @@
             } else {
               currentStream.thinkingHandler.handleDelta(evt.delta);
             }
+            const count = currentStream.thinkingHandler.getWordCount ? currentStream.thinkingHandler.getWordCount() : 0;
+            setStatus(`Thinking… (${count} words)`);
+          } else {
+            setStatus("Thinking…");
           }
           return;
         }
@@ -2948,6 +2994,9 @@
           if (!currentStream.bubble) {
             if (currentStream.addActivity) currentStream.addActivity("✍️", "Generating response…");
             if (currentStream.removeActivity) currentStream.removeActivity();
+            if (currentStream.thinkingHandler && currentStream.thinkingHandler.finishThinking) {
+              currentStream.thinkingHandler.finishThinking();
+            }
             if (currentStream.wrap) {
               currentStream.wrap.querySelectorAll(".tool-indicator .spinner").forEach((s) => {
                 s.style.animation = "none";
@@ -3102,7 +3151,7 @@
         };
       }
 
-      async function executeChatStream({ endpoint, payload, streamCtx, statusLabel = "Thinking…" }) {
+      async function executeChatStream({ endpoint, payload, streamCtx, statusLabel = "Querying model…" }) {
         const { wrap, actLog, addActivity, removeActivity, thinkingHandler, userMsgDiv } = streamCtx;
 
         startStreamingUI(statusLabel);
