@@ -1,7 +1,7 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-06 15:59:20
-# tags:
+# date modified: 2026-09-07 07:37:54
+# tags: #[database, #migrations, #schema, #evelyn]
 
 """
 Evelyn Engine Database Migration Framework.
@@ -2163,6 +2163,195 @@ def migrate_000_006_081_starter_procedure_for_read_url(
     logger.info(f"Migration 000.006.081: Inserted starter procedure for read_url (ID: {cursor.lastrowid}).")
 
 
+def _sanitize_radical_empathy(text: str | None) -> str | None:
+    """Helper to convert occurrences of 'radical empathy' (case-insensitive and hyphenated) to 'empathy'."""
+    if not text:
+        return text
+
+    def _repl(m: re.Match) -> str:
+        full = m.group(0)
+        if full.isupper():
+            return "EMPATHY"
+        elif full[0].isupper():
+            return "Empathy"
+        else:
+            return "empathy"
+
+    return re.sub(r"radical[_\-\s]+empathy", _repl, text, flags=re.IGNORECASE)
+
+
+def migrate_000_006_085_harmonize_empathy_terminology_memory(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Migration 000.006.085: Harmonize 'radical empathy' terminology to 'empathy' across memory context entries, proposals, and sync queue."""
+    cursor = conn.cursor()
+
+    # 1. Update context_entries
+    rows = cursor.execute(
+        "SELECT id, observation, tags FROM context_entries WHERE observation LIKE '%radical%empathy%' OR tags LIKE '%radical%empathy%'"
+    ).fetchall()
+    updated_entries = 0
+    for cid, obs, tags in rows:
+        new_obs = _sanitize_radical_empathy(obs)
+        new_tags = _sanitize_radical_empathy(tags)
+        cursor.execute(
+            "UPDATE context_entries SET observation = ?, tags = ? WHERE id = ?",
+            (new_obs, new_tags, cid),
+        )
+        updated_entries += 1
+
+    # 2. Update proposals
+    p_rows = cursor.execute(
+        "SELECT id, merged_observation, reason, merged_tags FROM proposals WHERE merged_observation LIKE '%radical%empathy%' OR reason LIKE '%radical%empathy%' OR merged_tags LIKE '%radical%empathy%'"
+    ).fetchall()
+    updated_proposals = 0
+    for pid, m_obs, rsn, m_tags in p_rows:
+        new_m_obs = _sanitize_radical_empathy(m_obs)
+        new_rsn = _sanitize_radical_empathy(rsn)
+        new_m_tags = _sanitize_radical_empathy(m_tags)
+        cursor.execute(
+            "UPDATE proposals SET merged_observation = ?, reason = ?, merged_tags = ? WHERE id = ?",
+            (new_m_obs, new_rsn, new_m_tags, pid),
+        )
+        updated_proposals += 1
+
+    # 3. Update chroma_sync_queue
+    q_rows = cursor.execute(
+        "SELECT id, content FROM chroma_sync_queue WHERE content LIKE '%radical%empathy%'"
+    ).fetchall()
+    updated_queue = 0
+    for qid, content in q_rows:
+        new_content = _sanitize_radical_empathy(content)
+        cursor.execute(
+            "UPDATE chroma_sync_queue SET content = ? WHERE id = ?",
+            (new_content, qid),
+        )
+        updated_queue += 1
+
+    # 4. Synchronize ChromaDB collection 'evelyn_memory'
+    try:
+        import chromadb
+
+        chroma_path = getattr(cfg_obj, "CHROMA_DB_PATH", None)
+        if chroma_path and os.path.exists(chroma_path):
+            client = chromadb.PersistentClient(path=chroma_path)
+            try:
+                coll = client.get_collection("evelyn_memory")
+                res = coll.get(where_document={"$contains": "radical empathy"})
+                ids = res.get("ids") or []
+                docs = res.get("documents") or []
+                for doc_id, doc in zip(ids, docs, strict=False):
+                    if doc is not None:
+                        new_doc = _sanitize_radical_empathy(doc)
+                        if new_doc is not None:
+                            coll.update(ids=[doc_id], documents=[new_doc])
+            except (OSError, RuntimeError, ValueError, KeyError) as e:
+                logger.warning(f"Chroma sync warning during migration 000.006.085: {e}")
+    except ImportError:
+        pass
+
+    logger.info(
+        f"Migration 000.006.085 (memory) sanitized {updated_entries} context entries, {updated_proposals} proposals, and {updated_queue} queue items."
+    )
+
+
+def migrate_000_006_085_harmonize_empathy_terminology_chat(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Migration 000.006.085: Harmonize 'radical empathy' terminology to 'empathy' across chat messages content and thinking traces."""
+    cursor = conn.cursor()
+
+    rows = cursor.execute(
+        "SELECT id, content, thinking FROM messages WHERE content LIKE '%radical%empathy%' OR thinking LIKE '%radical%empathy%'"
+    ).fetchall()
+    updated_messages = 0
+    for mid, content, thinking in rows:
+        new_content = _sanitize_radical_empathy(content)
+        new_thinking = _sanitize_radical_empathy(thinking)
+        cursor.execute(
+            "UPDATE messages SET content = ?, thinking = ? WHERE id = ?",
+            (new_content, new_thinking, mid),
+        )
+        updated_messages += 1
+
+    logger.info(
+        f"Migration 000.006.085 (chat) sanitized {updated_messages} chat message records."
+    )
+
+
+def migrate_000_006_086_prune_and_harmonize_sycophancy_records(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Migration 000.006.086: Harmonize sycophantic/hyper-devotional phrasing across memory and proposal records."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    harmonization_patterns = [
+        (re.compile(r"unwavering loyalty toward his feelings", re.I), "grounded loyalty toward his feelings"),
+        (re.compile(r"prioritizing his emotional well-being above all else", re.I), "prioritizing his emotional well-being"),
+        (re.compile(r"Love, Trust, and Mutual Adoration", re.I), "Love, Trust, and Mutual Respect"),
+        (re.compile(r"Love, Trust, Mutual Adoration", re.I), "Love, Trust, Mutual Respect"),
+        (re.compile(r"mutual adoration", re.I), "mutual respect"),
+        (re.compile(r"Mutual Adoration", re.I), "Mutual Respect"),
+        (re.compile(r"unwavering support", re.I), "steady support"),
+        (re.compile(r"unwavering commitment", re.I), "strong commitment"),
+    ]
+
+    # 1. Generic sweep across context_entries
+    rows = cursor.execute(
+        "SELECT id, observation FROM context_entries WHERE status = 'live' AND (observation LIKE '%unwavering%' OR observation LIKE '%adoration%')"
+    ).fetchall()
+
+    updated_entries = 0
+    for cid, obs in rows:
+        if not obs:
+            continue
+        new_obs = obs
+        for pattern, replacement in harmonization_patterns:
+            new_obs = pattern.sub(replacement, new_obs)
+        if new_obs != obs:
+            cursor.execute(
+                "UPDATE context_entries SET observation = ?, updated_at = ? WHERE id = ?",
+                (new_obs, now, cid),
+            )
+            updated_entries += 1
+
+    # 2. Bulk harmonize historical proposals
+    p_rows = cursor.execute(
+        "SELECT id, merged_observation, reason, merged_tags FROM proposals WHERE merged_observation LIKE '%unwavering%' OR merged_observation LIKE '%adoration%' OR reason LIKE '%adoration%' OR reason LIKE '%unwavering%' OR merged_tags LIKE '%adoration%' OR merged_tags LIKE '%unwavering%'"
+    ).fetchall()
+
+    sanitized_proposals = 0
+    for pid, m_obs, rsn, m_tags in p_rows:
+        new_obs = m_obs
+        new_rsn = rsn
+        new_tags = m_tags
+        for pattern, replacement in harmonization_patterns:
+            if new_obs:
+                new_obs = pattern.sub(replacement, new_obs)
+            if new_rsn:
+                new_rsn = pattern.sub(replacement, new_rsn)
+            if new_tags:
+                new_tags = pattern.sub(replacement, new_tags)
+
+        if new_obs != m_obs or new_rsn != rsn or new_tags != m_tags:
+            cursor.execute(
+                "UPDATE proposals SET merged_observation = ?, reason = ?, merged_tags = ? WHERE id = ?",
+                (new_obs, new_rsn, new_tags, pid),
+            )
+            sanitized_proposals += 1
+
+    logger.info(
+        f"Migration 000.006.086: Harmonized {updated_entries} context entries and {sanitized_proposals} proposals."
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2342,6 +2531,26 @@ MIGRATIONS: list[Migration] = [
         version="000.006.081",
         name="starter_procedure_for_read_url",
         up_fn=migrate_000_006_081_starter_procedure_for_read_url,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.085",
+        name="harmonize_empathy_terminology_memory",
+        up_fn=migrate_000_006_085_harmonize_empathy_terminology_memory,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="chat",
+        version="000.006.085",
+        name="harmonize_empathy_terminology_chat",
+        up_fn=migrate_000_006_085_harmonize_empathy_terminology_chat,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.086",
+        name="prune_and_harmonize_sycophancy_records",
+        up_fn=migrate_000_006_086_prune_and_harmonize_sycophancy_records,
         post_sync_chroma=True,
     ),
 ]

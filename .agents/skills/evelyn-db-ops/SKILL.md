@@ -6,7 +6,7 @@ description: >-
 tags: [skill, db, sqlite, mcp, query, debug, evelyn]
 title: SKILL.md
 date created: 2026-08-23 08:04:51
-date modified: 2026-08-23 08:04:51
+date modified: 2026-09-07 07:39:29
 ---
 
 # Evelyn Database Operations Skill
@@ -85,3 +85,11 @@ PYTHONPATH=. /home/rathius/evelyn/venv/bin/python <script_path>
 # Run pytest
 PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests
 ```
+
+---
+
+## 5. Local Data Curation vs. Engine Database Migrations
+
+- **Local Data Curation (No Migration Required)**: Editing individual context facts, updating specific memory observations, changing tags, or soft-deleting individual records is standard data curation. Perform these directly via local database operations (MCP tools, Web UI, or direct `sqlite3` CLI commands). Do **not** create migrations for routine data tweaks.
+- **Engine Database Migrations (`Evelyn/tools/db_migrator.py`)**: Reserved strictly for DDL schema modifications (tables, columns, indexes), structural data model transformations (field splitting, backfills), and generic abstract pattern sweeps.
+- **Privacy Boundary**: `db_migrator.py`, `CHANGELOG.md`, and test suites are tracked in Git and backed up to GitHub. Never hardcode specific memory entry IDs, personal names, or raw private observations into tracked code files.

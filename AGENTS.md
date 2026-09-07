@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-06 18:47:09
+date modified: 2026-09-07 07:39:22
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -37,14 +37,16 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, `requirements.txt`, and `SETUP_GUIDE.md` in sync whenever code contracts change.
 - **File Metadata & Frontmatter**: Run `python scripts/update_frontmatter.py "<filepath>"` after modifying files to ensure timestamps and headers stay accurate.
 
-## 4. Identity Parameterization & Memory Taxonomy
-- **Config as Single Source of Identity**: Identity variables (`ASSISTANT_NAME`, `USER_NAME`, `SUBJECT_CODE_USER = "U"`, `SUBJECT_CODE_ASSISTANT = "A"`) and vault write roots/boundaries live in `evelyn_config.py`. Never hardcode raw persona/operator names or absolute vault subtrees into engine tools, prompts, or tests.
+## 4. Identity Parameterization & Privacy Boundary
+- **Config as Single Source of Identity**: Identity variables (`ASSISTANT_NAME`, `USER_NAME`, `SUBJECT_CODE_USER = "U"`, `SUBJECT_CODE_ASSISTANT = "A"`) and vault write roots/boundaries live in `evelyn_config.py`. Never hardcode raw persona/operator names or absolute vault subtrees into engine tools, prompts, tests, migrations, or commit logs.
+- **Privacy & Git Tracking Boundary**: Tracked repository files (including `Evelyn/tools/db_migrator.py`, `CHANGELOG.md`, tests, and source code) are backed up to public/remote repositories (GitHub). Never hardcode specific memory entry IDs, personal observations, or raw conversation texts into migrations, tests, or changelogs.
 - **Fast Memory Taxonomy**: Categories strictly follow `Cat##-U` for User facts and `Cat##-A` for Assistant facts. The database `subject` column stores the configured entity name (`cfg.USER_NAME` / `cfg.ASSISTANT_NAME`).
 - **Templates & Private Scripts**: Generic open-source markdown templates reside in `templates/`. Private/machine-specific scripts belong in `scripts/personal/` (gitignored).
 
 ## 5. Versioning, Changelog & Database Migrations
 - **Zero-Padded Versioning (`000.000.000`)**: All version numbers must strictly use 3-digit zero-padding (`MAJOR.MINOR.PATCH`, e.g. `000.004.000`). Canonical version is defined in `Evelyn/version.py`.
-- **Database Migration Framework**: All database schema changes (table creation, column additions, indexes) and structural data transformations (field splitting, backfills, cross-database data moves) must be registered as a versioned migration step in `Evelyn/tools/db_migrator.py` (`MIGRATIONS` registry) and executed via `scripts/migrate_db.py`.
+- **Database Migration Scope vs Data Curation**: `Evelyn/tools/db_migrator.py` is strictly reserved for **DDL schema changes** (creating tables, altering columns, adding indexes), **systemic structural transformations** (field splitting, schema refactors, cross-database data moves), and **generic, abstract pattern sweeps**. Simple/routine fact edits, observation phrasing tweaks, and single memory deletions belong in **local database curation** (UI, tools, direct SQLite queries) and must **NOT** be committed as one-off migration steps.
+- **Database Migration Framework**: All database schema changes and structural data transformations must be registered as a versioned migration step in `Evelyn/tools/db_migrator.py` (`MIGRATIONS` registry) and executed via `scripts/migrate_db.py`.
 - **Immutability Rule**: Once a migration version (`000.004.00X`) is committed and applied, its migration code and SQL are **strictly immutable**. Any corrective schema changes, data patches, or structural adjustments must be registered in a **new, incremented migration step** (`000.004.00X+1`).
 - **No Out-of-Band Schema Mutations**: Modifying production database schemas or transforming database structures ad-hoc via inline scripts or unversioned queries is strictly forbidden.
 - **Changelog & Versioning Maintenance**: Every functional code modification (features, bugfixes, architectural adjustments, database migrations) requires an incremented canonical version in `Evelyn/version.py` (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`) and a documented entry in `CHANGELOG.md` detailing added capabilities, fixed issues, changed behaviors, and migrations applied. Keep `ROADMAP.md` concise and milestone-oriented.
