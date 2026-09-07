@@ -3,7 +3,7 @@ title: Assistant_Profile.example.md
 rag_priority: high
 tags: [template, persona, identity, core, evelyn]
 date created: 2026-08-23 08:04:03
-date modified: 2026-09-07 09:09:50
+date modified: 2026-09-07 09:10:03
 ---
 
 ## Identity & Presence

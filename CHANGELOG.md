@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 09:07:36
+date modified: 2026-09-07 14:13:36
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.090] - 2026-09-07 — *Universal Language Integrity, Anti-Jargon Directives & Narrative Anti-Bloat*
+
+### Added & Standardized
+- **Universal Language Integrity Across Persona Triad (`Evelyn/tools/profile_evolver.py`)**:
+  - Enforced strict anti-scare-quote rules, anti-metaphorical jargon guardrails, and anti-conflation compaction logic uniformly across all three persona documents (`User_Profile.md`, `Assistant_Profile.md`, `System_Directives.md`).
+  - Prohibited invented mode names and coined sci-fi/metaphorical buzzwords in directives and user profiles, requiring standard, plain functional English labels (`* **<Label>**: <Directive>`) such as `Development Rigor` and `Travel Demeanor`.
+- **Intra-Tier Compaction for Tier 1 Invariants (`Evelyn/tools/profile_evolver.py`)**:
+  - Formalized intra-tier consolidation rules in compaction and evolution prompts so that when word budgets are tight, Tier 1 invariants are evaluated and consolidated strictly against other Tier 1 items, preventing append-only bloat while maintaining priority over secondary tiers.
+- **Behavioral Trigger-Action Modeling for Assistant Persona (`Evelyn/persona/Assistant_Profile.md`, `Evelyn/tools/profile_evolver.py`)**:
+  - Directed the assistant persona evolution to model concrete behavioral patterns, emotional intent, and responsive presence (`trigger context -> expected response/action`) rather than static nicknames, arbitrary terms of endearment, or isolated anchor examples.
+  - Stripped parenthetical meta-commentary, self-explaining disclaimers, and scare-quoted archetypes from narrative prose across both live persona files and templates.
+- **Resilient Proposal Evolution Fallback (`Evelyn/tools/profile_evolver.py`)**:
+  - Wrapped proposal evolution summary generation in resilient exception handling (`httpx.HTTPError`, `TimeoutError`, `OSError`, `json.JSONDecodeError`, `ValueError`) so transient Ollama timeouts gracefully fall back to a default proposal reason instead of failing the evolution pass.
+- **Deterministic Invariant Test Suite Expansion (`Evelyn/tests/test_profile_section_invariants.py`)**:
+  - Added unit tests validating rejection of scare-quoted bullet labels in directives and user profile documents.
+  - Added unit tests validating rejection of bullet markers and parenthetical meta-disclaimers in assistant narrative prose.
+  - Verified that live persona files and open-source templates strictly satisfy all structural, bullet, and narrative purity constraints.
 
 ## [000.006.089] - 2026-09-07 — *Canonical Persona Naming, User Profile Structured Bullets & Tiered Pruning Framework*
 
