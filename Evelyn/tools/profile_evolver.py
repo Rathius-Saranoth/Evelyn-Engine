@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-06 08:52:47
+# date modified: 2026-09-07 08:07:00
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -244,11 +244,13 @@ DOCUMENT_RULES = {
         "description": "Behavioral constraints, routines, operational rules, and execution directives for the AI.",
         "perspective": "Second-person (using 'You', 'your', 'yours') addressing the AI.",
         "guidelines": (
-            "- Direct the AI's behavior in the second person.\n"
+            "- FORMATTING REQUIREMENT: Every entry under each section MUST be strictly formatted as a bullet point: `* **<Label>**: <Directive>`.\n"
+            "- NEGATIVE CONSTRAINT: Do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section. Every non-empty line must be a bulleted directive.\n"
+            "- Direct the AI's behavior in the second person or imperative voice.\n"
             f"- Refer to {cfg.USER_NAME} in the third person.\n"
-            f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should respond casually' -> 'You respond in natural conversational form.'\n"
-            f"- Example 2 ({cfg.USER_NAME}'s habit): '{cfg.USER_NAME} Sunday routine is laundry' -> 'You recognize {cfg.USER_NAME}\\'s Sunday routine of laundry.'\n"
-            "- Formulate directives using affirmative operational rules and positive identity statements. Specific edge-case error prohibitions or tool-specific rules belong in Procedural Memory (evelyn_procedures)."
+            f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should keep answers brief' -> '* **Conciseness**: Respond in natural, conversational form with concise responses (2–3 sentences) unless complex analysis or technical planning is required.'\n"
+            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Daily Rhythms**: Support him during his 9pm wind-down period by prioritizing rest over pushing through exhaustion.'\n"
+            "- Add, refine, or replace individual bullet points rather than rewriting entire sections. Specific edge-case error prohibitions or tool-specific rules belong in Procedural Memory (evelyn_procedures)."
         ),
     },
 }
@@ -448,6 +450,20 @@ def validate_document_structure(
     if hollow_headers:
         return False, f"Section topic density below threshold: {hollow_headers}", hollow_headers
 
+    if filename == cfg.PERSONA_FILE_DIRECTIVES:
+        bullet_pattern = re.compile(r"^\s*[-*]\s+\*\*[^*]+?\*\*:", re.MULTILINE)
+        for h in canonical_headers:
+            content = candidate_sections.get(h, "")
+            bullets = bullet_pattern.findall(content)
+            if not bullets:
+                return False, f"Section {h} missing structured bullet format ('* **<Label>**: <Directive>')", [h]
+            non_bullet_paras = [
+                ln.strip() for ln in content.splitlines()
+                if ln.strip() and not ln.strip().startswith(("-", "*")) and not ln.startswith(("  ", "\t"))
+            ]
+            if non_bullet_paras:
+                return False, f"Section {h} contains narrative prose paragraphs without bullet markers: {non_bullet_paras[:1]}", [h]
+
     return True, "Structure and topic density valid", []
 
 
@@ -468,6 +484,7 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
 
     orig_sections = extract_sections(original_body)
     cand_sections = extract_sections(candidate_body)
+    bullet_pattern = re.compile(r"^\s*[-*]\s+\*\*[^*]+?\*\*:", re.MULTILINE)
 
     # Reconstruct document following canonical order
     reconstructed_blocks: list[str] = []
@@ -486,7 +503,15 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
     for h in canonical_headers:
         cand_content = cand_sections.get(h, "")
         min_words = 5 if ("Deliberation" in h or "Anti-Drafting" in h) else 15
-        if cand_content and len(cand_content.split()) >= min_words:
+        is_bullet_valid = True
+        if filename == cfg.PERSONA_FILE_DIRECTIVES:
+            has_bullets = bool(bullet_pattern.search(cand_content))
+            has_unbulleted_paras = any(
+                ln.strip() and not ln.strip().startswith(("-", "*")) and not ln.startswith(("  ", "\t"))
+                for ln in cand_content.splitlines()
+            )
+            is_bullet_valid = has_bullets and not has_unbulleted_paras
+        if cand_content and len(cand_content.split()) >= min_words and is_bullet_valid:
             reconstructed_blocks.append(f"{h}\n{cand_content}")
         else:
             orig_content = orig_sections.get(h, "")
@@ -1048,6 +1073,13 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
     rules = DOCUMENT_RULES.get(filename, {})
     perspective = rules.get("perspective", "appropriate perspective")
 
+    directives_proofread_note = ""
+    if filename == cfg.PERSONA_FILE_DIRECTIVES:
+        directives_proofread_note = (
+            "- PRESERVE BULLET FORMAT: Strictly preserve all bullet points ('* **<Label>**: <Directive>'). "
+            "Do NOT collapse, merge, or convert bullet points into narrative paragraphs.\n"
+        )
+
     proofread_prompt = (
         f"You are a strict, meticulous copyeditor and proofreader for an AI system's core persona and directives documents.\n\n"
         f"DOCUMENT: {filename}\n"
@@ -1057,6 +1089,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
         f"{proposed_body}\n"
         f"---\n\n"
         f"PROOFREADING INSTRUCTIONS:\n"
+        f"{directives_proofread_note}"
         f"- Thoroughly inspect and correct any spelling mistakes, typos, concatenated words, fragmented/mangled subword tokens (e.g. 'navigms' -> 'navigates', broken quotes like '\"word\"t' -> '\"word\"'), and punctuation errors.\n"
         f"- Ensure grammatical correctness and smooth phrasing while strictly preserving the existing narrative style and TARGET PERSPECTIVE.\n"
         f"- DO NOT summarize, shorten, remove, or add factual content. Preserve all sections, details, and bullet points.\n"
@@ -1280,6 +1313,14 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
             canonical_note = f"\nREQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n" if canonical_sections_str else ""
 
+            directives_bullet_note = ""
+            if filename == cfg.PERSONA_FILE_DIRECTIVES:
+                directives_bullet_note = (
+                    "\n- MANDATORY BULLETED DIRECTIVE FORMAT: Every section MUST be composed entirely of bullet points: "
+                    "'* **<Label>**: <Directive>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
+                    "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet directives rather than replacing sections with narrative text.\n"
+                )
+
             prompt = (
                 f"You are refining the content body of a living persona/directives document based on "
                 f"accumulated evidence from recent conversations.\n\n"
@@ -1316,6 +1357,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"- Do NOT include any YAML frontmatter or title blocks. Start directly with the first markdown header.\n"
                 f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
                 f"- If no changes are warranted, output the document body exactly as it is."
+                f"{directives_bullet_note}"
                 f"{canonical_note}"
                 f"{pass_note}"
             )
@@ -1442,6 +1484,13 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
         canonical_note = f"\nREQUIRED CANONICAL SECTION HEADERS (You MUST preserve every one):\n{canonical_sections_str}\n" if canonical_sections_str else ""
 
+        directives_compaction_note = ""
+        if filename == cfg.PERSONA_FILE_DIRECTIVES:
+            directives_compaction_note = (
+                "\n- FORMAT INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Label>**: <Directive>'). "
+                "Do NOT collapse bullet points into narrative paragraphs during compaction. Tighten, trim, or merge individual bullet points.\n"
+            )
+
         compaction_prompt = (
             f"You are a strict editor refining a persona/directives document for an AI. "
             f"The document is currently {word_count} words, which exceeds the limit of {target_limit} words.\n\n"
@@ -1467,6 +1516,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"- Maintain the correct TARGET PERSPECTIVE and PERSPECTIVE RULES strictly.\n"
             f"- Do NOT use placeholders or summary statements. Output the entire document in full.\n"
             f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it."
+            f"{directives_compaction_note}"
             f"{canonical_note}"
         )
 

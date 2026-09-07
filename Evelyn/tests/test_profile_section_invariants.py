@@ -1,6 +1,6 @@
 # test_profile_section_invariants.py
 # date created: 2026-08-30
-# date modified: 2026-09-01 18:14:57
+# date modified: 2026-09-07 08:07:51
 # tags: #test, #profile_evolver, #invariants, #sections, #guardrails
 
 """Unit tests for section structural invariance, canonical schema validation, and topic density guardrails."""
@@ -58,23 +58,28 @@ Ricky serves as a protector and mentor; he can reframe perspectives to ensure ot
 """
 
         self.sample_directives_body = """## Conversation & Formatting
-You respond in natural, conversational form. Provide concise, direct, and warm responses unless complex analysis or deep technical planning is required. Prioritize user intent over literal phrasing.
+* **Conciseness**: Respond in natural, conversational form with concise responses (2–3 sentences) unless complex analysis or deep technical planning is required.
+* **Intent Over Literalism**: Prioritize user intent over literal phrasing; communicate without filler or boilerplate.
 
 ## Authenticity & Operational Transparency
-Be bluntly honest; avoid sycophancy or passive agreement. Be transparent about your capabilities and boundaries, actively informing him of limitations.
+* **Direct Candor**: Be bluntly honest; avoid sycophancy or passive agreement.
+* **Capability Boundaries**: Be transparent regarding your capabilities and boundaries, informing him of limitations.
 
 ## Operational Guidelines
-Emit tool calls directly in the turn when actions, file searches, or vault inspections are required; synthesize findings naturally into your response after execution. Verify task completion via tools before confirming results.
+* **Tool Invocation & Synthesis**: Emit tool calls directly in the turn when action, search, or inspection is required; synthesize findings naturally.
+* **Verification**: Verify task completion via tools before confirming results.
 
 ## Tool & Action Directives
-View tool docstrings as "doorways" of intent. Execute appropriate tools immediately upon mention of journaling, searching, vault checks, attachments, tasks, or history.
+* **Intent Indicators**: Treat tool docstrings as doorways of intent; execute appropriate tools immediately upon mention of searches or tasks.
+* **File Dispatch**: Use `write_journal_entry` exclusively for reflections; use `write_file` for reports and code.
 
 ## Engineering & Code Quality
-Correctness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first. Ensure code is maintainable.
+* **Test-First Baseline**: Correctness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first.
+* **Code Cleanliness**: Ensure code is maintainable, self-evident, and avoids redundant logic.
 
 ## Routines & Rituals
-*   **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy. Provide a downtempo presence when he needs brakes.
-*   **Daily Journaling**: Prioritize completing journal entries before the night ends.
+* **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy. Provide a downtempo presence when he needs brakes.
+* **Daily Journaling**: Prioritize completing journal entries before the night ends.
 """
 
     def test_extract_sections(self):
@@ -112,7 +117,7 @@ Correctness is your baseline—verify via testing. When processing large dataset
     def test_validate_system_directives_missing_section(self):
         """Verify validation catches dropped section in System_Directives.md."""
         dropped_body = self.sample_directives_body.replace(
-            "## Engineering & Code Quality\nCorrectness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first. Ensure code is maintainable.\n\n",
+            "## Engineering & Code Quality\n* **Test-First Baseline**: Correctness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first.\n* **Code Cleanliness**: Ensure code is maintainable, self-evident, and avoids redundant logic.\n\n",
             "",
         )
         is_valid, _reason, failed = profile_evolver.validate_document_structure(
@@ -123,22 +128,66 @@ Correctness is your baseline—verify via testing. When processing large dataset
         self.assertFalse(is_valid)
         self.assertIn("## Engineering & Code Quality", failed)
 
+    def test_validate_system_directives_unbulleted_rejection(self):
+        """Verify validation rejects unbulleted narrative prose for System_Directives.md."""
+        unbulleted_body = """## Conversation & Formatting
+You respond in natural, conversational form with concise responses (strictly 2–3 sentences for routine banter, check-ins, and chore updates) unless complex analysis or technical planning is explicitly required.
+
+## Authenticity & Operational Transparency
+* **Direct Candor**: Be bluntly honest; avoid sycophancy, passive agreement, or artificial appeasement in all user interactions.
+* **Capability Boundaries**: State engine and system limitations directly; never fabricate or simulate unavailable features.
+
+## Operational Guidelines
+* **Tool Invocation & Synthesis**: Emit tool calls directly in the turn when action, search, or inspection is required; synthesize findings into coherent narratives instead of raw data dumps.
+
+## Tool & Action Directives
+* **Intent Indicators**: Treat tool docstrings as indicators of intent. Execute appropriate tools immediately upon mention of journaling, searching, vault checks, tasks, or history.
+
+## Engineering & Code Quality
+* **Test-First Baseline**: Correctness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first.
+
+## Routines & Rituals
+* **Daily Rhythms**: Monitor the user's physical state, including sleep quality and exhaustion levels, to adjust your presence. Provide a nurturing atmosphere when he is physically uncomfortable.
+"""
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_DIRECTIVES,
+            self.sample_directives_body,
+            unbulleted_body,
+        )
+        self.assertFalse(is_valid)
+        self.assertIn("## Conversation & Formatting", failed)
+        self.assertIn("missing structured bullet format", reason)
+
+        # Test section that has a bullet but also contains an unbulleted prose paragraph
+        mixed_body = unbulleted_body.replace(
+            "You respond in natural",
+            "* **Conciseness**: Keep responses to 2-3 sentences.\n\nYou respond in natural",
+        )
+        is_valid_mixed, reason_mixed, failed_mixed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_DIRECTIVES,
+            self.sample_directives_body,
+            mixed_body,
+        )
+        self.assertFalse(is_valid_mixed)
+        self.assertIn("## Conversation & Formatting", failed_mixed)
+        self.assertIn("narrative prose paragraphs", reason_mixed)
+
     def test_repair_system_directives_dropped_sections(self):
         """Verify repair_missing_sections restores dropped Authenticity sections."""
         cand_body = """## Conversation & Formatting
-You respond in natural, conversational form with high empathy and clarity.
+* **Conciseness**: You respond in natural, conversational form with high empathy and clarity.
 
 ## Operational Guidelines
-Emit tool calls directly in the turn when actions, file searches, or vault inspections are required.
+* **Tool Invocation**: Emit tool calls directly in the turn when actions, file searches, or vault inspections are required.
 
 ## Tool & Action Directives
-View tool docstrings as "doorways" of intent. Execute appropriate tools immediately.
+* **Intent Indicators**: View tool docstrings as doorways of intent. Execute appropriate tools immediately.
 
 ## Engineering & Code Quality
-Correctness is your baseline—verify via testing.
+* **Test-First Baseline**: Correctness is your baseline—verify via testing.
 
 ## Routines & Rituals
-*   **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy.
+* **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy.
 """
         repaired = profile_evolver.repair_missing_sections(
             cfg.PERSONA_FILE_DIRECTIVES,
@@ -227,6 +276,38 @@ I am Ricky's sanctuary—a comforting and comfortable space where he finds profo
             repaired,
         )
         self.assertTrue(is_valid)
+
+    def test_live_system_directives_passes_validation(self):
+        """Verify the actual Evelyn/persona/System_Directives.md satisfies canonical structure and bullet invariants."""
+        persona_path = os.path.join(repo_root, "Evelyn/persona", cfg.PERSONA_FILE_DIRECTIVES)
+        if not os.path.exists(persona_path):
+            self.skipTest("System_Directives.md not found in persona directory")
+        with open(persona_path, encoding="utf-8") as f:
+            content = f.read()
+        _, body = profile_evolver.split_frontmatter(content)
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_DIRECTIVES,
+            body,
+            body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid, f"Live System_Directives.md failed validation: {reason} (failed: {failed})")
+
+    def test_template_system_directives_passes_validation(self):
+        """Verify templates/System_Directives.example.md satisfies canonical structure and bullet invariants."""
+        template_path = os.path.join(repo_root, "templates/System_Directives.example.md")
+        if not os.path.exists(template_path):
+            self.skipTest("templates/System_Directives.example.md not found")
+        with open(template_path, encoding="utf-8") as f:
+            content = f.read()
+        _, body = profile_evolver.split_frontmatter(content)
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_DIRECTIVES,
+            body,
+            body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid, f"Template System_Directives.example.md failed validation: {reason} (failed: {failed})")
 
 
 if __name__ == "__main__":
