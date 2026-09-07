@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-05 17:54:33
+date modified: 2026-09-07 15:31:48
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -137,7 +137,7 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
   * `edit`: Updates the given fields. If the entry is currently `extracted`, it is promoted to `live` and a memory refresh is triggered. If the entry is already `live` (e.g., a source entry within a profile update proposal), only the field values are updated — status is not touched.
 
 ### `GET /api/persona/{filename}`
-* **Purpose**: Fetches the current content of a core persona file (`Evelyn_Narrative_Persona.md`, `Ricky_Narrative_Profile.md`, or `System_Directives.md`) to display side-by-side or line-by-line diffs.
+* **Purpose**: Fetches the current content of a core persona file (`Assistant_Profile.md`, `User_Profile.md`, or `System_Directives.md`) to display side-by-side or line-by-line diffs.
 * **Returns**: Plain text markdown file content.
 
 ### `GET /api/review/proposals`

@@ -88,12 +88,12 @@ def scaffold_vault_structure(vault_dir: str, assistant_name: str, user_name: str
 
 def copy_starter_templates(vault_dir: str, assistant_name: str, user_name: str) -> None:
     """Deploy starter markdown templates to the configured vault directories."""
-    persona_dst = os.path.join(vault_dir, assistant_name, f"{assistant_name} Narrative Persona.md")
-    user_dst = os.path.join(vault_dir, user_name, f"{user_name} Narrative Profile.md")
+    persona_dst = os.path.join(vault_dir, assistant_name, "Assistant Profile.md")
+    user_dst = os.path.join(vault_dir, user_name, "User Profile.md")
     directives_dst = os.path.join(vault_dir, assistant_name, "System Directives.md")
 
     template_map = {
-        "Assistant_Persona.example.md": persona_dst,
+        "Assistant_Profile.example.md": persona_dst,
         "User_Profile.example.md": user_dst,
         "System_Directives.example.md": directives_dst,
     }

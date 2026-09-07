@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 14:35:21
+date modified: 2026-09-07 15:34:08
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.093] - 2026-09-07 — *Canonical Persona Triad Migration & Legacy Filename Deprecation*
+
+### Deprecated & Removed
+- **Legacy Persona Filenames Deprecation**:
+  - Removed obsolete `Evelyn_Narrative_Persona.md` and `Ricky_Narrative_Profile.md` file references across the entire engine in favor of the canonical, identity-agnostic persona triad: `Assistant_Profile.md`, `User_Profile.md`, and `System_Directives.md`.
+  - Cleaned up leftover legacy fallback keys in `evelyn_ui/dev.html`'s `docIcons`.
+  - Updated template deployment mapping in `evelyn_setup.py` and `SETUP_GUIDE.md` to reference `Assistant_Profile.example.md` -> `Assistant Profile.md` and `User Profile.md`.
+
+### Fixed & Standardized
+- **Test Suite Grounding & Hardcoded File Name Decoupling (`Evelyn/tests/test_category_attribution.py`, `Evelyn/tests/test_profile_section_invariants.py`)**:
+  - Updated `test_category_attribution.py` to cluster entries using `cfg.PERSONA_FILE_USER` instead of legacy hardcoded filenames.
+  - Updated test fixtures in `test_profile_section_invariants.py` from `# Assistant Narrative Persona` to `# Assistant Profile`.
+- **Engine Docstrings & Internal Comments Alignment (`evelyn_server.py`, `Evelyn/tools/memory_db.py`, `Evelyn/tools/profile_evolver.py`)**:
+  - Updated docstring argument examples in `memory_db.py` (`get_qualifying_entries`, `touch_entry_evolved`) and `profile_evolver.py` (`_draft_path`, `validate_profile_sections`, `_cluster_entries_by_theme`, `record_profile_proposal_resolution`, `_proofread_document`, `evolve_profile_document`) to canonical `User_Profile.md` and `Assistant_Profile.md`.
+  - Updated `/api/review/proposals/{id}/approve` profile update inline comment in `evelyn_server.py`.
+- **Documentation & Workflow Specifications Parity (`reference/endpoints.md`, `reference/engine_architecture.md`, `README.md`, `.agents/workflows/backup-to-github.md`)**:
+  - Aligned API endpoints documentation for `GET /api/persona/{filename}` to document `Assistant_Profile.md` and `User_Profile.md`.
+  - Updated architecture specs, persona section mappings, and starter template links in `engine_architecture.md` and `README.md`.
+  - Updated safety warning in `.agents/workflows/backup-to-github.md` to guard `*_Profile.md` patterns.
+
+## [000.006.092] - 2026-09-07 — *Profile Evolver State Reconciliation, Manual Trigger Integration & Dashboard Status Formatting*
+
+### Fixed & Standardized
+- **Ground-Truth Reconciliation in Profile Evolver (`Evelyn/tools/profile_evolver.py`)**:
+  - Implemented automatic database reconciliation in `get_profile_evolution_statuses()` against SQLite `proposals` table. When state JSON indicates `PROPOSAL_STAGED` or `PENDING_EXISTS` but no pending proposal exists in the database, the status is self-healed to `APPROVED` (with the review timestamp) or `BELOW_THRESHOLD` depending on the latest resolution.
+  - Hardened state persistence in `_save_evolution_state()` to merge in-memory updates with on-disk state using latest timestamps and maximum values, preventing long-running manual scripts or concurrent review actions from overwriting recent document statuses.
+  - Normalized target filenames with `os.path.basename()` across all document status updates.
+- **Manual Trigger Registry & Task Manager Synchronization (`scripts/trigger_profile_evolution.py`)**:
+  - Integrated `task_manager.set_running("profile_evolver")` and `task_manager.clear_running("profile_evolver", status="idle")` with `task_manager.save_last_run_ts()`.
+  - Reloaded fresh evolution state per target document in manual runs to ensure concurrent proposal approvals are never clobbered by stale in-memory state.
+- **Server Heavy Tasks Endpoint Synchronization (`evelyn_server.py`)**:
+  - Dynamically resolved `profile_evolver`'s `last_run_at` in the `/api/heavy_tasks` endpoint from the latest document timestamp in `doc_statuses`, ensuring the dashboard accurately reflects recent manual runs and proposal approvals.
+- **Dev Dashboard Visual PKM Alignment (`evelyn_ui/dev.html`)**:
+  - Added canonical file name mappings for `Assistant_Profile.md`, `User_Profile.md`, and `System_Directives.md` in `docIcons`.
+  - Added `white-space: nowrap;` and `gap: 6px;` to document status rows to prevent awkward two-line text wrapping and status dot misalignment on narrow card containers.
+- **Automated Verification Suite (`Evelyn/tests/test_profile_evolution_status.py`)**:
+  - Added comprehensive test coverage for proposal state reconciliation, self-healing, and pending proposal detection.
 
 ## [000.006.091] - 2026-09-07 — *Tool-Schema Kwarg Deduplication, Procedure Merge Refinements & Interactive Manual Master Consolidation*
 

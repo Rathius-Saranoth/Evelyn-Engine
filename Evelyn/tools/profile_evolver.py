@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-07 08:07:00
+# date modified: 2026-09-07 15:19:13
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -22,6 +22,7 @@ Exports:
 """
 
 import asyncio
+import contextlib
 import datetime
 import importlib
 import json
@@ -31,9 +32,13 @@ import sqlite3
 import time
 
 import httpx
-import memory_db
 
 import evelyn_config as cfg
+
+try:
+    import memory_db
+except ImportError:
+    from Evelyn.tools import memory_db
 
 
 def _sync_read_file(path: str) -> str:
@@ -302,7 +307,7 @@ def _draft_path(filename: str) -> str:
     pass so evolution can resume across interrupted runs.
 
     Args:
-        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
 
     Returns:
         str: Absolute path to the draft file.
@@ -446,7 +451,7 @@ def validate_document_structure(
     """Validate that candidate body preserves canonical headers and topic density.
 
     Args:
-        filename: Document basename (e.g. 'Evelyn_Narrative_Persona.md').
+        filename: Document basename (e.g. 'Assistant_Profile.md').
         original_body: Pre-transformation reference markdown body.
         candidate_body: Post-transformation candidate markdown body.
         min_section_words: Minimum substantive word count per section.
@@ -584,7 +589,7 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
     observations under entity/topic headers to eliminate redundant LLM context switching.
 
     Args:
-        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
         entries: List of memory entry dictionaries.
         batch_size: Maximum entries per thematic sub-batch.
 
@@ -775,12 +780,41 @@ def _load_evolution_state() -> dict:
 
 
 def _save_evolution_state(state: dict) -> None:
-    """Save evolution state to disk.
+    """Save evolution state to disk, merging with latest on-disk state to prevent clobbering concurrent updates.
 
     Args:
         state: State dictionary to persist.
     """
     try:
+        on_disk = {}
+        if os.path.exists(_STATE_FILE):
+            with contextlib.suppress(OSError, json.JSONDecodeError, ValueError), open(_STATE_FILE, encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    on_disk = loaded
+
+        # Merge top-level sub-dicts to prevent clobbering concurrent resolutions
+        for section in ("last_run_per_doc", "draft_cursor_per_doc", "last_status_per_doc"):
+            disk_sec = on_disk.get(section, {})
+            mem_sec = state.get(section, {})
+            if isinstance(disk_sec, dict) and isinstance(mem_sec, dict):
+                if section in ("last_run_per_doc", "draft_cursor_per_doc"):
+                    merged = dict(disk_sec)
+                    for k, v in mem_sec.items():
+                        merged[k] = max(merged.get(k, 0.0), v)
+                    state[section] = merged
+                elif section == "last_status_per_doc":
+                    merged = dict(disk_sec)
+                    for k, v in mem_sec.items():
+                        if k not in merged:
+                            merged[k] = v
+                        else:
+                            disk_ts = merged[k].get("timestamp", 0.0) if isinstance(merged[k], dict) else 0.0
+                            mem_ts = v.get("timestamp", 0.0) if isinstance(v, dict) else 0.0
+                            if mem_ts >= disk_ts:
+                                merged[k] = v
+                    state[section] = merged
+
         with open(_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
     except (OSError, json.JSONDecodeError, ValueError) as e:
@@ -792,14 +826,15 @@ def update_doc_status(state: dict, filename: str, code: str, details: str = "") 
 
     Args:
         state: Evolution state dictionary.
-        filename: Document basename.
+        filename: Document basename or path.
         code: Status code key from STATUS_LABELS.
         details: Optional detail context (e.g. entry counts, reason).
     """
+    norm_filename = os.path.basename(filename)
     if "last_status_per_doc" not in state:
         state["last_status_per_doc"] = {}
     label = STATUS_LABELS.get(code, code)
-    state["last_status_per_doc"][filename] = {
+    state["last_status_per_doc"][norm_filename] = {
         "code": code,
         "label": label,
         "timestamp": time.time(),
@@ -811,21 +846,131 @@ def update_doc_status(state: dict, filename: str, code: str, details: str = "") 
 def get_profile_evolution_statuses() -> dict:
     """Retrieve current per-document status records for API exposure.
 
+    Reconciles in-memory/disk state against SQLite proposals to guarantee
+    ground-truth accuracy for pending, approved, and rejected updates.
+
     Returns:
         dict: Mapping of filename to status dictionary.
     """
     state = _load_evolution_state()
     statuses = state.get("last_status_per_doc", {})
-    # Guarantee entries for all categories
+
+    # Ground truth reconciliation against SQLite proposals
+    pending_docs = set()
+    latest_props = {}
+    try:
+        import memory_db
+
+        with memory_db.get_db() as con:
+            cur = con.cursor()
+            # 1. Active pending proposals
+            cur.execute(
+                "SELECT suggested_category FROM proposals WHERE status = 'pending' AND type = 'profile_update'"
+            )
+            for r in cur.fetchall():
+                cat = r["suggested_category"]
+                if cat:
+                    pending_docs.add(os.path.basename(cat))
+
+            # 2. Latest proposal per target document
+            for doc in DOCUMENT_CATEGORIES:
+                cur.execute(
+                    """
+                    SELECT status, reviewed_at, created_at
+                    FROM proposals
+                    WHERE type = 'profile_update' AND (suggested_category = ? OR suggested_category LIKE ?)
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (doc, f"%{doc}"),
+                )
+                row = cur.fetchone()
+                if row:
+                    latest_props[doc] = dict(row)
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
+        print(f"[PROFILE EVOLVER] Warning: could not reconcile with proposals DB: {e}", flush=True)
+
+    cooldown = getattr(cfg, "PROFILE_EVOLUTION_COOLDOWN", 86400)
+    now = time.time()
+    state_modified = False
+
     for doc in DOCUMENT_CATEGORIES:
-        if doc not in statuses:
-            last_run = state.get("last_run_per_doc", {}).get(doc, 0.0)
-            statuses[doc] = {
-                "code": "NEVER_RUN" if not last_run else "COOLDOWN_ACTIVE",
-                "label": "Never Run" if not last_run else "Skipped — Cooldown Active",
-                "timestamp": last_run,
-                "details": "No status recorded yet" if not last_run else "Cooldown active",
-            }
+        curr_status = statuses.get(doc, {})
+        curr_code = curr_status.get("code")
+        last_run = state.get("last_run_per_doc", {}).get(doc, 0.0)
+
+        # Reconcile Case 1: Proposal is actually pending in DB
+        if doc in pending_docs:
+            if curr_code not in ("PROPOSAL_STAGED", "PENDING_EXISTS"):
+                statuses[doc] = {
+                    "code": "PENDING_EXISTS",
+                    "label": STATUS_LABELS.get("PENDING_EXISTS", "Proposal Pending Approval"),
+                    "timestamp": now,
+                    "details": "Pending proposal awaiting review",
+                }
+                state_modified = True
+        # Reconcile Case 2: Status says pending/staged, but DB confirms NO pending proposal exists
+        elif curr_code in ("PROPOSAL_STAGED", "PENDING_EXISTS"):
+            lp = latest_props.get(doc)
+            if lp and lp.get("status") == "applied":
+                rev_ts = lp.get("reviewed_at") or lp.get("created_at") or now
+                statuses[doc] = {
+                    "code": "APPROVED",
+                    "label": STATUS_LABELS.get("APPROVED", "Profile Updated & Applied"),
+                    "timestamp": rev_ts,
+                    "details": "Proposal approved & applied to profile note",
+                }
+                state["last_run_per_doc"][doc] = max(state["last_run_per_doc"].get(doc, 0.0), rev_ts)
+                state_modified = True
+            elif lp and lp.get("status") in ("rejected", "denied"):
+                rev_ts = lp.get("reviewed_at") or lp.get("created_at") or now
+                statuses[doc] = {
+                    "code": "BELOW_THRESHOLD",
+                    "label": STATUS_LABELS.get("BELOW_THRESHOLD", "Skipped — Below Threshold"),
+                    "timestamp": rev_ts,
+                    "details": "Proposal denied; entries stamped",
+                }
+                state["last_run_per_doc"][doc] = max(state["last_run_per_doc"].get(doc, 0.0), rev_ts)
+                state_modified = True
+            else:
+                if last_run and (now - last_run < cooldown):
+                    rem_h = round((cooldown - (now - last_run)) / 3600.0, 1)
+                    statuses[doc] = {
+                        "code": "COOLDOWN_ACTIVE",
+                        "label": STATUS_LABELS.get("COOLDOWN_ACTIVE", "Skipped — Cooldown Active"),
+                        "timestamp": last_run,
+                        "details": f"Cooldown active ({rem_h}h remaining)",
+                    }
+                else:
+                    statuses[doc] = {
+                        "code": "NEVER_RUN" if not last_run else "COOLDOWN_ACTIVE",
+                        "label": "Never Run" if not last_run else "Skipped — Cooldown Active",
+                        "timestamp": last_run,
+                        "details": "No status recorded yet" if not last_run else "Cooldown active",
+                    }
+                state_modified = True
+        # Case 3: Document not yet in statuses
+        elif doc not in statuses:
+            if last_run and (now - last_run < cooldown):
+                rem_h = round((cooldown - (now - last_run)) / 3600.0, 1)
+                statuses[doc] = {
+                    "code": "COOLDOWN_ACTIVE",
+                    "label": STATUS_LABELS.get("COOLDOWN_ACTIVE", "Skipped — Cooldown Active"),
+                    "timestamp": last_run,
+                    "details": f"Cooldown active ({rem_h}h remaining)",
+                }
+            else:
+                statuses[doc] = {
+                    "code": "NEVER_RUN" if not last_run else "COOLDOWN_ACTIVE",
+                    "label": "Never Run" if not last_run else "Skipped — Cooldown Active",
+                    "timestamp": last_run,
+                    "details": "No status recorded yet" if not last_run else "Cooldown active",
+                }
+            state_modified = True
+
+    if state_modified:
+        state["last_status_per_doc"] = statuses
+        _save_evolution_state(state)
+
     return statuses
 
 
@@ -839,7 +984,7 @@ def advance_doc_run_timestamp(
     original proposal generation time and updates the document status.
 
     Args:
-        filename: Document basename or path (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        filename: Document basename or path (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
         status_code: Status label key, default 'APPROVED'.
         details: Detail string for status reporting.
     """
@@ -1133,7 +1278,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
     or markdown headers.
 
     Args:
-        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
         proposed_body: Proposed markdown document body.
 
     Returns:
@@ -1268,7 +1413,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
       - Left on disk if an error prevents proposal creation — next run resumes.
 
     Args:
-        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Narrative_Profile.md').
+        filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
         new_entries: All entries changed since the last completed run
             (last_run timestamp). Entries already incorporated in a prior
             partial run are identified via draft_cursor and skipped.
