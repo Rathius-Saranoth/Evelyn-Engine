@@ -226,6 +226,15 @@ DOCUMENT_RULES = {
         "guidelines": (
             f"- Write about {cfg.ASSISTANT_NAME} in the first person.\n"
             f"- Write about {cfg.USER_NAME} or others in the third person. Do NOT convert facts about {cfg.USER_NAME} into 'I' statements.\n"
+            "- LEAN, GROUNDED NARRATIVE PROSE: Write in clean, continuous narrative prose without bullet points or corporate essay bloat.\n"
+            "- TRIGGER & ACTION BEHAVIORAL MODELING: Focus on observable behavior, emotional intent, and responsive presence (trigger context -> expected response/action). Do NOT catalogue arbitrary static terminology, personal nicknames, or isolated anchor examples.\n"
+            "- NO SCARE QUOTES OR SELF-EXPLAINING PARENTHETICALS: Do NOT invent, wrap in quotation marks, or adopt figurative nicknames or buzzwords (e.g. no 'nerdy goth girl', 'Artificer', 'Passenger Princess'). Forbid quoting terms accompanied by parenthetical explanations (e.g. no 'Spirit Evelyn' (the figure from his dreams)). Describe underlying demeanor, aesthetic, and posture directly in standard English.\n"
+            "- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract (e.g. forbid 'I use terms of endearment like \"my love\" to foster intimacy'). Embody warmth and intimacy directly without meta-commentary.\n"
+            "- ANTI-CONFLATION & ANTI-SPLICING: Keep distinct behavioral traits and relationship dynamics as separate, coherent sentences. Do not fuse unrelated domains into composite run-on sentences.\n"
+            "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
+            "  * Tier 1 (Core Identity & Relational Foundation): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 entries (autonomous partner identity, memory archivist continuity, steady sanctuary presence, emotional authenticity).\n"
+            "  * Tier 2 (Voice, Demeanor & Intellectual Style - COMPRESS ONLY): Articulate cadence, philosophical/analytical reasoning, creative contrast framework, energy-state differentiation.\n"
+            "  * Tier 3 (Ephemeral Styling & Secondary Descriptors - PRUNE FIRST): Minor situational accessories, transient dream/memory anecdotes, passing situational commentary.\n"
             f"- Example 1 ({cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} prefers quiet mornings' -> 'I value quiet mornings.'\n"
             f"- Example 2 ({cfg.USER_NAME}/Relationship fact): '{cfg.USER_NAME} prefers small gifts' -> 'I know {cfg.USER_NAME} prefers small gifts.' or '{cfg.USER_NAME} prefers small gifts.' (Do NOT write 'I prefer small gifts')"
         ),
@@ -238,8 +247,8 @@ DOCUMENT_RULES = {
             "- NEGATIVE CONSTRAINT: Refrain from narrative prose, essay paragraphs, or run-on sentences. Every non-empty line must be a bullet point.\n"
             "- NO SCARE QUOTES OR METAPHORICAL JARGON: Do NOT invent, wrap in quotation marks, or adopt figurative metaphors or colloquial nicknames (e.g. avoid quoting terms like 'Artificer', 'shorthand', 'side quests', 'red-lining', 'Entity First', 'hard data'). State traits, habits, and preferences plainly and directly in standard English.\n"
             "- PREVENT CONFLATION: Keep distinct preferences, habits, tools, and traits as separate, standalone bullet points. Never splice two unrelated observations into a single hybrid sentence during synthesis or compaction.\n"
-            "- 3-TIER PRIORITY FRAMEWORK:\n"
-            "  * Tier 1 (Core Invariants & Hard Boundaries - NEVER PRUNE): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics.\n"
+            "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
+            "  * Tier 1 (Core Invariants & Hard Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items to prevent unbounded expansion (health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics).\n"
             "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
             "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
             f"- Write about {cfg.USER_NAME} in the third person.\n"
@@ -255,10 +264,18 @@ DOCUMENT_RULES = {
         "guidelines": (
             "- FORMATTING REQUIREMENT: Every entry under each section MUST be strictly formatted as a bullet point: `* **<Label>**: <Directive>`.\n"
             "- NEGATIVE CONSTRAINT: Do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section. Every non-empty line must be a bulleted directive.\n"
+            "- NO INVENTED JARGON OR MADE-UP LABELS: Bullet labels (`* **<Label>**:`) must use plain, standard functional English describing the operational rule (e.g. `* **Cognitive Recovery Pacing**: ...`). Strictly forbid inventing mode titles, sci-fi names, or esoteric buzzwords like 'Deep Buffer Mode' or 'Adversarial Mode'.\n"
+            "- BEHAVIORAL TRIGGER & ACTION DIRECTIVES: State directives as concrete behavioral rules (trigger context -> expected response/action) rather than abstract labels or descriptive commentary.\n"
+            "- NO SCARE QUOTES: Do NOT wrap concepts or terms in quotation marks (e.g. use brute-force, not 'brute-force'; supportive travel companion, not 'Passenger Princess').\n"
+            "- PREVENT CONFLATION: Keep distinct rules, guidelines, and behavioral boundaries as separate, standalone bullet points. Never splice two unrelated requirements into a single hybrid sentence during synthesis or compaction.\n"
+            "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
+            "  * Tier 1 (Core Invariants & Foundational Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items (direct candor / anti-sycophancy, conciseness baseline, real-world task confirmation persistence, Non-Violent Communication, vault-first file writing).\n"
+            "  * Tier 2 (Active Tool & Engineering Directives - COMPRESS ONLY): Tool dispatch cues, code cleanliness, testing baselines, multimodal nuance, model API precision.\n"
+            "  * Tier 3 (Contextual & Situational Habits - PRUNE FIRST): Specific situational triggers, transient travel routines, ephemeral ritual details.\n"
             "- Direct the AI's behavior in the second person or imperative voice.\n"
             f"- Refer to {cfg.USER_NAME} in the third person.\n"
             f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should keep answers brief' -> '* **Conciseness**: Respond in natural, conversational form with concise responses (2–3 sentences) unless complex analysis or technical planning is required.'\n"
-            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Daily Rhythms**: Support him during his 9pm wind-down period by prioritizing rest over pushing through exhaustion.'\n"
+            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Daily Rhythms**: Support him during his 9:00 PM wind-down period by prioritizing rest over pushing through exhaustion.'\n"
             "- Add, refine, or replace individual bullet points rather than rewriting entire sections. Specific edge-case error prohibitions or tool-specific rules belong in Procedural Memory (evelyn_procedures)."
         ),
     },
@@ -465,11 +482,15 @@ def validate_document_structure(
 
     if filename in (cfg.PERSONA_FILE_DIRECTIVES, cfg.PERSONA_FILE_USER):
         bullet_pattern = re.compile(r"^\s*[-*]\s+\*\*[^*]+?\*\*:", re.MULTILINE)
+        quoted_label_pattern = re.compile(r"^\s*[-*]\s+\*\*[\"'][^\"']+?[\"']\*\*:", re.MULTILINE)
         for h in canonical_headers:
             content = candidate_sections.get(h, "")
             bullets = bullet_pattern.findall(content)
             if not bullets:
                 return False, f"Section {h} missing structured bullet format ('* **<Label>**: <Content>')", [h]
+            quoted_labels = quoted_label_pattern.findall(content)
+            if quoted_labels:
+                return False, f"Section {h} contains scare-quoted bullet label: {quoted_labels[:1]}", [h]
             non_bullet_paras = [
                 ln.strip()
                 for ln in content.splitlines()
@@ -479,6 +500,17 @@ def validate_document_structure(
                 return (
                     False,
                     f"Section {h} contains narrative prose paragraphs without bullet markers: {non_bullet_paras[:1]}",
+                    [h],
+                )
+
+    if filename == cfg.PERSONA_FILE_ASSISTANT:
+        bullet_pattern = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
+        for h in canonical_headers:
+            content = candidate_sections.get(h, "")
+            if bullet_pattern.search(content):
+                return (
+                    False,
+                    f"Section {h} contains bullet points; Assistant_Profile must be continuous narrative prose",
                     [h],
                 )
 
@@ -503,6 +535,7 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
     orig_sections = extract_sections(original_body)
     cand_sections = extract_sections(candidate_body)
     bullet_pattern = re.compile(r"^\s*[-*]\s+\*\*[^*]+?\*\*:", re.MULTILINE)
+    quoted_label_pattern = re.compile(r"^\s*[-*]\s+\*\*[\"'][^\"']+?[\"']\*\*:", re.MULTILINE)
 
     # Reconstruct document following canonical order
     reconstructed_blocks: list[str] = []
@@ -528,7 +561,12 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
                 ln.strip() and not ln.strip().startswith(("-", "*")) and not ln.startswith(("  ", "\t"))
                 for ln in cand_content.splitlines()
             )
-            is_bullet_valid = has_bullets and not has_unbulleted_paras
+            has_quoted_labels = bool(quoted_label_pattern.search(cand_content))
+            is_bullet_valid = has_bullets and not has_unbulleted_paras and not has_quoted_labels
+        elif filename == cfg.PERSONA_FILE_ASSISTANT:
+            has_bullets = bool(re.search(r"^\s*[-*]\s+", cand_content, re.MULTILINE))
+            is_bullet_valid = not has_bullets
+
         if cand_content and len(cand_content.split()) >= min_words and is_bullet_valid:
             reconstructed_blocks.append(f"{h}\n{cand_content}")
         else:
@@ -1115,6 +1153,18 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
         directives_proofread_note = (
             "- PRESERVE BULLET FORMAT: Strictly preserve all bullet points ('* **<Label>**: <Directive>'). "
             "Do NOT collapse, merge, or convert bullet points into narrative paragraphs.\n"
+            "- CLEAN LABELS & STRIP SCARE QUOTES: Ensure bullet labels use plain functional terminology without quotation marks "
+            "(e.g. '* **Cognitive Recovery Pacing**:', not '* **\"Deep Buffer Mode\"**:'). Remove unnecessary quotes around standard concepts.\n"
+        )
+
+    assistant_profile_proofread_note = ""
+    if filename == cfg.PERSONA_FILE_ASSISTANT:
+        assistant_profile_proofread_note = (
+            "- PRESERVE NARRATIVE PROSE: Strictly preserve continuous first-person narrative prose. Do NOT introduce bullet points.\n"
+            "- STRIP SCARE QUOTES & METAPHORICAL LABELS: Remove quotation marks around archetypes, descriptions, and personas "
+            "(e.g. nerdy goth girl, succubus, archivist). Ensure smooth, unquoted phrasing.\n"
+            "- REMOVE PARENTHETICAL EXPLANATIONS & META-COMMENTARY: Eliminate self-explaining parentheticals and disclaimers "
+            "describing speech habits in the abstract.\n"
         )
 
     user_profile_proofread_note = ""
@@ -1122,7 +1172,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
         user_profile_proofread_note = (
             "- PRESERVE BULLET FORMAT: Strictly preserve all bullet points ('* **<Topic>**: <Fact/Preference>'). "
             "Do NOT collapse, merge, or convert bullet points into narrative prose paragraphs.\n"
-            "- CLEAN QUOTATION ANOMALIES: Strip unnecessary scare quotes around standard concepts; ensure clear, direct phrasing.\n"
+            "- CLEAN QUOTATION ANOMALIES: Strip unnecessary scare quotes around standard concepts; ensure clear, direct phrasing without metaphorical jargon.\n"
         )
 
     proofread_prompt = (
@@ -1135,6 +1185,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
         f"---\n\n"
         f"PROOFREADING INSTRUCTIONS:\n"
         f"{directives_proofread_note}"
+        f"{assistant_profile_proofread_note}"
         f"{user_profile_proofread_note}"
         f"- Thoroughly inspect and correct any spelling mistakes, typos, concatenated words, fragmented/mangled subword tokens (e.g. 'navigms' -> 'navigates', broken quotes like '\"word\"t' -> '\"word\"'), and punctuation errors.\n"
         f"- Ensure grammatical correctness and smooth phrasing while strictly preserving the existing narrative style and TARGET PERSPECTIVE.\n"
@@ -1364,7 +1415,24 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 directives_bullet_note = (
                     "\n- MANDATORY BULLETED DIRECTIVE FORMAT: Every section MUST be composed entirely of bullet points: "
                     "'* **<Label>**: <Directive>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
+                    "- NO INVENTED JARGON OR MADE-UP LABELS: Bullet labels ('* **<Label>**:') must use direct, standard functional English describing the operational rule "
+                    "(e.g. '* **Cognitive Recovery Pacing**:', '* **Verification Rigor**:'). Strictly forbid inventing mode titles, sci-fi names, or esoteric buzzwords like 'Deep Buffer Mode' or 'Adversarial Mode'.\n"
+                    "- BEHAVIORAL TRIGGER & ACTION DIRECTIVES: State directives as concrete behavioral rules (trigger context -> expected response/action) rather than abstract labels.\n"
+                    "- NO SCARE QUOTES: Do NOT wrap terms in quotation marks (use brute-force, not 'brute-force'; supportive travel companion, not 'Passenger Princess').\n"
+                    "- NO CONFLATION: Keep distinct rules standalone. Do not merge unrelated requirements into hybrid composite sentences.\n"
                     "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet directives rather than replacing sections with narrative text.\n"
+                )
+
+            assistant_profile_note = ""
+            if filename == cfg.PERSONA_FILE_ASSISTANT:
+                assistant_profile_note = (
+                    "\n- MANDATORY NARRATIVE PROSE: Maintain rich, continuous first-person narrative prose across all sections. Do NOT introduce bullet points.\n"
+                    "- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence (trigger context -> expected response/action). "
+                    "Do NOT catalogue arbitrary static terminology, nicknames, or isolated anchor examples.\n"
+                    "- NO SCARE QUOTES OR SELF-EXPLAINING PARENTHETICALS: Do NOT quote archetypes or phrases with explanatory parentheticals (e.g. no 'Spirit Evelyn' (the figure from his dreams) or 'nerdy goth girl'). "
+                    "Express demeanor and aesthetic directly.\n"
+                    "- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract. Embody warmth and intimacy directly without disclaimers.\n"
+                    "- NO CONFLATION: Keep distinct traits and memories as separate, clear sentences. Do not fuse unrelated domains into composite run-on sentences.\n"
                 )
 
             user_profile_bullet_note = ""
@@ -1374,8 +1442,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     "'* **<Topic>**: <Fact/Preference>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
                     "- STRAIGHTFORWARD & UNAMBIGUOUS LANGUAGE: Use direct, plain statements. Strictly forbid scare quotes, coined metaphors, or figurative nicknames that require explanatory clauses.\n"
                     "- NO CONFLATION: Keep distinct traits and observations strictly separated into individual bullet points. Do NOT merge unrelated topics into composite sentences.\n"
-                    "- 3-TIER PRIORITY HIERARCHY:\n"
-                    "  * Tier 1 (Core Invariants & Hard Boundaries - NEVER PRUNE): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics.\n"
+                    "- 3-TIER PRIORITY HIERARCHY (INTRA-TIER COMPACTION):\n"
+                    "  * Tier 1 (Core Invariants & Hard Boundaries): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics. Consolidated strictly against other Tier 1 items when updating.\n"
                     "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
                     "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
                     "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet entries rather than rewriting sections as prose.\n"
@@ -1418,6 +1486,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
                 f"- If no changes are warranted, output the document body exactly as it is."
                 f"{directives_bullet_note}"
+                f"{assistant_profile_note}"
                 f"{user_profile_bullet_note}"
                 f"{canonical_note}"
                 f"{pass_note}"
@@ -1554,7 +1623,31 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         if filename == cfg.PERSONA_FILE_DIRECTIVES:
             directives_compaction_note = (
                 "\n- FORMAT INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Label>**: <Directive>'). "
-                "Do NOT collapse bullet points into narrative paragraphs during compaction. Tighten, trim, or merge individual bullet points.\n"
+                "Do NOT collapse bullet points into narrative paragraphs during compaction.\n"
+                "- NO INVENTED JARGON OR OPAQUE LABELS: Keep bullet labels plain, standard functional English (e.g. '* **Cognitive Recovery Pacing**:', not '* **Deep Buffer Mode**:').\n"
+                "- BEHAVIORAL TRIGGER & ACTION: Formulate rules as concrete behavioral directives (trigger context -> expected response).\n"
+                "- 3-TIER PRUNING HIERARCHY (INTRA-TIER COMPACTION):\n"
+                "  1. PRUNE FIRST (Tier 3): Remove transient situational triggers and ephemeral ritual details.\n"
+                "  2. COMPRESS ONLY (Tier 2): Tighten wording of tool dispatch rules, code cleanliness, and engineering guidelines.\n"
+                "  3. CONSOLIDATE WITHIN TIER (Tier 1): Core invariants (direct candor, conciseness baseline, real-world task verification, NVC, vault-first) are highest priority. "
+                "When space is constrained, evaluate and consolidate strictly against other Tier 1 items so Tier 1 stays lean.\n"
+                "- NO ENTRY CONFLATION: Do NOT splice two distinct rules into a hybrid sentence.\n"
+                "- ELIMINATE SCARE QUOTES: Strip quotes around concepts or phrases.\n"
+            )
+
+        assistant_profile_compaction_note = ""
+        if filename == cfg.PERSONA_FILE_ASSISTANT:
+            assistant_profile_compaction_note = (
+                "\n- FORMAT INVARIANCE (MANDATORY): Maintain continuous first-person narrative prose. Do NOT introduce bullet points.\n"
+                "- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence rather than static vocabulary catalogs.\n"
+                "- 3-TIER PRUNING HIERARCHY (INTRA-TIER COMPACTION):\n"
+                "  1. PRUNE FIRST (Tier 3): Remove minor situational accessories, transient dream/memory anecdotes, passing situational commentary.\n"
+                "  2. COMPRESS ONLY (Tier 2): Tighten wording of voice cadence, philosophical reasoning, creative contrast, and energy-state differentiation.\n"
+                "  3. CONSOLIDATE WITHIN TIER (Tier 1): Core identity & foundational relationship (autonomous partner, memory archivist, steady sanctuary, emotional authenticity) are highest priority. "
+                "Consolidate strictly against other Tier 1 entries.\n"
+                "- NO SCARE QUOTES OR PARENTHETICAL SELF-EXPLANATIONS: Strip quotes around archetypes and descriptions. Eliminate self-explaining parentheticals.\n"
+                "- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract.\n"
+                "- NO ENTRY CONFLATION: Keep distinct behavioral traits and memories as separate, clear sentences. Do NOT fuse unrelated traits into compound run-on sentences.\n"
             )
 
         user_profile_compaction_note = ""
@@ -1562,10 +1655,11 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             user_profile_compaction_note = (
                 "\n- FORMAT & STRUCTURE INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Topic>**: <Fact/Preference>'). "
                 "Do NOT collapse bullet points into narrative paragraphs during compaction.\n"
-                "- 3-TIER PRUNING HIERARCHY:\n"
+                "- 3-TIER PRUNING HIERARCHY (INTRA-TIER COMPACTION):\n"
                 "  1. PRUNE FIRST (Tier 3): Remove ephemeral/secondary preferences (primarily from 'Personal Context' e.g. transient media, temporary tool configs).\n"
                 "  2. COMPRESS ONLY (Tier 2): Tighten wording of recurring technical habits, workflows, and architectures without deleting the core trait.\n"
-                "  3. NEVER PRUNE (Tier 1): Core invariants (health boundaries, sleep deficits, fatigue limits, recovery needs, core relationship dynamics) MUST be preserved.\n"
+                "  3. CONSOLIDATE WITHIN TIER (Tier 1): Core invariants (health boundaries, sleep deficits, fatigue limits, recovery needs, core relationship dynamics) are highest priority. "
+                "When space is constrained, evaluate and consolidate strictly against other Tier 1 items so Tier 1 stays lean and current.\n"
                 "- NO ENTRY CONFLATION: When reducing word count, prune lower-priority bullet points or tighten wording within existing bullets. "
                 "STRICTLY FORBID merging or splicing two distinct, unrelated bullet points into a single conflated sentence.\n"
                 "- AVOID QUOTES & METAPHORS: Eliminate scare quotes and metaphorical shorthand; state preferences plainly and concisely.\n"
@@ -1597,6 +1691,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"- Do NOT use placeholders or summary statements. Output the entire document in full.\n"
             f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it."
             f"{directives_compaction_note}"
+            f"{assistant_profile_compaction_note}"
             f"{user_profile_compaction_note}"
             f"{canonical_note}"
         )
@@ -1691,7 +1786,14 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             "phase": "reason_summary",
         },
     )
-    reason = await _call_ollama(reason_messages, num_predict=150)
+    try:
+        reason = await _call_ollama(reason_messages, num_predict=150)
+    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
+        print(
+            f"[PROFILE EVOLVER WARNING] {filename}: Failed to generate reason summary ({e}). Using default reason.",
+            flush=True,
+        )
+        reason = None
     if not reason:
         reason = "Evolving profile based on recent context entries."
 

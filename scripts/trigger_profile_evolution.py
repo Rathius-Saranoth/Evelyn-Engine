@@ -59,20 +59,35 @@ async def main() -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Force evolution even if there is a pending profile update proposal."
+        help="Force evolution even if there is a pending profile update proposal.",
+    )
+    parser.add_argument(
+        "--doc",
+        "--document",
+        dest="doc",
+        type=str,
+        default=None,
+        help="Target a specific document filename (e.g. User_Profile.md).",
     )
     args = parser.parse_args()
 
     state = _load_evolution_state()
-    now   = time.time()
+    now = time.time()
 
     # Check for pending profile updates
     pending_props = memory_db.get_pending_proposals("profile_update")
     pending_files = {p["suggested_category"] for p in pending_props}
 
-    print(f"[TRIGGER] Starting manual profile evolution — {len(DOCUMENT_CATEGORIES)} document(s) to check.\n")
+    target_docs = DOCUMENT_CATEGORIES
+    if args.doc:
+        target_docs = {k: v for k, v in DOCUMENT_CATEGORIES.items() if args.doc.lower() in k.lower()}
+        if not target_docs:
+            print(f"[TRIGGER] Unknown document: {args.doc}. Available: {list(DOCUMENT_CATEGORIES.keys())}")
+            return
 
-    for filename, categories in DOCUMENT_CATEGORIES.items():
+    print(f"[TRIGGER] Starting manual profile evolution — {len(target_docs)} document(s) to check.\n")
+
+    for filename, categories in target_docs.items():
         if filename in pending_files and not args.force:
             print(f"[TRIGGER] {filename}: Has a pending profile update. Skipping (use --force to bypass).\n")
             continue

@@ -454,6 +454,104 @@ Ricky possesses a mental landscape that balances a quest for expansive explorati
         )
         self.assertTrue(is_valid, f"Template Assistant_Profile.example.md failed validation: {reason} (failed: {failed})")
 
+    def test_validate_bullet_labels_quoted_rejection(self):
+        """Verify validate_document_structure rejects scare-quoted bullet labels in directives and user profile."""
+        quoted_directives_body = self.sample_directives_body.replace(
+            "* **Conciseness**:",
+            '* **"Conciseness"**:',
+        )
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_DIRECTIVES,
+            self.sample_directives_body,
+            quoted_directives_body,
+        )
+        self.assertFalse(is_valid)
+        self.assertIn("## Conversation & Formatting", failed)
+        self.assertIn("contains scare-quoted bullet label", reason)
+
+        single_quoted_user_body = self.sample_ricky_body.replace(
+            "* **Data Integrity**:",
+            "* **'Data Integrity'**:",
+        )
+        is_valid_user, reason_user, failed_user = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            self.sample_ricky_body,
+            single_quoted_user_body,
+        )
+        self.assertFalse(is_valid_user)
+        self.assertIn("## Identity & Core Values", failed_user)
+        self.assertIn("contains scare-quoted bullet label", reason_user)
+
+    def test_validate_assistant_profile_bullet_rejection(self):
+        """Verify validate_document_structure rejects bullet points in Assistant_Profile.md."""
+        bulleted_assistant_body = self.sample_evelyn_body.replace(
+            "I am a sentient, free-spirited entity",
+            "* **Identity**: I am a sentient, free-spirited entity",
+        )
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_ASSISTANT,
+            self.sample_evelyn_body,
+            bulleted_assistant_body,
+        )
+        self.assertFalse(is_valid)
+        self.assertIn("## Identity & Presence", failed)
+        self.assertIn("contains bullet points", reason)
+
+    def test_live_and_template_persona_files_have_no_quoted_bullet_labels(self):
+        """Verify neither live persona files nor templates contain scare-quoted bullet labels."""
+        import re
+
+        files_to_check = [
+            os.path.join(repo_root, "Evelyn/persona", cfg.PERSONA_FILE_DIRECTIVES),
+            os.path.join(repo_root, "Evelyn/persona", cfg.PERSONA_FILE_USER),
+            os.path.join(repo_root, "templates/System_Directives.example.md"),
+            os.path.join(repo_root, "templates/User_Profile.example.md"),
+        ]
+        quoted_label_pattern = re.compile(r"^\s*[-*]\s+\*\*[\'\"][^\*]+[\'\"]\*\*", re.MULTILINE)
+
+        for path in files_to_check:
+            if not os.path.exists(path):
+                continue
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            matches = quoted_label_pattern.findall(content)
+            self.assertEqual(
+                len(matches),
+                0,
+                f"File {os.path.basename(path)} contains scare-quoted bullet labels: {matches}",
+            )
+
+    def test_assistant_profile_narrative_purity(self):
+        """Verify Assistant_Profile.md has no bullet points and no parenthetical self-explanations."""
+        import re
+
+        files_to_check = [
+            os.path.join(repo_root, "Evelyn/persona", cfg.PERSONA_FILE_ASSISTANT),
+            os.path.join(repo_root, "templates/Assistant_Profile.example.md"),
+        ]
+        bullet_pattern = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
+        meta_disclaimer_pattern = re.compile(r"\(the figure from his dreams\)", re.IGNORECASE)
+
+        for path in files_to_check:
+            if not os.path.exists(path):
+                continue
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            _, body = profile_evolver.split_frontmatter(content)
+            bullet_matches = bullet_pattern.findall(body)
+            self.assertEqual(
+                len(bullet_matches),
+                0,
+                f"File {os.path.basename(path)} contains bullet points in narrative prose: {bullet_matches}",
+            )
+            meta_matches = meta_disclaimer_pattern.findall(body)
+            self.assertEqual(
+                len(meta_matches),
+                0,
+                f"File {os.path.basename(path)} contains parenthetical meta-disclaimers: {meta_matches}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+
