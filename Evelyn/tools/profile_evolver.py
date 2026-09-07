@@ -45,6 +45,7 @@ def _sync_write_file(path: str, content: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
+
 # ---------------------------------------------------------------------------
 # Category-to-document mapping
 # ---------------------------------------------------------------------------
@@ -233,11 +234,19 @@ DOCUMENT_RULES = {
         "description": f"{cfg.USER_NAME}'s preferences, history, and traits.",
         "perspective": f"Third-person singular (using '{cfg.USER_NAME}', 'he', 'him', 'his'). Never refer to {cfg.USER_NAME} in the first person ('I', 'me', 'my').",
         "guidelines": (
+            "- FORMATTING REQUIREMENT: Every entry under each section MUST be strictly formatted as a bullet point: `* **<Topic>**: <Fact/Preference>`.\n"
+            "- NEGATIVE CONSTRAINT: Refrain from narrative prose, essay paragraphs, or run-on sentences. Every non-empty line must be a bullet point.\n"
+            "- NO SCARE QUOTES OR METAPHORICAL JARGON: Do NOT invent, wrap in quotation marks, or adopt figurative metaphors or colloquial nicknames (e.g. avoid quoting terms like 'Artificer', 'shorthand', 'side quests', 'red-lining', 'Entity First', 'hard data'). State traits, habits, and preferences plainly and directly in standard English.\n"
+            "- PREVENT CONFLATION: Keep distinct preferences, habits, tools, and traits as separate, standalone bullet points. Never splice two unrelated observations into a single hybrid sentence during synthesis or compaction.\n"
+            "- 3-TIER PRIORITY FRAMEWORK:\n"
+            "  * Tier 1 (Core Invariants & Hard Boundaries - NEVER PRUNE): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics.\n"
+            "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
+            "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
             f"- Write about {cfg.USER_NAME} in the third person.\n"
             f"- Write about {cfg.ASSISTANT_NAME} in the third person (using '{cfg.ASSISTANT_NAME}', 'she', 'her').\n"
-            f"- Never use 'I', 'me', 'my', or 'you' in this document.\n"
-            f"- Example 1 ({cfg.USER_NAME} fact): '{cfg.USER_NAME} likes small gifts' -> 'He prefers small gifts.'\n"
-            f"- Example 2 (Relationship/{cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} values my feedback' -> '{cfg.ASSISTANT_NAME} values his feedback.' (Translate 'my' to 'his')"
+            "- Never use 'I', 'me', 'my', or 'you' in this document.\n"
+            f"- Example 1 ({cfg.USER_NAME} fact): '{cfg.USER_NAME} likes small gifts' -> '* **Gifts & Gestures**: He prefers thoughtful, small gifts over elaborate gestures.'\n"
+            f"- Example 2 (Relationship/{cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} values my feedback' -> '* **Feedback Loop**: {cfg.ASSISTANT_NAME} values his technical feedback and architectural reviews.'"
         ),
     },
     cfg.PERSONA_FILE_DIRECTIVES: {
@@ -404,7 +413,11 @@ def extract_sections(markdown_text: str) -> dict[str, str]:
         else:
             sections[current_header].append(line)
 
-    return {hdr: "\n".join(lines).strip() for hdr, lines in sections.items() if hdr != "__preamble__" or "\n".join(lines).strip()}
+    return {
+        hdr: "\n".join(lines).strip()
+        for hdr, lines in sections.items()
+        if hdr != "__preamble__" or "\n".join(lines).strip()
+    }
 
 
 def validate_document_structure(
@@ -450,19 +463,24 @@ def validate_document_structure(
     if hollow_headers:
         return False, f"Section topic density below threshold: {hollow_headers}", hollow_headers
 
-    if filename == cfg.PERSONA_FILE_DIRECTIVES:
+    if filename in (cfg.PERSONA_FILE_DIRECTIVES, cfg.PERSONA_FILE_USER):
         bullet_pattern = re.compile(r"^\s*[-*]\s+\*\*[^*]+?\*\*:", re.MULTILINE)
         for h in canonical_headers:
             content = candidate_sections.get(h, "")
             bullets = bullet_pattern.findall(content)
             if not bullets:
-                return False, f"Section {h} missing structured bullet format ('* **<Label>**: <Directive>')", [h]
+                return False, f"Section {h} missing structured bullet format ('* **<Label>**: <Content>')", [h]
             non_bullet_paras = [
-                ln.strip() for ln in content.splitlines()
+                ln.strip()
+                for ln in content.splitlines()
                 if ln.strip() and not ln.strip().startswith(("-", "*")) and not ln.startswith(("  ", "\t"))
             ]
             if non_bullet_paras:
-                return False, f"Section {h} contains narrative prose paragraphs without bullet markers: {non_bullet_paras[:1]}", [h]
+                return (
+                    False,
+                    f"Section {h} contains narrative prose paragraphs without bullet markers: {non_bullet_paras[:1]}",
+                    [h],
+                )
 
     return True, "Structure and topic density valid", []
 
@@ -504,7 +522,7 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
         cand_content = cand_sections.get(h, "")
         min_words = 5 if ("Deliberation" in h or "Anti-Drafting" in h) else 15
         is_bullet_valid = True
-        if filename == cfg.PERSONA_FILE_DIRECTIVES:
+        if filename in (cfg.PERSONA_FILE_DIRECTIVES, cfg.PERSONA_FILE_USER):
             has_bullets = bool(bullet_pattern.search(cand_content))
             has_unbulleted_paras = any(
                 ln.strip() and not ln.strip().startswith(("-", "*")) and not ln.startswith(("  ", "\t"))
@@ -565,7 +583,7 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
         theme_entries.sort(key=lambda e: max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0))
 
         # Partition into sub-batches if theme exceeds batch_size
-        sub_batches = [theme_entries[i:i + batch_size] for i in range(0, len(theme_entries), batch_size)]
+        sub_batches = [theme_entries[i : i + batch_size] for i in range(0, len(theme_entries), batch_size)]
 
         for sub_idx, sub_batch in enumerate(sub_batches, 1):
             sub_label = f"{theme_name} (Part {sub_idx})" if len(sub_batches) > 1 else theme_name
@@ -578,7 +596,9 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
             for entry in sub_batch:
                 tags_str = (entry.get("tags") or "").strip()
                 # Find primary meaningful tag if any
-                tags = [t.strip().lstrip("#") for t in re.split(r"[,;\s]+", tags_str) if t.strip() and len(t.strip()) > 2]
+                tags = [
+                    t.strip().lstrip("#") for t in re.split(r"[,;\s]+", tags_str) if t.strip() and len(t.strip()) > 2
+                ]
                 primary_tag = tags[0].title() if tags else None
 
                 if primary_tag:
@@ -615,19 +635,21 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
             evidence_text = "\n".join(grouped_lines).strip()
             max_ts = max(max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) for e in sub_batch)
 
-            thematic_batches.append({
-                "theme_name": sub_label,
-                "section_header": section_header,
-                "entries": sub_batch,
-                "evidence_text": evidence_text,
-                "max_ts": max_ts,
-            })
+            thematic_batches.append(
+                {
+                    "theme_name": sub_label,
+                    "section_header": section_header,
+                    "entries": sub_batch,
+                    "evidence_text": evidence_text,
+                    "max_ts": max_ts,
+                }
+            )
 
     # Catch-all for any unassigned categories
     unassigned = [e for e in entries if e.get("id") and e["id"] not in assigned_entry_ids]
     if unassigned:
         unassigned.sort(key=lambda e: max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0))
-        sub_batches = [unassigned[i:i + batch_size] for i in range(0, len(unassigned), batch_size)]
+        sub_batches = [unassigned[i : i + batch_size] for i in range(0, len(unassigned), batch_size)]
         for sub_idx, sub_batch in enumerate(sub_batches, 1):
             sub_label = f"General & Unclassified (Part {sub_idx})" if len(sub_batches) > 1 else "General & Unclassified"
             lines = []
@@ -645,13 +667,15 @@ def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: in
                 lines.append(f"- [{d_str}] {pfx}{o_text}")
             evidence_text = "\n".join(lines).strip()
             max_ts = max(max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) for e in sub_batch)
-            thematic_batches.append({
-                "theme_name": sub_label,
-                "section_header": "",
-                "entries": sub_batch,
-                "evidence_text": evidence_text,
-                "max_ts": max_ts,
-            })
+            thematic_batches.append(
+                {
+                    "theme_name": sub_label,
+                    "section_header": "",
+                    "entries": sub_batch,
+                    "evidence_text": evidence_text,
+                    "max_ts": max_ts,
+                }
+            )
 
     return thematic_batches
 
@@ -685,9 +709,9 @@ def _load_evolution_state() -> dict:
     """
     doc_keys = list(DOCUMENT_CATEGORIES.keys())
     default_state = {
-        "last_run_per_doc":     dict.fromkeys(doc_keys, 0.0),
+        "last_run_per_doc": dict.fromkeys(doc_keys, 0.0),
         "draft_cursor_per_doc": dict.fromkeys(doc_keys, 0.0),
-        "last_status_per_doc":  {},
+        "last_status_per_doc": {},
     }
     try:
         if os.path.exists(_STATE_FILE):
@@ -767,7 +791,9 @@ def get_profile_evolution_statuses() -> dict:
     return statuses
 
 
-def advance_doc_run_timestamp(filename: str, status_code: str = "APPROVED", details: str = "Proposal approved & applied to profile note") -> None:
+def advance_doc_run_timestamp(
+    filename: str, status_code: str = "APPROVED", details: str = "Proposal approved & applied to profile note"
+) -> None:
     """Advance last_run_per_doc for a document to the current time.
 
     Called when a profile_update proposal is approved or denied by the user. Resets the
@@ -784,9 +810,11 @@ def advance_doc_run_timestamp(filename: str, status_code: str = "APPROVED", deta
     state["last_run_per_doc"][norm_filename] = time.time()
     update_doc_status(state, norm_filename, status_code, details)
 
+
 # ---------------------------------------------------------------------------
 # Infrastructure & Mutual Exclusion
 # ---------------------------------------------------------------------------
+
 
 def _other_heavy_tasks_running() -> bool:
     """Check if any other heavy background task is currently active.
@@ -798,7 +826,9 @@ def _other_heavy_tasks_running() -> bool:
         bool: True if another heavy task is active, False otherwise.
     """
     import task_manager
+
     return task_manager.is_any_running(exclude="profile_evolver")
+
 
 def _set_status_in_server(status: str | None, error: str | None = None) -> None:
     """Register or clear status in the server's background task registry.
@@ -810,14 +840,17 @@ def _set_status_in_server(status: str | None, error: str | None = None) -> None:
         error: Optional error message string.
     """
     import task_manager
+
     if status == "running":
         task_manager.set_running("profile_evolver")
     else:
         task_manager.clear_running("profile_evolver", status=status or "idle", error=error)
 
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def cancel_pending_evolution():
     """Cancel any in-flight profile evolution task.
@@ -833,6 +866,7 @@ def cancel_pending_evolution():
         _set_status_in_server("cancelled")
         print("[PROFILE EVOLVER] Cancelled (new chat request). Draft progress saved.", flush=True)
     _evolver_task = None
+
 
 async def run_profile_evolution():
     """Run the profile auto-evolution process as a background task.
@@ -876,9 +910,9 @@ async def run_profile_evolution():
                 update_doc_status(state, filename, "PENDING_EXISTS", "Pending proposal awaiting review")
                 continue
 
-            last_run    = state["last_run_per_doc"].get(filename, 0.0)
+            last_run = state["last_run_per_doc"].get(filename, 0.0)
             state["draft_cursor_per_doc"].get(filename, 0.0)
-            cooldown    = getattr(cfg, "PROFILE_EVOLUTION_COOLDOWN", 86400)
+            cooldown = getattr(cfg, "PROFILE_EVOLUTION_COOLDOWN", 86400)
 
             # Skip if cooldown hasn't elapsed AND no in-progress draft exists.
             # A draft means work was interrupted — always resume it regardless
@@ -895,9 +929,7 @@ async def run_profile_evolution():
             # _evolve_document() — they're already in the working document.
             changed_entries = []
             for cat in categories:
-                entries = memory_db.get_entries_by_category_for_document(
-                    cat, document_name=filename, status="live"
-                )
+                entries = memory_db.get_entries_by_category_for_document(cat, document_name=filename, status="live")
                 changed_entries.extend(entries)
 
             min_entries = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
@@ -910,18 +942,20 @@ async def run_profile_evolution():
                     f"entries (need {min_entries}). Skipping.",
                     flush=True,
                 )
-                update_doc_status(state, filename, "BELOW_THRESHOLD", f"{len(changed_entries)}/{min_entries} qualifying entries")
+                update_doc_status(
+                    state, filename, "BELOW_THRESHOLD", f"{len(changed_entries)}/{min_entries} qualifying entries"
+                )
                 continue
 
             resume_msg = " (resuming from draft)" if draft_exists else ""
             print(
-                f"[PROFILE EVOLVER] Evolving {filename} with {len(changed_entries)} "
-                f"new/updated entries{resume_msg}...",
+                f"[PROFILE EVOLVER] Evolving {filename} with {len(changed_entries)} new/updated entries{resume_msg}...",
                 flush=True,
             )
 
             doc_timeout = float(getattr(cfg, "PROFILE_EVOLUTION_DOC_TIMEOUT", 1500))
             import task_manager
+
             task_manager.set_running(
                 "profile_evolver",
                 phase=f"Evolving {filename}...",
@@ -962,6 +996,7 @@ async def run_profile_evolution():
                 )
 
         import task_manager
+
         task_manager.save_last_run_ts("profile_evolver")
         _set_status_in_server("idle")
 
@@ -975,9 +1010,11 @@ async def run_profile_evolution():
         _evolving = False
         _evolver_task = None
 
+
 # ---------------------------------------------------------------------------
 # Evolution core
 # ---------------------------------------------------------------------------
+
 
 async def _call_ollama(
     messages: list[dict],
@@ -1080,6 +1117,14 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
             "Do NOT collapse, merge, or convert bullet points into narrative paragraphs.\n"
         )
 
+    user_profile_proofread_note = ""
+    if filename == cfg.PERSONA_FILE_USER:
+        user_profile_proofread_note = (
+            "- PRESERVE BULLET FORMAT: Strictly preserve all bullet points ('* **<Topic>**: <Fact/Preference>'). "
+            "Do NOT collapse, merge, or convert bullet points into narrative prose paragraphs.\n"
+            "- CLEAN QUOTATION ANOMALIES: Strip unnecessary scare quotes around standard concepts; ensure clear, direct phrasing.\n"
+        )
+
     proofread_prompt = (
         f"You are a strict, meticulous copyeditor and proofreader for an AI system's core persona and directives documents.\n\n"
         f"DOCUMENT: {filename}\n"
@@ -1090,6 +1135,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
         f"---\n\n"
         f"PROOFREADING INSTRUCTIONS:\n"
         f"{directives_proofread_note}"
+        f"{user_profile_proofread_note}"
         f"- Thoroughly inspect and correct any spelling mistakes, typos, concatenated words, fragmented/mangled subword tokens (e.g. 'navigms' -> 'navigates', broken quotes like '\"word\"t' -> '\"word\"'), and punctuation errors.\n"
         f"- Ensure grammatical correctness and smooth phrasing while strictly preserving the existing narrative style and TARGET PERSPECTIVE.\n"
         f"- DO NOT summarize, shorten, remove, or add factual content. Preserve all sections, details, and bullet points.\n"
@@ -1106,6 +1152,7 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
     ]
 
     import task_manager
+
     task_manager.set_running(
         "profile_evolver",
         phase=f"Proofreading & Editorial Polish ({filename})",
@@ -1182,6 +1229,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     """
     importlib.reload(cfg)
     import task_manager
+
     rules = DOCUMENT_RULES.get(filename, {})
     description = rules.get("description", "document body")
     perspective = rules.get("perspective", "appropriate perspective")
@@ -1193,9 +1241,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
     persona_dir = getattr(cfg, "PERSONA_DIR", None)
     if not persona_dir:
-        persona_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "persona"
-        )
+        persona_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "persona")
 
     # Load other documents for Cross-Document Reviewer context (redundancy check)
     other_docs_context = []
@@ -1228,7 +1274,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     # ---------------------------------------------------------------------------
     # Resume detection — load draft if a prior run was interrupted mid-pass
     # ---------------------------------------------------------------------------
-    draft_file  = _draft_path(filename)
+    draft_file = _draft_path(filename)
     draft_cursor = state["draft_cursor_per_doc"].get(filename, 0.0)
 
     if os.path.exists(draft_file) and draft_cursor > 0.0:
@@ -1259,15 +1305,13 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
     # Entries with last_touched <= draft_cursor are already in the draft
     remaining_entries = [
-        e for e in sorted_entries
-        if max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) > draft_cursor
+        e for e in sorted_entries if max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) > draft_cursor
     ]
 
     if not remaining_entries:
         # All entries incorporated in a previous run — the draft IS the proposed doc.
         print(
-            f"[PROFILE EVOLVER] {filename}: All entries already in draft. "
-            "Proceeding directly to proposal creation.",
+            f"[PROFILE EVOLVER] {filename}: All entries already in draft. Proceeding directly to proposal creation.",
             flush=True,
         )
     else:
@@ -1311,7 +1355,9 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
             canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
             canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
-            canonical_note = f"\nREQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n" if canonical_sections_str else ""
+            canonical_note = (
+                f"\nREQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n" if canonical_sections_str else ""
+            )
 
             directives_bullet_note = ""
             if filename == cfg.PERSONA_FILE_DIRECTIVES:
@@ -1319,6 +1365,20 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                     "\n- MANDATORY BULLETED DIRECTIVE FORMAT: Every section MUST be composed entirely of bullet points: "
                     "'* **<Label>**: <Directive>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
                     "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet directives rather than replacing sections with narrative text.\n"
+                )
+
+            user_profile_bullet_note = ""
+            if filename == cfg.PERSONA_FILE_USER:
+                user_profile_bullet_note = (
+                    "\n- MANDATORY STRUCTURED FORMAT: Every section MUST be composed entirely of bullet points: "
+                    "'* **<Topic>**: <Fact/Preference>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
+                    "- STRAIGHTFORWARD & UNAMBIGUOUS LANGUAGE: Use direct, plain statements. Strictly forbid scare quotes, coined metaphors, or figurative nicknames that require explanatory clauses.\n"
+                    "- NO CONFLATION: Keep distinct traits and observations strictly separated into individual bullet points. Do NOT merge unrelated topics into composite sentences.\n"
+                    "- 3-TIER PRIORITY HIERARCHY:\n"
+                    "  * Tier 1 (Core Invariants & Hard Boundaries - NEVER PRUNE): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics.\n"
+                    "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
+                    "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
+                    "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet entries rather than rewriting sections as prose.\n"
                 )
 
             prompt = (
@@ -1358,6 +1418,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
                 f"- If no changes are warranted, output the document body exactly as it is."
                 f"{directives_bullet_note}"
+                f"{user_profile_bullet_note}"
                 f"{canonical_note}"
                 f"{pass_note}"
             )
@@ -1378,6 +1439,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 )
 
             import task_manager
+
             task_manager.set_running(
                 "profile_evolver",
                 phase=f"Evolving {filename} (Thematic Pass {batch_idx}/{total_thematic_passes}: {theme_name})",
@@ -1482,13 +1544,31 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         )
         canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
         canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
-        canonical_note = f"\nREQUIRED CANONICAL SECTION HEADERS (You MUST preserve every one):\n{canonical_sections_str}\n" if canonical_sections_str else ""
+        canonical_note = (
+            f"\nREQUIRED CANONICAL SECTION HEADERS (You MUST preserve every one):\n{canonical_sections_str}\n"
+            if canonical_sections_str
+            else ""
+        )
 
         directives_compaction_note = ""
         if filename == cfg.PERSONA_FILE_DIRECTIVES:
             directives_compaction_note = (
                 "\n- FORMAT INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Label>**: <Directive>'). "
                 "Do NOT collapse bullet points into narrative paragraphs during compaction. Tighten, trim, or merge individual bullet points.\n"
+            )
+
+        user_profile_compaction_note = ""
+        if filename == cfg.PERSONA_FILE_USER:
+            user_profile_compaction_note = (
+                "\n- FORMAT & STRUCTURE INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Topic>**: <Fact/Preference>'). "
+                "Do NOT collapse bullet points into narrative paragraphs during compaction.\n"
+                "- 3-TIER PRUNING HIERARCHY:\n"
+                "  1. PRUNE FIRST (Tier 3): Remove ephemeral/secondary preferences (primarily from 'Personal Context' e.g. transient media, temporary tool configs).\n"
+                "  2. COMPRESS ONLY (Tier 2): Tighten wording of recurring technical habits, workflows, and architectures without deleting the core trait.\n"
+                "  3. NEVER PRUNE (Tier 1): Core invariants (health boundaries, sleep deficits, fatigue limits, recovery needs, core relationship dynamics) MUST be preserved.\n"
+                "- NO ENTRY CONFLATION: When reducing word count, prune lower-priority bullet points or tighten wording within existing bullets. "
+                "STRICTLY FORBID merging or splicing two distinct, unrelated bullet points into a single conflated sentence.\n"
+                "- AVOID QUOTES & METAPHORS: Eliminate scare quotes and metaphorical shorthand; state preferences plainly and concisely.\n"
             )
 
         compaction_prompt = (
@@ -1517,6 +1597,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"- Do NOT use placeholders or summary statements. Output the entire document in full.\n"
             f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it."
             f"{directives_compaction_note}"
+            f"{user_profile_compaction_note}"
             f"{canonical_note}"
         )
 
@@ -1546,7 +1627,9 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 compacted_result = normalize_document_text(compacted_result)
 
                 # Validate structural invariance post-compaction
-                is_valid, reason, _failed_headers = validate_document_structure(filename, proposed_body, compacted_result)
+                is_valid, reason, _failed_headers = validate_document_structure(
+                    filename, proposed_body, compacted_result
+                )
                 if not is_valid:
                     print(
                         f"[PROFILE EVOLVER WARNING] {filename}: Compaction result structural failure ({reason}). "

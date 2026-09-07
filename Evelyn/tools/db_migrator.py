@@ -2352,6 +2352,58 @@ def migrate_000_006_086_prune_and_harmonize_sycophancy_records(
     )
 
 
+def migrate_000_006_089_canonical_persona_triad_document_names(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migrate entry_document_evolution and proposals to canonical persona triad names."""
+    cursor = conn.cursor()
+
+    # 1. Update entry_document_evolution
+    cursor.execute("""
+        UPDATE entry_document_evolution
+        SET document_name = 'User_Profile.md'
+        WHERE document_name LIKE '%_Profile.md'
+           OR document_name LIKE '%_Narrative_Profile.md'
+           OR document_name = 'Ricky_Narrative_Profile.md';
+    """)
+    ede_user_count = cursor.rowcount
+
+    cursor.execute("""
+        UPDATE entry_document_evolution
+        SET document_name = 'Assistant_Profile.md'
+        WHERE document_name LIKE '%_Persona.md'
+           OR document_name LIKE '%_Narrative_Persona.md'
+           OR document_name = 'Evelyn_Narrative_Persona.md';
+    """)
+    ede_asst_count = cursor.rowcount
+
+    # 2. Update proposals suggested_category
+    cursor.execute("""
+        UPDATE proposals
+        SET suggested_category = 'User_Profile.md'
+        WHERE suggested_category LIKE '%_Profile.md'
+           OR suggested_category LIKE '%_Narrative_Profile.md'
+           OR suggested_category = 'Ricky_Narrative_Profile.md';
+    """)
+    prop_user_count = cursor.rowcount
+
+    cursor.execute("""
+        UPDATE proposals
+        SET suggested_category = 'Assistant_Profile.md'
+        WHERE suggested_category LIKE '%_Persona.md'
+           OR suggested_category LIKE '%_Narrative_Persona.md'
+           OR suggested_category = 'Evelyn_Narrative_Persona.md';
+    """)
+    prop_asst_count = cursor.rowcount
+
+    logger.info(
+        f"Migration 000.006.089: Updated entry_document_evolution ({ede_user_count} user, {ede_asst_count} assistant) "
+        f"and proposals ({prop_user_count} user, {prop_asst_count} assistant) to canonical persona filenames."
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2552,6 +2604,12 @@ MIGRATIONS: list[Migration] = [
         name="prune_and_harmonize_sycophancy_records",
         up_fn=migrate_000_006_086_prune_and_harmonize_sycophancy_records,
         post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.089",
+        name="canonical_persona_triad_document_names",
+        up_fn=migrate_000_006_089_canonical_persona_triad_document_names,
     ),
 ]
 

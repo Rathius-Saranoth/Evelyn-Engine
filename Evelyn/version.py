@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-07 08:08:01
+# date modified: 2026-09-07 09:02:00
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.088"
-__version_info__ = (0, 6, 88)
-__version_name__ = "Structured Bullet Format for System Directives Evolution"
+__version__ = "000.006.089"
+__version_info__ = (0, 6, 89)
+__version_name__ = "Canonical Persona Naming, User Profile Structured Bullets & Tiered Pruning Framework"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
