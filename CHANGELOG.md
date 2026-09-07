@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-06 18:47:09
+date modified: 2026-09-06 20:10:00
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.084] - 2026-09-06 — *Analytics & Feedback RAG Chunk Inspection UI Enhancement*
+
+### Added & Improved
+- **Compact Header Parsing for Retrieved Chunks (`evelyn_ui/dev.html`)**:
+  - Implemented `parseChunkPreviewContent()` in `dev.html` to parse metadata headers (`Date:`, `Tags:`, `Category:`, `Subject:`, `Trigger:`) out of preview bodies and render them as sleek, compact badges (`📅`, `🏷️`, `📁`, `👤`, `⚡`).
+  - Strips redundant `Observation:` prefixes so preview text directly highlights the substantive observation content.
+  - Dynamically distinguishes fact entries (`sqlite::context_entry::`) from markdown notes, labeling action buttons with `✏️ Edit Fact` vs `✏️ Edit Note`.
+- **Expanded Chunk Inspection Viewport (`evelyn_ui/dev.html`)**:
+  - Expanded the default preview box height to ~5 lines (`min-height: 48px; max-height: 110px; overflow-y: auto;`) with readable font and monospace background, allowing full observation reading without requiring document expansion.
+- **RAG Telemetry Preview Length Expansion (`Evelyn/tools/chroma_rag.py`)**:
+  - Increased telemetry preview capture limit from 120 to 500 characters in `log_rag_retrieval_event()`, ensuring multi-line observations and note sections are fully retained in retrieval telemetry.
 
 ## [000.006.083] - 2026-09-06 — *Deterministic Code Hygiene & Wiring Verification Integration*
 

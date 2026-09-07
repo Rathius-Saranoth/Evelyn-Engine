@@ -5340,6 +5340,107 @@
       return chunks.filter(c => c.trim().length > 0);
     }
 
+    function parseChunkPreviewContent(text) {
+      if (!text) return { metaBadges: [], body: '' };
+
+      const lines = text.split('\n');
+      const metaBadges = [];
+      let bodyStartIndex = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) {
+          if (metaBadges.length > 0) {
+            bodyStartIndex = i + 1;
+          }
+          continue;
+        }
+
+        // Match Date: YYYY-MM-DD
+        const dateMatch = line.match(/^Date:\s*(.+)$/i);
+        if (dateMatch) {
+          const val = dateMatch[1].trim();
+          if (val && val.toLowerCase() !== 'unknown' && val.toLowerCase() !== 'n/a') {
+            metaBadges.push({ label: '📅 ' + val, type: 'date' });
+          }
+          bodyStartIndex = i + 1;
+          continue;
+        }
+
+        // Match Tags: ...
+        const tagsMatch = line.match(/^Tags:\s*(.+)$/i);
+        if (tagsMatch) {
+          const val = tagsMatch[1].trim();
+          if (val && val.toLowerCase() !== 'none' && val.toLowerCase() !== 'n/a') {
+            const tagParts = val.split(/,\s*/);
+            for (const t of tagParts) {
+              if (t.trim()) metaBadges.push({ label: '🏷️ ' + t.trim(), type: 'tag' });
+            }
+          }
+          bodyStartIndex = i + 1;
+          continue;
+        }
+
+        // Match Category: ...
+        const catMatch = line.match(/^Category:\s*(.+)$/i);
+        if (catMatch) {
+          const val = catMatch[1].trim();
+          if (val && val.toLowerCase() !== 'n/a') {
+            metaBadges.push({ label: '📁 ' + val, type: 'category' });
+          }
+          bodyStartIndex = i + 1;
+          continue;
+        }
+
+        // Match Subject: ...
+        const subMatch = line.match(/^Subject:\s*(.+)$/i);
+        if (subMatch) {
+          const val = subMatch[1].trim();
+          if (val && val.toLowerCase() !== 'n/a') {
+            metaBadges.push({ label: '👤 ' + val, type: 'subject' });
+          }
+          bodyStartIndex = i + 1;
+          continue;
+        }
+
+        // Match Observation: ...
+        const obsMatch = line.match(/^Observation:\s*(.*)$/i);
+        if (obsMatch) {
+          const remainingObs = obsMatch[1].trim();
+          const restOfLines = lines.slice(i + 1);
+          const fullObs = remainingObs ? [remainingObs, ...restOfLines].join('\n') : restOfLines.join('\n');
+          return {
+            metaBadges,
+            body: fullObs.trim() || text
+          };
+        }
+
+        // Match Trigger Pattern: ...
+        const trigMatch = line.match(/^Trigger(?:\s*Pattern)?:\s*(.*)$/i);
+        if (trigMatch) {
+          const val = trigMatch[1].trim();
+          if (val) {
+            metaBadges.push({ label: '⚡ Trigger: ' + val, type: 'trigger' });
+          }
+          bodyStartIndex = i + 1;
+          continue;
+        }
+
+        // If no recognized header key on this line, stop header parsing
+        break;
+      }
+
+      if (metaBadges.length > 0) {
+        const body = lines.slice(bodyStartIndex).join('\n').trim();
+        return {
+          metaBadges,
+          body: body || text
+        };
+      }
+
+      return { metaBadges: [], body: text };
+    }
+
     function formatChunkHighlightInDoc(fullDoc, chunkIdx, totalChunks, previewText) {
       if (!fullDoc) return '<div style="color:var(--text-dim); font-style:italic;">(No content found)</div>';
       
@@ -5639,14 +5740,17 @@
                             const statusBg = c.status === 'kept' ? 'rgba(52, 211, 153, 0.15)' : (c.status === 'pinned' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(248, 113, 113, 0.1)');
                             const statusColor = c.status === 'kept' ? 'var(--success)' : (c.status === 'pinned' ? '#fbbf24' : 'var(--text-dim)');
                             const isEditable = c.source && !c.source.startsWith('procedure::');
+                            const isFact = c.source && (c.source.startsWith('sqlite::context_entry::') || c.source.startsWith('sqlite::fact::'));
                             const fullContent = c.content || c.preview || '';
+                            const parsed = parseChunkPreviewContent(c.preview || fullContent);
+                            const previewBody = parsed.body || (c.preview || fullContent.slice(0, 300));
 
                             return `
                               <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${parsed.metaBadges.length > 0 ? '6px' : '8px'}; flex-wrap: wrap; gap: 6px;">
                                   <div style="font-weight: 500; color: #fff; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                     <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 10px; text-transform: uppercase;">${c.status}</span>
-                                    <code style="color: #c084fc;">${escapeHtml(c.source)}</code>
+                                    <code style="color: #c084fc; font-size: 11px;">${escapeHtml(c.source)}</code>
                                     <span style="color: var(--text-dim); font-size: 11px;">[chunk ${c.chunk}/${c.total_chunks}]</span>
                                   </div>
                                   <div style="display: flex; align-items: center; gap: 8px;">
@@ -5655,17 +5759,27 @@
                                     </div>
                                     ${isEditable ? `
                                       <button class="btn btn-sm" onclick="openVaultNoteEditor(\`${escapeJs(c.source)}\`)" style="padding: 2px 8px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent);">
-                                        ✏️ Edit Note
+                                        ${isFact ? '✏️ Edit Fact' : '✏️ Edit Note'}
                                       </button>
                                     ` : ''}
                                   </div>
                                 </div>
 
+                                ${parsed.metaBadges.length > 0 ? `
+                                  <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                                    ${parsed.metaBadges.map(b => `
+                                      <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: #cbd5e1; font-size: 10.5px; padding: 1px 7px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px;">
+                                        ${escapeHtml(b.label)}
+                                      </span>
+                                    `).join('')}
+                                  </div>
+                                ` : ''}
+
                                 <!-- Chunk preview vs expanded -->
-                                <div id="chunk-prev-${chunkKey}" style="color: var(--text-dim); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.18); padding: 6px 8px; border-radius: 4px; line-height: 1.4; max-height: 48px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap;">${escapeHtml(c.preview || fullContent.slice(0, 150))}</div>
+                                <div id="chunk-prev-${chunkKey}" style="color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); padding: 8px 10px; border-radius: 4px; line-height: 1.45; min-height: 48px; max-height: 110px; overflow-y: auto; white-space: pre-wrap;">${escapeHtml(previewBody)}</div>
                                 <div id="chunk-full-${chunkKey}" style="display: none; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; max-height: 350px; overflow-y: auto;">${escapeHtml(fullContent)}</div>
 
-                                <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}', \`${escapeJs(c.source)}\`, ${c.chunk || 0}, ${c.total_chunks || 1}, \`${escapeJs(c.preview || '')}\`)" style="padding: 2px 6px; font-size: 10px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim);">
+                                <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}', \`${escapeJs(c.source)}\`, ${c.chunk || 0}, ${c.total_chunks || 1}, \`${escapeJs(c.preview || '')}\`)" style="padding: 2px 8px; font-size: 11px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim);">
                                   ↕️ Expand Chunk in Document
                                 </button>
                               </div>

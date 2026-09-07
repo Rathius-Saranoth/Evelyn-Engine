@@ -1088,7 +1088,7 @@ def log_rag_retrieval(
                 "distance": 0.0,
                 "priority": c.get("metadata", {}).get("rag_priority", "pinned"),
                 "status": "pinned",
-                "preview": (c.get("content") or "")[:120],
+                "preview": (c.get("content") or "")[:500],
                 "tags": c.get("metadata", {}).get("tags", ""),
             }
             for c in (pinned_chunks or [])
@@ -1107,7 +1107,7 @@ def log_rag_retrieval(
                 "distance": round(dist, 4) if isinstance(dist, (int, float)) else dist,
                 "priority": c.get("metadata", {}).get("rag_priority", "normal"),
                 "status": status,
-                "preview": (c.get("content") or "")[:120],
+                "preview": (c.get("content") or "")[:500],
                 "tags": c.get("metadata", {}).get("tags", ""),
             })
 
