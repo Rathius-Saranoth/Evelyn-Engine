@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 08:08:08
+date modified: 2026-09-07 09:07:36
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.089] - 2026-09-07 — *Canonical Persona Naming, User Profile Structured Bullets & Tiered Pruning Framework*
+
+### Added & Standardized
+- **Canonical Persona Triad Naming Standardization (`evelyn_config.py`, `Evelyn/persona/`, `templates/`)**:
+  - Standardized persona configuration constants to canonical naming: `PERSONA_FILE_USER = "User_Profile.md"`, `PERSONA_FILE_ASSISTANT = "Assistant_Profile.md"`, and `PERSONA_FILE_DIRECTIVES = "System_Directives.md"`.
+  - Migrated active persona files and open-source templates (`User_Profile.md`, `Assistant_Profile.md`, `templates/User_Profile.example.md`, `templates/Assistant_Profile.example.md`), updating all bi-directional navigation links and YAML frontmatter titles.
+  - Migrated evolution tracking state in `data/evelyn_evolution_state.json` to canonical filenames.
+- **Database Migration `000.006.089` (`Evelyn/tools/db_migrator.py`)**:
+  - Implemented and executed migration `000.006.089` on `data/evelyn_memory.db`.
+  - Migrated tracking records in `entry_document_evolution` and suggested categories in `proposals` from legacy `User_Narrative_Profile.md` and `Assistant_Persona.md` to `User_Profile.md` and `Assistant_Profile.md`.
+- **User Profile Structured Bullet Format & Anti-Prose Guardrails (`Evelyn/persona/User_Profile.md`, `Evelyn/tools/profile_evolver.py`)**:
+  - Restructured `User_Profile.md` into 4 canonical sections (`Identity & Core Values`, `Relationship Dynamics`, `Interaction Preferences & Constraints`, `Personal Context`) formatted exclusively in structured bullets (`* **<Topic>**: <Fact/Preference>`).
+  - Added strict anti-prose, anti-jargon, and anti-scare-quote rules to `DOCUMENT_RULES[cfg.PERSONA_FILE_USER]` and injected constraints into evolution, compaction, and proofreading prompts.
+  - Prohibited compound sentence splicing/conflation during compaction and banned metaphorical jargon/buzzwords that demand subsequent parenthetical clarification.
+  - Enforced structural validation in `validate_document_structure()` and `repair_missing_sections()`, requiring valid bullet lines and rejecting unbulleted narrative prose paragraphs for `User_Profile.md`.
+- **3-Tier Priority Compaction & Pruning Framework (`Evelyn/tools/profile_evolver.py`)**:
+  - Integrated 3-Tier Priority Framework directly into evolution and compaction prompts:
+    - **Tier 1 (Core Invariants & Hard Boundaries)**: NEVER PRUNE — health conditions, sleep deficit dynamics, fatigue limits, recovery needs, fundamental boundaries, and core relational foundation.
+    - **Tier 2 (Active Context & Recurring Habits)**: COMPRESS ONLY — technical domains, AI architectures, workspace habits, communication preferences, and asynchronous batching.
+    - **Tier 3 (Ephemeral Details & Secondary Preferences)**: PRUNE FIRST — transient hobbies, specific games/media titles, temporary software configs, and passing conversational anecdotes.
+- **Asymmetric Persona Architecture Preservation**:
+  - Preserved continuous narrative prose for `Assistant_Profile.md` (for rich in-context conversational modeling and warmth) while enforcing crisp structured bullets for `User_Profile.md` and `System_Directives.md`.
+- **Comprehensive Invariant & Regression Tests (`Evelyn/tests/test_profile_section_invariants.py`, `Evelyn/tests/test_profile_evolver_thematic.py`)**:
+  - Added deterministic tests validating section headers, minimum word counts, bullet enforcement, and narrative prose verification across `User_Profile.md`, `Assistant_Profile.md`, and their open-source templates.
+  - Verified editorial proofreading pass and safety fallback against structured bullet schemas.
 
 ## [000.006.088] - 2026-09-07 — *Structured Bullet Format for System Directives Evolution*
 

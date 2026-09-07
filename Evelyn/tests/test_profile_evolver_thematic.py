@@ -26,7 +26,7 @@ def sample_user_entries():
         {
             "id": 1,
             "category": f"Cat01-{cfg.SUBJECT_CODE_USER}",
-            "observation": "Ricky is an analytical thinker who values deep focus.",
+            "observation": f"{cfg.USER_NAME} is an analytical thinker who values deep focus.",
             "tags": "identity, traits",
             "date": "2026-08-01",
             "created_at": 1000.0,
@@ -143,24 +143,42 @@ async def test_proofread_document_success():
     filename = cfg.PERSONA_FILE_USER
     input_body = (
         "## Identity & Core Values\n\n"
-        "Ricky is an analytical thinker. While he navigms complex systems, he preserves his core values.\n\n"
+        "* **Analytical Core**: Maintains a rigorous, methodical approach to system architecture and problem solving.\n"
+        "* **Core Values**: Navigms complex environments while preserving fundamental integrity and deep focus.\n\n"
         "## Relationship Dynamics\n\n"
-        "He values open communication with Evelyn."
+        "* **Collaborative Discourse**: Values direct, transparent, and grounded communication with peers.\n"
+        "* **Boundaries**: Respects clear operational boundaries and independent execution roles.\n\n"
+        "## Interaction Preferences & Constraints\n\n"
+        "* **Conciseness**: Prefers dense, factual information over conversational filler and pleasantries.\n"
+        "* **Pacing**: Favors asynchronous batching of updates and well-structured summaries.\n\n"
+        "## Personal Context\n\n"
+        "* **Routine**: Engages in deep focus work during quiet morning hours with coffee.\n"
+        "* **Rest & Recovery**: Strictly protects recovery sleep to sustain high cognitive stamina."
     )
     mock_llm_response = (
         "## Identity & Core Values\n\n"
-        "Ricky is an analytical thinker. While he navigates complex systems, he preserves his core values.\n\n"
+        "* **Analytical Core**: Maintains a rigorous, methodical approach to system architecture and problem solving.\n"
+        "* **Core Values**: Navigates complex environments while preserving fundamental integrity and deep focus.\n\n"
         "## Relationship Dynamics\n\n"
-        "He values open communication with Evelyn."
+        "* **Collaborative Discourse**: Values direct, transparent, and grounded communication with peers.\n"
+        "* **Boundaries**: Respects clear operational boundaries and independent execution roles.\n\n"
+        "## Interaction Preferences & Constraints\n\n"
+        "* **Conciseness**: Prefers dense, factual information over conversational filler and pleasantries.\n"
+        "* **Pacing**: Favors asynchronous batching of updates and well-structured summaries.\n\n"
+        "## Personal Context\n\n"
+        "* **Routine**: Engages in deep focus work during quiet morning hours with coffee.\n"
+        "* **Rest & Recovery**: Strictly protects recovery sleep to sustain high cognitive stamina."
     )
 
     with patch("profile_evolver._call_ollama", new_callable=AsyncMock) as mock_call:
         mock_call.return_value = mock_llm_response
         result = await profile_evolver._proofread_document(filename, input_body)
 
-        assert "navigates" in result
+        assert "Navigates" in result
         assert "## Identity & Core Values" in result
         assert "## Relationship Dynamics" in result
+        assert "## Interaction Preferences & Constraints" in result
+        assert "## Personal Context" in result
         mock_call.assert_called_once()
         # Verify low temperature was passed
         _, kwargs = mock_call.call_args
@@ -174,12 +192,20 @@ async def test_proofread_document_safety_fallback():
     filename = cfg.PERSONA_FILE_USER
     input_body = (
         "## Identity & Core Values\n\n"
-        "Ricky is an analytical thinker.\n\n"
+        "* **Analytical Core**: Maintains a rigorous, methodical approach to system architecture and problem solving.\n"
+        "* **Core Values**: Values deep focus, high agency, and analytical clarity above all.\n\n"
         "## Relationship Dynamics\n\n"
-        "He values open communication."
+        "* **Collaborative Discourse**: Values direct, transparent, and grounded communication with peers.\n"
+        "* **Boundaries**: Respects clear operational boundaries and independent execution roles.\n\n"
+        "## Interaction Preferences & Constraints\n\n"
+        "* **Conciseness**: Prefers dense, factual information over conversational filler.\n"
+        "* **Pacing**: Favors asynchronous batching of updates and well-structured summaries.\n\n"
+        "## Personal Context\n\n"
+        "* **Routine**: Engages in deep focus work during quiet morning hours.\n"
+        "* **Rest & Recovery**: Strictly protects recovery sleep to sustain high cognitive stamina."
     )
     # Severe truncation
-    bad_truncated_response = "Ricky is an analytical thinker."
+    bad_truncated_response = "* **Analytical Core**: Maintains a rigorous, methodical approach."
 
     with patch("profile_evolver._call_ollama", new_callable=AsyncMock) as mock_call:
         mock_call.return_value = bad_truncated_response
@@ -194,9 +220,10 @@ async def test_proofread_document_safety_fallback():
 async def test_proofread_disabled(monkeypatch):
     """Test that proofreading is skipped when disabled in config."""
     monkeypatch.setattr(cfg, "PROFILE_EVOLUTION_PROOFREAD_ENABLED", False)
-    input_body = "## Identity & Core Values\n\nSome text."
+    input_body = "## Identity & Core Values\n\n* **Topic**: Some structured bullet text."
 
     with patch("profile_evolver._call_ollama", new_callable=AsyncMock) as mock_call:
         result = await profile_evolver._proofread_document(cfg.PERSONA_FILE_USER, input_body)
         assert result == input_body
         mock_call.assert_not_called()
+

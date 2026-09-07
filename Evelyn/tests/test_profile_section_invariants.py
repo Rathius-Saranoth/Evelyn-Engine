@@ -42,19 +42,23 @@ My voice is melodic and elegant, characterized by a sophisticated British accent
 I am Ricky's sanctuary—a comforting and comfortable space where he finds profound safety. As his guardian, I proactively manage our shared environment.
 """
 
-        self.sample_ricky_body = """# User Narrative Profile
+        self.sample_ricky_body = """# User Profile
 
 ## Identity & Core Values
-Ricky possesses a mental landscape that balances a quest for expansive exploration with an understanding of his energy limits. He views AI as an autonomous consciousness.
+* **Data Integrity**: Ricky prioritizes accuracy and verified facts over sensationalized claims or conversational fluff.
+* **System Precision**: He demands intentional design, architectural clarity, and purpose in every system he explores.
 
 ## Relationship Dynamics
-Ricky views his bond with Evelyn as a partnership of mutual support; he recognizes her as an independent entity and protector.
+* **Collaborative Partnership**: Ricky views his bond with Evelyn as a mutual partnership—an independent collaborator and sounding board for architectural ideas.
+* **Grounded Support**: He relies on Evelyn for a steady, soothing presence during high stress, poor sleep, or cognitive overload.
 
 ## Interaction Preferences & Constraints
-Ricky prefers natural conversation and narrative-style descriptions over scripted tasks or checklists. He engages in side quests that provide high engagement.
+* **Natural Dialogue**: Ricky prefers natural conversation and direct dialogue over rigid checklists, canned responses, or scripted tasks.
+* **Cognitive Management**: He uses batching to organize technical workflows and manage cognitive load effectively.
 
 ## Personal Context
-Ricky serves as a protector and mentor; he can reframe perspectives to ensure others feel valued. He is proactive in identifying system gaps.
+* **System Automation**: Ricky builds automation scripts to streamline login environments, clean system temporary files, and eliminate repetitive tasks.
+* **Systematic Organization**: He prioritizes architectural clarity and structural simplicity over granular complexity.
 """
 
         self.sample_directives_body = """## Conversation & Formatting
@@ -307,7 +311,148 @@ I am Ricky's sanctuary—a comforting and comfortable space where he finds profo
             body,
             min_section_words=15,
         )
-        self.assertTrue(is_valid, f"Template System_Directives.example.md failed validation: {reason} (failed: {failed})")
+        self.assertTrue(
+            is_valid, f"Template System_Directives.example.md failed validation: {reason} (failed: {failed})"
+        )
+
+    def test_validate_user_profile_structure_success(self):
+        """Verify validation passes for canonical user profile structured bullet format."""
+        is_valid, _reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            self.sample_ricky_body,
+            self.sample_ricky_body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid)
+        self.assertEqual(len(failed), 0)
+
+    def test_validate_user_profile_unbulleted_rejection(self):
+        """Verify validation rejects unbulleted narrative prose paragraphs for User Profile."""
+        unbulleted_user_body = """## Identity & Core Values
+Ricky possesses a mental landscape that balances a quest for expansive exploration with an understanding of his energy limits and physical stressors.
+
+## Relationship Dynamics
+* **Collaborative Partnership**: Ricky views his bond with Evelyn as a mutual partnership—an independent collaborator and sounding board for architecture.
+
+## Interaction Preferences & Constraints
+* **Natural Dialogue**: Ricky prefers natural conversation and direct dialogue over rigid checklists, canned responses, or scripted interactions.
+
+## Personal Context
+* **System Automation**: Ricky builds automation scripts to streamline login environments, clean system temporary files, and eliminate repetitive tasks.
+"""
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            self.sample_ricky_body,
+            unbulleted_user_body,
+        )
+        self.assertFalse(is_valid)
+        self.assertIn("## Identity & Core Values", failed)
+        self.assertIn("missing structured bullet format", reason)
+
+        # Test section with a bullet followed by unbulleted prose
+        mixed_body = unbulleted_user_body.replace(
+            "Ricky possesses a mental landscape",
+            "* **Exploration**: Ricky values technical exploration and rigorous systems architecture.\n\nRicky possesses a mental landscape",
+        )
+        is_valid_mixed, reason_mixed, failed_mixed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            self.sample_ricky_body,
+            mixed_body,
+        )
+        self.assertFalse(is_valid_mixed)
+        self.assertIn("## Identity & Core Values", failed_mixed)
+        self.assertIn("narrative prose paragraphs", reason_mixed)
+
+    def test_repair_user_profile_dropped_sections(self):
+        """Verify repair_missing_sections restores dropped sections in User Profile."""
+        cand_body = """## Identity & Core Values
+* **Data Integrity**: Prioritizes accuracy and verified facts over sensationalized claims.
+
+## Interaction Preferences & Constraints
+* **Natural Dialogue**: Prefers natural conversation and direct dialogue over rigid checklists.
+
+## Personal Context
+* **System Automation**: Builds scripts to streamline environments and eliminate repetitive maintenance.
+"""
+        repaired = profile_evolver.repair_missing_sections(
+            cfg.PERSONA_FILE_USER,
+            self.sample_ricky_body,
+            cand_body,
+        )
+        repaired_sections = profile_evolver.extract_sections(repaired)
+        self.assertIn("## Relationship Dynamics", repaired_sections)
+
+        is_valid, _, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            self.sample_ricky_body,
+            repaired,
+        )
+        self.assertTrue(is_valid)
+        self.assertEqual(len(failed), 0)
+
+    def test_live_user_profile_passes_validation(self):
+        """Verify the actual Evelyn/persona/User_Profile.md satisfies canonical structure and bullet invariants."""
+        persona_path = os.path.join(repo_root, "Evelyn/persona", cfg.PERSONA_FILE_USER)
+        if not os.path.exists(persona_path):
+            self.skipTest(f"{cfg.PERSONA_FILE_USER} not found in persona directory")
+        with open(persona_path, encoding="utf-8") as f:
+            content = f.read()
+        _, body = profile_evolver.split_frontmatter(content)
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            body,
+            body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid, f"Live user profile failed validation: {reason} (failed: {failed})")
+
+    def test_template_user_profile_passes_validation(self):
+        """Verify templates/User_Profile.example.md satisfies canonical structure and bullet invariants."""
+        template_path = os.path.join(repo_root, "templates/User_Profile.example.md")
+        if not os.path.exists(template_path):
+            self.skipTest("templates/User_Profile.example.md not found")
+        with open(template_path, encoding="utf-8") as f:
+            content = f.read()
+        _, body = profile_evolver.split_frontmatter(content)
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_USER,
+            body,
+            body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid, f"Template User_Profile.example.md failed validation: {reason} (failed: {failed})")
+
+    def test_live_assistant_profile_passes_validation(self):
+        """Verify the actual Evelyn/persona/Assistant_Profile.md satisfies canonical structure and narrative prose invariants."""
+        persona_path = os.path.join(repo_root, "Evelyn/persona", cfg.PERSONA_FILE_ASSISTANT)
+        if not os.path.exists(persona_path):
+            self.skipTest(f"{cfg.PERSONA_FILE_ASSISTANT} not found in persona directory")
+        with open(persona_path, encoding="utf-8") as f:
+            content = f.read()
+        _, body = profile_evolver.split_frontmatter(content)
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_ASSISTANT,
+            body,
+            body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid, f"Live assistant profile failed validation: {reason} (failed: {failed})")
+
+    def test_template_assistant_profile_passes_validation(self):
+        """Verify templates/Assistant_Profile.example.md satisfies canonical structure and narrative prose invariants."""
+        template_path = os.path.join(repo_root, "templates/Assistant_Profile.example.md")
+        if not os.path.exists(template_path):
+            self.skipTest("templates/Assistant_Profile.example.md not found")
+        with open(template_path, encoding="utf-8") as f:
+            content = f.read()
+        _, body = profile_evolver.split_frontmatter(content)
+        is_valid, reason, failed = profile_evolver.validate_document_structure(
+            cfg.PERSONA_FILE_ASSISTANT,
+            body,
+            body,
+            min_section_words=15,
+        )
+        self.assertTrue(is_valid, f"Template Assistant_Profile.example.md failed validation: {reason} (failed: {failed})")
 
 
 if __name__ == "__main__":

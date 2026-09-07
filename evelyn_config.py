@@ -76,9 +76,9 @@ SUBJECT_CODE_ASSISTANT = "A"  # Migrated from "E" (Assistant)
 # Legacy or alternate user names/aliases to harmonize during database migrations
 USER_LEGACY_ALIASES: list[str] = ["Rick", "Richard"]
 
-# Persona document basenames — dynamically named from identity config.
-PERSONA_FILE_ASSISTANT = f"{ASSISTANT_NAME}_Narrative_Persona.md"
-PERSONA_FILE_USER = f"{USER_NAME}_Narrative_Profile.md"
+# Persona document basenames — Canonical Persona Triad
+PERSONA_FILE_ASSISTANT = "Assistant_Profile.md"
+PERSONA_FILE_USER = "User_Profile.md"
 PERSONA_FILE_DIRECTIVES = "System_Directives.md"
 PERSONA_FILES = [PERSONA_FILE_ASSISTANT, PERSONA_FILE_USER, PERSONA_FILE_DIRECTIVES]
 
