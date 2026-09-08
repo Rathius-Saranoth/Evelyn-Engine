@@ -1,6 +1,6 @@
 # extract_pdf_library.py
 # date created: 2026-04-17 21:17:42
-# date modified: 2026-08-28 12:29:32
+# date modified: 2026-09-08 18:50:50
 # tags: #pdf, #extraction, #library, #parsing, #sidecar, #normalization, #tools
 
 """
@@ -51,7 +51,8 @@ import fitz  # pymupdf
 import evelyn_config as cfg
 from Evelyn.tools.frontmatter_utils import format_yaml_array
 from Evelyn.tools.ollama_client import query_ollama
-from Evelyn.tools.string_utils import sanitize_filename
+from Evelyn.tools.string_utils import clean_title as clean_title_str
+from Evelyn.tools.string_utils import is_notation_leak, sanitize_filename
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -253,6 +254,55 @@ def is_junk_text(text: str, body_size: float = 0, font_size: float = 0) -> bool:
     )
 
 
+TEMPO_MARKINGS = {
+    "allegro", "andante", "adagio", "moderato", "presto", "largo", "vivace",
+    "lento", "grave", "allegretto", "andantino", "prestissimo", "ritardando",
+    "ritard", "accelerando", "a tempo", "crescendo", "decrescendo", "diminuendo",
+}
+
+INSTRUMENTATION_HEADERS = {
+    "cello", "violoncello", "violin", "viola", "piano", "piano accompaniment",
+    "solo", "bass clef", "treble clef", "fingerings", "pizzicato", "arco",
+}
+
+
+def is_valid_title_candidate(text: str) -> bool:
+    """Validate that prospective heading text is a genuine title candidate, not notation or layout noise."""
+    if not text:
+        return False
+    clean = text.strip()
+    if len(clean) <= 2:
+        return False
+    if is_notation_leak(clean):
+        return False
+
+    # Reject strings consisting only of numbers, punctuation, and spaces (e.g. diagram callouts "2 3 1 4")
+    if re.match(r"^[\d\s\-_.,/]+$", clean):
+        return False
+
+    clean_lower = clean.lower()
+    if clean_lower in TEMPO_MARKINGS or clean_lower in INSTRUMENTATION_HEADERS:
+        return False
+
+    # Reject non-English / non-Latin scripts (Cyrillic, CJK, Hangul)
+    if re.search(r"[\u0400-\u04ff\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", clean):
+        return False
+
+    # Reject headings ending with dangling hyphens or continuation marks
+    if clean.rstrip().endswith(("-", "–", "—")):
+        return False
+
+    # Reject merged sentence fragments ending in period followed by word/checklist
+    if re.search(r"\b[a-z]{3,}\.\s+[A-Z✓✔]", clean):
+        return False
+
+    # Reject fragments starting with continuation verbs or conjunctions
+    if re.match(r"^(has|is|was|were|are|have|had|with|and|or|but)\s+", clean_lower):
+        return False
+
+    return not any(bp in clean_lower for bp in ("public domain", "all rights reserved", "page ", "measure "))
+
+
 def is_toc_text(text: str) -> bool:
     """Detect table of contents entries."""
     clean = text.strip()
@@ -389,7 +439,8 @@ def build_sections(blocks: list[TextBlock], body_size: float,
                 and len(block.text) <= 60
                 and not block.has_drop_cap
             )
-            if is_decorative_title or is_heading_candidate or is_short_bold_title:
+            is_cand = is_decorative_title or is_heading_candidate or is_short_bold_title
+            if is_cand and is_valid_title_candidate(block.text):
                 flush_section()
                 title = clean_heading_text(block.text)
                 if pending_part_label:
@@ -423,6 +474,8 @@ def build_sections(blocks: list[TextBlock], body_size: float,
         if pending_chapter_marker:
             flush_section()
             title = clean_heading_text(pending_chapter_marker)
+            if not is_valid_title_candidate(title):
+                title = f"Chapter {block.page_num + 1}"
             if pending_part_label:
                 title = f"{pending_part_label} — {title}"
                 pending_part_label = None
@@ -458,9 +511,7 @@ def build_sections(blocks: list[TextBlock], body_size: float,
             is_likely_heading = True
             heading_level = max(heading_level, 3)
 
-
-
-        if is_likely_heading and heading_level <= 2:
+        if is_likely_heading and is_valid_title_candidate(block.text) and heading_level <= 2:
             # New chapter or major section
             flush_section()
             title = clean_heading_text(block.text)
@@ -473,7 +524,7 @@ def build_sections(blocks: list[TextBlock], body_size: float,
                 page_num=block.page_num,
             )
             current_content_parts = []
-        elif is_likely_heading and heading_level == 3:
+        elif is_likely_heading and heading_level == 3 and not is_notation_leak(block.text):
             # Sub-section header
             if current_section is None:
                 current_section = Section(
@@ -506,9 +557,16 @@ def build_sections(blocks: list[TextBlock], body_size: float,
 
 
 def clean_heading_text(text: str) -> str:
-    """Clean up heading text — remove numbering artifacts, normalize spacing."""
+    """Clean up heading text — remove numbering artifacts, normalize spacing, fix line breaks."""
     # Remove patterns like "| 1" or "1 |"
     text = re.sub(r'\s*\|\s*\d*\s*', '', text).strip()
+    text = text.replace('\ufffd', '').replace('\ufffe', '')
+    # Strip leading bullets, checklist marks (✓, ✔, •)
+    text = re.sub(r'^[✓✔•\s\-_–—]+', '', text).strip()
+    # Rejoin line-break hyphenated words: e.g. "Wa- ter" -> "Water", "Tempera- ture" -> "Temperature"
+    text = re.sub(r'(\b[A-Za-z]{2,})-\s+([a-z]{2,}\b)', r'\1\2', text)
+    # Strip dangling hyphens
+    text = text.rstrip(" -–—")
     text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
     text = text.rstrip('.')
     # Collapse spaced-out letters like "C H A P T E R  O N E"
@@ -785,7 +843,8 @@ def normalize_book_title(filename_or_path: str, doc_metadata: dict | None = None
 
 def format_chapter_filename(index: int, title: str, total_count: int = 100) -> str:
     """Generate a zero-padded section filename like '001 - What Are Emotions For.md'."""
-    safe_title = sanitize_filename(title, max_length=80)
+    normalized = clean_title_str(title)
+    safe_title = sanitize_filename(normalized, max_length=80)
     pad_width = max(2, len(str(total_count)))
     return f"{index:0{pad_width}d} - {safe_title}.md"
 

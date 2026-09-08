@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-06 15:10:05
+# date modified: 2026-09-08 18:27:14
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -443,6 +443,51 @@ Additional bench tests confirmed 4x speedup over baseline models.
         self.assertIn("cited across 2 notes in the vault", abstract)
         self.assertIn("Chapter1", abstract)
         self.assertIn("Chapter2", abstract)
+
+    def test_notation_title_healing_and_idempotency(self):
+        """Verify format librarian repairs notation titles and subsequent runs are strictly idempotent."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            doc_rel = "20 - sharp œ œ ˙ œ œ œ œ œ œ ˙.md"
+            doc_file = os.path.join(tmp_vault, doc_rel)
+            initial_content = (
+                "---\n"
+                "title: 20 - sharp œ œ ˙ œ œ œ œ œ œ ˙.md\n"
+                "aliases: [\"20 - sharp œ œ ˙\", \"Twinkle Star\"]\n"
+                "tags: [reference-library]\n"
+                "---\n"
+                "# Cello Method — ? œ œ ˙ œ œ œ œ œ œ ˙\n\n"
+                "### TWINKLE TWINKLE LITTLE STAR\n\n"
+                "Twin - kle twin - kle lit - tle star, how I won - der what you are.\n"
+            )
+            with open(doc_file, "w", encoding="utf-8") as f:
+                f.write(initial_content)
+
+            # First audit run: title should be repaired from body heading, and alias leak purged
+            res1 = master_librarian.audit_single_document(
+                doc_path=doc_rel,
+                vault_root=tmp_vault,
+                include_tags=False,
+            )
+            self.assertTrue(res1.get("modified"), "First run should modify note to heal notation title")
+            self.assertIn("repaired_notation_title", res1.get("format_details", {}).get("format_fixes", []))
+            self.assertIn("purged_notation_aliases", res1.get("format_details", {}).get("format_fixes", []))
+
+            with open(doc_file, encoding="utf-8") as f:
+                updated_content = f.read()
+
+            self.assertIn("title: Twinkle Twinkle Little Star", updated_content)
+            self.assertIn("# Twinkle Twinkle Little Star", updated_content)
+            self.assertNotIn(".md", updated_content.split("---")[1])  # No .md in frontmatter
+            self.assertIn('aliases: ["Twinkle Star"]', updated_content)
+            self.assertNotIn("sharp œ œ ˙", updated_content.split("---")[1])
+
+            # Second audit run: must be 100% idempotent (zero changes)
+            res2 = master_librarian.audit_single_document(
+                doc_path=doc_rel,
+                vault_root=tmp_vault,
+                include_tags=False,
+            )
+            self.assertFalse(res2.get("modified"), "Second run on repaired note must be strictly idempotent")
 
 
 if __name__ == "__main__":

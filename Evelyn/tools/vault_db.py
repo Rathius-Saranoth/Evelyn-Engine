@@ -486,6 +486,7 @@ def update_document_librarian_audit(
     tags: str | None = None,
     aliases: str | None = None,
     mtime: float | None = None,
+    title: str | None = None,
 ) -> None:
     """Update librarian audit timestamps and optional metadata on a vault note.
 
@@ -495,6 +496,7 @@ def update_document_librarian_audit(
         tags: Optional updated comma-separated tags string.
         aliases: Optional updated comma-separated aliases string.
         mtime: Optional updated modification timestamp.
+        title: Optional updated document title.
     """
     vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
     norm_path = path.replace("\\", "/")
@@ -522,6 +524,9 @@ def update_document_librarian_audit(
     if aliases is not None:
         set_clauses.append("aliases = ?")
         vals.append(aliases)
+    if title is not None:
+        set_clauses.append("title = ?")
+        vals.append(title)
     if mtime is not None:
         set_clauses.append("mtime = ?")
         vals.append(mtime)

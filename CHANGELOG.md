@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-07 18:45:31
+date modified: 2026-09-08 18:51:08
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.100] - 2026-09-08 — *PDF De-Hyphenation, Ingestion Noise Filtering & Manual Note Title Normalization*
+
+### Added & Enhanced
+- **Line-Break De-Hyphenation & Checklist Symbol Stripping (`Evelyn/tools/string_utils.py`, `scripts/extract_pdf_library.py`)**:
+  - Enhanced `clean_title()` and `clean_heading_text()` with automatic line-break de-hyphenation (`Wa- ter` $\rightarrow$ `Water`, `Tempera- ture` $\rightarrow$ `Temperature`), leading checklist mark and bullet stripping (`✓`, `✔`, `•`), and trailing hyphen pruning.
+  - Enhanced `is_valid_title_candidate()` in `extract_pdf_library.py` to reject trailing hyphens, merged sentence fragments ending in periods followed by capitalized text, continuation verbs (`has`, `is`, `was`, `were`), and strings composed solely of diagram callout numbers and punctuation (e.g. `2 3 1 4`).
+- **Owner's Manual Note Healing & TOC Database Synchronization (`evelyn_vault.db`)**:
+  - Repaired 5 misnamed and fragmented notes in `AOSmith G9-T4040NVR 400`:
+    - `18 - ✓Water pressure.md` $\rightarrow `18 - Water Pressure Requirements.md` (rejoined sentence continuation).
+    - `19 - has a built-in bypass. ✓Wa- ter pressure in- crease caused by ther-.md` $\rightarrow `19 - Thermal Expansion Tank.md` (restored semantic topic title and clean body text).
+    - `27 - Step 5.md` $\rightarrow `27 - Step 5 Air Filter Installation.md`.
+    - `29 - Connect the Tempera- ture and Pressure (T&P) Relief ValvePipe.md` $\rightarrow `29 - Connect the Temperature and Pressure (T&P) Relief Valve and Pipe.md`.
+    - `42 - Insuffi cient Hot Water or Slow Hot Water Recovery.md` $\rightarrow `42 - Insufficient Hot Water or Slow Hot Water Recovery.md`.
+  - Repaired 3 diagram callout notes in `AOC Q27G40XMN`:
+    - `07 - .md` $\rightarrow `07 - Setup Stand & Base.md`.
+    - `09 - 2 3 1 4.md` $\rightarrow `09 - Connect to PC & Ports.md`.
+    - `13 - 1 4 2 3 5.md` $\rightarrow `13 - Control Buttons & Navigation.md`.
+  - Updated index sidecar TOC tables (`AOSmith G9-T4040NVR 400_index.md`, `AOC Q27G40XMN_index.md`) and atomically synchronized note paths and titles in `evelyn_vault.db`.
+
+## [000.006.099] - 2026-09-08 — *Multi-Discipline Notation Leak Protection & Vault Title Healing*
+
+### Added & Enhanced
+- **Multi-Discipline Notation Detection Engine (`Evelyn/tools/string_utils.py`)**:
+  - Implemented `detect_notation_discipline()` and `is_notation_leak()` to protect note titles and document names against technical notation leaks across musical glyphs (stave fonts, note names `œ`, `˙`, rests `Ó`, `Œ`, `‰`, `sharp`/`flat`), LaTeX commands/delimiters (`\frac`, `\sum`, `\int`, `$$`, `\begin`), dense mathematical operator clusters, chemical reaction formulas, and formatting artifacts (pipe table delimiters, horizontal rules).
+  - Built contextual false-positive safeguards preventing normal prose currency expressions (`$50`), procedural step arrows (`Step 1 -> Step 2`), and standard engineering tolerances (`±5%`) from triggering false positives.
+  - Enhanced `clean_title()` to strip residual `.md`/`.pdf` file extensions and normalize titles cleanly.
+- **PDF Extraction Ingestion Noise Filtering (`scripts/extract_pdf_library.py`)**:
+  - Added `TEMPO_MARKINGS`, `INSTRUMENTATION_HEADERS`, and `is_valid_title_candidate()` guardrails to block music notation, tempo markings (`Allegro`, `Andante`, `Moderato`), instrumentation headers (`Cello`, `Violin`), and PDF rendering artifacts from becoming note titles or section filenames.
+- **Format Librarian Title Healing & Master Librarian Audit (`Evelyn/tools/format_librarian.py`, `master_librarian.py`, `vault_db.py`)**:
+  - Enhanced `format_librarian.py` with idempotent title-only audit scope: automatically detects notation-leaked frontmatter `title:` and top markdown `# Heading`, recovers semantic titles from internal section headings (e.g. `### The Open Strings`), converts ALL-CAPS titles to Title Case, and aligns markdown headers.
+  - Updated `master_librarian.py` to log healed clean titles in activity logs and synchronize `vault_documents.title` in `evelyn_vault.db` via `vault_db.update_document_librarian_audit()`.
+- **Musical Vault Note Normalization & Wikilink Refactoring (`scripts/repair_musical_vault_notes.py`)**:
+  - Created migration CLI tool repairing 53 musical notes across `Reference Library/Learning Cello/Cello Method/` and `Cello First Lessons/`.
+  - Renamed corrupted notation-leaked files on disk to clean, semantic titles, preserved legacy notation names in `aliases: [...]` frontmatter to prevent link breakage, refactored global vault wikilinks and table index rows (`Cello Method_index.md`, `Cello First Lessons_index.md`), and atomically synchronized paths in `evelyn_vault.db`.
+- **Hermetic Unit Test Suite (`Evelyn/tests/test_notation_detection.py`, `test_master_librarian.py`)**:
+  - Added 7 comprehensive test suites validating multi-discipline notation detection, boundary conditions, and false-positive guards.
+  - Added `test_notation_title_healing_and_idempotency` verifying complete two-pass idempotency (0 modifications on re-run) in the Master Librarian test suite.
 
 ## [000.006.098] - 2026-09-07 — *RAG Telemetry Test Isolation Safeguard*
 

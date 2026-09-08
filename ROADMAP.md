@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-07 15:22:13
+date modified: 2026-09-08 18:54:24
 ---
 # Evelyn Project Roadmap
 
@@ -93,6 +93,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Master Librarian & Canonical Backlog Drainer Ecosystem Consolidation (v000.006.067 - v000.006.070)**: Unified single-pass vault curation engine (`master_librarian`, `tag_librarian`, `link_librarian`, `format_librarian`, `index_librarian`) and consolidated background queues (`fact_extractor`, `pdf_staging_worker`, `fact_consolidator`, `procedure_consolidator`, and CLI runners) under the canonical `backlog_drainer` framework with cooperative yielding, dead-letter error containment, and seamless `os.execv` script deprecation.
 - [x] **Context Delivery Streamlining & Boundary Enforcement (v000.006.082)**: Enforced RAG excluded subdirectories to eliminate journal semantic bleed, wired conversational history message caps to stop runaway feedback loops, and pruned contradictory system directives.
 - [x] **Deterministic Code Hygiene & Wiring Verification (v000.006.083)**: Integrated Vulture compiler-level dead-code auditing, automated AST config-wiring pytest validation, Ruff static linting, and two-file contract reviews into unified runner and quality workflows.
+- [x] **Multi-Discipline Notation Leak Protection & Vault Title Healing (v000.006.099 - v000.006.100)**: Implemented multi-discipline notation detection (music glyphs, LaTeX, dense math, chemistry, formatting artifacts), PDF extraction noise filtering and line-break de-hyphenation, format librarian title healing with body heading fallback, wikilink refactoring, owner's manual note normalization, and vault database synchronization.
 
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
 - [ ] **Dynamic Configuration UI & Runtime Settings Manager**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct CLI or file edits.
