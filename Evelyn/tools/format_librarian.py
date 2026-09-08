@@ -1,6 +1,6 @@
 # format_librarian.py
 # date created: 2026-09-05 17:40:00
-# date modified: 2026-09-05 17:36:52
+# date modified: 2026-09-08 18:26:42
 # tags: #librarian, #format, #frontmatter, #schema, #visual-pkm, #vault
 
 """
@@ -118,20 +118,64 @@ def audit_document_format(content: str, path: str = "") -> tuple[bool, str, dict
     changed = False
     details: dict[str, Any] = {"format_fixes": []}
 
-    # 1. Title inference if missing
-    if "title" not in fm_dict or not str(fm_dict["title"]).strip():
-        inferred_title = ""
-        if path:
-            stem = os.path.splitext(os.path.basename(path))[0]
-            inferred_title = string_utils.clean_title(stem)
-        else:
-            first_h1 = re.search(r"^#\s+(.*)$", body, re.MULTILINE)
-            if first_h1:
-                inferred_title = first_h1.group(1).strip()
-        if inferred_title:
-            fm_dict["title"] = inferred_title
+    # 1. Title sanitization, inference & notation healing
+    current_title = str(fm_dict.get("title", "")).strip() if "title" in fm_dict else ""
+    if current_title:
+        cleaned_existing = string_utils.clean_title(current_title)
+        if cleaned_existing != current_title:
+            fm_dict["title"] = cleaned_existing
+            current_title = cleaned_existing
             changed = True
-            details["format_fixes"].append("inferred_title")
+            details["format_fixes"].append("cleaned_title_extension")
+
+    is_leaked = string_utils.is_notation_leak(current_title) if current_title else False
+    if not current_title or is_leaked:
+        # Attempt intelligent title recovery from body headings
+        recovered_title = ""
+        subheadings = re.findall(r"(?m)^(?:#{2,4})\s+(.*)$", body)
+        for sh in subheadings:
+            candidate = sh.strip()
+            if len(candidate) > 2 and not string_utils.is_notation_leak(candidate):
+                if candidate.isupper():
+                    candidate = candidate.title()
+                recovered_title = string_utils.clean_title(candidate)
+                break
+
+        if not recovered_title and path:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            if not string_utils.is_notation_leak(stem):
+                recovered_title = string_utils.clean_title(stem)
+            else:
+                num_match = re.match(r"^(\d+)", stem)
+                parent_dir = os.path.basename(os.path.dirname(path)) if "/" in path else ""
+                if num_match:
+                    num = int(num_match.group(1))
+                    recovered_title = f"{parent_dir} — Exercise {num}" if parent_dir else f"Exercise {num}"
+                elif parent_dir:
+                    recovered_title = f"{parent_dir} Note"
+
+        if not recovered_title:
+            first_h1 = re.search(r"^#\s+(.*)$", body, re.MULTILINE)
+            if first_h1 and not string_utils.is_notation_leak(first_h1.group(1).strip()):
+                recovered_title = string_utils.clean_title(first_h1.group(1).strip())
+
+        if recovered_title and recovered_title != current_title:
+            fm_dict["title"] = recovered_title
+            changed = True
+            if is_leaked:
+                details["format_fixes"].append("repaired_notation_title")
+            else:
+                details["format_fixes"].append("inferred_title")
+
+    # Synchronize top H1 if it contains a notation leak
+    first_h1_match = re.search(r"^#\s+(.*)$", body, re.MULTILINE)
+    if first_h1_match:
+        h1_text = first_h1_match.group(1).strip()
+        if string_utils.is_notation_leak(h1_text) and fm_dict.get("title"):
+            new_h1_line = f"# {fm_dict['title']}"
+            body = body[:first_h1_match.start()] + new_h1_line + body[first_h1_match.end():]
+            changed = True
+            details["format_fixes"].append("synchronized_h1_title")
 
     # 2. Normalize tags into list
     raw_tags = fm_dict.get("tags")
@@ -144,16 +188,26 @@ def audit_document_format(content: str, path: str = "") -> tuple[bool, str, dict
             changed = True
             details["format_fixes"].append("normalized_tags_list")
 
-    # 3. Normalize aliases into list
+    # 3. Normalize aliases into list and filter out notation leaks
     raw_aliases = fm_dict.get("aliases")
     if raw_aliases is None:
         fm_dict["aliases"] = []
-    elif isinstance(raw_aliases, str):
-        parsed_aliases = [a.strip() for a in raw_aliases.split(",") if a.strip()]
-        if parsed_aliases != raw_aliases:
-            fm_dict["aliases"] = parsed_aliases
+    else:
+        if isinstance(raw_aliases, str):
+            alias_list = [a.strip() for a in raw_aliases.split(",") if a.strip()]
+        elif isinstance(raw_aliases, list):
+            alias_list = [str(a).strip() for a in raw_aliases if str(a).strip()]
+        else:
+            alias_list = []
+
+        cleaned_aliases = [a for a in alias_list if not string_utils.is_notation_leak(a)]
+        if cleaned_aliases != raw_aliases:
+            fm_dict["aliases"] = cleaned_aliases
             changed = True
-            details["format_fixes"].append("normalized_aliases_list")
+            if len(cleaned_aliases) < len(alias_list):
+                details["format_fixes"].append("purged_notation_aliases")
+            else:
+                details["format_fixes"].append("normalized_aliases_list")
 
     # 4. Clean icon brackets in frontmatter
     fm_raw = frontmatter_utils.render_frontmatter(fm_dict)

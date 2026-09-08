@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-06 08:27:01
+# date modified: 2026-09-08 18:38:39
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -10,6 +10,8 @@ Exports:
     sanitize_filename()     — Strips illegal filesystem characters and normalizes whitespace.
     slugify()               — Converts text into standard snake_case or kebab-case identifiers.
     clean_title()           — Cleans file stems or headings into standardized Title Case.
+    detect_notation_discipline() — Identifies domain of notation leak (music, math, chemistry, etc.).
+    is_notation_leak()      — Determines whether text contains a leaked notation artifact.
     strip_thinking_tags()   — Strips CoT <think> tags and LLM formatting artefacts.
     clean_llm_gist()        — Cleans summaries, stripping thinking tags, LaTeX, and prefixes.
     escape_xml_content()    — Escapes &, <, > in XML element character data.
@@ -244,6 +246,18 @@ def clean_title(filename_or_text: str) -> str:
     # Strip common file extensions
     clean = re.sub(r"\.(pdf|md|markdown|txt)$", "", clean, flags=re.IGNORECASE).strip()
 
+    # Strip Unicode replacement / mojibake characters
+    clean = clean.replace("\ufffd", "").replace("\ufffe", "").strip()
+
+    # Strip leading bullets, checklist marks (✓, ✔, •)
+    clean = re.sub(r"^[✓✔•\s\-_–—]+", "", clean).strip()
+
+    # Rejoin line-break hyphenated words: e.g. "Wa- ter" -> "Water", "Tempera- ture" -> "Temperature"
+    clean = re.sub(r"(\b[A-Za-z]{2,})-\s+([a-z]{2,}\b)", r"\1\2", clean)
+
+    # Strip trailing dangling hyphens
+    clean = clean.rstrip(" -–—")
+
     # If underscores exist and it is not an all-caps code (like SEC_10K_2026), replace underscores with spaces
     if "_" in clean and not re.match(r"^[A-Z0-9_-]+$", clean):
         clean = clean.replace("_", " ")
@@ -251,6 +265,99 @@ def clean_title(filename_or_text: str) -> str:
     # Collapse whitespace
     clean = re.sub(r"\s+", " ", clean).strip()
     return clean
+
+
+def detect_notation_discipline(text: str) -> str | None:
+    """Detect whether a title or heading is a leaked notation artifact.
+
+    Discipline-aware heuristics detect sheet music font glyphs, LaTeX equations,
+    dense mathematical operators, chemical reaction formulas, and table artifacts,
+    while explicitly guarding against false positives in currencies, procedural arrows,
+    and standard comparative titles.
+
+    Args:
+        text: Candidate title or heading string.
+
+    Returns:
+        Discipline category ('music', 'latex_math', 'math_operators', 'chemistry',
+        'formatting_artifact') if a leak is detected, or None if the text is clean.
+    """
+    if not text:
+        return None
+    s = text.strip()
+
+    # 1. Music font glyphs & Unicode music symbols
+    # Sheet music font mappings: œ (quarter), ˙ (half), Ó (half rest), Œ (quarter rest), ‰ (8th rest)
+    # and Unicode music block U+2669-U+266F, U+1D100-U+1D1FF
+    if re.search(r"[\u2669-\u266F\U0001D100-\U0001D1FFœ˙ÓŒ‰]", s):
+        return "music"
+
+    # Music note stems / accidentals / repeated notation keywords (e.g. sharp-sharp, w w w w)
+    if re.search(r"\b(?:sharp|flat)\s*-\s*(?:sharp|flat)\b", s, re.IGNORECASE):
+        return "music"
+    if re.search(r"\b(?:w|sharp|flat)\b(?:\s+(?:w|sharp|flat)\b){2,}", s, re.IGNORECASE):
+        return "music"
+    if re.search(r"(?:^\s*|\s)\?\s*(?:\.\.|\#\#|[œ˙w])", s):
+        return "music"
+
+    # 2. LaTeX math vs Currency
+    # LaTeX control tokens: \frac, \sqrt, \sum, \int, \partial, etc.
+    if re.search(r"\\(?:frac|sqrt|sum|int|partial|alpha|beta|gamma|theta|lambda|mu|pi|sigma|omega|begin|cdot|times|infty|forall|exists|nabla|approx|equiv|leq|geq|neq)(?=[^a-zA-Z]|$)", s):
+        return "latex_math"
+    # Math $$...$$ or $...$ delimiters, strictly avoiding currency like $50 or $19.99
+    if re.search(r"\$\$(?:[^\$]+)\$\$", s):
+        return "latex_math"
+    if re.search(r"(?<![\d\w])\$(?!\d|\s)(?:[^\$]{2,}?)(?<!\s|\d)\$(?![\d\w])", s):
+        return "latex_math"
+
+    # 3. Dense Math Operators
+    # Matches symbols like ∑, ∫, ∂, √, ∏, ∆, ∇, ≤, ≥, ≠, ≈, ∈, ∉, ⊂, ⊃, ⊆, ⊇, ∪, ∩, ∀, ∃
+    math_syms = re.findall(r"[∑∫∂√∏∆∇≤≥≠≈∈∉⊂⊃⊆⊇∪∩∀∃×÷]", s)
+    if len(math_syms) >= 2:
+        words = re.findall(r"[A-Za-z]{2,}", s)
+        if len(words) < 4 or len(math_syms) / max(1, len(words)) >= 0.5:
+            return "math_operators"
+
+    # 4. Chemistry Stoichiometric Equations vs Procedural Arrows
+    chem_match = re.search(r"(.*?)\s*(?:->|<=>|→|⇌|<->)\s*(.*)", s)
+    if chem_match:
+        left, right = chem_match.group(1).strip(), chem_match.group(2).strip()
+        chem_formula_pattern = r"(?:\d*[A-Z][a-z]?\d*)+"
+        chem_side_pattern = rf"^\s*{chem_formula_pattern}(?:\s*\+\s*{chem_formula_pattern})*\s*$"
+        if re.match(chem_side_pattern, left) and re.match(chem_side_pattern, right):
+            return "chemistry"
+
+    # 5. Formatting & Punctuation Artifacts
+    # Table dividers (two or more columns of hyphens/colons separated by pipes)
+    if re.search(r"^\|?(?:\s*[-:]+\s*\|)+\s*[-:]*\s*\|?$", s):
+        return "formatting_artifact"
+    # Repeated single-character or punctuation tokens (e.g. Q Q Q, .. .., ===, ---)
+    if re.search(r"\b([A-Za-z0-9])\s+\1\s+\1\b", s):
+        return "formatting_artifact"
+    # Single-letter token sequences of 3+ letters (e.g. "q k e")
+    core = re.sub(r"^\d+\s*[-–—]\s*", "", s).strip()
+    if re.match(r"^[a-z](\s+[a-z]){2,}$", core):
+        return "formatting_artifact"
+    if re.search(r"\.{2,}\s+\.{2,}", s):
+        return "formatting_artifact"
+    if re.search(r"^[-=_~*]{3,}$", s):
+        return "formatting_artifact"
+    # Lone time signatures / meter artifacts like "2 4" or "4 4" as whole title
+    if re.match(r"^(?:\d+\s*[-–—]\s*)?[2346]\s+[48]$", s):
+        return "formatting_artifact"
+    # Unicode replacement / mojibake characters
+    if "\ufffd" in s or "\ufffe" in s:
+        return "formatting_artifact"
+    # Accidental extension inside title
+    if re.search(r"\.(?:md|pdf|markdown|txt)$", s, re.IGNORECASE):
+        return "formatting_artifact"
+
+    return None
+
+
+def is_notation_leak(text: str) -> bool:
+    """Determine whether text contains a leaked notation or formatting artifact."""
+    return detect_notation_discipline(text) is not None
 
 
 # ---------------------------------------------------------------------------

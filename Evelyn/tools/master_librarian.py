@@ -233,11 +233,17 @@ def audit_single_document(
                 os.remove(tmp_path)
 
         new_mtime = os.path.getmtime(abs_path)
+        if format_changed:
+            fm_post, _ = frontmatter_utils.parse_frontmatter(content)
+            if fm_post.get("title"):
+                title = str(fm_post["title"]).strip()
+
         vault_db.update_document_librarian_audit(
             doc_path,
             ghost_count=ghost_count,
             tags=tags_str,
             mtime=new_mtime,
+            title=title if format_changed else None,
         )
 
         category = (
