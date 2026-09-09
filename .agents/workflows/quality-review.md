@@ -2,7 +2,7 @@
 description: A structured self-review checklist based on the "Notes to Live By" engineering standards
 title: quality-review.md
 date created: 2026-04-26 10:18:20
-date modified: 2026-09-06 18:47:09
+date modified: 2026-09-08 19:13:11
 tags: [quality, review, guidelines, standards, checklist, workflow, evelyn]
 ---
 
@@ -49,7 +49,7 @@ Walk through each gate for the code you just wrote or modified:
 
 ## 5. Documentation Integrity
 
-- [ ] **ROADMAP.md** — Did you complete a milestone? Is it marked done (`- [x]`) concisely (1–2 sentences, no verbose changelogs/traces) and positioned in the completed section?
+- [ ] **ROADMAP.md** — Did you complete a milestone? Is it marked done (`- [x]`) concisely (1–2 sentences, no version tags `v000.XXX`, no verbose changelogs/traces) and positioned in the completed section? Are newly introduced pending items sized as discrete single-implementation units?
 - [ ] **API Endpoints (`reference/endpoints.md`)** — Have any endpoint contracts, parameter signatures, or return payloads been modified or added? Is the endpoint reference document updated to match exactly?
 - [ ] **Engine Architecture Map (`reference/engine_architecture.md`)** — Have any core scripts, background workers, or storage components been introduced or refactored? Is the structural blueprint and Mermaid diagram updated to reflect the new state?
 - [ ] **Google API & Scopes Reference (`reference/google_access.md`)** — Have any Google APIs or OAuth scopes been added, removed, or changed? Is `reference/google_access.md` updated to match the active scopes configured in setup scripts?

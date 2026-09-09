@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-08 18:54:24
+date modified: 2026-09-08 19:23:19
 ---
 # Evelyn Project Roadmap
 
@@ -29,7 +29,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Memory Databases**: Migrated flat-file context entries and vault map indexes into high-performance SQLite databases (`evelyn_memory.db`, `evelyn_vault.db`).
 - [x] **Semantic RAG Pipeline**: Built full-vault vector indexing in ChromaDB using `BAAI/bge-large-en-v1.5` embeddings with progressive gist-first disclosure and priority boosting.
 - [x] **Memory Management Tools**: Implemented journal writing/reading, context fact extraction, and background consolidation pipelines.
-- [x] **Fast Memory Perspective Decoupling & Temporal Grounding (v000.006.078)**: Decoupled category canon codes (`Cat##-A` vs `Cat##-U`) from referent subjects to preserve cross-perspective attribution, integrated strict temporal grounding in extraction and RAG XML envelopes, and applied transactional database migration remediating legacy memory records.
+- [x] **Fast Memory Attribution & Temporal Grounding**: Decoupled category canon codes from referent subjects for cross-perspective attribution, and integrated strict temporal grounding in memory extraction and RAG XML envelopes.
 
 ---
 
@@ -38,34 +38,31 @@ This roadmap is the primary source of truth for project milestones and future di
 *Goal: Equip Evelyn with multi-modal perception, tool execution, and autonomous background agency.*
 
 ### Senses & Media
-- [x] **Chatterbox TTS Engine**: Deployed local streaming F5-TTS/Matcha engine with sentence-level SSE chunked progressive playback, emotion tags, and auto-speech toggling.
+- [x] **Streaming Chatterbox TTS Engine**: Deployed local streaming F5-TTS/Matcha engine with sentence-level SSE chunked progressive playback and auto-speech toggling.
 - [x] **FLUX.1 Image Generation**: Built standalone, on-demand FLUX.1 Schnell image generation microservice (port 5055) with automatic VRAM management.
 - [x] **Multimodal Visual Memory**: Implemented SQLite media database (`evelyn_media.db`), isolated attachment store, client-side EXIF/GPS parsing, background visual indexing (`llama3.2-vision`), and interactive Chat UI Media Inspector.
-- [ ] **Standalone Media Gallery (`/ui/gallery.html`)**: Build a dedicated media management dashboard with timeline views, category filtering, lightbox inspection, and visual RAG search.
+- [ ] **Expressive Emotional TTS & Mid-Sentence Prosody**: Natural mid-response emotional modulation and paralinguistic tags (`[laugh]`, `[sigh]`, `[chuckle]`, `[gasp]`) integrated naturally across mid-sentence speech boundaries, Chat UI styling cues, and multi-style acoustic synthesis.
+- [ ] **Standalone Media Gallery (`ui/gallery.html`)**: Build a dedicated media management dashboard with timeline views, category filtering, lightbox inspection, and visual RAG search.
 - [ ] **Google Photos Bulk Ingestion**: Build Google Takeout ingestion pipeline preserving unredacted GPS, native timestamps, and JSON sidecars into `evelyn_media.db` for lifelong visual memory.
-- [ ] **Expressive Emotional TTS & Dynamic Prosody**: Natural mid-response emotional modulation via curated paralinguistic tags (`[laugh]`, `[sigh]`, `[chuckle]`, `[gasp]`), system prompt dialogue conditioning, Chat UI cue styling, and multi-style acoustic synthesis.
-- [ ] **Unified Multimodal Affective & VAD Engine**: Real-time prosody/audio emotion extraction and 3D VAD (Valence-Arousal-Dominance) tracking across chat and journal memory.
+- [ ] **Unified Multimodal Affective & VAD Engine**: Real-time speech prosody/audio emotion extraction and 3D VAD (Valence-Arousal-Dominance) tracking across chat and journal memory, with chronological historical backfill calibration.
 - [ ] **Geospatial & Location Awareness**: Ingest mobile GPS telemetry with geofencing (home, work, contacts) and travel-state detection for localized queries.
-- [ ] **Message Biometrics & State Mapping**: Asynchronously map message IDs to timestamped physiological metrics (Oura/Health HRV, stress) for retroactive wellbeing inquiry without prompt clutter.
+- [ ] **Message Biometrics & State Mapping**: Asynchronously map message IDs to timestamped physiological metrics (Oura/Health HRV, sleep, stress) for retroactive wellbeing inquiry without prompt clutter.
 
 ### Agency & Tools
-- [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search (DuckDuckGo), pre-search intent mode classification (`[MODE_TECHNICAL]` vs `[MODE_ACADEMIC]`), intent framing, atomic query generation, source evaluation, Obsidian Vault synthesis, inspection tools (`list_research_tasks`, `inspect_research_task`), and resilient fuzzy guidance (`guide_research`).
+- [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search, intent framing, atomic query generation, source evaluation, and Obsidian Vault synthesis.
 - [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
-- [x] **Profile Auto-Evolution**: Background memory scanner that proposes iterative updates to persona, profile, and directive documents, with canonical naming, structured bullet guardrails, 3-tier pruning, editorial proofreading, self-healing proposal status reconciliation, and live diff panels in DevUI.
-- [x] **Procedural Knowledge & Master Consolidation**: Background extraction and consolidation pipeline with lifecycle status taxonomy (`live`, `extracted`, `merged`, `rejected`, `archived`), dynamic tool-schema kwarg deduplication (`MODEL_TOOL_DEFINITIONS`), specialized tool concordance scoring (`+0.35`), and DevUI interactive manual master consolidation ("Merge into...") with tool sorting and confirmation gates.
-- [x] **Temporal Management Subsystem (`time_manager`)**: Dedicated subsystem providing timezone-aware normalization, role-agnostic silence tracking, structured `<temporal_context>` XML telemetry envelopes, and always-on proactive heartbeat evaluation.
-- [x] **Cognitive Task Scheduling & Digital Dreaming**: Formalized 3-tier task execution (`REFLEX` 24/7, `DIURNAL` daytime research, `NOCTURNAL` overnight semantic dreaming), non-blocking runnable queue dispatching, and preemption tail re-queueing.
-- [x] **Workspace & Health Integrations**: Integrated Google Calendar (scheduling), Google Tasks (task management), Obsidian Vault Lists (offline checklists/groceries), Google Drive/Docs/Sheets sync, Health Connect clinical EHR data, Oura Ring Cloud API v2 vitals, and high-resolution intraday heart rate / activity biometrics.
-- [x] **Persona-Agnostic Journaling Protocol & Adaptive Day History**: Upgraded daily journaling to a persona-agnostic reflection schema, updated master procedure `#656` in SQLite memory DB with vector re-indexing, and implemented token-budgeted day-bound history loading with turn-integrity pruning.
-- [x] **Autonomous After-Hours Journal Daemon & Map-Reduce Compaction**: Autonomous late-night journaling daemon in cooperative nocturnal idle queue with midnight crossover resolution, vault collision checks, and Map-Reduce compaction for high-turn transcripts.
-- [x] **Multi-Modal Ambient Feed, Thought Bubbles & Dynamic Header Island**: Extensible polymorphic ambient impressions substrate (`daily_ambient_impressions`) supporting daytime thought bubbles, pluggable reflection activity providers, diurnal phase weighting, FIFO UI queue ordering, and failure-isolated evening journal synthesis.
-- [x] **Direct Web Link Browsing & Web Search Hardening (v000.006.081)**: Dedicated `read_url` tool with desktop client fingerprinting, WAF/Cloudflare challenge diagnostics, conversational URL routing in `web_search`, query sanitization, and in-memory TTL caching.
-- [ ] **Multi-Entity & Third-Party Individual Profiles**: Dynamic evolution and autonomous profiling for external individuals/users encountered across channels (e.g. Discord server members, collaborators) into dedicated profile notes using the per-document evolution architecture.
-- [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category + vector distance memory retrieval for profile evolution to dynamically ingest cross-domain facts without rigid category boundaries.
+- [x] **Profile Auto-Evolution**: Background memory scanner proposing iterative updates to persona, profile, and directive documents, with structured guardrails and live DevUI diff review.
+- [x] **Procedural Knowledge Consolidation**: Background extraction and consolidation pipeline with lifecycle taxonomy (`live`, `merged`, `archived`), dynamic tool deduplication, and DevUI interactive master consolidation.
+- [x] **Cognitive Task Scheduling & Digital Dreaming**: Formalized 3-tier task dispatching (`REFLEX` 24/7, `DIURNAL` daytime research, `NOCTURNAL` dreaming) with preemption and timezone-aware temporal management (`time_manager`).
+- [x] **Reflective Journaling & Compaction**: Persona-agnostic reflection schema, token-budgeted day history loading, autonomous after-hours daemon, and Map-Reduce transcript compaction.
+- [x] **Multi-Modal Ambient Feed & Thought Bubbles**: Extensible daytime ambient impressions substrate (`daily_ambient_impressions`), header island thought bubbles, and failure-isolated evening reflection synthesis.
+- [x] **Workspace & Health Integrations**: Integrations for Google Calendar/Tasks/Drive, Obsidian Vault checklists, Health Connect clinical EHR data, and Oura Ring Cloud API v2 biometrics.
+- [x] **Direct Web Browsing & Search**: Dedicated `read_url` tool with desktop client fingerprinting, bot-challenge diagnostics, query sanitization, and in-memory TTL caching.
+- [ ] **Third-Party & Multi-Entity Profiles**: Dynamic evolution and autonomous profiling for external contacts and collaborators encountered across channels into dedicated profile notes.
+- [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category and vector distance memory retrieval for profile evolution to dynamically ingest cross-domain observations.
+- [ ] **Spell Breaker (Focus Check-In Timer)**: Reverse "Do Not Disturb" timer in Chat UI that dispatches a proactive system event to Evelyn when a project timer expires, prompting an empathetic break or check-in response with forced voice playback.
+- [ ] **System-Event Prompting Flow**: General server mechanism to inject proactive notifications and initiate unsolicited turns for high-priority background triggers (agenda alerts, completed research, health anomalies).
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
-- [ ] **System-Event Prompting Flow**: Inject proactive notifications into conversation turns for background triggers (agenda alerts, completed research, health anomalies).
-- [ ] **Spell Breaker (Focus Check-In Timer)**: Reverse "Do Not Disturb" timer in Chat UI that dispatches a proactive system event to Evelyn when a project timer expires, prompting an autonomous break or check-in response.
-- [ ] **Always-On Functionality**: Day/night circadian awareness, proactive check-ins, and ambient background agency.
 
 ---
 
@@ -76,30 +73,19 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Chroma Single-Writer Architecture**: SQLite WAL-backed staging queue (`chroma_sync_queue`) with single persistent client custodial writes, poison-pill isolation, and auto-recovery.
 - [x] **Multi-Device Obsidian Sync**: Private peer-to-peer synchronization mesh via Syncthing over Tailscale with real-time file watcher service (`evelyn-vault-watcher.service`).
 - [x] **Centralized Task Manager & Watchdog**: Single task manager with PID locking, soft timeouts, background process supervision, and mutual exclusion across idle workers.
-- [x] **Dynamic Reasoning & Tool Optimization**: Dynamic thinking effort control (`Auto`, `Low`, `Mid`, `High`), reasoning-gated tool loop, and anti-drafting system prompt directives.
-- [x] **Cross-Session History Search**: SQLite FTS5 full-text indexing with query reformulation and date filtering across all 29k+ historical messages (Replika, Gemini, and Local eras).
-- [x] **Developer Web UI**: Touch-optimized web dashboard (`dev.html`) with live Heavy Task telemetry, Unified Triage Queue (extractions, proposals, procedures), and Deep Research monitor.
-- [x] **Idle Tag Librarian & Accelerated Batch Runner**: Incremental background process and batch CLI runner auditing vault notes against a Master Tag Taxonomy using Vector RAG and tiered urgency scheduling.
-- [x] **Vault Maintenance & Sidecar Index Cards**: Automated PDF title normalization, rich library index cards with frontmatter, attachments relocation (`Attachments/Source Material/`), and nearest-neighbor semantic cross-linking.
-- [x] **Zero-Overhead Vault Reorganization**: Content-hash (SHA-256) tracking and atomic SQLite/Chroma path remapping on note moves and renames to eliminate redundant GPU embedding passes.
-- [x] **Automated PDF Staging Pipeline & DevUI Ingestion**: Dual staging queues (`Attachments/Staging/Full_Extraction/`, `Attachments/Staging/Sidecar_Only/`) supervised by Task Manager with DevUI upload card and automated domain routing.
-- [x] **Multi-Node Distributed Expansion**: Distributed inference and service workloads across dedicated infrastructure (dual CPU host allocation and dedicated remote FLUX.1 image generation host for maximum GPU throughput).
-- [x] **Conversational Feedback & Adaptive Preference Tuning**: Interactive response rating (upvote/downvote) feedback loop with dynamic persona weight adjustments.
-- [x] **RAG & Context Telemetry Logging**: Interceptor logging persistent retrieval events (source notes, similarity scores, taxonomy tags) to measure knowledge utilization and retrieval frequency across conversations.
-- [x] **Unified Single-Stream Agentic Architecture (v000.006.000)**: Decommissioned legacy 2-pass inference loop in favor of a unified streaming pipeline with live thinking deltas, intermediate tool execution, preamble quarantining, and frontend Activity Stepper.
-- [x] **Canonical XML Telemetry Envelopes & Context Hardening**: Unified in-flight prompt context injection standard (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) with centralized escaping, automatic token pruning, deterministic multi-envelope stacking, and strict anti-leakage system prompt contracts.
-- [x] **Chat History Prompt De-duplication & Context Retrieval Hardening (v000.006.044)**: Bounded history retrieval (`id < before_id`) with composite indexed multi-channel isolation, omitted raw query reflection from `<context_retrieval>` XML tags, and streamlined non-diegetic abstract thinking protocols.
-- [x] **Direct High-Speed Vector RAG & Dynamic Tool Surfacing (v000.006.046)**: Replaced slow synchronous LLM query reformulation with 15x faster direct dense vector search (`bge-large-en-v1.5`), implemented dynamic tool tiering (Core 8 vs Specialist Tools) coupled to Procedures and intent heuristics, and enforced affirmative profile evolution.
-- [x] **Master Librarian & Canonical Backlog Drainer Ecosystem Consolidation (v000.006.067 - v000.006.070)**: Unified single-pass vault curation engine (`master_librarian`, `tag_librarian`, `link_librarian`, `format_librarian`, `index_librarian`) and consolidated background queues (`fact_extractor`, `pdf_staging_worker`, `fact_consolidator`, `procedure_consolidator`, and CLI runners) under the canonical `backlog_drainer` framework with cooperative yielding, dead-letter error containment, and seamless `os.execv` script deprecation.
-- [x] **Context Delivery Streamlining & Boundary Enforcement (v000.006.082)**: Enforced RAG excluded subdirectories to eliminate journal semantic bleed, wired conversational history message caps to stop runaway feedback loops, and pruned contradictory system directives.
-- [x] **Deterministic Code Hygiene & Wiring Verification (v000.006.083)**: Integrated Vulture compiler-level dead-code auditing, automated AST config-wiring pytest validation, Ruff static linting, and two-file contract reviews into unified runner and quality workflows.
-- [x] **Multi-Discipline Notation Leak Protection & Vault Title Healing (v000.006.099 - v000.006.100)**: Implemented multi-discipline notation detection (music glyphs, LaTeX, dense math, chemistry, formatting artifacts), PDF extraction noise filtering and line-break de-hyphenation, format librarian title healing with body heading fallback, wikilink refactoring, owner's manual note normalization, and vault database synchronization.
-
+- [x] **Cross-Session History Search**: SQLite FTS5 full-text indexing with query reformulation and date filtering across historical message archives.
+- [x] **Developer Web UI**: Touch-optimized web dashboard (`dev.html`) with live Heavy Task telemetry, Unified Triage Queue, and Deep Research monitor.
+- [x] **Vault Maintenance & Staging Pipeline**: Automated PDF staging queues with domain routing, rich index cards, content-hash (SHA-256) tracking, and zero-overhead reorganization.
+- [x] **Master Librarian Curation Engine**: Single-pass vault curation ecosystem (`master_librarian`, tag, link, format, and index librarians) under the canonical `backlog_drainer` framework with notation leak healing.
+- [x] **Single-Stream Agentic Architecture & Telemetry**: Unified streaming inference loop with live thinking deltas, intermediate tool execution, canonical XML telemetry envelopes, direct dense vector RAG, and dynamic tool surfacing.
+- [x] **Multi-Node Distributed Expansion**: Distributed service workloads across dedicated infrastructure (dual CPU host allocation and dedicated remote FLUX.1 host).
+- [x] **Deterministic Code Hygiene & Wiring Verification**: Mandatory 3-stage validation gate integrating Ruff static linting, AST config-wiring pytest checks, and Vulture compiler-level dead-code auditing.
+- [x] **Conversational Feedback & Quality Telemetry**: Interactive response rating (upvote/downvote) in Chat UI with satisfaction analytics and persistent RAG retrieval event inspection in DevUI.
+- [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct file edits.
+- [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
-- [ ] **Dynamic Configuration UI & Runtime Settings Manager**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct CLI or file edits.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
-- [ ] **Engine & Lifecycle Analytics Dashboard**: Comprehensive metrics dashboard to track engine usage, prompt sentiment/volume, evaluation regressions, RAG/vault knowledge utilization, research outcomes, VAD telemetry, and tool/procedure frequency with time-range drill-downs.
-- [ ] **Chat History Soft-Deletion & Observability Preserving**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context and memory extraction.
+- [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 
@@ -109,7 +95,7 @@ This roadmap is the primary source of truth for project milestones and future di
 
 *Goal: Physical presence, spatial awareness, and rich avatar embodiment.*
 
-- [ ] **Visual Avatar**: Real-time VTuber-style expressive avatar with dynamic expressions and lip sync.
+- [ ] **Visual Avatar (VRoid / 3D)**: Real-time expressive 3D avatar (VRoid Studio model integration) with dynamic expressions, lip sync, and non-VR/VR viewport rendering.
 - [ ] **Real-Time Visual Awareness**: Ambient screen and camera perception for contextual assistance.
 - [ ] **XR Integration**: Spatial computing and VR/AR presence.
 

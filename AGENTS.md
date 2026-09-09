@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-07 07:39:22
+date modified: 2026-09-08 19:13:04
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -33,7 +33,11 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - `health`: `/home/rathius/evelyn/data/health/health_connect.db`
 
 ## 3. Documentation & Metadata Maintenance
-- **ROADMAP.md**: Single source of truth for milestones. Keep entries concise and milestone-oriented (1–2 sentences). Do NOT append verbose changelogs, function trace dumps, or commit logs (Git history serves as the detailed log). Keep completed tasks (`- [x]`) grouped at the top of each section and pending items (`- [ ]`) at the bottom.
+- **ROADMAP.md Protocol & Dual-Granularity Standard**:
+  - **Single Source of Milestones**: `ROADMAP.md` is strictly for high-level architectural milestones and future feature planning. It is NOT a version tracker or commit log.
+  - **No Version or Patch Bleed**: Never append version numbers (`v000.006.XXX`), release titles, bugfix notes, or function trace dumps to `ROADMAP.md`. Release-specific logs belong exclusively in `CHANGELOG.md`.
+  - **Completed Milestones (`- [x]`)**: Consolidated high-level summaries (1–2 sentences) capturing completed capabilities. Grouped at the top of each section. Avoid creating one-off micro-entries for routine patches.
+  - **Pending Items (`- [ ]`)**: Sized as **discrete, single-implementation units** (feasible within a single focused development session or PR). Never bundle multiple distinct systems (e.g. full frontend UI + separate backend ingestion pipeline) into sprawling mega-items that stretch agents too thin. Grouped at the bottom of each section.
 - **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, `requirements.txt`, and `SETUP_GUIDE.md` in sync whenever code contracts change.
 - **File Metadata & Frontmatter**: Run `python scripts/update_frontmatter.py "<filepath>"` after modifying files to ensure timestamps and headers stay accurate.
 
@@ -49,7 +53,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **Database Migration Framework**: All database schema changes and structural data transformations must be registered as a versioned migration step in `Evelyn/tools/db_migrator.py` (`MIGRATIONS` registry) and executed via `scripts/migrate_db.py`.
 - **Immutability Rule**: Once a migration version (`000.004.00X`) is committed and applied, its migration code and SQL are **strictly immutable**. Any corrective schema changes, data patches, or structural adjustments must be registered in a **new, incremented migration step** (`000.004.00X+1`).
 - **No Out-of-Band Schema Mutations**: Modifying production database schemas or transforming database structures ad-hoc via inline scripts or unversioned queries is strictly forbidden.
-- **Changelog & Versioning Maintenance**: Every functional code modification (features, bugfixes, architectural adjustments, database migrations) requires an incremented canonical version in `Evelyn/version.py` (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`) and a documented entry in `CHANGELOG.md` detailing added capabilities, fixed issues, changed behaviors, and migrations applied. Keep `ROADMAP.md` concise and milestone-oriented.
+- **Changelog & Versioning Maintenance**: Every functional code modification (features, bugfixes, architectural adjustments, database migrations) requires an incremented canonical version in `Evelyn/version.py` (`MAJOR.MINOR.PATCH`, e.g. `000.004.001`) and a documented entry in `CHANGELOG.md` detailing added capabilities, fixed issues, changed behaviors, and migrations applied. Do not mirror individual version entries, patch notes, or commit traces into `ROADMAP.md`.
 
 ## 6. Service Verification & Process Management
 - **TCP Port & Unit Binding Verification**: When verifying if services are running (Evelyn server, TTS server, Ollama, etc.), ALWAYS inspect by **TCP Port Binding** (`ss -tulpn` / `lsof -i:<port>`) or systemd status (`systemctl status <service>`). Never rely on loose process name matching (`python`) or stale PIDs.
