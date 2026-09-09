@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-06 18:44:57
+# date modified: 2026-09-08 20:32:42
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1635,9 +1635,10 @@ async def _agentic_stream_loop(
                 if fn_name == "generate_image":
                     m_img = re.search(r"(/images/[^\s\)]+)", str(result))
                     if m_img:
-                        tool_entry = f"{fn_name}[{m_img.group(1)}]"
-                        meta_entry["data"] = {"path": m_img.group(1)}
-                        approval_id_or_data = m_img.group(1)
+                        img_path = m_img.group(1).rstrip(".,;")
+                        tool_entry = f"{fn_name}[{img_path}]"
+                        meta_entry["data"] = {"path": img_path}
+                        approval_id_or_data = img_path
                 elif fn_name in ("run_command", "write_file", "write_journal_entry"):
                     m_appr = re.search(
                         r"Approval ID:\s*(cmd_\w+|write_\w+)", str(result)
