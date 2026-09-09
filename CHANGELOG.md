@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-08 18:51:08
+date modified: 2026-09-08 20:33:11
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.101] - 2026-09-08 — *Image URL Trailing Punctuation Stripping & Modal Preview Fix*
+
+### Fixed & Enhanced
+- **Image URL Extraction Trailing Punctuation Pruning (`evelyn_server.py`)**:
+  - Fixed regex extraction in `generate_image` tool handler where the terminal period from `"Image generated successfully at /images/...png."` was greedily captured into `tool_entry`, `tool_metadata`, and `approval_id_or_data`.
+  - Added `.rstrip(".,;")` sanitization ensuring image paths resolve cleanly as `/images/<filename>.png` without trailing punctuation that caused 404 HTTP errors.
+- **Frontend Image URL Sanitization & Action Labeling (`evelyn_ui/index.html`)**:
+  - Added defensive URL stripping (`replace(/[.,;]+$/, "")`) in `addWriteBadges()` and `openModal()` to ensure generated image preview modals always load the asset without 404 failures.
+  - Enhanced the write badge label for `generate_image` from a static `"🎨 Image generated"` to an actionable, clickable `"🎨 View Generated Image"` button with descriptive tooltip.
+  - Improved modal image presentation with responsive constraints (`max-width: 100%; max-height: 80vh; border-radius: 8px`).
+- **Database Curation & Historical Record Healing (`evelyn_chat.db`)**:
+  - Sanitized historical records across 5 chat messages (IDs `26805`, `27309`, `27906`, `29291`, `31470`) in `evelyn_chat.db`, stripping the invalid trailing period from `tools_used` and `tool_metadata` so previous image generation badges open properly in the UI.
 
 ## [000.006.100] - 2026-09-08 — *PDF De-Hyphenation, Ingestion Noise Filtering & Manual Note Title Normalization*
 

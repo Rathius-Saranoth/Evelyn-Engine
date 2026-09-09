@@ -2464,16 +2464,18 @@
         for (const t of writesUsed) {
           let badge;
           if (t.name === "generate_image") {
-            let imgUrl = t.data;
+            let imgUrl = t.data ? t.data.replace(/[.,;]+$/, "") : null;
             if (imgUrl) {
               badge = document.createElement("button");
               badge.onclick = () => openModal("image", imgUrl);
               badge.style.cursor = "pointer";
+              badge.title = "Click to view generated image";
+              badge.textContent = `${WRITE_TOOLS[t.name].icon} View Generated Image`;
             } else {
               badge = document.createElement("span");
+              badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
             }
             badge.className = "write-badge";
-            badge.textContent = `${WRITE_TOOLS[t.name].icon} ${WRITE_TOOLS[t.name].label}`;
           } else if (t.name === "write_journal_entry" && (!t.data || (!t.data.startsWith("write_") && !t.data.startsWith("cmd_")))) {
             const entryDate = t.data || new Date().toISOString().slice(0, 10);
             badge = document.createElement("button");
@@ -2613,8 +2615,9 @@
           '<div style="text-align:center; padding: 40px; color: var(--text-dim);">Loading...</div>';
 
         if (type === "image") {
+          const cleanUrl = id ? id.replace(/[.,;]+$/, "") : "";
           title.textContent = "Generated Image";
-          content.innerHTML = `<img src="${id}" style="display:block; margin:0 auto;">`;
+          content.innerHTML = `<img src="${cleanUrl}" alt="Generated Image" style="display:block; margin:0 auto; max-width:100%; max-height:80vh; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">`;
         } else if (type === "journal") {
           title.textContent = id;
           try {
