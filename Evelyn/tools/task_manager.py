@@ -134,10 +134,12 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
     """Immediately terminate any active subprocess associated with a named task (e.g. task_* research).
 
     Performs a defense-in-depth teardown:
-      1. Cancels/terminates in-memory process handle from _active_handles or server's _active_research_processes.
-      2. Calls evelyn_server.terminate_research_process(name) if available.
-      3. Scans for on-disk engine.pid, terminates the matching PID via psutil, and deletes the lock file.
-      4. Synchronizes task status in state.json on disk to 'timed_out' so server loops do not revive it.
+      1. Cancels/terminates in-memory process handle from _active_handles (supporting
+         both subprocess.Popen and asyncio.subprocess.Process).
+      2. Uses psutil to SIGTERM the PID, awaits grace period, and escalates to SIGKILL.
+      3. Calls evelyn_server.terminate_research_process(name) if available.
+      4. Scans for on-disk engine.pid, terminates the matching PID via psutil, and deletes the lock file.
+      5. Synchronizes task status in state.json on disk to 'timed_out' so server loops do not revive it.
 
     Args:
         name: Task key (e.g., 'task_1787311024_e75fcde1').
@@ -147,23 +149,40 @@ def terminate_task_subprocess(name: str, grace_period: float = 2.0) -> None:
 
     # 1. In-memory handle check from _active_handles
     handle = _active_handles.pop(name, None)
-    if handle is not None and hasattr(handle, "terminate") and callable(getattr(handle, "terminate", None)):
-        try:
-            poll_fn = getattr(handle, "poll", None)
-            is_alive = poll_fn() is None if callable(poll_fn) else True
-            if is_alive:
+    if handle is not None:
+        if hasattr(handle, "terminate") and callable(getattr(handle, "terminate", None)):
+            try:
                 handle.terminate()
-                wait_fn = getattr(handle, "wait", None)
-                if callable(wait_fn):
+            except (subprocess.SubprocessError, psutil.Error, OSError) as e:
+                print(f"[TASK MANAGER] Error terminating handle for {name}: {e}", flush=True)
+
+        pid = getattr(handle, "pid", None)
+        if isinstance(pid, int) and psutil.pid_exists(pid):
+            try:
+                p = psutil.Process(pid)
+                if p.is_running():
+                    p.terminate()
                     try:
+                        p.wait(timeout=grace_period)
+                    except (psutil.TimeoutExpired, psutil.Error):
+                        with contextlib.suppress(psutil.Error, OSError):
+                            p.kill()
+            except (psutil.NoSuchProcess, psutil.Error, OSError) as e:
+                print(f"[TASK MANAGER] Error terminating PID {pid} for {name}: {e}", flush=True)
+        else:
+            wait_fn = getattr(handle, "wait", None)
+            if callable(wait_fn):
+                try:
+                    import inspect
+                    if not inspect.iscoroutinefunction(wait_fn):
                         wait_fn(timeout=grace_period)
-                    except (subprocess.SubprocessError, psutil.Error, OSError, TimeoutError):
-                        kill_fn = getattr(handle, "kill", None)
-                        if callable(kill_fn):
-                            with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
-                                kill_fn()
-        except (subprocess.SubprocessError, psutil.Error, OSError) as e:
-            print(f"[TASK MANAGER] Error terminating handle for {name}: {e}", flush=True)
+                except (subprocess.SubprocessError, psutil.Error, OSError, TimeoutError, TypeError):
+                    pass
+            kill_fn = getattr(handle, "kill", None)
+            if callable(kill_fn):
+                with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
+                    kill_fn()
+
         unregister_subprocess(handle)
 
     # 2. Delegate to server's terminate_research_process if available
@@ -249,8 +268,15 @@ def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
     alive_procs = []
     for proc in _spawned_subprocesses:
         with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
-            if proc.poll() is None:
-                proc.terminate()
+            poll_fn = getattr(proc, "poll", None)
+            is_alive = poll_fn() is None if callable(poll_fn) else getattr(proc, "returncode", None) is None
+            if is_alive:
+                pid = getattr(proc, "pid", None)
+                if pid and psutil.pid_exists(pid):
+                    with contextlib.suppress(psutil.Error, OSError):
+                        psutil.Process(pid).terminate()
+                elif hasattr(proc, "terminate") and callable(proc.terminate):
+                    proc.terminate()
                 alive_procs.append(proc)
 
     if not alive_procs:
@@ -260,7 +286,15 @@ def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
     # Wait for grace period
     start = time.time()
     while time.time() - start < grace_period:
-        alive_procs = [p for p in alive_procs if p.poll() is None]
+        still_alive = []
+        for p in alive_procs:
+            poll_fn = getattr(p, "poll", None)
+            is_alive = poll_fn() is None if callable(poll_fn) else getattr(p, "returncode", None) is None
+            if is_alive:
+                pid = getattr(p, "pid", None)
+                if (pid and psutil.pid_exists(pid)) or not pid:
+                    still_alive.append(p)
+        alive_procs = still_alive
         if not alive_procs:
             break
         time.sleep(0.1)
@@ -268,8 +302,13 @@ def terminate_all_subprocesses(grace_period: float = 3.0) -> None:
     # Escalation to SIGKILL if still alive
     for proc in alive_procs:
         with contextlib.suppress(subprocess.SubprocessError, psutil.Error, OSError):
-            if proc.poll() is None:
-                print(f"[TASK MANAGER] Process PID {proc.pid} unresponsive; sending SIGKILL.", flush=True)
+            pid = getattr(proc, "pid", None)
+            if pid and psutil.pid_exists(pid):
+                print(f"[TASK MANAGER] Process PID {pid} unresponsive; sending SIGKILL via psutil.", flush=True)
+                with contextlib.suppress(psutil.Error, OSError):
+                    psutil.Process(pid).kill()
+            elif hasattr(proc, "kill") and callable(proc.kill):
+                print(f"[TASK MANAGER] Process PID {getattr(proc, 'pid', '?')} unresponsive; sending SIGKILL.", flush=True)
                 proc.kill()
 
     _spawned_subprocesses.clear()
@@ -292,6 +331,8 @@ def reap_orphaned_processes() -> dict:
         "ingest_obsidian_knowledge.py",
         "sync_full_vault_to_chroma.py",
         "tag_librarian.py",
+        "master_librarian.py",
+        "vault_indexer.py",
         "fact_extractor.py",
         "fact_consolidator.py",
     }
@@ -687,7 +728,9 @@ def is_task_runnable(
         try:
             from Evelyn.tools import time_manager
 
-            idle_seconds = time_manager.get_user_idle_seconds()
+            raw_idle = time_manager.get_user_idle_seconds()
+            uptime = max(0.0, time.time() - _boot_ts)
+            idle_seconds = min(raw_idle, uptime)
         except (ImportError, sqlite3.Error, OSError, ValueError):
             pass
 
@@ -752,7 +795,9 @@ def acquire_next_runnable_task(idle_seconds: float = 0.0) -> dict | None:
         try:
             from Evelyn.tools import time_manager
 
-            idle_seconds = time_manager.get_user_idle_seconds()
+            raw_idle = time_manager.get_user_idle_seconds()
+            uptime = max(0.0, time.time() - _boot_ts)
+            idle_seconds = min(raw_idle, uptime)
         except (ImportError, sqlite3.Error, OSError, ValueError):
             pass
 
@@ -822,6 +867,11 @@ def cancel_all_idle_tasks(reason: str = "chat_request") -> None:
                 if name not in interrupted_tasks:
                     interrupted_tasks.append(name)
                 print(f"[TASK MANAGER] Cancelled active handle for '{name}' ({reason}).", flush=True)
+            elif hasattr(handle, "terminate") or hasattr(handle, "pid"):
+                terminate_task_subprocess(name)
+                if name not in interrupted_tasks:
+                    interrupted_tasks.append(name)
+                print(f"[TASK MANAGER] Terminated active subprocess for '{name}' ({reason}).", flush=True)
         except (RuntimeError, OSError) as e:
             print(f"[TASK MANAGER] Error cancelling handle for '{name}': {e}", flush=True)
 
@@ -1271,6 +1321,8 @@ def _reconcile_orphaned_tasks() -> None:
             is_done = not handle.is_alive()
         elif hasattr(handle, "poll") and callable(getattr(handle, "poll", None)):
             is_done = handle.poll() is not None
+        elif hasattr(handle, "returncode"):
+            is_done = handle.returncode is not None
 
         if is_done:
             print(
@@ -1287,6 +1339,7 @@ def _reconcile_orphaned_tasks() -> None:
 def _check_soft_timeouts() -> None:
     """Check running tasks against dynamic soft-timeout thresholds."""
     import asyncio
+    import threading
 
     tasks = _get_background_tasks()
     if not tasks:
@@ -1317,14 +1370,27 @@ def _check_soft_timeouts() -> None:
                 handle.cancel()
 
             # Terminate subprocess if this is a research task or subprocess-backed task
-            if name.startswith("task_") or (handle is not None and hasattr(handle, "terminate")):
+            if name.startswith("task_") or (handle is not None and (hasattr(handle, "terminate") or hasattr(handle, "pid"))):
                 terminate_task_subprocess(name)
+
+            # Watchdog Escalation: Check if backing handle is a synchronous thread
+            thread_still_alive = False
+            if isinstance(handle, threading.Thread) and handle.is_alive():
+                thread_still_alive = True
+
+            if thread_still_alive:
+                print(
+                    f"[TASK WATCHDOG ESCALATION] Task '{name}' has a backing synchronous thread "
+                    f"that cannot be forcibly cancelled and is still executing after timeout.",
+                    flush=True,
+                )
 
             # Clear status in registry
             clear_running(
                 name,
                 status="timed_out",
-                error=f"Soft timeout exceeded ({round(elapsed)}s > threshold {round(threshold)}s)",
+                error=f"Soft timeout exceeded ({round(elapsed)}s > threshold {round(threshold)}s)"
+                + (" [thread still active]" if thread_still_alive else ""),
             )
 
 

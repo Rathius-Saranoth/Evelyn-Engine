@@ -42,6 +42,7 @@ class DrainConfig:
     batch_size: int = 10
     max_batches: int = 0  # 0 = unlimited (drain until exhausted, deadline, or yield)
     delay_between_batches: float = 0.0
+    delay_between_items: float = 0.0  # Cooperative yield delay between items (e.g. 0.1s)
     deadline: float | None = None  # Epoch timestamp after which no new item is started
     yield_check_interval: int = 1  # Check should_yield every N items
     auto_re_enqueue: bool = True  # Re-enqueue task in task_manager when yielding
@@ -172,6 +173,10 @@ def drain_backlog[T](
                         progress_callback(result.items_processed, result.errors_count)
                     except Exception as pc_err:  # noqa: BLE001
                         logger.debug(f"[{task_name}] Progress callback error: {pc_err}")
+
+                # Cooperative yield pause between items
+                if cfg.delay_between_items > 0:
+                    time.sleep(cfg.delay_between_items)
 
             batch_num += 1
             result.batches_completed = batch_num
@@ -309,6 +314,10 @@ async def drain_backlog_async[T](
                             await pc_res
                     except Exception as pc_err:  # noqa: BLE001
                         logger.debug(f"[{task_name}] Progress callback error: {pc_err}")
+
+                # Cooperative yield pause between items so HTTP and TLS handshakes never starve
+                if cfg.delay_between_items > 0:
+                    await asyncio.sleep(cfg.delay_between_items)
 
             batch_num += 1
             result.batches_completed = batch_num

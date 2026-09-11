@@ -1,0 +1,20 @@
+[Unit]
+Description=Evelyn Chatterbox TTS Server
+After=network.target
+
+[Service]
+Type=simple
+User=rathius
+WorkingDirectory=/home/rathius/evelyn/services/tts
+Environment="PYTHONPATH=/home/rathius/evelyn"
+Environment="EVELYN_TTS_DEVICE=cpu"
+Environment="OMP_NUM_THREADS=8"
+ExecStart=/home/rathius/evelyn/services/tts/venv/bin/python tts_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

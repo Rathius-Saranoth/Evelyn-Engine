@@ -124,8 +124,9 @@ _MAG = "\033[95m"
 # Activity tracking for idle-time consolidation
 # ---------------------------------------------------------------------------
 
-# Updated at the top of every chat_stream() call. The consolidation loop
-# checks this to decide whether the server is idle enough to run.
+# Updated at the top of every chat_stream() call and on interactive pings.
+_server_boot_ts: float = time.time()
+_has_received_interactive_ping: bool = False
 _last_activity_ts: float = time.time()
 _last_self_initiate_ts: float = 0.0
 _last_window_warn_ts: float = 0.0
@@ -134,17 +135,42 @@ _last_research_spawn_ts: float = 0.0  # Layer 2: spawn debounce
 _error_resume_ts: dict = {}  # Layer 3: per-task error cooldown
 
 
+def record_interactive_ping() -> None:
+    """Record that an interactive client ping, turn, or request occurred.
+
+    Unlocks idle progression after boot and resets the idle silence clock.
+    """
+    global _has_received_interactive_ping, _last_activity_ts
+    _has_received_interactive_ping = True
+    _last_activity_ts = time.time()
+
+
 def _get_current_idle_seconds() -> float:
     """Return elapsed seconds of silence since the last user message in evelyn_chat.db.
 
+    Guarded against stale startup spikes by server uptime ceiling until an interactive ping is received.
     Fallback to in-memory _last_activity_ts if DB query fails.
     """
     try:
         from Evelyn.tools import time_manager
 
-        return time_manager.get_user_idle_seconds()
+        db_idle = time_manager.get_user_idle_seconds()
     except (ImportError, sqlite3.Error, OSError, ValueError):
-        return max(0.0, time.time() - _last_activity_ts)
+        db_idle = max(0.0, time.time() - _last_activity_ts)
+
+    uptime = max(0.0, time.time() - _server_boot_ts)
+
+    # Optional strict mode: hold idle clock at 0.0 until first interactive ping
+    if getattr(cfg, "REQUIRE_INTERACTIVE_PING_ON_BOOT", False) and not _has_received_interactive_ping:
+        return 0.0
+
+    # Ceiling guard: on boot before any interactive ping, cap idle seconds to server uptime
+    # to avoid the "24 hours idle on boot" queue rush.
+    effective_idle = min(db_idle, uptime) if not _has_received_interactive_ping else db_idle
+
+    # Sane ceiling to guard against 999999.0 sentinels or months of stale gap
+    max_ceiling = getattr(cfg, "MAX_IDLE_SECONDS_CEILING", 86400.0)
+    return min(effective_idle, max_ceiling)
 
 # ---------------------------------------------------------------------------
 # In-Memory Stream Buffer & Session Management
@@ -1950,7 +1976,7 @@ async def _process_chat_background(
             session.mark_complete()
 
         task_manager.set_chat_preemption(False)
-        _last_activity_ts = time.time()
+        record_interactive_ping()
 
 
 def pause_all_active_research():
@@ -2114,8 +2140,7 @@ async def chat_stream(
     Yields:
         str: Server-Sent Events formatted data blocks.
     """
-    global _last_activity_ts
-    _last_activity_ts = time.time()
+    record_interactive_ping()
     importlib.reload(cfg)
 
     # Immediately pause any active deep research to unblock Ollama
@@ -2252,37 +2277,70 @@ def is_any_heavy_task_running(exclude_name: str | None = None) -> bool:
 async def run_master_librarian_task(
     batch_size: int | None = None, max_batches: int = 1
 ):
-    """Runs Master Librarian single-pass audit pass in a background thread."""
+    """Runs Master Librarian single-pass audit pass in a dedicated isolated worker subprocess."""
     import task_manager
 
     if is_any_heavy_task_running():
         return
+
+    bs = batch_size or getattr(cfg, "MASTER_LIBRARIAN_BATCH_SIZE", 5)
+    limit = bs * max_batches
+    script_path = str(BASE_DIR / "scripts" / "master_librarian.py")
+    cmd = [
+        sys.executable,
+        "-u",
+        script_path,
+        "--batch-size", str(bs),
+        "--limit", str(limit),
+        "--rebalance-taxonomy",
+    ]
+
+    task_manager.set_running("master_librarian", phase="Starting Master Librarian subprocess...")
+    proc = None
     try:
-        from Evelyn.tools import master_librarian, tag_librarian
-
-        bs = batch_size or getattr(cfg, "MASTER_LIBRARIAN_BATCH_SIZE", 5)
-        result = await asyncio.to_thread(
-            master_librarian.run_master_librarian_audit,
-            batch_size=bs,
-            max_batches=max_batches,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(BASE_DIR),
         )
-        print(
-            f"{_GRN}[MASTER LIBRARIAN]{_RST} Audit pass finished: processed={result.items_processed}, "
-            f"errors={result.errors_count}, yielded={result.yielded}",
-            flush=True,
-        )
+        task_manager.register_subprocess(proc)
+        task_manager._active_handles["master_librarian"] = proc
 
-        # Periodically maintain master taxonomy to balance counts and prune 0-usage tags
-        m_res = await asyncio.to_thread(tag_librarian.maintain_master_taxonomy)
-        if m_res.get("removed_master_tags", 0) > 0:
-            print(
-                f"{_GRN}[MASTER LIBRARIAN]{_RST} Taxonomy maintenance pruned {m_res['removed_master_tags']} orphan tags.",
-                flush=True,
+        if proc.stdout:
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    break
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if line:
+                    print(f"{_GRN}[MASTER LIBRARIAN]{_RST} {line}", flush=True)
+                    if line.startswith(("✏️", "✓")) or "Audited" in line or "Target:" in line:
+                        task_manager.set_running("master_librarian", phase=line[:60])
+
+        await proc.wait()
+        if proc.returncode == 0:
+            print(f"{_GRN}[MASTER LIBRARIAN]{_RST} Audit pass completed successfully.", flush=True)
+            task_manager.clear_running("master_librarian", status="idle")
+        else:
+            task_manager.clear_running(
+                "master_librarian",
+                status="error",
+                error=f"Process exited with code {proc.returncode}",
             )
+    except asyncio.CancelledError:
+        print(f"{_YEL}[MASTER LIBRARIAN]{_RST} Task cancelled, terminating subprocess...", flush=True)
+        if proc:
+            task_manager.terminate_task_subprocess("master_librarian")
+        task_manager.clear_running("master_librarian", status="idle")
+        raise
     except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
         print(f"[MASTER LIBRARIAN] Error during audit pass: {e}", flush=True)
         task_manager.clear_running("master_librarian", status="error", error=str(e))
     finally:
+        if proc:
+            task_manager.unregister_subprocess(proc)
+        task_manager._active_handles.pop("master_librarian", None)
         if task_manager.get_status("master_librarian") == "running":
             task_manager.clear_running("master_librarian", status="idle")
 
@@ -4038,13 +4096,11 @@ async def trigger_sync(_: None = Depends(check_auth)):
 
 @app.post("/vault_map")
 async def trigger_vault_map(_: None = Depends(check_auth)):
-    """Regenerate the Obsidian vault map in the background (no chat turn required).
+    """Regenerate the Obsidian vault map in the background as an async subprocess.
 
     Cancels any in-flight consolidation or extraction tasks before starting.
     """
-    import subprocess
     import sys
-    import threading
 
     import task_manager
 
@@ -4055,36 +4111,55 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
 
     task_manager.set_running("vault_map", phase="Mapping Obsidian Vault...")
 
-    def _run():
-        """Run vault_indexer.py as a subprocess and update the task registry on completion."""
+    async def _run():
+        """Run vault_indexer.py as an async subprocess and update the task registry on completion."""
+        proc = None
         try:
             script = str(BASE_DIR / "Evelyn" / "tools" / "vault_indexer.py")
             print(
                 f"{_GRN}[VAULT MAP]{_RST} Regeneration triggered via /vault_map endpoint",
                 flush=True,
             )
-            result = subprocess.run(
-                [sys.executable, "-u", script],
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-u",
+                script,
                 stdout=sys.stdout,
                 stderr=sys.stderr,
                 cwd=str(BASE_DIR),
             )
-            if result.returncode == 0:
+            task_manager.register_subprocess(proc)
+            task_manager._active_handles["vault_map"] = proc
+
+            await proc.wait()
+            if proc.returncode == 0:
                 task_manager.clear_running("vault_map", status="done")
                 print(f"{_GRN}[VAULT MAP]{_RST} Done.", flush=True)
             else:
                 task_manager.clear_running(
-                    "vault_map", status="error", error=f"Exit code {result.returncode}"
+                    "vault_map", status="error", error=f"Exit code {proc.returncode}"
                 )
                 print(
-                    f"{_RED}[VAULT MAP ERROR]{_RST} Process exited with code {result.returncode}",
+                    f"{_RED}[VAULT MAP ERROR]{_RST} Process exited with code {proc.returncode}",
                     flush=True,
                 )
+        except asyncio.CancelledError:
+            print(f"{_YEL}[VAULT MAP]{_RST} Task cancelled, terminating subprocess...", flush=True)
+            if proc:
+                task_manager.terminate_task_subprocess("vault_map")
+            task_manager.clear_running("vault_map", status="idle")
+            raise
         except (subprocess.SubprocessError, psutil.Error, OSError, RuntimeError) as e:
             task_manager.clear_running("vault_map", status="error", error=str(e))
             print(f"{_RED}[VAULT MAP ERROR]{_RST} {e}", flush=True)
+        finally:
+            if proc:
+                task_manager.unregister_subprocess(proc)
+            task_manager._active_handles.pop("vault_map", None)
 
-    threading.Thread(target=_run, daemon=True).start()
+    t_vm = asyncio.create_task(_run())
+    _server_background_tasks.add(t_vm)
+    t_vm.add_done_callback(_server_background_tasks.discard)
     return {"status": "vault map generation started"}
 
 
@@ -4118,6 +4193,7 @@ async def start_refresh_memory_internal():
 
     async def _run_subprocess():
         """Run refresh_memory.py as an async subprocess, streaming phase updates to the registry."""
+        proc = None
         try:
             import sys
 
@@ -4130,6 +4206,8 @@ async def start_refresh_memory_internal():
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(BASE_DIR),
             )
+            task_manager.register_subprocess(proc)
+            task_manager._active_handles["refresh_memory"] = proc
 
             if proc.stdout:
                 while True:
@@ -4181,11 +4259,21 @@ async def start_refresh_memory_internal():
             else:
                 raise RuntimeError(f"Pipeline exited with code {proc.returncode}")
 
+        except asyncio.CancelledError:
+            print(f"{_YEL}[REFRESH]{_RST} Memory refresh cancelled; terminating subprocess...", flush=True)
+            if proc:
+                task_manager.terminate_task_subprocess("refresh_memory")
+            task_manager.clear_running("refresh_memory", status="idle")
+            raise
         except (subprocess.SubprocessError, OSError, RuntimeError) as e:
             task_manager.clear_running("refresh_memory", status="error", error=str(e))
             if "refresh_memory" in _background_tasks:
                 _background_tasks["refresh_memory"]["phase"] = "Failed."
             print(f"{_RED}[REFRESH ERROR]{_RST} {e}", flush=True)
+        finally:
+            if proc:
+                task_manager.unregister_subprocess(proc)
+            task_manager._active_handles.pop("refresh_memory", None)
 
     t_proc = asyncio.create_task(_run_subprocess())
     _server_background_tasks.add(t_proc)
@@ -4833,6 +4921,14 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 # Developer Web UI Endpoints
 # ---------------------------------------------------------------------------
+
+
+@app.get("/api/ping")
+@app.post("/api/ping")
+async def api_ping():
+    """Interactive client ping to acknowledge active user session and unlock idle progression."""
+    record_interactive_ping()
+    return {"status": "pong", "idle_seconds": _get_current_idle_seconds()}
 
 
 @app.get("/api/heavy_tasks")
