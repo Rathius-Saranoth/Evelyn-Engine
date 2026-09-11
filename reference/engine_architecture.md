@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-11 17:26:09
+date modified: 2026-09-11 17:45:52
 ---
 # Evelyn Engine Architecture Map
 
@@ -104,12 +104,12 @@ graph TD
         WinNode["Workstation Node (workstation-pc)"]
         MobileNode["Phone Node (client-phone)"]
         TabNode["Tablet Node (client-tablet)"]
-        SyncthingServer["Syncthing Daemon (sanctum:22000)"]
+        SyncthingServer["Syncthing Daemon (Ricky-PC-WSL:22000)"]
     end
     WinNode <== Tailscale P2P ==> SyncthingServer
     MobileNode <== Tailscale P2P ==> SyncthingServer
     TabNode <== Tailscale P2P ==> SyncthingServer
-    SyncthingServer <-->|Sync Files| Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"]
+    SyncthingServer <--->|Sync Files| Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"]
     Obsidian <-->|Inotify Watch| VaultWatcher
     Obsidian <-->|Read / Sync| IngestVault
     ResearchEngine -->|Save Report| Obsidian

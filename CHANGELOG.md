@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-11 17:22:45
+date modified: 2026-09-11 17:46:26
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.106] - 2026-09-11 — *Syncthing Mesh Migration & Deployment Infrastructure Documentation*
+
+### Added & Enhanced
+- **Syncthing Mesh Migration to Ricky-PC-WSL**:
+  - Migrated the multi-device Obsidian Vault synchronization mesh from the decommissioned server (*Sanctum*) to **Ricky-PC-WSL**.
+  - Generated and deployed dedicated Syncthing configuration (`~/.local/state/syncthing/config.xml`) with WSL2 port separation: Web GUI on `0.0.0.0:8385` (eliminating port collisions with Windows SyncTrayzor on `8384`) and transfer listener on `0.0.0.0:22000` (TCP/QUIC).
+  - Enabled persistent user lingering via `loginctl enable-linger` and activated `syncthing.service` systemd user unit.
+  - Paired Windows Workstation (`Ricky-PC`) directly with `Ricky-PC-WSL` over Tailscale and internal vSwitch; successfully completed initial bidirectional handshake and synchronized all 4,707 vault files (1.44 GB).
+- **Automated Obsidian Vault Watcher Service (`systemd/evelyn-vault-watcher.service`)**:
+  - Authored and committed canonical user systemd service definition (`systemd/evelyn-vault-watcher.service`) to run `scripts/obsidian_vault_watcher.py` as an always-on background daemon.
+  - Automatically watches `/home/rathius/obsidian_vault` with a 4.0s debounce cooldown, incrementally indexing file additions, modifications, and deletions into SQLite (`evelyn_vault.db`) and ChromaDB vector embeddings (`evelyn_memory` / staging).
+- **Service Orchestration Script Enhancements (`scripts/`)**:
+  - `start_evelyn_services.sh`: Added startup and status reporting for user services `syncthing` and `evelyn-vault-watcher`.
+  - `stop_evelyn_services.sh`: Added `--with-syncthing` option and integrated syncthing shutdown into `--all`.
+  - `restart_evelyn_services.sh`: Integrated automated restart for `syncthing` user service alongside `evelyn-vault-watcher`.
+  - `check_evelyn_status.sh`: Added automated health probes for Syncthing (port 22000/8385) and Vault Watcher; updated system reporting banner from Sanctum to `Ricky-PC-WSL`.
+- **Comprehensive Deployment & Mesh Documentation (`SETUP_GUIDE.md`, `reference/engine_architecture.md`, `ROADMAP.md`)**:
+  - Authored full Section 5 in `SETUP_GUIDE.md`: "Multi-Device Obsidian Sync (Syncthing Mesh over Tailscale)", detailing topology, WSL2 port separation, systemd lingering, vault watcher setup, Windows SyncTrayzor integration, mobile (Android) client configuration, and recommended `.stignore` rules.
+  - Updated `reference/engine_architecture.md` diagram and topology notes to reflect `Ricky-PC-WSL:22000`.
+  - Updated `ROADMAP.md` Phase 4 milestones tracking deployment and infrastructure documentation progress.
 
 ## [000.006.105] - 2026-09-11 — *Dual-Collection Vector Architecture & Reference Library Tooling*
 

@@ -59,8 +59,26 @@ else
     echo -e "\033[0;33m⚠️  [Remote Image Host] FLUX.1 server at $IMAGE_BASE_URL unreachable or offline.\033[0m"
 fi
 
+# 6. Check Syncthing Peer Synchronization
+SYNCTHING_PORT=22000
+SYNCTHING_GUI_PORT=8385
+if systemctl --user is-active --quiet syncthing 2>/dev/null || ss -tuln | grep -q ":$SYNCTHING_PORT "; then
+    echo -e "\033[0;32m✅ [Syncthing] Service is running (Sync Port: $SYNCTHING_PORT, GUI: $SYNCTHING_GUI_PORT).\033[0m"
+else
+    echo -e "\033[0;31m❌ [Syncthing] Service is NOT running.\033[0m"
+    ALL_CLEAR=false
+fi
+
+# 7. Check Obsidian Vault Watcher
+if systemctl --user is-active --quiet evelyn-vault-watcher 2>/dev/null; then
+    echo -e "\033[0;32m✅ [Vault Watcher] Real-time filesystem watcher is active.\033[0m"
+else
+    echo -e "\033[0;31m❌ [Vault Watcher] Service evelyn-vault-watcher is NOT running.\033[0m"
+    ALL_CLEAR=false
+fi
+
 echo "------------------------------------------"
-echo "  Hardware & NUMA Locality Summary        "
+echo "  Hardware & System Summary               "
 echo "------------------------------------------"
 
 if command -v nvidia-smi &> /dev/null; then
@@ -76,8 +94,8 @@ fi
 
 echo "=========================================="
 if [ "$ALL_CLEAR" = true ]; then
-    echo -e "\033[0;32mAll core systems operational on Sanctum!\033[0m"
+    echo -e "\033[0;32mAll core systems operational on Ricky-PC-WSL!\033[0m"
 else
-    echo -e "\033[0;33mSome services offline. Run: sudo systemctl restart evelyn evelyn-tts ollama\033[0m"
+    echo -e "\033[0;33mSome services offline. Run: sudo systemctl restart evelyn evelyn-tts ollama && systemctl --user restart syncthing evelyn-vault-watcher\033[0m"
 fi
 echo "=========================================="

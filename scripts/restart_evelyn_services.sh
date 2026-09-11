@@ -56,10 +56,14 @@ echo "⚡ Restarting Evelyn TTS & Core Engine..."
 sudo systemctl restart evelyn-tts evelyn
 echo "  ✓ evelyn-tts.service and evelyn.service restarted."
 
-# 4. Restart User Vault Watcher if active
+# 4. Restart User Vault Watcher & Syncthing if active
 if systemctl --user is-active --quiet evelyn-vault-watcher 2>/dev/null; then
     systemctl --user restart evelyn-vault-watcher
     echo "  ✓ evelyn-vault-watcher user service restarted."
+fi
+if systemctl --user is-active --quiet syncthing 2>/dev/null; then
+    systemctl --user restart syncthing
+    echo "  ✓ syncthing user service restarted."
 fi
 
 # 5. Wait for FastAPI backend initialization & verify status probe

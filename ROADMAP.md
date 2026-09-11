@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-11 17:26:28
+date modified: 2026-09-11 17:46:05
 ---
 # Evelyn Project Roadmap
 
@@ -82,6 +82,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Deterministic Code Hygiene & Wiring Verification**: Mandatory 3-stage validation gate integrating Ruff static linting, AST config-wiring pytest checks, and Vulture compiler-level dead-code auditing.
 - [x] **Conversational Feedback & Quality Telemetry**: Interactive response rating (upvote/downvote) in Chat UI with satisfaction analytics and persistent RAG retrieval event inspection in DevUI.
 - [x] **Dual-Collection Vector Architecture**: Split ambient conversational RAG (`evelyn_memory`) from external reference documents into a dedicated collection (`evelyn_reference`) with an active semantic search tool (`search_reference_library`).
+- [x] **Deployment & Mesh Infrastructure Documentation**: Published comprehensive WSL2 and bare-metal deployment guide in `SETUP_GUIDE.md` covering Tailscale P2P mesh networking, port isolation, user lingering, and Syncthing synchronization.
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
@@ -89,7 +90,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
-- [ ] **Deployment & Infrastructure Setup Guide**: Overhaul `SETUP_GUIDE.md` to document complete bare-metal and WSL2 deployment prerequisites, including Tailscale VPN mesh networking, TLS/SSL certificate provisioning & SAN configuration, systemd service units, and required vs. optional system dependencies.
+- [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
 ---
 

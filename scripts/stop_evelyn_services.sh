@@ -6,12 +6,20 @@
 set -euo pipefail
 
 STOP_OLLAMA=false
+STOP_SYNCTHING=false
 CHECKPOINT_WAL=false
 
 for arg in "$@"; do
     case "$arg" in
-        --all|--with-ollama)
+        --all)
             STOP_OLLAMA=true
+            STOP_SYNCTHING=true
+            ;;
+        --with-ollama)
+            STOP_OLLAMA=true
+            ;;
+        --with-syncthing)
+            STOP_SYNCTHING=true
             ;;
         --checkpoint-wal|--flush-wal)
             CHECKPOINT_WAL=true
@@ -20,7 +28,9 @@ for arg in "$@"; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --all, --with-ollama     Also stop the Ollama LLM service"
+            echo "  --all                    Stop all services (Evelyn, TTS, Watcher, Ollama, Syncthing)"
+            echo "  --with-ollama            Also stop the Ollama LLM service"
+            echo "  --with-syncthing         Also stop the Syncthing synchronization service"
             echo "  --checkpoint-wal         Flush/truncate SQLite WAL logs for all databases"
             echo "  -h, --help               Show this help message"
             exit 0
@@ -47,7 +57,20 @@ elif systemctl --user -M "${USER}@" is-active --quiet evelyn-vault-watcher 2>/de
     echo "  ✓ Stopped user service: evelyn-vault-watcher (session)"
 fi
 
-# 3. Stop Ollama if requested
+# 3. Stop Syncthing if requested
+if [ "$STOP_SYNCTHING" = true ]; then
+    if systemctl --user is-active --quiet syncthing 2>/dev/null; then
+        systemctl --user stop syncthing
+        echo "  ✓ Stopped user service: syncthing"
+    elif systemctl --user -M "${USER}@" is-active --quiet syncthing 2>/dev/null; then
+        systemctl --user -M "${USER}@" stop syncthing
+        echo "  ✓ Stopped user service: syncthing (session)"
+    else
+        echo "  - syncthing was not running."
+    fi
+fi
+
+# 4. Stop Ollama if requested
 if [ "$STOP_OLLAMA" = true ]; then
     if sudo systemctl is-active --quiet ollama; then
         sudo systemctl stop ollama
