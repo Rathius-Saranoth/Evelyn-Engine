@@ -214,7 +214,7 @@ array([[1.5, 2.5]])
                 stub_content = f.read()
             self.assertIn("[!ABSTRACT]", stub_content)
             self.assertIn("[[Source]]", stub_content)
-            self.assertIn('Context: "A recurring entity in the vault."', stub_content)
+            self.assertIn('- **[[Source]]**: "A recurring entity in the vault."', stub_content)
 
     def test_stub_xml_envelope_roundtrip_and_rendering(self):
         """Verify XML stub serialization, deserialization, and callout line safety."""

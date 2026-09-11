@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-10 21:10:20
+date modified: 2026-09-11 17:26:28
 ---
 # Evelyn Project Roadmap
 
@@ -81,6 +81,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Multi-Node Distributed Expansion**: Distributed service workloads across dedicated infrastructure (dual CPU host allocation and dedicated remote FLUX.1 host).
 - [x] **Deterministic Code Hygiene & Wiring Verification**: Mandatory 3-stage validation gate integrating Ruff static linting, AST config-wiring pytest checks, and Vulture compiler-level dead-code auditing.
 - [x] **Conversational Feedback & Quality Telemetry**: Interactive response rating (upvote/downvote) in Chat UI with satisfaction analytics and persistent RAG retrieval event inspection in DevUI.
+- [x] **Dual-Collection Vector Architecture**: Split ambient conversational RAG (`evelyn_memory`) from external reference documents into a dedicated collection (`evelyn_reference`) with an active semantic search tool (`search_reference_library`).
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.

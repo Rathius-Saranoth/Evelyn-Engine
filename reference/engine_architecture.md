@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-07 15:31:57
+date modified: 2026-09-11 17:26:09
 ---
 # Evelyn Engine Architecture Map
 
@@ -145,7 +145,7 @@ The runtime core that manages user connections, model prompts, memory assembly, 
 Responsible for semantic vector indexing, context fact assemblies, and exact entity resolutions.
 * **[[memory_db.py]]**: SQLite database connector for `evelyn_memory.db`. Manages transactions for context entries and procedural rules. Configured with high-performance PRAGMAs (`WAL` mode, 2 GB `mmap_size`, 64 MB DRAM cache).
 * **[[vault_db.py]]**: SQLite database connector for `evelyn_vault.db`. Handles super-fast incremental metadata writes for mapped files.
-* **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Uses **`BAAI/bge-large-en-v1.5`** (1024-dimensional embeddings, 1,600-character chunks with 200 overlap). Performs single-collection vector retrieval across `evelyn_memory`, priority score boosting (`rag_priority: high` multiplier 0.75), and dynamic procedure injection. `evelyn_gists` collection lookups are retired.
+* **[[chroma_rag.py]]**: ChromaDB semantic search vector index wrapper. Uses **`BAAI/bge-large-en-v1.5`** (1024-dimensional embeddings, 1,600-character chunks with 200 overlap). Manages dual vector collections: `evelyn_memory` for ambient conversational memory and `evelyn_reference` for external reference books and equipment manuals searchable on demand via `search_reference_library`. Performs priority score boosting (`rag_priority: high` multiplier 0.75) and dynamic procedure injection. `evelyn_gists` collection lookups are retired.
 * **[[context_manager.py]]**: Mismatch resolver and active context injector. Assembles dense facts, resolves entities, and strips search bloat.
 * **[[context_summarizer.py]]**: *(Deprecated)* Previously performed sliding-window context compression. Removed in favor of 40-message active history (`MAX_HISTORY_MESSAGES`) + SQLite `context_entries` + Chroma RAG to eliminate prompt clutter and temporal hallucination bleed in journal generation.
 * **[[query_reformulator.py]]**: Sub-pipeline LLM trigger that optimizes conversational keywords before vector lookup, boosting hit rates by 23%.

@@ -1579,7 +1579,7 @@
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Chroma RAG Vectors:</span>
-                <span style="color: var(--accent); font-weight: 600;">${(st.chroma_vectors || 0).toLocaleString()}</span>
+                <span style="color: var(--accent); font-weight: 600;">${(st.chroma_vectors || 0).toLocaleString()} <span style="font-size: 10px; color: var(--text-dim); font-weight: normal;">(+${(st.reference_vectors || 0).toLocaleString()} ref)</span></span>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
                 <span>SQLite Facts: ${(st.context_facts || 0).toLocaleString()} · Procs: ${st.system_procedures || 0}</span>
@@ -1612,7 +1612,7 @@
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 3px;">
                 <span>Vault: ${(st.vault_documents_count || 0).toLocaleString()} notes</span>
-                <span>Knowledge: ${(st.knowledge_vectors_count || 0).toLocaleString()} vectors</span>
+                <span>Knowledge: ${(st.knowledge_vectors_count || 0).toLocaleString()} <span style="font-size: 9px; color: var(--text-dim);">(+${(st.reference_vectors_count || 0).toLocaleString()} ref)</span></span>
               </div>
             </div>
           `;

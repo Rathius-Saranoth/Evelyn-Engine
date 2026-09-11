@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.104"
-__version_info__ = (0, 6, 104)
-__version_name__ = "Profile Evolver 3-Tier Priority Scoring & Deterministic Bullet Pruning"
+__version__ = "000.006.105"
+__version_info__ = (0, 6, 105)
+__version_name__ = "Dual-Collection Vector Architecture & Reference Library Tooling"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

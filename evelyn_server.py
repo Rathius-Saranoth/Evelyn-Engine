@@ -5171,6 +5171,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     finally:
                         conn.close()
                 chroma_cnt = 0
+                ref_cnt = 0
                 try:
                     cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
                     if os.path.exists(cdb_path):
@@ -5180,14 +5181,16 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         try:
                             ccur = cconn.cursor()
                             ccur.execute("""
-                                SELECT COUNT(e.id)
+                                SELECT c.name, COUNT(e.id)
                                 FROM collections c
                                 JOIN segments s ON s.collection = c.id AND s.scope='METADATA'
                                 LEFT JOIN embeddings e ON e.segment_id = s.id
-                                WHERE c.name = 'evelyn_memory'
+                                WHERE c.name IN ('evelyn_memory', 'evelyn_reference')
+                                GROUP BY c.name
                             """)
-                            row = ccur.fetchone()
-                            chroma_cnt = row[0] if row and row[0] is not None else 0
+                            rows = dict(ccur.fetchall())
+                            chroma_cnt = rows.get("evelyn_memory", 0)
+                            ref_cnt = rows.get("evelyn_reference", 0)
                         finally:
                             cconn.close()
                 except (sqlite3.Error, OSError):
@@ -5197,6 +5200,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "context_facts": facts_cnt,
                     "system_procedures": procs_cnt,
                     "chroma_vectors": chroma_cnt,
+                    "reference_vectors": ref_cnt,
                     "pending_sync_queue": sync_queue_cnt,
                 }
             elif key == "vault_map":
@@ -5241,6 +5245,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         conn.close()
 
                 chroma_cnt = 0
+                ref_cnt = 0
                 try:
                     cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
                     if os.path.exists(cdb_path):
@@ -5250,14 +5255,16 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         try:
                             ccur = cconn.cursor()
                             ccur.execute("""
-                                SELECT COUNT(e.id)
+                                SELECT c.name, COUNT(e.id)
                                 FROM collections c
                                 JOIN segments s ON s.collection = c.id AND s.scope='METADATA'
                                 LEFT JOIN embeddings e ON e.segment_id = s.id
-                                WHERE c.name = 'evelyn_memory'
+                                WHERE c.name IN ('evelyn_memory', 'evelyn_reference')
+                                GROUP BY c.name
                             """)
-                            row = ccur.fetchone()
-                            chroma_cnt = row[0] if row and row[0] is not None else 0
+                            rows = dict(ccur.fetchall())
+                            chroma_cnt = rows.get("evelyn_memory", 0)
+                            ref_cnt = rows.get("evelyn_reference", 0)
                         finally:
                             cconn.close()
                 except (sqlite3.Error, OSError):
@@ -5270,6 +5277,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "steps": ["Vault Indexer", "Knowledge Ingest"],
                     "vault_documents_count": vault_docs_cnt,
                     "knowledge_vectors_count": chroma_cnt,
+                    "reference_vectors_count": ref_cnt,
                 }
 
         tasks_info.append(

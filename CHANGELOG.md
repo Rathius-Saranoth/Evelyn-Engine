@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-11 07:35:36
+date modified: 2026-09-11 17:22:45
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.105] - 2026-09-11 — *Dual-Collection Vector Architecture & Reference Library Tooling*
+
+### Added & Enhanced
+- **Dual-Collection Vector Architecture (`evelyn_config.py`, `Evelyn/tools/chroma_rag.py`)**:
+  - Introduced `cfg.CHROMA_REFERENCE_COLLECTION = "evelyn_reference"` alongside `cfg.CHROMA_MEMORY_COLLECTION = "evelyn_memory"`.
+  - Added `"Reference Library"` to `cfg.RAG_EXCLUDED_SUBDIRS`, completely isolating all 2,838 reference documents (manuals, guides, textbooks) from ambient in-flight conversational RAG.
+  - Resolved narrative RAG dilution: ambient check-ins and conversation turns are guaranteed pure personal context (user facts, daily logs, personal notes), eliminating top-K context crowding from books like *Nonviolent Communication* and *The 5 Love Languages*.
+- **Direct Reference Library Search Tool (`Evelyn/tools/evelyn_tools.py`)**:
+  - Implemented `search_reference_library(query, limit, domain)` model-facing tool executing semantic vector queries directly against `evelyn_reference`.
+  - Formats results with book/manual title, chapter title, relevance percentages, and clean markdown excerpts.
+  - Added tool schema to `MODEL_TOOL_DEFINITIONS` and registered into `TOOL_FUNCTIONS`.
+- **Zero Re-embedding Vector Migration (`scripts/migrate_reference_library_vectors.py`)**:
+  - Migrated all 9,001 reference library chunks from `evelyn_memory` into `evelyn_reference` while preserving precomputed vector embeddings on disk.
+  - Pruned reference chunks from `evelyn_memory`, reducing collection size from 21,982 to 12,981 pure personal memory chunks.
+  - Initialized `reference_sync_state.json` to enable instantaneous mtime/hash incremental checking across subsequent passes.
+- **Dual-Collection Incremental Ingestion (`Evelyn/tools/ingest_obsidian_knowledge.py`)**:
+  - Upgraded ingestion engine with `sync_reference_collection()` alongside `sync_memory_collection()`.
+  - Integrated into `main()`, ensuring background idle daemons (`refresh_memory`) and filesystem watchers (`obsidian_vault_watcher.py`) keep both vector collections in sync automatically.
+- **Starter Procedure Migration (`Evelyn/tools/db_migrator.py`)**:
+  - Registered migration `000.006.105` for database `memory`, inserting the operational starter procedure for `search_reference_library` with natural trigger patterns, execution steps, pitfalls, verification criteria, and suggested tool links.
+- **Dashboard & Server Telemetry (`evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - Updated `/api/tasks` in `evelyn_server.py` to inspect both `evelyn_memory` and `evelyn_reference` collections.
+  - Enhanced Dev Dashboard (`dev.html`) task cards (`sync` and `refresh_memory`) to report both personal knowledge and reference library vector counts without visual vector loss.
+- **Unit Testing (`Evelyn/tests/test_reference_library_tool.py`)**:
+  - Added comprehensive test suite verifying source exclusion, metadata filtering, error handling, clean result formatting, and domain keyword filtering.
 
 ## [000.006.104] - 2026-09-11 — *Profile Evolver 3-Tier Priority Scoring & Deterministic Bullet Pruning*
 

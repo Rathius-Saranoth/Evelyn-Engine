@@ -2404,6 +2404,49 @@ def migrate_000_006_089_canonical_persona_triad_document_names(
     )
 
 
+def migrate_000_006_105_search_reference_library_procedure(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Migration 000.006.105: Register starter procedure for search_reference_library model tool."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    trigger = (
+        r"(?i)\b(?:search|look up|check|find|consult|inspect)\b.*\b(?:manual|spec|reference library|documentation|guide|handbook|troubleshooting|pilot light|filter size|error code)\b|"
+        r"(?i)\b(?:water heater|hvac|dishwasher|refrigerator|appliance|furnace|blower|sound blaster|motherboard|sennheiser)\b|"
+        r"(?i)\b(?:nonviolent communication|5 love languages|love language|emotional intelligence|marshall rosenberg|gary chapman|daniel goleman|learning cello)\b"
+    )
+    steps = (
+        "1. Identify the specific manual, equipment model, book, or technical topic referenced by the user.\n"
+        "2. Formulate a targeted, descriptive keyword query and call search_reference_library(query='...', domain='...'). "
+        "For appliance or hardware troubleshooting, include the specific component or problem (e.g. 'water heater pilot light', 'Carrier 58MXA error codes'). "
+        "For literature, specify the concept or chapter theme (e.g. '5 love languages words of affirmation', 'NVC observations vs evaluations').\n"
+        "3. Review the returned markdown excerpts, noting the exact source document, chapter title, and instructions.\n"
+        "4. Synthesize a factual, direct answer citing the specific document name and chapter. Provide clear, numbered steps for mechanical or operational procedures.\n"
+        "5. If no matches return or confidence is low, suggest inspecting the physical equipment or offering a web search if external updates are needed."
+    )
+    pitfalls = (
+        "- STRICT RULE: Do not use search_reference_library for user personal memories, daily journal entries, or recent chat history.\n"
+        "- Do not mistake first-person narrative illustrative stories in psychology/communication books (e.g. NVC or Love Languages) for prior conversation history with the user.\n"
+        "- Avoid passing vague single-word queries like 'manual'; include the product name or topic."
+    )
+    verification = (
+        "Relevant excerpts from Reference Library manuals or textbooks are retrieved and accurately cited in the response without narrative RAG confusion."
+    )
+    tags = "skill/reference-lookup, manuals, books, library, documentation, hardware-specs, guides"
+    suggested_tools = "search_reference_library, read_file"
+
+    cursor.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+           VALUES (?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now),
+    )
+    logger.info(f"Migration 000.006.105: Inserted starter procedure for search_reference_library (ID: {cursor.lastrowid}).")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2610,6 +2653,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.089",
         name="canonical_persona_triad_document_names",
         up_fn=migrate_000_006_089_canonical_persona_triad_document_names,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.105",
+        name="starter_procedure_search_reference_library",
+        up_fn=migrate_000_006_105_search_reference_library_procedure,
     ),
 ]
 

@@ -60,8 +60,14 @@ except ImportError:
     from path_utils import is_vault_excluded
 
 
-def is_rag_excluded_source(source_path: Any) -> bool:
-    """Check if a source path belongs to an excluded subdirectory configured for RAG."""
+def is_rag_excluded_source(source_path: Any, metadata: dict | None = None) -> bool:
+    """Check if a source path or chunk metadata belongs to an excluded subdirectory configured for RAG."""
+    if metadata and isinstance(metadata, dict):
+        if metadata.get("type") == "reference-chapter":
+            return True
+        tags = metadata.get("tags")
+        if tags and ("reference-library" in tags if isinstance(tags, (list, set)) else "reference-library" in str(tags)):
+            return True
     if not source_path:
         return False
     src_str = str(source_path)
@@ -555,9 +561,16 @@ def direct_upsert(file_path: str, content: str, collection_name: str,
         for i in range(len(chunks)):
             meta: dict[str, Any] = {"source": file_path, "chunk": i, "total_chunks": len(chunks)}
             if extracted_meta:
-                meta.update(extracted_meta)
+                ext_copy = dict(extracted_meta)
+                if "source" in ext_copy and ext_copy["source"] != file_path:
+                    ext_copy["frontmatter_source"] = ext_copy.pop("source")
+                meta.update(ext_copy)
             if extra_metadata:
-                meta.update(extra_metadata)
+                extra_copy = dict(extra_metadata)
+                if "source" in extra_copy and extra_copy["source"] != file_path:
+                    extra_copy["extra_source"] = extra_copy.pop("source")
+                meta.update(extra_copy)
+            meta["source"] = file_path
             meta.setdefault("rag_priority", "normal")
             meta.setdefault("rag_pinned", False)
             meta.setdefault("aliases", "")
@@ -1256,7 +1269,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
         c for c in all_chunks
         if c["distance"] <= threshold
         and c["source"] not in pinned_sources
-        and not is_rag_excluded_source(c.get("source", ""))
+        and not is_rag_excluded_source(c.get("source", ""), metadata=c.get("metadata"))
     ]
 
     # RAG query summary (debug-gated, structured for grep)
@@ -1508,7 +1521,7 @@ def find_semantic_neighbors(
         src = chunk.get("source", "")
         if not src or src.startswith("sqlite::"):
             continue
-        if is_rag_excluded_source(src):
+        if is_rag_excluded_source(src, metadata=chunk.get("metadata")):
             continue
         src_norm = src.replace('\\', '/').lower()
         if exclude_norm and (exclude_norm in src_norm or src_norm in exclude_norm):
