@@ -1,0 +1,25 @@
+[Unit]
+Description=Evelyn Engine Obsidian Vault Watcher
+After=default.target syncthing.service
+Wants=syncthing.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rathius/evelyn
+EnvironmentFile=-/home/rathius/evelyn/.env
+Environment="PYTHONPATH=/home/rathius/evelyn:/home/rathius/evelyn/Evelyn/tools"
+Environment="PYTHONUNBUFFERED=1"
+Environment="HF_HUB_OFFLINE=1"
+Environment="TRANSFORMERS_OFFLINE=1"
+Environment="HF_HUB_DISABLE_TELEMETRY=1"
+ExecStart=/home/rathius/evelyn/venv/bin/python scripts/obsidian_vault_watcher.py
+Restart=always
+RestartSec=5
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
