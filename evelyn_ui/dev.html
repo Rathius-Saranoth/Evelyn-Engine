@@ -1923,17 +1923,12 @@
         if (res.ok) {
           if (action === 'edit') {
             if (type === 'extractions') {
-              const item = unifiedItems.find(x => x.item_type === 'extraction' && x.id == id);
-              if (item) {
-                const obs = document.getElementById(`obs-${id}`)?.value;
-                const cat = document.getElementById(`ext-cat-${id}`)?.value || document.getElementById(`ce-cat-${id}`)?.value;
-                const subj = document.getElementById(`ext-subj-${id}`)?.value || document.getElementById(`ce-subj-${id}`)?.value;
-                const tags = document.getElementById(`ext-tags-${id}`)?.value || document.getElementById(`ce-tags-${id}`)?.value;
-                if (obs !== undefined) item.observation = obs;
-                if (cat !== undefined) item.category = cat;
-                if (subj !== undefined) item.subject = subj;
-                if (tags !== undefined) item.tags = tags;
-              }
+              // The backend has promoted this extraction to "live" (approved),
+              // graduating it from the review queue.
+              unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id == id));
+              updateCounts();
+              render();
+              return;
             } else if (type === 'proposals') {
               const item = unifiedItems.find(x => (x.item_type === 'proposal' || x.item_type === 'profile_update') && x.id == id);
               if (item && body) {
@@ -1942,15 +1937,9 @@
                   if (b.modified_text) item.merged_observation = b.modified_text;
                 } catch (_) {}
               }
+              render();
+              return;
             }
-            if (activeBtn) {
-              activeBtn.innerHTML = '✅ Saved!';
-              setTimeout(() => {
-                activeBtn.disabled = false;
-                activeBtn.innerHTML = originalText;
-              }, 1200);
-            }
-            return;
           }
 
           if (type === 'extractions') {

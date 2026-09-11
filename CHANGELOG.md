@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-10 22:12:07
+date modified: 2026-09-11 07:35:36
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,43 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.104] - 2026-09-11 — *Profile Evolver 3-Tier Priority Scoring & Deterministic Bullet Pruning*
+
+### Added & Enhanced
+- **3-Tier Priority Bullet Scoring (`Evelyn/tools/profile_evolver.py`)**:
+  - Implemented `score_bullet_tier(filename, section, bullet_text)` classifying structured document bullets into the 3-Tier Priority Framework:
+    - **Tier 1 (Score 3 - Core Invariants & Hard Boundaries)**: Health conditions, respiratory/allergy needs, pain/migraine management, fatigue limits, recovery needs, sleep deficits, and core relational foundation.
+    - **Tier 2 (Score 2 - Active Context & Recurring Habits)**: Technical domains, systems engineering, AI architectures, workflow automation, and task batching.
+    - **Tier 3 (Score 1 - Ephemeral Details & Secondary Preferences)**: Casual routines, transitional habits, caffeine tracking, lifestyle choices, and secondary personal details.
+- **Deterministic Tier-Aware Bullet Pruning (`Evelyn/tools/profile_evolver.py`)**:
+  - Upgraded `prune_bullets_to_word_budget()` from naive positional slicing to deterministic tier-aware pruning.
+  - Progressively prunes Tier 3 ephemeral bullets first across sections down to structural minimums, then Tier 2 active context if needed, strictly protecting Tier 1 core invariants from being pruned.
+  - Automatically balances section trimming by targeting sections with the highest bullet counts and largest word counts, preserving all canonical section headers and maintaining relative bullet presentation order.
+- **Hardening Tests (`Evelyn/tests/test_profile_evolver_hardening.py`)**:
+  - Added unit tests for `score_bullet_tier` classification across tiers and documents.
+  - Added deterministic tier-aware pruning tests verifying that Tier 1 health and relational invariants survive pruning while Tier 3 ephemeral routines are pruned to satisfy word budgets.
+
+## [000.006.103] - 2026-09-11 — *Dev UI Edit Refresh, Profile Evolver Backlog Capping & Compaction Circuit Breaker*
+
+### Fixed & Enhanced
+- **Dev UI Review Queue Edit Refresh (`evelyn_ui/dev.html`)**:
+  - Fixed issue in `handleAction()` where saving edits on extractions (`action === 'edit'`) left the entry active on screen until a full manual browser reload.
+  - Since editing an extraction promotes it to `status='live'` (approved) on the backend, the client now removes it from `unifiedItems`, updates triage counters, and re-renders the queue immediately.
+  - Updated proposal editing in `handleAction()` to update `item.merged_observation` and trigger in-place re-rendering without reload.
+- **Profile Evolver Backlog Entry Capping (`evelyn_config.py`, `Evelyn/tools/profile_evolver.py`)**:
+  - Introduced `PROFILE_EVOLUTION_MAX_ENTRIES_PER_RUN = 30` (empirically calibrated against conversation date generation metrics of ~25 median facts/day), preventing backlogs of 400+ un-evolved facts from swamping 15+ chained passes in a single run.
+  - Sorted `changed_entries` chronologically (oldest-first) so historical backlogs drain sequentially across evolution runs.
+- **Profile Evolver Prompt Salience Directives (`Evelyn/tools/profile_evolver.py`)**:
+  - Added strict non-inclusion instructions preventing the model from creating bullet points for every single fact; directed transient, code-level, and episodic observations to remain exclusively in RAG memory while keeping profile documents focused on high-level behavioral invariants.
+- **Multi-Round Compaction & Deterministic Bullet Pruning (`Evelyn/tools/profile_evolver.py`)**:
+  - Added a multi-round compaction loop: if Round 1 compaction leaves the document over budget, an aggressive Round 2 pass is invoked with strict bullet-count limits (5–7 bullets per section).
+  - Implemented `prune_bullets_to_word_budget()` deterministic fallback for structured documents (`User_Profile.md`, `System_Directives.md`) that progressively caps bullets per section while preserving all canonical section headers.
+  - Sanitized `repair_missing_sections()` to clean and extract valid bullet lines when accidental prose lines are present, preventing accidental restoration of dozens of uncompacted baseline bullets.
+- **Runaway Proposal Circuit Breaker (`Evelyn/tools/profile_evolver.py`)**:
+  - Implemented a hard safety gate blocking proposal staging if `final_word_count > target_limit * 1.10`. Aborts staging with status `ABORTED_OVER_BUDGET` and logs a warning instead of writing runaway over-length proposals to SQLite.
+- **Automated Tests (`Evelyn/tests/test_profile_evolver_hardening.py`)**:
+  - Added test suite covering config constant verification, deterministic bullet pruning, `repair_missing_sections` bullet cleaning, and the runaway proposal circuit-breaker gate (100% passing).
 
 ## [000.006.102] - 2026-09-10 — *Chatterbox CPU Mode, Voice Conditionals Caching & Setup Guide Roadmap Notice*
 

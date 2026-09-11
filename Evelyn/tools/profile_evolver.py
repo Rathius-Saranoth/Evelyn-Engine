@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-07 15:19:13
+# date modified: 2026-09-11 07:09:24
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -561,6 +561,21 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
         min_words = 5 if ("Deliberation" in h or "Anti-Drafting" in h) else 15
         is_bullet_valid = True
         if filename in (cfg.PERSONA_FILE_DIRECTIVES, cfg.PERSONA_FILE_USER):
+            # If candidate content has valid bullets, extract and clean bullet lines
+            if bullet_pattern.search(cand_content):
+                cleaned_bullets = []
+                for ln in cand_content.splitlines():
+                    s_ln = ln.strip()
+                    if s_ln.startswith(("-", "*")):
+                        cleaned_ln = quoted_label_pattern.sub(
+                            lambda m: m.group(0).replace('"', "").replace("'", ""), ln
+                        )
+                        cleaned_bullets.append(cleaned_ln)
+                    elif ln.startswith(("  ", "\t")) and cleaned_bullets:
+                        cleaned_bullets.append(ln)
+                if cleaned_bullets:
+                    cand_content = "\n".join(cleaned_bullets)
+
             has_bullets = bool(bullet_pattern.search(cand_content))
             has_unbulleted_paras = any(
                 ln.strip() and not ln.strip().startswith(("-", "*")) and not ln.startswith(("  ", "\t"))
@@ -579,6 +594,234 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
             reconstructed_blocks.append(f"{h}\n{orig_content}")
 
     return "\n\n".join(reconstructed_blocks).strip()
+
+
+# ---------------------------------------------------------------------------
+# 3-Tier Priority Framework Scoring & Bullet Pruning
+# ---------------------------------------------------------------------------
+_USER_TIER_1_PATTERNS = re.compile(
+    r"\b("
+    r"health|chronic|respiratory|allergen|allergy|allergies|dust\s+mite|"
+    r"pain|indigestion|abdominal|stomach|migraine|headache|fatigue|exhaustion|"
+    r"sleep|deficit|rest|recovery|physical\s+threshold|neck\s+tension|strain|"
+    r"illness|distress|overstimulation|emotional\s+security|mutual\s+trust|"
+    r"partnership|collaborat|sanctuary|boundar|core\s+value|core\s+philosophy|"
+    r"data\s+integrity|affection|belonging|significant\s+loss"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_USER_TIER_2_PATTERNS = re.compile(
+    r"\b("
+    r"technical|architect|systems?\s+engineering|generative|rag|infrastructure|"
+    r"workflow|automation|batching|cognitive\s+load|optimization|verification|"
+    r"code|script|dialogue|problem\s+solving|decision|task\s+focus|"
+    r"workspace\s+hygiene|clean\s+area|prompt"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_USER_TIER_3_PATTERNS = re.compile(
+    r"\b("
+    r"routine|morning|evening|cutoff|shower|home\s+transition|caffeine|"
+    r"lifestyle|minimalist|casual|clothing|aesthetic|wardrobe|hobby|game|fiction"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_DIRECTIVES_TIER_1_PATTERNS = re.compile(
+    r"\b("
+    r"candor|sycophancy|anti-sycophancy|conciseness|concise|directness|"
+    r"confirmation\s+persistence|task\s+verification|real-world\s+task|"
+    r"non-violent\s+communication|nvc|vault-first|file\s+writing|"
+    r"data\s+integrity|authenticity|operational\s+transparency|honesty"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_DIRECTIVES_TIER_2_PATTERNS = re.compile(
+    r"\b("
+    r"tool|dispatch|code\s+quality|cleanliness|testing|unit\s+test|"
+    r"multimodal|api|syntax|error\s+handling|lint|formatting|markdown|"
+    r"architecture|schema|git|commit|database|query"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_DIRECTIVES_TIER_3_PATTERNS = re.compile(
+    r"\b("
+    r"situational|travel|ritual|ambient|humming|music|casual\s+greeting|time-of-day"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def score_bullet_tier(filename: str, section: str, bullet_text: str) -> int:
+    """Classify and score bullet priority according to the 3-Tier Priority Framework.
+
+    Args:
+        filename: Document basename (e.g. 'User_Profile.md' or 'System_Directives.md').
+        section: Section header (e.g. '## Identity & Core Values').
+        bullet_text: Full markdown bullet text.
+
+    Returns:
+        int: 3 for Tier 1 (Core Invariants & Hard Boundaries — prune last)
+             2 for Tier 2 (Active Context & Recurring Habits — compress)
+             1 for Tier 3 (Ephemeral Details & Secondary Preferences — prune first)
+    """
+    if filename == cfg.PERSONA_FILE_USER:
+        if _USER_TIER_1_PATTERNS.search(bullet_text):
+            return 3
+        if _USER_TIER_3_PATTERNS.search(bullet_text):
+            return 1
+        if _USER_TIER_2_PATTERNS.search(bullet_text):
+            return 2
+        # Section default bias: Personal Context skews Tier 3 unless matched by Tier 1/2
+        if "Personal Context" in section:
+            return 1
+        return 2
+
+    elif filename == cfg.PERSONA_FILE_DIRECTIVES:
+        if _DIRECTIVES_TIER_1_PATTERNS.search(bullet_text):
+            return 3
+        if _DIRECTIVES_TIER_3_PATTERNS.search(bullet_text):
+            return 1
+        if _DIRECTIVES_TIER_2_PATTERNS.search(bullet_text):
+            return 2
+        # Section default bias: Routines & Rituals skews Tier 3
+        if "Routines & Rituals" in section:
+            return 1
+        return 2
+
+    return 2
+
+
+def prune_bullets_to_word_budget(filename: str, document_body: str, target_limit: int) -> str:
+    """Deterministically prune excess bullet points in structured documents to meet word budget.
+
+    Adheres strictly to the 3-Tier Priority Framework:
+      - Tier 3 (Ephemeral Details & Secondary Preferences): Pruned first.
+      - Tier 2 (Active Context & Recurring Habits): Pruned second if still over budget.
+      - Tier 1 (Core Invariants & Hard Boundaries): Protected; never pruned unless
+        sections are already reduced to their minimum structural bullet counts.
+
+    Preserves:
+      - Top title heading (if present).
+      - All canonical section headers in canonical order.
+      - Minimum topic density (at least 1-2 bullets per section).
+      - Original relative ordering of surviving bullets within each section.
+
+    Args:
+        filename: Document basename (e.g. 'User_Profile.md').
+        document_body: Full markdown document body.
+        target_limit: Target word limit (e.g. 600).
+
+    Returns:
+        str: Pruned document body adhering to target word budget.
+    """
+    canonical_headers = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
+    if not canonical_headers or filename == cfg.PERSONA_FILE_ASSISTANT:
+        return document_body
+
+    initial_words = len(document_body.split())
+    if initial_words <= target_limit:
+        return document_body
+
+    sections = extract_sections(document_body)
+
+    # Preserve top # title if present
+    top_title = ""
+    for line in document_body.splitlines():
+        if line.strip().startswith("# ") and not line.strip().startswith("## "):
+            top_title = line.strip()
+            break
+
+    # Parse bullets per section with priority metadata
+    parsed_sections: dict[str, list[dict]] = {}
+    for h in canonical_headers:
+        content = sections.get(h, "")
+        raw_bullets: list[str] = []
+        current_bullet: list[str] = []
+        for line in content.splitlines():
+            if line.strip().startswith(("-", "*")):
+                if current_bullet:
+                    raw_bullets.append("\n".join(current_bullet))
+                current_bullet = [line]
+            elif line.startswith(("  ", "\t")) and current_bullet:
+                current_bullet.append(line)
+        if current_bullet:
+            raw_bullets.append("\n".join(current_bullet))
+
+        parsed_sections[h] = [
+            {
+                "section": h,
+                "text": b_text,
+                "orig_idx": idx,
+                "tier": score_bullet_tier(filename, h, b_text),
+                "words": len(b_text.split()),
+            }
+            for idx, b_text in enumerate(raw_bullets)
+        ]
+
+    def _build_body(bullets_dict: dict[str, list[dict]]) -> str:
+        blocks = []
+        if top_title:
+            blocks.append(top_title)
+        for h in canonical_headers:
+            b_list = sorted(bullets_dict.get(h, []), key=lambda b: b["orig_idx"])
+            b_text = "\n".join(b["text"] for b in b_list)
+            if b_text:
+                blocks.append(f"{h}\n{b_text}")
+            else:
+                blocks.append(f"{h}")
+        return "\n\n".join(blocks).strip()
+
+    candidate_body = _build_body(parsed_sections)
+    current_words = len(candidate_body.split())
+    if current_words <= target_limit:
+        return candidate_body
+
+    def _min_bullets(sec_name: str) -> int:
+        return 1 if ("Deliberation" in sec_name or "Anti-Drafting" in sec_name) else 2
+
+    # Pruning counters for telemetry
+    pruned_by_tier = {1: 0, 2: 0, 3: 0}
+
+    # Prune progressively by Tier: Tier 3 (score 1) first, then Tier 2 (score 2), then Tier 1 (score 3)
+    for tier_to_prune in (1, 2, 3):
+        while current_words > target_limit:
+            # Find candidate removable bullets of the current tier across all sections
+            removable_candidates = [
+                b
+                for h in canonical_headers
+                for b in parsed_sections.get(h, [])
+                if b["tier"] == tier_to_prune and len(parsed_sections[h]) > _min_bullets(h)
+            ]
+            if not removable_candidates:
+                break
+
+            # Prioritize removing from the section with the highest bullet count (balances sections),
+            # breaking ties with the largest word count
+            chosen = max(
+                removable_candidates,
+                key=lambda b: (len(parsed_sections[b["section"]]), b["words"]),
+            )
+
+            parsed_sections[chosen["section"]].remove(chosen)
+            pruned_by_tier[tier_to_prune] += 1
+            candidate_body = _build_body(parsed_sections)
+            current_words = len(candidate_body.split())
+
+    total_pruned = sum(pruned_by_tier.values())
+    if total_pruned > 0:
+        print(
+            f"[PROFILE EVOLVER] {filename}: Tier-aware pruning trimmed {total_pruned} bullets "
+            f"(Tier 3: {pruned_by_tier[1]}, Tier 2: {pruned_by_tier[2]}, Tier 1: {pruned_by_tier[3]}), "
+            f"reducing {initial_words}w -> {current_words}w (budget: {target_limit}w).",
+            flush=True,
+        )
+
+    return candidate_body
 
 
 def _cluster_entries_by_theme(filename: str, entries: list[dict], batch_size: int = 40) -> list[dict]:
@@ -1115,6 +1358,18 @@ async def run_profile_evolution():
                 entries = memory_db.get_entries_by_category_for_document(cat, document_name=filename, status="live")
                 changed_entries.extend(entries)
 
+            # Sort chronologically (oldest-first) so historical backlogs drain sequentially
+            changed_entries.sort(key=lambda e: (e.get("date") or "", e.get("id") or 0))
+
+            # Cap entries per run to prevent multi-pass runaway proposals
+            max_entries_per_run = getattr(cfg, "PROFILE_EVOLUTION_MAX_ENTRIES_PER_RUN", 30)
+            if max_entries_per_run > 0 and len(changed_entries) > max_entries_per_run:
+                print(
+                    f"[PROFILE EVOLVER] {filename}: Capping backlog from {len(changed_entries)} to {max_entries_per_run} entries for this run.",
+                    flush=True,
+                )
+                changed_entries = changed_entries[:max_entries_per_run]
+
             min_entries = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
 
             # Allow resume even if the new-entry count is below the minimum:
@@ -1614,6 +1869,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"{evidence_block}\n\n"
                 f"INSTRUCTIONS:\n"
                 f"- Evolve the document body authentically based on the thematic evidence.\n"
+                f"- NON-INCLUSION OF TRANSIENT FACTS (CRITICAL): Do NOT attempt to incorporate every observation or create a bullet point for each fact. Most facts should NOT be in the profile — they belong in episodic RAG memory! Only extract high-level, recurring, permanent behavioral traits, core invariants, or major lifestyle boundaries. If an observation describes a transient task, specific code detail, temporary tool usage, or one-off conversation detail, DISCARD IT.\n"
+                f"- CONSOLIDATION & BUDGET DISCIPLINE: Ensure each section maintains at most 6 to 10 high-impact, focused bullet points. If adding a new bullet point, consolidate or prune an existing lower-priority bullet point so the section does not expand indefinitely.\n"
                 f"- STRUCTURAL INVARIANCE: You MUST preserve all existing '##' section headings. You are strictly forbidden from removing, renaming, or merging section headers.\n"
                 f"- TOPIC DENSITY & BALANCED COVERAGE: Ensure every section maintains substantive guidance. Do NOT allow any single section to swallow other distinct sections.\n"
                 f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
@@ -1851,10 +2108,11 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
 
         task_manager.set_running(
             "profile_evolver",
-            phase=f"Evolving {filename} (Compacting {word_count}w > {target_limit}w)",
+            phase=f"Evolving {filename} (Compacting {word_count}w > {target_limit}w - Round 1)",
             sub_status={
                 "current_doc": filename,
                 "phase": "compaction",
+                "round": 1,
                 "word_count": word_count,
                 "target_limit": target_limit,
             },
@@ -1882,18 +2140,106 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 if compacted_word_count < word_count:
                     proposed_body = compacted_result
                     print(
-                        f"[PROFILE EVOLVER] {filename}: Compaction pass successful. "
+                        f"[PROFILE EVOLVER] {filename}: Compaction pass Round 1 successful. "
                         f"Reduced from {word_count} to {compacted_word_count} words.",
                         flush=True,
                     )
                 else:
                     print(
-                        f"[PROFILE EVOLVER WARNING] {filename}: Compaction pass did not reduce word count "
+                        f"[PROFILE EVOLVER WARNING] {filename}: Compaction pass Round 1 did not reduce word count "
                         f"({compacted_word_count} vs {word_count}). Keeping original.",
                         flush=True,
                     )
         except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
-            print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass failed: {e}", flush=True)
+            print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass Round 1 failed: {e}", flush=True)
+
+        # Round 2 aggressive compaction if still over budget
+        current_words = len(proposed_body.split())
+        if current_words > word_buffer:
+            print(
+                f"[PROFILE EVOLVER] {filename}: Still over budget after Round 1 ({current_words}w > {word_buffer}w). "
+                f"Invoking Aggressive Compaction Pass (Round 2)...",
+                flush=True,
+            )
+            round2_prompt = (
+                f"You are a strict editor enforcing a mandatory word limit on an AI profile document.\n"
+                f"The document is currently {current_words} words, which exceeds the limit of {target_limit} words.\n\n"
+                f"DOCUMENT: {filename}\n"
+                f"TARGET PERSPECTIVE: {perspective}\n\n"
+                f"DOCUMENT BODY TO CONDENSE:\n---\n{proposed_body}\n---\n\n"
+                f"CRITICAL INSTRUCTIONS:\n"
+                f"- HARD LIMIT: The output MUST be strictly under {target_limit} words.\n"
+                f"- AGGRESSIVE PRUNING: For each section, retain only the top 5 to 7 most critical, permanent, high-level behavioral invariants.\n"
+                f"- DROP SECONDARY DETAILS: Remove all transient preferences, minor tool choices, and redundant bullet points.\n"
+                f"- Preserve all canonical '##' section headings exactly: {canonical_sections_str}\n"
+                f"- Output ONLY the markdown document content, no explanation, no markdown code blocks."
+                f"{directives_compaction_note}"
+                f"{assistant_profile_compaction_note}"
+                f"{user_profile_compaction_note}"
+            )
+            round2_messages = [
+                {"role": "system", "content": "You are a concise editor. Output the strictly pruned document body under the limit."},
+                {"role": "user", "content": round2_prompt},
+            ]
+            task_manager.set_running(
+                "profile_evolver",
+                phase=f"Evolving {filename} (Compacting {current_words}w > {target_limit}w - Round 2)",
+                sub_status={
+                    "current_doc": filename,
+                    "phase": "compaction",
+                    "round": 2,
+                    "word_count": current_words,
+                    "target_limit": target_limit,
+                },
+            )
+            try:
+                r2_result = await _call_ollama(round2_messages)
+                if r2_result:
+                    r2_clean = extract_markdown_content(r2_result)
+                    r2_clean = normalize_document_text(r2_clean)
+                    is_valid, reason, _ = validate_document_structure(filename, proposed_body, r2_clean)
+                    if not is_valid:
+                        r2_clean = repair_missing_sections(filename, proposed_body, r2_clean)
+                    r2_words = len(r2_clean.split())
+                    if r2_words < current_words:
+                        proposed_body = r2_clean
+                        print(
+                            f"[PROFILE EVOLVER] {filename}: Compaction pass Round 2 successful. "
+                            f"Reduced from {current_words} to {r2_words} words.",
+                            flush=True,
+                        )
+            except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e2:
+                print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass Round 2 failed: {e2}", flush=True)
+
+        # Deterministic bullet pruning fallback for structured documents
+        if len(proposed_body.split()) > word_buffer and filename in (cfg.PERSONA_FILE_USER, cfg.PERSONA_FILE_DIRECTIVES):
+            print(
+                f"[PROFILE EVOLVER] {filename}: Word count still exceeds budget ({len(proposed_body.split())}w > {word_buffer}w). "
+                f"Applying deterministic bullet pruning fallback...",
+                flush=True,
+            )
+            proposed_body = prune_bullets_to_word_budget(filename, proposed_body, target_limit)
+
+    # ---------------------------------------------------------------------------
+    # Runaway Proposal Circuit Breaker (Hard Safety Gate)
+    # ---------------------------------------------------------------------------
+    final_word_count = len(proposed_body.split())
+    hard_ceiling = int(target_limit * 1.10)  # 10% maximum ceiling
+    if final_word_count > hard_ceiling:
+        print(
+            f"[PROFILE EVOLVER WARNING] {filename}: Proposed body has {final_word_count} words, "
+            f"exceeding hard ceiling of {hard_ceiling} words ({target_limit}w limit). "
+            f"Refusing to stage runaway proposal.",
+            flush=True,
+        )
+        update_doc_status(
+            state,
+            filename,
+            "ABORTED_OVER_BUDGET",
+            f"Word count {final_word_count}w exceeds hard ceiling {hard_ceiling}w ({target_limit}w limit); proposal blocked",
+        )
+        _clear_draft(filename, state)
+        return False
 
     # ---------------------------------------------------------------------------
     # Editorial Proofreading & Polish Pass

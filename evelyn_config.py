@@ -839,6 +839,11 @@ PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
 # layer on top of earlier refinements. 25 entries ≈ ~3750 chars of evidence.
 PROFILE_EVOLUTION_BATCH_SIZE = 25
 
+# Maximum number of qualifying context entries consumed per document evolution run.
+# Caps historical backlogs to approximately 1-1.5 days of conversation facts per run,
+# ensuring steady backlog drainage without context saturation or runaway pass chaining.
+PROFILE_EVOLUTION_MAX_ENTRIES_PER_RUN = 30
+
 # Maximum seconds allowed per individual document evolution before saving draft and moving on.
 # Default: 1500 seconds (25 minutes).
 PROFILE_EVOLUTION_DOC_TIMEOUT = 1500
