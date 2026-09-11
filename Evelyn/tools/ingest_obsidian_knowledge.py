@@ -47,12 +47,15 @@ except ImportError:
 
 # Paths
 VAULT_DIR          = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
-EVELYN_DIR         = getattr(cfg, "ASSISTANT_WRITE_DIR", os.path.join(VAULT_DIR, getattr(cfg, "ASSISTANT_NAME", "Evelyn")))
-EXCLUDED_SUBDIRS   = getattr(cfg, "RAG_EXCLUDED_SUBDIRS", getattr(cfg, "VAULT_READ_IGNORE", ["Archived", "Pending_Approvals", "Extracted", "Pending"]))
-EXCLUDED_PATTERNS  = getattr(cfg, "RAG_IGNORE_PATTERNS", [])
-EXCLUDED_TAGS      = getattr(cfg, "RAG_EXCLUDE_TAGS", {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"})
-SYNC_STATE_FILE    = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json")
-COLLECTION_NAME    = "evelyn_memory"
+EVELYN_DIR                 = getattr(cfg, "ASSISTANT_WRITE_DIR", os.path.join(VAULT_DIR, getattr(cfg, "ASSISTANT_NAME", "Evelyn")))
+EXCLUDED_SUBDIRS           = getattr(cfg, "RAG_EXCLUDED_SUBDIRS", getattr(cfg, "VAULT_READ_IGNORE", ["Archived", "Pending_Approvals", "Extracted", "Pending"]))
+EXCLUDED_PATTERNS          = getattr(cfg, "RAG_IGNORE_PATTERNS", [])
+EXCLUDED_TAGS              = getattr(cfg, "RAG_EXCLUDE_TAGS", {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"})
+SYNC_STATE_FILE            = getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json")
+COLLECTION_NAME            = getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory")
+REFERENCE_COLLECTION_NAME  = getattr(cfg, "CHROMA_REFERENCE_COLLECTION", "evelyn_reference")
+REFERENCE_SYNC_STATE_FILE  = getattr(cfg, "REFERENCE_SYNC_STATE", r"/home/rathius/evelyn/data/reference_sync_state.json")
+REFERENCE_DIR              = os.path.join(VAULT_DIR, "Reference Library")
 
 
 # ---------------------------------------------------------------------------
@@ -175,12 +178,8 @@ def parse_rag_frontmatter(content: str) -> dict:
 # Main sync
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    """Perform a full incremental sync of all vault markdown files into Chroma.
-
-    Returns:
-        None
-    """
+def sync_memory_collection() -> None:
+    """Perform a full incremental sync of vault memory markdown files into evelyn_memory."""
     if not os.path.exists(VAULT_DIR):
         print(f"Could not find Vault directory: {VAULT_DIR}")
         return
@@ -326,6 +325,85 @@ def main() -> None:
 
     save_state(state, SYNC_STATE_FILE)
     print(f"Core memory sync complete. Processed: {processed}, Remapped: {remapped}, Skipped: {skipped}, GC'd: {cleaned}")
+
+
+def sync_reference_collection() -> None:
+    """Incrementally sync markdown notes from Reference Library into evelyn_reference Chroma collection."""
+    if not os.path.exists(REFERENCE_DIR):
+        return
+
+    ref_state = load_state(REFERENCE_SYNC_STATE_FILE)
+    ref_files = get_markdown_files(REFERENCE_DIR)
+    active_paths = set()
+
+    for fp in ref_files:
+        if any(re.search(pat, fp) for pat in EXCLUDED_PATTERNS):
+            continue
+        active_paths.add(fp)
+
+    processed = skipped = cleaned = 0
+    stale_paths = [p for p in ref_state if p not in active_paths]
+
+    print(f"Starting Reference Library sync ({len(active_paths)} files)...")
+
+    for file_path in active_paths:
+        try:
+            mtime = os.path.getmtime(file_path)
+        except OSError:
+            continue
+
+        entry = ref_state.get(file_path, {})
+        stored_mtime = entry.get("mtime", 0) if isinstance(entry, dict) else float(entry)
+        stored_hash = entry.get("sha256", "") if isinstance(entry, dict) else ""
+
+        if stored_mtime >= mtime and stored_hash:
+            skipped += 1
+            continue
+
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                content = f.read()
+        except OSError as e:
+            print(f"Failed to read {file_path}: {e}")
+            continue
+
+        chash = compute_content_hash(content)
+        if stored_hash and stored_hash == chash and stored_mtime >= mtime:
+            skipped += 1
+            continue
+
+        rag_meta = parse_rag_frontmatter(content)
+        if rag_meta.get("rag_exclude"):
+            if file_path in ref_state and not ref_state[file_path].get("excluded"):
+                chroma_rag.delete_document(file_path, REFERENCE_COLLECTION_NAME)
+                cleaned += 1
+            ref_state[file_path] = {"mtime": mtime, "sha256": chash, "excluded": True}
+            continue
+
+        if chroma_rag.ingest_markdown_file(file_path, content, REFERENCE_COLLECTION_NAME, extra_metadata=rag_meta):
+            ref_state[file_path] = {"mtime": mtime, "sha256": chash}
+            processed += 1
+        else:
+            print(f"Ingest failed for {os.path.basename(file_path)}")
+
+        if (processed + skipped) % 25 == 0:
+            save_state(ref_state, REFERENCE_SYNC_STATE_FILE)
+
+    for stale_path in stale_paths:
+        if stale_path in ref_state:
+            print(f"Reference GC: {os.path.basename(stale_path)}")
+            chroma_rag.delete_document(stale_path, REFERENCE_COLLECTION_NAME)
+            del ref_state[stale_path]
+            cleaned += 1
+
+    save_state(ref_state, REFERENCE_SYNC_STATE_FILE)
+    print(f"Reference Library sync complete. Processed: {processed}, Skipped: {skipped}, GC'd: {cleaned}")
+
+
+def main() -> None:
+    """Perform a full incremental sync of both core vault memory and reference library into Chroma."""
+    sync_memory_collection()
+    sync_reference_collection()
 
 
 if __name__ == "__main__":

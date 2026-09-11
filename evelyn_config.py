@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-06 08:51:20
+# date modified: 2026-09-11 17:17:15
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -251,6 +251,7 @@ PERSONA_DIR = os.path.join(BASE_DIR, "Evelyn", "persona") # [[persona]]
 
 VAULT_DB_PATH = os.path.join(DATA_DIR, "evelyn_vault.db") # [[evelyn_vault.db]]
 VAULT_SYNC_STATE = os.path.join(DATA_DIR, "vault_sync_state.json") # [[vault_sync_state.json]]
+REFERENCE_SYNC_STATE = os.path.join(DATA_DIR, "reference_sync_state.json") # [[reference_sync_state.json]]
 GIST_SYNC_STATE = os.path.join(DATA_DIR, "gist_sync_state.json") # [[gist_sync_state.json]]
 CHROMA_DB_PATH = os.path.join(DATA_DIR, "chroma_db") # [[chroma_db]]
 CHAT_DB_PATH = os.path.join(DATA_DIR, "evelyn_chat.db") # [[evelyn_chat.db]]
@@ -355,6 +356,7 @@ for i, label in enumerate(_CATEGORY_LABELS, start=1):
 # Chroma RAG
 # =============================================================================
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full-text vault notes & memory chunks
+CHROMA_REFERENCE_COLLECTION = "evelyn_reference"  # Reference Library books, guides & manuals
 # Sized to 6 for Gemma 4 12B's 16K context on Ricky-PC (Old value: 8)
 RAG_TOP_K = 6  # Number of chunks to retrieve per query
 
@@ -366,7 +368,12 @@ RAG_TOP_K = 6  # Number of chunks to retrieve per query
 RAG_DISTANCE_THRESHOLD = 0.45
 
 # RAG exclusions — derived from VAULT_READ_IGNORE plus any RAG-specific additions.
-RAG_EXCLUDED_SUBDIRS = [*VAULT_READ_IGNORE, f"{ASSISTANT_NAME}'s Journal"]
+# Reference Library is moved to CHROMA_REFERENCE_COLLECTION for targeted tool search.
+RAG_EXCLUDED_SUBDIRS = [
+    *VAULT_READ_IGNORE,
+    f"{ASSISTANT_NAME}'s Journal",
+    "Reference Library",
+]
 
 # Filename regex patterns to exclude from RAG indexing (structural boilerplate, TOCs, back-of-book indexes).
 RAG_IGNORE_PATTERNS = [

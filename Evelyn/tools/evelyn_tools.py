@@ -82,6 +82,7 @@ if TOOLS_DIR not in sys.path:
     sys.path.append(TOOLS_DIR)
 
 
+import chroma_rag
 import context_manager  # [[context_manager.py]]
 import dream_manager
 import gcal_sync
@@ -99,6 +100,7 @@ def _reload():
     if os.environ.get("PYTEST_CURRENT_TEST") or getattr(cfg, "DISABLE_HOT_RELOAD", False):
         return
     for mod in (
+        "chroma_rag",
         "dream_manager",
         "journal_manager",
         "context_manager",
@@ -259,6 +261,75 @@ def search_vault(query: str = "", **kwargs) -> str:
     query = query or str(kwargs.get("search_query") or kwargs.get("search_term") or kwargs.get("term") or "")
     _log_deprecation("search_vault", f"query='{query}'")
     return f"[NOTICE] 'search_vault' is deprecated. The entire vault is indexed in Chroma RAG context automatically. Relevant content for query '{query}' is already supplied in context."
+
+
+def search_reference_library(query: str = "", limit: int = 5, domain: str = "", **kwargs) -> str:
+    """Search the Reference Library (owner's manuals, equipment specs, books, guides) using semantic vector search.
+
+    Args:
+        query: Natural language search query or keywords (e.g. 'water heater pilot light', '5 love languages words of affirmation').
+        limit: Number of results to return (default: 5, max: 10).
+        domain: Optional keyword to filter results (e.g. 'manuals', 'cello', 'ai', 'emotions').
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Formatted markdown string containing matching book/manual excerpts, or a notice if no matches.
+    """
+    _reload()
+    query = query or str(kwargs.get("search_query") or kwargs.get("q") or kwargs.get("term") or "")
+    if not query.strip():
+        return "Error: search_reference_library called with an empty query."
+
+    try:
+        limit = max(1, min(10, int(limit)))
+    except (ValueError, TypeError):
+        limit = 5
+
+    collection_name = getattr(cfg, "CHROMA_REFERENCE_COLLECTION", "evelyn_reference")
+    fetch_k = limit * 3 if domain else limit
+    raw_chunks = chroma_rag.query_collection(query, collection_name=collection_name, n_results=fetch_k)
+
+    if not raw_chunks:
+        return f"No reference documents found for query '{query}' in the Reference Library."
+
+    domain_lower = domain.strip().lower() if domain else ""
+    matched_chunks = []
+    for c in raw_chunks:
+        dist = c.get("distance", 1.0)
+        if dist > 0.55:
+            continue
+        meta = c.get("metadata") or {}
+        src = str(c.get("source") or meta.get("source") or "")
+        title = str(meta.get("title") or "")
+        tags = str(meta.get("tags") or "")
+
+        if domain_lower:
+            combined_desc = f"{src} {title} {tags}".lower()
+            if domain_lower not in combined_desc:
+                continue
+
+        matched_chunks.append(c)
+        if len(matched_chunks) >= limit:
+            break
+
+    if not matched_chunks:
+        return f"No reference documents met the similarity threshold for query '{query}'."
+
+    out = [f"### Reference Library Results for: '{query}'\n"]
+    for i, c in enumerate(matched_chunks, 1):
+        meta = c.get("metadata") or {}
+        src = c.get("source") or meta.get("source") or "Unknown"
+        title = meta.get("title") or os.path.basename(str(src))
+        book = meta.get("frontmatter_source") or os.path.basename(os.path.dirname(str(src))) or "General Reference"
+        content = (c.get("content") or "").strip()
+        dist = c.get("distance", 0.0)
+        similarity_pct = max(0, int((1.0 - dist) * 100))
+
+        out.append(f"**{i}. {book} — {title}** *(Relevance: {similarity_pct}%)*")
+        out.append(f"Source: `{src}`")
+        out.append(f"```markdown\n{content}\n```\n")
+
+    return "\n".join(out)
 
 
 def recall_specific_memory(file_path: str = "", **kwargs) -> str:
@@ -3480,6 +3551,36 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_reference_library",
+            "description": (
+                "Search external Reference Library documentation, including owner's manuals, hardware specs (e.g. water heater, HVAC, appliances), "
+                "music guides (e.g. Learning Cello), AI/ML textbooks, and non-fiction reference literature (e.g. Nonviolent Communication, The 5 Love Languages, Emotional Intelligence). "
+                "Use when asked about equipment operation, troubleshooting, appliance specs, specific textbook concepts, or reference book contents. "
+                "STRICT RULE: Do not use this tool for user personal memories, daily journal reflections, or chat history."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language search query or keywords (e.g. 'water heater pilot light', '5 love languages quality time', 'cello bow hold').",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of excerpts to return. Default 5, max 10.",
+                    },
+                    "domain": {
+                        "type": "string",
+                        "description": "Optional domain or topic filter keyword (e.g. 'manuals', 'cello', 'ai', 'emotions').",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -3495,6 +3596,7 @@ TOOL_FUNCTIONS = {
     "write_dream_entry": write_dream_entry,
     "read_dream_entry": read_dream_entry,
     "search_vault": search_vault,
+    "search_reference_library": search_reference_library,
     "recall_specific_memory": recall_specific_memory,
     "generate_image": generate_image,
     "sync_context_memory": sync_context_memory,
