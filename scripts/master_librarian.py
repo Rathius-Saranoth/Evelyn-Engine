@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import signal
 import sys
 import time
@@ -34,10 +35,14 @@ from Evelyn.tools import backlog_drainer, master_librarian, vault_db
 _stop_requested = False
 
 
-def _signal_handler(sig, frame):
+def _signal_handler(sig, _frame):
     global _stop_requested
-    print("\n[LIBRARIAN] Stop requested. Finishing current document...", flush=True)
+    sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
+    print(f"\n[LIBRARIAN] Signal {sig_name} received. Concluding current note and exiting cleanly...", flush=True)
     _stop_requested = True
+    with contextlib.suppress(Exception):
+        from Evelyn.tools import task_manager
+        task_manager.set_chat_preemption(True)
 
 
 def main():
@@ -224,13 +229,14 @@ def main():
         drain_cfg = backlog_drainer.DrainConfig(
             batch_size=args.batch_size,
             max_batches=0,
+            delay_between_items=0.1,
             yield_check_interval=1,
             auto_re_enqueue=False,
             manage_task_lifecycle=False,
         )
 
         backlog_drainer.drain_backlog(
-            task_name="cli_master_librarian",
+            task_name="master_librarian",
             fetch_batch_fn=_fetch_docs,
             process_item_fn=_process_doc,
             config=drain_cfg,
@@ -257,7 +263,9 @@ def main():
     )
     print(f"  - Remaining Ghost Links : {with_stats['ghost_links']:,}")
     print(f"  - Recorded Curations    : {with_stats['total_activities']:,}")
-    print("=" * 68 + "\n")
+    print("=" * 68 + "\n", flush=True)
+    sys.stdout.flush()
+    sys.stderr.flush()
 
 
 if __name__ == "__main__":

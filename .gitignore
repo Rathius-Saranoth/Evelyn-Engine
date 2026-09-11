@@ -40,7 +40,9 @@ reference/bugs/
 # --- Scratch & Temporary Debug ---
 scratch/
 
-# --- Standalone Services (venvs, model weights, generated output) ---
+# --- Python Virtual Environments ---
+venv/
+.venv/
 services/*/venv/
 services/*/output/
 services/*/audio/

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-08 20:33:11
+date modified: 2026-09-10 22:12:07
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,20 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.102] - 2026-09-10 — *Chatterbox CPU Mode, Voice Conditionals Caching & Setup Guide Roadmap Notice*
+
+### Added & Enhanced
+- **Chatterbox TTS CPU Mode & Isolated Service Deployment (`services/tts/tts_server.py`, `services/tts/evelyn-tts.service`)**:
+  - Restored Chatterbox Turbo TTS module running permanently on CPU (`EVELYN_TTS_DEVICE=cpu`) with dedicated systemd unit `evelyn-tts.service`.
+  - Eliminated Ollama VRAM eviction and reload cycles, keeping Gemma 4 100% resident in VRAM and avoiding 20-30s model swap delays.
+- **Reference Voice Conditionals Caching (`services/tts/tts_server.py`)**:
+  - Implemented pre-computation and in-memory caching of reference speaker embeddings during model initialization (`prepare_conditionals`), eliminating ~4.3s of `librosa` audio resampling overhead per chunk.
+  - Added dynamic cached conditional reuse across streaming chunks while preserving runtime voice override capabilities.
+- **Configurable Sentence Chunking (`services/tts/tts_server.py`, `reference/endpoints.md`)**:
+  - Parameterized `CHUNK_SENTENCES` via `EVELYN_TTS_CHUNK_SENTENCES` (default 3) to maintain natural prosody and prevent client audio playback buffer starvation on CPU.
+- **Documentation & Infrastructure Notice (`README.md`, `ROADMAP.md`)**:
+  - Added prominent setup guide revision warning callout in `README.md` referencing Phase 4 roadmap milestone for comprehensive deployment, networking, and SSL setup documentation.
 
 ## [000.006.101] - 2026-09-08 — *Image URL Trailing Punctuation Stripping & Modal Preview Fix*
 

@@ -2,7 +2,7 @@
 title: README.md
 tags: [system/engine]
 date created: 2026-08-28 14:41:00
-date modified: 2026-09-07 15:32:03
+date modified: 2026-09-10 22:10:05
 ---
 > [!NOTE]
 > **Project Status: Personal / As-Is**  
@@ -86,6 +86,9 @@ date modified: 2026-09-07 15:32:03
 ---
 
 ## 🚀 Quick Start
+
+> [!WARNING]
+> **Setup Guide Under Revision**: The setup and deployment instructions below are currently incomplete and under active revision. A comprehensive deployment guide covering auxiliary prerequisites (such as Tailscale mesh networking, reverse proxy and SSL certificate procedures, NUMA / device routing, and optional ecosystem apps) is tracked on the [[ROADMAP.md]] (Phase 4).
 
 ### 1. Prerequisites
 - **Linux** (Arch Linux, Ubuntu 22.04+, Debian 12+) with `systemd`

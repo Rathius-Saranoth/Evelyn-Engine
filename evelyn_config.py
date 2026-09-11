@@ -88,7 +88,7 @@ PERSONA_FILES = [PERSONA_FILE_ASSISTANT, PERSONA_FILE_USER, PERSONA_FILE_DIRECTI
 # =============================================================================
 OLLAMA_URL = "http://localhost:11434"
 MODEL_NAME = "gemma4:12b"
-NUM_CTX = 32768
+NUM_CTX = 16384
 
 # Thinking effort for the final streaming response (Evelyn's visible reply).
 # Overridden per-message by heuristic classifier, model self-election, tool
@@ -157,8 +157,8 @@ STOP_SEQUENCES = ["(Send).", "(Final).", "(Done).", "*Perfect."]
 # history.  15 turns × 2 = 30 messages.  All messages remain in the DB and
 # are still returned by the /history UI endpoint — this only caps what Ollama
 # sees.  A "thread break" marker further narrows this to the current thread.
-# Expanded to 40 for Gemma 4 12B's 32K context (Old value: 20)
-MAX_HISTORY_MESSAGES = 40
+# Sized to 30 (15 turns) for Gemma 4 12B on Ricky-PC 16K context (Old value: 40)
+MAX_HISTORY_MESSAGES = 30
 
 # Maximum agentic tool-dispatch rounds per turn.
 # Each round: model is offered tools; if it calls one, results are fed back and
@@ -313,13 +313,13 @@ OURA_TOKEN_PATH = os.path.join(DATA_DIR, "oura_token.json")
 
 # SQLite PRAGMAs — tuned per hardware tier.
 # Power Tier  (64GB+ RAM, server):  mmap=2GB,  cache=64MB
-# Standard    (16-32GB RAM, desktop): mmap=512MB, cache=32MB
+# Standard    (16-32GB RAM, desktop): mmap=512MB, cache=32MB  ← Active (Ricky-PC WSL2)
 # Light Tier  (8-16GB RAM, laptop):  mmap=256MB, cache=16MB
 SQLITE_PRAGMAS = [
     "PRAGMA journal_mode=WAL;",       # Enable WAL for concurrent non-blocking reads/writes
     "PRAGMA synchronous=NORMAL;",     # Optimal disk flush balance under WAL mode
-    "PRAGMA mmap_size=2147483648;",   # 2 GB Memory-mapped I/O (mmap) for zero-copy file reads
-    "PRAGMA cache_size=-64000;",      # 64 MB DRAM page cache per connection
+    "PRAGMA mmap_size=536870912;",    # 512 MB Memory-mapped I/O (mmap) for zero-copy file reads
+    "PRAGMA cache_size=-32000;",      # 32 MB DRAM page cache per connection
     "PRAGMA temp_store=MEMORY;",      # Store intermediate result sets in DRAM
 ]
 
@@ -355,8 +355,8 @@ for i, label in enumerate(_CATEGORY_LABELS, start=1):
 # Chroma RAG
 # =============================================================================
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full-text vault notes & memory chunks
-# Increased to 8 for Gemma 4 12B's 32K context (Old value: 5)
-RAG_TOP_K = 8  # Number of chunks to retrieve per query
+# Sized to 6 for Gemma 4 12B's 16K context on Ricky-PC (Old value: 8)
+RAG_TOP_K = 6  # Number of chunks to retrieve per query
 
 # Cosine distance threshold for RAG injection (0.0 = identical, 1.0 = unrelated).
 # Chunks with distance ABOVE this value are discarded before injection.
@@ -547,8 +547,8 @@ FACT_EXTRACTION_IDLE_CHECK_INTERVAL = 300  # 5 minutes
 FACT_EXTRACTION_COOLDOWN = 600  # 10 minutes
 
 # Maximum number of DB messages to fetch and process per extraction run.
-# Keep low to bound each Ollama call to a predictable size (~5-10s).
-FACT_EXTRACTION_BATCH_SIZE = 12
+# Keep low to bound each Ollama call to a predictable size (~3-5s).
+FACT_EXTRACTION_BATCH_SIZE = 8
 
 # Per-run Ollama call timeout (seconds).
 FACT_EXTRACTION_TIMEOUT = 600
@@ -562,7 +562,7 @@ FACT_EXTRACTION_MAX_BATCHES_PER_SESSION = 0
 FACT_EXTRACTION_BACKLOG_DELAY = 5
 
 # Seconds of startup warm-up grace period before idle tasks can be dispatched.
-IDLE_STARTUP_GRACE_PERIOD = 60
+IDLE_STARTUP_GRACE_PERIOD = 600
 
 # Baseline idle inactivity threshold before the FIFO dispatcher executes tasks (seconds).
 IDLE_DISPATCHER_THRESHOLD = 300  # 5 minutes
@@ -633,13 +633,13 @@ CONSOLIDATION_COOLDOWN = 300 # 5 minutes
 # Maximum number of conflict clusters to process per run.
 # Each cluster = one LLM call (detect) + one LLM call (merge). Keep low
 # to bound the idle-time cost to a predictable budget.
-CONSOLIDATION_BATCH_SIZE = 10
+CONSOLIDATION_BATCH_SIZE = 6
 
 # Maximum number of category groups to run the detection LLM call against.
 # Each group = one LLM call. BATCH_SIZE caps proposals; this caps detections.
 # With 30 groups and think=True at ~45s each, limit to avoid monopolizing Ollama.
 # Groups are scanned in category order (Cat01 first); adjust to taste.
-CONSOLIDATION_GROUP_SCAN_LIMIT = 8
+CONSOLIDATION_GROUP_SCAN_LIMIT = 5
 
 # Maximum records shown per group in the detection prompt.
 # Newest-first; older entries are omitted with a count note.
@@ -718,7 +718,7 @@ RESEARCH_WALL_CLOCK_TIMEOUT = 7200  # Fallback only (standard scope equivalent)
 
 # Seconds between research steps during idle-time execution.
 # Gives Ollama breathing room between calls.
-RESEARCH_STEP_COOLDOWN = 5
+RESEARCH_STEP_COOLDOWN = 6
 
 # Synthesis notes compression threshold (characters).
 # Before synthesis, each sub-question's notes are checked against this limit.
@@ -836,8 +836,8 @@ PROFILE_EVOLUTION_MODEL_OVERRIDE = "default"
 # them in successive batches, each pass refining the previous output.
 # This prevents context-window saturation on the first run (which sees all
 # accumulated history). Entries are sorted oldest-first so later passes
-# layer on top of earlier refinements. 40 entries ≈ ~6000 chars of evidence.
-PROFILE_EVOLUTION_BATCH_SIZE = 40
+# layer on top of earlier refinements. 25 entries ≈ ~3750 chars of evidence.
+PROFILE_EVOLUTION_BATCH_SIZE = 25
 
 # Maximum seconds allowed per individual document evolution before saving draft and moving on.
 # Default: 1500 seconds (25 minutes).

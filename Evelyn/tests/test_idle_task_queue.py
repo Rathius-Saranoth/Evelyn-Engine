@@ -139,7 +139,8 @@ class TestIdleTaskQueue(unittest.TestCase):
         with patch("Evelyn.tools.task_manager._boot_ts", time.time()):
             self.assertTrue(task_manager.is_boot_grace_period_active())
 
-        with patch("Evelyn.tools.task_manager._boot_ts", time.time() - 120):
+        # Test expiration exceeding configured IDLE_STARTUP_GRACE_PERIOD
+        with patch("Evelyn.tools.task_manager._boot_ts", time.time() - 1000):
             self.assertFalse(task_manager.is_boot_grace_period_active())
 
     def test_task_schedule_tier_mapping(self):

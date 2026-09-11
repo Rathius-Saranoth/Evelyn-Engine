@@ -301,6 +301,7 @@ def run_master_librarian_audit(
     folder_cap: int | None = None,
     include_tags: bool = True,
     enable_llm_tags: bool = False,
+    delay_between_items: float = 0.1,
 ) -> backlog_drainer.DrainResult:
     """Execute a batched Master Librarian audit run over the vault documents queue.
 
@@ -313,6 +314,7 @@ def run_master_librarian_audit(
         folder_cap: Maximum documents processed per folder cluster per run.
         include_tags: Whether to include tag normalization.
         enable_llm_tags: Whether to invoke Ollama for semantic Tag RAG.
+        delay_between_items: Pause in seconds between document audits (default: 0.1s).
 
     Returns:
         backlog_drainer.DrainResult: Outcome summary.
@@ -335,7 +337,9 @@ def run_master_librarian_audit(
     drain_cfg = backlog_drainer.DrainConfig(
         batch_size=batch_size,
         max_batches=max_batches,
+        delay_between_items=delay_between_items,
         deadline=deadline,
+        yield_check_interval=1,
         auto_re_enqueue=auto_re_enqueue,
         manage_task_lifecycle=True,
         group_by_fn=_get_folder,
@@ -362,3 +366,65 @@ def run_master_librarian_audit(
         process_item_fn=_process,
         config=drain_cfg,
     )
+
+
+async def run_master_librarian_audit_async(
+    batch_size: int = 5,
+    max_batches: int = 1,
+    deadline: float | None = None,
+    auto_re_enqueue: bool = True,
+    cooldown_seconds: int | None = None,
+    folder_cap: int | None = None,
+    include_tags: bool = True,
+    enable_llm_tags: bool = False,
+    delay_between_items: float = 0.1,
+) -> backlog_drainer.DrainResult:
+    """Execute a batched Master Librarian audit run asynchronously with cooperative yield."""
+    cooldown = (
+        cooldown_seconds
+        if cooldown_seconds is not None
+        else getattr(cfg, "LIBRARIAN_AUDIT_COOLDOWN_SECONDS", 3600)
+    )
+    cap = (
+        folder_cap
+        if folder_cap is not None
+        else getattr(cfg, "LIBRARIAN_FOLDER_BATCH_CAP", 5)
+    )
+
+    def _get_folder(item: dict[str, Any]) -> str:
+        p = item.get("path", "")
+        return os.path.dirname(p) if "/" in p else ""
+
+    drain_cfg = backlog_drainer.DrainConfig(
+        batch_size=batch_size,
+        max_batches=max_batches,
+        delay_between_items=delay_between_items,
+        deadline=deadline,
+        yield_check_interval=1,
+        auto_re_enqueue=auto_re_enqueue,
+        manage_task_lifecycle=True,
+        group_by_fn=_get_folder,
+        max_items_per_group=cap,
+    )
+
+    def _fetch(limit: int) -> list[dict[str, Any]]:
+        return vault_db.fetch_next_document_for_librarian_audit(
+            batch_size=limit,
+            cooldown_seconds=cooldown,
+        )
+
+    def _process(doc: dict[str, Any]) -> None:
+        path = doc["path"]
+        audit_single_document(
+            doc_path=path,
+            include_tags=include_tags,
+            enable_llm_tags=enable_llm_tags,
+        )
+
+    return await backlog_drainer.drain_backlog_async(
+        task_name="master_librarian",
+        fetch_batch_fn=_fetch,
+        process_item_fn=_process,
+        config=drain_cfg,
+    )
+

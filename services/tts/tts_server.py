@@ -70,8 +70,10 @@ HOST = "127.0.0.1"
 PORT = 5050
 SAMPLE_RATE = 24000
 
-# Unload model after this many seconds of inactivity to free VRAM for Ollama.
-# Chatterbox Turbo uses ~4.2 GB — too much to leave resident alongside Ollama.
+# Execution device: "cpu" (default, zero VRAM impact, Ollama never unloads) or "cuda"
+DEVICE = os.environ.get("EVELYN_TTS_DEVICE", "cpu").lower()
+
+# Unload model after this many seconds of inactivity to free system memory / VRAM.
 UNLOAD_TIMEOUT_S = 120  # 2 minutes
 
 # Cleanup generated audio chunk files after delivery.
@@ -85,9 +87,9 @@ FILE_CLEANUP_DELAY_S = 600  # 10 minutes
 SENTENCE_SILENCE_S = 0.0
 
 # Number of sentences to group into a single synthesized audio chunk.
-# Higher values = fewer Audio→Audio transitions = smoother playback, but longer
-# wait for the first chunk to appear. 3 is a good default for conversational responses.
-CHUNK_SENTENCES = 3
+# Default 3 preserves natural multi-sentence prosody and prevents audio buffer
+# starvation/gaps on CPU playback. Configurable via EVELYN_TTS_CHUNK_SENTENCES.
+CHUNK_SENTENCES = int(os.environ.get("EVELYN_TTS_CHUNK_SENTENCES", "3"))
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -114,26 +116,38 @@ _model = None
 _model_lock = threading.Lock()
 _last_used: float = 0.0
 _unload_timer: threading.Timer | None = None
+_current_voice: str | None = None
 
 
 def _load_model():
-    """Load Chatterbox Turbo onto GPU. Called under _model_lock."""
-    global _model
+    """Load Chatterbox Turbo onto configured device (CPU or CUDA). Called under _model_lock."""
+    global _model, _current_voice
     if _model is not None:
         return
 
-    print("[TTS] Loading Chatterbox Turbo...", flush=True)
+    print(f"[TTS] Loading Chatterbox Turbo on {DEVICE.upper()}...", flush=True)
     t0 = time.perf_counter()
     from chatterbox.tts_turbo import ChatterboxTurboTTS
-    _model = ChatterboxTurboTTS.from_pretrained(device="cuda")
+    _model = ChatterboxTurboTTS.from_pretrained(device=DEVICE)
     elapsed = time.perf_counter() - t0
-    vram_mb = torch.cuda.memory_allocated() / 1024**2
-    print(f"[TTS] Model loaded in {elapsed:.1f}s ({vram_mb:.0f} MB VRAM)", flush=True)
+    if DEVICE == "cuda" and torch.cuda.is_available():
+        vram_mb = torch.cuda.memory_allocated() / 1024**2
+        print(f"[TTS] Model loaded in {elapsed:.1f}s ({vram_mb:.0f} MB VRAM)", flush=True)
+    else:
+        print(f"[TTS] Model loaded in {elapsed:.1f}s on CPU", flush=True)
+
+    # Pre-cache voice conditionals for reference audio to eliminate per-chunk extraction overhead
+    if os.path.exists(REF_AUDIO):
+        print(f"[TTS] Pre-caching voice conditionals from {Path(REF_AUDIO).name}...", flush=True)
+        t_ref = time.perf_counter()
+        _model.prepare_conditionals(REF_AUDIO, exaggeration=0.0, norm_loudness=True)
+        _current_voice = REF_AUDIO
+        print(f"[TTS] Voice conditionals cached in {time.perf_counter() - t_ref:.2f}s", flush=True)
 
 
 def _teardown_model_vram():
     """Internal helper to dismantle model references, run GC, and purge PyTorch CUDA cache."""
-    global _model
+    global _model, _current_voice
     if _model is not None:
         for attr in ("t3", "s3gen", "ve", "conds", "watermarker", "tokenizer"):
             if hasattr(_model, attr):
@@ -141,6 +155,7 @@ def _teardown_model_vram():
                     delattr(_model, attr)
         del _model
         _model = None
+    _current_voice = None
 
     gc.collect()
     if torch.cuda.is_available():
@@ -368,19 +383,32 @@ async def generate_speech_stream(data: SpeechRequest):
         chunks = [text]
 
     async def _stream():
+        global _current_voice
         loop = asyncio.get_event_loop()
         job_id = uuid.uuid4().hex[:8]
 
-        # Unload Ollama and load Chatterbox once for the entire job.
-        _unload_ollama()
+        # Unload Ollama only if running on CUDA (CPU mode does not touch VRAM)
+        if DEVICE == "cuda":
+            _unload_ollama()
         model = get_model()
         if model is None:
             raise RuntimeError("TTS model could not be loaded")
 
+        # Determine voice reference audio path and ensure conditionals are cached
+        voice_path = REF_AUDIO
+        if data.voice and os.path.exists(data.voice):
+            voice_path = data.voice
+
+        if _current_voice != voice_path or getattr(model, "conds", None) is None:
+            print(f"[TTS] Preparing voice conditionals for {Path(voice_path).name}...", flush=True)
+            model.prepare_conditionals(voice_path, exaggeration=0.0, norm_loudness=True)
+            _current_voice = voice_path
+
         try:
             for i, chunk in enumerate(chunks):
                 def _gen(c=chunk, m=model):
-                    return m.generate(text=c, audio_prompt_path=REF_AUDIO)
+                    # audio_prompt_path=None leverages the pre-cached conditionals in m.conds
+                    return m.generate(text=c, audio_prompt_path=None)
 
                 wav = await loop.run_in_executor(None, _gen)
                 wav_np = wav.squeeze().cpu().numpy()
@@ -404,8 +432,11 @@ async def generate_speech_stream(data: SpeechRequest):
         finally:
             with contextlib.suppress(NameError):
                 del model
-            _unload_model_force()
-            threading.Thread(target=_prefetch_ollama, daemon=True).start()
+            if DEVICE == "cuda":
+                _unload_model_force()
+                threading.Thread(target=_prefetch_ollama, daemon=True).start()
+            else:
+                _schedule_unload()
 
         yield 'data: {"done": true}\n\n'
 
@@ -418,12 +449,13 @@ async def generate_speech_stream(data: SpeechRequest):
 
 @app.get("/health")
 async def health():
-    """Health check — returns model load status and VRAM usage."""
+    """Health check — returns model load status and device usage."""
     loaded = _model is not None
-    vram_mb = torch.cuda.memory_allocated() / 1024**2 if loaded else 0
+    vram_mb = (torch.cuda.memory_allocated() / 1024**2) if (loaded and DEVICE == "cuda" and torch.cuda.is_available()) else 0
     idle = time.time() - _last_used if _last_used > 0 else None
     return {
         "status": "ok",
+        "device": DEVICE,
         "model_loaded": loaded,
         "model": "ChatterboxTurboTTS",
         "vram_mb": round(vram_mb, 1),

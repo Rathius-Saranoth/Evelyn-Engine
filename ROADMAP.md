@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-08 19:23:19
+date modified: 2026-09-10 21:10:20
 ---
 # Evelyn Project Roadmap
 
@@ -88,6 +88,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
+- [ ] **Deployment & Infrastructure Setup Guide**: Overhaul `SETUP_GUIDE.md` to document complete bare-metal and WSL2 deployment prerequisites, including Tailscale VPN mesh networking, TLS/SSL certificate provisioning & SAN configuration, systemd service units, and required vs. optional system dependencies.
 
 ---
 

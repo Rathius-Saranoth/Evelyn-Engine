@@ -276,6 +276,10 @@ def sanitize_chroma_metadata(meta: dict[str, Any]) -> dict[str, Any]:
                         clean_list.append(item)
                     elif item is not None:
                         clean_list.append(str(item))
+                if clean_list:
+                    types = {type(x) for x in clean_list}
+                    if len(types) > 1:
+                        clean_list = [str(x) for x in clean_list]
                 clean[k] = clean_list if clean_list else ""
         elif isinstance(v, dict):
             clean[k] = json.dumps(v, default=str)
