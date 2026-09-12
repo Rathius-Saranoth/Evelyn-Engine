@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-12 11:00:41
+# date modified: 2026-09-12 11:35:26
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -156,7 +156,15 @@ MAX_HISTORY_MESSAGES = 30
 # Each round: model is offered tools; if it calls one, results are fed back and
 # it gets another turn. Loop exits when the model produces no tool calls or this
 # cap is hit, then the streaming response pass runs.
-MAX_TOOL_ROUNDS = 5
+MAX_TOOL_ROUNDS = 10
+
+# Maximum fraction of NUM_CTX allocated to accumulated tool returns across multi-round turns.
+# Prevents tool output bloat from evicting the system prompt or conversation history.
+TOOL_RETURN_RATIO: float = 0.35
+
+# Default reading ceilings for terminal_agent.read_file()
+READ_FILE_MAX_CHARS: int = 5000
+READ_FILE_MAX_LINES: int = 100
 
 # Thinking effort for ALL tool-loop routing rounds (tool detection + result
 # evaluation). These rounds make binary routing decisions only — "low" is

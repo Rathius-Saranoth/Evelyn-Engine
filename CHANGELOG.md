@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 11:01:17
+date modified: 2026-09-12 11:38:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.114] - 2026-09-12 — *Dynamic Tool Scratchpad, Token Headroom & Synthesis Re-Anchoring*
+
+### Added & Hardened
+- **Dynamic Hardware-Aware Tool Headroom & Scratchpad Compaction (`evelyn_server.py`)**:
+  - Dynamically calculates permissible tool return budget per turn based on `NUM_CTX`, active baseline conversation tokens, generation reserve (`NUM_PREDICT`), and `TOOL_RETURN_RATIO` (35% default).
+  - Implemented multi-round tool return scratchpad compaction: older intermediate tool returns (rounds $1 \dots N-1$) exceeding 300 tokens are gracefully compacted to ~250 tokens, keeping the freshest round $N$ uncompressed.
+  - Added tool argument logging to `messages.tool_metadata` (`meta_entry["args"] = fn_args`) for full auditing in the database.
+  - Added semantic XML synthesis re-anchoring directive (`<tool_synthesis>`) before subsequent/terminal rounds to preserve persona stability and ensure direct answers to user prompts without context drift.
+- **Clean Markdown Reading & Pagination (`Evelyn/tools/terminal_agent.py`)**:
+  - Stripped redundant line-number prefixes (`   1 | `) by default from `read_file()` to save tokens and prevent markdown syntax breakage (preserving optional inspection via `show_line_numbers=True`).
+  - Added 1-indexed pagination via `offset_line: int = 1` and configurable line ceiling `max_lines: int = 100` alongside `max_chars: int = 5000`.
+  - Added automatic document section outline (`extract_markdown_outline`) appended to truncation notices, allowing the model to target specific sections on subsequent paginated reads.
+  - Added clear human- and model-readable pagination banner (`Showing lines X–Y of Z, W chars`).
+  - Updated `MODEL_TOOL_DEFINITIONS` tool schema for `read_file` to expose `offset_line` and `max_lines`.
+- **Single Source of Truth Token Estimation Utilities (`Evelyn/tools/string_utils.py`)**:
+  - Added `estimate_tokens(text: str)` implementing conservative token estimation (`len(text) / 2.5 + 4`) tailored for technical markdown, JSON, and tabular data.
+  - Added `truncate_to_token_budget(text: str, max_tokens: int, truncation_suffix: str)` for safe token-aware text bounding.
+  - Added `extract_markdown_outline(content: str)` for extracting heading hierarchies from truncated documents.
+  - Refactored `_estimate_message_tokens` in `evelyn_server.py` to use canonical `estimate_tokens()`.
+- **Configuration Tuning (`evelyn_config.py`)**:
+  - Increased `MAX_TOOL_ROUNDS` from 5 to 10 rounds to support iterative document pagination and research workflows.
+  - Added `TOOL_RETURN_RATIO = 0.35`, `READ_FILE_MAX_CHARS = 5000`, and `READ_FILE_MAX_LINES = 100`.
 
 ## [000.006.113] - 2026-09-12 — *Smart Vault Auto-Resolution & Vault Note Search*
 

@@ -1,6 +1,6 @@
 # test_string_and_path_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-08-28 12:25:00
+# date modified: 2026-09-12 11:39:33
 # tags: #tests, #string_utils, #path_utils
 
 import pytest
@@ -15,9 +15,12 @@ from Evelyn.tools.path_utils import (
 from Evelyn.tools.string_utils import (
     clean_llm_gist,
     clean_title,
+    estimate_tokens,
+    extract_markdown_outline,
     sanitize_filename,
     slugify,
     strip_thinking_tags,
+    truncate_to_token_budget,
 )
 
 
@@ -52,6 +55,42 @@ class TestStringUtils:
         assert clean_title("01_Introduction_To_AI.pdf") == "01 Introduction To AI"
         assert clean_title("SEC_10K_2026.md") == "SEC_10K_2026"
         assert clean_title("Simple Title.markdown") == "Simple Title"
+
+    def test_estimate_tokens(self):
+        assert estimate_tokens("") == 0
+        assert estimate_tokens("Hello world") > 0
+        # 100 characters should estimate to int(100 / 2.5) + 4 = 44 tokens
+        text_100 = "a" * 100
+        assert estimate_tokens(text_100) == 44
+
+    def test_truncate_to_token_budget(self):
+        short = "Short text"
+        assert truncate_to_token_budget(short, max_tokens=100) == short
+
+        long_text = "This is a sentence. " * 50
+        truncated = truncate_to_token_budget(long_text, max_tokens=20)
+        assert len(truncated) < len(long_text)
+        assert "[... Truncated to stay within token budget ...]" in truncated
+        assert estimate_tokens(truncated) <= 40
+
+    def test_extract_markdown_outline(self):
+        doc = (
+            "# Top Level\n"
+            "Some text\n"
+            "## Sub Section A\n"
+            "More text\n"
+            "```python\n# not a real heading\nx = 1\n```\n"
+            "### Deep Item\n"
+            "## Sub Section B\n"
+        )
+        outline = extract_markdown_outline(doc)
+        assert outline == [
+            "# Top Level",
+            "## Sub Section A",
+            "### Deep Item",
+            "## Sub Section B",
+        ]
+
 
 
 class TestPathUtils:

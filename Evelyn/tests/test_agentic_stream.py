@@ -1,6 +1,6 @@
 # test_agentic_stream.py
 # date created: 2026-08-27 09:35:00
-# date modified: 2026-08-27 09:35:00
+# date modified: 2026-09-12 11:38:56
 # tags: #test, #streaming, #agentic, #unified_stream, #v000_006_000
 
 import json
@@ -262,6 +262,66 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
             # Round 2 (terminal round since MAX_TOOL_ROUNDS=2): tools=None enforced
             self.assertIsNone(recorded_tools[1])
 
+    async def test_06_tool_scratchpad_compaction_and_synthesis_anchoring(self):
+        """Verify dynamic tool returns exceeding budget are compacted and synthesis directive is injected."""
+        cfg.MAX_TOOL_ROUNDS = 3
+        # Set dynamic budget low via small NUM_CTX to trigger compaction
+        with patch.object(cfg, "NUM_CTX", 2000), patch.object(cfg, "TOOL_RETURN_RATIO", 0.35):
+            call_count = 0
+            captured_msgs_history = []
+
+            async def mock_stream(msgs, tools=None, think_effort=None):
+                nonlocal call_count
+                call_count += 1
+                captured_msgs_history.append([dict(m) for m in msgs])
+                if call_count == 1:
+                    yield json.dumps({
+                        "message": {
+                            "tool_calls": [{
+                                "function": {"name": "read_file", "arguments": {"file_path": "doc1.md"}}
+                            }]
+                        },
+                        "done": True,
+                    })
+                elif call_count == 2:
+                    yield json.dumps({
+                        "message": {
+                            "tool_calls": [{
+                                "function": {"name": "read_file", "arguments": {"file_path": "doc2.md"}}
+                            }]
+                        },
+                        "done": True,
+                    })
+                else:
+                    yield json.dumps({"message": {"content": "Final synthesis addressing user prompt."}})
+                    yield json.dumps({"message": {"content": ""}, "done": True})
+
+            def mock_dispatch(fn, fa):
+                # Return long content (~1200 chars ~= 480 tokens)
+                return "Long document section line content. " * 35
+
+            with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream), \
+                 patch("evelyn_server.dispatch_tool", side_effect=mock_dispatch):
+                test_msgs = [{"role": "user", "content": "Analyze documents"}]
+                events = [
+                    json.loads(evt_line[6:])
+                    async for evt_line in srv._agentic_stream_loop(test_msgs, think_effort="medium")
+                    if evt_line.startswith("data: ")
+                ]
+                self.assertTrue(len(events) > 0)
+
+                # Check that round 3 received compacted earlier tool output and a synthesis directive
+                round_3_msgs = captured_msgs_history[2]
+                tool_msgs = [m for m in round_3_msgs if m.get("role") == "tool"]
+                self.assertEqual(len(tool_msgs), 2)
+                # First tool message should have been compacted
+                self.assertIn("compacted in scratchpad", tool_msgs[0]["content"])
+
+                # Synthesis directive should be present in round 3 messages
+                synthesis_msgs = [m for m in round_3_msgs if "<tool_synthesis" in m.get("content", "")]
+                self.assertTrue(len(synthesis_msgs) > 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-12 11:01:05
+# date modified: 2026-09-12 11:38:04
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.113"
-__version_info__ = (0, 6, 113)
-__version_name__ = "Smart Vault Auto-Resolution & Vault Note Search"
+__version__ = "000.006.114"
+__version_info__ = (0, 6, 114)
+__version_name__ = "Dynamic Tool Scratchpad, Token Headroom & Synthesis Re-Anchoring"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

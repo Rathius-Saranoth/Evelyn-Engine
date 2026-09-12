@@ -1,6 +1,6 @@
 # test_terminal_agent.py
 # date created: 2026-06-27 09:38:56
-# date modified: 2026-09-12 11:01:49
+# date modified: 2026-09-12 11:39:20
 # tags: #test, #verification, #terminal, #security
 
 """Unit tests for the Evelyn Terminal Agent safety, persistence, and execution logic.
@@ -289,6 +289,8 @@ class TestTerminalAgent(unittest.TestCase):
         mock_cfg.VAULT_BASE_DIR = vault_mock
         mock_cfg.BASE_DIR = self.test_dir
         mock_cfg.TERMINAL_ALLOWED_PATHS = [vault_mock, self.test_dir]
+        mock_cfg.READ_FILE_MAX_CHARS = 5000
+        mock_cfg.READ_FILE_MAX_LINES = 100
 
         # 1. Direct auto-resolution by bare note name without extension
         match_path, ambig = terminal_agent.find_matching_vault_files("GIS Tasks")
@@ -319,6 +321,42 @@ class TestTerminalAgent(unittest.TestCase):
         self.assertIn("Books/Vol2/Preface.md", ambig_res)
         self.assertIn("Please specify the full relative path", ambig_res)
 
+    def test_read_file_clean_formatting_and_pagination(self):
+        """Verify read_file clean output (no line numbers by default), pagination, and outline on truncation."""
+        test_file = os.path.join(self.test_dir, "long_doc.md")
+        lines = ["# Main Document Title\n", "Introductory paragraph text.\n"]
+        for i in range(1, 151):
+            if i == 50:
+                lines.append("## Middle Section\n")
+            elif i == 110:
+                lines.append("### Concluding Section\n")
+            else:
+                lines.append(f"Line content item number {i}\n")
+
+        with open(test_file, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        # 1. Clean output without line numbers by default
+        content = terminal_agent.read_file(test_file, offset_line=1, max_lines=40)
+        self.assertNotIn("   1 | ", content)
+        self.assertIn("# Main Document Title", content)
+        self.assertIn("Introductory paragraph text.", content)
+        self.assertIn("Showing lines 1–40 of 152", content)
+        self.assertIn("Tip: Call read_file with offset_line=41", content)
+        self.assertIn("Available Sections in document:", content)
+        self.assertIn("## Middle Section", content)
+
+        # 2. show_line_numbers=True includes line prefixes
+        content_numbered = terminal_agent.read_file(test_file, offset_line=1, max_lines=10, show_line_numbers=True)
+        self.assertIn("   1 | # Main Document Title", content_numbered)
+
+        # 3. Paginated read starting at offset_line=41
+        paged_content = terminal_agent.read_file(test_file, offset_line=41, max_lines=40)
+        self.assertIn("Showing lines 41–80 of 152", paged_content)
+        self.assertIn("## Middle Section", paged_content)
+        self.assertIn("Tip: Call read_file with offset_line=81", paged_content)
+
 
 if __name__ == "__main__":
     unittest.main()
+

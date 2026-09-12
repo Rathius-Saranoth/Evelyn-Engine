@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-08 18:38:39
+# date modified: 2026-09-12 11:34:26
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -26,6 +26,9 @@ Exports:
     inject_envelope_to_turn() — Prepends envelope(s) to message turns with clean boundary isolation.
     protect_code_blocks()   — Masks fenced code, inline code, and math blocks with safe tokens.
     restore_code_blocks()   — Restores original code blocks from placeholder tokens.
+    estimate_tokens()       — Fast conservative token estimator (~2.5 chars/token).
+    truncate_to_token_budget() — Truncates text cleanly within token budgets.
+    extract_markdown_outline() — Extracts markdown heading outline for truncated documents.
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -761,5 +764,94 @@ def extract_link_context(body: str, target: str, window_chars: int = 180) -> str
     clean = " ".join(raw_slice.split())
     clean = re.sub(r"^[\W_]+|[\W_]+$", "", clean)
     return clean
+
+
+def estimate_tokens(text: str) -> int:
+    """Fast conservative token estimator (~2.5 chars/token for dense text/code/json).
+
+    Args:
+        text: String content to estimate.
+
+    Returns:
+        int: Conservative estimate of token count (at least 1 for non-empty text, 0 if empty).
+    """
+    if not text:
+        return 0
+    return max(1, int(len(text) / 2.5) + 4)
+
+
+def truncate_to_token_budget(
+    text: str,
+    max_tokens: int,
+    truncation_suffix: str = "\n\n[... Truncated to stay within token budget ...]",
+) -> str:
+    """Truncate text to fit within a specified token budget.
+
+    Truncates at newline or word boundary where possible.
+
+    Args:
+        text: Input string to truncate.
+        max_tokens: Maximum allowed tokens.
+        truncation_suffix: Suffix to append if truncation occurs.
+
+    Returns:
+        str: Original text or cleanly truncated string within budget.
+    """
+    if not text or max_tokens <= 0:
+        return ""
+
+    if estimate_tokens(text) <= max_tokens:
+        return text
+
+    # Target character limit based on conservative estimate
+    target_chars = max(20, int(max_tokens * 2.5) - len(truncation_suffix))
+    if len(text) <= target_chars:
+        return text
+
+    candidate = text[:target_chars]
+    # Try breaking at last newline
+    last_newline = candidate.rfind("\n")
+    if last_newline > target_chars * 0.6:
+        candidate = candidate[:last_newline]
+    else:
+        # Otherwise break at last space
+        last_space = candidate.rfind(" ")
+        if last_space > target_chars * 0.6:
+            candidate = candidate[:last_space]
+
+    return f"{candidate.rstrip()}{truncation_suffix}"
+
+
+def extract_markdown_outline(content: str, max_headers: int = 15) -> list[str]:
+    """Extract markdown header outline (# through ####) from markdown content.
+
+    Excludes headers inside fenced code blocks.
+
+    Args:
+        content: Markdown file text.
+        max_headers: Maximum number of headers to extract.
+
+    Returns:
+        list[str]: Formatted header outline list.
+    """
+    if not content:
+        return []
+
+    headers: list[str] = []
+    in_code_block = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+
+        if stripped.startswith(("# ", "## ", "### ", "#### ")):
+            headers.append(stripped)
+            if len(headers) >= max_headers:
+                break
+
+    return headers
 
 
