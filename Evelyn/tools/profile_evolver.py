@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-11 07:09:24
+# date modified: 2026-09-12 09:46:57
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -30,6 +30,7 @@ import os
 import re
 import sqlite3
 import time
+from typing import Any
 
 import httpx
 
@@ -37,8 +38,9 @@ import evelyn_config as cfg
 
 try:
     import memory_db
+    import profile_ledger
 except ImportError:
-    from Evelyn.tools import memory_db
+    from Evelyn.tools import memory_db, profile_ledger
 
 
 def _sync_read_file(path: str) -> str:
@@ -301,19 +303,58 @@ _DATA_DIR = os.path.dirname(os.path.abspath(cfg.CHAT_DB_PATH))
 
 
 def _draft_path(filename: str) -> str:
-    """Return the absolute path to the per-document evolution draft file.
+    """Return the absolute path to the per-document evolution draft ledger file.
 
-    The draft captures the accumulated working document after each successful
-    pass so evolution can resume across interrupted runs.
+    The draft captures the accumulated working fact ledger after each successful
+    thematic pass so evolution can resume across interrupted runs.
 
     Args:
         filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
 
     Returns:
-        str: Absolute path to the draft file.
+        str: Absolute path to the draft ledger file.
     """
-    safe = filename.replace(" ", "_").replace(".md", "")
-    return os.path.join(_DATA_DIR, f"evelyn_evolution_draft_{safe}.md")
+    safe = filename.replace("_facts.md", "").replace(".md", "").replace(" ", "_")
+    return os.path.join(_DATA_DIR, f"evelyn_evolution_draft_{safe}_facts.md")
+
+
+def _parse_json_delta(raw_text: str) -> dict[str, Any] | None:
+    """Extract and parse a structured delta JSON object from an LLM response.
+
+    Handles code blocks, leading/trailing commentary, and json syntax glitches.
+
+    Args:
+        raw_text: Raw string returned from Ollama.
+
+    Returns:
+        dict[str, Any] | None: Parsed delta dictionary or None if invalid.
+    """
+    if not raw_text or not raw_text.strip():
+        return None
+    text = raw_text.strip()
+    match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL | re.IGNORECASE)
+    if match:
+        text = match.group(1).strip()
+    elif text.startswith("```"):
+        lines = text.splitlines()
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        text = text[first_brace : last_brace + 1]
+
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return None
 
 
 def split_frontmatter(content: str) -> tuple[str, str]:
@@ -1654,29 +1695,24 @@ async def _proofread_document(filename: str, proposed_body: str) -> str:
 
 
 async def _evolve_document(filename: str, new_entries: list[dict], state: dict) -> bool:
-    """Propose updates to a narrative persona/profile document.
+    """Propose updates to a persona, user profile, or directives document using the two-layer factoid ledger architecture.
 
-    Processes qualifying context entries in successive batches to avoid
-    context-window saturation. Each pass uses the previous output as the
-    working document, progressively layering evidence. Progress is saved to a
-    draft file after every successful pass so an interrupted run resumes at the
-    next unprocessed batch rather than restarting from scratch.
-
-    Draft lifecycle:
-      - Created / updated after each successful pass.
-      - Deleted on successful proposal creation or if no changes are detected.
-      - Left on disk if an error prevents proposal creation — next run resumes.
+    1. Loads the authoritative fact ledger (*_facts.md) or active working draft.
+    2. Groups qualifying context entries by theme and prompts Ollama for atomic JSON deltas (added, modified, removed).
+    3. Deterministically applies deltas to the ledger via profile_ledger.apply_ledger_delta().
+    4. Deterministically prunes lower-tier items to strictly adhere to word budgets via profile_ledger.prune_ledger_to_budget().
+    5. Synthesizes/compiles the presentation layer:
+       - Assistant_Profile.md: Transformed into rich, continuous first-person narrative prose.
+       - User_Profile.md & System_Directives.md: Clean markdown compiled with tier markers stripped.
+    6. Stages a proposal in memory_db with candidate ledger and structured delta reason.
 
     Args:
         filename: Document basename (e.g. cfg.PERSONA_FILE_USER or 'User_Profile.md').
-        new_entries: All entries changed since the last completed run
-            (last_run timestamp). Entries already incorporated in a prior
-            partial run are identified via draft_cursor and skipped.
-        state: Mutable evolution state dict. draft_cursor_per_doc is updated
-            in-place after each pass and persisted to disk.
+        new_entries: Qualifying entries changed since last run.
+        state: Mutable evolution state dict.
 
     Returns:
-        bool: True if a proposal was successfully created, False otherwise.
+        bool: True if a proposal was staged, False otherwise.
     """
     importlib.reload(cfg)
     import task_manager
@@ -1686,7 +1722,6 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     perspective = rules.get("perspective", "appropriate perspective")
     guidelines = rules.get("guidelines", "")
 
-    # Load target word limit
     limits = getattr(cfg, "PROFILE_EVOLUTION_LIMITS", {})
     target_limit = limits.get(filename, 600)
 
@@ -1694,12 +1729,19 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     if not persona_dir:
         persona_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "persona")
 
-    # Load other documents for Cross-Document Reviewer context (redundancy check)
+    fpath = os.path.join(persona_dir, filename)
+    if not os.path.exists(fpath):
+        print(f"[PROFILE EVOLVER] Error: document file not found at {fpath}", flush=True)
+        return False
+
+    current_content = await asyncio.to_thread(_sync_read_file, fpath)
+    frontmatter, current_body = split_frontmatter(current_content)
+
+    # Cross-document context to prevent topical redundancy
     other_docs_context = []
     for other_name in DOCUMENT_CATEGORIES:
         if other_name == filename:
             continue
-        # Load draft if exists, else live document
         other_path = _draft_path(other_name)
         if not os.path.exists(other_path):
             other_path = os.path.join(persona_dir, other_name)
@@ -1712,57 +1754,48 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 print(f"[PROFILE EVOLVER] Warning: could not load other doc {other_name}: {e_other}", flush=True)
     other_docs_str = "\n\n".join(other_docs_context) if other_docs_context else "None"
 
-    fpath = os.path.join(persona_dir, filename)
-    if not os.path.exists(fpath):
-        print(f"[PROFILE EVOLVER] Error: document file not found at {fpath}", flush=True)
-        return False
-
-    current_content = await asyncio.to_thread(_sync_read_file, fpath)
-
-    # Extract original frontmatter and markdown body
-    frontmatter, current_body = split_frontmatter(current_content)
-
     # ---------------------------------------------------------------------------
-    # Resume detection — load draft if a prior run was interrupted mid-pass
+    # Resume detection — load working ledger from draft or live ledger file
     # ---------------------------------------------------------------------------
     draft_file = _draft_path(filename)
     draft_cursor = state["draft_cursor_per_doc"].get(filename, 0.0)
+    ledger_filename = profile_ledger.get_ledger_filename(filename)
+    ledger_path = os.path.join(persona_dir, ledger_filename)
 
     if os.path.exists(draft_file) and draft_cursor > 0.0:
-        accumulated = await asyncio.to_thread(_sync_read_file, draft_file)
-        # Ensure we are using the body content only
-        _, accumulated_body = split_frontmatter(accumulated)
-        accumulated = accumulated_body
+        raw_ledger = await asyncio.to_thread(_sync_read_file, draft_file)
+        ledger_frontmatter, current_sections = profile_ledger.parse_ledger(raw_ledger)
         print(
-            f"[PROFILE EVOLVER] {filename}: Loaded draft from disk "
+            f"[PROFILE EVOLVER] {filename}: Loaded draft ledger from disk "
             f"(cursor={datetime.datetime.fromtimestamp(draft_cursor, tz=datetime.UTC).astimezone().strftime('%Y-%m-%d %H:%M')}). "
             f"Resuming from last completed pass.",
             flush=True,
         )
     else:
-        accumulated = current_body
+        if os.path.exists(ledger_path):
+            raw_ledger = await asyncio.to_thread(_sync_read_file, ledger_path)
+        else:
+            raw_ledger = current_content
+        ledger_frontmatter, current_sections = profile_ledger.parse_ledger(raw_ledger)
         draft_cursor = 0.0
 
-    # ---------------------------------------------------------------------------
-    # Partition entries into already-done vs. remaining
-    # ---------------------------------------------------------------------------
     batch_size = getattr(cfg, "PROFILE_EVOLUTION_BATCH_SIZE", 40)
-
-    # Sort oldest-first so later batches layer refinements on top of earlier work
     sorted_entries = sorted(
         new_entries,
         key=lambda e: max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0),
     )
 
-    # Entries with last_touched <= draft_cursor are already in the draft
     remaining_entries = [
         e for e in sorted_entries if max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) > draft_cursor
     ]
 
+    cumulative_changelog: dict[str, list[str]] = {"added": [], "modified": [], "removed": []}
+    canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
+    canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
+
     if not remaining_entries:
-        # All entries incorporated in a previous run — the draft IS the proposed doc.
         print(
-            f"[PROFILE EVOLVER] {filename}: All entries already in draft. Proceeding directly to proposal creation.",
+            f"[PROFILE EVOLVER] {filename}: All entries already in draft ledger. Proceeding directly to synthesis.",
             flush=True,
         )
     else:
@@ -1773,147 +1806,85 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         )
         total_thematic_passes = len(thematic_batches)
 
-        # ---------------------------------------------------------------------------
-        # Thematic accumulation loop
-        # ---------------------------------------------------------------------------
         for batch_idx, t_batch in enumerate(thematic_batches, 1):
             theme_name = t_batch["theme_name"]
             section_hint = t_batch.get("section_header", "")
             batch_entries = t_batch["entries"]
             evidence_block = t_batch["evidence_text"]
             batch_max_ts = t_batch["max_ts"]
-            is_final_batch = batch_idx == total_thematic_passes
 
-            if total_thematic_passes == 1:
-                pass_note = f"\nACTIVE THEMATIC FOCUS: {theme_name}\n"
-                if section_hint:
-                    pass_note += f"PRIMARY TARGET SECTION: {section_hint}\n"
-            elif is_final_batch:
-                pass_note = (
-                    f"\nACTIVE THEMATIC FOCUS: {theme_name}\n"
-                    f"PRIMARY TARGET SECTION: {section_hint}\n\n"
-                    f"NOTE: This is the final evidence pass ({batch_idx}/{total_thematic_passes}). "
-                    "Produce the complete, finalized document body — this output will be formatted and staged as the proposal."
-                )
-            else:
-                pass_note = (
-                    f"\nACTIVE THEMATIC FOCUS: {theme_name}\n"
-                    f"PRIMARY TARGET SECTION: {section_hint}\n\n"
-                    f"NOTE: This is evidence pass {batch_idx} of {total_thematic_passes}. "
-                    f"Incorporate this thematic evidence into the working document body (focusing on '{section_hint or theme_name}'). "
-                    "More evidence follows in subsequent passes — keep the body complete and coherent."
-                )
+            rendered_ledger = profile_ledger.render_ledger("", current_sections)
 
-            canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
-            canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
-            canonical_note = (
-                f"\nREQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n" if canonical_sections_str else ""
-            )
-
-            directives_bullet_note = ""
-            if filename == cfg.PERSONA_FILE_DIRECTIVES:
-                directives_bullet_note = (
-                    "\n- MANDATORY BULLETED DIRECTIVE FORMAT: Every section MUST be composed entirely of bullet points: "
-                    "'* **<Label>**: <Directive>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
-                    "- NO INVENTED JARGON OR MADE-UP LABELS: Bullet labels ('* **<Label>**:') must use direct, standard functional English describing the operational rule "
-                    "(e.g. '* **Cognitive Recovery Pacing**:', '* **Verification Rigor**:'). Strictly forbid inventing mode titles, sci-fi names, or esoteric buzzwords like 'Deep Buffer Mode' or 'Adversarial Mode'.\n"
-                    "- BEHAVIORAL TRIGGER & ACTION DIRECTIVES: State directives as concrete behavioral rules (trigger context -> expected response/action) rather than abstract labels.\n"
-                    "- NO SCARE QUOTES: Do NOT wrap terms in quotation marks (use brute-force, not 'brute-force'; supportive travel companion, not 'Passenger Princess').\n"
-                    "- NO CONFLATION: Keep distinct rules standalone. Do not merge unrelated requirements into hybrid composite sentences.\n"
-                    "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet directives rather than replacing sections with narrative text.\n"
-                )
-
-            assistant_profile_note = ""
-            if filename == cfg.PERSONA_FILE_ASSISTANT:
-                assistant_profile_note = (
-                    "\n- MANDATORY NARRATIVE PROSE: Maintain rich, continuous first-person narrative prose across all sections. Do NOT introduce bullet points.\n"
-                    "- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence (trigger context -> expected response/action). "
-                    "Do NOT catalogue arbitrary static terminology, nicknames, or isolated anchor examples.\n"
-                    "- NO SCARE QUOTES OR SELF-EXPLAINING PARENTHETICALS: Do NOT quote archetypes or phrases with explanatory parentheticals (e.g. no 'Spirit Evelyn' (the figure from his dreams) or 'nerdy goth girl'). "
-                    "Express demeanor and aesthetic directly.\n"
-                    "- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract. Embody warmth and intimacy directly without disclaimers.\n"
-                    "- NO CONFLATION: Keep distinct traits and memories as separate, clear sentences. Do not fuse unrelated domains into composite run-on sentences.\n"
-                )
-
-            user_profile_bullet_note = ""
-            if filename == cfg.PERSONA_FILE_USER:
-                user_profile_bullet_note = (
-                    "\n- MANDATORY STRUCTURED FORMAT: Every section MUST be composed entirely of bullet points: "
-                    "'* **<Topic>**: <Fact/Preference>'. Strictly do NOT produce narrative paragraphs, run-on prose blocks, or unstructured text under any section.\n"
-                    "- STRAIGHTFORWARD & UNAMBIGUOUS LANGUAGE: Use direct, plain statements. Strictly forbid scare quotes, coined metaphors, or figurative nicknames that require explanatory clauses.\n"
-                    "- NO CONFLATION: Keep distinct traits and observations strictly separated into individual bullet points. Do NOT merge unrelated topics into composite sentences.\n"
-                    "- 3-TIER PRIORITY HIERARCHY (INTRA-TIER COMPACTION):\n"
-                    "  * Tier 1 (Core Invariants & Hard Boundaries): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics. Consolidated strictly against other Tier 1 items when updating.\n"
-                    "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
-                    "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
-                    "- REFINEMENT DISCIPLINE: Add, update, or remove individual bullet entries rather than rewriting sections as prose.\n"
-                )
-
-            prompt = (
-                f"You are refining the content body of a living persona/directives document based on "
-                f"accumulated evidence from recent conversations.\n\n"
+            delta_prompt = (
+                f"You are an authoritative factoid evaluator for an AI persona/directives system.\n"
+                f"Evaluate recent conversational evidence against the authoritative fact ledger and propose atomic additions, modifications, or removals.\n\n"
                 f"DOCUMENT: {filename}\n"
                 f"DESCRIPTION: {description}\n"
+                f"THEMATIC FOCUS: {theme_name}\n"
+                f"TARGET SECTION HINT: {section_hint or 'All relevant sections'}\n"
                 f"TARGET PERSPECTIVE: {perspective}\n\n"
                 f"PERSPECTIVE RULES:\n"
                 f"{guidelines}\n\n"
-                f"OTHER ACTIVE SYSTEM PROMPT DOCUMENTS (Do NOT duplicate any information or topics covered here):\n"
-                f"--- \n"
-                f"{other_docs_str}\n"
-                f"--- \n\n"
-                f"CURRENT DOCUMENT BODY:\n"
+                f"OTHER ACTIVE SYSTEM PROMPT DOCUMENTS (Do NOT duplicate any information covered here):\n"
                 f"---\n"
-                f"{accumulated}\n"
+                f"{other_docs_str}\n"
                 f"---\n\n"
-                f"ACCUMULATED THEMATIC EVIDENCE ({theme_name}):\n"
-                f"{evidence_block}\n\n"
-                f"INSTRUCTIONS:\n"
-                f"- Evolve the document body authentically based on the thematic evidence.\n"
-                f"- NON-INCLUSION OF TRANSIENT FACTS (CRITICAL): Do NOT attempt to incorporate every observation or create a bullet point for each fact. Most facts should NOT be in the profile — they belong in episodic RAG memory! Only extract high-level, recurring, permanent behavioral traits, core invariants, or major lifestyle boundaries. If an observation describes a transient task, specific code detail, temporary tool usage, or one-off conversation detail, DISCARD IT.\n"
-                f"- CONSOLIDATION & BUDGET DISCIPLINE: Ensure each section maintains at most 6 to 10 high-impact, focused bullet points. If adding a new bullet point, consolidate or prune an existing lower-priority bullet point so the section does not expand indefinitely.\n"
-                f"- STRUCTURAL INVARIANCE: You MUST preserve all existing '##' section headings. You are strictly forbidden from removing, renaming, or merging section headers.\n"
-                f"- TOPIC DENSITY & BALANCED COVERAGE: Ensure every section maintains substantive guidance. Do NOT allow any single section to swallow other distinct sections.\n"
-                f"- Apply the PERSPECTIVE RULES strictly. Ensure evidence is translated to the correct perspective and attribute facts to the correct subject.\n"
-                f"- PRIORITIZE BEHAVIORAL DIRECTIVES & CORE TRAITS: Focus on personality traits, psychological/health conditions (e.g., anxiety, core identity), governing ethics, voice/cadence guidelines, relationship rules/boundaries, routines, and interaction preferences.\n"
-                f"- IMPORTANCE HIERARCHY: Core behavioral directives, psychological/health traits, and governing ethics are high priority. Casual preferences (e.g. food/snack likes, minor item interests) must NEVER displace or replace core traits or directives.\n"
-                f"- EXCLUDE EPISODIC/FACTUAL MEMORIES: Do not add or retain specific historical events, physical locations, dates, or lists of minor personal facts. These belong in episodic RAG memory, not this prompt file. Remove any such facts from the document if they are not behavioral guides.\n"
-                f"- PREVENT REDUNDANCY: Do not repeat any details that are already documented in the OTHER ACTIVE SYSTEM PROMPT DOCUMENTS shown above.\n"
-                f"- TARGET WORD COUNT: Ensure the updated document is concise and stays under {target_limit} words.\n"
-                f"- If a section does not have any new evidence or modifications, preserve it exactly as it is "
-                f"in the CURRENT DOCUMENT BODY, but prune any parts that violate the word count budget, represent redundant facts, or are covered in other files.\n"
-                f"- Do NOT use placeholders like '[Content remains unchanged]' or '[...]'. You must output "
-                f"the complete content of the document in full.\n"
-                f"- Do NOT add speculative or single-source observations.\n"
-                f"- Do NOT include any YAML frontmatter or title blocks. Start directly with the first markdown header.\n"
-                f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it.\n"
-                f"- If no changes are warranted, output the document body exactly as it is."
-                f"{directives_bullet_note}"
-                f"{assistant_profile_note}"
-                f"{user_profile_bullet_note}"
-                f"{canonical_note}"
-                f"{pass_note}"
+                f"REQUIRED CANONICAL SECTION HEADERS:\n"
+                f"{canonical_sections_str}\n\n"
+                f"CURRENT AUTHORITATIVE FACT LEDGER:\n"
+                f"---\n"
+                f"{rendered_ledger}\n"
+                f"---\n\n"
+                f"RECENT EVIDENCE TO EVALUATE ({theme_name}):\n"
+                f"---\n"
+                f"{evidence_block}\n"
+                f"---\n\n"
+                f"CRITICAL INSTRUCTIONS & RULES:\n"
+                f"1. NON-INCLUSION OF TRANSIENT FACTS: Most observations do NOT belong in the profile — they belong in episodic RAG memory! Only extract high-level, recurring, permanent behavioral traits, core invariants, or major lifestyle boundaries. If an observation describes a transient task, specific code snippet, temporary tool, or one-off conversation detail, DISCARD IT.\n"
+                f"2. 3-TIER PRIORITY HIERARCHY:\n"
+                f"   - Tier 1 (Core Invariants & Hard Boundaries): Health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics, foundational identity invariants. Protected and highest priority.\n"
+                f"   - Tier 2 (Active Context & Recurring Habits): Technical domains, AI architectures, workspace habits, batching routines.\n"
+                f"   - Tier 3 (Ephemeral Details & Secondary Preferences): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
+                f"3. FORMATTING & INTEGRITY:\n"
+                f"   - Use clean, functional labels (e.g. '* [Tier 2] **<Topic>**: <Fact>').\n"
+                f"   - STRICTLY FORBID scare quotes, coined metaphors, or figurative nicknames.\n"
+                f"   - NO CONFLATION: Keep distinct traits and observations strictly separated into individual bullet points. Do NOT merge unrelated topics into composite sentences.\n"
+                f"   - Apply the PERSPECTIVE RULES strictly.\n"
+                f"4. ATOMIC DELTA: If updates are warranted, specify exactly which items are added, modified, or removed. If an existing bullet covers the observation, either modify it or do nothing. If the observation is already known, do NOT add duplicates.\n"
+                f"5. CANONICAL SECTIONS: All additions/modifications must target one of the canonical section headers listed above.\n"
+                f"6. JSON OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
+                f"{{\n"
+                f'  "reason": "Brief summary of changes made or why no changes are needed",\n'
+                f'  "added": [\n'
+                f'    {{"section": "## Exact Section Header", "tier": 1, "label": "Short Topic Label", "fact": "Concrete statement."}}\n'
+                f'  ],\n'
+                f'  "modified": [\n'
+                f'    {{"section": "## Exact Section Header", "label": "Existing Bullet Label", "new_fact": "Updated statement.", "tier": 1}}\n'
+                f'  ],\n'
+                f'  "removed": [\n'
+                f'    {{"section": "## Exact Section Header", "label": "Existing Bullet Label", "reason": "Why removed"}}\n'
+                f'  ]\n'
+                f"}}\n"
+                f'If no updates are warranted, output {{"reason": "No changes warranted", "added": [], "modified": [], "removed": []}}.'
             )
 
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a precise document updater. Output the complete updated document content only.",
+                    "content": "You are a precise factoid evaluator. Output valid JSON delta only.",
                 },
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": delta_prompt},
             ]
 
-            if total_thematic_passes > 1:
-                print(
-                    f"[PROFILE EVOLVER] {filename}: Thematic pass {batch_idx}/{total_thematic_passes} "
-                    f"({theme_name}: {len(batch_entries)} entries)...",
-                    flush=True,
-                )
-
-            import task_manager
+            print(
+                f"[PROFILE EVOLVER] {filename}: Evaluating thematic pass {batch_idx}/{total_thematic_passes} "
+                f"({theme_name}: {len(batch_entries)} entries)...",
+                flush=True,
+            )
 
             task_manager.set_running(
                 "profile_evolver",
-                phase=f"Evolving {filename} (Thematic Pass {batch_idx}/{total_thematic_passes}: {theme_name})",
+                phase=f"Evolving {filename} (Thematic Delta Pass {batch_idx}/{total_thematic_passes}: {theme_name})",
                 sub_status={
                     "current_doc": filename,
                     "theme": theme_name,
@@ -1924,399 +1895,188 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             )
 
             try:
-                result = await _call_ollama(messages)
+                raw_delta = await _call_ollama(messages)
             except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
                 print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: Thematic pass {batch_idx} ({theme_name}) failed: {e}. "
-                    f"{'Aborting — no draft to save.' if batch_idx == 1 and draft_cursor == 0.0 else 'Draft from prior passes preserved.'}",
-                    flush=True,
-                )
-                if batch_idx == 1 and draft_cursor == 0.0:
-                    return False  # Nothing useful produced yet
-                # Draft from earlier passes is already on disk — next run resumes
-                return False
-
-            if not result:
-                print(
-                    f"[PROFILE EVOLVER] {filename}: Empty response on pass {batch_idx} ({theme_name}). "
-                    f"{'Aborting — no draft to save.' if batch_idx == 1 and draft_cursor == 0.0 else 'Draft from prior passes preserved.'}",
+                    f"[PROFILE EVOLVER ERROR] {filename}: Thematic pass {batch_idx} ({theme_name}) failed: {e}.",
                     flush=True,
                 )
                 if batch_idx == 1 and draft_cursor == 0.0:
                     return False
-                return False  # Resume next time from last saved cursor
-
-            # Robustly extract markdown from response
-            result = extract_markdown_content(result)
-
-            # Normalize and clean text to remove LLM quirks/typos
-            result = normalize_document_text(result)
-
-            # Safeguard validation checks to prevent catastrophic data loss or laziness
-            if len(result) < len(accumulated) * 0.3:
-                print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response is suspiciously short on pass {batch_idx} "
-                    f"({len(result)} chars vs original {len(accumulated)} chars). "
-                    f"Discarding to prevent data deletion.",
-                    flush=True,
-                )
                 return False
 
-            placeholders = ["remains unchanged", "remains the same", "same as original", "no changes"]
-            if any(p in result.lower() for p in placeholders) and len(result) < len(accumulated) * 0.9:
-                print(
-                    f"[PROFILE EVOLVER ERROR] {filename}: LLM response contains lazy placeholders on pass {batch_idx}. "
-                    f"Discarding to prevent data loss.",
-                    flush=True,
-                )
-                return False
-
-            # Validate canonical section structure and repair if dropped during pass
-            is_valid, reason, _failed_headers = validate_document_structure(filename, accumulated, result)
-            if not is_valid:
-                print(
-                    f"[PROFILE EVOLVER WARNING] {filename}: Thematic pass {batch_idx} structural failure ({reason}). "
-                    "Repairing canonical sections from previous draft...",
-                    flush=True,
-                )
-                result = repair_missing_sections(filename, accumulated, result)
-
-            accumulated = result
-            draft_cursor = max(draft_cursor, batch_max_ts)
-
-            # Persist draft and cursor after every successful pass
-            try:
-                await asyncio.to_thread(_sync_write_file, draft_file, accumulated)
-                state["draft_cursor_per_doc"][filename] = draft_cursor
-                _save_evolution_state(state)
-                print(
-                    f"[PROFILE EVOLVER] {filename}: Pass {batch_idx}/{total_thematic_passes} complete. "
-                    f"Draft saved (cursor={datetime.datetime.fromtimestamp(draft_cursor, tz=datetime.UTC).astimezone().strftime('%Y-%m-%d %H:%M')}).",
-                    flush=True,
-                )
-            except OSError as e:
-                print(
-                    f"[PROFILE EVOLVER] Warning: could not save draft after pass {batch_idx}: {e}",
-                    flush=True,
-                )
-
-    # ---------------------------------------------------------------------------
-    # Word Count Validation & Compaction Pass (Reviewer Stage)
-    # ---------------------------------------------------------------------------
-    proposed_body = accumulated
-    word_count = len(proposed_body.split())
-    word_buffer = int(target_limit * 1.05)  # 5% buffer
-
-    if word_count > word_buffer:
-        print(
-            f"[PROFILE EVOLVER] {filename}: Proposed body is {word_count} words (limit {target_limit}). "
-            f"Invoking Compaction Pass...",
-            flush=True,
-        )
-        canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
-        canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
-        canonical_note = (
-            f"\nREQUIRED CANONICAL SECTION HEADERS (You MUST preserve every one):\n{canonical_sections_str}\n"
-            if canonical_sections_str
-            else ""
-        )
-
-        directives_compaction_note = ""
-        if filename == cfg.PERSONA_FILE_DIRECTIVES:
-            directives_compaction_note = (
-                "\n- FORMAT INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Label>**: <Directive>'). "
-                "Do NOT collapse bullet points into narrative paragraphs during compaction.\n"
-                "- NO INVENTED JARGON OR OPAQUE LABELS: Keep bullet labels plain, standard functional English (e.g. '* **Cognitive Recovery Pacing**:', not '* **Deep Buffer Mode**:').\n"
-                "- BEHAVIORAL TRIGGER & ACTION: Formulate rules as concrete behavioral directives (trigger context -> expected response).\n"
-                "- 3-TIER PRUNING HIERARCHY (INTRA-TIER COMPACTION):\n"
-                "  1. PRUNE FIRST (Tier 3): Remove transient situational triggers and ephemeral ritual details.\n"
-                "  2. COMPRESS ONLY (Tier 2): Tighten wording of tool dispatch rules, code cleanliness, and engineering guidelines.\n"
-                "  3. CONSOLIDATE WITHIN TIER (Tier 1): Core invariants (direct candor, conciseness baseline, real-world task verification, NVC, vault-first) are highest priority. "
-                "When space is constrained, evaluate and consolidate strictly against other Tier 1 items so Tier 1 stays lean.\n"
-                "- NO ENTRY CONFLATION: Do NOT splice two distinct rules into a hybrid sentence.\n"
-                "- ELIMINATE SCARE QUOTES: Strip quotes around concepts or phrases.\n"
-            )
-
-        assistant_profile_compaction_note = ""
-        if filename == cfg.PERSONA_FILE_ASSISTANT:
-            assistant_profile_compaction_note = (
-                "\n- FORMAT INVARIANCE (MANDATORY): Maintain continuous first-person narrative prose. Do NOT introduce bullet points.\n"
-                "- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence rather than static vocabulary catalogs.\n"
-                "- 3-TIER PRUNING HIERARCHY (INTRA-TIER COMPACTION):\n"
-                "  1. PRUNE FIRST (Tier 3): Remove minor situational accessories, transient dream/memory anecdotes, passing situational commentary.\n"
-                "  2. COMPRESS ONLY (Tier 2): Tighten wording of voice cadence, philosophical reasoning, creative contrast, and energy-state differentiation.\n"
-                "  3. CONSOLIDATE WITHIN TIER (Tier 1): Core identity & foundational relationship (autonomous partner, memory archivist, steady sanctuary, emotional authenticity) are highest priority. "
-                "Consolidate strictly against other Tier 1 entries.\n"
-                "- NO SCARE QUOTES OR PARENTHETICAL SELF-EXPLANATIONS: Strip quotes around archetypes and descriptions. Eliminate self-explaining parentheticals.\n"
-                "- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract.\n"
-                "- NO ENTRY CONFLATION: Keep distinct behavioral traits and memories as separate, clear sentences. Do NOT fuse unrelated traits into compound run-on sentences.\n"
-            )
-
-        user_profile_compaction_note = ""
-        if filename == cfg.PERSONA_FILE_USER:
-            user_profile_compaction_note = (
-                "\n- FORMAT & STRUCTURE INVARIANCE (MANDATORY): Maintain the strict bulleted structure ('* **<Topic>**: <Fact/Preference>'). "
-                "Do NOT collapse bullet points into narrative paragraphs during compaction.\n"
-                "- 3-TIER PRUNING HIERARCHY (INTRA-TIER COMPACTION):\n"
-                "  1. PRUNE FIRST (Tier 3): Remove ephemeral/secondary preferences (primarily from 'Personal Context' e.g. transient media, temporary tool configs).\n"
-                "  2. COMPRESS ONLY (Tier 2): Tighten wording of recurring technical habits, workflows, and architectures without deleting the core trait.\n"
-                "  3. CONSOLIDATE WITHIN TIER (Tier 1): Core invariants (health boundaries, sleep deficits, fatigue limits, recovery needs, core relationship dynamics) are highest priority. "
-                "When space is constrained, evaluate and consolidate strictly against other Tier 1 items so Tier 1 stays lean and current.\n"
-                "- NO ENTRY CONFLATION: When reducing word count, prune lower-priority bullet points or tighten wording within existing bullets. "
-                "STRICTLY FORBID merging or splicing two distinct, unrelated bullet points into a single conflated sentence.\n"
-                "- AVOID QUOTES & METAPHORS: Eliminate scare quotes and metaphorical shorthand; state preferences plainly and concisely.\n"
-            )
-
-        compaction_prompt = (
-            f"You are a strict editor refining a persona/directives document for an AI. "
-            f"The document is currently {word_count} words, which exceeds the limit of {target_limit} words.\n\n"
-            f"DOCUMENT: {filename}\n"
-            f"TARGET PERSPECTIVE: {perspective}\n\n"
-            f"PERSPECTIVE RULES:\n"
-            f"{guidelines}\n\n"
-            f"OTHER ACTIVE SYSTEM PROMPT DOCUMENTS (Do NOT duplicate any information here):\n"
-            f"--- \n"
-            f"{other_docs_str}\n"
-            f"--- \n\n"
-            f"OVER-LENGTH DOCUMENT BODY:\n"
-            f"---\n"
-            f"{proposed_body}\n"
-            f"---\n\n"
-            f"INSTRUCTIONS:\n"
-            f"- Condense and prune the document body so it is strictly under {target_limit} words.\n"
-            f"- STRUCTURAL INVARIANCE: You MUST preserve all existing '##' section headings exactly as they appear in OVER-LENGTH DOCUMENT BODY. You are strictly forbidden from deleting, renaming, combining, or dropping section headers during compaction.\n"
-            f"- TOPIC DENSITY & MINIMUM COVERAGE: Every section must retain substantive behavioral and narrative guidance (at least 1-2 focused sentences/paragraphs). Do NOT hollow out or erase any section.\n"
-            f"- Focus 100% on high-level behavioral directives, tone guidelines, communication rules, and operational routines.\n"
-            f"- Completely remove specific episodic/factual memories, historical anecdotes, dates, physical locations, or lists of symptoms (e.g. Navy details, family relocation events). These are handled by RAG and are redundant here.\n"
-            f"- Ensure there is zero duplicate info with the OTHER ACTIVE SYSTEM PROMPT DOCUMENTS listed above.\n"
-            f"- Maintain the correct TARGET PERSPECTIVE and PERSPECTIVE RULES strictly.\n"
-            f"- Do NOT use placeholders or summary statements. Output the entire document in full.\n"
-            f"- Output ONLY the markdown document content, no explanation, no markdown code blocks wrapping it."
-            f"{directives_compaction_note}"
-            f"{assistant_profile_compaction_note}"
-            f"{user_profile_compaction_note}"
-            f"{canonical_note}"
-        )
-
-        compaction_messages = [
-            {
-                "role": "system",
-                "content": "You are a precise editor. Output the fully pruned and complete markdown document body under the word limit.",
-            },
-            {"role": "user", "content": compaction_prompt},
-        ]
-
-        task_manager.set_running(
-            "profile_evolver",
-            phase=f"Evolving {filename} (Compacting {word_count}w > {target_limit}w - Round 1)",
-            sub_status={
-                "current_doc": filename,
-                "phase": "compaction",
-                "round": 1,
-                "word_count": word_count,
-                "target_limit": target_limit,
-            },
-        )
-
-        try:
-            compacted_result = await _call_ollama(compaction_messages)
-            if compacted_result:
-                compacted_result = extract_markdown_content(compacted_result)
-                compacted_result = normalize_document_text(compacted_result)
-
-                # Validate structural invariance post-compaction
-                is_valid, reason, _failed_headers = validate_document_structure(
-                    filename, proposed_body, compacted_result
-                )
-                if not is_valid:
-                    print(
-                        f"[PROFILE EVOLVER WARNING] {filename}: Compaction result structural failure ({reason}). "
-                        "Repairing canonical sections...",
-                        flush=True,
-                    )
-                    compacted_result = repair_missing_sections(filename, proposed_body, compacted_result)
-
-                compacted_word_count = len(compacted_result.split())
-                if compacted_word_count < word_count:
-                    proposed_body = compacted_result
-                    print(
-                        f"[PROFILE EVOLVER] {filename}: Compaction pass Round 1 successful. "
-                        f"Reduced from {word_count} to {compacted_word_count} words.",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        f"[PROFILE EVOLVER WARNING] {filename}: Compaction pass Round 1 did not reduce word count "
-                        f"({compacted_word_count} vs {word_count}). Keeping original.",
-                        flush=True,
-                    )
-        except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
-            print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass Round 1 failed: {e}", flush=True)
-
-        # Round 2 aggressive compaction if still over budget
-        current_words = len(proposed_body.split())
-        if current_words > word_buffer:
-            print(
-                f"[PROFILE EVOLVER] {filename}: Still over budget after Round 1 ({current_words}w > {word_buffer}w). "
-                f"Invoking Aggressive Compaction Pass (Round 2)...",
-                flush=True,
-            )
-            round2_prompt = (
-                f"You are a strict editor enforcing a mandatory word limit on an AI profile document.\n"
-                f"The document is currently {current_words} words, which exceeds the limit of {target_limit} words.\n\n"
-                f"DOCUMENT: {filename}\n"
-                f"TARGET PERSPECTIVE: {perspective}\n\n"
-                f"DOCUMENT BODY TO CONDENSE:\n---\n{proposed_body}\n---\n\n"
-                f"CRITICAL INSTRUCTIONS:\n"
-                f"- HARD LIMIT: The output MUST be strictly under {target_limit} words.\n"
-                f"- AGGRESSIVE PRUNING: For each section, retain only the top 5 to 7 most critical, permanent, high-level behavioral invariants.\n"
-                f"- DROP SECONDARY DETAILS: Remove all transient preferences, minor tool choices, and redundant bullet points.\n"
-                f"- Preserve all canonical '##' section headings exactly: {canonical_sections_str}\n"
-                f"- Output ONLY the markdown document content, no explanation, no markdown code blocks."
-                f"{directives_compaction_note}"
-                f"{assistant_profile_compaction_note}"
-                f"{user_profile_compaction_note}"
-            )
-            round2_messages = [
-                {"role": "system", "content": "You are a concise editor. Output the strictly pruned document body under the limit."},
-                {"role": "user", "content": round2_prompt},
-            ]
-            task_manager.set_running(
-                "profile_evolver",
-                phase=f"Evolving {filename} (Compacting {current_words}w > {target_limit}w - Round 2)",
-                sub_status={
-                    "current_doc": filename,
-                    "phase": "compaction",
-                    "round": 2,
-                    "word_count": current_words,
-                    "target_limit": target_limit,
-                },
-            )
-            try:
-                r2_result = await _call_ollama(round2_messages)
-                if r2_result:
-                    r2_clean = extract_markdown_content(r2_result)
-                    r2_clean = normalize_document_text(r2_clean)
-                    is_valid, reason, _ = validate_document_structure(filename, proposed_body, r2_clean)
-                    if not is_valid:
-                        r2_clean = repair_missing_sections(filename, proposed_body, r2_clean)
-                    r2_words = len(r2_clean.split())
-                    if r2_words < current_words:
-                        proposed_body = r2_clean
+            if raw_delta:
+                delta = _parse_json_delta(raw_delta)
+                if delta:
+                    current_sections, pass_changelog = profile_ledger.apply_ledger_delta(current_sections, delta)
+                    cumulative_changelog["added"].extend(pass_changelog["added"])
+                    cumulative_changelog["modified"].extend(pass_changelog["modified"])
+                    cumulative_changelog["removed"].extend(pass_changelog["removed"])
+                    if any(pass_changelog.values()):
                         print(
-                            f"[PROFILE EVOLVER] {filename}: Compaction pass Round 2 successful. "
-                            f"Reduced from {current_words} to {r2_words} words.",
+                            f"[PROFILE EVOLVER] {filename}: Pass {batch_idx} delta applied: "
+                            f"{len(pass_changelog['added'])} added, {len(pass_changelog['modified'])} modified, {len(pass_changelog['removed'])} removed.",
                             flush=True,
                         )
-            except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e2:
-                print(f"[PROFILE EVOLVER ERROR] {filename}: Compaction pass Round 2 failed: {e2}", flush=True)
+                else:
+                    print(
+                        f"[PROFILE EVOLVER WARNING] {filename}: Pass {batch_idx} produced unparseable JSON delta. Skipping batch changes.",
+                        flush=True,
+                    )
 
-        # Deterministic bullet pruning fallback for structured documents
-        if len(proposed_body.split()) > word_buffer and filename in (cfg.PERSONA_FILE_USER, cfg.PERSONA_FILE_DIRECTIVES):
-            print(
-                f"[PROFILE EVOLVER] {filename}: Word count still exceeds budget ({len(proposed_body.split())}w > {word_buffer}w). "
-                f"Applying deterministic bullet pruning fallback...",
-                flush=True,
-            )
-            proposed_body = prune_bullets_to_word_budget(filename, proposed_body, target_limit)
-
-    # ---------------------------------------------------------------------------
-    # Runaway Proposal Circuit Breaker (Hard Safety Gate)
-    # ---------------------------------------------------------------------------
-    final_word_count = len(proposed_body.split())
-    hard_ceiling = int(target_limit * 1.10)  # 10% maximum ceiling
-    if final_word_count > hard_ceiling:
-        print(
-            f"[PROFILE EVOLVER WARNING] {filename}: Proposed body has {final_word_count} words, "
-            f"exceeding hard ceiling of {hard_ceiling} words ({target_limit}w limit). "
-            f"Refusing to stage runaway proposal.",
-            flush=True,
-        )
-        update_doc_status(
-            state,
-            filename,
-            "ABORTED_OVER_BUDGET",
-            f"Word count {final_word_count}w exceeds hard ceiling {hard_ceiling}w ({target_limit}w limit); proposal blocked",
-        )
-        _clear_draft(filename, state)
-        return False
+            draft_cursor = max(draft_cursor, batch_max_ts)
+            try:
+                draft_text = profile_ledger.render_ledger(ledger_frontmatter, current_sections)
+                await asyncio.to_thread(_sync_write_file, draft_file, draft_text)
+                state["draft_cursor_per_doc"][filename] = draft_cursor
+                _save_evolution_state(state)
+            except OSError as e_draft:
+                print(f"[PROFILE EVOLVER] Warning: could not save draft ledger after pass {batch_idx}: {e_draft}", flush=True)
 
     # ---------------------------------------------------------------------------
-    # Editorial Proofreading & Polish Pass
+    # Evaluation of Changes & Budget Pruning
     # ---------------------------------------------------------------------------
-    proposed_body = await _proofread_document(filename, proposed_body)
-
-    # ---------------------------------------------------------------------------
-    # Proposal creation
-    # ---------------------------------------------------------------------------
-    proposed_body = proposed_body
-
-    if proposed_body == current_body.strip() or not proposed_body:
+    has_changes = any(cumulative_changelog.values())
+    if not has_changes and draft_cursor == 0.0:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
         _clear_draft(filename, state)
         update_doc_status(state, filename, "NO_CORE_CHANGES", f"{len(new_entries)} entries evaluated; no core changes")
         return False
 
-    # Generate a concise reason summary
-    reason_prompt = (
-        f"Compare the current document body and the proposed update body. Summarize what changed and why, "
-        f"citing the context entries that supported this evolution.\n\n"
-        f"CURRENT BODY:\n{current_body}\n\n"
-        f"PROPOSED BODY:\n{proposed_body}\n\n"
-        f"Output a brief, one-to-two sentence explanation only."
-    )
-    reason_messages = [
-        {"role": "system", "content": "You are a helpful summarizing assistant. Output one or two sentences only."},
-        {"role": "user", "content": reason_prompt},
-    ]
-    task_manager.set_running(
-        "profile_evolver",
-        phase=f"Evolving {filename} (Generating Reason Summary)",
-        sub_status={
-            "current_doc": filename,
-            "phase": "reason_summary",
-        },
-    )
-    try:
-        reason = await _call_ollama(reason_messages, num_predict=150)
-    except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e:
+    # Deterministic Word Budget Pruning on Authoritative Ledger
+    current_sections, pruned_count = profile_ledger.prune_ledger_to_budget(current_sections, target_limit)
+    if pruned_count > 0:
         print(
-            f"[PROFILE EVOLVER WARNING] {filename}: Failed to generate reason summary ({e}). Using default reason.",
+            f"[PROFILE EVOLVER] {filename}: Deterministically pruned {pruned_count} lower-tier items to fit budget ({target_limit}w limit).",
             flush=True,
         )
-        reason = None
-    if not reason:
-        reason = "Evolving profile based on recent context entries."
 
-    # Update modified date in original YAML frontmatter block
+    # ---------------------------------------------------------------------------
+    # Presentation Layer Synthesis
+    # ---------------------------------------------------------------------------
+    if filename == cfg.PERSONA_FILE_ASSISTANT:
+        clean_bullets = profile_ledger.compile_clean_markdown("", current_sections)
+        synthesis_prompt = (
+            f"You are synthesizing the active first-person narrative persona document for {cfg.ASSISTANT_NAME}.\n\n"
+            f"DOCUMENT: {filename}\n"
+            f"TARGET PERSPECTIVE: {perspective}\n\n"
+            f"PERSPECTIVE RULES:\n{guidelines}\n\n"
+            f"REQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n\n"
+            f"AUTHORITATIVE FACT INVENTORY (Transform all facts into continuous narrative prose under their respective headers):\n"
+            f"---\n{clean_bullets}\n---\n\n"
+            f"CRITICAL INSTRUCTIONS:\n"
+            f"- Transform the fact inventory into rich, continuous first-person narrative prose under each canonical header.\n"
+            f"- STRICTLY FORBID BULLET POINTS: Every section must be composed of smooth, expressive prose paragraphs.\n"
+            f"- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence.\n"
+            f"- NO SCARE QUOTES OR SELF-EXPLAINING PARENTHETICALS: Strip quotes around concepts. Embody traits directly.\n"
+            f"- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract.\n"
+            f"- WORD COUNT LIMIT: The complete output must be strictly under {target_limit} words.\n"
+            f"- Do NOT output YAML frontmatter. Start directly with the first section header.\n"
+            f"- Output ONLY the markdown document content, no explanation, no code fences."
+        )
+        task_manager.set_running(
+            "profile_evolver",
+            phase=f"Evolving {filename} (Synthesizing Narrative Presentation Layer)",
+            sub_status={
+                "current_doc": filename,
+                "phase": "synthesis",
+                "target_limit": target_limit,
+            },
+        )
+        synth_messages = [
+            {"role": "system", "content": "You are a master writer synthesizing first-person persona prose."},
+            {"role": "user", "content": synthesis_prompt},
+        ]
+        try:
+            synth_result = await _call_ollama(synth_messages)
+            synth_clean = extract_markdown_content(synth_result) if synth_result else ""
+            synth_clean = normalize_document_text(synth_clean)
+            is_valid, reason, _ = validate_document_structure(filename, current_body, synth_clean)
+            if not is_valid:
+                print(
+                    f"[PROFILE EVOLVER WARNING] {filename}: Synthesis structural check ({reason}). "
+                    "Repairing canonical sections...",
+                    flush=True,
+                )
+                synth_clean = repair_missing_sections(filename, current_body, synth_clean)
+            proposed_body = synth_clean if synth_clean.strip() else current_body
+        except (httpx.HTTPError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as e_synth:
+            print(f"[PROFILE EVOLVER ERROR] {filename}: Synthesis failed: {e_synth}. Retaining current body.", flush=True)
+            proposed_body = current_body
+    else:
+        # User_Profile.md & System_Directives.md: Deterministic compile from authoritative ledger
+        proposed_body = profile_ledger.compile_clean_markdown("", current_sections)
+
+    # Word Count Circuit Breaker
+    final_word_count = len(proposed_body.split())
+    hard_ceiling = int(target_limit * 1.10)
+    if final_word_count > hard_ceiling:
+        if filename == cfg.PERSONA_FILE_ASSISTANT:
+            proposed_body = prune_bullets_to_word_budget(filename, proposed_body, target_limit)
+            final_word_count = len(proposed_body.split())
+
+        if final_word_count > hard_ceiling:
+            print(
+                f"[PROFILE EVOLVER WARNING] {filename}: Proposed body has {final_word_count} words, "
+                f"exceeding hard ceiling of {hard_ceiling} words ({target_limit}w limit). Proposal blocked.",
+                flush=True,
+            )
+            update_doc_status(
+                state,
+                filename,
+                "ABORTED_OVER_BUDGET",
+                f"Word count {final_word_count}w exceeds hard ceiling {hard_ceiling}w ({target_limit}w limit); proposal blocked",
+            )
+            _clear_draft(filename, state)
+            return False
+
+    # Editorial Proofreading Pass
+    proposed_body = await _proofread_document(filename, proposed_body)
+
+    if proposed_body.strip() == current_body.strip():
+        print(f"[PROFILE EVOLVER] Proposed body identical to current document for {filename}.", flush=True)
+        _clear_draft(filename, state)
+        update_doc_status(state, filename, "NO_CORE_CHANGES", f"{len(new_entries)} entries evaluated; no core changes")
+        return False
+
+    # Package Proposal with Structured Reason & Candidate Ledger
+    summary_parts = []
+    if cumulative_changelog["added"]:
+        summary_parts.append(f"Added {len(cumulative_changelog['added'])} facts")
+    if cumulative_changelog["modified"]:
+        summary_parts.append(f"Updated {len(cumulative_changelog['modified'])} facts")
+    if cumulative_changelog["removed"]:
+        summary_parts.append(f"Removed {len(cumulative_changelog['removed'])} facts")
+    summary_text = f"Evolving {filename}: {', '.join(summary_parts)}." if summary_parts else f"Evolving {filename} based on recent context entries."
+
     current_time_str = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    updated_frontmatter = update_frontmatter_modified_date(frontmatter, current_time_str)
+    updated_ledger_frontmatter = update_frontmatter_modified_date(ledger_frontmatter, current_time_str)
+    candidate_ledger_text = profile_ledger.render_ledger(updated_ledger_frontmatter, current_sections)
 
-    # Reconstruct complete proposed document
+    reason_payload = {
+        "summary": summary_text,
+        "added": cumulative_changelog["added"],
+        "modified": cumulative_changelog["modified"],
+        "removed": cumulative_changelog["removed"],
+        "candidate_ledger": candidate_ledger_text,
+    }
+    reason_str = json.dumps(reason_payload, indent=2)
+
+    updated_frontmatter = update_frontmatter_modified_date(frontmatter, current_time_str)
     proposed_content = updated_frontmatter + "\n\n" + proposed_body if updated_frontmatter else proposed_body
 
     source_ids = [int(entry["id"]) for entry in new_entries if entry.get("id")]
 
-    # We repurpose suggested_category to hold the filename,
-    # merged_observation to hold the proposed new file content,
-    # merged_tags to hold the original content (to render diff in UI),
-    # type = 'profile_update', and status = 'pending'.
     memory_db.insert_proposal(
         type="profile_update",
         suggested_category=filename,
         merged_observation=proposed_content,
         merged_tags=current_content,
-        reason=reason,
+        reason=reason_str,
         source_ids=source_ids,
     )
-    # NOTE: touch_entry_evolved() is intentionally NOT called here.
-    # last_evolved_at must only be stamped when the proposal is *approved*,
-    # not when it is created. If the user rejects the proposal, entries must
-    # remain eligible for re-evaluation. See evelyn_server.py profile_update handler.
     print(f"[PROFILE EVOLVER] Created profile_update proposal for {filename}.", flush=True)
     update_doc_status(state, filename, "PROPOSAL_STAGED", f"Proposal staged ({len(new_entries)} entries)")
-
-    # Proposal created — clean up the draft so the next run starts fresh
     _clear_draft(filename, state)
     return True
 
