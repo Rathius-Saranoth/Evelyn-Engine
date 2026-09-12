@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-09-12 10:58:42
+# date modified: 2026-09-12 11:39:11
 # tags: #terminal, #tools, #agent, #safety
 
 """Terminal and file access agent tools for Evelyn.
@@ -18,8 +18,10 @@ import subprocess
 import sys
 import time
 import uuid
+from typing import Any
 
 import evelyn_config as cfg
+from Evelyn.tools.string_utils import extract_markdown_outline
 
 # Multi-layered safety pattern rules
 TERMINAL_BLOCKED_PATTERNS = [
@@ -595,19 +597,60 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
         return f"Error executing command: {e}"
 
 
-def read_file(file_path: str, max_lines: int = 200) -> str:
+def read_file(
+    file_path: str,
+    max_lines: int | None = None,
+    max_chars: int | None = None,
+    offset_line: int = 1,
+    show_line_numbers: bool = False,
+    **kwargs: Any,
+) -> str:
     """Read contents of a file within allowed workspace or vault paths.
 
-    Supports automatic vault path resolution and ambiguity reporting.
+    Supports automatic vault path resolution, 1-indexed pagination, character budgeting,
+    and markdown section outline extraction on truncated documents.
 
     Args:
         file_path: Absolute or relative file path or note name.
-        max_lines: Maximum lines to return.
+        max_lines: Maximum lines to return (defaults to cfg.READ_FILE_MAX_LINES or 100).
+        max_chars: Maximum characters to return (defaults to cfg.READ_FILE_MAX_CHARS or 5000).
+        offset_line: Starting line number (1-indexed, default 1).
+        show_line_numbers: If True, prepends line numbers (e.g. for code editing). Defaults to False.
+        **kwargs: Flexible keyword arguments (lines, limit, chars, offset, start_line).
 
     Returns:
-        str: Numbered file content or error description.
+        str: File content with banner or error description.
     """
     cleanup_stale_approvals()
+
+    if max_lines is None:
+        val = kwargs.get("lines") or kwargs.get("limit")
+        if val is not None:
+            try:
+                max_lines = int(val)
+            except (ValueError, TypeError):
+                max_lines = 100
+        else:
+            cfg_val = getattr(cfg, "READ_FILE_MAX_LINES", 100)
+            max_lines = cfg_val if isinstance(cfg_val, int) else 100
+
+    if max_chars is None:
+        val = kwargs.get("chars")
+        if val is not None:
+            try:
+                max_chars = int(val)
+            except (ValueError, TypeError):
+                max_chars = 5000
+        else:
+            cfg_val = getattr(cfg, "READ_FILE_MAX_CHARS", 5000)
+            max_chars = cfg_val if isinstance(cfg_val, int) else 5000
+
+    if offset_line == 1 and ("start_line" in kwargs or "offset" in kwargs):
+        try:
+            offset_line = int(kwargs.get("start_line") or kwargs.get("offset") or 1)
+        except (ValueError, TypeError):
+            offset_line = 1
+    offset_line = max(1, offset_line)
 
     resolved_path, ambiguous_candidates = find_matching_vault_files(file_path)
 
@@ -636,25 +679,54 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
 
     try:
         with open(abs_path, encoding="utf-8") as f:
-            lines = f.readlines()
+            all_lines = f.readlines()
 
-        total = len(lines)
-        if total > max_lines:
-            lines = lines[:max_lines]
-            truncated = f"\n[Showing first {max_lines} of {total} lines]"
+        total_lines = len(all_lines)
+        start_idx = max(0, offset_line - 1)
+        selected_lines = all_lines[start_idx : start_idx + max_lines]
+        raw_slice = "".join(selected_lines)
+
+        is_char_truncated = False
+        if len(raw_slice) > max_chars:
+            is_char_truncated = True
+            cut = raw_slice[:max_chars]
+            last_nl = cut.rfind("\n")
+            if last_nl > max_chars * 0.7:
+                cut = cut[:last_nl]
+            raw_slice = cut
+            actual_lines_shown = max(1, len(raw_slice.splitlines()))
+            end_line = start_idx + actual_lines_shown
         else:
-            truncated = ""
+            end_line = start_idx + len(selected_lines)
 
-        numbered = "".join(f"{i+1:4d} | {line}" for i, line in enumerate(lines))
+        if show_line_numbers:
+            content_lines = raw_slice.splitlines(keepends=True)
+            formatted_body = "".join(f"{start_idx + i + 1:4d} | {l}" for i, l in enumerate(content_lines))
+        else:
+            formatted_body = raw_slice
 
         raw_norm = file_path.replace("\\", "/").strip("/").lower()
         if rel_vault and rel_vault.lower() != raw_norm and rel_vault.lower() != f"{raw_norm}.md":
-            banner = f"--- [Resolved: {rel_vault}] ({total} lines) ---"
+            banner = f"--- [Resolved: {rel_vault}] (Showing lines {start_idx + 1}–{end_line} of {total_lines}, {len(raw_slice)} chars) ---"
         else:
             header_path = rel_vault or abs_path
-            banner = f"--- {header_path} ({total} lines) ---"
+            banner = f"--- {header_path} (Showing lines {start_idx + 1}–{end_line} of {total_lines}, {len(raw_slice)} chars) ---"
 
-        return f"{banner}\n{numbered}{truncated}"
+        # Outline and pagination hint on truncation
+        trunc_notice = ""
+        is_truncated = is_char_truncated or (end_line < total_lines) or (start_idx > 0)
+        if is_truncated and end_line < total_lines:
+            full_content = "".join(all_lines)
+            outline = extract_markdown_outline(full_content)
+            outline_str = ""
+            if outline:
+                outline_str = "\nAvailable Sections in document:\n" + "\n".join(f"  - {h}" for h in outline[:10])
+            trunc_notice = (
+                f"\n\n[... Document truncated: showing lines {start_idx + 1}–{end_line} of {total_lines} ({len(raw_slice)} chars) ...]{outline_str}\n"
+                f"Tip: Call read_file with offset_line={end_line + 1} to continue reading."
+            )
+
+        return f"{banner}\n{formatted_body}{trunc_notice}"
     except FileNotFoundError:
         # Helpful close-matches fallback via search_documents
         from Evelyn.tools import vault_db

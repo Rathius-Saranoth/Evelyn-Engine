@@ -1,7 +1,7 @@
 # test_all_tools_end_to_end.py
 # date created: 2026-08-19 20:26:51
-# date modified: 2026-08-31 17:43:52
-# tags:
+# date modified: 2026-09-12 11:42:16
+# tags: #test, #evelyn_tools, #end_to_end
 # Comprehensive Unit and End-to-End Test Suite for Evelyn Tools
 
 import os
@@ -103,10 +103,14 @@ class TestAllToolsEndToEnd(unittest.TestCase):
 
     def test_08_terminal_agent_tools(self):
         """Test read_file and run_command tools."""
-        # Read a known file
+        # Read a known file (clean format by default)
         read_res = evelyn_tools.read_file(file_path="evelyn_config.py", max_lines=10)
         self.assertIn("evelyn_config.py", read_res)
-        self.assertIn("1 |", read_res)
+        self.assertIn("Showing lines 1–10", read_res)
+
+        # Read with line numbers enabled
+        read_num_res = evelyn_tools.read_file(file_path="evelyn_config.py", max_lines=10, show_line_numbers=True)
+        self.assertIn("1 |", read_num_res)
 
         # Run a safe command
         cmd_res = evelyn_tools.run_command(command="echo 'EVELYN_TEST_OK'")

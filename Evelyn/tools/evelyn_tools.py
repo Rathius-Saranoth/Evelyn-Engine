@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-12 11:00:22
+# date modified: 2026-09-12 11:41:59
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -2625,24 +2625,37 @@ def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: 
     return terminal_agent.run_command(command, cwd, timeout)
 
 
-def read_file(file_path: str = "", max_lines: int = 200, **kwargs) -> str:
+def read_file(
+    file_path: str = "",
+    max_lines: int | None = None,
+    max_chars: int | None = None,
+    offset_line: int = 1,
+    show_line_numbers: bool = False,
+    **kwargs,
+) -> str:
     """Read the contents of a file in the workspace or Obsidian Vault.
 
     Args:
-        file_path: Absolute path or relative path (e.g. 'Notes/foo.md' or 'Evelyn/bar.py').
+        file_path: Absolute path, relative path, or document name.
         max_lines: Maximum lines to return.
+        max_chars: Maximum characters to return.
+        offset_line: Starting line number (1-indexed).
+        show_line_numbers: If True, prepends line numbers. Defaults to False.
         **kwargs: Flexible keyword arguments.
 
     Returns:
-        str: File content with line numbers, or error message.
+        str: File content or error message.
     """
     _reload()
     file_path = file_path or str(kwargs.get("path") or kwargs.get("filepath") or "")
-    try:
-        max_lines = int(max_lines)
-    except ValueError, TypeError:
-        max_lines = 200
-    return terminal_agent.read_file(file_path, max_lines)
+    return terminal_agent.read_file(
+        file_path=file_path,
+        max_lines=max_lines,
+        max_chars=max_chars,
+        offset_line=offset_line,
+        show_line_numbers=show_line_numbers,
+        **kwargs,
+    )
 
 
 def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", **kwargs) -> str:
@@ -3499,11 +3512,15 @@ MODEL_TOOL_DEFINITIONS = [
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Absolute path or relative path (e.g. 'Notes/Features/idea.md', 'scripts/test.py').",
+                        "description": "Absolute path, relative path, or note title (e.g. 'GIS Technician Tasks Overview', 'scripts/test.py').",
                     },
                     "max_lines": {
                         "type": "integer",
-                        "description": "Maximum lines to return (default: 200).",
+                        "description": "Maximum lines to return (default: 100).",
+                    },
+                    "offset_line": {
+                        "type": "integer",
+                        "description": "Starting line number to read from (1-indexed, default: 1). Use to read further into truncated documents.",
                     },
                 },
                 "required": ["file_path"],

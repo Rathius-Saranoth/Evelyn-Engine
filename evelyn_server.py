@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-12 10:38:29
+# date modified: 2026-09-12 11:37:41
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -102,6 +102,7 @@ from profile_evolver import (
     cancel_pending_evolution,
     run_profile_evolution,
 )
+from string_utils import estimate_tokens, truncate_to_token_budget
 from time_manager import TimeManager
 
 import evelyn_config as cfg
@@ -801,9 +802,12 @@ def _time_of_day_label(ts: float | None) -> str:
 
 
 def _estimate_message_tokens(msg: dict[str, Any]) -> int:
-    """Conservative token estimate for a single message dictionary (~3 characters/token + role overhead)."""
+    """Token estimate for a single message dictionary using canonical string_utils."""
     content = msg.get("content") or ""
-    return max(1, len(content) // 3 + 4)
+    if msg.get("tool_calls"):
+        with contextlib.suppress(TypeError):
+            content += json.dumps(msg["tool_calls"])
+    return estimate_tokens(content)
 
 
 def load_history(before_id: int | None = None, channel_id: str = "main") -> list[dict]:
@@ -1419,6 +1423,19 @@ async def _agentic_stream_loop(
 
     active_tool_set = tools if tools is not None else MODEL_TOOL_DEFINITIONS
 
+    # Hardware-aware dynamic token budgeting
+    num_ctx = getattr(cfg, "NUM_CTX", 16384)
+    generation_reserve = getattr(cfg, "NUM_PREDICT", 4096)
+    safety_margin = 1000
+    baseline_tokens = sum(_estimate_message_tokens(m) for m in msgs)
+    available_headroom = max(1500, num_ctx - baseline_tokens - generation_reserve - safety_margin)
+    tool_return_ratio = getattr(cfg, "TOOL_RETURN_RATIO", 0.35)
+    dynamic_tool_budget = min(int(num_ctx * tool_return_ratio), available_headroom)
+    dlog(
+        f"Dynamic agentic loop initialized: num_ctx={num_ctx}, baseline={baseline_tokens}, "
+        f"headroom={available_headroom}, tool_budget={dynamic_tool_budget}"
+    )
+
     for round_num in range(1, cfg.MAX_TOOL_ROUNDS + 1):
         is_terminal_round = round_num >= cfg.MAX_TOOL_ROUNDS
         tools_for_round = None if is_terminal_round else active_tool_set
@@ -1620,7 +1637,7 @@ async def _agentic_stream_loop(
                     tool_status = "error"
 
                 tool_entry = fn_name
-                meta_entry: dict[str, Any] = {"name": fn_name, "data": None}
+                meta_entry: dict[str, Any] = {"name": fn_name, "args": fn_args, "data": None}
                 approval_id_or_data = None
 
                 if fn_name == "generate_image":
@@ -1666,6 +1683,60 @@ async def _agentic_stream_loop(
                         "name": fn_name,
                     }
                 )
+
+            # Dynamic Tool Return Budgeting & In-Flight Scratchpad Compression
+            tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+            total_tool_tokens = sum(_estimate_message_tokens(m) for m in tool_msgs)
+
+            if total_tool_tokens > dynamic_tool_budget and tool_msgs:
+                dlog(
+                    f"Tool returns exceeded dynamic budget ({total_tool_tokens} > {dynamic_tool_budget}). Compacting older tool returns..."
+                )
+                # 1. Compact older tool messages (Rounds 1..N-1), keeping recent Round N uncompressed
+                if len(tool_msgs) > 1:
+                    for old_m in tool_msgs[:-1]:
+                        if _estimate_message_tokens(old_m) > 300:
+                            old_m["content"] = truncate_to_token_budget(
+                                old_m["content"],
+                                max_tokens=250,
+                                truncation_suffix="\n\n[... Earlier tool output compacted in scratchpad ...]",
+                            )
+                    total_tool_tokens = sum(_estimate_message_tokens(m) for m in tool_msgs)
+
+                # 2. If total tool tokens still exceed budget, bound the latest tool message safely
+                if total_tool_tokens > dynamic_tool_budget and tool_msgs:
+                    latest_m = tool_msgs[-1]
+                    allowed_for_latest = max(300, int(dynamic_tool_budget * 0.75))
+                    if _estimate_message_tokens(latest_m) > allowed_for_latest:
+                        latest_m["content"] = truncate_to_token_budget(
+                            latest_m["content"],
+                            max_tokens=allowed_for_latest,
+                            truncation_suffix="\n\n[... Tool output truncated to fit context budget ...]",
+                        )
+
+            # In-Flight Synthesis Re-Anchoring: Clean up any prior intermediate tool_synthesis message
+            for idx in range(len(msgs) - 1, -1, -1):
+                if msgs[idx].get("role") == "system" and "<tool_synthesis" in msgs[idx].get("content", ""):
+                    msgs.pop(idx)
+                    break
+
+            # Inject synthesis directive for subsequent round
+            user_name = getattr(cfg, "USER_NAME", "Ricky")
+            asst_name = getattr(cfg, "ASSISTANT_NAME", "Evelyn")
+            if round_num + 1 >= cfg.MAX_TOOL_ROUNDS:
+                synthesis_directive = (
+                    "<tool_synthesis status=\"terminal\">\n"
+                    f"All requested tools have finished executing. Now synthesize your direct, personal response addressing {user_name}'s prompt using the gathered evidence above.\n"
+                    f"Maintain your persona as {asst_name}, do not dump raw tables or echo manuals, and deliver your thoughtful reflection as requested.\n"
+                    "</tool_synthesis>"
+                )
+            else:
+                synthesis_directive = (
+                    "<tool_synthesis status=\"in_progress\">\n"
+                    f"Tool execution for this round is complete. If you need more information, you may invoke additional tools. Otherwise, synthesize your response addressing {user_name}'s prompt in character as {asst_name}.\n"
+                    "</tool_synthesis>"
+                )
+            msgs.append({"role": "system", "content": synthesis_directive})
 
             # Tool effort escalation for subsequent rounds if needed
             if tools_used_list and not ui_override:
