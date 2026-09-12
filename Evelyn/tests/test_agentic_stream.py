@@ -1,6 +1,6 @@
 # test_agentic_stream.py
 # date created: 2026-08-27 09:35:00
-# date modified: 2026-09-12 11:38:56
+# date modified: 2026-09-12 11:58:29
 # tags: #test, #streaming, #agentic, #unified_stream, #v000_006_000
 
 import json
@@ -321,7 +321,60 @@ class TestAgenticStream(unittest.IsolatedAsyncioTestCase):
                 synthesis_msgs = [m for m in round_3_msgs if "<tool_synthesis" in m.get("content", "")]
                 self.assertTrue(len(synthesis_msgs) > 0)
 
+    async def test_07_parallel_streaming_tool_call_accumulation(self):
+        """Verify parallel tool calls delivered across distinct streaming chunks are accumulated and executed."""
+        cfg.MAX_TOOL_ROUNDS = 3
+        call_count = 0
+        executed_tools = []
+
+        # Round 1 emits two separate chunks, each containing one tool call
+        round_1_chunks = [
+            json.dumps({
+                "message": {
+                    "tool_calls": [{"id": "call_1", "function": {"index": 0, "name": "read_file", "arguments": {"file_path": "docA.md"}}}]
+                }
+            }),
+            json.dumps({
+                "message": {
+                    "tool_calls": [{"id": "call_2", "function": {"index": 1, "name": "read_file", "arguments": {"file_path": "docB.md"}}}]
+                },
+                "done": True,
+            }),
+        ]
+
+        # Round 2 emits final synthesized response
+        round_2_chunks = [
+            json.dumps({"message": {"content": "Successfully synthesized both docA and docB."}}),
+            json.dumps({"message": {"content": ""}, "done": True}),
+        ]
+
+        async def mock_stream(msgs, tools=None, think_effort=None):
+            nonlocal call_count
+            call_count += 1
+            chunks = round_1_chunks if call_count == 1 else round_2_chunks
+            for c in chunks:
+                yield c
+
+        def mock_dispatch(fn, fa):
+            executed_tools.append(fa.get("file_path"))
+            return f"Content of {fa.get('file_path')}"
+
+        with patch("evelyn_server.call_ollama_stream", side_effect=mock_stream), \
+             patch("evelyn_server.dispatch_tool", side_effect=mock_dispatch):
+            test_msgs = [{"role": "user", "content": "Read docA and docB"}]
+            events = [
+                json.loads(evt_line[6:])
+                async for evt_line in srv._agentic_stream_loop(test_msgs, think_effort="medium")
+                if evt_line.startswith("data: ")
+            ]
+            self.assertTrue(len(events) > 0)
+            # Both tools should have executed in Round 1
+            self.assertEqual(executed_tools, ["docA.md", "docB.md"])
+            state = events[-1]
+            self.assertEqual(state["content"], "Successfully synthesized both docA and docB.")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

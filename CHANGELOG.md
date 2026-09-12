@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 11:38:12
+date modified: 2026-09-12 11:58:20
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,16 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.115] - 2026-09-12 — *Multi-Round Tool Thoroughness & Streaming Parallel Tool Accumulation*
+
+### Added & Hardened
+- **Streaming Parallel Tool Call Accumulation (`evelyn_server.py`)**:
+  - Resolved parallel tool call dropping in streaming mode: Ollama delivers parallel tool calls in separate streaming chunks with distinct `id` and `function.index`. Tool calls are now safely accumulated across incoming chunks without overwriting previously parsed calls.
+- **De-Pressurized Intermediate Tool Synthesis Directives (`evelyn_server.py`)**:
+  - Eliminated premature response closure momentum by rephrasing the intermediate `<tool_synthesis>` XML directive.
+  - Intermediate rounds ($1 \dots N-1$) now explicitly instruct the model to inspect all requested files, notes, or queries before answering, instructing it not to rush or guess unread material.
+  - Terminal rounds enforce strict synthesis only when all rounds or requested tools are finished.
 
 ## [000.006.114] - 2026-09-12 — *Dynamic Tool Scratchpad, Token Headroom & Synthesis Re-Anchoring*
 
