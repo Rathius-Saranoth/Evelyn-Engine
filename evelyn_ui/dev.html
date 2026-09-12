@@ -666,6 +666,15 @@
     let procMgmtSearch = '';
     let selectedProcIds = new Set();
     let selectedExtractionIds = new Set();
+    const expandedProposalContexts = new Set();
+
+    function toggleProposalContext(proposalId, isOpen) {
+      if (isOpen) {
+        expandedProposalContexts.add(proposalId);
+      } else {
+        expandedProposalContexts.delete(proposalId);
+      }
+    }
     let researchTasks = [];
     let heavyTasksData = { is_any_running: false, tasks: [], research_tasks: [] };
     let liveUpdatesTimer = null;
@@ -1945,6 +1954,7 @@
           if (type === 'extractions') {
             unifiedItems = unifiedItems.filter(x => !(x.item_type === 'extraction' && x.id == id));
           } else {
+            expandedProposalContexts.delete(id);
             unifiedItems = unifiedItems.filter(x => !((x.item_type === 'proposal' || x.item_type === 'profile_update') && x.id == id));
           }
           updateCounts();
@@ -3934,7 +3944,7 @@
                   <pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto;">${escapeHtml(item.merged_observation)}</pre>
                 </div>`
               }
-              <details style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px;">
+              <details ${expandedProposalContexts.has(item.id) ? 'open' : ''} ontoggle="toggleProposalContext(${item.id}, this.open)" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px;">
                 <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;">
                   Supporting Context Entries (${(item.source_entries || []).length})
                 </summary>
@@ -3987,7 +3997,7 @@
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
               </div>
 
-              <details style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 4px;">
+              <details ${expandedProposalContexts.has(item.id) ? 'open' : ''} ontoggle="toggleProposalContext(${item.id}, this.open)" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 4px;">
                 <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;">
                   Supporting Context Entries (${(item.source_entries || []).length})
                 </summary>

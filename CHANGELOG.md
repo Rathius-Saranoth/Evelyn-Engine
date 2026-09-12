@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-11 20:55:14
+date modified: 2026-09-12 09:14:01
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,15 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.108] - 2026-09-12 — *Sampling Repetition Window & Penalty Calibration*
+
+### Added & Enhanced
+- **Look-Back Repetition Window Calibration (`evelyn_config.py`)**:
+  - Expanded `REPEAT_LAST_N` from `96` to `512` tokens to adequately cover full ~500-word conversational responses (~650–700 tokens) and recent context turns, preventing token-level decay and repeated phrasal patterns across multi-paragraph outputs.
+  - Calibrated `REPEAT_PENALTY` from `1.12` to `1.15` to deter recurring stylistic clichés, repetitive stage directions, and formulaic closing cadences without degrading lexical coherence or punctuation.
+- **Review Queue UI Context Expansion Persistence (`evelyn_ui/dev.html`)**:
+  - Added `expandedProposalContexts` tracking set and `ontoggle` listener to preserve open/closed state of supporting context details during unified item filtering and action refreshes.
 
 ## [000.006.107] - 2026-09-11 — *Proactive Rhythm Prompt Tuning & Deliberative Thinking Scratchpad*
 

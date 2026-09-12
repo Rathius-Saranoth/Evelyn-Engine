@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-11 17:17:15
+# date modified: 2026-09-12 09:06:36
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -122,10 +122,11 @@ TOP_K = 40
 TOP_P = 0.90
 
 # Repeat penalty — discourages looping patterns in thoughts and endings.
-REPEAT_PENALTY = 1.12
+REPEAT_PENALTY = 1.15
 
 # Repeat last N — how many tokens back to scan for repeat penalty.
-REPEAT_LAST_N = 96
+# Expanded to 512 to cover full ~500-word responses and prior context turns.
+REPEAT_LAST_N = 512
 
 # Seed — set to a fixed integer for reproducible outputs, 0 for random.
 # Range: 0–2^32     |  Ollama default: 0 (random)
