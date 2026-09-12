@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-12 11:37:41
+# date modified: 2026-09-12 11:58:07
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1497,9 +1497,21 @@ async def _agentic_stream_loop(
                     round_thinking += native_think
                     yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': native_think})}\n\n"
 
-                # 2. Tool calls (captured when emitted by model)
+                # 2. Tool calls (captured when emitted by model, accumulated across streaming chunks)
                 if msg.get("tool_calls"):
-                    round_tool_calls = msg.get("tool_calls")
+                    for tc in msg["tool_calls"]:
+                        tc_id = tc.get("id")
+                        tc_fn = tc.get("function", {}).get("name")
+                        tc_args = tc.get("function", {}).get("arguments")
+                        if tc_id:
+                            if not any(existing.get("id") == tc_id for existing in round_tool_calls):
+                                round_tool_calls.append(tc)
+                        elif not any(
+                            existing.get("function", {}).get("name") == tc_fn
+                            and existing.get("function", {}).get("arguments") == tc_args
+                            for existing in round_tool_calls
+                        ):
+                            round_tool_calls.append(tc)
 
                 # 3. Content field parsing
                 text_delta = msg.get("content", "")
@@ -1726,14 +1738,15 @@ async def _agentic_stream_loop(
             if round_num + 1 >= cfg.MAX_TOOL_ROUNDS:
                 synthesis_directive = (
                     "<tool_synthesis status=\"terminal\">\n"
-                    f"All requested tools have finished executing. Now synthesize your direct, personal response addressing {user_name}'s prompt using the gathered evidence above.\n"
+                    f"All tool execution rounds are complete. Now synthesize your direct, personal response addressing {user_name}'s prompt using all gathered evidence above.\n"
                     f"Maintain your persona as {asst_name}, do not dump raw tables or echo manuals, and deliver your thoughtful reflection as requested.\n"
                     "</tool_synthesis>"
                 )
             else:
                 synthesis_directive = (
                     "<tool_synthesis status=\"in_progress\">\n"
-                    f"Tool execution for this round is complete. If you need more information, you may invoke additional tools. Otherwise, synthesize your response addressing {user_name}'s prompt in character as {asst_name}.\n"
+                    f"Tool results for this round are recorded above. If {user_name} requested multiple files, notes, or topics, or if you still need additional context to give a thorough and complete answer, invoke your remaining tools now.\n"
+                    f"Do not rush or guess unread material. When you have gathered all necessary information, deliver your thoughtful, complete reflection in character as {asst_name}.\n"
                     "</tool_synthesis>"
                 )
             msgs.append({"role": "system", "content": synthesis_directive})
