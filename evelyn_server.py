@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-12 10:11:32
+# date modified: 2026-09-12 10:38:29
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -1856,7 +1856,7 @@ async def _process_chat_background(
             user_turn["images"] = images
         messages.append(user_turn)
 
-        active_tools = get_active_tools(user_message=user_message)
+        active_tools = get_active_tools(user_message=user_message, recent_history=history[-4:])
         await put("status", msg="Querying model...")
 
         # Unified Agentic Stream Loop
@@ -1882,7 +1882,7 @@ async def _process_chat_background(
                         content_buf += d.get("delta", "")
                     elif d.get("type") == "thinking":
                         thinking_buf += d.get("delta", "")
-                except json.JSONDecodeError, TypeError, KeyError:
+                except (json.JSONDecodeError, TypeError, KeyError):
                     pass
             session.push_chunk(event)
 
@@ -1924,7 +1924,13 @@ async def _process_chat_background(
                 )
                 save_message_metrics(assistant_row_id, metrics_dict)
             else:
-                update_message(assistant_row_id, "[Response interrupted -- please try again.]")
+                update_message(
+                    assistant_row_id,
+                    "[Response interrupted -- please try again.]",
+                    thinking=thinking_buf.strip() if thinking_buf.strip() else None,
+                    tools_used=tools_str,
+                    tool_metadata=tools_meta_str,
+                )
                 dlog(
                     "WARNING: empty assistant response. thinking len:",
                     len(thinking_buf),

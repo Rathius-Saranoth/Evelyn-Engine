@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-12 09:06:36
+# date modified: 2026-09-12 10:38:07
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -200,27 +200,70 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(read|open|browse|check|summarize|inspect|visit)\b.*(link|url|website|webpage|article|site)",
     ],
     "run_command": [r"\b(run|execute|exec|bash|terminal|shell|cli|command)\b"],
-    "read_file": [r"\b(read|cat|open|view|inspect)\s+(file|script|code|path)\b"],
-    "write_file": [r"\b(write|create|save|export)\s+(file|script|code|report|note)\b"],
+    "read_file": [
+        r"\b(read|cat|open|view|inspect|examine|look\s+(?:at|over|through)|take\s+a\s+look\s+at|check\s+out)\s+(?:the\s+|a\s+|an\s+|this\s+|that\s+|these\s+|those\s+|my\s+|our\s+)?(file|script|code|path|document|doc|note|entry|sheet|page|log)s?\b",
+        r"\bgive\s+(?:them|it|this|that|these|those)\s+a\s+read\b",
+        r"\bread\s+(?:through|over|in)?\s*(?:them|it|those|these)\b",
+        r"\b[\w\-./]+\.(?:md|txt|py|json|csv|log|ya?ml|pdf|sh|html)\b",
+        r"\b(vault\s+notes?|notes?/|projects?/|docs?/)[\w\-./]*\b",
+    ],
+    "write_file": [
+        r"\b(write|create|save|export|dump)\s+(?:to\s+)?(?:the\s+|a\s+|an\s+|this\s+|that\s+|these\s+|those\s+|my\s+|our\s+)?(file|script|code|report|note|document|doc|sheet)s?\b",
+        r"\b(write|save|export|create|dump)\s+.*?\b(?:to|into)\s+(?:the\s+|a\s+|an\s+|this\s+|that\s+|my\s+)?(file|script|report|note|vault)\b",
+        r"\b(write|save|export|create|dump)\b.*?\b[\w\-./]+\.(?:md|txt|py|json|csv|log|ya?ml|sh)\b",
+    ],
+    "search_reference_library": [
+        r"\b(search|find|lookup|look\s+up|consult|inspect|check)\s+(?:the\s+|our\s+|a\s+)?(?:reference\s+)?(library|manual|spec|specs|documentation|guide|handbook|troubleshooting)\b",
+        r"\b(reference\s+library|appliance\s+manual|specs?|user\s+guide|troubleshooting\s+guide)\b",
+        r"\b(water\s+heater|hvac|dishwasher|refrigerator|appliance|furnace|blower|sound\s+blaster|motherboard|sennheiser)\b",
+    ],
     "create_calendar_event": [r"\b(calendar|event|schedule|meeting|appointment|remind\s+me\s+at)\b"],
-    "delete_calendar_event": [r"\b(cancel|delete|remove)\s+(calendar|event|meeting|appointment)\b"],
-    "sync_google_calendar": [r"\b(sync|refresh)\s+(calendar|google\s+calendar)\b"],
-    "create_task": [r"\b(create|add|new)\s+task\b"],
-    "complete_task": [r"\b(complete|finish|done|check\s+off)\s+task\b"],
-    "delete_task": [r"\b(delete|remove)\s+task\b"],
-    "sync_google_tasks": [r"\b(sync|refresh)\s+(tasks|google\s+tasks)\b"],
-    "sync_google_drive": [r"\b(sync|refresh|download|upload)\s+(drive|google\s+drive)\b"],
-    "start_research": [r"\b(deep\s+research|start\s+research|investigate|study\s+topic|research\s+paper)\b"],
-    "list_research_tasks": [r"\b(list|show|check|status\s+of)\s+research\b"],
-    "inspect_research_task": [r"\b(inspect|review|read|details\s+of)\s+research\b"],
-    "guide_research": [r"\b(guide|direct|steer|clarify)\s+research\b"],
+    "delete_calendar_event": [
+        r"\b(cancel|delete|remove)\s+(?:the\s+|a\s+|this\s+|my\s+)?(calendar|event|meeting|appointment)\b",
+    ],
+    "sync_google_calendar": [
+        r"\b(sync|refresh)\s+(?:my\s+|the\s+)?(?:google\s+)?calendar\b",
+    ],
+    "create_task": [
+        r"\b(create|add|new)\s+(?:a\s+|the\s+|this\s+|my\s+|new\s+)?task\b",
+        r"\badd\s+(?:a\s+)?task\s+to\s+(?:my\s+|the\s+)?(?:list|tasks)\b",
+    ],
+    "complete_task": [
+        r"\b(complete|finish|done|check\s+off)\s+(?:the\s+|a\s+|this\s+|my\s+)?task\b",
+        r"\bmark\s+(?:the\s+|this\s+|my\s+)?task\s+(?:as\s+)?(?:done|complete|finished)\b",
+    ],
+    "delete_task": [
+        r"\b(delete|remove|cancel)\s+(?:the\s+|a\s+|this\s+|my\s+)?task\b",
+    ],
+    "sync_google_tasks": [
+        r"\b(sync|refresh)\s+(?:my\s+|the\s+)?(?:google\s+)?tasks\b",
+    ],
+    "sync_google_drive": [
+        r"\b(sync|refresh|download|upload)\s+(?:from\s+|to\s+)?(?:my\s+|the\s+)?(?:google\s+)?drive\b",
+    ],
+    "start_research": [
+        r"\b(deep\s+research|start\s+research|do\s+(?:some\s+)?research|investigate|study\s+topic|research\s+paper)\b",
+    ],
+    "list_research_tasks": [
+        r"\b(list|show|check|status\s+of)\s+(?:my\s+|the\s+)?research(?:\s+tasks?)?\b",
+    ],
+    "inspect_research_task": [
+        r"\b(inspect|review|read|details\s+of)\s+(?:the\s+|my\s+)?research(?:\s+tasks?)?\b",
+    ],
+    "guide_research": [
+        r"\b(guide|direct|steer|clarify)\s+(?:the\s+|my\s+)?research\b",
+    ],
     "check_new_research": [r"\b(new|completed|latest)\s+research\b"],
-    "search_history": [r"\b(search\s+chat|chat\s+history|past\s+conversation|earlier\s+we\s+talked)\b"],
-    "recall_specific_memory": [r"\b(recall|specific\s+memory|exact\s+fact|memory\s+id)\b"],
-    "sync_context_memory": [r"\b(sync|consolidate|update)\s+memory\b"],
-    "get_recent_workouts": [r"\b(workout|exercise|training|gym|lift|cardio|run|walk)\b"],
-    "write_dream_entry": [r"\b(dream|dreamscape|night\s+vision)\b.*(log|write|record|journal)"],
-    "read_dream_entry": [r"\b(dream|dreamscape)\b.*(read|recall|find|search)"],
+    "search_history": [
+        r"\b(search\s+(?:our\s+)?(?:chat|conversation)\s+history|search\s+chat|chat\s+history|past\s+conversation|earlier\s+we\s+talked)\b",
+    ],
+    "get_recent_workouts": [
+        r"\b(workouts?|exercises?|training|gym|lifts?|cardio|runs?|walks?)\b",
+    ],
+    "write_dream_entry": [
+        r"\b(dream|dreamscape|night\s+vision)\b.*?\b(log|write|record|journal)\b",
+        r"\b(log|write|record|journal)\b.*?\b(dream|dreamscape|night\s+vision)\b",
+    ],
 }
 
 # --- Context Summarizer (DEPRECATED & DISABLED) ---

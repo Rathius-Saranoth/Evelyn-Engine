@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 10:12:38
+date modified: 2026-09-12 10:39:12
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,28 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.112] - 2026-09-12 — *Dynamic Specialist Tool Surfacing & Thinking Preservation*
+
+### Added & Hardened
+- **Comprehensive Specialist Tool Intent Overhaul (`evelyn_config.py:SPECIALIST_TOOL_INTENT_PATTERNS`)**:
+  - Eliminated rigid `\s+` single-space barriers across 16+ specialist tools, adding flexible determiner and modifier groups `(?:the\s+|a\s+|an\s+|this\s+|that\s+|these\s+|those\s+|my\s+|our\s+)?`.
+  - Expanded `read_file` to support natural determiners, idioms (`give (them|it|this) a read`, `read through`, `look over`, `take a look at`, `check out`), synonyms (`document(s)`, `doc(s)`, `note(s)`, `entry/entries`, `sheet(s)`, `page(s)`, `log(s)`), and file extensions/paths (`\b[\w\-./]+\.(?:md|txt|py|json|csv|log|ya?ml|pdf|sh|html)\b`, `vault notes?`).
+  - Expanded `write_file` to support natural determiners, prepositional targets (`save ... to a file/report/vault`), and extension patterns.
+  - Added intent patterns for previously orphaned `search_reference_library` covering user manuals, appliance specifications, HVAC/appliance guides, and troubleshooting documentation.
+  - Converted `write_dream_entry` into bidirectional phrasing (`log my dream`, `journal about a dream` as well as `dream ... journal`).
+  - Broadened coverage for `create_task`, `complete_task` (`mark ... done`), `delete_task`, `delete_calendar_event`, `sync_google_calendar`, `sync_google_tasks`, `sync_google_drive`, `start_research`, `list_research_tasks`, `inspect_research_task`, `guide_research`, `search_history`, and `get_recent_workouts`.
+- **Anaphoric & Multi-Turn Context Resolution (`Evelyn/tools/evelyn_tools.py:get_active_tools`)**:
+  - Added `recent_history: list[dict] | None = None` parameter to `get_active_tools()`.
+  - Implemented guarded anaphoric trigger detection (`_ANAPHORIC_TRIGGERS`: pronouns `them`, `it`, `those`, `these`, `that` or concise affirmations `go ahead`, `sure`, `yes`, etc.).
+  - Protected against tool inflation and assistant hallucination loops by strictly scanning only prior *user* turns (ignoring assistant negative prose like *"I don't have access to your calendar"*).
+  - Wired `recent_history=history[-4:]` in `evelyn_server.py:1859`.
+- **Diagnostic Thinking Preservation on Stalled/Empty Responses (`evelyn_server.py:1927`)**:
+  - Fixed database state loss where empty model content overwrote `thinking` with `NULL`.
+  - Updated empty response fallback in `_run_chat_stream` to pass `thinking=thinking_buf.strip() if thinking_buf.strip() else None`, `tools_used=tools_str`, and `tool_metadata=tools_meta_str` to `update_message()`.
+- **Unit Test Coverage (`Evelyn/tests/test_dynamic_tools_and_direct_rag.py`)**:
+  - Added `test_specialist_tools_intent_tolerances` testing determiners, idioms, and extensions across `read_file`, `write_file`, `search_reference_library`, and `write_dream_entry`.
+  - Added `test_anaphoric_multi_turn_tool_surfacing` validating multi-turn tool activation across sequential conversational turns.
 
 ## [000.006.111] - 2026-09-12 — *Chroma Staging Queue Pruning & Tag Delta Indexing*
 
