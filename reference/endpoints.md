@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-10 21:58:32
+date modified: 2026-09-12 10:16:16
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -390,7 +390,7 @@ Endpoints driving the background research engine and the interactive developer d
 
 ### `POST /api/librarian/run`
 * **Purpose**: Manually initiates an immediate Master Librarian curation audit batch. Rejects with `409 Conflict` if another heavy task currently holds the lock.
-* **Query / Body Parameters**: `batch_size` (int, default 5), `max_batches` (int, default 1).
+* **Query / Body Parameters**: `batch_size` (int, default 5), `max_batches` (int, default 1), `rebalance_taxonomy` (bool, default false).
 * **Returns**: `{"status": "started", "batch_size": 5, "max_batches": 1}`
 
 ---

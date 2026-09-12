@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-12 09:47:14
+# date modified: 2026-09-12 10:11:32
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2239,7 +2239,11 @@ def is_any_heavy_task_running(exclude_name: str | None = None) -> bool:
     return task_manager.is_any_running(exclude=exclude_name)
 
 
-async def run_master_librarian_task(batch_size: int | None = None, max_batches: int = 1):
+async def run_master_librarian_task(
+    batch_size: int | None = None,
+    max_batches: int = 1,
+    rebalance_taxonomy: bool = False,
+):
     """Runs Master Librarian single-pass audit pass in a dedicated isolated worker subprocess."""
     import task_manager
 
@@ -2257,8 +2261,9 @@ async def run_master_librarian_task(batch_size: int | None = None, max_batches: 
         str(bs),
         "--limit",
         str(limit),
-        "--rebalance-taxonomy",
     ]
+    if rebalance_taxonomy:
+        cmd.append("--rebalance-taxonomy")
 
     task_manager.set_running("master_librarian", phase="Starting Master Librarian subprocess...")
     proc = None
@@ -2381,11 +2386,18 @@ async def lifespan(app: FastAPI):
     # 3. Single Custodian Chroma Sync Queue Drain Loop
     async def _chroma_queue_drain_loop():
         """Continuous background worker that drains the SQLite Chroma staging queue."""
+        # Recover any orphaned 'processing' records from prior crashes/restarts
+        await asyncio.to_thread(chroma_rag.recover_stale_processing_items)
+        _last_prune_ts = time.time()
         while True:
             try:
                 drained = await asyncio.to_thread(chroma_rag.drain_sync_queue, 50)
                 if drained > 0:
                     dlog(f"[CHROMA DRAIN] Processed {drained} queued records.")
+                elif time.time() - _last_prune_ts >= 1800:
+                    # Queue is idle and 30m elapsed: prune old completed records lazily
+                    await asyncio.to_thread(chroma_rag.prune_completed_sync_queue)
+                    _last_prune_ts = time.time()
             except asyncio.CancelledError:
                 break
             except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
@@ -6501,6 +6513,7 @@ async def get_librarian_status(_: None = Depends(check_auth)):
 async def trigger_librarian_audit(
     batch_size: int = 5,
     max_batches: int = 1,
+    rebalance_taxonomy: bool = False,
     _: None = Depends(check_auth),
 ):
     """Trigger a Master Librarian curation audit pass directly."""
@@ -6510,7 +6523,13 @@ async def trigger_librarian_audit(
             detail="A heavy background task is currently running. Try again when idle.",
         )
 
-    t_ml = asyncio.create_task(run_master_librarian_task(batch_size=batch_size, max_batches=max_batches))
+    t_ml = asyncio.create_task(
+        run_master_librarian_task(
+            batch_size=batch_size,
+            max_batches=max_batches,
+            rebalance_taxonomy=rebalance_taxonomy,
+        )
+    )
     _server_background_tasks.add(t_ml)
     t_ml.add_done_callback(_server_background_tasks.discard)
     return {"status": "started", "batch_size": batch_size, "max_batches": max_batches}

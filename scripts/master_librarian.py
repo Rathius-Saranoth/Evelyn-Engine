@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # master_librarian.py
 # date created: 2026-09-05
-# date modified: 2026-09-05 19:16:57
+# date modified: 2026-09-12 10:11:04
 # tags: #[librarian, #master-librarian, #cli, #maintenance, #vault, #evelyn]
 
 """master_librarian.py — Standalone CLI runner for Evelyn Master Librarian.
@@ -123,8 +123,6 @@ def main():
         from Evelyn.tools import tag_librarian
         m_res = tag_librarian.maintain_master_taxonomy()
         print(f"  Taxonomy maintenance result: {m_res}")
-        s_count = tag_librarian.sync_master_tags_to_vector_db()
-        print(f"  Synced {s_count} master tags to Chroma staging queue.")
         if not args.path and args.limit == 5 and not args.all:
             return
 

@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-12 09:54:10
+date modified: 2026-09-12 10:16:27
 ---
 # Evelyn Engine Architecture Map
 
@@ -409,6 +409,10 @@ graph TD
 ```
 
 ### 7.1 Key Architectural Guarantees
+1. **Single-Process Custodial Ingestion**: All ChromaDB modifications route through the WAL-backed `chroma_sync_queue` table in `evelyn_memory.db` and are written exclusively by the FastAPI server's custodial drain worker (`_chroma_queue_drain_loop`), eliminating multi-process file locking collisions and vector index corruption.
+2. **Delta-Driven Indexing**: Background maintenance tasks (such as Master Librarian taxonomy maintenance) delta-index only newly created or modified entities rather than indiscriminately enqueuing the entire taxonomy.
+3. **Automated Queue Retention & Stale Recovery**: Completed records are pruned lazily during queue idle periods (`prune_completed_sync_queue`, keeping the latest 500 records), and stranded `processing` items from server restarts are automatically recovered to `pending` on startup (`recover_stale_processing_items`).
+
 ---
 
 ## 8. Vault Maintenance, Sidecar Index Cards & Zero-Overhead Reorganization
