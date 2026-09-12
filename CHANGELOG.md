@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 11:58:20
+date modified: 2026-09-12 12:24:41
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.116] - 2026-09-12 — *UI Quote Box Escaping & Telemetry Chunk Overflow Hardening*
+
+### Fixed & Hardened
+- **UI Quote Box Escaping & Attribute Breakout Fix (`evelyn_ui/dev.html`)**:
+  - Fixed an HTML breakout bug where raw preview text containing double quotes (`"`) and markdown quote markers (`>`) in RAG telemetry was interpolated directly into `onclick="toggleChunkExpand(...)"` attributes. The early attribute termination caused text like `> _Tactical Pivot...` and button CSS to spill out onto the screen as a broken, horizontal box.
+  - Replaced inline string interpolation with a safe, in-memory `window._ragChunkStore` map keyed by clean alphanumeric chunk IDs (`${evt.id}-${cIdx}`).
+  - Updated `openChunkVaultNote('${chunkKey}')` and `toggleChunkExpand('${chunkKey}')` to resolve source paths and preview snippets directly from `_ragChunkStore`.
+  - Updated `openFeedbackCommentModal` to safely look up comments and ratings from loaded data rather than passing arbitrary user text through inline HTML attributes.
+  - Hardened `escapeHtml` to encode double and single quotes (`&quot;`, `&#39;`) and declared `const escapeAttr = escapeHtml`.
+- **CSS Blockquote & Monospace Overflow Protection (`evelyn_ui/dev.html`, `evelyn_ui/index.html`)**:
+  - Added global `blockquote`, `.modal-body blockquote`, and `.card-body blockquote` overflow containment (`max-width: 100%`, `overflow-wrap: break-word`, `word-break: break-word`, `box-sizing: border-box`).
+  - Added defensive word-break and overflow wrapping (`overflow-wrap: anywhere`, `word-break: break-word`) to `chunk-prev`, `chunk-full`, document highlight blocks in `formatChunkHighlightInDoc`, and feedback comment note containers.
 
 ## [000.006.115] - 2026-09-12 — *Multi-Round Tool Thoroughness & Streaming Parallel Tool Accumulation*
 

@@ -404,7 +404,12 @@
     .modal-body ul.contains-task-list, .modal-body ul.task-list { list-style: none; padding-left: 0.2em; }
     .modal-body li.task-list-item { display: flex; align-items: baseline; gap: 6px; }
     .modal-body li input[type="checkbox"] { margin-right: 6px; vertical-align: middle; accent-color: var(--accent); cursor: pointer; }
-    .modal-body blockquote { border-left: 3px solid var(--accent); margin: 0.6em 0; padding: 4px 12px; background: rgba(124, 106, 247, 0.05); border-radius: 0 4px 4px 0; color: var(--text-dim); font-style: italic; }
+    blockquote, .modal-body blockquote, .card blockquote, .card-body blockquote {
+      border-left: 3px solid var(--accent); margin: 0.6em 0; padding: 4px 12px;
+      background: rgba(124, 106, 247, 0.05); border-radius: 0 4px 4px 0;
+      color: var(--text-dim); font-style: italic;
+      max-width: 100%; overflow-wrap: break-word; word-break: break-word; box-sizing: border-box;
+    }
     .modal-body hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
     .modal-body pre { background: var(--surface2); padding: 12px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; border: 1px solid var(--border); max-width: 100%; min-width: 0; }
     .modal-body code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--warning); }
@@ -720,8 +725,14 @@
 
     function escapeHtml(s) {
       if (!s) return '';
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
+    const escapeAttr = escapeHtml;
 
     function formatDuration(totalSeconds) {
       if (totalSeconds === null || totalSeconds === undefined || isNaN(totalSeconds) || totalSeconds < 0) {
@@ -5998,7 +6009,21 @@
 
     function escapeJs(str) {
       if (!str) return '';
-      return String(str).replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/`/g, '\\`')
+        .replace(/\$/g, '\\$')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    window._ragChunkStore = window._ragChunkStore || {};
+
+    function openChunkVaultNote(chunkKey) {
+      const item = window._ragChunkStore ? window._ragChunkStore[chunkKey] : null;
+      if (item && item.source) {
+        openVaultNoteEditor(item.source);
+      }
     }
 
     let activeFeedbackMsgId = null;
@@ -6007,11 +6032,11 @@
 
     function openFeedbackCommentModal(msgId, currentComment, rating) {
       activeFeedbackMsgId = msgId;
-      activeFeedbackRating = rating || 1;
-      document.getElementById('fb-comment-modal-title').textContent = `💬 Feedback Comment (Msg #${msgId})`;
-      document.getElementById('fb-comment-textarea').value = currentComment || '';
-      
       const card = (telemetryFeedbackData?.recent_ratings || []).find(r => r.message_id === msgId);
+      activeFeedbackRating = rating || card?.rating || 1;
+      document.getElementById('fb-comment-modal-title').textContent = `💬 Feedback Comment (Msg #${msgId})`;
+      document.getElementById('fb-comment-textarea').value = currentComment !== undefined ? currentComment : (card?.feedback || '');
+      
       const previewEl = document.getElementById('fb-comment-msg-preview');
       if (card && card.content) {
         previewEl.style.display = 'block';
@@ -6587,7 +6612,7 @@
           <div style="font-size: 11px; color: var(--accent); margin-bottom: 6px; font-weight: 600;">
             <span>🎯 Injected Note Content (1 of 1)</span>
           </div>
-          <div style="background: rgba(124, 106, 247, 0.12); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff;">${escapeHtml(fullDoc)}</div>
+          <div style="background: rgba(124, 106, 247, 0.12); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff; word-break: break-word; overflow-wrap: anywhere; box-sizing: border-box; max-width: 100%; white-space: pre-wrap;">${escapeHtml(fullDoc)}</div>
         `;
       }
       
@@ -6625,7 +6650,7 @@
           <div style="font-size: 11px; color: var(--accent); margin-bottom: 6px; font-weight: 600;">
             <span>🎯 Injected Document Content</span>
           </div>
-          <div style="background: rgba(124, 106, 247, 0.12); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff;">${escapeHtml(fullDoc)}</div>
+          <div style="background: rgba(124, 106, 247, 0.12); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff; word-break: break-word; overflow-wrap: anywhere; box-sizing: border-box; max-width: 100%; white-space: pre-wrap;">${escapeHtml(fullDoc)}</div>
         `;
       }
 
@@ -6638,9 +6663,9 @@
           <span>🎯 Referenced Chunk ${chunkIdx + 1} of ${totalChunks}</span>
           <span style="color: var(--text-dim); font-size: 10px; font-weight: normal;">(Highlighted section was injected into prompt; other sections de-emphasized)</span>
         </div>
-        ${prefix ? `<div style="opacity: 0.35; font-size: 11px; margin-bottom: 6px; user-select: text;">${escapeHtml(prefix)}</div>` : ''}
-        <div style="background: rgba(124, 106, 247, 0.15); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff; margin: 6px 0; box-shadow: 0 0 10px rgba(124, 106, 247, 0.08); user-select: text;">${escapeHtml(targetChunk)}</div>
-        ${suffix ? `<div style="opacity: 0.35; font-size: 11px; margin-top: 6px; user-select: text;">${escapeHtml(suffix)}</div>` : ''}
+        ${prefix ? `<div style="opacity: 0.35; font-size: 11px; margin-bottom: 6px; user-select: text; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; white-space: pre-wrap;">${escapeHtml(prefix)}</div>` : ''}
+        <div style="background: rgba(124, 106, 247, 0.15); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; color: #fff; margin: 6px 0; box-shadow: 0 0 10px rgba(124, 106, 247, 0.08); user-select: text; word-break: break-word; overflow-wrap: anywhere; box-sizing: border-box; max-width: 100%; white-space: pre-wrap;">${escapeHtml(targetChunk)}</div>
+        ${suffix ? `<div style="opacity: 0.35; font-size: 11px; margin-top: 6px; user-select: text; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; white-space: pre-wrap;">${escapeHtml(suffix)}</div>` : ''}
       `;
     }
 
@@ -6659,20 +6684,30 @@
         prevEl.style.display = 'none';
         btn.textContent = '🔼 Collapse Chunk';
 
-        if (fullEl.getAttribute('data-loaded') !== 'true' && sourcePath && !sourcePath.startsWith('procedure::')) {
-          fullEl.innerHTML = '<span style="color:var(--text-dim); font-style:italic;">⏳ Loading and highlighting chunk from source note...</span>';
-          try {
-            const res = await fetch(`${API_BASE}/api/vault/note?path=${encodeURIComponent(sourcePath)}`, { headers: headers() });
-            if (res.ok) {
-              const data = await res.json();
-              const fullDoc = data.content || '';
-              fullEl.innerHTML = formatChunkHighlightInDoc(fullDoc, chunkIdx, totalChunks, previewText);
-              fullEl.setAttribute('data-loaded', 'true');
-            } else {
+        if (fullEl.getAttribute('data-loaded') !== 'true') {
+          const item = window._ragChunkStore ? window._ragChunkStore[chunkKey] : null;
+          const resolvedSource = sourcePath || item?.source || '';
+          const resolvedIdx = chunkIdx ?? item?.chunk ?? 0;
+          const resolvedTotal = totalChunks ?? item?.total_chunks ?? 1;
+          const resolvedPreview = previewText || item?.preview || prevEl.textContent || '';
+
+          if (resolvedSource && !resolvedSource.startsWith('procedure::')) {
+            fullEl.innerHTML = '<span style="color:var(--text-dim); font-style:italic;">⏳ Loading and highlighting chunk from source note...</span>';
+            try {
+              const res = await fetch(`${API_BASE}/api/vault/note?path=${encodeURIComponent(resolvedSource)}`, { headers: headers() });
+              if (res.ok) {
+                const data = await res.json();
+                const fullDoc = data.content || '';
+                fullEl.innerHTML = formatChunkHighlightInDoc(fullDoc, resolvedIdx, resolvedTotal, resolvedPreview);
+                fullEl.setAttribute('data-loaded', 'true');
+              } else {
+                fullEl.textContent = prevEl.textContent;
+              }
+            } catch (err) {
+              console.error('Error fetching live content:', err);
               fullEl.textContent = prevEl.textContent;
             }
-          } catch (err) {
-            console.error('Error fetching live content:', err);
+          } else {
             fullEl.textContent = prevEl.textContent;
           }
         }
@@ -6680,6 +6715,7 @@
     }
 
     function renderTelemetryDashboard() {
+      window._ragChunkStore = {};
       const container = document.getElementById('container');
       
       const rangeLabels = {
@@ -6800,14 +6836,14 @@
 
                       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px;">
                         <button class="btn btn-sm" id="fb-btn-${r.id}" onclick="toggleFeedbackExpand(${r.id})" style="padding: 3px 8px; font-size: 11px; background: none; border: 1px solid var(--border); color: var(--accent);">📖 Expand Full Response</button>
-                        <button class="btn btn-sm" onclick="openFeedbackCommentModal(${r.message_id}, \`${escapeJs(r.feedback || '')}\`, ${r.rating})" style="padding: 3px 10px; font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: #fff;">
+                        <button class="btn btn-sm" onclick="openFeedbackCommentModal(${r.message_id})" style="padding: 3px 10px; font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: #fff;">
                           ${hasComment ? '✏️ Edit Comment' : '💬 Add Comment'}
                         </button>
                       </div>
 
                       <!-- Comment Note Display -->
                       ${hasComment ? `
-                        <div style="background: rgba(124, 106, 247, 0.1); border-left: 3px solid var(--accent); border-radius: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.4; color: #fff;">
+                        <div style="background: rgba(124, 106, 247, 0.1); border-left: 3px solid var(--accent); border-radius: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.4; color: #fff; word-break: break-word; overflow-wrap: anywhere; box-sizing: border-box; max-width: 100%;">
                           <strong style="color: #c084fc;">💬 User Explanation:</strong> ${escapeHtml(r.feedback)}
                         </div>
                       ` : ''}
@@ -6883,12 +6919,19 @@
                             const parsed = parseChunkPreviewContent(c.preview || fullContent);
                             const previewBody = parsed.body || (c.preview || fullContent.slice(0, 300));
 
+                            window._ragChunkStore[chunkKey] = {
+                              source: c.source || '',
+                              chunk: c.chunk || 0,
+                              total_chunks: c.total_chunks || 1,
+                              preview: c.preview || fullContent || '',
+                            };
+
                             return `
-                              <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;">
+                              <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; max-width: 100%; box-sizing: border-box; overflow: hidden;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${parsed.metaBadges.length > 0 ? '6px' : '8px'}; flex-wrap: wrap; gap: 6px;">
                                   <div style="font-weight: 500; color: #fff; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                     <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 10px; text-transform: uppercase;">${c.status}</span>
-                                    <code style="color: #c084fc; font-size: 11px;">${escapeHtml(c.source)}</code>
+                                    <code style="color: #c084fc; font-size: 11px; word-break: break-all;">${escapeHtml(c.source)}</code>
                                     <span style="color: var(--text-dim); font-size: 11px;">[chunk ${c.chunk}/${c.total_chunks}]</span>
                                   </div>
                                   <div style="display: flex; align-items: center; gap: 8px;">
@@ -6896,7 +6939,7 @@
                                       Dist: <strong style="color: ${c.distance <= 0.4 ? 'var(--success)' : 'var(--text-dim)'};">${c.distance}</strong> | Pri: ${c.priority}
                                     </div>
                                     ${isEditable ? `
-                                      <button class="btn btn-sm" onclick="openVaultNoteEditor(\`${escapeJs(c.source)}\`)" style="padding: 2px 8px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent);">
+                                      <button class="btn btn-sm" onclick="openChunkVaultNote('${chunkKey}')" style="padding: 2px 8px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); color: var(--accent);">
                                         ${isFact ? '✏️ Edit Fact' : '✏️ Edit Note'}
                                       </button>
                                     ` : ''}
@@ -6914,10 +6957,10 @@
                                 ` : ''}
 
                                 <!-- Chunk preview vs expanded -->
-                                <div id="chunk-prev-${chunkKey}" style="color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); padding: 8px 10px; border-radius: 4px; line-height: 1.45; min-height: 48px; max-height: 110px; overflow-y: auto; white-space: pre-wrap;">${escapeHtml(previewBody)}</div>
-                                <div id="chunk-full-${chunkKey}" style="display: none; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; max-height: 350px; overflow-y: auto;">${escapeHtml(fullContent)}</div>
+                                <div id="chunk-prev-${chunkKey}" style="color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); padding: 8px 10px; border-radius: 4px; line-height: 1.45; min-height: 48px; max-height: 110px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; box-sizing: border-box;">${escapeHtml(previewBody)}</div>
+                                <div id="chunk-full-${chunkKey}" style="display: none; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; max-height: 350px; overflow-y: auto; word-break: break-word; overflow-wrap: anywhere; box-sizing: border-box;">${escapeHtml(fullContent)}</div>
 
-                                <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}', \`${escapeJs(c.source)}\`, ${c.chunk || 0}, ${c.total_chunks || 1}, \`${escapeJs(c.preview || '')}\`)" style="padding: 2px 8px; font-size: 11px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim);">
+                                <button class="btn btn-sm" id="chunk-btn-${chunkKey}" onclick="toggleChunkExpand('${chunkKey}')" style="padding: 2px 8px; font-size: 11px; margin-top: 6px; background: none; border: 1px solid var(--border); color: var(--text-dim); max-width: 100%; white-space: normal;">
                                   ↕️ Expand Chunk in Document
                                 </button>
                               </div>
