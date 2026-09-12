@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-06 15:51:26
+# date modified: 2026-09-12 10:38:20
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -3647,20 +3647,30 @@ CORE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
+_ANAPHORIC_TRIGGERS = re.compile(
+    r"\b(them|it|those|these|that|the former|the latter|both|all of them|each|either)\b|"
+    r"\b(go ahead|sure|yes|yeah|yea|okay|ok|please do|do it|proceed|read on|check them)\b",
+    re.IGNORECASE,
+)
+
+
 def get_active_tools(
     user_message: str = "",
     retrieved_procedures: list[dict] | None = None,
+    recent_history: list[dict] | None = None,
 ) -> list[dict[str, Any]]:
     """Dynamically select active tool definitions for a conversational turn.
 
     Combines:
-    1. Core Conversational Tools (always present: 8 tools)
+    1. Core Conversational Tools (always present: 6 tools)
     2. Specialist Tools declared in retrieved Procedures (procedure-to-tool coupling)
     3. Specialist Tools triggered by direct intent regex/keywords in user_message (100% recall)
+    4. Anaphoric context resolution over prior user turn for follow-up prompts
 
     Args:
         user_message: Raw user prompt to evaluate intent patterns.
         retrieved_procedures: List of procedure dicts/chunks retrieved via RAG.
+        recent_history: Optional recent conversational history to resolve anaphoric follow-ups.
 
     Returns:
         list[dict]: Curated subset of MODEL_TOOL_DEFINITIONS to pass to Ollama.
@@ -3674,7 +3684,7 @@ def get_active_tools(
             from Evelyn.tools import memory_db
 
             procs_to_check = memory_db.search_procedures_by_trigger(user_message, status="live")[:3]
-        except sqlite3.Error, OSError, ValueError, RuntimeError, ImportError:
+        except (sqlite3.Error, OSError, ValueError, RuntimeError, ImportError):
             procs_to_check = []
 
     for proc in procs_to_check:
@@ -3696,14 +3706,36 @@ def get_active_tools(
                 active_names.add(tool_name)
 
     # 2. Intent-triggered specialist tools (Regex/Keyword heuristics)
-    if user_message:
-        patterns_map: dict[str, list[str]] = getattr(cfg, "SPECIALIST_TOOL_INTENT_PATTERNS", {})
+    patterns_map: dict[str, list[str]] = getattr(cfg, "SPECIALIST_TOOL_INTENT_PATTERNS", {})
+    if user_message and patterns_map:
         for tool_name, pattern_list in patterns_map.items():
             if tool_name in _MODEL_TOOL_MAP and tool_name not in active_names:
                 for pat in pattern_list:
                     if re.search(pat, user_message, re.IGNORECASE):
                         active_names.add(tool_name)
                         break
+
+    # 3. Anaphoric & Multi-turn context resolution
+    # If the user message uses anaphoric pronouns or is a concise confirmation,
+    # inspect the prior user turn from recent_history to resolve context while avoiding
+    # assistant prose noise or tool inflation.
+    if recent_history and user_message and patterns_map:
+        is_short = len(user_message.strip().split()) <= 10
+        has_anaphoric = bool(_ANAPHORIC_TRIGGERS.search(user_message))
+        if is_short or has_anaphoric:
+            prior_user_msgs = [
+                m.get("content", "")
+                for m in recent_history
+                if isinstance(m, dict) and m.get("role") == "user" and m.get("content") != user_message
+            ]
+            if prior_user_msgs:
+                prior_text = prior_user_msgs[-1]
+                for tool_name, pattern_list in patterns_map.items():
+                    if tool_name in _MODEL_TOOL_MAP and tool_name not in active_names:
+                        for pat in pattern_list:
+                            if re.search(pat, prior_text, re.IGNORECASE):
+                                active_names.add(tool_name)
+                                break
 
     # Maintain canonical ordering from MODEL_TOOL_DEFINITIONS
     return [t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t) in active_names]

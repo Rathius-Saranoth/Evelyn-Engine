@@ -1,6 +1,6 @@
 # test_dynamic_tools_and_direct_rag.py
 # date created: 2026-09-01
-# date modified: 2026-09-04 17:44:24
+# date modified: 2026-09-12 10:38:50
 # tags: #test, #tools, #dynamic_tools, #rag, #query_reformulation
 
 """Unit tests for Dynamic Tool Surfacing, Intent Heuristics, and Direct Vector RAG."""
@@ -157,6 +157,42 @@ class TestDynamicToolsAndDirectRAG(unittest.TestCase):
         finally:
             cfg.RAG_REFORMULATE_ENABLED = saved_flag
 
+    def test_specialist_tools_intent_tolerances(self):
+        """Verify regex tolerances for read_file, write_file, search_reference_library, and write_dream_entry."""
+        # 1. read_file with determiners, idioms, and extensions
+        self.assertIn("read_file", [t["function"]["name"] for t in get_active_tools(user_message="read the file")])
+        self.assertIn("read_file", [t["function"]["name"] for t in get_active_tools(user_message="give them a read")])
+        self.assertIn("read_file", [t["function"]["name"] for t in get_active_tools(user_message="can you read Notes/GIS.md?")])
+        self.assertIn("read_file", [t["function"]["name"] for t in get_active_tools(user_message="look at the document")])
+
+        # 2. write_file with determiners and prepositions
+        self.assertIn("write_file", [t["function"]["name"] for t in get_active_tools(user_message="write a file")])
+        self.assertIn("write_file", [t["function"]["name"] for t in get_active_tools(user_message="save this to a file")])
+        self.assertIn("write_file", [t["function"]["name"] for t in get_active_tools(user_message="create the note")])
+
+        # 3. search_reference_library
+        self.assertIn("search_reference_library", [t["function"]["name"] for t in get_active_tools(user_message="search the reference manual")])
+        self.assertIn("search_reference_library", [t["function"]["name"] for t in get_active_tools(user_message="lookup water heater spec")])
+
+        # 4. write_dream_entry bidirectional
+        self.assertIn("write_dream_entry", [t["function"]["name"] for t in get_active_tools(user_message="log my dream")])
+        self.assertIn("write_dream_entry", [t["function"]["name"] for t in get_active_tools(user_message="journal about my dream")])
+
+    def test_anaphoric_multi_turn_tool_surfacing(self):
+        """Verify anaphoric follow-up prompts evaluate prior user turns to surface contextual tools."""
+        history = [
+            {"role": "user", "content": "I added the document 'GIS Technician Responsibility Mapping' to the vault last night."},
+            {"role": "assistant", "content": "They are safe in the vault, and whenever you need them we can pull them forward."},
+        ]
+        # Current message has anaphoric pronoun 'them' and short confirmation
+        active = get_active_tools(
+            user_message="Yea, go ahead and give them a read.",
+            recent_history=history,
+        )
+        active_names = [t["function"]["name"] for t in active]
+        self.assertIn("read_file", active_names)
+
 
 if __name__ == "__main__":
     unittest.main()
+
