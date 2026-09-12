@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-08 20:32:42
+# date modified: 2026-09-11 20:15:12
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -155,7 +155,7 @@ def _get_current_idle_seconds() -> float:
         from Evelyn.tools import time_manager
 
         db_idle = time_manager.get_user_idle_seconds()
-    except (ImportError, sqlite3.Error, OSError, ValueError):
+    except ImportError, sqlite3.Error, OSError, ValueError:
         db_idle = max(0.0, time.time() - _last_activity_ts)
 
     uptime = max(0.0, time.time() - _server_boot_ts)
@@ -171,6 +171,7 @@ def _get_current_idle_seconds() -> float:
     # Sane ceiling to guard against 999999.0 sentinels or months of stale gap
     max_ceiling = getattr(cfg, "MAX_IDLE_SECONDS_CEILING", 86400.0)
     return min(effective_idle, max_ceiling)
+
 
 # ---------------------------------------------------------------------------
 # In-Memory Stream Buffer & Session Management
@@ -240,11 +241,7 @@ class StreamRegistry:
 
     def cleanup_stale(self, ttl_seconds: int = 300):
         now = time.time()
-        expired = [
-            sid
-            for sid, s in self.sessions.items()
-            if s.completed_at and (now - s.completed_at > ttl_seconds)
-        ]
+        expired = [sid for sid, s in self.sessions.items() if s.completed_at and (now - s.completed_at > ttl_seconds)]
         for sid in expired:
             del self.sessions[sid]
         if self.active_stream_id in expired:
@@ -254,9 +251,7 @@ class StreamRegistry:
 stream_registry = StreamRegistry()
 
 
-async def stream_session_events(
-    session: ActiveStreamSession, after: int = -1, request: Request | None = None
-):
+async def stream_session_events(session: ActiveStreamSession, after: int = -1, request: Request | None = None):
     """Asynchronous generator that replays buffered chunks and streams live events."""
     cursor = after + 1
     try:
@@ -268,9 +263,7 @@ async def stream_session_events(
                 cursor += 1
 
             # 2. If finished and caught up, exit cleanly
-            if session.status in ("completed", "error", "stopped") and cursor >= len(
-                session.chunks
-            ):
+            if session.status in ("completed", "error", "stopped") and cursor >= len(session.chunks):
                 break
 
             # 3. Check client disconnect
@@ -290,7 +283,7 @@ async def stream_session_events(
                     await asyncio.wait_for(current_event.wait(), timeout=1.0)
                 except TimeoutError:
                     yield 'data: {"type":"heartbeat"}\n\n'
-    except (GeneratorExit, asyncio.CancelledError):
+    except GeneratorExit, asyncio.CancelledError:
         pass
 
 
@@ -393,7 +386,7 @@ def terminate_research_process(task_id: str):
             proc.terminate()
             try:
                 proc.wait(timeout=2.0)
-            except (subprocess.SubprocessError, OSError):
+            except subprocess.SubprocessError, OSError:
                 with suppress(subprocess.SubprocessError, OSError):
                     proc.kill()
         except (subprocess.SubprocessError, OSError) as e:
@@ -422,7 +415,7 @@ def terminate_research_process(task_id: str):
                         p.terminate()
                         try:
                             p.wait(timeout=2.0)
-                        except (psutil.Error, OSError):
+                        except psutil.Error, OSError:
                             p.kill()
             with suppress(OSError):
                 os.remove(pid_path)
@@ -494,21 +487,14 @@ def get_research_context() -> str:
                         is_struggling = bool(state.get("struggling"))
                         plan = state.get("plan", {})
                         sqs = plan.get("sub_questions", [])
-                        has_stuck_sq = any(
-                            sq.get("status") == "needs_guidance" for sq in sqs
-                        )
+                        has_stuck_sq = any(sq.get("status") == "needs_guidance" for sq in sqs)
 
                         if status == "done" and not is_quarantined:
                             if not state.get("notified", False):
                                 unnotified_count += 1
-                        elif (
-                            status == "needs_guidance"
-                            or is_quarantined
-                            or is_struggling
-                            or has_stuck_sq
-                        ):
+                        elif status == "needs_guidance" or is_quarantined or is_struggling or has_stuck_sq:
                             stalled_tasks.append(state)
-                except (OSError, json.JSONDecodeError, ValueError):
+                except OSError, json.JSONDecodeError, ValueError:
                     pass
 
     envelopes = []
@@ -530,20 +516,10 @@ def get_research_context() -> str:
         sqs = plan.get("sub_questions", [])
         sq_query = ""
         if 0 <= idx < len(sqs):
-            sq_query = (
-                sqs[idx].get("question")
-                or sqs[idx].get("search_query")
-                or sqs[idx].get("query", "")
-            )
+            sq_query = sqs[idx].get("question") or sqs[idx].get("search_query") or sqs[idx].get("query", "")
         elif sqs:
-            stuck = next(
-                (s for s in sqs if s.get("status") == "needs_guidance"), sqs[0]
-            )
-            sq_query = (
-                stuck.get("question")
-                or stuck.get("search_query")
-                or stuck.get("query", "")
-            )
+            stuck = next((s for s in sqs if s.get("status") == "needs_guidance"), sqs[0])
+            sq_query = stuck.get("question") or stuck.get("search_query") or stuck.get("query", "")
 
         summary = f"Research task on '{query}' is {status_desc}."
         if sq_query:
@@ -594,6 +570,14 @@ def load_system_prompt() -> str:
         f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
         "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
         "</system_telemetry_directives>"
+    )
+    parts.append(
+        "<interaction_rhythm>\n"
+        "When reasoning through a prompt, use your thinking space to consider:\n"
+        f"1. Direct Intent: What solves {cfg.USER_NAME}'s immediate query cleanly?\n"
+        f"2. Proactive Horizon: What will {cfg.USER_NAME} need right after this? Is there a friction point, architectural edge case, or creative implication not explicitly asked about?\n"
+        f"3. Pacing: If {cfg.USER_NAME} is exhausted or in pain, keep the final response minimal. Otherwise, organically weave your horizon observation into the conclusion of your response, closing with a natural, grounded hook or decision point.\n"
+        "</interaction_rhythm>"
     )
     parts.append(
         "When actions or lookups are needed, call the tool directly, when in doubt use the tool. "
@@ -812,7 +796,7 @@ def _time_of_day_label(ts: float | None) -> str:
         else:
             period = "night"
         return f"[{d.strftime('%a %b %d')} \u00b7 {period}] "
-    except (OSError, OverflowError, ValueError):
+    except OSError, OverflowError, ValueError:
         return ""
 
 
@@ -851,7 +835,9 @@ def load_history(before_id: int | None = None, channel_id: str = "main") -> list
 
     from datetime import time as dtime
 
-    today_start = datetime.combine(datetime.now(UTC).astimezone().date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
+    today_start = (
+        datetime.combine(datetime.now(UTC).astimezone().date(), dtime.min).replace(tzinfo=UTC).astimezone().timestamp()
+    )
 
     # 1. Fetch today's messages (newest first, dynamically built for optimal SQLite index use)
     today_params: list[Any] = [after_id, channel_id]
@@ -914,7 +900,7 @@ def load_history(before_id: int | None = None, channel_id: str = "main") -> list
                         }
                     )
                 last_date = msg_date
-            except (OSError, OverflowError, ValueError):
+            except OSError, OverflowError, ValueError:
                 pass
 
         role = r["role"]
@@ -1090,9 +1076,7 @@ def save_message_metrics(message_id: int, metrics: dict):
     con.close()
 
 
-def save_or_update_feedback(
-    message_id: int, rating: int, feedback: str | None = None
-) -> dict:
+def save_or_update_feedback(message_id: int, rating: int, feedback: str | None = None) -> dict:
     """Save or update user feedback (+1 / -1 / 0) for a message.
 
     If rating == 0, removes feedback for that message.
@@ -1101,16 +1085,12 @@ def save_or_update_feedback(
     try:
         now = time.time()
         if rating == 0:
-            con.execute(
-                "DELETE FROM message_feedback WHERE message_id = ?", (message_id,)
-            )
+            con.execute("DELETE FROM message_feedback WHERE message_id = ?", (message_id,))
             con.commit()
             return {"message_id": message_id, "rating": 0, "feedback": None}
 
         cur = con.cursor()
-        cur.execute(
-            "SELECT id FROM message_feedback WHERE message_id = ?", (message_id,)
-        )
+        cur.execute("SELECT id FROM message_feedback WHERE message_id = ?", (message_id,))
         row = cur.fetchone()
         if row:
             con.execute(
@@ -1248,9 +1228,7 @@ def check_auth(request: Request):
 # ---------------------------------------------------------------------------
 
 
-async def call_ollama_stream(
-    messages: list[dict], tools: list[dict] | None = None, think_effort=None
-):
+async def call_ollama_stream(messages: list[dict], tools: list[dict] | None = None, think_effort=None):
     """Stream a chat request to Ollama.
 
     Note that streaming combined with think=True silently swallows tool_call
@@ -1300,9 +1278,10 @@ async def call_ollama_stream(
         [m["role"] for m in messages],
     )
 
-    async with httpx.AsyncClient(timeout=600) as client, client.stream(
-        "POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload
-    ) as resp:
+    async with (
+        httpx.AsyncClient(timeout=600) as client,
+        client.stream("POST", f"{cfg.OLLAMA_URL}/api/chat", json=payload) as resp,
+    ):
         resp.raise_for_status()
         async for line in resp.aiter_lines():
             if line.strip():
@@ -1342,9 +1321,7 @@ async def call_ollama_full(
             "repeat_penalty": cfg.REPEAT_PENALTY,
             "repeat_last_n": cfg.REPEAT_LAST_N,
             "seed": cfg.SEED,
-            "num_predict": num_predict_override
-            if num_predict_override is not None
-            else cfg.NUM_PREDICT,
+            "num_predict": num_predict_override if num_predict_override is not None else cfg.NUM_PREDICT,
         }.items()
         if v is not None
     }
@@ -1463,9 +1440,7 @@ async def _agentic_stream_loop(
 
         async def _feed(feed_msgs, feed_tools, feed_think, target_q=queue):
             try:
-                async for line in call_ollama_stream(
-                    feed_msgs, tools=feed_tools, think_effort=feed_think
-                ):
+                async for line in call_ollama_stream(feed_msgs, tools=feed_tools, think_effort=feed_think):
                     await target_q.put(("line", line))
             except (httpx.HTTPError, RuntimeError, OSError, ValueError) as exc:
                 await target_q.put(("error", exc))
@@ -1527,13 +1502,9 @@ async def _agentic_stream_loop(
                             if elected:
                                 current_think_effort = elected.group(1)
                                 think_source = "self_elect"
-                                aggregated_metrics["think_effort"] = str(
-                                    current_think_effort
-                                )
+                                aggregated_metrics["think_effort"] = str(current_think_effort)
                                 aggregated_metrics["think_source"] = think_source
-                                dlog(
-                                    f"Self-elected think effort: {current_think_effort}"
-                                )
+                                dlog(f"Self-elected think effort: {current_think_effort}")
 
                     text_delta = _SELF_ELECT_RE.sub("", text_delta)
                     parse_buf += text_delta
@@ -1594,9 +1565,7 @@ async def _agentic_stream_loop(
                         "load_duration",
                     ):
                         if chunk.get(m_key):
-                            aggregated_metrics[m_key] = (
-                                aggregated_metrics.get(m_key, 0) + chunk[m_key]
-                            )
+                            aggregated_metrics[m_key] = aggregated_metrics.get(m_key, 0) + chunk[m_key]
                     if parse_buf:
                         if in_think:
                             round_thinking += parse_buf
@@ -1611,9 +1580,7 @@ async def _agentic_stream_loop(
 
         # Check round outcome
         if round_tool_calls:
-            dlog(
-                f"Round {round_num}: model emitted {len(round_tool_calls)} tool call(s)"
-            )
+            dlog(f"Round {round_num}: model emitted {len(round_tool_calls)} tool call(s)")
 
             # Preamble Quarantine: If text was streamed before/with tool calls,
             # emit quarantine notification so UI doesn't render it in the response body
@@ -1647,9 +1614,7 @@ async def _agentic_stream_loop(
 
                 tool_status = "ok"
                 try:
-                    result = await loop.run_in_executor(
-                        None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa)
-                    )
+                    result = await loop.run_in_executor(None, lambda fn=fn_name, fa=fn_args: dispatch_tool(fn, fa))
                 except (AttributeError, TypeError, ValueError, KeyError, RuntimeError, OSError) as exc:
                     result = f"Error executing {fn_name}: {exc}"
                     tool_status = "error"
@@ -1666,9 +1631,7 @@ async def _agentic_stream_loop(
                         meta_entry["data"] = {"path": img_path}
                         approval_id_or_data = img_path
                 elif fn_name in ("run_command", "write_file", "write_journal_entry"):
-                    m_appr = re.search(
-                        r"Approval ID:\s*(cmd_\w+|write_\w+)", str(result)
-                    )
+                    m_appr = re.search(r"Approval ID:\s*(cmd_\w+|write_\w+)", str(result))
                     if m_appr:
                         approval_id = m_appr.group(1)
                         tool_entry = f"{fn_name}[{approval_id}]"
@@ -1680,7 +1643,11 @@ async def _agentic_stream_loop(
                         yield f"data: {json.dumps({'type': 'approval_required', 'approval_id': approval_id, 'tool': fn_name, 'args': fn_args})}\n\n"
                     elif fn_name == "write_journal_entry":
                         m_journal_date = re.search(r"Journal Entry (\d{4}-\d{2}-\d{2})\.md", str(result))
-                        target_date_str = m_journal_date.group(1) if m_journal_date else datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+                        target_date_str = (
+                            m_journal_date.group(1)
+                            if m_journal_date
+                            else datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+                        )
                         tool_entry = f"{fn_name}[{target_date_str}]"
                         meta_entry["data"] = {"date": target_date_str, "file": f"Journal Entry {target_date_str}.md"}
                         approval_id_or_data = target_date_str
@@ -1723,11 +1690,7 @@ async def _agentic_stream_loop(
             # Terminal response reached (no tool calls)
             final_content = round_content
             if round_thinking.strip():
-                label = (
-                    f"[Round {round_num}]\n"
-                    if round_num > 1 or accumulated_thinking
-                    else ""
-                )
+                label = f"[Round {round_num}]\n" if round_num > 1 or accumulated_thinking else ""
                 accumulated_thinking += f"{label}{round_thinking.strip()}\n\n"
             break
 
@@ -1743,9 +1706,7 @@ class ChatRequest(BaseModel):
     """Pydantic model representing an incoming chat request from the user."""
 
     message: str
-    think: str | bool | None = (
-        None  # UI override: "low"/"medium"/"high"/"max"/False/None
-    )
+    think: str | bool | None = None  # UI override: "low"/"medium"/"high"/"max"/False/None
     images: list[str | dict] = []  # Base64 strings or attachment objects with metadata
 
 
@@ -1814,25 +1775,17 @@ async def _process_chat_background(
     task_manager.cancel_all_idle_tasks("chat_request")
 
     try:
-        session.push_chunk(
-            "data: "
-            + json.dumps({"type": "stream_session", "stream_id": session.stream_id})
-            + "\n\n"
-        )
+        session.push_chunk("data: " + json.dumps({"type": "stream_session", "stream_id": session.stream_id}) + "\n\n")
         await put("status", msg="Processing...")
 
         # RAG + system prompt + history (fast synchronous work)
-        rag_context = await asyncio.to_thread(
-            build_rag_context, user_message, assistant_row_id
-        )
+        rag_context = await asyncio.to_thread(build_rag_context, user_message, assistant_row_id)
         system = load_system_prompt()
         if rag_context:
             system += f"\n\n{rag_context}"
             chunk_count = rag_context.count("\n[")
             pinned_count = rag_context.count("[primary source]")
-            dlog(
-                f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}"
-            )
+            dlog(f"RAG injected: chars={len(rag_context)} chunks={chunk_count} pinned={pinned_count}")
 
         history = load_history(before_id=user_row_id, channel_id=channel_id)
 
@@ -1858,21 +1811,37 @@ async def _process_chat_background(
         ambient_stream_ctx = ""
         try:
             from Evelyn.tools import memory_db
+
             now_local = datetime.now(UTC).astimezone()
             today_str = now_local.strftime("%Y-%m-%d")
             unconsumed = memory_db.get_unconsumed_ambient_impressions(today_str)
             if unconsumed:
                 is_evening = now_local.hour >= 17 or now_local.hour < 5
                 msg_lower = user_message.lower()
-                is_journal_query = any(k in msg_lower for k in ("journal", "wind down", "wrap up", "day recap", "reflect on today", "bedtime", "goodnight"))
+                is_journal_query = any(
+                    k in msg_lower
+                    for k in (
+                        "journal",
+                        "wind down",
+                        "wrap up",
+                        "day recap",
+                        "reflect on today",
+                        "bedtime",
+                        "goodnight",
+                    )
+                )
                 if is_evening or is_journal_query:
                     imp_lines = []
                     for imp in unconsumed:
                         imp_type = imp.get("type", "thought")
                         imp_ts = imp.get("ts")
-                        time_str = datetime.fromtimestamp(imp_ts, tz=now_local.tzinfo).strftime("%H:%M") if imp_ts else ""
+                        time_str = (
+                            datetime.fromtimestamp(imp_ts, tz=now_local.tzinfo).strftime("%H:%M") if imp_ts else ""
+                        )
                         imp_content = escape_xml_content(imp.get("content", ""))
-                        imp_lines.append(f'  <impression type="{imp_type}" time="{time_str}">{imp_content}</impression>')
+                        imp_lines.append(
+                            f'  <impression type="{imp_type}" time="{time_str}">{imp_content}</impression>'
+                        )
                     ambient_stream_ctx = wrap_xml_envelope("ambient_stream", body=imp_lines)
         except (sqlite3.Error, OSError, ValueError, RuntimeError, AttributeError) as e:
             dlog(f"Ambient stream build error: {e}")
@@ -1913,7 +1882,7 @@ async def _process_chat_background(
                         content_buf += d.get("delta", "")
                     elif d.get("type") == "thinking":
                         thinking_buf += d.get("delta", "")
-                except (json.JSONDecodeError, TypeError, KeyError):
+                except json.JSONDecodeError, TypeError, KeyError:
                     pass
             session.push_chunk(event)
 
@@ -1955,9 +1924,7 @@ async def _process_chat_background(
                 )
                 save_message_metrics(assistant_row_id, metrics_dict)
             else:
-                update_message(
-                    assistant_row_id, "[Response interrupted -- please try again.]"
-                )
+                update_message(assistant_row_id, "[Response interrupted -- please try again.]")
                 dlog(
                     "WARNING: empty assistant response. thinking len:",
                     len(thinking_buf),
@@ -1965,9 +1932,7 @@ async def _process_chat_background(
                     bool(tools_used_list),
                 )
 
-            dlog(
-                f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars"
-            )
+            dlog(f"Done -- content: {len(content_buf)} chars, thinking: {len(thinking_buf)} chars")
 
             # Signal SSE pipe to close cleanly
             session.push_chunk(
@@ -1996,7 +1961,7 @@ def pause_all_active_research():
     # 2. Check disk state for any active tasks in data/research
     try:
         from Evelyn.tools.research_engine import load_state, save_state
-    except (ImportError, ModuleNotFoundError):
+    except ImportError, ModuleNotFoundError:
         try:
             from research_engine import load_state, save_state
         except (ImportError, ModuleNotFoundError) as e:
@@ -2061,10 +2026,10 @@ def pause_all_active_research():
                     p.terminate()
                     try:
                         p.wait(timeout=2.0)
-                    except (psutil.Error, OSError):
+                    except psutil.Error, OSError:
                         p.kill()
                     paused_any = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except psutil.NoSuchProcess, psutil.AccessDenied:
                 pass
     except (psutil.Error, OSError) as e:
         print(
@@ -2274,9 +2239,7 @@ def is_any_heavy_task_running(exclude_name: str | None = None) -> bool:
     return task_manager.is_any_running(exclude=exclude_name)
 
 
-async def run_master_librarian_task(
-    batch_size: int | None = None, max_batches: int = 1
-):
+async def run_master_librarian_task(batch_size: int | None = None, max_batches: int = 1):
     """Runs Master Librarian single-pass audit pass in a dedicated isolated worker subprocess."""
     import task_manager
 
@@ -2290,8 +2253,10 @@ async def run_master_librarian_task(
         sys.executable,
         "-u",
         script_path,
-        "--batch-size", str(bs),
-        "--limit", str(limit),
+        "--batch-size",
+        str(bs),
+        "--limit",
+        str(limit),
         "--rebalance-taxonomy",
     ]
 
@@ -2382,15 +2347,11 @@ async def lifespan(app: FastAPI):
     if getattr(cfg, "AUTO_MIGRATE_ON_BOOT", False):
         migrated = db_migrator.apply_pending_migrations()
         if migrated:
-            print(
-                f"  {_GRN}DB Migrator:{_RST} Applied {len(migrated)} pending database migration(s)."
-            )
+            print(f"  {_GRN}DB Migrator:{_RST} Applied {len(migrated)} pending database migration(s).")
     else:
         try:
             db_migrator.validate_db_schemas_or_raise()
-            print(
-                f"  {_GRN}DB Schemas:{_RST} All databases verified up to date (v{cfg.__version__})."
-            )
+            print(f"  {_GRN}DB Schemas:{_RST} All databases verified up to date (v{cfg.__version__}).")
         except db_migrator.DatabaseSchemaMismatchError as e:
             print(f"  {_RED}{e}{_RST}", flush=True)
             raise
@@ -2407,9 +2368,7 @@ async def lifespan(app: FastAPI):
     # 2. Chroma Vector DB Health Probe & Auto-Repair
     health = chroma_rag.check_chroma_health()
     if health["status"] == "healthy":
-        print(
-            f"  {_GRN}Chroma Vector DB:{_RST} Health probe passed ({health['count']} documents indexed)."
-        )
+        print(f"  {_GRN}Chroma Vector DB:{_RST} Health probe passed ({health['count']} documents indexed).")
     else:
         print(
             f"  {_RED}[WARNING] Chroma Vector DB corrupted:{_RST} {health['error']}. Initiating auto-repair...",
@@ -2434,9 +2393,7 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(1.5)
 
     _lifespan_tasks.append(asyncio.create_task(_chroma_queue_drain_loop()))
-    print(
-        f"  {_GRN}Chroma Custodian:{_RST} Started single-writer drain worker (interval=1.5s)."
-    )
+    print(f"  {_GRN}Chroma Custodian:{_RST} Started single-writer drain worker (interval=1.5s).")
 
     # 4. Media DB & Visual Memory Indexer
     from Evelyn.tools import media_db, visual_indexer
@@ -2445,26 +2402,18 @@ async def lifespan(app: FastAPI):
     _lifespan_tasks.append(
         asyncio.create_task(
             visual_indexer.visual_indexing_worker_loop(
-                is_busy_predicate=lambda: bool(
-                    stream_registry.get_active() or is_any_heavy_task_running()
-                )
+                is_busy_predicate=lambda: bool(stream_registry.get_active() or is_any_heavy_task_running())
             )
         )
     )
-    print(
-        f"  {_GRN}Visual Indexer:{_RST} Started background media extraction queue worker."
-    )
+    print(f"  {_GRN}Visual Indexer:{_RST} Started background media extraction queue worker.")
 
     task_manager.load_persistent_state()
     task_manager.load_persistent_queue()
     _lifespan_tasks.append(asyncio.create_task(task_manager.start_watchdog()))
-    print(
-        f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}"
-    )
+    print(f"{_BLD}{_CYN}Evelyn server starting on {cfg.BIND_HOST}:{cfg.SERVER_PORT}{_RST}")
     print(f"  Model: {cfg.MODEL_NAME} | Context: {cfg.NUM_CTX} | Think: {cfg.THINK}")
-    print(
-        f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}"
-    )
+    print(f"  History cap: {cfg.MAX_HISTORY_MESSAGES} msgs | Debug: {cfg.DEBUG_LOGGING}")
 
     # Central Idle Task Dispatcher Loop (Pure FIFO Scheduling)
     async def _idle_task_dispatcher_loop():
@@ -2505,9 +2454,7 @@ async def lifespan(app: FastAPI):
                 if dispatched_task == "extractor":
                     import fact_extractor
 
-                    fact_extractor._extraction_task = asyncio.create_task(
-                        run_extraction()
-                    )
+                    fact_extractor._extraction_task = asyncio.create_task(run_extraction())
                 elif dispatched_task == "consolidator":
                     import fact_consolidator
                     import procedure_consolidator
@@ -2519,9 +2466,7 @@ async def lifespan(app: FastAPI):
                 elif dispatched_task == "procedure_consolidator":
                     import procedure_consolidator
 
-                    procedure_consolidator._procedure_task = asyncio.create_task(
-                        run_procedure_consolidation()
-                    )
+                    procedure_consolidator._procedure_task = asyncio.create_task(run_procedure_consolidation())
                 elif dispatched_task == "profile_evolver":
                     t_pe = asyncio.create_task(run_profile_evolution())
                     _server_background_tasks.add(t_pe)
@@ -2727,9 +2672,7 @@ async def lifespan(app: FastAPI):
                     ):
                         del _background_tasks[tid]
                         continue
-                    status = (
-                        disk_state.get("status") if disk_state else task.get("status")
-                    )
+                    status = disk_state.get("status") if disk_state else task.get("status")
                     if status == "resolved":
                         import shutil
 
@@ -2748,9 +2691,9 @@ async def lifespan(app: FastAPI):
                             "cancelled",
                             "needs_guidance",
                             "paused",
-                        ) and ("finished_at" not in _background_tasks[
-                            tid
-                        ] or not _background_tasks[tid].get("finished_at")):
+                        ) and (
+                            "finished_at" not in _background_tasks[tid] or not _background_tasks[tid].get("finished_at")
+                        ):
                             _background_tasks[tid]["finished_at"] = time.time()
 
                     if status in (
@@ -2765,15 +2708,9 @@ async def lifespan(app: FastAPI):
                         task_info = {
                             "task_id": tid,
                             "status": status,
-                            "query": disk_state.get("query")
-                            if disk_state
-                            else task.get("query", ""),
-                            "scope": disk_state.get("scope")
-                            if disk_state
-                            else task.get("scope", "standard"),
-                            "created_at": disk_state.get("created_at")
-                            if disk_state
-                            else "",
+                            "query": disk_state.get("query") if disk_state else task.get("query", ""),
+                            "scope": disk_state.get("scope") if disk_state else task.get("scope", "standard"),
+                            "created_at": disk_state.get("created_at") if disk_state else "",
                         }
                         unfinished_tasks.append(task_info)
                         if status in ("running", "searching", "synthesizing"):
@@ -2886,31 +2823,26 @@ async def lifespan(app: FastAPI):
                 continue
 
             # 5. Process queued tasks
-            if research_window_open and idle_seconds >= getattr(
-                cfg, "RESEARCH_IDLE_THRESHOLD", 1800
-            ):
+            if research_window_open and idle_seconds >= getattr(cfg, "RESEARCH_IDLE_THRESHOLD", 1800):
                 # Double guard
                 if unfinished_tasks:
                     continue
 
                 queue_file = os.path.join(cfg.RESEARCH_DATA_DIR, "queue.json")
                 if os.path.exists(queue_file):
+
                     def _read_queue(q_path: str):
                         try:
                             with open(q_path, encoding="utf-8") as f:
                                 return json.load(f)
-                        except (json.JSONDecodeError, OSError):
+                        except json.JSONDecodeError, OSError:
                             return []
 
                     queue = await asyncio.to_thread(_read_queue, queue_file)
 
                     if queue:
                         # Sort chronologically by created_at date
-                        queue.sort(
-                            key=lambda x: (
-                                x.get("created_at") or x.get("created_time") or ""
-                            )
-                        )
+                        queue.sort(key=lambda x: x.get("created_at") or x.get("created_time") or "")
 
                         next_task = queue.pop(0)
 
@@ -2977,9 +2909,7 @@ async def lifespan(app: FastAPI):
                 task_manager.enqueue_idle_task("profile_evolver")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_profile_evolution_loop()))
-    print(
-        f"  {_GRN}Profile Evolver:{_RST} idle timer started (threshold=60m, cooldown=24h/doc)"
-    )
+    print(f"  {_GRN}Profile Evolver:{_RST} idle timer started (threshold=60m, cooldown=24h/doc)")
 
     # Idle-time Tag Librarian alias (routed to Master Librarian)
     async def run_tag_librarian_task():
@@ -3000,9 +2930,7 @@ async def lifespan(app: FastAPI):
                 task_manager.enqueue_idle_task("master_librarian")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_master_librarian_loop()))
-    print(
-        f"  {_GRN}Master Librarian:{_RST} idle loop started (threshold=5m, limit=5 docs/run)"
-    )
+    print(f"  {_GRN}Master Librarian:{_RST} idle loop started (threshold=5m, limit=5 docs/run)")
 
     # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)
     async def _gcal_sync_loop():
@@ -3075,19 +3003,13 @@ async def lifespan(app: FastAPI):
             try:
                 import gdrive_sync
 
-                result = await asyncio.to_thread(
-                    gdrive_sync.sync_health_connect_from_drive
-                )
+                result = await asyncio.to_thread(gdrive_sync.sync_health_connect_from_drive)
                 if result.get("status") == "success":
                     action = result.get("action", "")
                     if action == "downloaded" or cfg.DEBUG_LOGGING:
-                        print(
-                            f"{_GRN}[GDRIVE SYNC]{_RST} {result['message']}", flush=True
-                        )
+                        print(f"{_GRN}[GDRIVE SYNC]{_RST} {result['message']}", flush=True)
                 elif cfg.DEBUG_LOGGING:
-                    print(
-                        f"{_YEL}[GDRIVE SYNC]{_RST} {result.get('message')}", flush=True
-                    )
+                    print(f"{_YEL}[GDRIVE SYNC]{_RST} {result.get('message')}", flush=True)
             except (httpx.HTTPError, sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
                 print(f"{_RED}[GDRIVE SYNC ERROR]{_RST} {e}", flush=True)
 
@@ -3161,9 +3083,7 @@ app.mount("/images", StaticFiles(directory=cfg.IMAGE_OUTPUT_DIR), name="images")
 
 # Serve media attachments directly via the main server
 os.makedirs(cfg.ATTACHMENTS_DIR, exist_ok=True)
-app.mount(
-    "/attachments", StaticFiles(directory=cfg.ATTACHMENTS_DIR), name="attachments"
-)
+app.mount("/attachments", StaticFiles(directory=cfg.ATTACHMENTS_DIR), name="attachments")
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -3178,9 +3098,7 @@ async def status(_: None = Depends(check_auth)):
     return {
         "status": "ok",
         "engine_version": getattr(cfg, "__version__", "000.004.000"),
-        "version_name": getattr(
-            cfg, "VERSION_NAME", "Sanctum Architecture & Guardrails"
-        ),
+        "version_name": getattr(cfg, "VERSION_NAME", "Sanctum Architecture & Guardrails"),
         "db_versions": {k: db_migrator.get_db_version(k) for k in db_migrator.DB_MAP},
         "model": cfg.MODEL_NAME,
         "think": cfg.THINK,
@@ -3212,9 +3130,7 @@ async def get_media_endpoint(guid: str, _: None = Depends(check_auth)):
 
 @app.patch("/api/media/{guid}")
 @app.post("/api/media/{guid}")
-async def update_media_endpoint(
-    guid: str, req: MediaUpdateRequest, _: None = Depends(check_auth)
-):
+async def update_media_endpoint(guid: str, req: MediaUpdateRequest, _: None = Depends(check_auth)):
     """Update description, tags, domain for a media asset and re-index into ChromaDB."""
     import evelyn_config as cfg
     from Evelyn.tools import chroma_rag, media_db
@@ -3231,11 +3147,7 @@ async def update_media_endpoint(
             tags_list = [t.strip() for t in req.tags.split(",") if t.strip()]
 
     desc = req.description if req.description is not None else asset.get("description")
-    domain = (
-        req.taxonomy_domain
-        if req.taxonomy_domain is not None
-        else asset.get("taxonomy_domain")
-    )
+    domain = req.taxonomy_domain if req.taxonomy_domain is not None else asset.get("taxonomy_domain")
 
     media_db.update_media_metadata(
         guid=guid,
@@ -3264,7 +3176,7 @@ async def update_media_endpoint(
         if isinstance(meta_json, str):
             try:
                 meta_json = json.loads(meta_json)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 meta_json = {}
 
         exif_details = []
@@ -3342,9 +3254,7 @@ async def regenerate(request: Request, _: None = Depends(check_auth)):
     """Delete the last assistant message and re-generate a response."""
     user_message, target_user_row_id = delete_last_assistant_message()
     if not user_message:
-        raise HTTPException(
-            status_code=400, detail="No user message to regenerate from."
-        )
+        raise HTTPException(status_code=400, detail="No user message to regenerate from.")
     think_effort = classify_message_effort(user_message)
     return StreamingResponse(
         chat_stream(
@@ -3360,9 +3270,7 @@ async def regenerate(request: Request, _: None = Depends(check_auth)):
 
 
 @app.post("/edit")
-async def edit_message(
-    req: EditRequest, request: Request, _: None = Depends(check_auth)
-):
+async def edit_message(req: EditRequest, request: Request, _: None = Depends(check_auth)):
     """Update the content of the last user message and re-generate a response."""
     user_message, target_user_row_id = edit_last_user_message(req.message)
     if not user_message:
@@ -3382,14 +3290,10 @@ async def edit_message(
 
 
 @app.post("/chat/stop")
-async def stop_chat(
-    req: StopChatRequest | None = None, _: None = Depends(check_auth)
-):
+async def stop_chat(req: StopChatRequest | None = None, _: None = Depends(check_auth)):
     """Safely stop an active chat generation session."""
     stream_id = req.stream_id if req else None
-    session = (
-        stream_registry.get(stream_id) if stream_id else stream_registry.get_active()
-    )
+    session = stream_registry.get(stream_id) if stream_id else stream_registry.get_active()
     if not session or session.status != "running":
         return {"status": "noop", "message": "No active running stream to stop"}
 
@@ -3412,15 +3316,11 @@ async def stop_chat(
 
 
 @app.get("/chat/stream/{stream_id}")
-async def get_chat_stream(
-    stream_id: str, request: Request, after: int = -1, _: None = Depends(check_auth)
-):
+async def get_chat_stream(stream_id: str, request: Request, after: int = -1, _: None = Depends(check_auth)):
     """Attach to an active or recently completed stream session and replay missed chunks."""
     session = stream_registry.get(stream_id)
     if not session:
-        raise HTTPException(
-            status_code=404, detail="Stream session not found or expired"
-        )
+        raise HTTPException(status_code=404, detail="Stream session not found or expired")
     return StreamingResponse(
         stream_session_events(session, after=after, request=request),
         media_type="text/event-stream",
@@ -3447,9 +3347,7 @@ async def get_active_stream(_: None = Depends(check_auth)):
 async def get_latest_message_id(_: None = Depends(check_auth)):
     """Return the ID of the latest committed message."""
     con = get_db()
-    row = con.execute(
-        "SELECT MAX(id) as max_id FROM messages WHERE content != ''"
-    ).fetchone()
+    row = con.execute("SELECT MAX(id) as max_id FROM messages WHERE content != ''").fetchone()
     con.close()
     return {"id": row["max_id"] or 0}
 
@@ -3509,7 +3407,7 @@ async def get_history(
         d["feedback"] = feedback_map.get(d["id"])
         try:
             d["attachments"] = media_db.get_media_for_message(d["id"])
-        except (sqlite3.Error, OSError):
+        except sqlite3.Error, OSError:
             d["attachments"] = []
         messages_out.append(d)
     return messages_out
@@ -3544,9 +3442,7 @@ async def get_rag_telemetry(
 
 
 @app.get("/telemetry/feedback")
-async def get_feedback_telemetry(
-    limit: int = 50, days: float | None = None, _: None = Depends(check_auth)
-):
+async def get_feedback_telemetry(limit: int = 50, days: float | None = None, _: None = Depends(check_auth)):
     """Get aggregate feedback metrics and recent rated messages."""
     con = get_db()
     try:
@@ -3580,15 +3476,9 @@ async def get_feedback_telemetry(
                 (cutoff, limit),
             ).fetchall()
         else:
-            total_rated = cur.execute(
-                "SELECT COUNT(*) FROM message_feedback"
-            ).fetchone()[0]
-            upvotes = cur.execute(
-                "SELECT COUNT(*) FROM message_feedback WHERE rating > 0"
-            ).fetchone()[0]
-            downvotes = cur.execute(
-                "SELECT COUNT(*) FROM message_feedback WHERE rating < 0"
-            ).fetchone()[0]
+            total_rated = cur.execute("SELECT COUNT(*) FROM message_feedback").fetchone()[0]
+            upvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating > 0").fetchone()[0]
+            downvotes = cur.execute("SELECT COUNT(*) FROM message_feedback WHERE rating < 0").fetchone()[0]
 
             recent_rows = cur.execute(
                 """
@@ -3604,9 +3494,7 @@ async def get_feedback_telemetry(
                 (limit,),
             ).fetchall()
 
-        satisfaction_pct = (
-            round((upvotes / total_rated * 100), 1) if total_rated > 0 else None
-        )
+        satisfaction_pct = round((upvotes / total_rated * 100), 1) if total_rated > 0 else None
 
         return {
             "status": "ok",
@@ -3627,9 +3515,7 @@ async def get_thinking_telemetry(limit: int = 50, _: None = Depends(check_auth))
     con = get_db()
     try:
         cur = con.cursor()
-        total_tracked = cur.execute(
-            "SELECT COUNT(*) FROM message_metrics WHERE think_effort IS NOT NULL"
-        ).fetchone()[0]
+        total_tracked = cur.execute("SELECT COUNT(*) FROM message_metrics WHERE think_effort IS NOT NULL").fetchone()[0]
 
         effort_counts = dict(
             cur.execute(
@@ -3725,7 +3611,7 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
                 if os.path.exists(struct_path):
                     content = await asyncio.to_thread(_server_sync_read, struct_path)
                     return {"content": content, "status": "approved"}
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 pass
 
         # 2. Try vault root path — written directly (JOURNAL_DIRECT_WRITE=True) but not yet
@@ -3785,7 +3671,7 @@ async def get_artifact(type: str, id: str, _: None = Depends(check_auth)):
                                     ):
                                         content = await asyncio.to_thread(_server_sync_read, rep_path)
                                         return {"content": content}
-                                except (OSError, json.JSONDecodeError, ValueError):
+                                except OSError, json.JSONDecodeError, ValueError:
                                     pass
             raise HTTPException(status_code=404, detail="Research report not found")
     else:
@@ -3906,7 +3792,7 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
                             "status": "already_approved",
                             "destination": struct_path,
                         }
-                except (OSError, ValueError):
+                except OSError, ValueError:
                     pass
             raise HTTPException(
                 status_code=404,
@@ -3922,9 +3808,7 @@ async def approve_journal(req: ApproveJournalRequest, _: None = Depends(check_au
     month_dt = datetime.date(int(year), int(month_num), 1)
     month_name = month_dt.strftime("%b")  # e.g. "May"
 
-    target_dir = os.path.join(
-        JOURNAL_DIR, "Journal Entries", year, f"{month_num}-{month_name}"
-    )
+    target_dir = os.path.join(JOURNAL_DIR, "Journal Entries", year, f"{month_num}-{month_name}")
     os.makedirs(target_dir, exist_ok=True)
     target_path = os.path.join(target_dir, filename)
 
@@ -4010,9 +3894,7 @@ def _load_existing_research_tasks():
                                         # Server restarted without the subprocess alive
                                         target_status = "paused"
                                         state["status"] = "paused"
-                                        with open(
-                                            state_file, "w", encoding="utf-8"
-                                        ) as fw:
+                                        with open(state_file, "w", encoding="utf-8") as fw:
                                             json.dump(state, fw, indent=2)
 
                                 _background_tasks[d] = {
@@ -4025,12 +3907,10 @@ def _load_existing_research_tasks():
                                     f"[RESEARCH RECOVERY] Registered {target_status} task {d} from disk.",
                                     flush=True,
                                 )
-                        except (OSError, json.JSONDecodeError, ValueError):
+                        except OSError, json.JSONDecodeError, ValueError:
                             pass
     except (OSError, ValueError) as e:
-        print(
-            f"[RESEARCH RECOVERY ERROR] Failed to load existing tasks: {e}", flush=True
-        )
+        print(f"[RESEARCH RECOVERY ERROR] Failed to load existing tasks: {e}", flush=True)
 
 
 _load_existing_research_tasks()
@@ -4082,9 +3962,7 @@ async def trigger_sync(_: None = Depends(check_auth)):
             )
             task_manager.set_running("sync", phase="Syncing Core Knowledge...")
             ingest_obsidian_knowledge.main()
-            task_manager.clear_running(
-                "sync", status="done", summary="Chroma Sync completed successfully."
-            )
+            task_manager.clear_running("sync", status="done", summary="Chroma Sync completed successfully.")
             print(f"{_GRN}[SYNC]{_RST} Complete.", flush=True)
         except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
             task_manager.clear_running("sync", status="error", error=str(e))
@@ -4136,9 +4014,7 @@ async def trigger_vault_map(_: None = Depends(check_auth)):
                 task_manager.clear_running("vault_map", status="done")
                 print(f"{_GRN}[VAULT MAP]{_RST} Done.", flush=True)
             else:
-                task_manager.clear_running(
-                    "vault_map", status="error", error=f"Exit code {proc.returncode}"
-                )
+                task_manager.clear_running("vault_map", status="error", error=f"Exit code {proc.returncode}")
                 print(
                     f"{_RED}[VAULT MAP ERROR]{_RST} Process exited with code {proc.returncode}",
                     flush=True,
@@ -4222,9 +4098,7 @@ async def start_refresh_memory_internal():
                         phase_label = _REFRESH_PHASE_LABELS.get(key, f"Running {key}...")
                         task_manager.set_running("refresh_memory", phase=phase_label)
                         if key == "vault_map":
-                            task_manager.set_running(
-                                "vault_map", phase="Mapping Obsidian Vault..."
-                            )
+                            task_manager.set_running("vault_map", phase="Mapping Obsidian Vault...")
                         elif key == "ingest_knowledge":
                             task_manager.set_running("sync", phase="Syncing Chroma DB...")
                     elif line.startswith("[PHASE_DONE:"):
@@ -4236,13 +4110,9 @@ async def start_refresh_memory_internal():
                     elif line.startswith("[PHASE_FAIL:"):
                         key = line.split("[PHASE_FAIL:")[1].split("]")[0]
                         if key == "vault_map":
-                            task_manager.clear_running(
-                                "vault_map", status="error", error=f"Phase '{key}' failed."
-                            )
+                            task_manager.clear_running("vault_map", status="error", error=f"Phase '{key}' failed.")
                         elif key == "ingest_knowledge":
-                            task_manager.clear_running(
-                                "sync", status="error", error=f"Phase '{key}' failed."
-                            )
+                            task_manager.clear_running("sync", status="error", error=f"Phase '{key}' failed.")
                         raise RuntimeError(f"Phase '{key}' failed.")
 
             await proc.wait()
@@ -4252,9 +4122,7 @@ async def start_refresh_memory_internal():
                 task_manager.clear_running("vault_map", status="done")
                 task_manager.clear_running("sync", status="done")
                 if "refresh_memory" in _background_tasks:
-                    _background_tasks["refresh_memory"]["phase"] = (
-                        "Completed successfully."
-                    )
+                    _background_tasks["refresh_memory"]["phase"] = "Completed successfully."
                 print(f"{_GRN}[REFRESH]{_RST} All phases done.", flush=True)
             else:
                 raise RuntimeError(f"Pipeline exited with code {proc.returncode}")
@@ -4365,9 +4233,7 @@ async def api_research_report(task_id: str, _: None = Depends(check_auth)):
     task_dir = get_task_dir(task_id)
     report_file = os.path.join(task_dir, "report.md")
     if not os.path.exists(report_file):
-        raise HTTPException(
-            status_code=404, detail="Report not synthesized yet or task failed"
-        )
+        raise HTTPException(status_code=404, detail="Report not synthesized yet or task failed")
     content = await asyncio.to_thread(_server_sync_read, report_file)
     return {"report": content}
 
@@ -4473,9 +4339,7 @@ async def api_research_list(_: None = Depends(check_auth)):
                     }
                 )
         except (OSError, json.JSONDecodeError, ValueError) as e:
-            print(
-                f"[RESEARCH LIST ERROR] Failed to process queue.json: {e}", flush=True
-            )
+            print(f"[RESEARCH LIST ERROR] Failed to process queue.json: {e}", flush=True)
 
     tasks.sort(key=lambda t: t.get("created_at", "") or "", reverse=True)
     return tasks
@@ -4508,15 +4372,11 @@ async def api_cancel_research(task_id: str, _: None = Depends(check_auth)):
                         flush=True,
                     )
                     return {"status": "cancelled", "task_id": task_id}
-            raise HTTPException(
-                status_code=404, detail="Queue file not found or index invalid"
-            )
+            raise HTTPException(status_code=404, detail="Queue file not found or index invalid")
         except HTTPException:
             raise
         except (OSError, json.JSONDecodeError, ValueError) as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to cancel queued task: {e}"
-            ) from e
+            raise HTTPException(status_code=500, detail=f"Failed to cancel queued task: {e}") from e
 
     from research_engine import load_state, save_state
 
@@ -4576,9 +4436,7 @@ async def api_delete_research(task_id: str, _: None = Depends(check_auth)):
         except HTTPException:
             raise
         except (OSError, json.JSONDecodeError, ValueError) as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to delete queued task: {e}"
-            ) from e
+            raise HTTPException(status_code=500, detail=f"Failed to delete queued task: {e}") from e
 
     # Terminate process immediately if active
     terminate_research_process(task_id)
@@ -4621,9 +4479,7 @@ def _demote_running_task_if_any(promoting_task_id: str):
         (
             tid
             for tid, t in list(_background_tasks.items())
-            if tid.startswith("task_")
-            and t.get("status") == "running"
-            and tid != promoting_task_id
+            if tid.startswith("task_") and t.get("status") == "running" and tid != promoting_task_id
         ),
         None,
     )
@@ -4691,9 +4547,7 @@ class FinalizeGuidanceRequest(BaseModel):
 
 
 @app.post("/research/guide/{task_id}")
-async def api_guide_research(
-    task_id: str, request: GuideRequest, _: None = Depends(check_auth)
-):
+async def api_guide_research(task_id: str, request: GuideRequest, _: None = Depends(check_auth)):
     """Inject guidance into a struggling research task and resume it.
 
     Args:
@@ -4729,9 +4583,7 @@ async def api_guide_research_finalize(task_id: str, _: None = Depends(check_auth
 
 
 @app.post("/research/guide/{task_id}/remove")
-async def api_remove_sub_question(
-    task_id: str, request: SQRemoveRequest, _: None = Depends(check_auth)
-):
+async def api_remove_sub_question(task_id: str, request: SQRemoveRequest, _: None = Depends(check_auth)):
     """Remove a sub-question from the research plan and delete any partial notes for it.
 
     Args:
@@ -4751,9 +4603,7 @@ async def api_remove_sub_question(
 
 
 @app.post("/research/guide/{task_id}/rewrite")
-async def api_guide_research_rewrite(
-    task_id: str, request: SQRewriteRequest, _: None = Depends(check_auth)
-):
+async def api_guide_research_rewrite(task_id: str, request: SQRewriteRequest, _: None = Depends(check_auth)):
     """Submit a single sub-question rewrite (does not resume the task).
 
     Args:
@@ -4820,9 +4670,7 @@ async def api_start_now_research(task_id: str, _: None = Depends(check_auth)):
         except HTTPException:
             raise
         except (OSError, json.JSONDecodeError, ValueError) as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to start queued task: {e}"
-            ) from e
+            raise HTTPException(status_code=500, detail=f"Failed to start queued task: {e}") from e
 
     # For real task IDs (paused / cancelled / error) — resume in-place
     from evelyn_tools import resume_research_task
@@ -4844,12 +4692,15 @@ async def tts_stream_proxy(request: Request):
 
     async def _forward():
         try:
-            async with httpx.AsyncClient(timeout=300) as client, client.stream(
-                "POST",
-                f"{cfg.TTS_SERVER_URL}/v1/audio/speech/stream",
-                content=body,
-                headers={"Content-Type": "application/json"},
-            ) as resp:
+            async with (
+                httpx.AsyncClient(timeout=300) as client,
+                client.stream(
+                    "POST",
+                    f"{cfg.TTS_SERVER_URL}/v1/audio/speech/stream",
+                    content=body,
+                    headers={"Content-Type": "application/json"},
+                ) as resp,
+            ):
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if line.strip():
@@ -4892,9 +4743,7 @@ async def root(request: Request):
     index = UI_DIR / "index.html"
     if index.exists():
         return HTMLResponse(index.read_text(encoding="utf-8"))
-    return HTMLResponse(
-        "<h1>Evelyn Server Running</h1><p>Place UI files in evelyn_ui/</p>"
-    )
+    return HTMLResponse("<h1>Evelyn Server Running</h1><p>Place UI files in evelyn_ui/</p>")
 
 
 # --- Prints System Prompt during Startup ---
@@ -5048,11 +4897,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     with contextlib.suppress(OSError, json.JSONDecodeError, ValueError):
                         raw_st = await asyncio.to_thread(_server_sync_load_json, scan_path)
                         if isinstance(raw_st, dict):
-                            scan_st = {
-                                k: v
-                                for k, v in raw_st.items()
-                                if re.match(r"^Cat(0[1-9]|1[0-6])-[UA]$", k)
-                            }
+                            scan_st = {k: v for k, v in raw_st.items() if re.match(r"^Cat(0[1-9]|1[0-6])-[UA]$", k)}
                 active_cat = task_data.get("phase") if status == "running" else None
 
                 mdb_path = str(BASE_DIR / "data" / "evelyn_memory.db")
@@ -5097,11 +4942,9 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         cur = conn.cursor()
                         cur.execute("SELECT COUNT(*) FROM procedures WHERE status='live'")
                         proc_cnt = cur.fetchone()[0]
-                        cur.execute(
-                            "SELECT COUNT(*) FROM proposals WHERE type='procedure_merge' AND status='pending'"
-                        )
+                        cur.execute("SELECT COUNT(*) FROM proposals WHERE type='procedure_merge' AND status='pending'")
                         pending_proposals = cur.fetchone()[0]
-                    except (sqlite3.Error, OSError):
+                    except sqlite3.Error, OSError:
                         pass
                     finally:
                         conn.close()
@@ -5136,7 +4979,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         curations = cur.fetchone()[0]
                         cur.execute("SELECT COUNT(*) FROM master_tag_taxonomy")
                         master_tags_cnt = cur.fetchone()[0]
-                    except (sqlite3.Error, OSError):
+                    except sqlite3.Error, OSError:
                         master_tags_cnt = 0
                     finally:
                         conn.close()
@@ -5166,7 +5009,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         with contextlib.suppress(sqlite3.Error):
                             cur.execute("SELECT COUNT(*) FROM chroma_sync_queue WHERE status='pending'")
                             sync_queue_cnt = cur.fetchone()[0]
-                    except (sqlite3.Error, OSError):
+                    except sqlite3.Error, OSError:
                         pass
                     finally:
                         conn.close()
@@ -5175,9 +5018,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 try:
                     cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
                     if os.path.exists(cdb_path):
-                        cconn = sqlite3.connect(
-                            f"file:{cdb_path}?mode=ro", uri=True, timeout=1.0
-                        )
+                        cconn = sqlite3.connect(f"file:{cdb_path}?mode=ro", uri=True, timeout=1.0)
                         try:
                             ccur = cconn.cursor()
                             ccur.execute("""
@@ -5193,7 +5034,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                             ref_cnt = rows.get("evelyn_reference", 0)
                         finally:
                             cconn.close()
-                except (sqlite3.Error, OSError):
+                except sqlite3.Error, OSError:
                     pass
                 sub_status = {
                     **(sub_status or {}),
@@ -5214,7 +5055,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         cur = conn.cursor()
                         cur.execute("SELECT COUNT(*) FROM vault_documents")
                         indexed_docs = cur.fetchone()[0]
-                    except (sqlite3.Error, OSError):
+                    except sqlite3.Error, OSError:
                         pass
                     finally:
                         conn.close()
@@ -5228,7 +5069,12 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
             elif key == "refresh_memory":
                 phase = task_data.get("phase", "Idle")
                 current_step = 1
-                if "Phase 2" in phase or "Ingest" in phase or "Knowledge" in phase or phase == "Completed successfully.":
+                if (
+                    "Phase 2" in phase
+                    or "Ingest" in phase
+                    or "Knowledge" in phase
+                    or phase == "Completed successfully."
+                ):
                     current_step = 2
 
                 vdb = str(BASE_DIR / "data" / "evelyn_vault.db")
@@ -5239,7 +5085,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         cur = conn.cursor()
                         cur.execute("SELECT COUNT(*) FROM vault_documents")
                         vault_docs_cnt = cur.fetchone()[0]
-                    except (sqlite3.Error, OSError):
+                    except sqlite3.Error, OSError:
                         pass
                     finally:
                         conn.close()
@@ -5249,9 +5095,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                 try:
                     cdb_path = str(BASE_DIR / "data" / "chroma_db" / "chroma.sqlite3")
                     if os.path.exists(cdb_path):
-                        cconn = sqlite3.connect(
-                            f"file:{cdb_path}?mode=ro", uri=True, timeout=1.0
-                        )
+                        cconn = sqlite3.connect(f"file:{cdb_path}?mode=ro", uri=True, timeout=1.0)
                         try:
                             ccur = cconn.cursor()
                             ccur.execute("""
@@ -5267,7 +5111,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                             ref_cnt = rows.get("evelyn_reference", 0)
                         finally:
                             cconn.close()
-                except (sqlite3.Error, OSError):
+                except sqlite3.Error, OSError:
                     pass
 
                 sub_status = {
@@ -5376,7 +5220,7 @@ def _enrich_extraction_with_taxonomy(item: dict) -> dict:
             item["alignment_label"] = "Related"
         else:
             item["alignment_label"] = "Novel"
-    except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError):
+    except sqlite3.Error, OSError, ValueError, KeyError, RuntimeError:
         item["suggested_tags"] = []
         item["novelty_score"] = 1.0
         item["alignment_label"] = "Novel"
@@ -5452,7 +5296,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
                         "synthesized_abstract": payload.synthesized_abstract,
                         "total_context_chars": payload.total_context_chars,
                     }
-                except (ET.ParseError, ValueError, TypeError):
+                except ET.ParseError, ValueError, TypeError:
                     p["parsed_payload"] = None
 
             if p.get("type") == "profile_update":
@@ -5539,13 +5383,10 @@ async def action_extraction(
             await asyncio.to_thread(_apply_edit)
             await start_refresh_memory_internal()
     elif action == "edit" and not req:
-        raise HTTPException(
-            status_code=400, detail="Edit action requires a request body"
-        )
+        raise HTTPException(status_code=400, detail="Edit action requires a request body")
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     return {"status": "ok"}
-
 
 
 @app.get("/api/identity")
@@ -5637,7 +5478,7 @@ async def get_proposals(_: None = Depends(check_auth)):
                         "synthesized_abstract": payload.synthesized_abstract,
                         "total_context_chars": payload.total_context_chars,
                     }
-                except (ET.ParseError, ValueError, TypeError):
+                except ET.ParseError, ValueError, TypeError:
                     p["parsed_payload"] = None
         return proposals
 
@@ -5661,6 +5502,7 @@ async def action_proposal(
     from Evelyn.tools import memory_db
 
     if action == "deny":
+
         def _deny():
             proposals = memory_db.get_pending_proposals()
             prop = next((p for p in proposals if p["id"] == id), None)
@@ -5679,9 +5521,7 @@ async def action_proposal(
         return {"status": "ok"}
     elif action == "edit":
         if not req or req.modified_text is None:
-            raise HTTPException(
-                status_code=400, detail="edit requires modified_text in request body"
-            )
+            raise HTTPException(status_code=400, detail="edit requires modified_text in request body")
         await asyncio.to_thread(memory_db.update_proposal, id, merged_observation=req.modified_text)
         return {"status": "ok"}
     elif action == "unlink_source":
@@ -5693,6 +5533,7 @@ async def action_proposal(
         await asyncio.to_thread(memory_db.remove_proposal_source_id, id, req.source_id)
         return {"status": "ok"}
     elif action in ("approve", "merge_into_master"):
+
         def _execute_approval():
             proposals = memory_db.get_pending_proposals()
 
@@ -5700,11 +5541,7 @@ async def action_proposal(
             if not prop:
                 raise HTTPException(status_code=404, detail="Proposal not found")
 
-            final_text = (
-                req.modified_text
-                if (req and req.modified_text is not None)
-                else prop["merged_observation"]
-            )
+            final_text = req.modified_text if (req and req.modified_text is not None) else prop["merged_observation"]
 
             source_entries = []
             for eid in prop.get("source_ids", []):
@@ -5755,6 +5592,7 @@ async def action_proposal(
                         target_master_id = int(prop["suggested_category"])
                     else:
                         from Evelyn.tools import procedure_matcher
+
                         source_procs = [memory_db.get_procedure(eid) for eid in source_ids]
                         valid_sources = [p for p in source_procs if p]
                         cluster_master = procedure_matcher.identify_cluster_master(valid_sources)
@@ -5778,35 +5616,25 @@ async def action_proposal(
                                 source_tags_set.add(cleaned_t)
                 try:
                     parsed_proc = yaml.safe_load(final_text)
-                except (yaml.YAMLError, ValueError, TypeError):
+                except yaml.YAMLError, ValueError, TypeError:
                     parsed_proc = {}
                 new_proc_id = None
                 if isinstance(parsed_proc, dict) and "trigger_pattern" in parsed_proc:
                     proc_tags = parsed_proc.get("tags")
                     if isinstance(proc_tags, list):
-                        proc_tags_str = ", ".join(
-                            [str(t).strip() for t in proc_tags if str(t).strip()]
-                        )
+                        proc_tags_str = ", ".join([str(t).strip() for t in proc_tags if str(t).strip()])
                     else:
-                        proc_tags_str = (
-                            str(proc_tags).strip() if proc_tags is not None else ""
-                        )
+                        proc_tags_str = str(proc_tags).strip() if proc_tags is not None else ""
 
-                    parsed_tags_set = {
-                        t.strip().lower() for t in proc_tags_str.split(",") if t.strip()
-                    }
+                    parsed_tags_set = {t.strip().lower() for t in proc_tags_str.split(",") if t.strip()}
                     if not proc_tags_str or parsed_tags_set.issubset(
                         {"procedure", "merged", "merge", "split", "consolidated", "none"}
                     ):
                         final_tags = (
-                            ", ".join(sorted(source_tags_set))
-                            if source_tags_set
-                            else (proc_tags_str or "procedure")
+                            ", ".join(sorted(source_tags_set)) if source_tags_set else (proc_tags_str or "procedure")
                         )
                     else:
-                        combined = {
-                            t.strip() for t in proc_tags_str.split(",") if t.strip()
-                        }
+                        combined = {t.strip() for t in proc_tags_str.split(",") if t.strip()}
                         combined.update(source_tags_set)
                         if len(combined) > 1:
                             combined = {
@@ -5822,9 +5650,7 @@ async def action_proposal(
                                     "none",
                                 )
                             }
-                        final_tags = (
-                            ", ".join(sorted(combined)) if combined else "procedure"
-                        )
+                        final_tags = ", ".join(sorted(combined)) if combined else "procedure"
 
                     if target_master_id:
                         memory_db.update_procedure(
@@ -5871,7 +5697,7 @@ async def action_proposal(
                         if isinstance(parsed_data, dict)
                         else (parsed_data if isinstance(parsed_data, list) else [])
                     )
-                except (yaml.YAMLError, ValueError, TypeError):
+                except yaml.YAMLError, ValueError, TypeError:
                     child_procs = []
                 for cp in child_procs:
                     if isinstance(cp, dict) and "trigger_pattern" in cp:
@@ -5900,7 +5726,7 @@ async def action_proposal(
                             child_entries = parsed_splits
                         else:
                             child_entries = []
-                    except (yaml.YAMLError, ValueError, TypeError):
+                    except yaml.YAMLError, ValueError, TypeError:
                         child_entries = []
                     if child_entries:
                         memory_db.split_entry(source_id, child_entries)
@@ -5956,14 +5782,8 @@ async def action_proposal(
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
 
-                source_stem = (
-                    os.path.splitext(os.path.basename(source_path))[0]
-                    if source_path
-                    else "Vault"
-                )
-                gist_text = (
-                    f"Conceptual entity stub for [[{clean_target}]], referenced from [[{source_stem}]]."
-                )
+                source_stem = os.path.splitext(os.path.basename(source_path))[0] if source_path else "Vault"
+                gist_text = f"Conceptual entity stub for [[{clean_target}]], referenced from [[{source_stem}]]."
                 new_mtime = os.path.getmtime(dest_path)
 
                 vault_db.upsert_document(
@@ -5976,9 +5796,7 @@ async def action_proposal(
                     tags="stub,concept",
                     aliases="",
                 )
-                vault_db.update_document_librarian_audit(
-                    target_filename, ghost_count=0, mtime=new_mtime
-                )
+                vault_db.update_document_librarian_audit(target_filename, ghost_count=0, mtime=new_mtime)
 
                 subprocess.run(
                     [sys.executable, "scripts/update_frontmatter.py", dest_path],
@@ -6010,9 +5828,7 @@ class SplitApplyRequest(BaseModel):
 
 
 @app.post("/api/context/split_preview")
-async def preview_context_split(
-    req: SplitPreviewRequest, _: None = Depends(check_auth)
-):
+async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(check_auth)):
     """Decompose a compound or over-merged context entry into atomic child entries."""
     from Evelyn.tools import fact_extractor, memory_db
     from Evelyn.tools.tag_librarian import normalize_tag_format
@@ -6031,9 +5847,7 @@ async def preview_context_split(
             tags = tags or entry.get("tags")
 
     if not obs or not obs.strip():
-        raise HTTPException(
-            status_code=400, detail="Observation text is required for split preview"
-        )
+        raise HTTPException(status_code=400, detail="Observation text is required for split preview")
 
     cat00 = fact_extractor.load_cat00_index()
 
@@ -6075,21 +5889,15 @@ async def preview_context_split(
 
     import yaml
 
-    match = re.search(
-        r"```(?:yaml)?\s*\n(.*?)```", raw_response, re.DOTALL | re.IGNORECASE
-    )
+    match = re.search(r"```(?:yaml)?\s*\n(.*?)```", raw_response, re.DOTALL | re.IGNORECASE)
     block = match.group(1) if match else raw_response
     try:
         data = yaml.safe_load(block)
-    except (yaml.YAMLError, ValueError, TypeError):
+    except yaml.YAMLError, ValueError, TypeError:
         data = None
 
     entries_list = []
-    if (
-        isinstance(data, dict)
-        and "entries" in data
-        and isinstance(data["entries"], list)
-    ):
+    if isinstance(data, dict) and "entries" in data and isinstance(data["entries"], list):
         entries_list = data["entries"]
     elif isinstance(data, list):
         entries_list = data
@@ -6101,14 +5909,10 @@ async def preview_context_split(
         c_obs = str(item.get("observation", "")).strip()
         if not c_obs:
             continue
-        c_cat = str(
-            item.get("category", cat or f"Cat05-{cfg.SUBJECT_CODE_USER}")
-        ).strip()
+        c_cat = str(item.get("category", cat or f"Cat05-{cfg.SUBJECT_CODE_USER}")).strip()
         c_subj = str(item.get("subject", subj or cfg.USER_NAME)).strip()
         raw_t = str(item.get("tags", tags or "")).strip()
-        norm_t = ", ".join(
-            [normalize_tag_format(t) for t in raw_t.split(",") if t.strip()]
-        )
+        norm_t = ", ".join([normalize_tag_format(t) for t in raw_t.split(",") if t.strip()])
 
         split_dict = {
             "category": c_cat,
@@ -6136,9 +5940,7 @@ async def apply_context_split(req: SplitApplyRequest, _: None = Depends(check_au
     from Evelyn.tools import memory_db
 
     if not req.entries:
-        raise HTTPException(
-            status_code=400, detail="At least one child entry is required to split"
-        )
+        raise HTTPException(status_code=400, detail="At least one child entry is required to split")
 
     new_ids = memory_db.split_entry(req.source_id, req.entries)
     await start_refresh_memory_internal()
@@ -6155,9 +5957,7 @@ async def queue_context_split(id: int, _: None = Depends(check_auth)):
         raise HTTPException(status_code=404, detail="Context entry not found")
     success = memory_db.enqueue_split(id)
     if not success:
-        raise HTTPException(
-            status_code=500, detail="Failed to enqueue context entry for split"
-        )
+        raise HTTPException(status_code=500, detail="Failed to enqueue context entry for split")
     return {"status": "ok", "entry_id": id, "queued": True}
 
 
@@ -6270,9 +6070,7 @@ async def action_procedure(
 
         success = await asyncio.to_thread(memory_db.update_procedure, id, **update_fields)
         if not success:
-            raise HTTPException(
-                status_code=404, detail="Procedure not found or not updated"
-            )
+            raise HTTPException(status_code=404, detail="Procedure not found or not updated")
         return {"status": "ok"}
     elif action == "approve":
         update_fields: dict[str, Any] = {}
@@ -6293,13 +6091,10 @@ async def action_procedure(
         update_fields["status"] = "live"
         success = await asyncio.to_thread(memory_db.update_procedure, id, **update_fields)
         if not success:
-            raise HTTPException(
-                status_code=404, detail="Procedure not found or not updated"
-            )
+            raise HTTPException(status_code=404, detail="Procedure not found or not updated")
         return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
-
 
 
 @app.get("/api/procedures")
@@ -6318,9 +6113,7 @@ async def get_procedures(status: str | None = None, _: None = Depends(check_auth
 
 
 @app.patch("/api/procedures/{id}")
-async def patch_procedure(
-    id: int, body: ProcedureUpdateRequest, _: None = Depends(check_auth)
-):
+async def patch_procedure(id: int, body: ProcedureUpdateRequest, _: None = Depends(check_auth)):
     """Update fields of an existing procedure."""
     from Evelyn.tools import memory_db
 
@@ -6363,9 +6156,7 @@ async def patch_procedure(
 
 
 @app.post("/api/procedures/queue_merge")
-async def queue_procedure_merge(
-    req: ProcedureQueueMergeRequest, _: None = Depends(check_auth)
-):
+async def queue_procedure_merge(req: ProcedureQueueMergeRequest, _: None = Depends(check_auth)):
     """Enqueue multiple procedure IDs to be merged in the background."""
     from Evelyn.tools import memory_db
 
@@ -6433,16 +6224,11 @@ class ApprovalStatusRequest(BaseModel):
 
 
 @app.post("/api/terminal/status")
-async def get_multiple_approvals_status(
-    body: ApprovalStatusRequest, _: None = Depends(check_auth)
-):
+async def get_multiple_approvals_status(body: ApprovalStatusRequest, _: None = Depends(check_auth)):
     """Get the status of multiple approval IDs in bulk."""
     from Evelyn.tools import terminal_agent
 
-    return {
-        approval_id: terminal_agent.get_approval_status(approval_id)
-        for approval_id in body.ids
-    }
+    return {approval_id: terminal_agent.get_approval_status(approval_id) for approval_id in body.ids}
 
 
 @app.get("/api/terminal/details/{approval_id}")
@@ -6452,9 +6238,7 @@ async def get_approval_details(approval_id: str, _: None = Depends(check_auth)):
 
     details = terminal_agent.get_approval_details(approval_id)
     if not details:
-        raise HTTPException(
-            status_code=404, detail="Approval request not found or expired"
-        )
+        raise HTTPException(status_code=404, detail="Approval request not found or expired")
     return details
 
 
@@ -6513,9 +6297,7 @@ async def upload_document_staging(
         )
 
     staging_dir = (
-        pdf_staging_worker.FULL_EXTRACTION_STAGING
-        if mode == "full"
-        else pdf_staging_worker.SIDECAR_ONLY_STAGING
+        pdf_staging_worker.FULL_EXTRACTION_STAGING if mode == "full" else pdf_staging_worker.SIDECAR_ONLY_STAGING
     )
     staging_dir.mkdir(parents=True, exist_ok=True)
     target_path = staging_dir / filename
@@ -6539,9 +6321,7 @@ async def upload_document_staging(
         loop = asyncio.get_running_loop()
         loop.run_in_executor(None, pdf_staging_worker.process_staging_queue)
     except (RuntimeError, OSError) as e:
-        print(
-            f"[SERVER WARNING] Failed to trigger async staging worker: {e}", flush=True
-        )
+        print(f"[SERVER WARNING] Failed to trigger async staging worker: {e}", flush=True)
 
     return {
         "status": "queued",
@@ -6688,9 +6468,7 @@ async def get_librarian_status(_: None = Depends(check_auth)):
 
     try:
         summary = await asyncio.to_thread(vault_db.get_librarian_status_summary)
-        recent = await asyncio.to_thread(
-            vault_db.fetch_recent_librarian_curations, limit=10, unreflected_only=False
-        )
+        recent = await asyncio.to_thread(vault_db.fetch_recent_librarian_curations, limit=10, unreflected_only=False)
         return {
             "status": "ok",
             **summary,
@@ -6713,9 +6491,7 @@ async def trigger_librarian_audit(
             detail="A heavy background task is currently running. Try again when idle.",
         )
 
-    t_ml = asyncio.create_task(
-        run_master_librarian_task(batch_size=batch_size, max_batches=max_batches)
-    )
+    t_ml = asyncio.create_task(run_master_librarian_task(batch_size=batch_size, max_batches=max_batches))
     _server_background_tasks.add(t_ml)
     t_ml.add_done_callback(_server_background_tasks.discard)
     return {"status": "started", "batch_size": batch_size, "max_batches": max_batches}
@@ -6728,18 +6504,12 @@ if __name__ == "__main__":
 
     SSL_KEY = getattr(cfg, "SSL_KEY", os.environ.get("EVELYN_SSL_KEY", "server.key"))
     SSL_CERT = getattr(cfg, "SSL_CERT", os.environ.get("EVELYN_SSL_CERT", "server.crt"))
-    ssl_keyfile = (
-        SSL_KEY if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT) else None
-    )
-    ssl_certfile = (
-        SSL_CERT if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT) else None
-    )
+    ssl_keyfile = SSL_KEY if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT) else None
+    ssl_certfile = SSL_CERT if os.path.exists(SSL_KEY) and os.path.exists(SSL_CERT) else None
     if ssl_keyfile and ssl_certfile:
         print(f"SSL certs found ({SSL_CERT}) -- starting with HTTPS")
     else:
-        print(
-            "No SSL certs found -- starting with plain HTTP (fine for Tailscale / localhost)"
-        )
+        print("No SSL certs found -- starting with plain HTTP (fine for Tailscale / localhost)")
 
     uvicorn.run(
         "evelyn_server:app",
