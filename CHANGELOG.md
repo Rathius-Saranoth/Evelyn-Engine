@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-11 17:46:26
+date modified: 2026-09-11 20:55:14
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.107] - 2026-09-11 — *Proactive Rhythm Prompt Tuning & Deliberative Thinking Scratchpad*
+
+### Added & Enhanced
+- **Deliberative Thinking Scratchpad Directive (`evelyn_server.py`)**:
+  - Injected standardized `<interaction_rhythm>` directive into `load_system_prompt()`, structuring the model's native `<think>` buffer across three stages: Direct Intent, Proactive Horizon (identifying adjacent friction points and unasked implications), and Adaptive Pacing.
+  - Parameterized operator references with `{cfg.USER_NAME}` to adhere to Rule 4 identity standards.
+- **Model Sampling Suite Optimization (`evelyn_config.py`)**:
+  - Calibrated Ollama generation options for Gemma 4 native thinking: lowered `TEMPERATURE` to `0.70` (preventing high-entropy drift and corporate cheerleader tropes while retaining creative phrasing), adjusted `MIN_P` to `0.08` to cleanly truncate the noisy long-tail distribution, set `TOP_K` to `40`, and tuned `TOP_P` to `0.90`.
+  - Expanded `REPEAT_LAST_N` to `96` and `REPEAT_PENALTY` to `1.12` to eliminate repetitive conversational endings and recurring boilerplate.
+- **Persona Triad & Directives Refinement (`Evelyn/persona/`)**:
+  - Refactored `System_Directives.md` under `## Conversation & Formatting` to replace the rigid 2–3 sentence clamp with flexible collaborative pacing and proactive partner engagement guidelines, while retaining low-energy and fatigue protection.
+  - Harmonized `Assistant_Profile.md` under `## Voice & Communication` with continuous narrative prose capturing direct answers, operational edge-case follow-through, and brainstorming choices without violating structural narrative purity invariants.
+- **Roadmap Architectural Planning (`ROADMAP.md`)**:
+  - Added discrete roadmap capability item for `Profile Evolution Protected Sections` under Phase 3 (Agency & Tools) with configurable invariants (`PROTECTED_SECTIONS` in `evelyn_config.py`).
+  - Integrated protected section management into the Phase 4 `Dynamic Configuration Manager (dev.html)` milestone.
 
 ## [000.006.106] - 2026-09-11 — *Syncthing Mesh Migration & Deployment Infrastructure Documentation*
 

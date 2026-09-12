@@ -35,7 +35,7 @@ def _load_dotenv(filepath: str) -> None:
                 v = v.strip().strip("'\"")
                 if k and k not in os.environ:
                     os.environ[k] = v
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         pass
 
 
@@ -64,13 +64,13 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 # in prompts, memory taxonomy, UI labels, and persona file lookups.
 # Change these to personalize your instance.
 
-ASSISTANT_NAME = "Evelyn"    # The AI companion's name
-USER_NAME = "Ricky"          # The human operator's name
+ASSISTANT_NAME = "Evelyn"  # The AI companion's name
+USER_NAME = "Ricky"  # The human operator's name
 
 # Subject codes used in memory taxonomy (Cat01-U, Cat01-A, etc.)
 # These are abstract identifiers — they map to USER_NAME / ASSISTANT_NAME
 # in display contexts.
-SUBJECT_CODE_USER = "U"       # Migrated from "R" (User)
+SUBJECT_CODE_USER = "U"  # Migrated from "R" (User)
 SUBJECT_CODE_ASSISTANT = "A"  # Migrated from "E" (Assistant)
 
 # Legacy or alternate user names/aliases to harmonize during database migrations
@@ -101,40 +101,31 @@ NUM_CTX = 16384
 THINK = "medium"
 
 # =============================================================================
-# Model Parameters  (passed to Ollama's "options" dict on every request)
-# Set a value to None to omit it and let Ollama use its built-in default.
-# Docs: https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values
+# Model Parameters (passed to Ollama's "options" dict on every request)
 # =============================================================================
 
-# Temperature — controls randomness. Lower = more deterministic.
-# Range: 0.0–2.0  |  Ollama default: 0.8 | Tested: 1.1 (too random) | Tested: 0.9 (very cheerleader)
-# Recommended Gemma 4 default: 1.0 (Old value: 0.8)
-TEMPERATURE = 1.0
+# Temperature — controls randomness. Lower = more focused and structured.
+# For Gemma 4 with native thinking, 0.65 - 0.75 gives grounded conversational
+# follow-through without sliding into corporate cheerleader tropes.
+TEMPERATURE = 0.70
 
-# Min-P — minimum probability relative to the top token. Trims the long tail
-# of unlikely tokens cheaply, which noticeably speeds up generation.
-# Range: 0.0–1.0  |  Ollama default: 0.0 (disabled)
-MIN_P = 0.05
+# Min-P — minimum probability relative to the top token.
+# 0.08 - 0.10 cleanly lops off the unpredictable long-tail noise that causes
+# conversational drift and hallmark model leak tokens.
+MIN_P = 0.08
 
-# Top-K — limits the pool to the K most likely tokens. 0 = disabled.
-# Recommended Gemma 4 default: 64 (Old value: 40)
-# Range: 0–∞      |  Ollama default: 40
-TOP_K = 64
+# Top-K — limits the pool to the K most likely tokens.
+# 40 keeps vocabulary rich without considering fringe distractors.
+TOP_K = 40
 
 # Top-P (nucleus sampling) — cumulative probability cutoff.
-# Recommended Gemma 4 default: 0.95 (Old value: 0.9)
-# Range: 0.0–1.0  |  Ollama default: 0.9
-TOP_P = 0.95
+TOP_P = 0.90
 
-# Repeat penalty — discourages repeating tokens that appeared recently.
-# Values > 1.0 penalize repeats; 1.0 = disabled.
-# Range: 0.0–2.0  |  Ollama default: 1.1
-REPEAT_PENALTY = 1.1
+# Repeat penalty — discourages looping patterns in thoughts and endings.
+REPEAT_PENALTY = 1.12
 
-# Repeat last N — how many tokens back to scan for the repeat penalty.
-# 0 = disabled, -1 = full context window.
-# Range: 0–num_ctx  |  Ollama default: 64
-REPEAT_LAST_N = 64
+# Repeat last N — how many tokens back to scan for repeat penalty.
+REPEAT_LAST_N = 96
 
 # Seed — set to a fixed integer for reproducible outputs, 0 for random.
 # Range: 0–2^32     |  Ollama default: 0 (random)
@@ -246,18 +237,18 @@ SUMMARY_MODEL_OVERRIDE = "default"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 TOOLS_DIR = os.path.join(BASE_DIR, "Evelyn", "tools")
-VAULT_BASE_DIR = os.path.expanduser("~/obsidian_vault") # [[Obsidian_Vault]]
-PERSONA_DIR = os.path.join(BASE_DIR, "Evelyn", "persona") # [[persona]]
+VAULT_BASE_DIR = os.path.expanduser("~/obsidian_vault")  # [[Obsidian_Vault]]
+PERSONA_DIR = os.path.join(BASE_DIR, "Evelyn", "persona")  # [[persona]]
 
-VAULT_DB_PATH = os.path.join(DATA_DIR, "evelyn_vault.db") # [[evelyn_vault.db]]
-VAULT_SYNC_STATE = os.path.join(DATA_DIR, "vault_sync_state.json") # [[vault_sync_state.json]]
-REFERENCE_SYNC_STATE = os.path.join(DATA_DIR, "reference_sync_state.json") # [[reference_sync_state.json]]
-GIST_SYNC_STATE = os.path.join(DATA_DIR, "gist_sync_state.json") # [[gist_sync_state.json]]
-CHROMA_DB_PATH = os.path.join(DATA_DIR, "chroma_db") # [[chroma_db]]
-CHAT_DB_PATH = os.path.join(DATA_DIR, "evelyn_chat.db") # [[evelyn_chat.db]]
-MEMORY_DB_PATH = os.path.join(DATA_DIR, "evelyn_memory.db") # [[evelyn_memory.db]]
-MEDIA_DB_PATH = os.path.join(DATA_DIR, "evelyn_media.db") # [[evelyn_media.db]]
-ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments") # [[attachments]]
+VAULT_DB_PATH = os.path.join(DATA_DIR, "evelyn_vault.db")  # [[evelyn_vault.db]]
+VAULT_SYNC_STATE = os.path.join(DATA_DIR, "vault_sync_state.json")  # [[vault_sync_state.json]]
+REFERENCE_SYNC_STATE = os.path.join(DATA_DIR, "reference_sync_state.json")  # [[reference_sync_state.json]]
+GIST_SYNC_STATE = os.path.join(DATA_DIR, "gist_sync_state.json")  # [[gist_sync_state.json]]
+CHROMA_DB_PATH = os.path.join(DATA_DIR, "chroma_db")  # [[chroma_db]]
+CHAT_DB_PATH = os.path.join(DATA_DIR, "evelyn_chat.db")  # [[evelyn_chat.db]]
+MEMORY_DB_PATH = os.path.join(DATA_DIR, "evelyn_memory.db")  # [[evelyn_memory.db]]
+MEDIA_DB_PATH = os.path.join(DATA_DIR, "evelyn_media.db")  # [[evelyn_media.db]]
+ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")  # [[attachments]]
 GCAL_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gcal_credentials.json")
 GCAL_TOKEN_PATH = os.path.join(DATA_DIR, "gcal_token.json")
 GDRIVE_CREDENTIALS_PATH = os.path.join(DATA_DIR, "gdrive_credentials.json")
@@ -317,11 +308,11 @@ OURA_TOKEN_PATH = os.path.join(DATA_DIR, "oura_token.json")
 # Standard    (16-32GB RAM, desktop): mmap=512MB, cache=32MB  ← Active (Ricky-PC WSL2)
 # Light Tier  (8-16GB RAM, laptop):  mmap=256MB, cache=16MB
 SQLITE_PRAGMAS = [
-    "PRAGMA journal_mode=WAL;",       # Enable WAL for concurrent non-blocking reads/writes
-    "PRAGMA synchronous=NORMAL;",     # Optimal disk flush balance under WAL mode
-    "PRAGMA mmap_size=536870912;",    # 512 MB Memory-mapped I/O (mmap) for zero-copy file reads
-    "PRAGMA cache_size=-32000;",      # 32 MB DRAM page cache per connection
-    "PRAGMA temp_store=MEMORY;",      # Store intermediate result sets in DRAM
+    "PRAGMA journal_mode=WAL;",  # Enable WAL for concurrent non-blocking reads/writes
+    "PRAGMA synchronous=NORMAL;",  # Optimal disk flush balance under WAL mode
+    "PRAGMA mmap_size=536870912;",  # 512 MB Memory-mapped I/O (mmap) for zero-copy file reads
+    "PRAGMA cache_size=-32000;",  # 32 MB DRAM page cache per connection
+    "PRAGMA temp_store=MEMORY;",  # Store intermediate result sets in DRAM
 ]
 
 # Official category names — dynamically generated for consolidator, reviewer, and fact extractor.
@@ -391,9 +382,9 @@ RAG_EXCLUDE_TAGS = {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"}
 # cosine distance adjusted by these factors before threshold filtering.
 # Lower multiplier = effectively closer = higher rank. All others unaffected.
 RAG_PRIORITY_MULTIPLIERS = {
-    "high":   0.75,  # Move 25% closer — boosted docs rise above equal competitors
-    "normal": 1.0,   # No change
-    "low":    1.25,  # Push slightly further — de-prioritised docs
+    "high": 0.75,  # Move 25% closer — boosted docs rise above equal competitors
+    "normal": 1.0,  # No change
+    "low": 1.25,  # Push slightly further — de-prioritised docs
 }
 
 # Max chunks to guaranteed-inject per pinned document.
@@ -404,9 +395,9 @@ RAG_PINNED_MAX_CHUNKS = 2
 # Direct semantic search on dense embeddings (bge-large-en-v1.5) provides 15x faster
 # retrieval (85ms vs 1266ms) with parity in similarity, eliminating pre-search GPU stalls.
 # Set True only if experimenting with synchronous LLM keyword rewrites.
-RAG_REFORMULATE_ENABLED = False   # Master switch — False = direct zero-latency semantic search
-RAG_REFORMULATE_MIN_WORDS = 4     # Skip reformulation for messages with fewer words
-RAG_REFORMULATE_TIMEOUT = 10      # Seconds before falling back to raw message
+RAG_REFORMULATE_ENABLED = False  # Master switch — False = direct zero-latency semantic search
+RAG_REFORMULATE_MIN_WORDS = 4  # Skip reformulation for messages with fewer words
+RAG_REFORMULATE_TIMEOUT = 10  # Seconds before falling back to raw message
 
 # =============================================================================
 # Entry Management
@@ -431,7 +422,7 @@ AUTO_JOURNAL_IDLE_THRESHOLD = 5400  # 90 minutes
 # Late-night circadian window (local hours) when auto-journaling is allowed to fire.
 # Spans late evening to early morning (e.g. 23:00 to 04:00).
 AUTO_JOURNAL_START_HOUR = 23  # 11:00 PM
-AUTO_JOURNAL_END_HOUR = 4    # 4:00 AM
+AUTO_JOURNAL_END_HOUR = 4  # 4:00 AM
 
 # Minimum number of valid conversation messages that must have occurred today for
 # auto-journaling to trigger (prevents generating hollow entries on zero-activity days).
@@ -453,8 +444,8 @@ AMBIENT_REFLECTIONS_CHECK_INTERVAL = 1800  # 30 minutes
 AMBIENT_REFLECTIONS_MIN_IDLE_SECONDS = 7200  # 2 hours
 
 # Daytime diurnal window (local hours) when thought reflections are permitted to fire.
-AMBIENT_REFLECTIONS_START_HOUR = 9   # 9:00 AM
-AMBIENT_REFLECTIONS_END_HOUR = 21    # 9:00 PM
+AMBIENT_REFLECTIONS_START_HOUR = 9  # 9:00 AM
+AMBIENT_REFLECTIONS_END_HOUR = 21  # 9:00 PM
 
 # Maximum number of spontaneous thought bubbles allowed per local calendar day.
 AMBIENT_REFLECTIONS_MAX_THOUGHTS_PER_DAY = 3
@@ -577,7 +568,7 @@ IDLE_DISPATCHER_THRESHOLD = 300  # 5 minutes
 # Circadian window for Digital Dreaming / Nocturnal heavy tasks (consolidation, evolution).
 # Overnight hours (local time, defined by USER_TIMEZONE).
 DREAMING_ACTIVE_HOURS_START = 21  # 21:00 (9:00 PM) local time
-DREAMING_ACTIVE_HOURS_END   = 6   # 06:00 (6:00 AM) local time
+DREAMING_ACTIVE_HOURS_END = 6  # 06:00 (6:00 AM) local time
 
 # Persistent task queue state file
 TASK_QUEUE_STATE_FILE = os.path.join(DATA_DIR, "evelyn_task_queue.json")
@@ -635,7 +626,7 @@ CONSOLIDATION_IDLE_CHECK_INTERVAL = 300  # 5 minutes
 
 # Minimum seconds between consolidation runs. Prevents back-to-back passes.
 # Default: 5 minutes. The consolidator tracks its own last-run timestamp.
-CONSOLIDATION_COOLDOWN = 300 # 5 minutes
+CONSOLIDATION_COOLDOWN = 300  # 5 minutes
 
 # Maximum number of conflict clusters to process per run.
 # Each cluster = one LLM call (detect) + one LLM call (merge). Keep low
@@ -762,8 +753,8 @@ RESEARCH_MODEL = "default"
 # Outside this window, tasks pause cleanly at the next step boundary and resume in the morning.
 # Intention: reserve overnight hours for evolution/consolidation tasks, mimicking
 # a human sleep/dream cycle where memory consolidation happens during rest.
-RESEARCH_ACTIVE_HOURS_START = 6   # 06:00 local time
-RESEARCH_ACTIVE_HOURS_END   = 21  # 21:00 local time
+RESEARCH_ACTIVE_HOURS_START = 6  # 06:00 local time
+RESEARCH_ACTIVE_HOURS_END = 21  # 21:00 local time
 
 # Maximum queued self-initiated topics. Prevents runaway queue growth.
 RESEARCH_MAX_QUEUE_SIZE = 5
@@ -800,7 +791,7 @@ ALLOWED_ORIGINS = [
     f"https://127.0.0.1:{SERVER_PORT}",
     f"http://localhost:{SERVER_PORT}",
     f"https://localhost:{SERVER_PORT}",
-    *_extra_origins
+    *_extra_origins,
 ]
 
 # =============================================================================
@@ -883,8 +874,8 @@ TERMINAL_ALLOWED_PATHS = [
     VAULT_BASE_DIR,
 ]
 
-TERMINAL_DEFAULT_TIMEOUT = 30      # seconds
-TERMINAL_MAX_TIMEOUT = 300         # 5 minutes max
+TERMINAL_DEFAULT_TIMEOUT = 30  # seconds
+TERMINAL_MAX_TIMEOUT = 300  # 5 minutes max
 TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 
 
@@ -894,7 +885,7 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 TAG_LIBRARIAN_ENABLED = True
 # Wave 4 idle trigger (20 minutes / 1200s). Staggered after deep research.
 TAG_LIBRARIAN_IDLE_THRESHOLD = 1200  # 20 minutes idle (Wave 4)
-TAG_LIBRARIAN_BATCH_SIZE = 5         # Process 5 documents per idle trigger
+TAG_LIBRARIAN_BATCH_SIZE = 5  # Process 5 documents per idle trigger
 
 # Specific document relative paths excluded from Tag Librarian auditing
 TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
@@ -905,40 +896,37 @@ TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
 # CY-YYYY/MM/DD is strictly protected.
 TAG_LIBRARIAN_EXCLUSIONS = [
     r"^CY-\d{4}/\d{2}/\d{2}$",  # Calendar year/month/day tags (e.g. CY-2026/08/02)
-    r"^status/",                 # System status tags
-    r"^kanban",                  # Kanban board tags
+    r"^status/",  # System status tags
+    r"^kanban",  # Kanban board tags
 ]
 
 # Tag formatting standards
 TAG_LIBRARIAN_FORMAT_RULES = {
-    "default_multi_word": "hyphen",   # "acceptable-use", "habit-tracking"
-    "entity_multi_word": "underscore", # "John_Smith", "Evelyn_Engine"
-    "lowercase_subpaths": True,       # "tech/python/fastapi"
+    "default_multi_word": "hyphen",  # "acceptable-use", "habit-tracking"
+    "entity_multi_word": "underscore",  # "John_Smith", "Evelyn_Engine"
+    "lowercase_subpaths": True,  # "tech/python/fastapi"
 }
 
 # Chroma Vector Tag Taxonomy Settings (Tag RAG)
 CHROMA_TAG_COLLECTION = "evelyn_tag_taxonomy"
 CHROMA_MEDIA_COLLECTION = "evelyn_media"
-TAG_LIBRARIAN_TOP_K_TAGS = 35           # Max semantically matched master tags to retrieve
-TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55   # Cosine distance above which a note domain is deemed novel
+TAG_LIBRARIAN_TOP_K_TAGS = 35  # Max semantically matched master tags to retrieve
+TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55  # Cosine distance above which a note domain is deemed novel
 
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)
 # =============================================================================
 MASTER_LIBRARIAN_ENABLED = True
-MASTER_LIBRARIAN_IDLE_THRESHOLD = 300   # 5 minutes idle (Reflex tier)
-MASTER_LIBRARIAN_BATCH_SIZE = 5         # Process 5 documents per idle burst
-LIBRARIAN_FOLDER_BATCH_CAP = 5          # Max docs processed per directory cluster per run
-LIBRARIAN_AUDIT_COOLDOWN_SECONDS = 3600 # 1 hour minimum before re-auditing clean notes
-LIBRARIAN_GHOST_STUB_MIN_REFS = 2             # Minimum references across vault for stub qualification
-LIBRARIAN_GHOST_STUB_MIN_CONTEXT_CHARS = 200 # Minimum combined context characters across notes
+MASTER_LIBRARIAN_IDLE_THRESHOLD = 300  # 5 minutes idle (Reflex tier)
+MASTER_LIBRARIAN_BATCH_SIZE = 5  # Process 5 documents per idle burst
+LIBRARIAN_FOLDER_BATCH_CAP = 5  # Max docs processed per directory cluster per run
+LIBRARIAN_AUDIT_COOLDOWN_SECONDS = 3600  # 1 hour minimum before re-auditing clean notes
+LIBRARIAN_GHOST_STUB_MIN_REFS = 2  # Minimum references across vault for stub qualification
+LIBRARIAN_GHOST_STUB_MIN_CONTEXT_CHARS = 200  # Minimum combined context characters across notes
 LIBRARIAN_GHOST_STUB_MIN_SNIPPET_CHARS = 60  # Minimum single-excerpt context threshold
-LIBRARIAN_STUB_LLM_SYNTHESIS = True          # Enable local Ollama synthesis for multi-reference stub abstracts
-LIBRARIAN_STUB_MAX_HARVEST_REFS = 12         # Maximum referencing notes to harvest per entity stub
-MASTER_LIBRARIAN_AUTO_STUBS = False     # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
+LIBRARIAN_STUB_LLM_SYNTHESIS = True  # Enable local Ollama synthesis for multi-reference stub abstracts
+LIBRARIAN_STUB_MAX_HARVEST_REFS = 12  # Maximum referencing notes to harvest per entity stub
+MASTER_LIBRARIAN_AUTO_STUBS = False  # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",
 ]
-
-
-
