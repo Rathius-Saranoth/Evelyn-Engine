@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-12 10:16:27
+date modified: 2026-09-12 11:02:14
 ---
 # Evelyn Engine Architecture Map
 
@@ -167,7 +167,7 @@ Enables fully autonomous, multi-step search and information synthesis in the bac
 
 ### 2.5 Active Runtime Agents & Tools
 Standalone background processes and tools loaded dynamically by the model during chat execution.
-* **[[evelyn_tools.py]]**: Definitive tool definitions library containing 23 active model tools (`write_journal_entry`, `generate_image`, `web_search`, `read_url`, `start_research`, `list_research_tasks`, `inspect_research_task`, `guide_research`, `check_new_research`, `search_history`, `create_calendar_event`, `delete_calendar_event`, `sync_google_calendar`, `create_task`, `complete_task`, `delete_task`, `list_tasks`, `sync_google_tasks`, `get_agenda`, `manage_vault_list`, `run_command`, `read_file`, `write_file`). Features defensive parameter sanitization for Gemma 4 12B, conversational URL intercept routing in `web_search`, query sanitization, and in-memory TTL caching. Contains `_log_deprecation()` which logs yellow console warnings and appends full tracebacks to `data/deprecation_warnings.log` whenever deprecated static read tools (`search_vault`, `recall_specific_memory`, `read_journal`) are called out-of-band. Contains `_is_research_engine_running()` — the OS-level PID-based guard against duplicate research subprocess spawning.
+* **[[evelyn_tools.py]]**: Definitive tool definitions library containing 25 active model tools (`write_journal_entry`, `generate_image`, `web_search`, `read_url`, `start_research`, `list_research_tasks`, `inspect_research_task`, `guide_research`, `check_new_research`, `search_history`, `create_calendar_event`, `delete_calendar_event`, `sync_google_calendar`, `create_task`, `complete_task`, `delete_task`, `list_tasks`, `sync_google_tasks`, `get_agenda`, `manage_vault_list`, `run_command`, `read_file`, `write_file`, `search_reference_library`, `search_vault_notes`). Features defensive parameter sanitization for Gemma 4 12B, conversational URL intercept routing in `web_search`, query sanitization, and in-memory TTL caching. Contains `_log_deprecation()` which logs yellow console warnings and appends full tracebacks to `data/deprecation_warnings.log` whenever deprecated static read tools (`search_vault`, `recall_specific_memory`, `read_journal`) are called out-of-band. Contains `_is_research_engine_running()` — the OS-level PID-based guard against duplicate research subprocess spawning.
 * **[[vault_list_manager.py]]**: Obsidian Vault list and checklist manager. Parses markdown files in `cfg.LISTS_DIR`, routing items to categorized headings (`## Produce`, `## Dairy`), incrementing quantities on existing items, toggling checkboxes, and clearing completed items.
 * **[[task_manager.py]]**: Centralized heavy task registry. Canonical `is_any_running()`, `set_running()`, and `clear_running()` API used by all heavy task modules. Replaces the 4 separate `_heavy_tasks_running()` copies that previously existed across `fact_extractor`, `fact_consolidator`, `profile_evolver`, and `evelyn_server`. See §5.
 * **[[journal_manager.py]]**: Handles journal entry creation, resolution, and roll-ups. Operates via direct UTF-8 file reads and writes across vault root, structured archive (`Journal Entries/YYYY/MM-ShortMonth`), and pending quarantine folders without Obsidian process or CLI dependencies.

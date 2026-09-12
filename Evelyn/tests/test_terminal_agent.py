@@ -1,6 +1,6 @@
 # test_terminal_agent.py
 # date created: 2026-06-27 09:38:56
-# date modified: 2026-08-17 19:08:01
+# date modified: 2026-09-12 11:01:49
 # tags: #test, #verification, #terminal, #security
 
 """Unit tests for the Evelyn Terminal Agent safety, persistence, and execution logic.
@@ -263,6 +263,61 @@ class TestTerminalAgent(unittest.TestCase):
         self.assertEqual(details["id"], approval_id)
         self.assertEqual(details["content"], "# Heading\nDetailed content for preview")
         self.assertEqual(details["mode"], "overwrite")
+
+    @patch("importlib.reload")
+    @patch("terminal_agent.cfg")
+    def test_vault_auto_resolution_and_ambiguity_handling(self, mock_cfg, mock_reload):
+        """Verify hermetic vault auto-resolution, synthetic directory stripping, and ambiguity detection."""
+        vault_mock = os.path.join(self.test_dir, "vault")
+        prof_dir = os.path.join(vault_mock, "Ricky", "Professional")
+        vol1_dir = os.path.join(vault_mock, "Books", "Vol1")
+        vol2_dir = os.path.join(vault_mock, "Books", "Vol2")
+        os.makedirs(prof_dir, exist_ok=True)
+        os.makedirs(vol1_dir, exist_ok=True)
+        os.makedirs(vol2_dir, exist_ok=True)
+
+        gis_file = os.path.join(prof_dir, "GIS Tasks.md")
+        with open(gis_file, "w", encoding="utf-8") as f:
+            f.write("# GIS Tasks\nContent of GIS tasks overview.")
+
+        with open(os.path.join(vol1_dir, "Preface.md"), "w", encoding="utf-8") as f:
+            f.write("Preface Volume 1")
+
+        with open(os.path.join(vol2_dir, "Preface.md"), "w", encoding="utf-8") as f:
+            f.write("Preface Volume 2")
+
+        mock_cfg.VAULT_BASE_DIR = vault_mock
+        mock_cfg.BASE_DIR = self.test_dir
+        mock_cfg.TERMINAL_ALLOWED_PATHS = [vault_mock, self.test_dir]
+
+        # 1. Direct auto-resolution by bare note name without extension
+        match_path, ambig = terminal_agent.find_matching_vault_files("GIS Tasks")
+        self.assertEqual(match_path, gis_file)
+        self.assertEqual(ambig, [])
+
+        # 2. Auto-resolution with hallucinated synthetic prefix (e.g. Notes/Work/GIS Tasks.md)
+        match_synth, ambig_synth = terminal_agent.find_matching_vault_files("Notes/Work/GIS Tasks.md")
+        self.assertEqual(match_synth, gis_file)
+        self.assertEqual(ambig_synth, [])
+
+        # 3. Multiple candidates across directories triggers ambiguity list
+        match_pref, ambig_pref = terminal_agent.find_matching_vault_files("Preface.md")
+        self.assertIsNone(match_pref)
+        self.assertEqual(len(ambig_pref), 2)
+        self.assertIn("Books/Vol1/Preface.md", ambig_pref)
+        self.assertIn("Books/Vol2/Preface.md", ambig_pref)
+
+        # 4. read_file with bare title returns resolved content with banner
+        content = terminal_agent.read_file("GIS Tasks")
+        self.assertIn("Content of GIS tasks overview.", content)
+        self.assertIn("Resolved: Ricky/Professional/GIS Tasks.md", content)
+
+        # 5. read_file on ambiguous title returns structured candidate list
+        ambig_res = terminal_agent.read_file("Preface")
+        self.assertIn("Error: Ambiguous document reference 'Preface'", ambig_res)
+        self.assertIn("Books/Vol1/Preface.md", ambig_res)
+        self.assertIn("Books/Vol2/Preface.md", ambig_res)
+        self.assertIn("Please specify the full relative path", ambig_res)
 
 
 if __name__ == "__main__":

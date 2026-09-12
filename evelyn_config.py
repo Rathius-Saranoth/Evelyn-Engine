@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-12 10:38:07
+# date modified: 2026-09-12 11:00:41
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -211,6 +211,11 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(write|create|save|export|dump)\s+(?:to\s+)?(?:the\s+|a\s+|an\s+|this\s+|that\s+|these\s+|those\s+|my\s+|our\s+)?(file|script|code|report|note|document|doc|sheet)s?\b",
         r"\b(write|save|export|create|dump)\s+.*?\b(?:to|into)\s+(?:the\s+|a\s+|an\s+|this\s+|that\s+|my\s+)?(file|script|report|note|vault)\b",
         r"\b(write|save|export|create|dump)\b.*?\b[\w\-./]+\.(?:md|txt|py|json|csv|log|ya?ml|sh)\b",
+    ],
+    "search_vault_notes": [
+        r"\b(search|find|lookup|look\s+up|locate|discover|list)\b.*?\b(?:vault\s+)?(notes?|documents?|docs?|files?)\b",
+        r"\b(search|find|lookup|locate)\b.*?\bvault\b",
+        r"\b(find|search\s+for|where\s+is|where\s+are)\s+(?:the\s+|my\s+)?.*?(?:note|document|doc)s?\b",
     ],
     "search_reference_library": [
         r"\b(search|find|lookup|look\s+up|consult|inspect|check)\s+(?:the\s+|our\s+|a\s+)?(?:reference\s+)?(library|manual|spec|specs|documentation|guide|handbook|troubleshooting)\b",

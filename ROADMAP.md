@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-12 09:53:59
+date modified: 2026-09-12 11:02:18
 ---
 # Evelyn Project Roadmap
 
@@ -50,7 +50,7 @@ This roadmap is the primary source of truth for project milestones and future di
 
 ### Agency & Tools
 - [x] **Deep Research Engine**: Autonomous multi-step background research orchestrator with web search, intent framing, atomic query generation, source evaluation, and Obsidian Vault synthesis.
-- [x] **Code & Terminal Agency**: Scoped execution tools with security tiers (safe, approval-required, blocked), interactive Chat UI approval cards, and FastAPI terminal endpoints.
+- [x] **Code & Terminal Agency**: Scoped execution tools with security tiers, smart vault auto-resolution and note discovery, interactive Chat UI approval cards, and FastAPI terminal endpoints.
 - [x] **Profile Auto-Evolution & Factoid Ledger**: Background memory scanner proposing updates to persona, profile, and directive documents via authoritative factoid ledgers, with structured guardrails and section-aware item-level diff review in DevUI.
 - [x] **Procedural Knowledge Consolidation**: Background extraction and consolidation pipeline with lifecycle taxonomy (`live`, `merged`, `archived`), dynamic tool deduplication, and DevUI interactive master consolidation.
 - [x] **Cognitive Task Scheduling & Digital Dreaming**: Formalized 3-tier task dispatching (`REFLEX` 24/7, `DIURNAL` daytime research, `NOCTURNAL` dreaming) with preemption and timezone-aware temporal management (`time_manager`).

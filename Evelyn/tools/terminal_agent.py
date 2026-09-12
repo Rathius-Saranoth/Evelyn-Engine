@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-09-05 19:48:06
+# date modified: 2026-09-12 10:58:42
 # tags: #terminal, #tools, #agent, #safety
 
 """Terminal and file access agent tools for Evelyn.
@@ -13,6 +13,7 @@ import importlib
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -266,12 +267,125 @@ def get_approval_details(approval_id: str) -> dict | None:
     return {"id": approval_id, **item}
 
 
+def find_matching_vault_files(file_path: str) -> tuple[str | None, list[str]]:
+    """Locate a vault file matching a given relative path, filename, or document title.
+
+    Enforces a strict 4-tier disambiguation hierarchy:
+    1. Direct existence under vault or workspace.
+    2. Direct existence with .md extension appended.
+    3. Exact basename match across evelyn_vault.db and filesystem walk.
+       - If multiple matches exist across different folders, filters by any directory segments.
+       - If still ambiguous, returns (None, candidate_relative_paths).
+    4. Path traversal and boundary safety: verifies target resides within VAULT_BASE_DIR.
+
+    Args:
+        file_path: Clean or raw file path or title.
+
+    Returns:
+        tuple[str | None, list[str]]: (resolved_abs_path, ambiguous_candidate_relative_paths).
+    """
+    if not file_path:
+        return (None, [])
+
+    importlib.reload(cfg)
+    vault_base = os.path.abspath(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"))
+    evelyn_base = os.path.abspath(getattr(cfg, "BASE_DIR", r"/home/rathius/evelyn"))
+
+    def _is_vault_safe(target_abs: str) -> bool:
+        try:
+            return os.path.commonpath([target_abs, vault_base]) == vault_base and is_path_allowed(target_abs)
+        except (ValueError, OSError):
+            return False
+
+    raw = file_path.strip().strip("'\"")
+    norm = raw.replace("\\", "/").strip("/")
+    if not norm:
+        return (None, [])
+
+    # Tier 1: Direct file check
+    cand_vault = os.path.abspath(os.path.join(vault_base, norm))
+    cand_evelyn = os.path.abspath(os.path.join(evelyn_base, norm))
+    if os.path.isfile(cand_vault) and _is_vault_safe(cand_vault):
+        return (cand_vault, [])
+    if os.path.isfile(cand_evelyn) and is_path_allowed(cand_evelyn):
+        return (cand_evelyn, [])
+
+    # Tier 2: Direct with .md extension check
+    cand_vault_md = os.path.abspath(os.path.join(vault_base, f"{norm}.md"))
+    cand_evelyn_md = os.path.abspath(os.path.join(evelyn_base, f"{norm}.md"))
+    if os.path.isfile(cand_vault_md) and _is_vault_safe(cand_vault_md):
+        return (cand_vault_md, [])
+    if os.path.isfile(cand_evelyn_md) and is_path_allowed(cand_evelyn_md):
+        return (cand_evelyn_md, [])
+
+    # Tier 3: Exact Basename Resolution across Vault Database & Filesystem
+    base = os.path.basename(norm)
+    clean_stem = base[:-3] if base.lower().endswith(".md") else base
+    dir_part = os.path.dirname(norm)
+
+    candidates: list[str] = []
+
+    # 3a. Check SQLite evelyn_vault.db
+    vault_db_path = os.path.join(evelyn_base, "data", "evelyn_vault.db")
+    if os.path.exists(vault_db_path):
+        try:
+            con = sqlite3.connect(vault_db_path, timeout=5.0)
+            cur = con.cursor()
+            escaped_stem = clean_stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = """
+                SELECT path FROM vault_documents
+                WHERE (path = ? OR path = ? OR path LIKE ? ESCAPE '\\' OR title = ?)
+            """
+            rows = cur.execute(
+                query,
+                (f"{clean_stem}.md", clean_stem, f"%/{escaped_stem}.md", clean_stem),
+            ).fetchall()
+            con.close()
+            for r in rows:
+                rel = r[0].replace("\\", "/")
+                full_p = os.path.abspath(os.path.join(vault_base, rel))
+                if os.path.isfile(full_p) and _is_vault_safe(full_p) and rel not in candidates:
+                    candidates.append(rel)
+        except (sqlite3.Error, OSError):
+            pass
+
+    # 3b. Filesystem fallback if DB returned 0 (e.g. unindexed new notes)
+    if not candidates and os.path.exists(vault_base):
+        target_fname = f"{clean_stem.lower()}.md"
+        for root_dir, dirs, files in os.walk(vault_base):
+            dirs[:] = [d for d in dirs if d not in TERMINAL_BLOCKED_SUBPATHS and not d.startswith(".")]
+            for fname in files:
+                if fname.lower() == target_fname or (not fname.lower().endswith(".md") and fname.lower() == clean_stem.lower()):
+                    full_p = os.path.abspath(os.path.join(root_dir, fname))
+                    if _is_vault_safe(full_p):
+                        rel_p = os.path.relpath(full_p, vault_base).replace("\\", "/")
+                        if rel_p not in candidates:
+                            candidates.append(rel_p)
+
+    # Filter candidates by directory clues if provided
+    if len(candidates) > 1 and dir_part:
+        dir_tokens = [p.lower() for p in dir_part.split("/") if p]
+        filtered = [c for c in candidates if any(tok in c.lower() for tok in dir_tokens)]
+        # Only narrow down if at least one candidate matched directory clues (avoids penalizing fictional prefixes)
+        if filtered:
+            candidates = filtered
+
+    if len(candidates) == 1:
+        resolved = os.path.abspath(os.path.join(vault_base, candidates[0]))
+        return (resolved, [])
+    if len(candidates) > 1:
+        return (None, sorted(candidates))
+
+    return (None, [])
+
+
 def resolve_file_path(file_path: str) -> str:
     """Resolve a relative or absolute file path to its canonical target.
 
     If file_path is relative, it checks whether the path points to a known
-    Obsidian Vault directory or already exists in the vault; otherwise defaults to
-    the Evelyn workspace directory.
+    Obsidian Vault directory or already exists in the vault (including smart
+    auto-resolution across subdirectories); otherwise defaults to the Evelyn
+    workspace directory.
 
     Args:
         file_path: Absolute or relative file path string.
@@ -283,6 +397,10 @@ def resolve_file_path(file_path: str) -> str:
         return ""
     if os.path.isabs(file_path):
         return os.path.abspath(file_path)
+
+    match_path, _ = find_matching_vault_files(file_path)
+    if match_path:
+        return match_path
 
     importlib.reload(cfg)
     vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
@@ -480,8 +598,10 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
 def read_file(file_path: str, max_lines: int = 200) -> str:
     """Read contents of a file within allowed workspace or vault paths.
 
+    Supports automatic vault path resolution and ambiguity reporting.
+
     Args:
-        file_path: Absolute or relative file path.
+        file_path: Absolute or relative file path or note name.
         max_lines: Maximum lines to return.
 
     Returns:
@@ -489,12 +609,30 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
     """
     cleanup_stale_approvals()
 
-    # Resolve path
-    abs_path = resolve_file_path(file_path)
+    resolved_path, ambiguous_candidates = find_matching_vault_files(file_path)
+
+    # 1. Ambiguity detection
+    if ambiguous_candidates:
+        cand_list = "\n".join(f"  - {c}" for c in ambiguous_candidates)
+        return (
+            f"Error: Ambiguous document reference '{file_path}'. Found {len(ambiguous_candidates)} matching files in different directories:\n"
+            f"{cand_list}\n"
+            "Please specify the full relative path to read the desired document."
+        )
+
+    abs_path = resolved_path or resolve_file_path(file_path)
 
     # Path safety check
     if not is_path_allowed(abs_path):
         return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
+
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    rel_vault = None
+    try:
+        if os.path.commonpath([abs_path, vault_base]) == vault_base:
+            rel_vault = os.path.relpath(abs_path, vault_base).replace("\\", "/")
+    except (ValueError, OSError):
+        pass
 
     try:
         with open(abs_path, encoding="utf-8") as f:
@@ -508,8 +646,29 @@ def read_file(file_path: str, max_lines: int = 200) -> str:
             truncated = ""
 
         numbered = "".join(f"{i+1:4d} | {line}" for i, line in enumerate(lines))
-        return f"--- {abs_path} ({total} lines) ---\n{numbered}{truncated}"
+
+        raw_norm = file_path.replace("\\", "/").strip("/").lower()
+        if rel_vault and rel_vault.lower() != raw_norm and rel_vault.lower() != f"{raw_norm}.md":
+            banner = f"--- [Resolved: {rel_vault}] ({total} lines) ---"
+        else:
+            header_path = rel_vault or abs_path
+            banner = f"--- {header_path} ({total} lines) ---"
+
+        return f"{banner}\n{numbered}{truncated}"
     except FileNotFoundError:
+        # Helpful close-matches fallback via search_documents
+        from Evelyn.tools import vault_db
+
+        stem = os.path.basename(file_path.replace("\\", "/").strip("/"))
+        clean_stem = stem[:-3] if stem.lower().endswith(".md") else stem
+        suggestions = vault_db.search_documents(clean_stem, limit=3)
+        if suggestions:
+            sugg_list = "\n".join(f"  - {s['path']} (Title: {s['title']})" for s in suggestions)
+            return (
+                f"Error: File not found: '{file_path}'.\n"
+                f"Did you mean one of these vault documents?\n{sugg_list}\n"
+                "Use the exact relative path shown above with read_file."
+            )
         return f"Error: File not found: {file_path}"
     except UnicodeDecodeError:
         return f"Error: File is not valid UTF-8 text: {file_path}"

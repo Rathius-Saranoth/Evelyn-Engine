@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-07 07:37:54
+# date modified: 2026-09-12 11:00:58
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -2447,6 +2447,47 @@ def migrate_000_006_105_search_reference_library_procedure(
     logger.info(f"Migration 000.006.105: Inserted starter procedure for search_reference_library (ID: {cursor.lastrowid}).")
 
 
+def migrate_000_006_113_search_vault_notes_procedure(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Migration 000.006.113: Register starter procedure for search_vault_notes model tool."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    trigger = (
+        r"(?i)\b(?:search|find|look up|locate|discover|list|where is|where are)\b.*\b(?:vault|notes?|documents?|docs?|files?)\b|"
+        r"(?i)\b(?:search|find|lookup|locate)\b\s+.*\bvault\b|"
+        r"(?i)\b(?:find|search for|locate)\b\s+.*(?:note|document|doc)s?\b"
+    )
+    steps = (
+        "1. Identify the document name, topic, or keywords requested by the user.\n"
+        "2. If the user provided an exact or partial note title without a folder path, or asked to find/locate notes, invoke search_vault_notes(query='...').\n"
+        "3. Review returned matches, noting the exact relative path, title, tags, and preview snippet.\n"
+        "4. If a single definitive note matches or the user explicitly asked to read/examine the document, invoke read_file(file_path=...) using the discovered exact relative path.\n"
+        "5. If multiple ambiguous notes match across different folders, present the matching paths clearly to the user or pick the most contextually relevant document."
+    )
+    pitfalls = (
+        "- Do not fabricate synthetic folder paths (e.g. 'Notes/Work/') when calling read_file; invoke search_vault_notes to locate the exact path first.\n"
+        "- Do not confuse search_vault_notes (which queries markdown notes across the Obsidian Vault) with search_reference_library (which queries external appliance manuals and reference literature).\n"
+        "- When multiple similar notes exist (e.g. Doc1 vs Doc1-2), inspect the relative paths and titles before deciding which one to read."
+    )
+    verification = (
+        "Target vault note is successfully discovered by title/keywords and its exact relative path is retrieved for inspection or reading."
+    )
+    tags = "skill/vault-search, vault, notes, search, documents, discovery, pkm"
+    suggested_tools = "search_vault_notes, read_file"
+
+    cursor.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+           VALUES (?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now),
+    )
+    logger.info(f"Migration 000.006.113: Inserted starter procedure for search_vault_notes (ID: {cursor.lastrowid}).")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2659,6 +2700,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.105",
         name="starter_procedure_search_reference_library",
         up_fn=migrate_000_006_105_search_reference_library_procedure,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.113",
+        name="starter_procedure_search_vault_notes",
+        up_fn=migrate_000_006_113_search_vault_notes_procedure,
     ),
 ]
 
