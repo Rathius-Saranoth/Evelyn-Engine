@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-05 18:24:59
+# date modified: 2026-09-12 11:00:08
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -10,6 +10,7 @@ Stores metadata, tags, and text preview snippets for every markdown file in the 
 Enables fast querying and structural vault inspection without full disk walks.
 """
 import os
+import re
 import sqlite3
 import time
 from typing import Any
@@ -192,18 +193,43 @@ def search_documents(query: str, limit: int = 5) -> list[dict[str, Any]]:
     rows = con.execute("SELECT * FROM vault_documents").fetchall()
     con.close()
 
-    query_lower = query.lower()
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return []
+
     results = []
+    terms = [t for t in re.split(r"[\s,]+", query_lower) if len(t) > 1]
 
     for row in rows:
+        path_str = (row["path"] or "").lower()
         title = (row["title"] or "").lower()
         tags = (row["tags"] or "").lower()
         snippet = (row["gist"] or "").lower()
 
         score = 0
-        if query_lower in title: score += 10
-        if query_lower in tags: score += 5
-        if query_lower in snippet: score += 2
+        # Exact full query match
+        if query_lower in title:
+            score += 15
+        if query_lower in path_str:
+            score += 12
+        if query_lower in tags:
+            score += 8
+        if query_lower in snippet:
+            score += 4
+
+        # Token / term matches
+        if terms:
+            term_score = 0
+            for term in terms:
+                if term in title:
+                    term_score += 4
+                if term in path_str:
+                    term_score += 3
+                if term in tags:
+                    term_score += 2
+                if term in snippet:
+                    term_score += 1
+            score += term_score
 
         if score > 0:
             results.append({

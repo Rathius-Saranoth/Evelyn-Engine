@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 10:39:12
+date modified: 2026-09-12 11:01:17
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.113] - 2026-09-12 — *Smart Vault Auto-Resolution & Vault Note Search*
+
+### Added & Hardened
+- **Tiered Vault Auto-Resolution in `read_file` (`Evelyn/tools/terminal_agent.py`)**:
+  - Implemented `find_matching_vault_files()` providing a 4-tier resolution hierarchy: direct path, `.md` extension, SQLite `vault_documents` basename search, and filtered filesystem walk.
+  - Added synthetic directory prefix stripping: when the model speculates directory paths (e.g. `Notes/Work/GIS Technician Tasks Overview.md`), extracts the bare stem while using directory tokens only if genuine candidates match.
+  - Added deterministic multi-candidate ambiguity reporting: when multiple identical basenames exist across distinct folders (e.g. `001 - Preface.md`), returns an explicit formatted list of candidate relative paths rather than guessing.
+  - Added strict vault path boundary confinement (`os.path.commonpath([cand_vault, vault_base]) == vault_base`) and wildcard/punctuation escaping (`ESCAPE '\\'`) for SQL queries.
+  - Added close-match fallback suggestions in `read_file` via `vault_db.search_documents` when a requested file does not exist.
+- **Enhanced Vault Document Index Scoring (`Evelyn/tools/vault_db.py`)**:
+  - Upgraded `search_documents()` to score relative paths alongside title, tags, and gist snippet.
+  - Added multi-term token scoring to gracefully discover notes with complex punctuation or multi-word titles (e.g. `GIS Technician Responsibility Mapping`).
+- **New Specialist Tool: `search_vault_notes` (`Evelyn/tools/evelyn_tools.py`)**:
+  - Implemented `search_vault_notes(query: str, limit: int = 5)` for explicit note and document discovery across the Obsidian Vault.
+  - Registered in `MODEL_TOOL_DEFINITIONS`, `TOOL_FUNCTIONS`, and `TOOL_THINK_EFFORT` (`"low"`).
+  - Added intent regex patterns in `evelyn_config.py:SPECIALIST_TOOL_INTENT_PATTERNS` to dynamically activate `search_vault_notes` when the user asks to find, locate, or list notes.
+- **Starter Procedure Registration (Rule 10 Mandate & Migration `000.006.113`)**:
+  - Registered `starter_procedure_search_vault_notes` in `Evelyn/tools/db_migrator.py` under version `000.006.113`.
+  - Applied migration to `data/evelyn_memory.db` coupling `search_vault_notes` and `read_file` with trigger patterns, execution steps, pitfalls, and verification criteria.
 
 ## [000.006.112] - 2026-09-12 — *Dynamic Specialist Tool Surfacing & Thinking Preservation*
 

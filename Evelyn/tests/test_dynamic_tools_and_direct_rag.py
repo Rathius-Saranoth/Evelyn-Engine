@@ -1,6 +1,6 @@
 # test_dynamic_tools_and_direct_rag.py
 # date created: 2026-09-01
-# date modified: 2026-09-12 10:38:50
+# date modified: 2026-09-12 11:01:38
 # tags: #test, #tools, #dynamic_tools, #rag, #query_reformulation
 
 """Unit tests for Dynamic Tool Surfacing, Intent Heuristics, and Direct Vector RAG."""
@@ -191,6 +191,13 @@ class TestDynamicToolsAndDirectRAG(unittest.TestCase):
         )
         active_names = [t["function"]["name"] for t in active]
         self.assertIn("read_file", active_names)
+
+
+    def test_intent_heuristic_search_vault_notes(self):
+        """Verify intent patterns activate search_vault_notes when finding or searching vault documents."""
+        self.assertIn("search_vault_notes", [t["function"]["name"] for t in get_active_tools(user_message="Search the vault for GIS notes")])
+        self.assertIn("search_vault_notes", [t["function"]["name"] for t in get_active_tools(user_message="Can you find my notes on vehicle maintenance?")])
+        self.assertIn("search_vault_notes", [t["function"]["name"] for t in get_active_tools(user_message="Where is the document on responsibility mapping?")])
 
 
 if __name__ == "__main__":

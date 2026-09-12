@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-12 10:38:20
+# date modified: 2026-09-12 11:00:22
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -329,6 +329,48 @@ def search_reference_library(query: str = "", limit: int = 5, domain: str = "", 
         out.append(f"Source: `{src}`")
         out.append(f"```markdown\n{content}\n```\n")
 
+    return "\n".join(out)
+
+
+def search_vault_notes(query: str = "", limit: int = 5, **kwargs) -> str:
+    """Search Obsidian Vault markdown documents by title, relative path, tags, or content gist.
+
+    Args:
+        query: Search keywords or note title (e.g. 'GIS Technician', 'Home Maintenance', 'Weekly Review').
+        limit: Maximum number of note matches to return (default: 5, max: 10).
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Formatted markdown string listing matching notes with relative paths and snippets.
+    """
+    _reload()
+    query = query or str(kwargs.get("search_query") or kwargs.get("q") or kwargs.get("term") or "")
+    if not query.strip():
+        return "Error: search_vault_notes called with an empty query."
+
+    try:
+        limit = max(1, min(10, int(limit)))
+    except (ValueError, TypeError):
+        limit = 5
+
+    from Evelyn.tools import vault_db
+
+    matches = vault_db.search_documents(query, limit=limit)
+    if not matches:
+        return f"No vault notes found matching '{query}'."
+
+    out = [f"Found {len(matches)} vault note(s) matching '{query}':\n"]
+    for m in matches:
+        tags_str = f" [tags: {', '.join(m['tags'])}]" if m.get("tags") else ""
+        snippet = m.get("snippet") or ""
+        snippet_clean = snippet[:150].replace("\n", " ").strip()
+        if len(snippet) > 150:
+            snippet_clean += "..."
+        out.append(f"- **{m['path']}** — Title: *{m.get('title') or 'Untitled'}*{tags_str}")
+        if snippet_clean:
+            out.append(f"  > {snippet_clean}")
+
+    out.append("\nTip: Use `read_file(file_path=...)` with the exact path above to read the document contents.")
     return "\n".join(out)
 
 
@@ -2765,6 +2807,7 @@ def sync_google_drive(force: bool = False, **kwargs) -> str:
 #   generate_image       → "medium": creative framing
 #   run/read/write_file  → "medium": context-dependent
 TOOL_THINK_EFFORT: dict[str, str] = {
+    "search_vault_notes": "low",
     "write_journal_entry": "high",
     "write_dream_entry": "medium",
     "generate_image": "medium",
@@ -3581,6 +3624,31 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_vault_notes",
+            "description": (
+                "Search and discover documents, notes, guides, and records across the Obsidian Vault by title, relative path, tags, or content gist. "
+                "Use when the user asks to find, locate, list, or search for notes or documents whose exact filename or folder path is unknown. "
+                "Returns matching document relative paths to use with read_file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keywords, title fragments, or search terms (e.g. 'GIS Technician', 'Vehicle Maintenance', 'Responsibility Mapping').",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of notes to return. Default 5, max 10.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -3596,6 +3664,7 @@ TOOL_FUNCTIONS = {
     "write_dream_entry": write_dream_entry,
     "read_dream_entry": read_dream_entry,
     "search_vault": search_vault,
+    "search_vault_notes": search_vault_notes,
     "search_reference_library": search_reference_library,
     "recall_specific_memory": recall_specific_memory,
     "generate_image": generate_image,
