@@ -29,6 +29,12 @@
     .diff-line-ins { background: rgba(52, 211, 153, 0.12); color: #a7f3d0; }
     .diff-word-del { background: rgba(239, 68, 68, 0.45); color: #ffffff; padding: 1px 3px; border-radius: 3px; font-weight: 500; }
     .diff-word-ins { background: rgba(16, 185, 129, 0.45); color: #ffffff; padding: 1px 3px; border-radius: 3px; font-weight: 500; }
+    .diff-badge-reordered { background: rgba(59, 130, 246, 0.2); color: #93c5fd; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .diff-badge-added { background: rgba(52, 211, 153, 0.2); color: #6ee7b7; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid rgba(52, 211, 153, 0.4); }
+    .diff-badge-modified { background: rgba(251, 191, 36, 0.2); color: #fde047; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid rgba(251, 191, 36, 0.4); }
+    .diff-badge-removed { background: rgba(248, 113, 113, 0.2); color: #fca5a5; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid rgba(248, 113, 113, 0.4); }
+    .diff-section-card { background: #0c0c12; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+    .diff-section-header { background: var(--surface2); padding: 8px 12px; font-size: 13px; font-weight: 600; color: #fff; display: flex; justify-content: space-between; align-items: center; }
     body {
       background: var(--bg); color: var(--text);
       font-family: 'Inter', sans-serif; font-size: 15px;
@@ -674,6 +680,13 @@
       } else {
         expandedProposalContexts.delete(proposalId);
       }
+    }
+
+    const proposalDiffModes = {}; // proposalId -> 'smart' | 'raw'
+
+    function setDiffMode(proposalId, mode) {
+      proposalDiffModes[proposalId] = mode;
+      updateLiveDiff(proposalId);
     }
     let researchTasks = [];
     let heavyTasksData = { is_any_running: false, tasks: [], research_tasks: [] };
@@ -1991,7 +2004,7 @@
           // dataset.original holds the raw original document text stored as a
           // data-attribute. The browser decodes HTML entities automatically on
           // read, so no JSON.parse is needed — just read and diff.
-          diffDiv.innerHTML = renderDiff(diffDiv.dataset.original || '', textarea.value);
+          diffDiv.innerHTML = renderDiff(diffDiv.dataset.original || '', textarea.value, id);
         }
         // Debounced persistence to backend so live edits survive page reloads and refreshes
         if (proposalEditDebounceTimers[id]) clearTimeout(proposalEditDebounceTimers[id]);
@@ -3329,20 +3342,400 @@
       return { delHtml, insHtml };
     }
 
-    function renderDiff(original, proposed) {
+    function computeStringSimilarity(s1, s2) {
+      if (s1 === s2) return 1.0;
+      if (!s1 || !s2) return 0.0;
+      const words1 = (s1.toLowerCase().match(/[a-z0-9_]+/g) || []);
+      const words2 = (s2.toLowerCase().match(/[a-z0-9_]+/g) || []);
+      if (words1.length === 0 && words2.length === 0) return 1.0;
+      if (words1.length === 0 || words2.length === 0) return 0.0;
+      const set2 = new Set(words2);
+      let common = 0;
+      for (const w of words1) {
+        if (set2.has(w)) common++;
+      }
+      return (2.0 * common) / (words1.length + words2.length);
+    }
+
+    function parseMarkdownDocument(text) {
+      let frontmatter = '';
+      let body = text || '';
+      
+      if (body.startsWith('---')) {
+        const endIdx = body.indexOf('\n---', 3);
+        if (endIdx !== -1) {
+          const fullEnd = body.indexOf('\n', endIdx + 1);
+          frontmatter = body.slice(0, fullEnd !== -1 ? fullEnd : body.length).trim();
+          body = fullEnd !== -1 ? body.slice(fullEnd).trim() : '';
+        }
+      }
+
+      const lines = body.split('\n');
+      const sections = [];
+      let currentHeader = '';
+      let currentLines = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const match = line.match(/^(#{1,6}\s+.*)/);
+        if (match) {
+          if (currentHeader || currentLines.some(l => l.trim().length > 0)) {
+            sections.push({ header: currentHeader, lines: currentLines });
+          }
+          currentHeader = match[1].trim();
+          currentLines = [];
+        } else {
+          currentLines.push(line);
+        }
+      }
+      if (currentHeader || currentLines.some(l => l.trim().length > 0)) {
+        sections.push({ header: currentHeader, lines: currentLines });
+      }
+
+      return { frontmatter, sections };
+    }
+
+    function parseBulletItems(lines) {
+      const items = [];
+      let current = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const m = line.match(/^\s*[*+-]\s+(.*)/);
+        if (m) {
+          if (current) items.push(current);
+          const content = m[1].trim();
+          const km = content.match(/^\*\*([^*]+)\*\*:\s*(.*)/);
+          current = {
+            raw: trimmed,
+            key: km ? km[1].trim().toLowerCase() : null,
+            displayKey: km ? km[1].trim() : null,
+            body: km ? km[2].trim() : content,
+            originalIndex: items.length
+          };
+        } else if (current) {
+          current.raw += ' ' + trimmed;
+          current.body += ' ' + trimmed;
+        } else {
+          items.push({
+            raw: trimmed,
+            key: null,
+            displayKey: null,
+            body: trimmed,
+            originalIndex: items.length
+          });
+        }
+      }
+      if (current) items.push(current);
+      return items;
+    }
+
+    function diffBulletItems(origItems, propItems) {
+      const pairedOrig = new Set();
+      const pairedProp = new Set();
+      const pairs = [];
+
+      // Pass 1: exact key match
+      for (let i = 0; i < origItems.length; i++) {
+        const o = origItems[i];
+        if (!o.key) continue;
+        for (let j = 0; j < propItems.length; j++) {
+          if (pairedProp.has(j)) continue;
+          const p = propItems[j];
+          if (p.key && p.key === o.key) {
+            pairedOrig.add(i);
+            pairedProp.add(j);
+            pairs.push({
+              origItem: o,
+              propItem: p,
+              origIndex: i,
+              propIndex: j,
+              similarity: computeStringSimilarity(o.body, p.body)
+            });
+            break;
+          }
+        }
+      }
+
+      // Pass 2: similarity match for unkeyed or renamed bullets
+      for (let i = 0; i < origItems.length; i++) {
+        if (pairedOrig.has(i)) continue;
+        const o = origItems[i];
+        let bestJ = -1;
+        let bestSim = 0.55;
+        for (let j = 0; j < propItems.length; j++) {
+          if (pairedProp.has(j)) continue;
+          const p = propItems[j];
+          const sim = computeStringSimilarity(o.raw, p.raw);
+          if (sim > bestSim) {
+            bestSim = sim;
+            bestJ = j;
+          }
+        }
+        if (bestJ !== -1) {
+          pairedOrig.add(i);
+          pairedProp.add(bestJ);
+          pairs.push({
+            origItem: o,
+            propItem: propItems[bestJ],
+            origIndex: i,
+            propIndex: bestJ,
+            similarity: bestSim
+          });
+        }
+      }
+
+      pairs.sort((a, b) => a.propIndex - b.propIndex);
+
+      const results = [];
+      for (let k = 0; k < pairs.length; k++) {
+        const pair = pairs[k];
+        const isTextIdentical = pair.origItem.raw.trim() === pair.propItem.raw.trim();
+        let isReordered = false;
+        if (pair.origIndex !== pair.propIndex) {
+          for (let prev = 0; prev < k; prev++) {
+            if (pairs[prev].origIndex > pair.origIndex) {
+              isReordered = true;
+              break;
+            }
+          }
+          if (!isReordered) {
+            for (let nxt = k + 1; nxt < pairs.length; nxt++) {
+              if (pairs[nxt].origIndex < pair.origIndex) {
+                isReordered = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (isTextIdentical) {
+          if (isReordered) {
+            results.push({ type: 'reordered', item: pair.propItem, origItem: pair.origItem, propIndex: pair.propIndex });
+          } else {
+            results.push({ type: 'unchanged', item: pair.propItem, propIndex: pair.propIndex });
+          }
+        } else {
+          results.push({
+            type: 'modified',
+            origItem: pair.origItem,
+            propItem: pair.propItem,
+            isReordered: isReordered,
+            propIndex: pair.propIndex
+          });
+        }
+      }
+
+      for (let j = 0; j < propItems.length; j++) {
+        if (!pairedProp.has(j)) {
+          results.push({ type: 'added', item: propItems[j], propIndex: j });
+        }
+      }
+      results.sort((a, b) => a.propIndex - b.propIndex);
+
+      const removedItems = [];
+      for (let i = 0; i < origItems.length; i++) {
+        if (!pairedOrig.has(i)) {
+          removedItems.push({ type: 'removed', item: origItems[i], origIndex: i });
+        }
+      }
+
+      const finalResults = [];
+      let remIdx = 0;
+      for (const r of results) {
+        const currentRefIndex = r.origItem ? r.origItem.originalIndex : r.propIndex;
+        while (remIdx < removedItems.length && removedItems[remIdx].origIndex <= currentRefIndex) {
+          finalResults.push(removedItems[remIdx]);
+          remIdx++;
+        }
+        finalResults.push(r);
+      }
+      while (remIdx < removedItems.length) {
+        finalResults.push(removedItems[remIdx]);
+        remIdx++;
+      }
+
+      return finalResults;
+    }
+
+    function splitSentences(text) {
+      if (!text) return [];
+      const raw = text.match(/[^.!?\n]+[.!?]+(?:\s+|$)|[^.!?\n]+(?:\n|$)/g) || [];
+      return raw.map(s => s.trim()).filter(s => s.length > 0);
+    }
+
+    function diffProseSection(origLines, propLines) {
+      const origText = origLines.join('\n').trim();
+      const propText = propLines.join('\n').trim();
+
+      const origSentences = splitSentences(origText).map((s, idx) => ({ raw: s, originalIndex: idx }));
+      const propSentences = splitSentences(propText).map((s, idx) => ({ raw: s, originalIndex: idx }));
+
+      const pairedOrig = new Set();
+      const pairedProp = new Set();
+      const pairs = [];
+
+      // Exact match pass
+      for (let i = 0; i < origSentences.length; i++) {
+        const o = origSentences[i];
+        for (let j = 0; j < propSentences.length; j++) {
+          if (pairedProp.has(j)) continue;
+          const p = propSentences[j];
+          if (o.raw === p.raw) {
+            pairedOrig.add(i);
+            pairedProp.add(j);
+            pairs.push({
+              origItem: o,
+              propItem: p,
+              origIndex: i,
+              propIndex: j,
+              similarity: 1.0
+            });
+            break;
+          }
+        }
+      }
+
+      // Similarity match pass (>= 0.40)
+      for (let i = 0; i < origSentences.length; i++) {
+        if (pairedOrig.has(i)) continue;
+        const o = origSentences[i];
+        let bestJ = -1;
+        let bestSim = 0.40;
+        for (let j = 0; j < propSentences.length; j++) {
+          if (pairedProp.has(j)) continue;
+          const p = propSentences[j];
+          const sim = computeStringSimilarity(o.raw, p.raw);
+          if (sim > bestSim) {
+            bestSim = sim;
+            bestJ = j;
+          }
+        }
+        if (bestJ !== -1) {
+          pairedOrig.add(i);
+          pairedProp.add(bestJ);
+          pairs.push({
+            origItem: o,
+            propItem: propSentences[bestJ],
+            origIndex: i,
+            propIndex: bestJ,
+            similarity: bestSim
+          });
+        }
+      }
+
+      pairs.sort((a, b) => a.propIndex - b.propIndex);
+
+      const results = [];
+      for (let k = 0; k < pairs.length; k++) {
+        const pair = pairs[k];
+        const isTextIdentical = pair.origItem.raw === pair.propItem.raw;
+        let isReordered = false;
+        if (pair.origIndex !== pair.propIndex) {
+          for (let prev = 0; prev < k; prev++) {
+            if (pairs[prev].origIndex > pair.origIndex) {
+              isReordered = true;
+              break;
+            }
+          }
+          if (!isReordered) {
+            for (let nxt = k + 1; nxt < pairs.length; nxt++) {
+              if (pairs[nxt].origIndex < pair.origIndex) {
+                isReordered = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (isTextIdentical) {
+          if (isReordered) {
+            results.push({ type: 'reordered', item: pair.propItem, origItem: pair.origItem, propIndex: pair.propIndex });
+          } else {
+            results.push({ type: 'unchanged', item: pair.propItem, propIndex: pair.propIndex });
+          }
+        } else {
+          results.push({
+            type: 'modified',
+            origItem: pair.origItem,
+            propItem: pair.propItem,
+            isReordered: isReordered,
+            propIndex: pair.propIndex
+          });
+        }
+      }
+
+      for (let j = 0; j < propSentences.length; j++) {
+        if (!pairedProp.has(j)) {
+          results.push({ type: 'added', item: propSentences[j], propIndex: j });
+        }
+      }
+      results.sort((a, b) => a.propIndex - b.propIndex);
+
+      const removedItems = [];
+      for (let i = 0; i < origSentences.length; i++) {
+        if (!pairedOrig.has(i)) {
+          removedItems.push({ type: 'removed', item: origSentences[i], origIndex: i });
+        }
+      }
+
+      const finalResults = [];
+      let remIdx = 0;
+      for (const r of results) {
+        const currentRefIndex = r.origItem ? r.origItem.originalIndex : r.propIndex;
+        while (remIdx < removedItems.length && removedItems[remIdx].origIndex <= currentRefIndex) {
+          finalResults.push(removedItems[remIdx]);
+          remIdx++;
+        }
+        finalResults.push(r);
+      }
+      while (remIdx < removedItems.length) {
+        finalResults.push(removedItems[remIdx]);
+        remIdx++;
+      }
+
+      return finalResults;
+    }
+
+    function renderDiffToolbar(proposalId, mode, stats) {
+      return `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; font-size: 12px; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-weight: 600; color: #fff;">Diff Summary:</span>
+            <span class="diff-badge-added">+${stats.added} added</span>
+            <span class="diff-badge-modified">~${stats.modified} modified</span>
+            <span class="diff-badge-removed">-${stats.removed} removed</span>
+            ${stats.reordered > 0 ? `<span class="diff-badge-reordered">🔄 ${stats.reordered} reordered</span>` : ''}
+            <span style="color: var(--text-dim);">· ${stats.unchanged} unchanged</span>
+          </div>
+          ${proposalId ? `
+          <div style="display: flex; gap: 4px;">
+            <button type="button" class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; ${mode === 'smart' ? 'background: var(--accent); color: #fff;' : 'background: var(--surface); color: var(--text-dim);'}" onclick="setDiffMode(${proposalId}, 'smart')">Smart View</button>
+            <button type="button" class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; ${mode === 'raw' ? 'background: var(--accent); color: #fff;' : 'background: var(--surface); color: var(--text-dim);'}" onclick="setDiffMode(${proposalId}, 'raw')">Raw Unified</button>
+          </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderRawDiff(original, proposed, proposalId = null) {
       if (!original) return `<pre style="white-space: pre-wrap; word-break: break-all; color: var(--success);">${escapeHtml(proposed)}</pre>`;
       
       const origLines = original.split('\n');
       const propLines = proposed.split('\n');
       
-      let html = '<div class="diff-container" style="font-family: monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; line-height: 1.6;">';
+      let linesHtml = '<div class="diff-container" style="font-family: monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; line-height: 1.6;">';
       
       let i = 0, j = 0;
+      let added = 0, removed = 0, unchanged = 0;
+
       while (i < origLines.length || j < propLines.length) {
         if (i < origLines.length && j < propLines.length && origLines[i] === propLines[j]) {
-          html += `<div class="diff-line" style="color: var(--text-dim);">  ${escapeHtml(origLines[i])}</div>`;
+          linesHtml += `<div class="diff-line" style="color: var(--text-dim);">  ${escapeHtml(origLines[i])}</div>`;
           i++;
           j++;
+          unchanged++;
         } else {
           let delCount = 0;
           let insCount = 0;
@@ -3388,18 +3781,334 @@
             
             if (hasOld && hasNew) {
               const { delHtml, insHtml } = computeWordDiff(oldBlock[k], newBlock[k]);
-              html += `<div class="diff-line diff-line-del">- ${delHtml}</div>`;
-              html += `<div class="diff-line diff-line-ins">+ ${insHtml}</div>`;
+              linesHtml += `<div class="diff-line diff-line-del">- ${delHtml}</div>`;
+              linesHtml += `<div class="diff-line diff-line-ins">+ ${insHtml}</div>`;
+              added++;
+              removed++;
             } else if (hasOld) {
-              html += `<div class="diff-line diff-line-del">- ${escapeHtml(oldBlock[k])}</div>`;
+              linesHtml += `<div class="diff-line diff-line-del">- ${escapeHtml(oldBlock[k])}</div>`;
+              removed++;
             } else if (hasNew) {
-              html += `<div class="diff-line diff-line-ins">+ ${escapeHtml(newBlock[k])}</div>`;
+              linesHtml += `<div class="diff-line diff-line-ins">+ ${escapeHtml(newBlock[k])}</div>`;
+              added++;
             }
           }
         }
       }
-      html += '</div>';
-      return html;
+      linesHtml += '</div>';
+
+      const stats = { added, modified: 0, removed, reordered: 0, unchanged };
+      return renderDiffToolbar(proposalId, 'raw', stats) + linesHtml;
+    }
+
+    function renderSmartDiff(original, proposed, proposalId = null) {
+      const origDoc = parseMarkdownDocument(original);
+      const propDoc = parseMarkdownDocument(proposed);
+
+      let totalAdded = 0;
+      let totalModified = 0;
+      let totalRemoved = 0;
+      let totalReordered = 0;
+      let totalUnchanged = 0;
+
+      let frontmatterHtml = '';
+      if (origDoc.frontmatter || propDoc.frontmatter) {
+        if (origDoc.frontmatter === propDoc.frontmatter) {
+          frontmatterHtml = `
+            <details class="diff-section-card" style="margin-bottom: 8px;">
+              <summary style="padding: 6px 12px; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none;">
+                YAML Frontmatter · <span style="color: var(--success);">✓ Unchanged</span>
+              </summary>
+              <pre style="padding: 8px 12px; font-size: 11px; color: var(--text-dim); margin: 0; background: #07070a; font-family: monospace;">${escapeHtml(origDoc.frontmatter)}</pre>
+            </details>
+          `;
+          totalUnchanged++;
+        } else {
+          const oLines = origDoc.frontmatter.split('\n');
+          const pLines = propDoc.frontmatter.split('\n');
+          let onlyDateChanged = oLines.length === pLines.length;
+          let dateChangeSummary = '';
+          if (onlyDateChanged) {
+            for (let idx = 0; idx < oLines.length; idx++) {
+              if (oLines[idx] !== pLines[idx]) {
+                if (oLines[idx].startsWith('date modified:') && pLines[idx].startsWith('date modified:')) {
+                  dateChangeSummary = `${oLines[idx]} ➔ ${pLines[idx]}`;
+                } else {
+                  onlyDateChanged = false;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (onlyDateChanged && dateChangeSummary) {
+            frontmatterHtml = `
+              <div style="padding: 6px 12px; font-size: 11px; color: var(--text-dim); background: #07070a; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-family: monospace;">
+                <span>YAML Frontmatter: <em>${escapeHtml(dateChangeSummary)}</em></span>
+                <span class="diff-badge-modified">metadata updated</span>
+              </div>
+            `;
+            totalModified++;
+          } else {
+            const { delHtml, insHtml } = computeWordDiff(origDoc.frontmatter, propDoc.frontmatter);
+            frontmatterHtml = `
+              <div class="diff-section-card" style="margin-bottom: 8px;">
+                <div class="diff-section-header">
+                  <span>YAML Frontmatter</span>
+                  <span class="diff-badge-modified">modified</span>
+                </div>
+                <div style="padding: 8px 12px; background: #07070a; font-family: monospace; font-size: 11px; line-height: 1.5;">
+                  <div class="diff-line diff-line-del">- ${delHtml}</div>
+                  <div class="diff-line diff-line-ins">+ ${insHtml}</div>
+                </div>
+              </div>
+            `;
+            totalModified++;
+          }
+        }
+      }
+
+      // Align sections by header
+      const origSecMap = new Map();
+      origDoc.sections.forEach((s, idx) => {
+        const key = (s.header || '').toLowerCase().trim();
+        origSecMap.set(key, { ...s, originalIndex: idx });
+      });
+
+      const pairedHeaders = new Set();
+      const alignedSections = [];
+
+      propDoc.sections.forEach((pSec, pIdx) => {
+        const key = (pSec.header || '').toLowerCase().trim();
+        if (origSecMap.has(key)) {
+          pairedHeaders.add(key);
+          alignedSections.push({
+            header: pSec.header,
+            origSec: origSecMap.get(key),
+            propSec: pSec,
+            propIndex: pIdx
+          });
+        } else {
+          alignedSections.push({
+            header: pSec.header,
+            origSec: null,
+            propSec: pSec,
+            propIndex: pIdx
+          });
+        }
+      });
+
+      origDoc.sections.forEach((oSec) => {
+        const key = (oSec.header || '').toLowerCase().trim();
+        if (!pairedHeaders.has(key)) {
+          alignedSections.push({
+            header: oSec.header,
+            origSec: oSec,
+            propSec: null,
+            propIndex: 9999
+          });
+        }
+      });
+
+      let sectionsHtml = '';
+
+      for (const aligned of alignedSections) {
+        const { header, origSec, propSec } = aligned;
+        const displayHeader = header || 'Document Intro';
+
+        if (!origSec && propSec) {
+          const content = propSec.lines.join('\n').trim();
+          const lineCount = propSec.lines.filter(l => l.trim().length > 0).length;
+          totalAdded += lineCount;
+          sectionsHtml += `
+            <div class="diff-section-card">
+              <div class="diff-section-header">
+                <span>${escapeHtml(displayHeader)}</span>
+                <span class="diff-badge-added">+${lineCount} added (new section)</span>
+              </div>
+              <div style="padding: 10px 12px; font-family: monospace; font-size: 13px; line-height: 1.6; background: #07070a;">
+                <div class="diff-line diff-line-ins" style="padding: 4px 0;">+ ${escapeHtml(content)}</div>
+              </div>
+            </div>
+          `;
+          continue;
+        }
+
+        if (origSec && !propSec) {
+          const content = origSec.lines.join('\n').trim();
+          const lineCount = origSec.lines.filter(l => l.trim().length > 0).length;
+          totalRemoved += lineCount;
+          sectionsHtml += `
+            <div class="diff-section-card">
+              <div class="diff-section-header">
+                <span>${escapeHtml(displayHeader)}</span>
+                <span class="diff-badge-removed">-${lineCount} removed section</span>
+              </div>
+              <div style="padding: 10px 12px; font-family: monospace; font-size: 13px; line-height: 1.6; background: #07070a;">
+                <div class="diff-line diff-line-del" style="padding: 4px 0;">- ${escapeHtml(content)}</div>
+              </div>
+            </div>
+          `;
+          continue;
+        }
+
+        const combinedLines = origSec.lines.concat(propSec.lines).filter(l => l.trim().length > 0);
+        const bulletCount = combinedLines.filter(l => /^\s*[*+-]\s+/.test(l)).length;
+        const isBulleted = combinedLines.length > 0 && (bulletCount / combinedLines.length >= 0.4);
+
+        let diffItems = [];
+        if (isBulleted) {
+          const origItems = parseBulletItems(origSec.lines);
+          const propItems = parseBulletItems(propSec.lines);
+          diffItems = diffBulletItems(origItems, propItems);
+        } else {
+          diffItems = diffProseSection(origSec.lines, propSec.lines);
+        }
+
+        let secAdded = 0, secMod = 0, secRem = 0, secReord = 0, secUnch = 0;
+        diffItems.forEach(r => {
+          if (r.type === 'added') secAdded++;
+          else if (r.type === 'modified') secMod++;
+          else if (r.type === 'removed') secRem++;
+          else if (r.type === 'reordered') secReord++;
+          else if (r.type === 'unchanged') secUnch++;
+        });
+
+        totalAdded += secAdded;
+        totalModified += secMod;
+        totalRemoved += secRem;
+        totalReordered += secReord;
+        totalUnchanged += secUnch;
+
+        const isCompletelyUnchanged = (secAdded === 0 && secMod === 0 && secRem === 0 && secReord === 0);
+
+        if (isCompletelyUnchanged) {
+          const fullContent = propSec.lines.join('\n').trim();
+          sectionsHtml += `
+            <details class="diff-section-card" style="margin-bottom: 8px;">
+              <summary class="diff-section-header" style="cursor: pointer; user-select: none;">
+                <span style="color: #a1a1aa;">${escapeHtml(displayHeader)}</span>
+                <span style="font-size: 11px; color: var(--success); font-weight: 500;">✓ Unchanged (${secUnch} items)</span>
+              </summary>
+              <div style="padding: 10px 12px; font-size: 12px; color: var(--text-dim); line-height: 1.6; background: #07070a; font-family: monospace; white-space: pre-wrap; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                ${escapeHtml(fullContent)}
+              </div>
+            </details>
+          `;
+        } else {
+          let itemsHtml = '';
+          diffItems.forEach(r => {
+            if (r.type === 'unchanged') {
+              itemsHtml += `<div class="diff-line" style="color: var(--text-dim); padding: 3px 0;">  ${escapeHtml(r.item.raw)}</div>`;
+            } else if (r.type === 'reordered') {
+              itemsHtml += `<div class="diff-line" style="color: var(--text); padding: 3px 0;"><span class="diff-badge-reordered" style="margin-right: 6px;">🔄 REORDERED</span>${escapeHtml(r.item.raw)}</div>`;
+            } else if (r.type === 'modified') {
+              const { delHtml, insHtml } = computeWordDiff(r.origItem.raw, r.propItem.raw);
+              itemsHtml += `
+                <div style="margin: 4px 0; padding: 2px 0;">
+                  <div class="diff-line diff-line-del" style="padding: 2px 4px; border-radius: 4px; margin-bottom: 2px;">- ${delHtml}</div>
+                  <div class="diff-line diff-line-ins" style="padding: 2px 4px; border-radius: 4px;">+ ${insHtml} ${r.isReordered ? '<span class="diff-badge-reordered" style="margin-left: 6px;">🔄 moved</span>' : ''}</div>
+                </div>
+              `;
+            } else if (r.type === 'added') {
+              itemsHtml += `<div class="diff-line diff-line-ins" style="padding: 3px 4px; border-radius: 4px; margin: 2px 0;">+ ${escapeHtml(r.item.raw)}</div>`;
+            } else if (r.type === 'removed') {
+              itemsHtml += `<div class="diff-line diff-line-del" style="padding: 3px 4px; border-radius: 4px; margin: 2px 0;">- ${escapeHtml(r.item.raw)}</div>`;
+            }
+          });
+
+          sectionsHtml += `
+            <div class="diff-section-card">
+              <div class="diff-section-header">
+                <span>${escapeHtml(displayHeader)}</span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  ${secAdded > 0 ? `<span class="diff-badge-added">+${secAdded}</span>` : ''}
+                  ${secMod > 0 ? `<span class="diff-badge-modified">~${secMod}</span>` : ''}
+                  ${secRem > 0 ? `<span class="diff-badge-removed">-${secRem}</span>` : ''}
+                  ${secReord > 0 ? `<span class="diff-badge-reordered">🔄 ${secReord}</span>` : ''}
+                </div>
+              </div>
+              <div style="padding: 10px 12px; font-family: monospace; font-size: 13px; line-height: 1.6; background: #07070a;">
+                ${itemsHtml}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      const totalStats = {
+        added: totalAdded,
+        modified: totalModified,
+        removed: totalRemoved,
+        reordered: totalReordered,
+        unchanged: totalUnchanged
+      };
+
+      const toolbarHtml = renderDiffToolbar(proposalId, 'smart', totalStats);
+      return toolbarHtml + frontmatterHtml + sectionsHtml;
+    }
+
+    function renderDiff(original, proposed, proposalId = null) {
+      if (!original) return `<pre style="white-space: pre-wrap; word-break: break-all; color: var(--success);">${escapeHtml(proposed)}</pre>`;
+      if (original === proposed) {
+        return `<div style="padding: 12px; background: #07070a; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 13px;">✓ Document contents are identical (No changes).</div>`;
+      }
+      const mode = (proposalId && proposalDiffModes[proposalId]) ? proposalDiffModes[proposalId] : 'smart';
+      if (mode === 'raw') {
+        return renderRawDiff(original, proposed, proposalId);
+      }
+      return renderSmartDiff(original, proposed, proposalId);
+    }
+
+    function parseProposalReason(reasonStr) {
+      if (!reasonStr) return { summary: '', added: [], modified: [], removed: [], candidate_ledger: '' };
+      try {
+        const parsed = JSON.parse(reasonStr);
+        if (typeof parsed === 'object' && parsed !== null) {
+          return {
+            summary: parsed.summary || '',
+            added: Array.isArray(parsed.added) ? parsed.added : [],
+            modified: Array.isArray(parsed.modified) ? parsed.modified : [],
+            removed: Array.isArray(parsed.removed) ? parsed.removed : [],
+            candidate_ledger: parsed.candidate_ledger || ''
+          };
+        }
+      } catch (_) {}
+      return { summary: String(reasonStr), added: [], modified: [], removed: [], candidate_ledger: '' };
+    }
+
+    function renderReasonBadges(parsed) {
+      const badges = [];
+      if (parsed.added && parsed.added.length > 0) {
+        badges.push(`<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 11px;">+${parsed.added.length} Added</span>`);
+      }
+      if (parsed.modified && parsed.modified.length > 0) {
+        badges.push(`<span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 11px;">~${parsed.modified.length} Modified</span>`);
+      }
+      if (parsed.removed && parsed.removed.length > 0) {
+        badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;">-${parsed.removed.length} Removed</span>`);
+      }
+      if (badges.length === 0) return '';
+
+      const allChanges = [
+        ...(parsed.added || []).map(x => `<li style="color: #4ade80; margin-bottom: 2px;"><strong>+ Added:</strong> ${escapeHtml(x)}</li>`),
+        ...(parsed.modified || []).map(x => `<li style="color: #38bdf8; margin-bottom: 2px;"><strong>~ Modified:</strong> ${escapeHtml(x)}</li>`),
+        ...(parsed.removed || []).map(x => `<li style="color: #f87171; margin-bottom: 2px;"><strong>- Removed:</strong> ${escapeHtml(x)}</li>`)
+      ].join('');
+
+      return `
+        <div style="margin-top: 6px;">
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">${badges.join('')}</div>
+          ${allChanges ? `
+            <details style="margin-top: 8px; font-size: 12px; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 6px 10px;">
+              <summary style="cursor: pointer; color: var(--accent); font-weight: 600; outline: none; user-select: none;">
+                Itemized Ledger Changes (${(parsed.added.length + parsed.modified.length + parsed.removed.length)})
+              </summary>
+              <ul style="margin: 6px 0 0 16px; padding: 0; line-height: 1.5;">${allChanges}</ul>
+            </details>
+          ` : ''}
+        </div>
+      `;
     }
 
     function renderSourceEntriesList(item) {
@@ -3960,6 +4669,8 @@
         `;
       } else if (item.item_type === 'profile_update') {
         const sourcesHTML = renderSourceEntriesList(item);
+        const parsedReason = parseProposalReason(item.reason);
+        const reasonBadgesHTML = renderReasonBadges(parsedReason);
 
         const rawOriginal = item.merged_tags || '';
         // escapeAttr is escapeHtml + double-quote encoding, required for values
@@ -3975,7 +4686,11 @@
               <span>ID: ${item.id}</span>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
-              <div style="color: var(--text-dim); font-size: 13px;"><strong>Reason / Explanation:</strong><br>${escapeHtml(item.reason)}</div>
+              <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Reason / Rationale</div>
+                <div style="font-size: 14px; color: var(--text); line-height: 1.4;">${escapeHtml(parsedReason.summary || item.reason)}</div>
+                ${reasonBadgesHTML}
+              </div>
               
               <div>
                 <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Proposed Document Content (Editable prior to approval):</div>

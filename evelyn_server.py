@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-11 20:15:12
+# date modified: 2026-09-12 09:47:14
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5567,6 +5567,25 @@ async def action_proposal(
                 target_file.write_text(final_text, encoding="utf-8")
                 memory_db.update_proposal(id, merged_observation=final_text)
                 memory_db.apply_proposal(id)
+
+                # Persist authoritative fact ledger if candidate_ledger is packaged in reason JSON
+                if prop.get("reason"):
+                    try:
+                        reason_obj = json.loads(prop["reason"])
+                        if isinstance(reason_obj, dict) and reason_obj.get("candidate_ledger"):
+                            from Evelyn.tools import profile_ledger
+
+                            ledger_filename = profile_ledger.get_ledger_filename(target_filename)
+                            ledger_file = PERSONA_DIR / ledger_filename
+                            ledger_file.write_text(reason_obj["candidate_ledger"], encoding="utf-8")
+                            subprocess.run(
+                                [sys.executable, "scripts/update_frontmatter.py", str(ledger_file)],
+                                cwd=str(BASE_DIR),
+                                capture_output=True,
+                            )
+                    except (json.JSONDecodeError, TypeError, OSError) as e_led:
+                        print(f"[SERVER WARNING] Could not persist candidate ledger for {target_filename}: {e_led}", flush=True)
+
                 # Stamp entry_document_evolution on all source entries with proposal created_at timestamp.
                 # Using prop["created_at"] guarantees that any entries edited/split during human review
                 # (updated_at > created_at) are recognized as dirty and remain eligible for re-evaluation.

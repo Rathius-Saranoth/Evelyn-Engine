@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 09:14:01
+date modified: 2026-09-12 09:48:46
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,40 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.110] - 2026-09-12 — *Authoritative Factoid Ledger Architecture*
+
+### Added & Enhanced
+- **Authoritative Factoid Ledger Architecture (`Evelyn/tools/profile_ledger.py`)**:
+  - Implemented the two-layer persona state architecture decoupling the authoritative inventory of facts (`*_facts.md`) with explicit `[Tier 1]`, `[Tier 2]`, and `[Tier 3]` rankings from the compiled/synthesized presentation layer (`*.md`).
+  - Added discrete `LedgerItem` dataclass, markdown ledger parser (`parse_ledger`), serializer (`render_ledger`), clean presentation compiler (`compile_clean_markdown`), structured delta application (`apply_ledger_delta`), and deterministic budget pruning (`prune_ledger_to_budget`).
+  - Added unit test suite `Evelyn/tests/test_profile_ledger.py` with 7 passing tests validating round-trip parsing, clean compilation without tier markers, atomic delta application, budget pruning order, and JSON delta extraction.
+  - Created baseline authoritatively ranked ledgers in `Evelyn/persona/`: `Assistant_Profile_facts.md` (23 bullets, Tier 1/2), `User_Profile_facts.md` (37 bullets, Tier 1/2/3), and `System_Directives_facts.md` (37 bullets, Tier 1/2/3).
+- **Profile Evolver State Machine Refactoring (`Evelyn/tools/profile_evolver.py`)**:
+  - Replaced unconstrained generative full-body rewriting loops in `_evolve_document()` with atomic delta evaluations against the authoritative ledger.
+  - Added `_parse_json_delta()` helper with resilient extraction for fenced/unfenced JSON responses.
+  - Updated draft cursor mechanism (`_draft_path`) to persist in-progress working ledgers (`evelyn_evolution_draft_{name}_facts.md`), allowing interrupted runs to resume without state loss.
+  - Added deterministic pre-synthesis word budget pruning via `prune_ledger_to_budget()`, eliminating `ABORTED_OVER_BUDGET` circuit breaker aborts by pruning lower-priority Tier 3 and Tier 2 items before presentation generation.
+  - Established clean presentation layer compilation: deterministic 1:1 format compile for `User_Profile.md` and `System_Directives.md` with tier markers stripped, and structured first-person narrative synthesis for `Assistant_Profile.md`.
+  - Staged proposals with structured JSON reasons packaging summary text, itemized added/modified/removed lists, and complete candidate ledger text.
+- **Server Ledger Persistence (`evelyn_server.py`)**:
+  - Updated `/api/review/proposals/{id}/approve` endpoint for `profile_update` to extract `candidate_ledger` from the proposal's structured JSON reason and write it to `PERSONA_DIR / profile_ledger.get_ledger_filename(target_filename)`.
+  - Automatically synchronizes timestamps and invokes `scripts/update_frontmatter.py` on both the published presentation document and its corresponding authoritative fact ledger.
+- **Triage Queue UI Ledger Badges (`evelyn_ui/dev.html`)**:
+  - Added `parseProposalReason()` and `renderReasonBadges()` to safely parse structured or legacy plain-text proposal reasons.
+  - Rendered green `+Added`, blue `~Modified`, and red `-Removed` badges with an expandable itemized details dropdown on `profile_update` triage cards.
+
+## [000.006.109] - 2026-09-12 — *Section-Aware Item-Level Diff View Overhaul*
+
+### Added & Enhanced
+- **Section-Aware & Item-Level Diff Comparison Engine (`evelyn_ui/dev.html`)**:
+  - Overhauled proposal diff rendering from a linear sequential line scanner into a hierarchical, section-aware comparison engine.
+  - Aligns markdown sections by canonical heading (`## Header`) to strictly prevent edits or shifts in one section from cascading or bleeding into adjacent sections.
+  - Implemented bullet-level item matching (`diffBulletItems`) with key extraction and similarity pairing to detect reordering (`🔄 REORDERED`) without falsely triggering entire-section deletions and additions.
+  - Implemented sentence-level prose matching (`diffProseSection`) for narrative documents (`Assistant_Profile.md`), pairing corresponding sentences and isolating word-level diffs within continuous prose.
+  - Added smart section collapsing: completely unchanged sections collapse by default (`✓ Unchanged (N items)`), reducing reviewer cognitive load and focusing attention on active edits.
+  - Added live diff toolbar with aggregate summary badges (`+added`, `~modified`, `-removed`, `🔄 reordered`) and instant mode toggle between `Smart View` and classic `Raw Unified`.
+  - Added compact YAML frontmatter metadata handling, summarizing routine `date modified` timestamp updates without consuming vertical diff space.
 
 ## [000.006.108] - 2026-09-12 — *Sampling Repetition Window & Penalty Calibration*
 
