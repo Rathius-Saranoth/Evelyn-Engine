@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-05 19:47:51
+# date modified: 2026-09-12 10:10:58
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -746,9 +746,7 @@ def maintain_master_taxonomy() -> dict[str, Any]:
 
     for t, cat, desc, count in tags_to_update:
         vault_db.upsert_master_tag(t, category=cat, description=desc, usage_count=count)
-
-    # Sync any updated counts to Chroma
-    sync_master_tags_to_vector_db()
+        index_master_tag_in_chroma(t, category=cat, description=desc, usage_count=count)
 
     return {
         "status": "success",

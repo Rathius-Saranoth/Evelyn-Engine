@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-06 08:53:22
+# date modified: 2026-09-12 10:10:52
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -814,6 +814,87 @@ def flush_sync_queue(timeout: float = 5.0, source_prefix: str = "") -> bool:
                 con.close()
             time.sleep(0.05)
     return False
+
+
+def prune_completed_sync_queue(max_retained_done: int = 500, max_age_hours: float = 24.0) -> int:
+    """Safely prune historical completed ('done') staging queue records and old resolved errors.
+
+    Keeps the most recent `max_retained_done` records or records younger than `max_age_hours`
+    to prevent unbounded table bloat while preserving recent diagnostic history.
+
+    Returns:
+        int: Number of pruned records deleted.
+    """
+    cutoff_ts = time.time() - (max_age_hours * 3600.0)
+    con = _get_queue_db()
+    try:
+        cur = con.cursor()
+        total_deleted = 0
+        # Find ID threshold for keeping last max_retained_done records
+        cur.execute(
+            """SELECT id FROM chroma_sync_queue
+               WHERE status = 'done'
+               ORDER BY id DESC
+               LIMIT 1 OFFSET ?""",
+            (max_retained_done,),
+        )
+        row = cur.fetchone()
+        if row:
+            threshold_id = row["id"]
+            cur.execute(
+                """DELETE FROM chroma_sync_queue
+                   WHERE status = 'done' AND id <= ? AND updated_at < ?""",
+                (threshold_id, cutoff_ts),
+            )
+            total_deleted += cur.rowcount
+
+        # Clean old dead-letter errors older than 7 days
+        error_cutoff = time.time() - (7 * 86400.0)
+        cur.execute(
+            """DELETE FROM chroma_sync_queue
+               WHERE status = 'error' AND updated_at < ?""",
+            (error_cutoff,),
+        )
+        total_deleted += cur.rowcount
+
+        con.commit()
+        return max(0, total_deleted)
+    except (sqlite3.Error, OSError) as e:
+        print(f"[chroma_rag] prune_completed_sync_queue error: {e}", flush=True)
+        return 0
+    finally:
+        con.close()
+
+
+def recover_stale_processing_items(stale_threshold_seconds: float = 300.0) -> int:
+    """Reset any stranded 'processing' records back to 'pending' after unexpected restarts.
+
+    Args:
+        stale_threshold_seconds: Seconds since last update before a processing item is considered orphaned.
+
+    Returns:
+        int: Number of records recovered to 'pending'.
+    """
+    cutoff_ts = time.time() - stale_threshold_seconds
+    con = _get_queue_db()
+    try:
+        cur = con.cursor()
+        cur.execute(
+            """UPDATE chroma_sync_queue
+               SET status = 'pending', updated_at = ?
+               WHERE status = 'processing' AND updated_at < ?""",
+            (time.time(), cutoff_ts),
+        )
+        recovered = cur.rowcount
+        con.commit()
+        if recovered > 0:
+            print(f"[chroma_rag] Recovered {recovered} orphaned processing queue records to 'pending'.", flush=True)
+        return max(0, recovered)
+    except (sqlite3.Error, OSError) as e:
+        print(f"[chroma_rag] recover_stale_processing_items error: {e}", flush=True)
+        return 0
+    finally:
+        con.close()
 
 
 def check_chroma_health() -> dict:

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 09:48:46
+date modified: 2026-09-12 10:12:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.111] - 2026-09-12 — *Chroma Staging Queue Pruning & Tag Delta Indexing*
+
+### Added & Enhanced
+- **Chroma Staging Queue Retention & Self-Healing (`Evelyn/tools/chroma_rag.py`)**:
+  - Added `prune_completed_sync_queue()` to automatically prune completed (`status = 'done'`) records older than retention cutoff (keeping the most recent 500 records and deleting older records) and purge historical resolved error poison pills.
+  - Added `recover_stale_processing_items()` to automatically reset stranded `status = 'processing'` records back to `'pending'` on server startup or worker recovery.
+  - Integrated lazy retention pruning into `_chroma_queue_drain_loop` in `evelyn_server.py`, executing cleanly during queue idle periods.
+  - Added unit test suite coverage (`test_08_recover_stale_processing_items`, `test_09_prune_completed_sync_queue`) in `Evelyn/tests/test_chroma_queue_and_lifecycle.py`.
+- **Decoupled Master Librarian Taxonomy Rebalancing (`evelyn_server.py`, `scripts/master_librarian.py`)**:
+  - Decoupled `--rebalance-taxonomy` from routine 5-minute Master Librarian idle audit passes (`run_master_librarian_task`), confining routine idle curation strictly to note-level link/tag audits (`--limit 5`).
+  - Added explicit `rebalance_taxonomy: bool = False` flag to `run_master_librarian_task()` and `POST /api/librarian/run`.
+  - Removed redundant duplicate call to `sync_master_tags_to_vector_db()` from `scripts/master_librarian.py`.
+- **Master Tag Taxonomy Delta Indexing (`Evelyn/tools/tag_librarian.py`)**:
+  - Refactored `maintain_master_taxonomy()` to delta-index only newly added or modified tags (`tags_to_update`) into Chroma via `index_master_tag_in_chroma()`, eliminating indiscriminate full-taxonomy re-enqueues.
+- **Database Hygiene & Compaction (`data/evelyn_memory.db`)**:
+  - Atomically purged 2,348,000+ obsolete historical completed records from `chroma_sync_queue`.
+  - Rebuilt indexes and executed `VACUUM;` on `evelyn_memory.db`, reducing database size from **1.34 GB down to 59 MB** (reclaiming ~1.28 GB of disk space).
 
 ## [000.006.110] - 2026-09-12 — *Authoritative Factoid Ledger Architecture*
 

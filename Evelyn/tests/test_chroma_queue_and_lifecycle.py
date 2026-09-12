@@ -1,6 +1,6 @@
 # test_chroma_queue_and_lifecycle.py
 # date created: 2026-08-19 20:25:48
-# date modified: 2026-08-19 20:25:48
+# date modified: 2026-09-12 10:12:11
 # tags:
 
 """
@@ -193,6 +193,49 @@ class TestChromaQueueAndLifecycle(unittest.TestCase):
         elapsed = time.time() - start
         self.assertTrue(res)  # Empty queue returns True immediately
         self.assertLess(elapsed, 1.0)
+
+    def test_08_recover_stale_processing_items(self):
+        """Verify recover_stale_processing_items resets orphaned processing records to pending."""
+        src = "test::stale_processing_recovery"
+        now = time.time()
+        self.con.execute(
+            """INSERT INTO chroma_sync_queue
+               (action, source_path, collection_name, content, status, retry_count, created_at, updated_at)
+               VALUES ('upsert', ?, 'evelyn_memory', 'Stale test', 'processing', 0, ?, ?)""",
+            (src, now - 600, now - 600),
+        )
+        self.con.commit()
+
+        recovered = chroma_rag.recover_stale_processing_items(stale_threshold_seconds=300.0)
+        self.assertGreaterEqual(recovered, 1)
+
+        row = self.con.execute("SELECT status FROM chroma_sync_queue WHERE source_path = ?", (src,)).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "pending")
+
+    def test_09_prune_completed_sync_queue(self):
+        """Verify prune_completed_sync_queue deletes completed items older than retention cutoff."""
+        now = time.time()
+        # Insert 5 old done records and 2 recent done records
+        for i in range(5):
+            self.con.execute(
+                """INSERT INTO chroma_sync_queue
+                   (action, source_path, collection_name, content, status, retry_count, created_at, updated_at)
+                   VALUES ('upsert', ?, 'evelyn_memory', 'Old done', 'done', 0, ?, ?)""",
+                (f"test::old_done_{i}", now - 100000, now - 100000),
+            )
+        for i in range(2):
+            self.con.execute(
+                """INSERT INTO chroma_sync_queue
+                   (action, source_path, collection_name, content, status, retry_count, created_at, updated_at)
+                   VALUES ('upsert', ?, 'evelyn_memory', 'Recent done', 'done', 0, ?, ?)""",
+                (f"test::recent_done_{i}", now - 10, now - 10),
+            )
+        self.con.commit()
+
+        # Prune with max_retained_done=1 and max_age_hours=1.0
+        pruned = chroma_rag.prune_completed_sync_queue(max_retained_done=1, max_age_hours=1.0)
+        self.assertGreaterEqual(pruned, 4)
 
 
 if __name__ == "__main__":
