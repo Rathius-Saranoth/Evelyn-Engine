@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-09-11 17:45:52
+date modified: 2026-09-13 16:17:52
 tags: [setup, guide, installation, configuration, deployment, evelyn]
 ---
 
@@ -246,8 +246,14 @@ The server is protected by thin API authentication. Pass your configured `EVELYN
 
 ## 8. Verifying the Installation
 
-Run the automated test suite to ensure all subsystems, tools, and vector indexes are operating properly:
+Run targeted unit and integration tests to verify subsystems, tools, and vector indexes:
 ```bash
-PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/
+# Verify core tools and agents
+PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_all_tools_end_to_end.py
+
+# Verify code hygiene and AST wiring
+PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py
 ```
-All unit and integration tests should pass.
+
+> [!WARNING]
+> **WSL2 Resource Constraint**: Do not run an unbounded `pytest Evelyn/tests/` across the entire directory in a single command under WSL2. Heavy ML models (SentenceTransformers, PyTorch) and ChromaDB instances accumulate memory across 60+ test suites and can cause WSL2 memory exhaustion and system freeze. Always run tests in targeted parts by module or subsystem.

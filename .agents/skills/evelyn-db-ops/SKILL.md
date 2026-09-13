@@ -6,7 +6,7 @@ description: >-
 tags: [skill, db, sqlite, mcp, query, debug, evelyn]
 title: SKILL.md
 date created: 2026-08-23 08:04:51
-date modified: 2026-09-07 07:39:29
+date modified: 2026-09-13 16:17:52
 ---
 
 # Evelyn Database Operations Skill
@@ -82,8 +82,8 @@ When running Python scripts that interact with Evelyn's backend or databases:
 # Always use the project venv
 PYTHONPATH=. /home/rathius/evelyn/venv/bin/python <script_path>
 
-# Run pytest
-PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests
+# Run targeted pytest (run by specific module or subsystem to prevent WSL2 memory exhaustion)
+PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_<subsystem>.py
 ```
 
 ---

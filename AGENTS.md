@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-13 10:54:26
+date modified: 2026-09-13 16:17:52
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -10,7 +10,8 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 
 ## 1. Python Environment & Execution
 - **Virtual Environment**: Always use the project virtual environment at `/home/rathius/evelyn/venv/bin/python` and `/home/rathius/evelyn/venv/bin/pytest`. Never invoke `/usr/bin/python3` directly for workspace tasks or test runs.
-- **PYTHONPATH**: Prefix commands with `PYTHONPATH=.` when executing scripts or running tests from the workspace root (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests`).
+- **PYTHONPATH**: Prefix commands with `PYTHONPATH=.` when executing scripts or running tests from the workspace root (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_terminal_agent.py`).
+- **WSL2 Memory Protection & Targeted Testing**: Never execute an unbounded, monolithic `pytest Evelyn/tests` run across the entire test suite in WSL2. The test suite contains 60+ heavy modules (PyTorch/SentenceTransformers, ChromaDB vector stores, PyMuPDF, SQLite engines) whose combined resident memory accumulation causes severe swap thrashing and freezes the WSL2 VM. Run tests strictly in targeted batches or against specific files covering the modified subsystems (e.g. `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_<subsystem>.py`).
 - **Tooling Configuration (Single Source of Truth)**: All Python tool configurations (Pyrefly language server `[tool.pyrefly]`, Ruff linter/formatter `[tool.ruff]`, Vulture dead-code scanner `[tool.vulture]`, and Pytest `[tool.pytest.ini_options]`) reside canonically in `pyproject.toml`. Do not introduce separate config files.
 
 ## 2. Database & Vector Operations (MCP Server & CLI)
