@@ -118,3 +118,17 @@ Content-Type: application/json
 X-API-Key: {{apiKey}}
 
 {}
+
+### Upload Document / Code Attachment for Chat Turn
+POST {{baseUrl}}/api/chat/upload
+X-API-Key: {{apiKey}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.py"
+Content-Type: text/x-python
+
+def hello():
+    return "Hello from Evelyn chat attachment!"
+
+--boundary--

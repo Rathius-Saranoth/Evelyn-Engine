@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-13 10:38:50
+date modified: 2026-09-13 14:08:22
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -25,12 +25,17 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.
-* **Payload**: JSON object `{"message": "<user text>", "think": "<optional effort level>"}` where `think` can be `"low"`, `"medium"`, `"high"`, `"max"`, or `false` (overrides heuristic/self-election when provided).
+* **Payload**: JSON object `{"message": "<user text>", "think": "<optional effort level>", "documents": [{"name": "...", "content": "..."}], "attachments": [...]}` where `think` can be `"low"`, `"medium"`, `"high"`, `"max"`, or `false` (overrides heuristic/self-election when provided).
 * **Flow**:
   1. Runs [[query_reformulator.py]] for conversational keywords.
   2. Executes semantic vector search via [[chroma_rag.py]] across `evelyn_memory` full-text index using `BAAI/bge-large-en-v1.5` (1024-dim, 1,600-char chunks) with priority score boosting (`rag_priority: high` multiplier 0.75).
   3. Query matches dense facts from [[context_manager.py]].
-  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** through `_agentic_stream_loop()`, forwarding native thinking deltas in real-time, tool execution lifecycle events (`tool_start`, `tool_end`, `tool_data`), quarantine preamble suppression, and per-message telemetry accounting (`finalize`).
+  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** through `_agentic_stream_loop()`, forwarding native thinking deltas in real-time, tool execution lifecycle events (`tool_start`, `tool_end`, `tool_data`), quarantine preamble suppression, uploaded document `<uploaded_document>` XML context injection, and per-message telemetry accounting (`finalize`).
+
+### `POST /api/chat/upload`
+* **Purpose**: Uploads and extracts text from user-attached documents (PDF, Markdown, code files, text, JSON, CSV) for injection into chat turns.
+* **Payload**: Multipart form data with `file` upload field.
+* **Returns**: JSON object `{"status": "ok", "name": "<filename>", "path": "<vault_relpath>", "abs_path": "<vault_abspath>", "type": "<ext>", "content": "<extracted text>", "char_count": <int>, "truncated": <bool>}`. PyMuPDF is used for PDF text extraction (offloaded to threadpool), with automatic scanned-document detection ($< 50$ chars) and character truncation at `MAX_UPLOAD_DOCUMENT_CHARS` (30,000 chars).
 
 ### `POST /regenerate`
 * **Purpose**: Triggers a regeneration of the latest response in the chat chain.

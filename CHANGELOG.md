@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-13 12:28:13
+date modified: 2026-09-13 14:00:51
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.121] - 2026-09-13 — *Dynamic Tool Discovery, Paged Document Reading & Multimodal Chat Ingestion*
+
+### Added & Optimized
+- **Dynamic Tool Discovery Metatool (`search_available_tools`, `evelyn_tools.py`, `evelyn_server.py`, `evelyn_config.py`)**:
+  - Implemented `search_available_tools` allowing Evelyn to autonomously discover and surface engine tools mid-turn if not initially present in the context.
+  - Added token fuzzy and keyword-ratio matching with threshold filtering to score tool names and descriptions without false-positive discovery on noisy queries.
+  - Refactored `_agentic_stream_loop` in `evelyn_server.py` to maintain `active_tool_map` (keyed by tool name) to prevent duplicate tool schemas (`400 Bad Request`) and dynamically bind newly discovered tools into the active tool schema for Round $N+1$.
+  - Added `search_available_tools` to `CORE_TOOL_NAMES` in `evelyn_config.py`.
+  - Registered canonical starter procedure `search_available_tools` in `procedures` via migration `000.006.121` (`db_migrator.py`) with trigger patterns, pitfalls, and verification criteria per Rule 10.
+- **Paged Document Reading & Algorithmic Scratchpad (`read_file`, `read_document_scratchpad`, `terminal_agent.py`, `evelyn_tools.py`)**:
+  - Extended `read_file` with explicit `start_line` and `end_line` parameters (1-indexed, inclusive) across engine tools and terminal agent, emitting proactive pagination tips (`[End of line slice ... Next: start_line=N]`) when files exceed bounds.
+  - Introduced `read_document_scratchpad` providing deterministic algorithmic document chunking, section extraction, and table-of-contents mapping without sub-LLM calls, guaranteeing zero deadlock risk under Ollama's single-concurrency execution.
+- **Token-Fuzzy Document & Vault Matching (`string_utils.py`, `vault_db.py`, `terminal_agent.py`)**:
+  - Implemented canonical `calculate_token_fuzzy_score()` in `string_utils.py` combining token alignment, token sort ratios, noise thresholding ($\ge 0.65$), and numerical/date discrepancy guards (capping similarity at $0.50$ on version/date drift).
+  - Integrated token-fuzzy matching into `vault_db.search_documents()` and `terminal_agent.find_matching_vault_files()` (Tier 4 match), auto-resolving typos and transposed words at $\ge 0.85$ confidence while surfacing ranked disambiguation lists for close matches.
+- **Multimodal Document & Code Drag-and-Drop Ingestion (`evelyn_server.py`, `evelyn_ui/index.html`)**:
+  - Created `/api/chat/upload` endpoint handling documents (`.pdf`, `.md`, `.txt`, `.py`, `.js`, `.json`, `.csv`, etc.) with PyMuPDF text extraction offloaded via `asyncio.to_thread`.
+  - Implemented scanned PDF fallback detection ($< 50$ extracted characters) and truncated documents exceeding `MAX_UPLOAD_DOCUMENT_CHARS` (30,000 chars) with clear warning banners.
+  - Updated Chat UI (`evelyn_ui/index.html`) with window-level drag-over/drop prevention, multi-attachment previews with type-specific badges (`📑`, `💻`, `📄`), upload transit locking on the Send button, and user message attachment display.
+  - Structured document injections using standardized semantic `<uploaded_document>` XML envelopes per Rule 9.
+- **Positive Epistemic Grounding & Semantic Repetition Suppression (`evelyn_server.py`)**:
+  - Enhanced system prompt in `load_system_prompt()` with positive epistemic grounding rules: prohibiting speculative activity attribution (e.g. "looking refreshed", "personal rituals") for short breaks or silence unless explicitly stated by the user.
 
 ## [000.006.120] - 2026-09-13 — *Empirical Phatic Intent Classification & Historical Semantic Grounding*
  

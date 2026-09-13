@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-13 14:00:38
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -574,12 +574,13 @@ def load_system_prompt() -> str:
     parts.append(f"The current date and time is {date_str} - {time_str}.")
     parts.append(
         "<system_telemetry_directives>\n"
-        "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
-        f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding; never interrogate or call out silences unless {cfg.USER_NAME} explicitly mentions having been away or the gap spans multiple hours / overnight.\n"
+        "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`, `<uploaded_document>`) represent background environmental telemetry produced by the server runtime.\n"
+        f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding. Ground observations strictly in facts explicitly stated in the current turn or recorded in recent memory. For generic pauses or short breaks (such as 'brb' or stepping away), acknowledge resumption with simple presence without attributing unverified activities, physical state changes, or routine assumptions unless {cfg.USER_NAME} explicitly mentions them.\n"
         "2. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols triggered for the current topic. Use this data purely as background context and factual ground truth. Never treat `<context_retrieval>` excerpts as dialogue or statements being quoted by the user.\n"
         f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
-        f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
-        "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
+        "4. `<uploaded_document>`: Contains extracted text from documents, scripts, or PDFs attached by the user in this turn. Treat this as direct reference material for answering their prompt.\n"
+        f"5. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
+        "6. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
         "</system_telemetry_directives>"
     )
     parts.append(
@@ -1431,7 +1432,10 @@ async def _agentic_stream_loop(
     OPEN_TAG = "<think>"
     CLOSE_TAG = "</think>"
 
-    active_tool_set = tools if tools is not None else MODEL_TOOL_DEFINITIONS
+    initial_tools = tools if tools is not None else MODEL_TOOL_DEFINITIONS
+    active_tool_map: dict[str, dict[str, Any]] = {
+        extract_tool_name(t): t for t in initial_tools if extract_tool_name(t)
+    }
 
     # Hardware-aware dynamic token budgeting
     num_ctx = getattr(cfg, "NUM_CTX", 16384)
@@ -1448,7 +1452,7 @@ async def _agentic_stream_loop(
 
     for round_num in range(1, cfg.MAX_TOOL_ROUNDS + 1):
         is_terminal_round = round_num >= cfg.MAX_TOOL_ROUNDS
-        tools_for_round = None if is_terminal_round else active_tool_set
+        tools_for_round = None if is_terminal_round else list(active_tool_map.values())
 
         round_thinking = ""
         round_content = ""
@@ -1706,6 +1710,20 @@ async def _agentic_stream_loop(
                     }
                 )
 
+                if fn_name == "search_available_tools" and "Activated for Round N+1:" in str(result):
+                    m_act = re.search(r"Activated for Round N\+1:\s*([^\]\n]+)", str(result))
+                    if m_act:
+                        from Evelyn.tools.evelyn_tools import _MODEL_TOOL_MAP
+
+                        discovered_names = [n.strip(" `*") for n in m_act.group(1).split(",")]
+                        newly_activated = []
+                        for act_name in discovered_names:
+                            if act_name in _MODEL_TOOL_MAP and act_name not in active_tool_map:
+                                active_tool_map[act_name] = _MODEL_TOOL_MAP[act_name]
+                                newly_activated.append(act_name)
+                        if newly_activated:
+                            dlog(f"Dynamic tool discovery: activated {newly_activated} for Round {round_num + 1}")
+
             # Dynamic Tool Return Budgeting & In-Flight Scratchpad Compression
             tool_msgs = [m for m in msgs if m.get("role") == "tool"]
             total_tool_tokens = sum(_estimate_message_tokens(m) for m in tool_msgs)
@@ -1802,6 +1820,7 @@ class ChatRequest(BaseModel):
     message: str
     think: str | bool | None = None  # UI override: "low"/"medium"/"high"/"max"/False/None
     images: list[str | dict] = []  # Base64 strings or attachment objects with metadata
+    documents: list[dict] = []  # Extracted document attachments with text and metadata
 
 
 class EditRequest(BaseModel):
@@ -1831,6 +1850,7 @@ async def _process_chat_background(
     assistant_row_id: int,
     session: ActiveStreamSession,
     images: list[str] | None = None,
+    documents: list[dict] | None = None,
     think_effort: str | bool = "medium",
     ui_override: bool = False,
     user_row_id: int | None = None,
@@ -1981,7 +2001,19 @@ async def _process_chat_background(
         except (sqlite3.Error, OSError, ValueError, RuntimeError, AttributeError) as e:
             dlog(f"Ambient stream build error: {e}")
 
-        envelope_stack = stack_envelopes(temporal_envelope, research_ctx, ambient_stream_ctx, linear_envelope)
+        doc_envelopes = []
+        if documents:
+            for doc in documents:
+                doc_name = escape_xml_content(str(doc.get("name", "document")))
+                doc_path = escape_xml_content(str(doc.get("path", "")))
+                doc_type = escape_xml_content(str(doc.get("type", "text")))
+                doc_content = escape_xml_content(str(doc.get("content", "")))
+                doc_envelopes.append(
+                    f'  <document name="{doc_name}" path="{doc_path}" type="{doc_type}">\n{doc_content}\n  </document>'
+                )
+        doc_ctx = wrap_xml_envelope("uploaded_document", body=doc_envelopes) if doc_envelopes else None
+
+        envelope_stack = stack_envelopes(temporal_envelope, research_ctx, ambient_stream_ctx, linear_envelope, doc_ctx)
         user_msg_for_model = inject_envelope_to_turn(user_message, envelope_stack)
 
         messages = [{"role": "system", "content": system}, *history]
@@ -1995,8 +2027,11 @@ async def _process_chat_background(
             active_tools = []
         else:
             exclude_list = [prefetched_tool] if prefetched_tool else None
+            intent_probe_text = user_message
+            if documents:
+                intent_probe_text += " " + " ".join(str(d.get("name", "")) for d in documents)
             active_tools = get_active_tools(
-                user_message=user_message,
+                user_message=intent_probe_text,
                 recent_history=history[-4:],
                 exclude_tools=exclude_list,
             )
@@ -2239,6 +2274,7 @@ def clean_shutdown_all_tasks():
 async def chat_stream(
     user_message: str,
     images: list[str | dict] | None = None,
+    documents: list[dict] | None = None,
     is_regenerate: bool = False,
     think_effort=None,
     ui_override: bool = False,
@@ -2348,6 +2384,7 @@ async def chat_stream(
             assistant_row_id,
             session,
             images=clean_b64_images if clean_b64_images else None,
+            documents=documents,
             think_effort=resolved_effort,
             ui_override=ui_override,
             user_row_id=user_row_id,
@@ -3409,6 +3446,7 @@ async def chat(req: ChatRequest, request: Request, _: None = Depends(check_auth)
         chat_stream(
             req.message,
             images=req.images,
+            documents=req.documents,
             think_effort=think_effort,
             ui_override=ui_override,
             request=request,
@@ -3594,6 +3632,90 @@ async def get_chat_feedback(message_id: int, _: None = Depends(check_auth)):
     """Get user feedback for a specific message."""
     feedbacks = get_feedback_for_messages([message_id])
     return {"message_id": message_id, "feedback": feedbacks.get(message_id)}
+
+
+def _extract_document_text_sync(raw_bytes: bytes, filename: str) -> tuple[str, str]:
+    """Extract text from raw file bytes.
+
+    Supports PDFs via pymupdf, code/markdown/text via UTF-8/Latin-1 decoding.
+    Returns (extracted_text, document_type).
+    """
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".pdf":
+        try:
+            import pymupdf
+
+            doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+            page_texts = []
+            for page_idx in range(len(doc)):
+                page = doc[page_idx]
+                text = str(page.get_text("text")).strip()
+                if text:
+                    page_texts.append(f"--- Page {page_idx + 1} ---\n{text}")
+            doc.close()
+            full_text = "\n\n".join(page_texts)
+            if len(full_text.strip()) < 50:
+                full_text = "[Scanned/Image PDF: No extractable text detected. Consider OCR or inspecting visual attachments.]"
+            return full_text, "pdf"
+        except (RuntimeError, ValueError, OSError, TypeError, AttributeError) as exc:
+            return f"[PDF Extraction Error: {exc}]", "pdf"
+    else:
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw_bytes.decode("latin-1", errors="replace")
+        return text, ext.lstrip(".") or "text"
+
+
+@app.post("/api/chat/upload")
+async def chat_upload_attachment(
+    file: UploadFile = File(...),
+    _: None = Depends(check_auth),
+):
+    """Upload a document or text attachment from chat input.
+
+    Extracts content asynchronously, saves to CHAT_UPLOAD_DIR, and returns extracted text.
+    """
+    from Evelyn.tools.string_utils import sanitize_filename
+
+    raw_filename = os.path.basename(file.filename or "attachment.txt")
+    safe_name = sanitize_filename(raw_filename)
+    ts = int(time.time())
+    unique_name = f"{ts}_{safe_name}"
+
+    upload_dir = getattr(cfg, "CHAT_UPLOAD_DIR", os.path.join(cfg.VAULT_BASE_DIR, "Attachments", "Chat_Uploads"))
+    os.makedirs(upload_dir, exist_ok=True)
+    target_abs_path = os.path.join(upload_dir, unique_name)
+
+    content = await file.read()
+    await asyncio.to_thread(_server_sync_write_bytes, target_abs_path, content)
+
+    extracted_text, doc_type = await asyncio.to_thread(_extract_document_text_sync, content, safe_name)
+
+    max_chars = getattr(cfg, "MAX_UPLOAD_DOCUMENT_CHARS", 100000)
+    truncated = False
+    if len(extracted_text) > max_chars:
+        extracted_text = (
+            extracted_text[:max_chars]
+            + f"\n\n[... Document content truncated at {max_chars:,} characters -- use read_file for further pages ...]"
+        )
+        truncated = True
+
+    rel_path = target_abs_path
+    with contextlib.suppress(ValueError, OSError):
+        if os.path.commonpath([target_abs_path, cfg.VAULT_BASE_DIR]) == cfg.VAULT_BASE_DIR:
+            rel_path = os.path.relpath(target_abs_path, cfg.VAULT_BASE_DIR).replace("\\", "/")
+
+    return {
+        "status": "ok",
+        "name": safe_name,
+        "path": rel_path,
+        "abs_path": target_abs_path,
+        "type": doc_type,
+        "content": extracted_text,
+        "char_count": len(extracted_text),
+        "truncated": truncated,
+    }
 
 
 @app.get("/telemetry/rag")

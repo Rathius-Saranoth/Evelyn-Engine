@@ -1,6 +1,6 @@
 # test_terminal_agent.py
 # date created: 2026-06-27 09:38:56
-# date modified: 2026-09-12 11:39:20
+# date modified: 2026-09-13 14:10:43
 # tags: #test, #verification, #terminal, #security
 
 """Unit tests for the Evelyn Terminal Agent safety, persistence, and execution logic.
@@ -342,7 +342,7 @@ class TestTerminalAgent(unittest.TestCase):
         self.assertIn("# Main Document Title", content)
         self.assertIn("Introductory paragraph text.", content)
         self.assertIn("Showing lines 1–40 of 152", content)
-        self.assertIn("Tip: Call read_file with offset_line=41", content)
+        self.assertIn("start_line=41", content)
         self.assertIn("Available Sections in document:", content)
         self.assertIn("## Middle Section", content)
 
@@ -354,7 +354,7 @@ class TestTerminalAgent(unittest.TestCase):
         paged_content = terminal_agent.read_file(test_file, offset_line=41, max_lines=40)
         self.assertIn("Showing lines 41–80 of 152", paged_content)
         self.assertIn("## Middle Section", paged_content)
-        self.assertIn("Tip: Call read_file with offset_line=81", paged_content)
+        self.assertIn("start_line=81", paged_content)
 
 
 if __name__ == "__main__":

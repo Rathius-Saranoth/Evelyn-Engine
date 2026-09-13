@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-12 11:00:08
+# date modified: 2026-09-13 14:00:38
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 import evelyn_config as cfg
+from Evelyn.tools.string_utils import calculate_token_fuzzy_score
 
 DB_PATH = getattr(cfg, "VAULT_DB_PATH", r"/home/rathius/evelyn/data/evelyn_vault.db")
 
@@ -230,6 +231,14 @@ def search_documents(query: str, limit: int = 5) -> list[dict[str, Any]]:
                 if term in snippet:
                     term_score += 1
             score += term_score
+
+        # Token-fuzzy match against title and stem first (avoiding path prefix dilution)
+        stem = os.path.basename(path_str)
+        clean_stem = stem[:-3] if stem.endswith(".md") else stem
+        target_label = f"{title} {clean_stem}".strip()
+        fuzzy_score = calculate_token_fuzzy_score(query_lower, target_label)
+        if fuzzy_score >= 0.70:
+            score += int(fuzzy_score * 15)
 
         if score > 0:
             results.append({
