@@ -2,7 +2,7 @@
 title: README.md
 tags: [system/engine]
 date created: 2026-08-28 14:41:00
-date modified: 2026-09-10 22:10:05
+date modified: 2026-09-13 16:17:52
 ---
 > [!NOTE]
 > **Project Status: Personal / As-Is**  
@@ -138,12 +138,19 @@ Open your browser at **`http://localhost:8000`** to start chatting with Evelyn!
 ---
 
 ## 🧪 Testing
-
-Run the full pytest suite to verify all database layers, tools, and vector components:
+ 
+Run targeted tests to verify specific database layers, tools, and subsystems:
 
 ```bash
-PYTHONPATH=. ./venv/bin/pytest Evelyn/tests
+# Run a specific subsystem test:
+PYTHONPATH=. ./venv/bin/pytest Evelyn/tests/test_terminal_agent.py
+
+# Or test a focused domain grouping:
+PYTHONPATH=. ./venv/bin/pytest Evelyn/tests/test_profile_*.py
 ```
+
+> [!WARNING]
+> **WSL2 Memory Protection**: Avoid running an unbounded `pytest Evelyn/tests` across all 60+ test modules in a single process inside WSL2. Heavy ML dependencies (SentenceTransformers, PyTorch, ChromaDB) accumulate memory across tests and will cause swap thrashing and VM lockup. Always run tests in targeted batches or by subsystem.
 
 ---
 

@@ -2,7 +2,7 @@
 description: Deterministic AST wiring and compiler-level dead-code verification to eliminate uncalled functions and unwired code
 title: verify-wiring.md
 date created: 2026-09-06 18:46:25
-date modified: 2026-09-06 18:46:25
+date modified: 2026-09-13 16:17:52
 tags: [wiring, dead-code, hygiene, verification, ast, vulture, workflow, evelyn]
 ---
 
@@ -84,6 +84,6 @@ When performing code reviews, constrain the review strictly to isolated producer
 Before closing an implementation task:
 
 - [ ] `scripts/check_code_hygiene.py` executed and exited with `0` (all stages green).
-- [ ] Pytest suite executed and passing: `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests`.
+- [ ] Targeted pytest suite executed and passing for modified subsystems: `PYTHONPATH=. /home/rathius/evelyn/venv/bin/pytest Evelyn/tests/test_<subsystem>.py` (run targeted suites; avoid unbounded full-repo pytest runs in WSL2).
 - [ ] No unconsumed functions, variables, or configuration parameters left behind.
 - [ ] Two-file producer-consumer diff inspected for explicit end-to-end invocation.
