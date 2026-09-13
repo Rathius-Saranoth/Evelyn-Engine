@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-12 10:16:16
+date modified: 2026-09-13 10:38:50
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-13 08:57:37
+date modified: 2026-09-13 10:55:49
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.118] - 2026-09-13 — *IDE Environment Consolidation, REST Scratchpad & Mermaid PKM Hardening*
+
+### Added & Consolidated
+- **Canonical IDE Environment & Tooling Alignment (`.vscode/settings.json`, `.vscode/extensions.json`, `.vscode/tasks.json`)**:
+  - Bound Python default interpreter path canonically to `/home/rathius/evelyn/venv/bin/python`, eliminating unresolvable environment interpolation warnings and PET timeout loops.
+  - Uninstalled incompatible preview extension `ms-python.vscode-python-envs` on the remote server host and standardized on native `ms-python.python` and `ms-pyright.pyright`.
+  - Configured Ruff format-on-save (`editor.defaultFormatter: charliermarsh.ruff`) and import sorting (`source.organizeImports`, `source.fixAll`).
+  - Added SQLite database file-nesting rules so `-wal` and `-shm` files nest cleanly under `.sqlite` and `.db` roots.
+  - Corrected Pytest discovery testpaths to `Evelyn/tests`, restoring zero-error test discovery across all 382 unit tests.
+  - Added quick-run tasks for active file frontmatter updates and deterministic code hygiene execution.
+- **REST Client Scratchpad & API Probing Standard (`reference/evelyn_api.http`, `AGENTS.md`)**:
+  - Authored parameterized `reference/evelyn_api.http` targeting `https://localhost:7860` with zero credential leakage via `{{$dotenv EVELYN_API_KEY}}`.
+  - Probed and verified 14 core FastAPI endpoints across runtime health, identity, heavy tasks, unified review, procedures, vault domains, and streaming chat.
+  - Formalized REST scratchpad usage in `AGENTS.md` (Sections 2 & 3) to prevent speculative URL guessing and unvalidated inline HTTP scripts.
+- **Frontmatter Script Dynamic Modification Timestamp (`scripts/update_frontmatter.py`)**:
+  - Replaced stale `os.stat().st_mtime` calculation with `datetime.datetime.now().astimezone()`, ensuring that frontmatter updates dynamically reflect current local time regardless of disk save state.
+  - Added descriptive CLI terminal feedback (`✔ Frontmatter updated: ...`) for explicit execution tracking.
+- **Mermaid Diagram Syntax Hardening (`reference/engine_architecture.md`)**:
+  - Quoted arrow labels with parentheses (`|"Generate Visuals (Tailscale)"|`, `|"enqueue_upsert... (Non-blocking...)"|`) and corrected invalid thick-line arrow syntax (`<==>|Tailscale P2P|`), resolving parse errors in Markdown previews.
 
 ## [000.006.117] - 2026-09-13 — *Dynamic Research Token Budget Coupling & Multi-Tier Semantic Compaction*
 

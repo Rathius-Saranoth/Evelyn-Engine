@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-08 19:13:04
+date modified: 2026-09-13 10:54:26
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -23,6 +23,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   sqlite3 -json /home/rathius/evelyn/data/<db_name>.db "<SELECT_QUERY>"
   sqlite3 /home/rathius/evelyn/data/<db_name>.db ".schema <table_name>"
   ```
+- **REST Client Scratchpad & API Probing**: When inspecting, testing, or triggering engine endpoints (`/status`, `/api/identity`, `/api/heavy_tasks`, `/api/review/unified`, `/api/procedures`, `/history`, `/telemetry/*`), reference and use the canonical endpoint definitions in `reference/evelyn_api.http` (configured for `https://localhost:7860` with `X-API-Key: {{$dotenv EVELYN_API_KEY}}`). Never write unvalidated ad-hoc inline Python HTTP scripts or guess speculative endpoint paths.
 - **No Ad-Hoc Inline Scripts**: Do not write unvalidated inline `python3 -c "import sqlite3..."` shell commands to guess column names or print unbounded stdout dumps. Check table schemas via `describe_table` or `.schema` before querying.
 - **Data Hygiene & Test Cleanup**: Dummy test records, mock entries, or test proposals created during verification must be purged immediately from production databases (`evelyn_chat.db`, `evelyn_memory.db`, `evelyn_vault.db`) once testing is complete.
 - **Hermetic Test Isolation & Sandbox Protocol**: All test executions (pytest, unit tests, mock verifications) must run inside hermetic sandboxes (`Evelyn/tests/conftest.py`, `tempfile.TemporaryDirectory()`, in-memory `:memory:` databases, or mock targets). Tests and verification scripts are strictly forbidden from writing files directly to or modifying production Obsidian vault paths (`~/obsidian_vault`), production databases (`data/evelyn_*.db`), or active ChromaDB collections.
@@ -38,7 +39,7 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   - **No Version or Patch Bleed**: Never append version numbers (`v000.006.XXX`), release titles, bugfix notes, or function trace dumps to `ROADMAP.md`. Release-specific logs belong exclusively in `CHANGELOG.md`.
   - **Completed Milestones (`- [x]`)**: Consolidated high-level summaries (1–2 sentences) capturing completed capabilities. Grouped at the top of each section. Avoid creating one-off micro-entries for routine patches.
   - **Pending Items (`- [ ]`)**: Sized as **discrete, single-implementation units** (feasible within a single focused development session or PR). Never bundle multiple distinct systems (e.g. full frontend UI + separate backend ingestion pipeline) into sprawling mega-items that stretch agents too thin. Grouped at the bottom of each section.
-- **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, `requirements.txt`, and `SETUP_GUIDE.md` in sync whenever code contracts change.
+- **Reference Docs**: Keep `reference/engine_architecture.md`, `reference/endpoints.md`, `reference/evelyn_api.http`, `requirements.txt`, and `SETUP_GUIDE.md` in sync whenever code contracts change.
 - **File Metadata & Frontmatter**: Run `python scripts/update_frontmatter.py "<filepath>"` after modifying files to ensure timestamps and headers stay accurate.
 
 ## 4. Identity Parameterization & Privacy Boundary

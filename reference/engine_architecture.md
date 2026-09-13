@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-12 11:02:14
+date modified: 2026-09-13 10:40:56
 ---
 # Evelyn Engine Architecture Map
 
@@ -64,7 +64,7 @@ graph TD
     
     Server <-->|Prompt / Tool Call| Ollama
     Server -->|Generate Audio| TTS
-    Server -->|Generate Visuals (Tailscale)| Image
+    Server -->|"Generate Visuals (Tailscale)"| Image
 
     %% Knowledge Sync Pipeline
     subgraph Ingestion [Ingestion Pipeline]
@@ -106,10 +106,10 @@ graph TD
         TabNode["Tablet Node (client-tablet)"]
         SyncthingServer["Syncthing Daemon (Ricky-PC-WSL:22000)"]
     end
-    WinNode <== Tailscale P2P ==> SyncthingServer
-    MobileNode <== Tailscale P2P ==> SyncthingServer
-    TabNode <== Tailscale P2P ==> SyncthingServer
-    SyncthingServer <--->|Sync Files| Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"]
+    WinNode <==>|Tailscale P2P| SyncthingServer
+    MobileNode <==>|Tailscale P2P| SyncthingServer
+    TabNode <==>|Tailscale P2P| SyncthingServer
+    SyncthingServer <-->|Sync Files| Obsidian["Obsidian Vault<br>(/home/rathius/obsidian_vault)"]
     Obsidian <-->|Inotify Watch| VaultWatcher
     Obsidian <-->|Read / Sync| IngestVault
     ResearchEngine -->|Save Report| Obsidian
@@ -400,7 +400,7 @@ graph TD
         ChromaStore[("chroma_db/<br>Unified Vector Store")]
     end
 
-    Producers -->|enqueue_upsert / enqueue_delete<br>(Non-blocking SQLite WAL Insert)| QueueTable
+    Producers -->|"enqueue_upsert / enqueue_delete<br>(Non-blocking SQLite WAL Insert)"| QueueTable
     Server --> StartupReaper
     Server --> HealthProbe
     Server --> DrainWorker
