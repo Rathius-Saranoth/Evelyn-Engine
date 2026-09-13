@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # document_vision_processor.py
 # date created: 2026-08-16 20:21:38
-# date modified: 2026-08-16 20:21:38
+# date modified: 2026-09-13 11:53:39
 # tags:
 
 # scripts/document_vision_processor.py
@@ -16,11 +16,8 @@ Inspects staged PDFs:
 """
 
 import base64
-import json
 import os
 import sys
-import urllib.error
-import urllib.request
 
 import fitz  # PyMuPDF
 
@@ -30,37 +27,27 @@ for d in (ROOT_DIR, TOOLS_DIR):
     if d not in sys.path:
         sys.path.insert(0, d)
 
+import frontmatter_utils
+import ollama_client
+
 import evelyn_config as cfg
 
 STAGING_DIR = getattr(cfg, "STAGING_DIR", os.path.join(ROOT_DIR, "data", "staging"))
 ATTACHMENTS_DIR = os.path.join(STAGING_DIR, "Attachments")
-OLLAMA_URL = getattr(cfg, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 VISION_MODEL = "llama3.2-vision:11b"
 
 def query_ollama_vision(image_bytes: bytes, prompt: str) -> str:
-    """Send image and prompt to Ollama vision model."""
+    """Send image and prompt to Ollama vision model using canonical ollama_client."""
     b64_img = base64.b64encode(image_bytes).decode("utf-8")
-    payload = {
-        "model": VISION_MODEL,
-        "prompt": prompt,
-        "images": [b64_img],
-        "stream": False,
-        "options": {"temperature": 0.1}
-    }
-
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/generate",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+    return ollama_client.query_ollama(
+        prompt=prompt,
+        model=VISION_MODEL,
+        endpoint="/api/generate",
+        options={"temperature": 0.1},
+        timeout=120,
+        strip_thinking=True,
+        images=[b64_img],
     )
-
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("response", "").strip()
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
-        print(f"[Vision Error] {e}", flush=True)
-        return ""
 
 def process_scanned_pdf(pdf_path: str) -> tuple[bool, str]:
     """
@@ -118,32 +105,34 @@ def process_scanned_pdf(pdf_path: str) -> tuple[bool, str]:
 
     doc.close()
 
-    # Build wrapper note
-    md_lines = [
-        "---",
-        "tags: [document, scan, vision-extracted]",
-        f"original_file: {os.path.basename(pdf_path)}",
-        f"pages: {total_pages}",
-        "---",
-        "",
+    # Build wrapper note using canonical frontmatter_utils
+    metadata = {
+        "tags": ["document", "scan", "vision-extracted"],
+        "original_file": os.path.basename(pdf_path),
+        "pages": total_pages,
+    }
+
+    body_lines = [
         f"# {base_name}",
         "",
         "> [!NOTE] Scanned Document Archive",
         f"> High-resolution visual scan archive ({total_pages} pages). Content analyzed via {VISION_MODEL}.",
-        ""
+        "",
     ]
 
     if page_summaries:
-        md_lines.append("## Extracted Content & Summary\n")
-        md_lines.extend(page_summaries)
-        md_lines.append("\n---\n")
+        body_lines.append("## Extracted Content & Summary\n")
+        body_lines.extend(page_summaries)
+        body_lines.append("\n---\n")
 
-    md_lines.append("## Document Scans\n")
-    md_lines.extend(f"![[{img_fn}]]\n" for img_fn in page_images)
+    body_lines.append("## Document Scans\n")
+    body_lines.extend(f"![[{img_fn}]]\n" for img_fn in page_images)
+
+    full_content = frontmatter_utils.render_frontmatter(metadata, "\n".join(body_lines))
 
     wrapper_md_path = os.path.splitext(pdf_path)[0] + ".md"
     with open(wrapper_md_path, "w", encoding="utf-8") as f_out:
-        f_out.write("\n".join(md_lines))
+        f_out.write(full_content)
 
     print(f"[Vision] Successfully generated wrapper note: {os.path.basename(wrapper_md_path)}", flush=True)
     return True, wrapper_md_path

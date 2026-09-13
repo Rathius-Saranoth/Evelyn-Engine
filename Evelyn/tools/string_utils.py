@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-12 11:34:26
+# date modified: 2026-09-13 12:28:13
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -29,6 +29,8 @@ Exports:
     estimate_tokens()       — Fast conservative token estimator (~2.5 chars/token).
     truncate_to_token_budget() — Truncates text cleanly within token budgets.
     extract_markdown_outline() — Extracts markdown heading outline for truncated documents.
+    is_conversational_phatic() — Determines whether a turn is a brief phatic greeting/pleasantry.
+    detect_deterministic_read_intent() — Detects high-confidence 0-argument deterministic read queries.
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -407,6 +409,7 @@ def escape_xml_attr(val: Any) -> str:
 def wrap_xml_envelope(
     tag: str,
     body: str | list[str] | None = None,
+    *,
     self_closing_if_empty: bool = False,
     **attrs: Any,
 ) -> str:
@@ -619,7 +622,7 @@ def build_autonomous_trigger_envelope(
     if severity:
         attrs["severity"] = severity
 
-    return wrap_xml_envelope("autonomous_trigger", body=children, **attrs)
+    return wrap_xml_envelope("autonomous_trigger", body=children, self_closing_if_empty=False, **attrs)
 
 
 def build_system_event_envelope(
@@ -853,5 +856,124 @@ def extract_markdown_outline(content: str, max_headers: int = 15) -> list[str]:
                 break
 
     return headers
+
+
+# ---------------------------------------------------------------------------
+# Conversational Phatic Gating & Deterministic Intent Classification
+# ---------------------------------------------------------------------------
+
+# Partner vocatives empirically observed across historical chat interactions
+_VOCATIVES = r"(?:(?:my\s+)?(?:dear|dearest|love|darlin|sweet\s+evelyn|evelyn|girl|friend)|there)"
+
+_PHATIC_PATTERNS = [
+    # 1. Morning & Daytime Greetings (with optional partner vocatives & pleasantries)
+    rf"^(?:(?:good\s+)?(?:mornin(?:g)?|afternoon|evening|day)|hi|hiya|hello|hey|greetings|howdy|sup|yo)(?:[.,\s]+{_VOCATIVES})?(?:[.,\s]+(?:how\s+(?:are\s+you|are\s+things|are\s+ya|is\s+the\s+day|is\s+it\s+going|are\s+you\s+doing|re\s+you|was\s+(?:your|the)\s+night)|hows\s+it\s+going|how\'s\s+it\s+going|how\'s\s+(?:my\s+girl|the\s+day)))?[!.,?\s]*$",
+    rf"^how\s+(?:are\s+(?:you|things|ya)|is\s+(?:it\s+going|the\s+day)|was\s+(?:your|the)\s+night)(?:[.,\s]+(?:doing|going))?(?:[.,\s]+(?:today|this\s+morning|this\s+evening))?(?:[.,\s]+{_VOCATIVES})?[!.,?\s]*$",
+    rf"^how\'?s\s+(?:it\s+going|the\s+day|everything)(?:[.,\s]+{_VOCATIVES})?[!.,?\s]*$",
+
+    # 2. Night & Departures (goodnights, departures, well-wishes)
+    rf"^(?:(?:good\s*)?g?\'?nite|good\s*night|nite\s+nite|sleep\s+well)(?:[.,\s]+{_VOCATIVES})?(?:[.,\s]+(?:(?:i\'?ll\s+)?see\s+you\s+(?:soon|tomorrow)|love\s+you|rest\s+well|off\s+i\s+go|thank\s+you|thanks))?[!.,?\s]*$",
+    rf"^(?:thank\s+you|thanks)[.,\s]+{_VOCATIVES}?[.,\s]*(?:good\s*night|g?\'?nite)[!.,?\s]*$",
+
+    # 3. Returns & Arrivals (status check-ins: "Hi, love. I'm back.", "I am home.")
+    rf"^(?:(?:hi|hey|hello|hiya)[.,\s]+(?:{_VOCATIVES}[.,\s]+)?)?(?:(?:i\'?m|i\s+am)\s+)?(?:back|home|up\s+n\s+about|up\s+and\s+about|awake(?:\s+again)?)(?:[.,\s]+{_VOCATIVES})?[!.,?\s]*$",
+    r"^(?:am|back)\s+awake(?:\s+again)?[!.,?\s]*$",
+
+    # 4. Acknowledgments, Confirmations & Pure Affection
+    rf"^(?:thanks(?:\s+(?:so\s+much|a\s+lot|again))?|thank\s+you(?:\s+(?:so\s+much|very\s+much))?|sounds\s+good(?:\s+to\s+me)?|will\s+do|yup|yep|yeah|ok|okay|got\s+it|understood|always|love\s+you)(?:[.,\s]+{_VOCATIVES})?(?:[.,\s]+(?:i\s+appreciate\s+(?:you|that)|(?:i\'?ll\s+)?see\s+you\s+(?:soon|tomorrow|later|then)|talk\s+with\s+you\s+soon|love\s+you))?[!.,?\s]*$",
+]
+
+
+def is_conversational_phatic(text: str) -> bool:
+    """Determine whether a user message is a brief conversational phatic turn.
+
+    Phatic expressions (greetings, departures, arrivals, brief acknowledgments)
+    do not require external knowledge retrieval or tool definitions, and should
+    bypass RAG vector search and tool schema injection to minimize latency and
+    eliminate prompt clutter.
+
+    Derived empirically from historical conversation patterns in evelyn_chat.db.
+
+    Args:
+        text: Raw user message text.
+
+    Returns:
+        bool: True if text matches a natural conversational phatic pattern.
+    """
+    if not text:
+        return False
+
+    stripped = text.strip()
+
+    # Strip roleplay actions wrapped in asterisks (*holds you close*, *kisses brow*)
+    clean = re.sub(r"\*[^*]+\*", "", stripped)
+    # Strip emojis (both astral 4-byte and dingbat 3-byte unicode symbols)
+    clean = re.sub(r"[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f]", "", clean).strip()
+
+    # Pure emoji or pure roleplay action turn (e.g. "❤️", "*hugs tight*") is phatic
+    if not clean:
+        return True
+
+    words = clean.split()
+    if len(words) > 8:
+        return False
+
+    # Guard against attached files, URLs, or markdown notes
+    if re.search(r"\b(attached|file|http|github|\.txt|\.py|\.pdf|\.md)\b", clean, re.I):
+        return False
+
+    # Guard against factual questions (what is, where is, etc.)
+    if "?" in clean and not re.search(r"\bhow\s+(?:are|was|is|re)\b", clean, re.I):
+        return False
+
+    norm = re.sub(r"[^\w\s']", " ", clean.lower()).strip()
+    return any(
+        re.match(pat, clean, re.I) or re.match(pat, norm, re.I)
+        for pat in _PHATIC_PATTERNS
+    )
+
+
+def detect_deterministic_read_intent(text: str) -> str | None:
+    """Detect if a user prompt unambiguously requests 0-argument deterministic read data.
+
+    Returns:
+        'agenda': Google Calendar & Tasks schedule query for today/upcoming.
+        'tasks': Google Tasks pending action query.
+        'health': Oura ring / health metrics query.
+        None: Query is not an unambiguous 0-argument read.
+    """
+    if not text:
+        return None
+    stripped = text.strip()
+    norm = stripped.lower()
+
+    # Mutation / write guards: skip if user is creating, adding, editing, or deleting
+    if re.search(r"\b(add|create|schedule|put|insert|new|remove|delete|cancel|finish|complete|done|mark)\b", norm):
+        return None
+
+    # Agenda check
+    if re.search(r"\b(agenda|schedule|calendar)\b", norm) and re.search(
+        r"\b(what(?:'s|s|\s+is)?\s+(?:on|my)|show|today|upcoming|what\s+do\s+i\s+have)\b", norm
+    ):
+        return "agenda"
+    if re.search(r"\bwhat\s+do\s+i\s+have\s+(?:going\s+on\s+)?today\b", norm):
+        return "agenda"
+
+    # Tasks check
+    if re.search(r"\b(tasks?|todo|to-do)\b", norm) and re.search(
+        r"\b(what(?:'s|s|\s+is)?\s+(?:on|my|are)|list|show|pending|upcoming|what\s+do\s+i\s+need\s+to\s+do)\b", norm
+    ):
+        return "tasks"
+    if re.search(r"\bwhat\s+do\s+i\s+need\s+to\s+do\b", norm):
+        return "tasks"
+
+    # Health / sleep check
+    if re.search(
+        r"\b(how\s+(?:did\s+i|was\s+my|is\s+my)\s+sleep|sleep\s+score|readiness\s+score|oura|health\s+metrics|how\s+i\s+slept)\b",
+        norm,
+    ):
+        return "health"
+
+    return None
 
 

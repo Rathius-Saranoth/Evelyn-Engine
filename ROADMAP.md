@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-12 12:10:26
+date modified: 2026-09-13 13:10:18
 ---
 # Evelyn Project Roadmap
 
@@ -58,6 +58,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Multi-Modal Ambient Feed & Thought Bubbles**: Extensible daytime ambient impressions substrate (`daily_ambient_impressions`), header island thought bubbles, and failure-isolated evening reflection synthesis.
 - [x] **Workspace & Health Integrations**: Integrations for Google Calendar/Tasks/Drive, Obsidian Vault checklists, Health Connect clinical EHR data, and Oura Ring Cloud API v2 biometrics.
 - [x] **Direct Web Browsing & Search**: Dedicated `read_url` tool with desktop client fingerprinting, bot-challenge diagnostics, query sanitization, and in-memory TTL caching.
+- [x] **Agentic Infrastructure & Information Density**: Tri-vector agentic loop optimization eliminating retrieval latency via empirical phatic classification and linear read pre-hydration, reducing cognitive degradation through dynamic tool schema pruning and contiguous chunk fusion, and filtering boilerplate web extraction.
 - [ ] **Third-Party & Multi-Entity Profiles**: Dynamic evolution and autonomous profiling for external contacts and collaborators encountered across channels into dedicated profile notes.
 - [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category and vector distance memory retrieval for profile evolution to dynamically ingest cross-domain observations.
 - [ ] **Profile Evolution Protected Sections**: Configurable section-level invariants (`PROTECTED_SECTIONS` in `evelyn_config.py`) and validator locks preventing nocturnal profile evolution passes from modifying specified headers across persona triad files.
@@ -84,6 +85,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Conversational Feedback & Quality Telemetry**: Interactive response rating (upvote/downvote) in Chat UI with satisfaction analytics and persistent RAG retrieval event inspection in DevUI.
 - [x] **Dual-Collection Vector Architecture**: Split ambient conversational RAG (`evelyn_memory`) from external reference documents into a dedicated collection (`evelyn_reference`) with an active semantic search tool (`search_reference_library`).
 - [x] **Deployment & Mesh Infrastructure Documentation**: Published comprehensive WSL2 and bare-metal deployment guide in `SETUP_GUIDE.md` covering Tailscale P2P mesh networking, port isolation, user lingering, and Syncthing synchronization.
+- [x] **Agentic Infrastructure & Retrieval Optimization**: Tri-vector agentic engine optimization across retrieval pathing (linear pre-hydration for 0-arg reads, phatic RAG gating), information density (contiguous chunk fusion, semantic consolidation pre-filtering, research chunk relevance gating), and strategic routing (dynamic tool schema pruning).
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, manage protected profile sections, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
 - [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.

@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-13 08:57:37
+# date modified: 2026-09-13 11:53:39
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -279,6 +279,19 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
     ],
 }
 
+# --- Dynamic Tool Schema Pruning & Conversational Gating ---
+# When True, short phatic turns (greetings, pleasantries, brief thanks) bypass ChromaDB
+# vector retrieval and tool schema injection to eliminate prompt noise and latency.
+CHAT_PHATIC_RAG_BYPASS: bool = True
+
+# When True, deterministic 0-argument read intents (agenda, tasks, health metrics) are
+# pre-hydrated directly into <context_retrieval> envelopes before Round 1, collapsing
+# the traditional 2-round ReAct loop into a single streaming inference pass.
+CHAT_LINEAR_READ_PREFETCH: bool = True
+
+# When True, dynamically prunes inactive core tools when specialized intent is unambiguous.
+TOOL_SCHEMA_PRUNING_ENABLED: bool = True
+
 # --- Context Summarizer (DEPRECATED & DISABLED) ---
 # Context summarizer has been removed to eliminate prompt clutter and temporal
 # hallucinations in journal writing. Active conversation history (MAX_HISTORY_MESSAGES=40)
@@ -455,6 +468,10 @@ RAG_PINNED_MAX_CHUNKS = 2
 RAG_REFORMULATE_ENABLED = False  # Master switch — False = direct zero-latency semantic search
 RAG_REFORMULATE_MIN_WORDS = 4  # Skip reformulation for messages with fewer words
 RAG_REFORMULATE_TIMEOUT = 10  # Seconds before falling back to raw message
+
+# When True, adjacent or contiguous chunks from the same document are fused into a single
+# continuous excerpt before XML envelope formatting, eliminating redundant chunk headers.
+RAG_FUSE_CONTIGUOUS_CHUNKS = True
 
 # =============================================================================
 # Entry Management
@@ -713,6 +730,12 @@ CONSOLIDATION_SPLIT_WORD_THRESHOLD = 35
 # Detection calls use think=False and complete well under this limit.
 CONSOLIDATION_TIMEOUT = 180
 
+# Semantic vector cosine distance threshold for pre-filtering comparison candidates.
+# Entries with distance > this value are deemed semantically distinct and skipped
+# before invoking the LLM detection prompt.
+CONSOLIDATION_VECTOR_PREFILTER_DISTANCE = 0.55
+
+
 # =============================================================================
 # Deep Research
 # =============================================================================
@@ -782,6 +805,12 @@ RESEARCH_STEP_COOLDOWN = 6
 # 12000 chars ≈ ~3000 tokens — roughly a full article of dense evidence.
 # Set to 0 to disable compression (always pass raw notes).
 RESEARCH_NOTES_SUMMARY_THRESHOLD = 12000
+
+# Semantic chunk similarity/relevance threshold for deep research page extraction.
+# Scraped web page chunks with token/semantic relevance below this score against the
+# target sub-question are skipped to avoid calling Ollama on footers and boilerplate.
+RESEARCH_CHUNK_SIMILARITY_THRESHOLD = 0.15
+
 
 # Idle-time trigger: seconds of inactivity before research can start a new queued task.
 # Wave 3 idle trigger (30m / 1800s): Staggered to prevent NUMA Node 0 CPU contention with extraction (5m) and consolidation (15m).

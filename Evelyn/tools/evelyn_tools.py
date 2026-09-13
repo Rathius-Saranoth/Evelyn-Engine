@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-12 11:41:59
+# date modified: 2026-09-13 11:53:39
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -3725,6 +3725,9 @@ def _extract_tool_name(t: dict[str, Any]) -> str:
     return str(t.get("name", ""))
 
 
+extract_tool_name = _extract_tool_name
+
+
 _MODEL_TOOL_MAP: dict[str, dict[str, Any]] = {
     _extract_tool_name(t): t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t)
 }
@@ -3744,6 +3747,7 @@ def get_active_tools(
     user_message: str = "",
     retrieved_procedures: list[dict] | None = None,
     recent_history: list[dict] | None = None,
+    exclude_tools: list[str] | set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Dynamically select active tool definitions for a conversational turn.
 
@@ -3752,15 +3756,25 @@ def get_active_tools(
     2. Specialist Tools declared in retrieved Procedures (procedure-to-tool coupling)
     3. Specialist Tools triggered by direct intent regex/keywords in user_message (100% recall)
     4. Anaphoric context resolution over prior user turn for follow-up prompts
+    5. Conversational phatic gating & specialized tool schema pruning
 
     Args:
         user_message: Raw user prompt to evaluate intent patterns.
         retrieved_procedures: List of procedure dicts/chunks retrieved via RAG.
         recent_history: Optional recent conversational history to resolve anaphoric follow-ups.
+        exclude_tools: Optional tool names to explicitly suppress from this turn.
 
     Returns:
         list[dict]: Curated subset of MODEL_TOOL_DEFINITIONS to pass to Ollama.
     """
+    try:
+        from Evelyn.tools.string_utils import is_conversational_phatic
+    except ImportError:
+        from string_utils import is_conversational_phatic
+
+    if getattr(cfg, "CHAT_PHATIC_RAG_BYPASS", True) and is_conversational_phatic(user_message):
+        return []
+
     active_names: set[str] = set(getattr(cfg, "CORE_TOOL_NAMES", []))
 
     # 1. Procedure-triggered tools
@@ -3822,6 +3836,22 @@ def get_active_tools(
                             if re.search(pat, prior_text, re.IGNORECASE):
                                 active_names.add(tool_name)
                                 break
+
+    if exclude_tools:
+        active_names -= set(exclude_tools)
+
+    # Dynamic tool schema pruning: when specialized intent is triggered, prune unrelated heavy core tools
+    if getattr(cfg, "TOOL_SCHEMA_PRUNING_ENABLED", True):
+        specialist_triggered = active_names - set(getattr(cfg, "CORE_TOOL_NAMES", []))
+        if specialist_triggered:
+            prunable_core = {"generate_image", "get_health_metrics", "get_agenda", "list_tasks"}
+            for t in prunable_core:
+                if (
+                    t in active_names
+                    and t not in specialist_triggered
+                    and not (user_message and t.replace("_", " ") in user_message.lower())
+                ):
+                    active_names.remove(t)
 
     # Maintain canonical ordering from MODEL_TOOL_DEFINITIONS
     return [t for t in MODEL_TOOL_DEFINITIONS if _extract_tool_name(t) in active_names]

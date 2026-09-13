@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-12 11:58:07
+# date modified: 2026-09-13 11:53:39
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -89,6 +89,7 @@ from evelyn_tools import (
     MODEL_TOOL_DEFINITIONS,
     TOOL_FUNCTIONS,
     TOOL_THINK_EFFORT,
+    extract_tool_name,
     get_active_tools,
 )
 from fact_consolidator import cancel_pending_consolidation, run_consolidation
@@ -102,7 +103,16 @@ from profile_evolver import (
     cancel_pending_evolution,
     run_profile_evolution,
 )
-from string_utils import estimate_tokens, truncate_to_token_budget
+from string_utils import (
+    detect_deterministic_read_intent,
+    escape_xml_content,
+    estimate_tokens,
+    inject_envelope_to_turn,
+    is_conversational_phatic,
+    stack_envelopes,
+    truncate_to_token_budget,
+    wrap_xml_envelope,
+)
 from time_manager import TimeManager
 
 import evelyn_config as cfg
@@ -1862,8 +1872,58 @@ async def _process_chat_background(
         session.push_chunk("data: " + json.dumps({"type": "stream_session", "stream_id": session.stream_id}) + "\n\n")
         await put("status", msg="Processing...")
 
-        # RAG + system prompt + history (fast synchronous work)
-        rag_context = await asyncio.to_thread(build_rag_context, user_message, assistant_row_id)
+        # Check conversational phatic gating & linear read pre-hydration
+        is_phatic = bool(getattr(cfg, "CHAT_PHATIC_RAG_BYPASS", True)) and is_conversational_phatic(user_message)
+        read_intent = None
+        if not is_phatic and getattr(cfg, "CHAT_LINEAR_READ_PREFETCH", True):
+            read_intent = detect_deterministic_read_intent(user_message)
+
+        linear_envelope = ""
+        prefetched_tool = None
+
+        if is_phatic:
+            dlog(f"Phatic conversation detected for '{user_message[:40]}'. Bypassing RAG and tool schemas.")
+            rag_context = ""
+        else:
+            if read_intent:
+                try:
+                    import evelyn_tools
+
+                    if read_intent == "agenda":
+                        agenda_raw = evelyn_tools.get_agenda(days=1)
+                        linear_envelope = wrap_xml_envelope(
+                            "context_retrieval",
+                            body=escape_xml_content(agenda_raw),
+                            source="agenda",
+                            query=user_message,
+                        )
+                        prefetched_tool = "get_agenda"
+                    elif read_intent == "tasks":
+                        tasks_raw = evelyn_tools.list_tasks(include_completed=False)
+                        linear_envelope = wrap_xml_envelope(
+                            "context_retrieval",
+                            body=escape_xml_content(tasks_raw),
+                            source="tasks",
+                            query=user_message,
+                        )
+                        prefetched_tool = "list_tasks"
+                    elif read_intent == "health":
+                        health_raw = evelyn_tools.get_health_metrics(date="today")
+                        linear_envelope = wrap_xml_envelope(
+                            "context_retrieval",
+                            body=escape_xml_content(health_raw),
+                            source="health",
+                            query=user_message,
+                        )
+                        prefetched_tool = "get_health_metrics"
+                    dlog(f"Linear pre-hydration executed for intent='{read_intent}', tool='{prefetched_tool}'")
+                except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
+                    dlog(f"Linear pre-hydration failed: {e}")
+                    linear_envelope = ""
+                    prefetched_tool = None
+
+            rag_context = await asyncio.to_thread(build_rag_context, user_message, assistant_row_id)
+
         system = load_system_prompt()
         if rag_context:
             system += f"\n\n{rag_context}"
@@ -1881,15 +1941,6 @@ async def _process_chat_background(
             con.close()
 
         research_ctx = get_research_context()
-        try:
-            from Evelyn.tools.string_utils import (
-                escape_xml_content,
-                inject_envelope_to_turn,
-                stack_envelopes,
-                wrap_xml_envelope,
-            )
-        except ImportError:
-            from string_utils import escape_xml_content, inject_envelope_to_turn, stack_envelopes, wrap_xml_envelope
 
         # Build daytime ambient stream context if unconsumed daytime impressions exist
         ambient_stream_ctx = ""
@@ -1930,7 +1981,7 @@ async def _process_chat_background(
         except (sqlite3.Error, OSError, ValueError, RuntimeError, AttributeError) as e:
             dlog(f"Ambient stream build error: {e}")
 
-        envelope_stack = stack_envelopes(temporal_envelope, research_ctx, ambient_stream_ctx)
+        envelope_stack = stack_envelopes(temporal_envelope, research_ctx, ambient_stream_ctx, linear_envelope)
         user_msg_for_model = inject_envelope_to_turn(user_message, envelope_stack)
 
         messages = [{"role": "system", "content": system}, *history]
@@ -1940,7 +1991,23 @@ async def _process_chat_background(
             user_turn["images"] = images
         messages.append(user_turn)
 
-        active_tools = get_active_tools(user_message=user_message, recent_history=history[-4:])
+        if is_phatic:
+            active_tools = []
+        else:
+            exclude_list = [prefetched_tool] if prefetched_tool else None
+            active_tools = get_active_tools(
+                user_message=user_message,
+                recent_history=history[-4:],
+                exclude_tools=exclude_list,
+            )
+            # If deterministic read was pre-hydrated and only default core tools remained,
+            # suppress tools to allow a single streaming inference pass in persona!
+            if prefetched_tool and active_tools:
+                core_names = set(getattr(cfg, "CORE_TOOL_NAMES", []))
+                active_tool_names = {extract_tool_name(t) for t in active_tools}
+                if active_tool_names.issubset(core_names):
+                    dlog(f"Linear pre-hydration for '{prefetched_tool}' satisfied turn: suppressing remaining core tools.")
+                    active_tools = []
         await put("status", msg="Querying model...")
 
         # Unified Agentic Stream Loop

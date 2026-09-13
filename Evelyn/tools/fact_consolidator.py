@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-09-05 19:46:01
+# date modified: 2026-09-13 11:53:39
 # tags: #facts, #consolidation, #duplicates, #deduplication, #entities
 
 """
@@ -862,8 +862,100 @@ def _advance_scan_state(category: str, n: int) -> None:
     }
 
 
+def _calculate_token_jaccard(text_a: str, text_b: str) -> float:
+    """Calculate token-level Jaccard similarity between two texts, ignoring common stopwords."""
+    words_a = set(re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", text_a.lower()))
+    words_b = set(re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", text_b.lower()))
+    if not words_a or not words_b:
+        return 0.0
+    stopwords = {
+        "this", "that", "with", "from", "have", "been", "were", "will",
+        "when", "what", "which", "there", "their", "about", "also", "into",
+        "more", "some", "time", "than", "them", "then", "these", "only",
+    }
+    words_a -= stopwords
+    words_b -= stopwords
+    if not words_a or not words_b:
+        return 0.0
+    return len(words_a & words_b) / len(words_a | words_b)
+
+
+def _filter_semantically_relevant_window(
+    anchor: dict,
+    comparison_window: list[dict],
+    max_distance: float | None = None,
+) -> list[dict]:
+    """Filter comparison window to only entries with semantic relevance to anchor.
+
+    Uses ChromaDB vector cosine distance if available, supplemented by token Jaccard
+    similarity as a fallback/safety net.
+
+    Args:
+        anchor: The anchor FactRecord.
+        comparison_window: Comparison FactRecords.
+        max_distance: Maximum cosine distance threshold (default: cfg.CONSOLIDATION_VECTOR_PREFILTER_DISTANCE).
+
+    Returns:
+        Filtered list of FactRecords that have potential overlap with the anchor.
+    """
+    if not comparison_window:
+        return []
+
+    effective_max_dist: float = (
+        max_distance
+        if max_distance is not None
+        else float(getattr(cfg, "CONSOLIDATION_VECTOR_PREFILTER_DISTANCE", 0.55))
+    )
+
+    anchor_obs = str(anchor.get("summary") or anchor.get("observation") or "").strip()
+    if not anchor_obs:
+        return comparison_window
+
+    candidate_ids = {r.get("id") for r in comparison_window if r.get("id") is not None}
+    vector_matched_ids: set[int] = set()
+
+    # 1. Primary vector check via ChromaDB collection evelyn_memory
+    if effective_max_dist > 0.0:
+        try:
+            chunks = chroma_rag.query_collection(
+                anchor_obs,
+                collection_name="evelyn_memory",
+                n_results=min(max(len(comparison_window) * 3, 10), 50),
+            )
+            for chunk in chunks:
+                dist = chunk.get("distance", 1.0)
+                if dist <= effective_max_dist:
+                    src = chunk.get("source", "")
+                    if src.startswith("sqlite::context_entry::"):
+                        try:
+                            cid = int(src.split("::")[-1])
+                            if cid in candidate_ids:
+                                vector_matched_ids.add(cid)
+                        except (ValueError, IndexError):
+                            pass
+        except (RuntimeError, ValueError, KeyError, OSError) as e:
+            print(f"[CONSOLIDATOR] Vector prefilter Chroma query failed (falling back to lexical): {e}", flush=True)
+
+    # 2. Evaluate each comparison entry against vector matches and lexical overlap
+    relevant = []
+    for r in comparison_window:
+        rid = r.get("id")
+        if rid is not None and rid in vector_matched_ids:
+            relevant.append(r)
+            continue
+
+        obs = str(r.get("summary") or r.get("observation") or "").strip()
+        sim = _calculate_token_jaccard(anchor_obs, obs)
+        # Jaccard threshold: 0.15 represents ~2-3 shared distinctive content words
+        if sim >= 0.15:
+            relevant.append(r)
+
+    return relevant
+
+
 def _fmt_entry(r: dict, idx: int) -> str:
     """Format a single FactRecord for use in detection prompts.
+
 
     Args:
         r:   FactRecord dict.
@@ -1160,10 +1252,21 @@ async def _detect_in_group(
 
     combined_entries = [anchor, *comparison_window]
 
-    # Step 2a — Consolidation detection (focused on duplicates/overlaps)
-    clusters = await _detect_consol_in_group(
-        category, anchor, comparison_window
-    )
+    # Pre-filter comparison window for Step 2a (consolidation / duplicate detection)
+    relevant_window = _filter_semantically_relevant_window(anchor, comparison_window)
+
+    if relevant_window:
+        # Step 2a — Consolidation detection (focused on duplicates/overlaps)
+        clusters = await _detect_consol_in_group(
+            category, anchor, relevant_window
+        )
+    else:
+        print(
+            f"[CONSOLIDATOR] {category}: Skipped LLM consolidation detection — "
+            f"none of {len(comparison_window)} entries met semantic similarity threshold.",
+            flush=True,
+        )
+        clusters = []
 
     # Step 2b — Recategorization detection (focused on category audit)
     recat_items = await _detect_recat_in_group(
@@ -1447,6 +1550,9 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
     cat = record.get("category", f"Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}")
     subj = record.get("subject", getattr(cfg, "USER_NAME", "Ricky"))
     record_id = record.get("id")
+    if record_id is None:
+        return None
+    record_id_int = int(record_id)
 
     prompt = (
         "You are an expert knowledge decomposition engine for a personal memory system.\n"
@@ -1534,12 +1640,12 @@ async def generate_split_proposal(record: dict, cat00: str) -> str | None:
 
     pid = memory_db.insert_proposal(
         type="split",
-        source_ids=[record_id],
+        source_ids=[record_id_int],
         merged_observation=constructed_yaml,
         merged_tags=", ".join([e["tags"] for e in valid_entries if e["tags"]]),
         suggested_category=valid_entries[0]["category"],
         reason=str(data.get("reasoning", "Decomposed bloated compound entry into atomic context facts.")),
-        topic=f"Split Compound Fact #{record_id}",
+        topic=f"Split Compound Fact #{record_id_int}",
         confidence=str(data.get("confidence", "medium")).strip().lower(),
         status="pending"
     )

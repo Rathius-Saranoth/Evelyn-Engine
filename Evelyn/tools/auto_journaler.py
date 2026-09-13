@@ -1,6 +1,6 @@
 # auto_journaler.py
 # date created: 2026-08-30 15:45:00
-# date modified: 2026-09-01 17:29:27
+# date modified: 2026-09-13 11:53:39
 # tags: #journal, #autonomous, #daemon, #map-reduce, #compaction, #nightly
 
 """
@@ -38,7 +38,7 @@ for _d in (ROOT_DIR, TOOLS_DIR):
 import evelyn_config as cfg
 import evelyn_server
 from Evelyn.tools import journal_manager, ollama_client, task_manager
-from Evelyn.tools.evelyn_tools import MODEL_TOOL_DEFINITIONS
+from Evelyn.tools.evelyn_tools import MODEL_TOOL_DEFINITIONS, extract_tool_name
 from Evelyn.tools.string_utils import escape_xml_content, wrap_xml_envelope
 
 logger = logging.getLogger("evelyn.auto_journaler")
@@ -381,11 +381,14 @@ async def run_auto_journaling(
             task_manager.clear_running(TASK_NAME, status="cancelled", error="Preempted before tool generation")
             return {"status": "preempted", "message": "Preempted by user chat interaction"}
 
-        # 5. Call Ollama tool loop
+        # 5. Call Ollama tool loop with strictly pruned write_journal_entry tool schema
         logger.info(f"[AUTO-JOURNAL] Querying model for autonomous journal entry generation ({target_date_str})...")
+        journal_tool_defs = [
+            t for t in MODEL_TOOL_DEFINITIONS if extract_tool_name(t) == "write_journal_entry"
+        ]
         resp = await evelyn_server.call_ollama_full(
             prompt_messages,
-            tools=MODEL_TOOL_DEFINITIONS,
+            tools=journal_tool_defs,
             num_predict_override=tool_predict,
         )
 
