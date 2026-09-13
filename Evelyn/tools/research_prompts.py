@@ -1,6 +1,6 @@
 # research_prompts.py
 # date created: 2026-05-26
-# date modified: 2026-08-28 08:46:31
+# date modified: 2026-09-13 08:57:37
 # tags: #research, #prompts, #planning, #extraction, #evaluation, #synthesis
 
 """research_prompts.py — LLM Prompt Templates for Evelyn's Deep Research.
@@ -393,10 +393,11 @@ def is_time_sensitive_query(query: str) -> bool:
 ATOMIC_QUERY_CONSTRAINT = (
     "## Web Search Query Rules (STRICT)\n"
     "- Write queries EXACTLY as a person types into a Google/DuckDuckGo search box.\n"
-    "- NEVER use paper titles or academic phrasing (NO 'Analysis of', 'Impact of', 'Mechanisms of').\n"
+    "- NEVER use paper titles or academic phrasing (NO 'Analysis of', 'Impact of', 'Mechanisms of', 'Comparison of').\n"
     "- Keep queries strictly between 2 to 5 keywords.\n"
     "- Focus on concrete nouns, product names, error codes, or specific terms.\n"
-    "- Strip out all stop words, prepositions, and logical connectors ('and', 'underlying', 'between').\n\n"
+    "- Strip out all stop words, prepositions, and logical connectors ('and', 'underlying', 'between').\n"
+    "- NEVER start a search query with prepositions or articles ('of', 'for', 'in', 'on', 'the', 'a').\n\n"
     "FEW-SHOT EXAMPLES:\n"
     "❌ BAD (Academic/Thesis): 'Comparative analysis of local LLM inference engine latency under heavy load'\n"
     "✔ GOOD (Web-Native): 'vllm benchmark latency'\n\n"
@@ -416,6 +417,7 @@ _ACADEMIC_STOP_WORDS: list[str] = [
 ]
 _COMPOUND_MARKERS: list[str] = [" and ", " versus ", " as well as ", " along with ", " between "]
 _MAX_QUERY_WORDS = 6
+_DANGLING_PREPOSITIONS: set[str] = {"of", "for", "in", "on", "at", "to", "by", "with", "from", "about"}
 
 
 def is_atomic_query(query: str) -> tuple[bool, str | None]:
@@ -440,6 +442,11 @@ def is_atomic_query(query: str) -> tuple[bool, str | None]:
     words = q.split()
     if len(words) > _MAX_QUERY_WORDS:
         return False, f"too long ({len(words)} words; max {_MAX_QUERY_WORDS} for web search)"
+
+    # Reject queries starting with dangling prepositions (e.g. 'of RAG vs. Long Context')
+    first_word = words[0].lower().strip("?\"'!,.:;")
+    if first_word in _DANGLING_PREPOSITIONS:
+        return False, f"starts with dangling preposition ('{first_word}')"
 
     q_lower = q.lower()
     for word in _ACADEMIC_STOP_WORDS:

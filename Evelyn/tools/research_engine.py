@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-08-28 08:46:31
+# date modified: 2026-09-13 08:57:37
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -93,7 +93,11 @@ if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
 import evelyn_tools  # [[evelyn_tools.py]]
+import frontmatter_utils  # [[frontmatter_utils.py]]
+import path_utils  # [[path_utils.py]]
 import research_prompts  # [[research_prompts.py]]
+import string_utils  # [[string_utils.py]]
+import vault_db  # [[vault_db.py]]
 import web_reader  # [[web_reader.py]]
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
@@ -434,7 +438,7 @@ def create_research_task(
 
 async def call_ollama(
     prompt_messages: list[dict[str, str]],
-    num_predict: int = 2048,
+    num_predict: int | None = None,
     think: bool = True
 ) -> str:
     """Helper to communicate with Ollama synchronously or asynchronously.
@@ -444,21 +448,23 @@ async def call_ollama(
 
     Args:
         prompt_messages: Format-compliant list of prompt message dicts.
-        num_predict: Maximum prediction tokens.
+        num_predict: Maximum prediction tokens (defaults to cfg.RESEARCH_NUM_PREDICT).
         think: Whether to enable Ollama native thinking/reasoning.
 
     Returns:
-        str: Raw response text from the model (with <think> tags stripped).
+        str: Raw response text from the model (with thinking tags cleanly stripped).
     """
     importlib.reload(cfg)
 
     override = getattr(cfg, "RESEARCH_MODEL_OVERRIDE", "default")
     model = cfg.MODEL_NAME if override == "default" else override
 
+    target_num_predict = num_predict if num_predict is not None else getattr(cfg, "RESEARCH_NUM_PREDICT", 8192)
+
     options = {
         "num_ctx": cfg.NUM_CTX,
-        "num_predict": num_predict,
-        "temperature": 0.3, # Highly objective, low randomness for research
+        "num_predict": target_num_predict,
+        "temperature": 0.3,  # Highly objective, low randomness for research
         "min_p": cfg.MIN_P,
         "top_k": cfg.TOP_K,
         "top_p": cfg.TOP_P,
@@ -500,7 +506,7 @@ async def call_ollama(
         ) from hse
 
     content = content_buffer.strip()
-    return re.sub(r"^.*?</think>", "", content, flags=re.DOTALL).strip()
+    return string_utils.strip_thinking_tags(content)
 
 
 def parse_web_search_results(web_results: str) -> list[tuple[str, str]]:
@@ -525,24 +531,6 @@ def parse_web_search_results(web_results: str) -> list[tuple[str, str]]:
     return results
 
 
-def parse_vault_search_results(vault_res: str) -> list[tuple[str, str]]:
-    """Parse titles and paths from search_vault_map output.
-
-    Args:
-        vault_res: Formatted output string from search_vault_map.
-
-    Returns:
-        List[Tuple[str, str]]: List of (title, vault_relative_path) tuples.
-    """
-    results = []
-    # Match the exact formatting produced by search_vault_map:
-    # "--- {title} ---\nPath: {path}"
-    pattern = re.compile(r"^---\s*(.*?)\s*---\nPath:\s*(.*?)$", re.MULTILINE)
-    for match in pattern.finditer(vault_res):
-        title = match.group(1).strip()
-        path = match.group(2).strip()
-        results.append((title, path))
-    return results
 async def formulate_search_query(
     question_text: str,
     task_type: str,
@@ -595,7 +583,8 @@ async def formulate_search_query(
         ]
 
         state["ollama_calls"] += 1
-        raw = await call_ollama(messages, num_predict=1024, think=True)
+        form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
+        raw = await call_ollama(messages, num_predict=form_predict, think=True)
         candidate = raw.strip().strip('"\'').split("\n")[0].strip()
 
         is_ok, reason = research_prompts.is_atomic_query(candidate)
@@ -609,32 +598,111 @@ async def formulate_search_query(
         )
         retry_reason = reason
 
-    fallback = _truncate_query_fallback(question_text, intent_mode=mode)
+    fallback = await compact_search_query(question_text, task_type=task_type, state=state, intent_mode=mode)
     print(
         f"[RESEARCH_ENGINE WARNING] Search query formulation failed validation twice. "
-        f"Falling back to truncated original: '{fallback}'",
+        f"Compacted to fallback query: '{fallback}'",
         flush=True,
     )
     return fallback
 
 
-def _truncate_query_fallback(question_text: str, max_words: int = 5, intent_mode: str = "technical") -> str:
-    """Deterministic fallback that strips academic prefixes and extracts raw keywords."""
-    text = re.sub(r"(?i)^(an?|the)\s+(analysis|overview|study|investigation|evaluation|review)\s+(of|on)\s+", "", question_text)
-    text = re.sub(r"(?i)^(comparative\s+)?(analysis|comparison)\s+between\s+", "", text)
-    text = re.sub(r"[?\"'!,]", "", text)
+async def compact_search_query(
+    question_text: str,
+    task_type: str = "factual",
+    state: dict[str, Any] | None = None,
+    intent_mode: str = "technical",
+) -> str:
+    """Multi-tier semantic query compactor replacing naive word slicing.
 
-    ignore_words = {
+    Tier 1: Fast zero-thinking LLM semantic pass (think=False, num_predict=64).
+            Extracts 2-4 core search terms instantly with zero token starvation.
+    Tier 2: Deterministic preposition-purged entity extraction fallback.
+            Strips comparative prefixes and dangling prepositions (of, for, in, etc.)
+            and extracts core noun phrases without losing technical entities.
+
+    Args:
+        question_text: The full question or sub-question string.
+        task_type: Query type (factual, comparison, etc.).
+        state: Optional task state to record LLM call metrics.
+        intent_mode: 'technical' or 'academic'.
+
+    Returns:
+        str: A clean, atomic search query string.
+    """
+    # Tier 1: Fast Zero-Thinking LLM Pass (think=False, num_predict=64)
+    prompt = (
+        f"Question: \"{question_text}\"\n\n"
+        "TASK: Extract the 2 to 4 most specific search keywords from this question for DuckDuckGo.\n"
+        "Rules:\n"
+        "- Output ONLY 2 to 4 keywords on a single line.\n"
+        "- NEVER start with prepositions or articles (of, for, in, on, the, a).\n"
+        "- Focus on concrete technologies, tools, or concepts.\n"
+        "- No explanation, no punctuation, no quotes."
+    )
+    messages = [
+        {"role": "system", "content": "You are a concise search query generator. Output only search keywords."},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        if state is not None:
+            state["ollama_calls"] = state.get("ollama_calls", 0) + 1
+        raw = await call_ollama(messages, num_predict=64, think=False)
+        candidate = raw.strip().strip('"\'').split("\n")[0].strip()
+        is_ok, reason = research_prompts.is_atomic_query(candidate)
+        if is_ok and candidate:
+            print(f"[RESEARCH_ENGINE] Tier 1 semantic compaction succeeded: '{candidate}'", flush=True)
+            return candidate
+        print(f"[RESEARCH_ENGINE] Tier 1 semantic compaction rejected ({reason}): '{candidate}'", flush=True)
+    except (RuntimeError, ValueError, OSError, httpx.HTTPError) as e:
+        print(f"[RESEARCH_ENGINE WARNING] Tier 1 semantic compaction call failed: {e}", flush=True)
+
+    # Tier 2: Deterministic Semantic Compactor (Zero-LLM fallback)
+    return _deterministic_compact_query(question_text, intent_mode=intent_mode)
+
+
+def _deterministic_compact_query(question_text: str, max_words: int = 5, intent_mode: str = "technical") -> str:
+    """Deterministic fallback that strips prefixes/dangling prepositions and extracts key terms."""
+    # Strip common inquiry / academic / comparison prefixes
+    text = re.sub(
+        r"(?i)^(comparative\s+)?(analysis|comparison|study|investigation|evaluation|review|overview)\s+(of|on|between|in|into|regarding)\s+",
+        "",
+        question_text,
+    )
+    text = re.sub(r"(?i)^(an?|the)\s+(analysis|overview|study|investigation|evaluation|review)\s+(of|on|into)\s+", "", text)
+    text = re.sub(r"[?\"'!,;:]", "", text)
+
+    stop_words = {
         "underlying", "mechanisms", "linking", "impact", "effects", "role",
         "towards", "using", "via", "what", "how", "why", "does", "is", "are",
         "insights", "perspectives", "investigation", "examination", "comparative",
-        "between", "overview", "comparison"
+        "between", "overview", "comparison", "analysis", "evaluation",
+        "of", "for", "in", "on", "at", "to", "by", "with", "from", "about",
+        "the", "a", "an", "and", "or",
     }
     if intent_mode == "technical":
-        ignore_words.update({"physiological", "biological", "clinical", "pathophysiology"})
+        stop_words.update({"physiological", "biological", "clinical", "pathophysiology"})
 
-    words = [w for w in text.split() if w.lower() not in ignore_words]
-    return " ".join(words[:max_words])
+    raw_words = text.split()
+    # Filter out stopwords while preserving case of acronyms/proper nouns
+    meaningful_words = [w for w in raw_words if w.lower() not in stop_words]
+
+    if not meaningful_words:
+        # Fallback to non-stopwords from raw_words
+        meaningful_words = [w for w in raw_words if w.lower() not in {"the", "a", "an", "of", "in", "for"}]
+        if not meaningful_words:
+            meaningful_words = raw_words[:max_words]
+
+    # Drop any leading prepositions that might still be present
+    while meaningful_words and meaningful_words[0].lower() in {"of", "for", "in", "on", "at", "to", "by", "with", "from", "about"}:
+        meaningful_words.pop(0)
+
+    result = " ".join(meaningful_words[:max_words]).strip()
+    return result or question_text[:50].strip()
+
+
+# Backward-compatible alias for existing test suites
+_truncate_query_fallback = _deterministic_compact_query
 
 
 async def _rewrite_subquestion(
@@ -682,7 +750,8 @@ async def _rewrite_subquestion(
     ]
     state["ollama_calls"] += 1
     print(f"[RESEARCH_ENGINE] Auto-rewriting SQ {sq['id']}...", flush=True)
-    rewritten_q = await call_ollama(rewrite_messages, num_predict=1024)
+    form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
+    rewritten_q = await call_ollama(rewrite_messages, num_predict=form_predict)
     rewritten_q = rewritten_q.strip()
 
     gaps_file = os.path.join(task_dir, f"{sq['id']}_gaps.json")
@@ -808,8 +877,9 @@ async def step_assess_prior_knowledge(task_id: str, state: dict[str, Any]) -> bo
         {"role": "user", "content": internal_prompt},
     ]
     state["ollama_calls"] += 1
+    eval_predict = getattr(cfg, "RESEARCH_EVAL_NUM_PREDICT", 2048)
     try:
-        raw_internal = await call_ollama(messages, num_predict=512)
+        raw_internal = await call_ollama(messages, num_predict=eval_predict)
         internal_result = parse_json_response(raw_internal)
     except (RuntimeError, json.JSONDecodeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Internal knowledge check failed: {e}. Proceeding with research.", flush=True)
@@ -857,10 +927,13 @@ async def step_assess_prior_knowledge(task_id: str, state: dict[str, Any]) -> bo
     cheap_confident = state["internal_knowledge"]["confidence"] >= 70
     if not cheap_confident:
         with contextlib.suppress(OSError, ValueError):
-            from context_manager import search_vault_map
-            vault_res = search_vault_map(query, limit=3)
-            if vault_res and not vault_res.startswith("No results found"):
-                evidence_parts.append(f"### Obsidian Vault Excerpts:\n{vault_res}")
+            vault_matches = vault_db.search_documents(query, limit=3)
+            if vault_matches:
+                vault_snippets = [
+                    f"**{d.get('title', '')}** (`{d.get('relative_path', '')}`):\n{d.get('summary', '') or d.get('title', '')}"
+                    for d in vault_matches
+                ]
+                evidence_parts.append("### Obsidian Vault Excerpts:\n" + "\n\n".join(vault_snippets))
         with contextlib.suppress(sqlite3.Error, OSError, ValueError):
             prev_chunks = query_previous_deep_research(query, task_id, limit=3)
             if prev_chunks:
@@ -879,7 +952,7 @@ async def step_assess_prior_knowledge(task_id: str, state: dict[str, Any]) -> bo
     ]
     state["ollama_calls"] += 1
     try:
-        raw_saved = await call_ollama(messages, num_predict=512)
+        raw_saved = await call_ollama(messages, num_predict=eval_predict)
         saved_result = parse_json_response(raw_saved)
     except (RuntimeError, json.JSONDecodeError, ValueError) as e:
         print(f"[RESEARCH_ENGINE WARNING] Saved knowledge check failed: {e}. Proceeding with research.", flush=True)
@@ -976,8 +1049,9 @@ async def _generate_intent_frame(state: dict[str, Any]) -> str:
         {"role": "user", "content": prompt},
     ]
     state["ollama_calls"] += 1
+    form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
     try:
-        frame = await call_ollama(messages, num_predict=2048, think=True)
+        frame = await call_ollama(messages, num_predict=form_predict, think=True)
         frame = frame.strip()
         if frame:
             print(f"[RESEARCH_ENGINE] Generated intent frame: '{frame}'", flush=True)
@@ -1041,7 +1115,8 @@ async def step_plan(task_id: str, state: dict[str, Any]) -> bool | None:
     ]
 
     state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=1024, think=True)
+    form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
+    raw_response = await call_ollama(messages, num_predict=form_predict, think=True)
     seed_question = raw_response.strip().strip('"\'').split("\n")[0].strip()
 
     if not seed_question:
@@ -1163,11 +1238,14 @@ async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
 
     # Obsidian Vault search (Phase 3)
     try:
-        from context_manager import search_vault_map
         print(f"[RESEARCH_ENGINE] Searching Obsidian Vault: '{search_query}'", flush=True)
-        vault_res = search_vault_map(search_query, limit=3)
-        if vault_res and not vault_res.startswith("No results found"):
-            vault_sources = parse_vault_search_results(vault_res)
+        vault_matches = vault_db.search_documents(search_query, limit=3)
+        if vault_matches:
+            vault_sources = [
+                (doc.get("title", doc.get("relative_path", "")), doc.get("relative_path", ""))
+                for doc in vault_matches
+                if doc.get("relative_path")
+            ]
             print(f"[RESEARCH_ENGINE] Found {len(vault_sources)} relevant documents in Obsidian Vault.", flush=True)
             parsed_sources.extend(vault_sources)
     except (OSError, RuntimeError, ValueError) as ve:
@@ -1260,11 +1338,11 @@ async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
         elif not (url.startswith(("http://", "https://"))):
             # Local Obsidian file source!
             try:
-                full_path = os.path.abspath(os.path.join(cfg.VAULT_BASE_DIR, url))
-                if os.path.exists(full_path):
-                    content = await asyncio.to_thread(_sync_read_file, full_path)
+                full_path = path_utils.to_vault_abspath(url)
+                if full_path and os.path.exists(full_path):
+                    content = await asyncio.to_thread(evelyn_tools.read_file, full_path, max_chars=16000)
                     # Strip frontmatter for clean extraction context
-                    content_clean = re.sub(r"^---\n.*?\n---\n?", "", content, count=1, flags=re.DOTALL)
+                    _, content_clean = frontmatter_utils.parse_frontmatter(content)
                     scrape_result = {
                         "success": True,
                         "title": title,
@@ -1333,6 +1411,7 @@ async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
         # We extract chunk by chunk if the page has multiple chunks
         chunks = scrape_result["chunks"]
         all_extracted_notes = ""
+        form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
         for _idx, chunk in enumerate(chunks):
             prompt = research_prompts.build_extract_prompt(
                 sq["question"],
@@ -1349,7 +1428,7 @@ async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
             ]
 
             state["ollama_calls"] += 1
-            extracted_chunk_notes = await call_ollama(messages, num_predict=2048, think=True)
+            extracted_chunk_notes = await call_ollama(messages, num_predict=form_predict, think=True)
             extracted_chunk_notes = extracted_chunk_notes.strip()
 
             if extracted_chunk_notes:
@@ -1397,7 +1476,7 @@ async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
             ]
             state["ollama_calls"] += 1
             try:
-                raw_digest = await call_ollama(digest_messages, num_predict=4096)
+                raw_digest = await call_ollama(digest_messages, num_predict=form_predict)
                 digest_result = parse_json_response(raw_digest)
                 updated_summary = str(digest_result.get("summary", current_summary))
                 contributed = bool(digest_result.get("contributed", True))  # default True on parse error
@@ -1608,7 +1687,8 @@ async def step_evaluate(task_id: str, state: dict[str, Any]) -> None:
     ]
 
     state["ollama_calls"] += 1
-    raw_response = await call_ollama(messages, num_predict=1024, think=True)
+    eval_predict = getattr(cfg, "RESEARCH_EVAL_NUM_PREDICT", 2048)
+    raw_response = await call_ollama(messages, num_predict=eval_predict, think=True)
 
     # Parse evaluate output (must be valid JSON)
     try:
@@ -1719,7 +1799,7 @@ async def step_evaluate(task_id: str, state: dict[str, Any]) -> None:
                     {"role": "user", "content": coverage_prompt},
                 ]
                 state["ollama_calls"] += 1
-                raw_coverage = await call_ollama(coverage_messages, num_predict=512, think=True)
+                raw_coverage = await call_ollama(coverage_messages, num_predict=eval_predict, think=True)
 
                 try:
                     coverage_result = parse_json_response(raw_coverage)
@@ -1778,7 +1858,7 @@ async def step_evaluate(task_id: str, state: dict[str, Any]) -> None:
                         raw_sq_gate = await call_ollama(
                             [{"role": "system", "content": research_prompts.get_system_prompt()},
                              {"role": "user", "content": sq_gate_prompt}],
-                            num_predict=512,
+                            num_predict=eval_predict,
                         )
                         sq_gate_result = parse_json_response(raw_sq_gate)
                         sq_gate_conf = int(sq_gate_result.get("confidence", 0))
@@ -1907,9 +1987,10 @@ async def _summarize_sq_notes(
     ]
 
     try:
-        # num_predict capped at 2048 — a compressed SQ summary should never
+        # num_predict capped at RESEARCH_EVAL_NUM_PREDICT — a compressed SQ summary should never
         # need more than ~1500 tokens; this prevents runaway generation.
-        compressed = await call_ollama(messages, num_predict=2048)
+        eval_predict = getattr(cfg, "RESEARCH_EVAL_NUM_PREDICT", 2048)
+        compressed = await call_ollama(messages, num_predict=eval_predict)
         compressed = compressed.strip()
 
         if not compressed:
@@ -1996,9 +2077,8 @@ async def step_synthesize(task_id: str, state: dict[str, Any]) -> None:
     ]
 
     state["ollama_calls"] += 1
-    # 6144 tokens gives ~4500 words — enough for dense 8-SQ deep reports.
-    # Raised from 4096 as part of the deep-scope budget review (2026-06-21).
-    final_report = await call_ollama(messages, num_predict=6144)
+    synth_predict = getattr(cfg, "RESEARCH_NUM_PREDICT", 8192)
+    final_report = await call_ollama(messages, num_predict=synth_predict)
 
     # Parse actual overall confidence score, short_title, and topic_tags out of report YAML frontmatter if present
     parsed_confidence = state["confidence"]
@@ -2160,7 +2240,8 @@ async def step_synthesize(task_id: str, state: dict[str, Any]) -> None:
         ]
 
         state["ollama_calls"] += 1
-        raw_triage_response = await call_ollama(triage_messages, num_predict=1024)
+        form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
+        raw_triage_response = await call_ollama(triage_messages, num_predict=form_predict)
 
         try:
             triage_decisions = parse_json_response(raw_triage_response)

@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-12 11:35:26
+# date modified: 2026-09-13 08:57:37
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -815,6 +815,15 @@ RESEARCH_ACTIVE_HOURS_END = 21  # 21:00 local time
 
 # Maximum queued self-initiated topics. Prevents runaway queue growth.
 RESEARCH_MAX_QUEUE_SIZE = 5
+
+# Dynamically coupled research token budgets
+# Heavy research calls get the full conversational budget headroom
+RESEARCH_NUM_PREDICT = NUM_PREDICT
+
+# Intermediate reasoning tasks (query formulation, knowledge check) get a scaled share,
+# bounded by a safe 2048-token floor so reasoning models (e.g. gemma4, deepseek) never starve.
+RESEARCH_FORMULATION_NUM_PREDICT = max(2048, min(NUM_PREDICT, int(NUM_PREDICT * 0.5)))
+RESEARCH_EVAL_NUM_PREDICT = max(2048, min(NUM_PREDICT, int(NUM_PREDICT * 0.25)))
 
 # =============================================================================
 # Services
