@@ -119,3 +119,25 @@ def test_truncate_query_fallback_modes():
     assert "comparative" not in tech_fallback.lower()
     assert "physiological" not in tech_fallback.lower()
     assert len(tech_fallback.split()) <= 4
+
+
+def test_deterministic_compact_query_comparison_rag():
+    rag_query = "Comparison of RAG vs. Long Context Windows for large-scale document analysis"
+    compacted = _truncate_query_fallback(rag_query, max_words=5, intent_mode="technical")
+    # Must NOT start with dangling preposition 'of'
+    assert not compacted.lower().startswith("of")
+    # Must preserve core keywords
+    assert "rag" in compacted.lower()
+    assert "long" in compacted.lower()
+    assert "context" in compacted.lower()
+
+
+def test_is_atomic_query_rejects_dangling_prepositions():
+    from Evelyn.tools.research_prompts import is_atomic_query
+
+    is_ok, reason = is_atomic_query("of RAG vs. Long Context")
+    assert is_ok is False
+    assert "dangling preposition" in reason
+
+    is_ok2, _ = is_atomic_query("RAG vs Long Context Windows")
+    assert is_ok2 is True

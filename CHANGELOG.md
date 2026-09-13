@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-12 12:24:41
+date modified: 2026-09-13 08:57:37
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.117] - 2026-09-13 — *Dynamic Research Token Budget Coupling & Multi-Tier Semantic Compaction*
+
+### Added & Hardened
+- **Dynamic Research Token Budget Coupling (`evelyn_config.py`, `research_engine.py`)**:
+  - Dynamically coupled all research engine token budgets to the primary conversational ceiling `NUM_PREDICT` (`8192`):
+    - `RESEARCH_NUM_PREDICT = NUM_PREDICT` (`8192` for heavy report synthesis and source extraction).
+    - `RESEARCH_FORMULATION_NUM_PREDICT = max(2048, min(NUM_PREDICT, int(NUM_PREDICT * 0.5)))` (`4096` for query formulation, intent framing, and triage).
+    - `RESEARCH_EVAL_NUM_PREDICT = max(2048, min(NUM_PREDICT, int(NUM_PREDICT * 0.25)))` (`2048` for knowledge checks, SQ confidence evaluations, and gating).
+  - Enforced a strict 2048-token floor so reasoning models (`gemma4:12b`, `deepseek-r1`) are never starved during internal chain-of-thought monologue.
+- **Multi-Tier Semantic Compaction Pipeline (`research_engine.py`)**:
+  - Replaced naive `words[:5]` word slicing with a two-tier semantic compactor (`compact_search_query`):
+    - **Tier 1**: A fast, zero-thinking (`think=False`, `num_predict=64`) LLM semantic keyword pass that completes in <200ms with zero token starvation.
+    - **Tier 2**: A deterministic entity/preposition-purged extraction fallback (`_deterministic_compact_query`) that strips comparative prefixes (`Comparison of`, `Comparative analysis between`) and dangling prepositions (`of`, `for`, `in`), extracting clean technical keywords (e.g. `'RAG vs. Long Context Windows'`).
+  - Added atomic query validation to reject any search query beginning with dangling prepositions in `is_atomic_query()`.
+- **Rule 8 Canonical Tool & Utility Integration (DRY SSOT)**:
+  - Migrated vault note search from ad-hoc regex matching of `search_vault_map` to canonical `vault_db.search_documents` across knowledge checks and research search passes.
+  - Migrated vault note path resolution to `path_utils.to_vault_abspath` and file reading to canonical `evelyn_tools.read_file` with safety character limits (`max_chars=16000`).
+  - Replaced ad-hoc regex frontmatter stripping with `frontmatter_utils.parse_frontmatter`.
+  - Standardized thinking tag removal on `string_utils.strip_thinking_tags` in `call_ollama`.
 
 ## [000.006.116] - 2026-09-12 — *UI Quote Box Escaping & Telemetry Chunk Overflow Hardening*
 
