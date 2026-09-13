@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-13 15:41:23
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -196,6 +196,7 @@ CORE_TOOL_NAMES: list[str] = [
     "get_health_metrics",
     "generate_image",
     "search_available_tools",
+    "read_file",
 ]
 
 # Fast regex/keyword intent patterns for direct specialist tool activation.
@@ -209,13 +210,6 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(read|open|browse|check|summarize|inspect|visit)\b.*(link|url|website|webpage|article|site)",
     ],
     "run_command": [r"\b(run|execute|exec|bash|terminal|shell|cli|command)\b"],
-    "read_file": [
-        r"\b(read|cat|open|view|inspect|examine|look\s+(?:at|over|through)|take\s+a\s+look\s+at|check\s+out)\s+(?:the\s+|a\s+|an\s+|this\s+|that\s+|these\s+|those\s+|my\s+|our\s+)?(file|script|code|path|document|doc|note|entry|sheet|page|log)s?\b",
-        r"\bgive\s+(?:them|it|this|that|these|those)\s+a\s+read\b",
-        r"\bread\s+(?:through|over|in)?\s*(?:them|it|those|these)\b",
-        r"\b[\w\-./]+\.(?:md|txt|py|json|csv|log|ya?ml|pdf|sh|html)\b",
-        r"\b(vault\s+notes?|notes?/|projects?/|docs?/)[\w\-./]*\b",
-    ],
     "read_document_scratchpad": [
         r"\b(chunk|chunking|scratchpad|outline|deep\s+read|section\s+by\s+section|long\s+doc)\b.*(?:doc|file|document|pdf|note)",
     ],
@@ -346,7 +340,34 @@ RESEARCH_VAULT_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Research")
 PENDING_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Pending_Approvals")
 LISTS_DIR = os.path.join(VAULT_BASE_DIR, "Lists")
 CHAT_UPLOAD_DIR = os.path.join(VAULT_BASE_DIR, "Attachments", "Chat_Uploads")
-MAX_UPLOAD_DOCUMENT_CHARS = 100000
+
+# Maximum fraction of NUM_CTX allocated to a single uploaded document in chat context
+CHAT_UPLOAD_CONTEXT_RATIO: float = 0.35
+
+
+def get_chat_upload_max_chars(
+    file_type: str = "text",
+    num_ctx: int | None = None,
+    ratio: float | None = None,
+) -> int:
+    """Calculate dynamic character budget for document uploads relative to NUM_CTX.
+
+    Applies type-aware density multipliers:
+      - 2.5 chars/token for code, JSON, structured config, logs
+      - 4.0 chars/token for prose, markdown, PDF, plain text
+    Scales purely with NUM_CTX without static hard floors.
+    """
+    effective_ctx = num_ctx if num_ctx is not None else NUM_CTX
+    effective_ratio = ratio if ratio is not None else CHAT_UPLOAD_CONTEXT_RATIO
+    code_types = {
+        "py", "json", "yaml", "yml", "csv", "sql", "log", "sh", "bash",
+        "js", "ts", "html", "css", "toml", "xml", "ini", "code",
+    }
+    multiplier = 2.5 if file_type.lower() in code_types else 4.0
+    return int(effective_ctx * effective_ratio * multiplier)
+
+
+MAX_UPLOAD_DOCUMENT_CHARS = get_chat_upload_max_chars("text")
 
 # Directories the engine should NOT read from (excluded from RAG indexing,
 # vault search, and context ingestion). Paths are relative to VAULT_BASE_DIR.

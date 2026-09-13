@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-13 14:00:51
+date modified: 2026-09-13 15:41:23
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.122] - 2026-09-13 — *Dynamic Context Budgeting, Paged PDF Grounding & Core Tool Promotion*
+
+### Added & Optimized
+- **Core Tool Tiering Promotion (`evelyn_config.py`)**:
+  - Promoted `read_file` to `CORE_TOOL_NAMES`, ensuring file inspection with line- and page-based parameters is persistently available across all conversational turns and follow-up turns without requiring keyword triggering.
+  - Removed redundant `read_file` regex pattern from `SPECIALIST_TOOL_INTENT_PATTERNS`.
+- **Context-Relative Upload Budgeting (`evelyn_config.py`, `evelyn_server.py`)**:
+  - Replaced static character caps with dynamic budget calculation `get_chat_upload_max_chars(file_type)` scaling relative to `NUM_CTX * CHAT_UPLOAD_CONTEXT_RATIO` ($0.35$).
+  - Added type-aware character density multipliers: $2.5$ chars/token for structured code, JSON, logs, and config; $4.0$ chars/token for prose, markdown, PDF, and text. Pure scaling without static hard floors prevents KV-cache sliding eviction.
+- **Delimited PDF Grounding & Native Page Parameter (`terminal_agent.py`, `evelyn_tools.py`, `evelyn_server.py`)**:
+  - Implemented standard delimiter extraction in `_extract_document_text_sync` with page numbering and folio labels: `--- [PDF Page X | Folio: Y] ---`.
+  - Added native `page: int | None = None` parameter to `read_file` in `terminal_agent.py`, `evelyn_tools.py`, and `MODEL_TOOL_DEFINITIONS`.
+  - Enabled direct single-page reading of binary PDFs via PyMuPDF or delimited text pages, with automatic fallback to line pagination on non-delimited text.
+  - Injected structured `<page_map>` index block into uploaded document context and previews detailing total pages, preview coverage, and invocation tips.
+- **Decoupled User Attachment & Proactive Discovery Directives (`evelyn_server.py`)**:
+  - Decoupled `<uploaded_document>` from `<system_telemetry_directives>` into dedicated `<user_attachments_directive>` to prevent false non-user attribution.
+  - Added `<proactive_tool_discovery>` directive establishing autonomous discovery instinct and enforcing a sequential execution constraint (preventing blind same-round calls before discovered schemas are bound).
+- **Frontend Upload Feedback & Keydown Guard (`evelyn_ui/index.html`)**:
+  - Updated `updateSendButtonState` to show `⏳` hourglass icon and disable button while attachments are uploading (`isUploading`).
+  - Added guard in textarea `keydown` handler preventing `Enter` submissions while attachments are in transit.
 
 ## [000.006.121] - 2026-09-13 — *Dynamic Tool Discovery, Paged Document Reading & Multimodal Chat Ingestion*
 

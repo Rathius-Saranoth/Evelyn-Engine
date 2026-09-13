@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-13 15:41:23
 # tags: #terminal, #tools, #agent, #safety
 
 """Terminal and file access agent tools for Evelyn.
@@ -645,12 +645,14 @@ def read_file(
     max_chars: int | None = None,
     offset_line: int = 1,
     show_line_numbers: bool = False,
+    page: int | None = None,
     **kwargs: Any,
 ) -> str:
     """Read contents of a file within allowed workspace or vault paths.
 
     Supports automatic vault path resolution, 1-indexed pagination (start_line/end_line),
-    character budgeting, and markdown section outline extraction on truncated documents.
+    page-based reading for PDFs and delimited documents, character budgeting, and
+    markdown section outline extraction on truncated documents.
 
     Args:
         file_path: Absolute or relative file path or note name.
@@ -660,12 +662,21 @@ def read_file(
         max_chars: Maximum characters to return (defaults to cfg.READ_FILE_MAX_CHARS or 5000).
         offset_line: Legacy starting line parameter (fallback if start_line is 1).
         show_line_numbers: If True, prepends line numbers (e.g. for code editing). Defaults to False.
-        **kwargs: Flexible keyword arguments (lines, limit, chars, offset, start_line, end_line).
+        page: Specific page number (1-indexed) for PDF attachments or paged documents.
+        **kwargs: Flexible keyword arguments (lines, limit, chars, offset, start_line, end_line, page).
 
     Returns:
         str: File content with banner or error description.
     """
     cleanup_stale_approvals()
+
+    # Determine effective page parameter
+    if page is None and "page" in kwargs:
+        with contextlib.suppress(ValueError, TypeError):
+            page = int(kwargs["page"])
+    elif page is not None:
+        with contextlib.suppress(ValueError, TypeError):
+            page = int(page)
 
     # Determine effective starting line
     eff_start = start_line
@@ -726,6 +737,21 @@ def read_file(
     if not is_path_allowed(abs_path):
         return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
 
+    if not os.path.exists(abs_path):
+        from Evelyn.tools import vault_db
+
+        stem = os.path.basename(file_path.replace("\\", "/").strip("/"))
+        clean_stem = stem[:-3] if stem.lower().endswith(".md") else stem
+        suggestions = vault_db.search_documents(clean_stem, limit=3)
+        if suggestions:
+            sugg_list = "\n".join(f"  - {s['path']} (Title: {s['title']})" for s in suggestions)
+            return (
+                f"Error: File not found: '{file_path}'.\n"
+                f"Did you mean one of these vault documents?\n{sugg_list}\n"
+                "Use the exact relative path shown above with read_file."
+            )
+        return f"Error: File not found: {file_path}"
+
     vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
     rel_vault = None
     try:
@@ -734,11 +760,80 @@ def read_file(
     except (ValueError, OSError):
         pass
 
+    header_path = rel_vault or abs_path
+
+    # Special handling for PDF files
+    if abs_path.lower().endswith(".pdf"):
+        try:
+            import pymupdf
+
+            doc = pymupdf.open(abs_path)
+            total_pages = len(doc)
+            if total_pages == 0:
+                doc.close()
+                return f"--- {header_path} (Empty PDF: 0 pages) ---"
+
+            eff_page = page if (page is not None and page >= 1) else 1
+            if eff_page > total_pages:
+                doc.close()
+                return (
+                    f"Error: Requested page {eff_page} is out of range. "
+                    f"Document '{header_path}' contains {total_pages} page(s) (1-indexed)."
+                )
+
+            pdf_page = doc[eff_page - 1]
+            page_text = str(pdf_page.get_text("text")).strip()
+            folio_str = ""
+            with contextlib.suppress(RuntimeError, ValueError, OSError, TypeError, AttributeError):
+                folio_label = pdf_page.get_label()
+                if folio_label and str(folio_label).strip() and str(folio_label).strip() != str(eff_page):
+                    folio_str = f" | Folio: {folio_label.strip()}"
+            doc.close()
+
+            if not page_text:
+                page_text = "[No extractable text on this page — scanned image, diagram, or blank]"
+
+            banner = f"--- [PDF Page {eff_page} of {total_pages}{folio_str}] ({header_path}) ---"
+            hint = ""
+            if page is None and total_pages > 1:
+                hint = f"\n\n[Showing Page 1 of {total_pages}]\nTip: Call read_file(file_path=\"{file_path}\", page=N) to inspect specific pages."
+            return f"{banner}\n{page_text}{hint}"
+        except ImportError:
+            return f"Error: PyMuPDF is required to read PDF file '{file_path}'."
+        except (RuntimeError, ValueError, OSError, TypeError, AttributeError, KeyError) as e:
+            return f"Error reading PDF file '{file_path}': {e}"
+
     try:
         with open(abs_path, encoding="utf-8") as f:
             all_lines = f.readlines()
 
         total_lines = len(all_lines)
+
+        # If page is requested on a text file, check for standard PDF page delimiters
+        if page is not None and page >= 1:
+            full_content = "".join(all_lines)
+            page_matches = list(re.finditer(r"^---\s*\[?(?:PDF\s+)?Page\s+(\d+)(?:\s*\|[^\n\]]*)?\]?\s*---", full_content, re.MULTILINE))
+            if page_matches:
+                target_match = None
+                target_idx = -1
+                for idx, m in enumerate(page_matches):
+                    if int(m.group(1)) == page:
+                        target_match = m
+                        target_idx = idx
+                        break
+                if target_match:
+                    start_char = target_match.start()
+                    end_char = page_matches[target_idx + 1].start() if target_idx + 1 < len(page_matches) else len(full_content)
+                    page_slice = full_content[start_char:end_char].strip()
+                    if len(page_slice) > max_chars:
+                        page_slice = page_slice[:max_chars] + f"\n\n[... Page {page} content truncated at {max_chars:,} characters ...]"
+                    return f"--- {header_path} (Extracted Page {page} of {len(page_matches)}) ---\n{page_slice}"
+                else:
+                    return f"Error: Page {page} not found in '{header_path}'. Document has {len(page_matches)} marked page(s)."
+            else:
+                # No delimiters: calculate line slice for simulated page
+                eff_start = (page - 1) * max_lines + 1
+
         start_idx = max(0, eff_start - 1)
         selected_lines = all_lines[start_idx : start_idx + max_lines]
         raw_slice = "".join(selected_lines)
@@ -766,7 +861,6 @@ def read_file(
         if rel_vault and rel_vault.lower() != raw_norm and rel_vault.lower() != f"{raw_norm}.md":
             banner = f"--- [Resolved: {rel_vault}] (Showing lines {start_idx + 1}–{actual_end_line} of {total_lines}, {len(raw_slice)} chars) ---"
         else:
-            header_path = rel_vault or abs_path
             banner = f"--- {header_path} (Showing lines {start_idx + 1}–{actual_end_line} of {total_lines}, {len(raw_slice)} chars) ---"
 
         # Outline and pagination hint on truncation
@@ -786,19 +880,6 @@ def read_file(
 
         return f"{banner}\n{formatted_body}{trunc_notice}"
     except FileNotFoundError:
-        # Helpful close-matches fallback via search_documents
-        from Evelyn.tools import vault_db
-
-        stem = os.path.basename(file_path.replace("\\", "/").strip("/"))
-        clean_stem = stem[:-3] if stem.lower().endswith(".md") else stem
-        suggestions = vault_db.search_documents(clean_stem, limit=3)
-        if suggestions:
-            sugg_list = "\n".join(f"  - {s['path']} (Title: {s['title']})" for s in suggestions)
-            return (
-                f"Error: File not found: '{file_path}'.\n"
-                f"Did you mean one of these vault documents?\n{sugg_list}\n"
-                "Use the exact relative path shown above with read_file."
-            )
         return f"Error: File not found: {file_path}"
     except UnicodeDecodeError:
         return f"Error: File is not valid UTF-8 text: {file_path}"

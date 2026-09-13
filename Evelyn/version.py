@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-13 15:41:23
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.121"
-__version_info__ = (0, 6, 121)
-__version_name__ = "Dynamic Tool Discovery, Paged Document Reading & Multimodal Chat Ingestion"
+__version__ = "000.006.122"
+__version_info__ = (0, 6, 122)
+__version_name__ = "Dynamic Context Budgeting, Paged PDF Grounding & Core Tool Promotion"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

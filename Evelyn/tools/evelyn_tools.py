@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-13 15:41:23
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -2633,6 +2633,7 @@ def read_file(
     max_chars: int | None = None,
     offset_line: int = 1,
     show_line_numbers: bool = False,
+    page: int | None = None,
     **kwargs,
 ) -> str:
     """Read the contents of a file in the workspace or Obsidian Vault.
@@ -2645,6 +2646,7 @@ def read_file(
         max_chars: Maximum characters to return.
         offset_line: Legacy starting line number (fallback if start_line is 1).
         show_line_numbers: If True, prepends line numbers. Defaults to False.
+        page: Specific page number (1-indexed) for PDF attachments or paged documents.
         **kwargs: Flexible keyword arguments.
 
     Returns:
@@ -2660,6 +2662,7 @@ def read_file(
         max_chars=max_chars,
         offset_line=offset_line,
         show_line_numbers=show_line_numbers,
+        page=page,
         **kwargs,
     )
 
@@ -3729,6 +3732,10 @@ MODEL_TOOL_DEFINITIONS = [
                     "offset_line": {
                         "type": "integer",
                         "description": "Legacy starting line parameter (fallback if start_line is 1).",
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Specific page number to read (1-indexed) for PDF attachments or paged documents (e.g. page=5).",
                     },
                 },
                 "required": ["file_path"],
