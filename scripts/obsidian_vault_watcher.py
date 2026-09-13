@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # obsidian_vault_watcher.py
 # date created: 2026-08-15 14:45:36
-# date modified: 2026-08-19 19:48:02
+# date modified: 2026-09-13 11:53:39
 # tags:
 
 # scripts/obsidian_vault_watcher.py
@@ -36,7 +36,9 @@ for _p in (ROOT_DIR, TOOLS_DIR):
         sys.path.insert(0, _p)
 
 import chroma_rag
+import frontmatter_utils
 import ingest_obsidian_knowledge
+import string_utils
 import task_manager
 import vault_db
 
@@ -84,47 +86,45 @@ def quick_extract_metadata(file_path: str) -> dict | None:
         print(f"[WATCHER] Error reading {file_path}: {e}", flush=True)
         return None
 
-    fm_tags = []
-    fm_aliases = []
-    fm_rag_priority = "normal"
-    fm_rag_pinned = False
+    fm_data, body = frontmatter_utils.parse_frontmatter(content)
 
-    fm_match = re.search(r"^---\n(.*?)\n---", content, re.DOTALL)
-    if fm_match:
-        fm_text = fm_match.group(1)
-        tags_line = re.search(r"^tags:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE)
-        if tags_line:
-            raw_tags = tags_line.group(1).replace("[", "").replace("]", "").replace('"', "").replace("'", "")
-            fm_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+    raw_tags = fm_data.get("tags") or []
+    if isinstance(raw_tags, str):
+        fm_tags = [t.strip().lstrip("#") for t in raw_tags.split(",") if t.strip()]
+    elif isinstance(raw_tags, list):
+        fm_tags = [str(t).strip().lstrip("#") for t in raw_tags if str(t).strip()]
+    else:
+        fm_tags = []
 
-        aliases_line = re.search(r"^aliases:\s*(\[.*?\]|.*)$", fm_text, re.MULTILINE)
-        if aliases_line:
-            raw_aliases = aliases_line.group(1).replace("[", "").replace("]", "").replace('"', "").replace("'", "")
-            fm_aliases = [a.strip() for a in raw_aliases.split(",") if a.strip()]
+    raw_aliases = fm_data.get("aliases") or []
+    if isinstance(raw_aliases, str):
+        fm_aliases = [a.strip() for a in raw_aliases.split(",") if a.strip()]
+    elif isinstance(raw_aliases, list):
+        fm_aliases = [str(a).strip() for a in raw_aliases if str(a).strip()]
+    else:
+        fm_aliases = []
 
-        priority_line = re.search(r"^rag_priority:\s*(\S+)", fm_text, re.MULTILINE)
-        if priority_line:
-            fm_rag_priority = priority_line.group(1).strip().lower()
+    fm_rag_priority = str(fm_data.get("rag_priority", "normal")).strip().lower()
+    raw_pinned = fm_data.get("rag_pinned", False)
+    fm_rag_pinned = raw_pinned if isinstance(raw_pinned, bool) else str(raw_pinned).strip().lower() == "true"
 
-        pinned_line = re.search(r"^rag_pinned:\s*(\S+)", fm_text, re.MULTILINE)
-        if pinned_line:
-            fm_rag_pinned = pinned_line.group(1).strip().lower() == "true"
+    title = str(fm_data.get("title", "")).strip()
+    if not title:
+        h1_match = re.search(r"^#\s+(.*)", body, re.MULTILINE)
+        title = (
+            h1_match.group(1).strip()
+            if h1_match
+            else os.path.splitext(os.path.basename(file_path))[0]
+        )
 
-    h1_match = re.search(r"^#\s+(.*)", content, re.MULTILINE)
-    title = (
-        h1_match.group(1).strip()
-        if h1_match
-        else os.path.splitext(os.path.basename(file_path))[0]
-    )
-
-    inline_tags = re.findall(r"(?:^|\s)#([a-zA-Z0-9_/-]+)(?=\s|$)", content)
+    inline_tags = re.findall(r"(?:^|\s)#([a-zA-Z0-9_/-]+)(?=\s|$)", body)
     all_tags = sorted(set(fm_tags + inline_tags))
 
-    # Fast text slice gist fallback
-    text_body = re.sub(r"^---\n(.*?)\n---", "", content, flags=re.DOTALL)
-    text_body = re.sub(r"(?m)^#{1,6}\s+.*$", "", text_body)
+    # Fast text slice gist fallback using string_utils.clean_llm_gist
+    text_body = re.sub(r"(?m)^#{1,6}\s+.*$", "", body)
     text_body = re.sub(r"\s+", " ", text_body).strip()
-    gist = text_body[:400] + ("..." if len(text_body) > 400 else "")
+    clean_body = string_utils.clean_llm_gist(text_body)
+    gist = clean_body[:400] + ("..." if len(clean_body) > 400 else "")
 
     return {
         "title": title,

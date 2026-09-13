@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-09-13 08:57:37
+# date modified: 2026-09-13 11:53:39
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -1153,6 +1153,80 @@ async def step_plan(task_id: str, state: dict[str, Any]) -> bool | None:
     print(f"[RESEARCH_ENGINE] Seed sub-question: '{seed_question}' | Initial search query: '{seed_search_query}'", flush=True)
 
 
+def is_research_chunk_relevant(
+    chunk: str,
+    question: str,
+    aliases: list[str] | None = None,
+    threshold: float | None = None,
+) -> bool:
+    """Check if a scraped web page chunk is relevant to the sub-question.
+
+    Prevents invoking Ollama on pure boilerplate, footer disclaimers, or off-topic slices.
+
+    Args:
+        chunk: Text slice of the scraped web page.
+        question: Sub-question text being researched.
+        aliases: Discovered topic aliases or technical synonyms.
+        threshold: Minimum token relevance ratio (default: cfg.RESEARCH_CHUNK_SIMILARITY_THRESHOLD).
+
+    Returns:
+        bool: True if chunk should be processed by Ollama, False to skip.
+    """
+    if not chunk or len(chunk.strip()) < 80:
+        return False
+
+    effective_threshold: float = (
+        threshold
+        if threshold is not None
+        else float(cfg.RESEARCH_CHUNK_SIMILARITY_THRESHOLD)
+    )
+
+    if effective_threshold <= 0.0:
+        return True
+
+    chunk_lower = chunk.lower()
+
+    # 1. Immediate match if any discovered topic alias is present
+    if aliases:
+        for alias in aliases:
+            if alias and len(alias) >= 3 and alias.lower() in chunk_lower:
+                return True
+
+    # 2. Extract substantive query tokens (len >= 3, skipping common question words)
+    stopwords = {
+        "what", "when", "where", "which", "how", "does", "explain", "describe",
+        "about", "their", "there", "would", "could", "should", "with", "from",
+        "have", "been", "were", "will", "this", "that", "these", "those",
+        "more", "most", "some", "such", "than", "then", "into", "onto",
+    }
+    q_words = {
+        w for w in re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", question.lower())
+        if w not in stopwords
+    }
+    if not q_words:
+        return True  # Cannot reliably filter without keywords
+
+    # Check for boilerplate indicators with zero question keyword matches
+    boilerplate_patterns = [
+        r"cookie\s+policy",
+        r"terms\s+of\s+service",
+        r"privacy\s+policy",
+        r"all\s+rights\s+reserved",
+        r"copyright\s+©",
+        r"subscribe\s+to\s+our\s+newsletter",
+    ]
+    is_boilerplate = any(re.search(pat, chunk_lower) for pat in boilerplate_patterns)
+
+    # Token overlap
+    chunk_words = set(re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", chunk_lower))
+    overlap = q_words & chunk_words
+    sim = len(overlap) / len(q_words)
+
+    if is_boilerplate and sim < effective_threshold:
+        return False
+
+    return sim >= effective_threshold or len(overlap) >= 2
+
 
 async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
     """Execute search query formulation, web fetching, and fact extraction.
@@ -1412,7 +1486,21 @@ async def step_search_and_extract(task_id: str, state: dict[str, Any]) -> None:
         chunks = scrape_result["chunks"]
         all_extracted_notes = ""
         form_predict = getattr(cfg, "RESEARCH_FORMULATION_NUM_PREDICT", 4096)
+        chunk_sim_threshold = float(cfg.RESEARCH_CHUNK_SIMILARITY_THRESHOLD)
         for _idx, chunk in enumerate(chunks):
+            if len(chunks) > 1 and not is_research_chunk_relevant(
+                chunk,
+                sq["question"],
+                aliases=state.get("topic_aliases"),
+                threshold=chunk_sim_threshold,
+            ):
+                print(
+                    f"[RESEARCH_ENGINE] Skipped chunk {_idx + 1}/{len(chunks)} from '{title}' "
+                    f"— below relevance threshold ({chunk_sim_threshold}).",
+                    flush=True,
+                )
+                continue
+
             prompt = research_prompts.build_extract_prompt(
                 sq["question"],
                 src_id,

@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-12 10:10:52
+# date modified: 2026-09-13 11:53:39
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1301,6 +1301,48 @@ def link_rag_telemetry_to_message(telemetry_id: int, message_id: int) -> None:
         con.close()
 
 
+def _fuse_document_chunks(chunks: list[dict]) -> str:
+    """Fuse document chunks, merging contiguous chunks without ellipsis gaps and deduplicating overlap."""
+    if not chunks:
+        return ""
+    chunks.sort(key=lambda x: x.get("metadata", {}).get("chunk", 0))
+
+    if len(chunks) == 1:
+        return clean_rag_chunk_content(chunks[0].get("content", ""))
+
+    fused_parts: list[str] = []
+    prev_chunk_idx: int | None = None
+
+    for c in chunks:
+        content = clean_rag_chunk_content(c.get("content", ""))
+        if not content:
+            continue
+        curr_idx = c.get("metadata", {}).get("chunk")
+
+        if (
+            prev_chunk_idx is not None
+            and curr_idx is not None
+            and curr_idx == prev_chunk_idx + 1
+            and fused_parts
+        ):
+            prev_text = fused_parts[-1]
+            overlap_found = False
+            check_len = min(200, len(prev_text), len(content))
+            for k in range(check_len, 8, -1):
+                if prev_text.endswith(content[:k]):
+                    fused_parts[-1] = prev_text + content[k:]
+                    overlap_found = True
+                    break
+            if not overlap_found:
+                fused_parts[-1] = prev_text.rstrip() + "\n" + content.lstrip()
+        else:
+            fused_parts.append(content)
+
+        prev_chunk_idx = curr_idx
+
+    return "\n...\n".join(fused_parts)
+
+
 def build_rag_context(query: str, message_id: int | None = None) -> str:
     """Query Chroma vector store and return a formatted context block.
 
@@ -1311,6 +1353,16 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     Returns:
         str: A formatted context block of retrieved/pinned chunks, or empty string.
     """
+    try:
+        from Evelyn.tools.string_utils import is_conversational_phatic
+    except ImportError:
+        from string_utils import is_conversational_phatic
+
+    if getattr(cfg, "CHAT_PHATIC_RAG_BYPASS", True) and is_conversational_phatic(query):
+        if cfg.DEBUG_LOGGING:
+            print(f"[RAG] Phatic query detected: '{query}'. Bypassing vector search.", flush=True)
+        return ""
+
     try:
         from Evelyn.tools.query_reformulator import reformulate_query
     except ImportError:
@@ -1467,8 +1519,11 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     for src, chunks in pinned_by_source.items():
         chunks.sort(key=lambda x: x.get("metadata", {}).get("chunk", 0))
         rel_path = get_vault_relative_path(src)
-        content_parts = [clean_rag_chunk_content(c.get("content", "")) for c in chunks if clean_rag_chunk_content(c.get("content", ""))]
-        full_content = "\n...\n".join(content_parts)
+        if getattr(cfg, "RAG_FUSE_CONTIGUOUS_CHUNKS", True):
+            full_content = _fuse_document_chunks(chunks)
+        else:
+            content_parts = [clean_rag_chunk_content(c.get("content", "")) for c in chunks if clean_rag_chunk_content(c.get("content", ""))]
+            full_content = "\n...\n".join(content_parts)
         retrieval_items.append(
             wrap_xml_envelope(
                 "document",
@@ -1540,8 +1595,11 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
 
         tags_raw = first_meta.get("tags", "")
 
-        content_parts = [clean_rag_chunk_content(c.get("content", "")) for c in chunks if clean_rag_chunk_content(c.get("content", ""))]
-        matched_content = "\n...\n".join(content_parts)
+        if getattr(cfg, "RAG_FUSE_CONTIGUOUS_CHUNKS", True):
+            matched_content = _fuse_document_chunks(chunks)
+        else:
+            content_parts = [clean_rag_chunk_content(c.get("content", "")) for c in chunks if clean_rag_chunk_content(c.get("content", ""))]
+            matched_content = "\n...\n".join(content_parts)
 
         # Abstract anchoring: If abstract is available in metadata and not already in excerpt
         abstract = first_meta.get("abstract", "")

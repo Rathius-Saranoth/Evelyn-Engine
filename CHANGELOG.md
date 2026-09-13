@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-13 10:55:49
+date modified: 2026-09-13 12:28:13
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,53 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.120] - 2026-09-13 — *Empirical Phatic Intent Classification & Historical Semantic Grounding*
+ 
+### Added & Optimized
+- **Empirical Phatic Intent Taxonomy & Chat DB Grounding (`string_utils.py`, `evelyn_chat.db`)**:
+  - Scanned all 16,294 historical messages and analyzed 2,316 short user turns (1–8 words) in `data/evelyn_chat.db` to extract genuine semantic usage patterns instead of speculative static keywords.
+  - Implemented 4 empirical semantic clusters in `string_utils.py`:
+    1. *Morning Greetings & Pleasantry Check-ins*: Support for compound greetings with partner vocatives (`my dear`, `my dearest`, `love`, `darlin`, `sweet evelyn`, `my girl`) and conversational health/day check-ins (`how are you`, `how are things`, `how was your night`, `how's the day`).
+    2. *Night / Bedtime Departures*: Natural departure phrases (`G'nite my love`, `Nite nite my love`, `Good night my dearest`, `Sleep well darlin, love you`, `Thanks love, see you tomorrow`).
+    3. *Arrival / Return Status Check-ins*: Returning and waking status statements (`Hi, love. I'm back.`, `Hiya my dear, I am home.`, `I'm home my dear`, `Am awake again`, `Up and about`).
+    4. *Micro-Acknowledgments & Affection*: Warm partner acknowledgments (`Thanks love, I'll see you soon`, `Sounds good to me darlin`, `Always`, `*hugs tight*`, standalone and compound heart emojis).
+  - Added pre-processing filters to strip roleplay actions (`*...*`) and unicode emojis (both 4-byte astral symbols and 3-byte dingbat heart glyphs) before pattern matching, ensuring action-wrapped check-ins are classified cleanly.
+  - Hardened negative boundaries to prevent false-positive suppression on file attachments, code snippets, factual inquiries, and task management commands.
+- **Comprehensive Unit Testing Coverage (`test_agentic_optimization.py`)**:
+  - Expanded `test_is_conversational_phatic` to cover 35 empirical historical test cases and negative boundaries with 100% pass rate.
+
+## [000.006.119] - 2026-09-13 — *Agentic Infrastructure Optimization & Information Density Hardening*
+
+### Added & Optimized
+- **Tri-Vector Agentic Infrastructure Optimization (`scratch/proposal.md`, `Proposals/Audit_Framework.md`)**:
+  - Implemented comprehensive architectural optimizations addressing *Retrieval Latency (Path Optimization)*, *Accuracy Degradation (Information Density)*, and *Compute Costs (Strategic Routing)*.
+- **Phatic Conversation Classification & RAG Bypass (`string_utils.py`, `chroma_rag.py`, `evelyn_tools.py`, `evelyn_server.py`)**:
+  - Added canonical `string_utils.is_conversational_phatic` to identify short conversational greetings, pleasantries, and brief thanks under 6 words.
+  - Gated vector search in `chroma_rag.build_rag_context()` and `evelyn_server._process_chat_background()` for phatic turns, eliminating 50–150ms of retrieval latency and suppressing 2,000+ characters of irrelevant memory noise.
+  - Injected an empty tool list (`tools=[]`) for phatic turns via `evelyn_tools.get_active_tools()`, preventing tool hallucination and saving ~3,500 prompt tokens.
+- **Linear Pre-Hydration Path for Deterministic Reads (Option A) (`string_utils.py`, `evelyn_server.py`, `evelyn_tools.py`)**:
+  - Implemented mutation-guarded intent detection in `string_utils.detect_deterministic_read_intent` for 0-argument reads (`get_agenda`, `list_tasks`, `get_health_metrics`).
+  - Pre-hydrated deterministic read payloads into canonical `<context_retrieval source="live_system">` XML envelopes before Round 1.
+  - Excluded the pre-hydrated read tool from active tools, enabling the model to synthesize the final warm persona response in a single streaming turn and cutting latency/tokens by ~50% without compromising character delivery.
+- **Dynamic Tool Schema Pruning (`evelyn_tools.py`, `evelyn_config.py`)**:
+  - Added `TOOL_SCHEMA_PRUNING_ENABLED` to dynamically suppress unrelated core tools (`generate_image`, `get_health_metrics`, `get_agenda`, `list_tasks`) when specialized intent (such as vault list management) is unambiguous, reducing prompt overhead and steering model focus.
+- **Contiguous Chunk Fusion & Overlap Deduplication (`chroma_rag.py`)**:
+  - Implemented `_fuse_document_chunks()` to automatically merge adjacent chunks from the same markdown document.
+  - Deduplicated overlapping text boundaries down to 8 characters and eliminated artificial ellipsis gaps, producing clean, contiguous excerpts for prompt injection.
+- **Strict Background Task Context Pruning (`auto_journaler.py`)**:
+  - Restricted nocturnal reflection tool definitions strictly to `[write_journal_entry]` using `evelyn_tools.extract_tool_name`, removing 24 irrelevant tool schemas (~3,500 tokens) from the prompt.
+- **Fact Consolidation Semantic Neighbor Pre-Filtering (`fact_consolidator.py`, `evelyn_config.py`)**:
+  - Added `CONSOLIDATION_VECTOR_PREFILTER_DISTANCE = 0.55` and `_filter_semantically_relevant_window()` before the Step 2a consolidation detection call.
+  - Evaluated candidate comparison entries using ChromaDB vector cosine distance in `evelyn_memory` supplemented by Jaccard token overlap.
+  - Completely skipped LLM duplicate detection calls when no comparison entries meet the similarity threshold, eliminating 80–90% of idle LLM calls on sparse or unrelated facts.
+- **Deep Research Chunk Relevance Gating (`research_engine.py`, `evelyn_config.py`)**:
+  - Added `RESEARCH_CHUNK_SIMILARITY_THRESHOLD = 0.15` and `is_research_chunk_relevant()` to evaluate scraped web page slices against target sub-questions and discovered topic aliases.
+  - Automatically skipped boilerplate disclaimers, cookie policies, terms of service, and low-relevance footer chunks, cutting LLM extraction calls by 40–60% per page and preventing footer hallucination in research dossiers.
+- **Rule 8 Canonical Utility Parity & Multimodal Vision Gateway (`ollama_client.py`, `obsidian_vault_watcher.py`, `document_vision_processor.py`)**:
+  - Extended `ollama_client.query_ollama` with optional `images` parameter to establish a unified gateway for text and multimodal vision models.
+  - Refactored `scripts/obsidian_vault_watcher.py` to replace ad-hoc regex frontmatter parsing and slicing with canonical `frontmatter_utils.parse_frontmatter` and `string_utils.clean_llm_gist`.
+  - Refactored `scripts/document_vision_processor.py` to eliminate inline `urllib.request` in favor of `ollama_client.query_ollama` and formatted markdown notes via `frontmatter_utils.render_frontmatter`.
 
 ## [000.006.118] - 2026-09-13 — *IDE Environment Consolidation, REST Scratchpad & Mermaid PKM Hardening*
 

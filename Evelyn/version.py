@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-13 10:55:49
+# date modified: 2026-09-13 12:28:13
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.118"
-__version_info__ = (0, 6, 118)
-__version_name__ = "IDE Environment Consolidation, REST Scratchpad & Mermaid PKM Hardening"
+__version__ = "000.006.120"
+__version_info__ = (0, 6, 120)
+__version_name__ = "Empirical Phatic Intent Classification & Historical Semantic Grounding"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
