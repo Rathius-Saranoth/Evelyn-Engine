@@ -1,9 +1,12 @@
 {
     "recommendations": [
         "ms-python.python",
-        "meta.pyrefly",
+        "ms-pyright.pyright",
         "charliermarsh.ruff",
         "redhat.vscode-yaml",
-        "battlecook.omni-viewer"
+        "battlecook.omni-viewer",
+        "mikestead.dotenv",
+        "humao.rest-client",
+        "bierner.markdown-mermaid"
     ]
 }

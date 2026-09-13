@@ -1,0 +1,120 @@
+# ==============================================================================
+# Evelyn Engine REST Client Scratchpad
+# For use with the 'humao.rest-client' VS Code extension.
+# Note: Variables automatically read EVELYN_API_KEY from .env if defined.
+# ==============================================================================
+
+@baseUrl = https://localhost:7860
+@apiKey = {{$dotenv EVELYN_API_KEY}}
+
+# ------------------------------------------------------------------------------
+# 1. Health, Runtime Status & Identity
+# ------------------------------------------------------------------------------
+
+### Server Health, Models & Downstream Service Status
+GET {{baseUrl}}/status
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Dynamic Engine Identity & Persona Specs
+GET {{baseUrl}}/api/identity
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Ambient Thought Bubble Telemetry
+GET {{baseUrl}}/thought_bubble
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+# ------------------------------------------------------------------------------
+# 2. Background Heavy Tasks & Maintenance
+# ------------------------------------------------------------------------------
+
+### Active Heavy Tasks & Queue States
+GET {{baseUrl}}/api/heavy_tasks
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Master Librarian Maintenance Status
+GET {{baseUrl}}/api/librarian/status
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+# ------------------------------------------------------------------------------
+# 3. Knowledge Review, Procedures & Proposals
+# ------------------------------------------------------------------------------
+
+### Unified Review Dashboard (Proposals, Procedures & Extractions)
+GET {{baseUrl}}/api/review/unified
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Pending Fact / Memory Proposals
+GET {{baseUrl}}/api/review/proposals
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Operational Procedures Index
+GET {{baseUrl}}/api/procedures
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Pending Terminal Agent Command Approvals
+GET {{baseUrl}}/api/terminal/pending
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Vault Domains & File Count Metrics
+GET {{baseUrl}}/api/vault/domains
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+# ------------------------------------------------------------------------------
+# 4. Engine Telemetry & Deep Research
+# ------------------------------------------------------------------------------
+
+### LLM Thinking & Reasoning Telemetry
+GET {{baseUrl}}/telemetry/thinking
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### ChromaDB RAG Retrieval & Keyword Telemetry
+GET {{baseUrl}}/telemetry/rag
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Deep Research Active & Historic Tasks
+GET {{baseUrl}}/research/list
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+# ------------------------------------------------------------------------------
+# 5. Chat History & Conversational Execution
+# ------------------------------------------------------------------------------
+
+### Recent Conversation History (Latest 5 Messages)
+GET {{baseUrl}}/history?limit=5
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Active Assistant Streaming Session State
+GET {{baseUrl}}/chat/active_stream
+Accept: application/json
+X-API-Key: {{apiKey}}
+
+### Submit Conversational Turn (POST /chat)
+POST {{baseUrl}}/chat
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+    "message": "Status ping: confirm engine operational.",
+    "think": "low"
+}
+
+### Abort In-Flight Generation Turn
+POST {{baseUrl}}/chat/stop
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{}

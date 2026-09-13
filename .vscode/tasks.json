@@ -56,6 +56,18 @@
             "type": "shell",
             "command": "nvidia-smi",
             "problemMatcher": []
+        },
+        {
+            "label": "Update Frontmatter (Active File)",
+            "type": "shell",
+            "command": "/home/rathius/evelyn/venv/bin/python scripts/update_frontmatter.py \"${file}\"",
+            "problemMatcher": []
+        },
+        {
+            "label": "Check Code Hygiene & Wiring",
+            "type": "shell",
+            "command": "PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py",
+            "problemMatcher": []
         }
     ]
 }

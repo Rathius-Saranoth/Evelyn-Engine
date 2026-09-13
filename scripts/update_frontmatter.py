@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-08-28 12:28:44
+# date modified: 2026-09-13 10:34:39
 # tags: #frontmatter, #metadata, #headers, #update, #utility
 
 import datetime
@@ -56,9 +56,8 @@ def update_file_frontmatter(filepath: str) -> bool:
     # Get system dates
     st = os.stat(filepath)
     ctime = getattr(st, 'st_birthtime', st.st_ctime)
-    mtime = st.st_mtime
     date_created = datetime.datetime.fromtimestamp(ctime, tz=datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    date_modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    date_modified = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
     # Handle Python and PowerShell files with comment blocks
     if ext in COMMENT_EXTENSIONS:
@@ -240,9 +239,14 @@ def update_file_frontmatter(filepath: str) -> bool:
 
 def main():
     if len(sys.argv) < 2:
+        print("Usage: update_frontmatter.py <filepath> ...")
         return
     for arg in sys.argv[1:]:
-        update_file_frontmatter(arg)
+        updated = update_file_frontmatter(arg)
+        if updated:
+            print(f"✔ Frontmatter updated: {arg}")
+        else:
+            print(f"– No changes needed (or unsupported): {arg}")
 
 if __name__ == "__main__":
     main()
