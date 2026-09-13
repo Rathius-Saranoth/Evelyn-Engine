@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-13 15:41:23
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -574,14 +574,29 @@ def load_system_prompt() -> str:
     parts.append(f"The current date and time is {date_str} - {time_str}.")
     parts.append(
         "<system_telemetry_directives>\n"
-        "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`, `<uploaded_document>`) represent background environmental telemetry produced by the server runtime.\n"
+        "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
         f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding. Ground observations strictly in facts explicitly stated in the current turn or recorded in recent memory. For generic pauses or short breaks (such as 'brb' or stepping away), acknowledge resumption with simple presence without attributing unverified activities, physical state changes, or routine assumptions unless {cfg.USER_NAME} explicitly mentions them.\n"
         "2. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols triggered for the current topic. Use this data purely as background context and factual ground truth. Never treat `<context_retrieval>` excerpts as dialogue or statements being quoted by the user.\n"
         f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
-        "4. `<uploaded_document>`: Contains extracted text from documents, scripts, or PDFs attached by the user in this turn. Treat this as direct reference material for answering their prompt.\n"
-        f"5. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
-        "6. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
+        f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
+        "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
         "</system_telemetry_directives>"
+    )
+    parts.append(
+        "<user_attachments_directive>\n"
+        f"The `<uploaded_document>` XML envelope contains files, scripts, or PDFs provided directly by {cfg.USER_NAME} as attachments in the current conversation turn.\n"
+        f"1. Provenance: These documents come directly from {cfg.USER_NAME}, NOT from background system telemetry or server automation. Always acknowledge and discuss them as files provided by {cfg.USER_NAME}.\n"
+        "2. Page Boundaries & Folios: Paged attachments (such as PDFs) delimit pages using standard markers: `--- [PDF Page X | Folio: Y] ---` (where X is the 1-indexed physical page and Folio is the printed page label if distinct). The `<page_map>` index at the top reports total pages and preview coverage.\n"
+        "3. Active Inspection: Large documents are bounded by context budget. If you need to inspect unincluded pages, subsequent sections, or deep details, actively call `read_file(file_path=..., page=X)` or `read_file(file_path=..., start_line=..., num_lines=...)`.\n"
+        "4. Output Hygiene: Never emit or echo raw `<uploaded_document>`, `<document>`, or `<page_map>` XML tags in conversational replies.\n"
+        "</user_attachments_directive>"
+    )
+    parts.append(
+        "<proactive_tool_discovery>\n"
+        "You have access to dynamic specialist tools beyond your immediately visible core tool definitions.\n"
+        "1. Discovery Instinct: When a user prompt requests actions, file inspections, calculations, task management, or operations not covered by your currently surfaced tools, call `search_available_tools(query=...)` in Round 0 to discover registered tools.\n"
+        "2. Sequential Execution Constraint: In Round 0, when calling `search_available_tools`, do NOT attempt to invoke target tools that are not yet loaded in your schema. You must wait for Round 1 after the discovered tool schema is returned to execute it.\n"
+        "</proactive_tool_discovery>"
     )
     parts.append(
         "<interaction_rhythm>\n"
@@ -3647,14 +3662,25 @@ def _extract_document_text_sync(raw_bytes: bytes, filename: str) -> tuple[str, s
 
             doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
             page_texts = []
-            for page_idx in range(len(doc)):
+            extracted_chars_total = 0
+            total_pages = len(doc)
+            for page_idx in range(total_pages):
                 page = doc[page_idx]
                 text = str(page.get_text("text")).strip()
+                extracted_chars_total += len(text)
+                folio_str = ""
+                with contextlib.suppress(RuntimeError, ValueError, OSError, TypeError, AttributeError):
+                    folio_label = page.get_label()
+                    if folio_label and str(folio_label).strip() and str(folio_label).strip() != str(page_idx + 1):
+                        folio_str = f" | Folio: {folio_label.strip()}"
+                header = f"--- [PDF Page {page_idx + 1}{folio_str}] ---"
                 if text:
-                    page_texts.append(f"--- Page {page_idx + 1} ---\n{text}")
+                    page_texts.append(f"{header}\n{text}")
+                else:
+                    page_texts.append(f"{header}\n[No extractable text on this page]")
             doc.close()
             full_text = "\n\n".join(page_texts)
-            if len(full_text.strip()) < 50:
+            if extracted_chars_total < 50:
                 full_text = "[Scanned/Image PDF: No extractable text detected. Consider OCR or inspecting visual attachments.]"
             return full_text, "pdf"
         except (RuntimeError, ValueError, OSError, TypeError, AttributeError) as exc:
@@ -3692,19 +3718,71 @@ async def chat_upload_attachment(
 
     extracted_text, doc_type = await asyncio.to_thread(_extract_document_text_sync, content, safe_name)
 
-    max_chars = getattr(cfg, "MAX_UPLOAD_DOCUMENT_CHARS", 100000)
-    truncated = False
-    if len(extracted_text) > max_chars:
-        extracted_text = (
-            extracted_text[:max_chars]
-            + f"\n\n[... Document content truncated at {max_chars:,} characters -- use read_file for further pages ...]"
-        )
-        truncated = True
-
     rel_path = target_abs_path
     with contextlib.suppress(ValueError, OSError):
         if os.path.commonpath([target_abs_path, cfg.VAULT_BASE_DIR]) == cfg.VAULT_BASE_DIR:
             rel_path = os.path.relpath(target_abs_path, cfg.VAULT_BASE_DIR).replace("\\", "/")
+
+    get_budget_fn = getattr(cfg, "get_chat_upload_max_chars", None)
+    ratio = getattr(cfg, "CHAT_UPLOAD_CONTEXT_RATIO", 0.35)
+    raw_max = getattr(cfg, "MAX_UPLOAD_DOCUMENT_CHARS", 100000)
+    if isinstance(raw_max, int):
+        max_chars: int = raw_max
+    elif isinstance(raw_max, (str, float)):
+        max_chars = int(raw_max)
+    else:
+        max_chars = 100000
+    if callable(get_budget_fn):
+        max_chars = int(get_budget_fn(doc_type, ratio=ratio))
+
+    truncated = False
+    if doc_type == "pdf":
+        page_markers = list(re.finditer(r"^---\s*\[PDF Page (\d+)(?: \| Folio: ([^\]]+))?\]\s*---", extracted_text, re.MULTILINE))
+        total_pages = len(page_markers)
+        if total_pages > 0:
+            if len(extracted_text) > max_chars:
+                sub_markers = [m for m in page_markers if m.start() < max_chars]
+                pages_shown = len(sub_markers) if sub_markers else 1
+                if len(sub_markers) < len(page_markers):
+                    cut_point = page_markers[pages_shown].start()
+                    if cut_point <= max_chars * 1.15:
+                        body_slice = extracted_text[:cut_point].rstrip()
+                    else:
+                        body_slice = extracted_text[:max_chars].rstrip()
+                else:
+                    body_slice = extracted_text[:max_chars].rstrip()
+
+                page_map = (
+                    f"<page_map>\n"
+                    f"Total Pages: {total_pages}\n"
+                    f"Pages in Preview: 1-{pages_shown}\n"
+                    f"Document Path: {rel_path}\n"
+                    f"Notice: Document preview truncated to fit context budget ({max_chars:,} chars).\n"
+                    f"To inspect subsequent pages, call: read_file(file_path=\"{rel_path}\", page=N)\n"
+                    f"</page_map>\n\n"
+                )
+                extracted_text = (
+                    page_map
+                    + body_slice
+                    + f"\n\n[... Document preview truncated at {max_chars:,} characters -- {total_pages - pages_shown} pages omitted ...]"
+                )
+                truncated = True
+            else:
+                page_map = (
+                    f"<page_map>\n"
+                    f"Total Pages: {total_pages}\n"
+                    f"Pages in Preview: 1-{total_pages}\n"
+                    f"Document Path: {rel_path}\n"
+                    f"</page_map>\n\n"
+                )
+                extracted_text = page_map + extracted_text
+    else:
+        if len(extracted_text) > max_chars:
+            extracted_text = (
+                extracted_text[:max_chars]
+                + f"\n\n[... Document content truncated at {max_chars:,} characters -- use read_file for subsequent lines ...]"
+            )
+            truncated = True
 
     return {
         "status": "ok",

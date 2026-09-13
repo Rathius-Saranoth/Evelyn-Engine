@@ -3610,11 +3610,20 @@
         const isUploading = stagedAttachments.some((a) => a.uploading);
         if (isUploading) {
           sendBtn.disabled = true;
+          sendBtn.textContent = "⏳";
           sendBtn.title = "Uploading attachments...";
-          sendBtn.style.opacity = "0.5";
+          sendBtn.style.opacity = "0.6";
         } else {
           sendBtn.disabled = false;
-          sendBtn.title = isStreaming ? "Stop generating" : "Send message";
+          if (isStreaming) {
+            sendBtn.classList.add("btn-stop");
+            sendBtn.textContent = "■";
+            sendBtn.title = "Stop generating";
+          } else {
+            sendBtn.classList.remove("btn-stop");
+            sendBtn.textContent = "↑";
+            sendBtn.title = "Send";
+          }
           sendBtn.style.opacity = "1";
         }
       }
@@ -4406,6 +4415,12 @@
 
       document.getElementById("input").addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
+          const isUploading = stagedAttachments && stagedAttachments.some((a) => a.uploading);
+          const sendBtn = document.getElementById("send-btn");
+          if (isUploading || (sendBtn && sendBtn.disabled && !isStreaming)) {
+            e.preventDefault();
+            return;
+          }
           // On mobile/touch devices, plain Enter inserts a newline and Send button is tapped.
           // On desktop keyboards, plain Enter sends and Shift+Enter inserts a newline.
           // Ctrl+Enter or Cmd+Enter will always send on any device.

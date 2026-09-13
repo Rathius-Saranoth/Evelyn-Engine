@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-13 14:01:00
+date modified: 2026-09-13 16:02:42
 ---
 # Evelyn Project Roadmap
 
@@ -59,7 +59,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Workspace & Health Integrations**: Integrations for Google Calendar/Tasks/Drive, Obsidian Vault checklists, Health Connect clinical EHR data, and Oura Ring Cloud API v2 biometrics.
 - [x] **Direct Web Browsing & Search**: Dedicated `read_url` tool with desktop client fingerprinting, bot-challenge diagnostics, query sanitization, and in-memory TTL caching.
 - [x] **Agentic Infrastructure & Information Density**: Tri-vector agentic loop optimization eliminating retrieval latency via empirical phatic classification and linear read pre-hydration, reducing cognitive degradation through dynamic tool schema pruning and contiguous chunk fusion, and filtering boilerplate web extraction.
-- [x] **Dynamic Tool Discovery & Multimodal Ingestion**: Autonomous tool discovery metatool dynamically binding tools mid-turn into Round N+1 schemas, token-fuzzy vault matching, positive epistemic grounding, and unified drag-and-drop chat document ingestion.
+- [x] **Dynamic Tool Discovery & Multimodal Ingestion**: Autonomous tool discovery metatool dynamically binding tools mid-turn into Round N+1 schemas, context-relative dynamic upload budgets, delimited PDF grounding with native page reading, token-fuzzy vault matching, positive epistemic grounding, and unified drag-and-drop chat document ingestion.
 - [ ] **Third-Party & Multi-Entity Profiles**: Dynamic evolution and autonomous profiling for external contacts and collaborators encountered across channels into dedicated profile notes.
 - [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category and vector distance memory retrieval for profile evolution to dynamically ingest cross-domain observations.
 - [ ] **Profile Evolution Protected Sections**: Configurable section-level invariants (`PROTECTED_SECTIONS` in `evelyn_config.py`) and validator locks preventing nocturnal profile evolution passes from modifying specified headers across persona triad files.

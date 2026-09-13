@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-13 14:08:22
+date modified: 2026-09-13 16:02:42
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -35,7 +35,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 ### `POST /api/chat/upload`
 * **Purpose**: Uploads and extracts text from user-attached documents (PDF, Markdown, code files, text, JSON, CSV) for injection into chat turns.
 * **Payload**: Multipart form data with `file` upload field.
-* **Returns**: JSON object `{"status": "ok", "name": "<filename>", "path": "<vault_relpath>", "abs_path": "<vault_abspath>", "type": "<ext>", "content": "<extracted text>", "char_count": <int>, "truncated": <bool>}`. PyMuPDF is used for PDF text extraction (offloaded to threadpool), with automatic scanned-document detection ($< 50$ chars) and character truncation at `MAX_UPLOAD_DOCUMENT_CHARS` (30,000 chars).
+* **Returns**: JSON object `{"status": "ok", "name": "<filename>", "path": "<vault_relpath>", "abs_path": "<vault_abspath>", "type": "<ext>", "content": "<extracted text>", "char_count": <int>, "truncated": <bool>}`. PyMuPDF is used for PDF text extraction with page delimiter headers (`--- [PDF Page X | Folio: Y] ---`) and folio labels (offloaded to threadpool), automatic scanned-document detection ($< 50$ extracted text chars), dynamic context budgeting (`cfg.get_chat_upload_max_chars()`) scaled relative to `NUM_CTX * CHAT_UPLOAD_CONTEXT_RATIO` ($0.35$), and structured `<page_map>` index blocks on paged documents.
 
 ### `POST /regenerate`
 * **Purpose**: Triggers a regeneration of the latest response in the chat chain.
