@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-13 12:28:13
+# date modified: 2026-09-13 14:00:38
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -31,6 +31,7 @@ Exports:
     extract_markdown_outline() — Extracts markdown heading outline for truncated documents.
     is_conversational_phatic() — Determines whether a turn is a brief phatic greeting/pleasantry.
     detect_deterministic_read_intent() — Detects high-confidence 0-argument deterministic read queries.
+    calculate_token_fuzzy_score() — Token-aligned fuzzy similarity with numerical discrepancy guards.
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -38,6 +39,7 @@ See also: reference/xml_injection_conventions.md · reference/engine_architectur
 
 from __future__ import annotations
 
+import difflib
 import re
 import unicodedata
 from typing import Any
@@ -975,5 +977,60 @@ def detect_deterministic_read_intent(text: str) -> str | None:
         return "health"
 
     return None
+
+
+def calculate_token_fuzzy_score(query: str, target: str) -> float:
+    """Calculate token-aligned fuzzy similarity between a query and target string.
+
+    Designed for robust vault document matching and search:
+    1. Tokenizes query and target into words (case-insensitive).
+    2. Enforces a strict numerical / date discrepancy guard: if both strings
+       contain digits/dates that do not match (e.g. 2026-03-01 vs 2026-03-02,
+       or v1 vs v2), score is capped at 0.50 to prevent false auto-resolution.
+    3. Finds best SequenceMatcher ratio for each query token across target tokens.
+    4. Evaluates token-sorted ratio for transposed/out-of-order words.
+    5. Returns normalized similarity score in [0.0, 1.0].
+
+    Args:
+        query: User search query or requested file name.
+        target: Document title, file stem, or candidate path.
+
+    Returns:
+        float: Similarity score between 0.0 and 1.0 (rounded to 4 decimals).
+    """
+    if not query or not target:
+        return 0.0
+
+    q_tokens = [w for w in re.split(r"[^a-zA-Z0-9]+", query.lower()) if len(w) > 0]
+    t_tokens = [w for w in re.split(r"[^a-zA-Z0-9]+", target.lower()) if len(w) > 0]
+    if not q_tokens or not t_tokens:
+        return 0.0
+
+    # Numerical / date discrepancy guard: prevent version/date drift false positives
+    q_nums = set(re.findall(r"\d+", query))
+    t_nums = set(re.findall(r"\d+", target))
+    has_num_mismatch = bool(q_nums and t_nums and q_nums != t_nums)
+
+    matched_scores = []
+    for q in q_tokens:
+        best = 0.0
+        for t in t_tokens:
+            sim = difflib.SequenceMatcher(None, q, t).ratio()
+            if sim > best:
+                best = sim
+        matched_scores.append(best if best >= 0.65 else 0.0)
+
+    token_score = sum(matched_scores) / len(matched_scores)
+
+    # Token sort ratio for transposed / out-of-order words
+    q_sorted = " ".join(sorted(q_tokens))
+    t_sorted = " ".join(sorted(t_tokens))
+    sort_ratio = difflib.SequenceMatcher(None, q_sorted, t_sorted).ratio()
+
+    final_score = max(token_score, sort_ratio)
+    if has_num_mismatch:
+        final_score = min(final_score, 0.50)
+
+    return round(final_score, 4)
 
 

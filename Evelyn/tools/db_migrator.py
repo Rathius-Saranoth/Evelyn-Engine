@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-12 11:00:58
+# date modified: 2026-09-13 14:00:38
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -2488,6 +2488,45 @@ def migrate_000_006_113_search_vault_notes_procedure(
     logger.info(f"Migration 000.006.113: Inserted starter procedure for search_vault_notes (ID: {cursor.lastrowid}).")
 
 
+def migrate_000_006_121_search_available_tools_procedure(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: Any,
+) -> None:
+    """Migration 000.006.121: Register starter procedure for search_available_tools model tool."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    trigger = (
+        r"(?i)\b(?:search|find|discover|surface|look up)\b.*\b(?:tools?|capabilities|functions?)\b|"
+        r"(?i)\b(?:what tools?|which tools?|available tools?|tool list)\b"
+    )
+    steps = (
+        "1. Identify the capability or tool needed to solve the user request when it is not present in the current active tool definitions.\n"
+        "2. Invoke search_available_tools(query='...') with relevant keywords describing the intent, tool domain, or suspected tool name.\n"
+        "3. Review the returned tool schemas and parameter requirements. The matching tools are automatically activated for Round N+1.\n"
+        "4. In the subsequent tool round, invoke the discovered tool directly to complete the task."
+    )
+    pitfalls = (
+        "- Do not guess or hallucinate parameters for specialist tools; inspect the parameters returned by search_available_tools.\n"
+        "- Discovered tools become invocable in Round N+1, not within the same tool execution call.\n"
+        "- If no matching tool is found, gracefully explain the limitation or use general workspace tools (e.g. run_command, web_search)."
+    )
+    verification = (
+        "Required specialist tool is discovered, its schema is surfaced, and it is activated for execution in the next tool round."
+    )
+    tags = "skill/tools, meta, tool-discovery, capabilities, agentic"
+    suggested_tools = "search_available_tools, read_document_scratchpad, read_file"
+
+    cursor.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+           VALUES (?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now),
+    )
+    logger.info(f"Migration 000.006.121: Inserted starter procedure for search_available_tools (ID: {cursor.lastrowid}).")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2706,6 +2745,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.113",
         name="starter_procedure_search_vault_notes",
         up_fn=migrate_000_006_113_search_vault_notes_procedure,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.121",
+        name="starter_procedure_search_available_tools",
+        up_fn=migrate_000_006_121_search_available_tools_procedure,
+        post_sync_chroma=True,
     ),
 ]
 

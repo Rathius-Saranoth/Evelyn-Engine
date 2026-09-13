@@ -2176,16 +2176,26 @@
           const gallery = document.createElement("div");
           gallery.className = "msg-attachments";
           attachments.forEach((att) => {
-            const thumb = document.createElement("div");
-            thumb.className = "msg-attachment-thumb";
-            const img = document.createElement("img");
-            const src = att.dataUrl || (att.file_path ? `/${att.file_path}` : "");
-            img.src = src;
-            img.alt = att.description || "Image attachment";
-            img.title = "Click to enlarge";
-            thumb.onclick = () => openLightbox(src, att);
-            thumb.appendChild(img);
-            gallery.appendChild(thumb);
+            if (att.type === "image" || att.dataUrl || (att.file_path && !att.type)) {
+              const thumb = document.createElement("div");
+              thumb.className = "msg-attachment-thumb";
+              const img = document.createElement("img");
+              const src = att.dataUrl || (att.file_path ? `/${att.file_path}` : "");
+              img.src = src;
+              img.alt = att.description || "Image attachment";
+              img.title = "Click to enlarge";
+              thumb.onclick = () => openLightbox(src, att);
+              thumb.appendChild(img);
+              gallery.appendChild(thumb);
+            } else {
+              const docBadge = document.createElement("div");
+              docBadge.className = "msg-doc-badge";
+              docBadge.style.cssText = "display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; margin: 4px 4px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--text);";
+              const dType = (att.docType || att.type || "").toLowerCase();
+              const icon = dType === "pdf" ? "📑" : (["py","js","ts","sh","json","html","css","yaml","yml"].includes(dType) ? "💻" : "📄");
+              docBadge.innerHTML = `<span>${icon}</span> <span>${escapeHtml(att.name || "Document")}</span>`;
+              gallery.appendChild(docBadge);
+            }
           });
           bubble.appendChild(gallery);
         }
@@ -3535,25 +3545,90 @@
           if (file.type.startsWith("image/")) {
             try {
               const item = await processImageFile(file);
+              item.type = "image";
               stagedAttachments.push(item);
             } catch (err) {
               console.warn("Could not stage image attachment:", err);
             }
+          } else {
+            const ext = file.name.split(".").pop()?.toLowerCase() || "txt";
+            const docItem = {
+              id: "doc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+              type: "document",
+              name: file.name,
+              size: file.size,
+              uploading: true,
+              error: null,
+              path: null,
+              docType: ext,
+              content: "",
+            };
+            stagedAttachments.push(docItem);
+            uploadDocumentAttachment(file, docItem);
           }
         }
         const fileInput = document.getElementById("media-file-input");
         if (fileInput) fileInput.value = "";
         renderAttachmentPreviews();
+        updateSendButtonState();
+      }
+
+      async function uploadDocumentAttachment(file, docItem) {
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const headersObj = {};
+          if (API_KEY) headersObj["X-Evelyn-Key"] = API_KEY;
+          const resp = await fetch(`${API_BASE}/api/chat/upload`, {
+            method: "POST",
+            headers: headersObj,
+            body: formData,
+          });
+          if (!resp.ok) {
+            throw new Error(`Upload failed (${resp.status})`);
+          }
+          const data = await resp.json();
+          docItem.uploading = false;
+          docItem.path = data.path;
+          docItem.absPath = data.abs_path;
+          docItem.docType = data.type || docItem.docType;
+          docItem.content = data.content || "";
+          docItem.charCount = data.char_count || 0;
+        } catch (err) {
+          console.error("Document upload error:", err);
+          docItem.uploading = false;
+          docItem.error = err.message || "Failed";
+        } finally {
+          renderAttachmentPreviews();
+          updateSendButtonState();
+        }
+      }
+
+      function updateSendButtonState() {
+        const sendBtn = document.getElementById("send-btn");
+        if (!sendBtn) return;
+        const isUploading = stagedAttachments.some((a) => a.uploading);
+        if (isUploading) {
+          sendBtn.disabled = true;
+          sendBtn.title = "Uploading attachments...";
+          sendBtn.style.opacity = "0.5";
+        } else {
+          sendBtn.disabled = false;
+          sendBtn.title = isStreaming ? "Stop generating" : "Send message";
+          sendBtn.style.opacity = "1";
+        }
       }
 
       function removeAttachment(index) {
         stagedAttachments.splice(index, 1);
         renderAttachmentPreviews();
+        updateSendButtonState();
       }
 
       function clearAttachments() {
         stagedAttachments = [];
         renderAttachmentPreviews();
+        updateSendButtonState();
       }
 
       function renderAttachmentPreviews() {
@@ -3570,11 +3645,26 @@
         stagedAttachments.forEach((att, idx) => {
           const chip = document.createElement("div");
           chip.className = "attachment-chip";
-          chip.innerHTML = `
-            <img src="${att.dataUrl}" alt="Preview" />
-            <span style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(att.name)}</span>
-            <button class="remove-btn" title="Remove" type="button" onclick="removeAttachment(${idx})">✕</button>
-          `;
+          if (att.type === "image" || att.dataUrl) {
+            chip.innerHTML = `
+              <img src="${att.dataUrl}" alt="Preview" />
+              <span style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(att.name)}</span>
+              <button class="remove-btn" title="Remove" type="button" onclick="removeAttachment(${idx})">✕</button>
+            `;
+          } else {
+            const dType = (att.docType || att.type || "").toLowerCase();
+            const icon = dType === "pdf" ? "📑" : (["py","js","ts","sh","json","html","css","yaml","yml"].includes(dType) ? "💻" : "📄");
+            let statusText = "";
+            if (att.uploading) statusText = " ⏳";
+            else if (att.error) statusText = " ⚠️";
+            else if (att.charCount) statusText = ` <small style="opacity:0.7;">(${Math.round(att.charCount / 1000)}k)</small>`;
+
+            chip.innerHTML = `
+              <span style="font-size: 16px; margin-right: 4px;">${icon}</span>
+              <span style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(att.name)}${statusText}</span>
+              <button class="remove-btn" title="Remove" type="button" onclick="removeAttachment(${idx})">✕</button>
+            `;
+          }
           bar.appendChild(chip);
         });
       }
@@ -3742,6 +3832,10 @@
         }
       });
 
+      // Global window dragover/drop prevention to prevent accidental browser tab navigation
+      window.addEventListener("dragover", (e) => e.preventDefault());
+      window.addEventListener("drop", (e) => e.preventDefault());
+
       document.body.addEventListener("dragover", (e) => {
         e.preventDefault();
         document.querySelector(".input-row")?.classList.add("drag-over");
@@ -3758,6 +3852,10 @@
       });
 
       async function sendMessage() {
+        if (stagedAttachments.some((a) => a.uploading)) {
+          console.log("Waiting for attachment uploads to complete before sending...");
+          return;
+        }
         const input = document.getElementById("input");
         const text = input.value.trim();
         const attachments = [...stagedAttachments];
@@ -3858,11 +3956,26 @@
           chatPayload.think = selectedEffort;
         }
         if (attachments && attachments.length > 0) {
-          chatPayload.images = attachments.map((a) => ({
-            data: a.dataUrl,
-            name: a.name,
-            metadata: a.metadata || {},
-          }));
+          const imageAtts = [];
+          const docAtts = [];
+          for (const a of attachments) {
+            if (a.type === "image" || a.dataUrl) {
+              imageAtts.push({
+                data: a.dataUrl,
+                name: a.name,
+                metadata: a.metadata || {},
+              });
+            } else if (a.type === "document") {
+              docAtts.push({
+                name: a.name,
+                path: a.path,
+                type: a.docType || "text",
+                content: a.content || "",
+              });
+            }
+          }
+          if (imageAtts.length > 0) chatPayload.images = imageAtts;
+          if (docAtts.length > 0) chatPayload.documents = docAtts;
         }
 
         await executeChatStream({

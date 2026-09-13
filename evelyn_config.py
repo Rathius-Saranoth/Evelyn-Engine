@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-13 14:00:38
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -195,6 +195,7 @@ CORE_TOOL_NAMES: list[str] = [
     "list_tasks",
     "get_health_metrics",
     "generate_image",
+    "search_available_tools",
 ]
 
 # Fast regex/keyword intent patterns for direct specialist tool activation.
@@ -214,6 +215,9 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\bread\s+(?:through|over|in)?\s*(?:them|it|those|these)\b",
         r"\b[\w\-./]+\.(?:md|txt|py|json|csv|log|ya?ml|pdf|sh|html)\b",
         r"\b(vault\s+notes?|notes?/|projects?/|docs?/)[\w\-./]*\b",
+    ],
+    "read_document_scratchpad": [
+        r"\b(chunk|chunking|scratchpad|outline|deep\s+read|section\s+by\s+section|long\s+doc)\b.*(?:doc|file|document|pdf|note)",
     ],
     "write_file": [
         r"\b(write|create|save|export|dump)\s+(?:to\s+)?(?:the\s+|a\s+|an\s+|this\s+|that\s+|these\s+|those\s+|my\s+|our\s+)?(file|script|code|report|note|document|doc|sheet)s?\b",
@@ -341,6 +345,8 @@ CONTEXT_DIR = os.path.join(ASSISTANT_WRITE_DIR, f"{ASSISTANT_NAME}'s Context")
 RESEARCH_VAULT_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Research")
 PENDING_DIR = os.path.join(ASSISTANT_WRITE_DIR, "Pending_Approvals")
 LISTS_DIR = os.path.join(VAULT_BASE_DIR, "Lists")
+CHAT_UPLOAD_DIR = os.path.join(VAULT_BASE_DIR, "Attachments", "Chat_Uploads")
+MAX_UPLOAD_DOCUMENT_CHARS = 100000
 
 # Directories the engine should NOT read from (excluded from RAG indexing,
 # vault search, and context ingestion). Paths are relative to VAULT_BASE_DIR.

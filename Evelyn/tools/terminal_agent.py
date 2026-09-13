@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-09-12 11:39:11
+# date modified: 2026-09-13 14:00:38
 # tags: #terminal, #tools, #agent, #safety
 
 """Terminal and file access agent tools for Evelyn.
@@ -9,6 +9,7 @@ Gives Evelyn the capability to execute safe bash/shell commands, read files, and
 files in allowed workspace paths with a multi-layered safety check and user approval gate.
 """
 
+import contextlib
 import importlib
 import json
 import os
@@ -21,7 +22,7 @@ import uuid
 from typing import Any
 
 import evelyn_config as cfg
-from Evelyn.tools.string_utils import extract_markdown_outline
+from Evelyn.tools.string_utils import calculate_token_fuzzy_score, extract_markdown_outline
 
 # Multi-layered safety pattern rules
 TERMINAL_BLOCKED_PATTERNS = [
@@ -378,6 +379,45 @@ def find_matching_vault_files(file_path: str) -> tuple[str | None, list[str]]:
     if len(candidates) > 1:
         return (None, sorted(candidates))
 
+    # Tier 4: Token-Fuzzy Alignment across Vault Database
+    if not candidates and os.path.exists(vault_db_path):
+        try:
+            con = sqlite3.connect(vault_db_path, timeout=5.0)
+            cur = con.cursor()
+            all_docs = cur.execute("SELECT path, title FROM vault_documents").fetchall()
+            con.close()
+
+            fuzzy_matches: list[tuple[float, str]] = []
+            for r_path, r_title in all_docs:
+                rel = r_path.replace("\\", "/")
+                full_p = os.path.abspath(os.path.join(vault_base, rel))
+                if not (_is_vault_safe(full_p) and os.path.isfile(full_p)):
+                    continue
+
+                stem = os.path.basename(rel)
+                c_stem = stem[:-3] if stem.lower().endswith(".md") else stem
+                # Score against title and stem first (avoiding folder prefix score dilution)
+                target_label = f"{r_title or ''} {c_stem}".strip()
+                score = calculate_token_fuzzy_score(norm, target_label)
+                if score >= 0.70:
+                    fuzzy_matches.append((score, rel))
+
+            if fuzzy_matches:
+                fuzzy_matches.sort(key=lambda x: x[0], reverse=True)
+                top_score, top_rel = fuzzy_matches[0]
+                runner_up_score = fuzzy_matches[1][0] if len(fuzzy_matches) > 1 else 0.0
+
+                # Auto-resolve if single dominant match >= 0.85 with delta >= 0.15 over runner-up
+                if top_score >= 0.85 and (top_score - runner_up_score >= 0.15):
+                    resolved = os.path.abspath(os.path.join(vault_base, top_rel))
+                    return (resolved, [])
+
+                # Ambiguous matches: return candidate paths for disambiguation
+                candidate_list = [m[1] for m in fuzzy_matches[:5]]
+                return (None, candidate_list)
+        except (sqlite3.Error, OSError):
+            pass
+
     return (None, [])
 
 
@@ -599,6 +639,8 @@ def _execute_command(command: str, cwd: str, timeout: int) -> str:
 
 def read_file(
     file_path: str,
+    start_line: int = 1,
+    end_line: int | None = None,
     max_lines: int | None = None,
     max_chars: int | None = None,
     offset_line: int = 1,
@@ -607,23 +649,45 @@ def read_file(
 ) -> str:
     """Read contents of a file within allowed workspace or vault paths.
 
-    Supports automatic vault path resolution, 1-indexed pagination, character budgeting,
-    and markdown section outline extraction on truncated documents.
+    Supports automatic vault path resolution, 1-indexed pagination (start_line/end_line),
+    character budgeting, and markdown section outline extraction on truncated documents.
 
     Args:
         file_path: Absolute or relative file path or note name.
+        start_line: Starting line number (1-indexed, default 1).
+        end_line: Optional ending line number (1-indexed, inclusive). Overrides max_lines if >= start_line.
         max_lines: Maximum lines to return (defaults to cfg.READ_FILE_MAX_LINES or 100).
         max_chars: Maximum characters to return (defaults to cfg.READ_FILE_MAX_CHARS or 5000).
-        offset_line: Starting line number (1-indexed, default 1).
+        offset_line: Legacy starting line parameter (fallback if start_line is 1).
         show_line_numbers: If True, prepends line numbers (e.g. for code editing). Defaults to False.
-        **kwargs: Flexible keyword arguments (lines, limit, chars, offset, start_line).
+        **kwargs: Flexible keyword arguments (lines, limit, chars, offset, start_line, end_line).
 
     Returns:
         str: File content with banner or error description.
     """
     cleanup_stale_approvals()
 
-    if max_lines is None:
+    # Determine effective starting line
+    eff_start = start_line
+    if eff_start == 1 and offset_line > 1:
+        eff_start = offset_line
+    if "start_line" in kwargs:
+        with contextlib.suppress(ValueError, TypeError):
+            eff_start = int(kwargs["start_line"])
+    elif "offset" in kwargs:
+        with contextlib.suppress(ValueError, TypeError):
+            eff_start = int(kwargs["offset"])
+    eff_start = max(1, eff_start)
+
+    # Determine effective ending line / line budget
+    eff_end = end_line
+    if eff_end is None and "end_line" in kwargs:
+        with contextlib.suppress(ValueError, TypeError):
+            eff_end = int(kwargs["end_line"])
+
+    if eff_end is not None and eff_end >= eff_start:
+        max_lines = eff_end - eff_start + 1
+    elif max_lines is None:
         val = kwargs.get("lines") or kwargs.get("limit")
         if val is not None:
             try:
@@ -644,13 +708,6 @@ def read_file(
         else:
             cfg_val = getattr(cfg, "READ_FILE_MAX_CHARS", 5000)
             max_chars = cfg_val if isinstance(cfg_val, int) else 5000
-
-    if offset_line == 1 and ("start_line" in kwargs or "offset" in kwargs):
-        try:
-            offset_line = int(kwargs.get("start_line") or kwargs.get("offset") or 1)
-        except (ValueError, TypeError):
-            offset_line = 1
-    offset_line = max(1, offset_line)
 
     resolved_path, ambiguous_candidates = find_matching_vault_files(file_path)
 
@@ -682,7 +739,7 @@ def read_file(
             all_lines = f.readlines()
 
         total_lines = len(all_lines)
-        start_idx = max(0, offset_line - 1)
+        start_idx = max(0, eff_start - 1)
         selected_lines = all_lines[start_idx : start_idx + max_lines]
         raw_slice = "".join(selected_lines)
 
@@ -695,9 +752,9 @@ def read_file(
                 cut = cut[:last_nl]
             raw_slice = cut
             actual_lines_shown = max(1, len(raw_slice.splitlines()))
-            end_line = start_idx + actual_lines_shown
+            actual_end_line = start_idx + actual_lines_shown
         else:
-            end_line = start_idx + len(selected_lines)
+            actual_end_line = start_idx + len(selected_lines)
 
         if show_line_numbers:
             content_lines = raw_slice.splitlines(keepends=True)
@@ -707,23 +764,24 @@ def read_file(
 
         raw_norm = file_path.replace("\\", "/").strip("/").lower()
         if rel_vault and rel_vault.lower() != raw_norm and rel_vault.lower() != f"{raw_norm}.md":
-            banner = f"--- [Resolved: {rel_vault}] (Showing lines {start_idx + 1}–{end_line} of {total_lines}, {len(raw_slice)} chars) ---"
+            banner = f"--- [Resolved: {rel_vault}] (Showing lines {start_idx + 1}–{actual_end_line} of {total_lines}, {len(raw_slice)} chars) ---"
         else:
             header_path = rel_vault or abs_path
-            banner = f"--- {header_path} (Showing lines {start_idx + 1}–{end_line} of {total_lines}, {len(raw_slice)} chars) ---"
+            banner = f"--- {header_path} (Showing lines {start_idx + 1}–{actual_end_line} of {total_lines}, {len(raw_slice)} chars) ---"
 
         # Outline and pagination hint on truncation
         trunc_notice = ""
-        is_truncated = is_char_truncated or (end_line < total_lines) or (start_idx > 0)
-        if is_truncated and end_line < total_lines:
+        is_truncated = is_char_truncated or (actual_end_line < total_lines) or (start_idx > 0)
+        target_path = rel_vault or file_path
+        if is_truncated and actual_end_line < total_lines:
             full_content = "".join(all_lines)
             outline = extract_markdown_outline(full_content)
             outline_str = ""
             if outline:
                 outline_str = "\nAvailable Sections in document:\n" + "\n".join(f"  - {h}" for h in outline[:10])
             trunc_notice = (
-                f"\n\n[... Document truncated: showing lines {start_idx + 1}–{end_line} of {total_lines} ({len(raw_slice)} chars) ...]{outline_str}\n"
-                f"Tip: Call read_file with offset_line={end_line + 1} to continue reading."
+                f"\n\n[... Document truncated: showing lines {start_idx + 1}–{actual_end_line} of {total_lines} ({len(raw_slice)} chars) ...]{outline_str}\n"
+                f'Tip: Call read_file(file_path="{target_path}", start_line={actual_end_line + 1}) to continue reading.'
             )
 
         return f"{banner}\n{formatted_body}{trunc_notice}"

@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-13 14:00:38
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -2627,6 +2627,8 @@ def run_command(command: str = "", cwd: str = r"/home/rathius/evelyn", timeout: 
 
 def read_file(
     file_path: str = "",
+    start_line: int = 1,
+    end_line: int | None = None,
     max_lines: int | None = None,
     max_chars: int | None = None,
     offset_line: int = 1,
@@ -2637,9 +2639,11 @@ def read_file(
 
     Args:
         file_path: Absolute path, relative path, or document name.
+        start_line: Starting line number (1-indexed, default 1).
+        end_line: Optional ending line number (1-indexed, inclusive). Overrides max_lines if specified.
         max_lines: Maximum lines to return.
         max_chars: Maximum characters to return.
-        offset_line: Starting line number (1-indexed).
+        offset_line: Legacy starting line number (fallback if start_line is 1).
         show_line_numbers: If True, prepends line numbers. Defaults to False.
         **kwargs: Flexible keyword arguments.
 
@@ -2650,12 +2654,206 @@ def read_file(
     file_path = file_path or str(kwargs.get("path") or kwargs.get("filepath") or "")
     return terminal_agent.read_file(
         file_path=file_path,
+        start_line=start_line,
+        end_line=end_line,
         max_lines=max_lines,
         max_chars=max_chars,
         offset_line=offset_line,
         show_line_numbers=show_line_numbers,
         **kwargs,
     )
+
+
+def read_document_scratchpad(file_path: str = "", max_sections: int = 5, **kwargs: Any) -> str:
+    """Algorithmically chunk and outline a long document into structured sections.
+
+    Extracts a markdown section outline with line ranges, provides a multi-section preview,
+    and returns exact start_line/end_line coordinates for targeted reading without deadlocking.
+
+    Args:
+        file_path: Absolute or relative file path or note name.
+        max_sections: Maximum number of preview sections to return (default: 5).
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Outlined document structure, line indices, and initial section preview.
+    """
+    _reload()
+    file_path = file_path or str(kwargs.get("path") or kwargs.get("filepath") or "")
+    if not file_path:
+        return "Error: No file_path provided to read_document_scratchpad."
+
+    resolved_path, ambiguous_candidates = terminal_agent.find_matching_vault_files(file_path)
+    if ambiguous_candidates:
+        cand_list = "\n".join(f"  - {c}" for c in ambiguous_candidates)
+        return (
+            f"Error: Ambiguous document reference '{file_path}'. Found {len(ambiguous_candidates)} matching files in different directories:\n"
+            f"{cand_list}\n"
+            "Please specify the full relative path to read the desired document."
+        )
+
+    abs_path = resolved_path or terminal_agent.resolve_file_path(file_path)
+    if not terminal_agent.is_path_allowed(abs_path):
+        return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
+
+    if not os.path.exists(abs_path):
+        return f"Error: File not found: '{file_path}'."
+
+    try:
+        with open(abs_path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError as exc:
+        return f"Error reading file '{file_path}': {exc}"
+
+    total_lines = len(lines)
+    total_chars = sum(len(l) for l in lines)
+
+    # Detect markdown headings with line numbers
+    heading_re = re.compile(r"^(#{1,6})\s+(.*)$")
+    sections: list[dict[str, Any]] = []
+    current_sec: dict[str, Any] = {"title": "Introduction / Preamble", "start": 1, "level": 1}
+
+    for idx, line in enumerate(lines, 1):
+        m = heading_re.match(line.rstrip())
+        if m:
+            if idx > current_sec["start"]:
+                current_sec["end"] = idx - 1
+                sections.append(current_sec)
+            current_sec = {
+                "title": m.group(2).strip(),
+                "start": idx,
+                "level": len(m.group(1)),
+            }
+
+    current_sec["end"] = total_lines
+    sections.append(current_sec)
+
+    # If no headings exist (e.g. raw text or code), chunk into fixed 50-line blocks
+    if len(sections) == 1 and total_lines > 80:
+        sections = []
+        chunk_size = 50
+        for s in range(1, total_lines + 1, chunk_size):
+            e = min(total_lines, s + chunk_size - 1)
+            sections.append({
+                "title": f"Lines {s}–{e}",
+                "start": s,
+                "end": e,
+                "level": 2,
+            })
+
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    rel_path = file_path
+    with contextlib.suppress(ValueError, OSError):
+        if os.path.commonpath([abs_path, vault_base]) == vault_base:
+            rel_path = os.path.relpath(abs_path, vault_base).replace("\\", "/")
+
+    out_lines = [
+        f"=== Document Scratchpad: {rel_path} ({total_lines} lines, {total_chars} chars, {len(sections)} sections) ===",
+        "\n### Table of Contents & Section Map:",
+    ]
+    for i, sec in enumerate(sections, 1):
+        out_lines.append(f"  [{i}] Lines {sec['start']}–{sec['end']}: {'  ' * (sec.get('level', 1) - 1)}{sec['title']}")
+
+    out_lines.append(f"\n### Preview (First {min(max_sections, len(sections))} sections):")
+    for i, sec in enumerate(sections[:max_sections], 1):
+        sec_lines = lines[sec["start"] - 1 : sec["end"]]
+        sec_text = "".join(sec_lines)
+        if len(sec_text) > 1500:
+            sec_text = sec_text[:1500] + f"\n... [Section {i} truncated -- use read_file to view full section]"
+        out_lines.append(f"\n--- [Section {i}] Lines {sec['start']}–{sec['end']}: {sec['title']} ---\n{sec_text}")
+
+    if len(sections) > max_sections:
+        next_sec = sections[max_sections]
+        out_lines.append(
+            f'\nTip: To read subsequent sections, call read_file(file_path="{rel_path}", start_line={next_sec["start"]}, end_line={next_sec["end"]}).'
+        )
+    else:
+        out_lines.append(
+            f'\nTip: To re-read any specific section in full, call read_file(file_path="{rel_path}", start_line=..., end_line=...).'
+        )
+
+    return "\n".join(out_lines)
+
+
+def search_available_tools(query: str = "", **kwargs: Any) -> str:
+    """Discover and surface additional engine tools dynamically during agentic reasoning.
+
+    Searches available system tools by name, keywords, or description to surface tools
+    that may not be in the current prompt context. Discovered tools are automatically
+    activated into the tool schema for Round N+1.
+
+    Args:
+        query: Search term, intent description, or tool name keywords (e.g. 'read file', 'calendar', 'drive').
+        **kwargs: Flexible keyword arguments.
+
+    Returns:
+        str: Discovered tool definitions and parameters formatted for agentic execution.
+    """
+    from Evelyn.tools.string_utils import calculate_token_fuzzy_score
+
+    _reload()
+    clean_q = (query or str(kwargs.get("search") or kwargs.get("tool_name") or "")).strip().lower()
+
+    scored: list[tuple[float, str, dict[str, Any]]] = []
+
+    for tool_def in MODEL_TOOL_DEFINITIONS:
+        name = _extract_tool_name(tool_def)
+        if not name or name == "search_available_tools":
+            continue
+        fn_data = tool_def.get("function") or tool_def
+        desc = str(fn_data.get("description", "")).lower()
+
+        if not clean_q or clean_q in ("*", "all"):
+            score = 1.0
+        else:
+            name_score = calculate_token_fuzzy_score(clean_q, name.replace("_", " "))
+            desc_score = 0.5 * calculate_token_fuzzy_score(clean_q, desc)
+            q_tokens = [tok for tok in clean_q.split() if len(tok) >= 3]
+            matched_tokens = sum(1 for tok in q_tokens if tok in name.lower() or tok in desc)
+            token_ratio = (matched_tokens / len(q_tokens)) if q_tokens else 0.0
+            keyword_bonus = 0.3 * token_ratio if token_ratio >= 0.5 else 0.0
+            score = max(name_score, desc_score) + keyword_bonus
+            if name_score < 0.45 and desc_score < 0.45 and token_ratio < 0.5:
+                score = 0.0
+
+        if score >= 0.45 or not clean_q:
+            scored.append((score, name, tool_def))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top_matches = scored[:3]
+
+    if not top_matches:
+        return (
+            f"No tools found matching query '{query}'. Available tool domains include: "
+            "file system (read_file, write_file, read_document_scratchpad), vault notes (search_vault_notes), "
+            "reference library (search_reference_library), research (start_research, list_research_tasks), "
+            "calendar & tasks (create_calendar_event, list_tasks), daily journal (write_journal_entry), "
+            "health metrics (get_health_metrics), and shell execution (run_command)."
+        )
+
+    activated_names = [m[1] for m in top_matches]
+    lines = [
+        f"[System: Discovered {len(top_matches)} matching tool(s). Activated for Round N+1: {', '.join(activated_names)}]",
+        "You may invoke any of these activated tools in your next tool round:\n",
+    ]
+
+    for _, name, tool_def in top_matches:
+        fn_data = tool_def.get("function") or tool_def
+        desc = fn_data.get("description", "")
+        params = fn_data.get("parameters", {}).get("properties", {})
+        req = fn_data.get("parameters", {}).get("required", [])
+
+        param_strs = []
+        for p_name, p_spec in params.items():
+            req_str = "required" if p_name in req else "optional"
+            p_type = p_spec.get("type", "string")
+            p_desc = p_spec.get("description", "")
+            param_strs.append(f"    - {p_name} ({p_type}, {req_str}): {p_desc}")
+
+        param_block = "\n".join(param_strs) if param_strs else "    (None)"
+        lines.append(f"• Tool: `{name}`\n  Description: {desc}\n  Parameters:\n{param_block}\n")
+
+    return "\n".join(lines)
 
 
 def write_file(file_path: str = "", content: str = "", mode: str = "overwrite", **kwargs) -> str:
@@ -2841,6 +3039,8 @@ TOOL_THINK_EFFORT: dict[str, str] = {
     "sync_google_drive": "low",
     "run_command": "medium",
     "read_file": "medium",
+    "read_document_scratchpad": "medium",
+    "search_available_tools": "low",
     "write_file": "medium",
 }
 
@@ -3514,13 +3714,21 @@ MODEL_TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Absolute path, relative path, or note title (e.g. 'GIS Technician Tasks Overview', 'scripts/test.py').",
                     },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Starting line number to read from (1-indexed, default: 1). Use to read further into truncated documents.",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Ending line number to read to (1-indexed, inclusive). If specified, reads the exact line slice [start_line..end_line].",
+                    },
                     "max_lines": {
                         "type": "integer",
                         "description": "Maximum lines to return (default: 100).",
                     },
                     "offset_line": {
                         "type": "integer",
-                        "description": "Starting line number to read from (1-indexed, default: 1). Use to read further into truncated documents.",
+                        "description": "Legacy starting line parameter (fallback if start_line is 1).",
                     },
                 },
                 "required": ["file_path"],
@@ -3666,6 +3874,51 @@ MODEL_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_available_tools",
+            "description": (
+                "Search and discover available engine tools and capabilities dynamically during reasoning. "
+                "Use when you need a capability not currently surfaced in your active tools (e.g. calendar, drive, research, file operations). "
+                "Discovered tools are automatically activated and made available for invocation in your next tool round."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keywords, capability description, or tool domain (e.g. 'read file', 'calendar', 'drive', 'research', 'all').",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document_scratchpad",
+            "description": (
+                "Algorithmically chunk and outline a long markdown or text document into structured sections. "
+                "Extracts a table of contents with line spans and returns an initial section preview with exact start_line/end_line coordinates for targeted reading."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Absolute path, relative path, or note title to outline and preview.",
+                    },
+                    "max_sections": {
+                        "type": "integer",
+                        "description": "Maximum number of sections to preview (default: 5).",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
 ]
 
 
@@ -3709,6 +3962,8 @@ TOOL_FUNCTIONS = {
     "sync_google_drive": sync_google_drive,
     "run_command": run_command,
     "read_file": read_file,
+    "read_document_scratchpad": read_document_scratchpad,
+    "search_available_tools": search_available_tools,
     "write_file": write_file,
 }
 
