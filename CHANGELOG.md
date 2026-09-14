@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-13 15:41:23
+date modified: 2026-09-13 20:27:07
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.123] - 2026-09-13 — *Canonical Wikilink Target Resolution & Disambiguation-Aware Ghost Link Healing*
+
+### Added & Optimized
+- **Canonical Wikilink Target Resolution Engine (`Evelyn/tools/link_librarian.py`)**:
+  - Implemented `resolve_canonical_link_target` featuring a deterministic 5-stage resolution hierarchy: direct stem match, exact frontmatter alias match, unambiguous parenthetical disambiguation stem match (`target (*)`), normalized hyphen/underscore match, and fallback bail-out.
+  - Added strict anti-collision disambiguation guard: if an unqualified stem matches more than one candidate note (e.g. `Oberon (mythology)` and `Oberon (warframe)`), resolution aborts with an ambiguity warning, preventing accidental namespace clobbering.
+  - Implemented `tokenize_wikilink` parser supporting full Obsidian syntax: `[[Target#Heading^block|Display]]`, cleanly separating target stems from anchors, headings, block IDs, and display text.
+  - Added `canonicalize_document_wikilinks` to the Master Librarian audit pipeline (`audit_document_links`), automatically rewriting alias and disambiguation targets (e.g. `[[Oura Ring]]` ➔ `[[Oura|Oura Ring]]`, `[[Oberon]]` ➔ `[[Oberon (warframe)|Oberon]]`) while preserving exact reading-mode display text and protecting code blocks and frontmatter.
+- **Ghost Link Stub Synthesis Guardrail (`Evelyn/tools/link_librarian.py`)**:
+  - Updated `create_ghost_link_stub` to query `resolve_canonical_link_target` prior to reference harvesting, immediately returning `status: "already_exists"` to prevent generating ghost stubs or Tier 2 review proposals for known aliases or disambiguated entities.
+- **Vault-Wide Disambiguation & Alias Remediation**:
+  - Registered missing aliases across core destination notes: `Antigravity (app)`, `Obsidian (app)`, `Oberon (warframe)`, `Wisp (warframe)`, `The Vault`, `Use WinGet`, `The Legend of Zelda`, `Holy Trinity of Recovery`, `Gem-Compass`, and `Cat00` through `Cat16`.
+  - Cleaned conflicting aliases in `Notes/Tech Quick Reference/Oura API.md` to ensure `Oura Ring` uniquely targets `Notes/Oura.md`.
+  - Safely canonicalized 51 markdown notes across the vault containing alias and disambiguation targets, merging their Obsidian graph nodes with primary documents and eliminating dangling ghost links.
+- **Hermetic Test Coverage (`Evelyn/tests/test_master_librarian.py`)**:
+  - Added unit tests for `tokenize_wikilink`, 5-stage `resolve_canonical_link_target` hierarchy with ambiguity collision guards, and body canonicalization with code block immunity.
 
 ## [000.006.122] - 2026-09-13 — *Dynamic Context Budgeting, Paged PDF Grounding & Core Tool Promotion*
 
