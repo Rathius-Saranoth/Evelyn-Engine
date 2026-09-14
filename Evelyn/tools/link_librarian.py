@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-06 18:46:14
+# date modified: 2026-09-13 20:27:29
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -12,6 +12,9 @@ Exports:
     resolve_bare_attachments()      — Expands bare filename attachment links to full relative vault paths.
     prune_redundant_aliases()       — Cleans possessive ('s) and plural (s) aliases; converts doc types to tags.
     inject_parent_breadcrumbs()     — Injects upstream parent index callout into isolated chapter notes.
+    tokenize_wikilink()             — Tokenizes [[Target#Heading|Display]] into stem, subpath, and display.
+    resolve_canonical_link_target() — Resolves wikilink target to canonical note stem with alias and disambiguation priority.
+    canonicalize_document_wikilinks() — Rewrites alias and disambiguation targets to [[CanonicalTarget|OriginalText]].
 """
 
 from __future__ import annotations
@@ -548,6 +551,213 @@ def target_note_exists(
     return False
 
 
+def tokenize_wikilink(inner: str) -> tuple[str, str, str]:
+    """Tokenize the inner contents of a wikilink [[inner]] into (stem, subpath, display).
+
+    Delimiters handled:
+      'Target' -> ('Target', '', '')
+      'Target|Display' -> ('Target', '', 'Display')
+      'Target#Heading' -> ('Target', '#Heading', '')
+      'Target#Heading|Display' -> ('Target', '#Heading', 'Display')
+      'Target#^blockid|Display' -> ('Target', '#^blockid', 'Display')
+
+    Args:
+        inner: Content between [[ and ]].
+
+    Returns:
+        tuple[str, str, str]: (stem, subpath, display)
+    """
+    display = ""
+    if "|" in inner:
+        target_part, display = inner.split("|", 1)
+    else:
+        target_part = inner
+
+    subpath = ""
+    if "#" in target_part:
+        stem, sub = target_part.split("#", 1)
+        subpath = f"#{sub.strip()}"
+    else:
+        stem = target_part
+
+    return stem.strip(), subpath, display.strip()
+
+
+def resolve_canonical_link_target(
+    target_stem: str,
+    vault_root: str | None = None,
+) -> tuple[bool, str]:
+    """Resolve a wikilink target stem to its canonical note stem in the vault.
+
+    Strict Resolution Hierarchy (Anti-Collision & Disambiguation Aware):
+      1. Direct Stem Match: target.md exists on disk or DB -> (True, target)
+      2. Exact Alias Match: target matches an alias in vault_documents -> (True, canonical_stem)
+      3. Unambiguous Disambiguation Stem: Exactly ONE document matches 'target (*)' -> (True, matched_stem)
+         (If > 1 matches, bails out and returns (False, target) to prevent namespace collisions)
+      4. Hyphen/Underscore Normalization: Matches a note with hyphens/underscores substituted -> (True, matched_stem)
+      5. Fallback: No resolution -> (False, target)
+
+    Args:
+        target_stem: Clean stem name of the note.
+        vault_root: Optional vault root directory.
+
+    Returns:
+        tuple[bool, str]: (resolved_bool, canonical_stem)
+    """
+    clean_stem = target_stem.strip()
+    if not clean_stem:
+        return False, clean_stem
+
+    stem_lower = clean_stem.lower()
+    root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+
+    # 1. Direct Stem Match (Disk check)
+    if os.path.exists(os.path.join(root, f"{clean_stem}.md")):
+        return True, clean_stem
+
+    try:
+        from Evelyn.tools import vault_db
+
+        con = vault_db.get_db()
+        cursor = con.cursor()
+
+        # Direct DB Match
+        query_direct = """
+            SELECT path FROM vault_documents
+            WHERE path = ? OR path LIKE ?
+            LIMIT 1
+        """
+        row = cursor.execute(query_direct, (f"{clean_stem}.md", f"%/{clean_stem}.md")).fetchone()
+        if row is not None:
+            actual_stem = Path(row[0]).stem
+            con.close()
+            return True, actual_stem
+
+        # 2. Exact Alias Match
+        query_alias = """
+            SELECT path, aliases FROM vault_documents
+            WHERE aliases LIKE ?
+        """
+        alias_rows = cursor.execute(query_alias, (f"%{clean_stem}%",)).fetchall()
+        alias_candidates = []
+        for r_path, r_aliases in alias_rows:
+            if r_aliases:
+                alias_list = [a.strip().lower() for a in r_aliases.split(",") if a.strip()]
+                if stem_lower in alias_list:
+                    cand_stem = Path(r_path).stem
+                    if cand_stem not in alias_candidates:
+                        alias_candidates.append(cand_stem)
+
+        if len(alias_candidates) == 1:
+            con.close()
+            return True, alias_candidates[0]
+        elif len(alias_candidates) > 1:
+            logger.warning(
+                f"resolve_canonical_link_target: alias collision for '{clean_stem}' "
+                f"across multiple notes: {alias_candidates}. Bailing out."
+            )
+            con.close()
+            return False, clean_stem
+
+        # 3. Unambiguous Disambiguation Stem: target matches 'target (*)'
+        query_disambig = """
+            SELECT path FROM vault_documents
+            WHERE path LIKE ? OR path LIKE ?
+        """
+        disambig_rows = cursor.execute(query_disambig, (f"{clean_stem} (%).md", f"%/{clean_stem} (%).md")).fetchall()
+        disambig_matches = []
+        for (d_path,) in disambig_rows:
+            d_stem = Path(d_path).stem
+            m = re.match(r"^(.+?)\s*\([^)]+\)$", d_stem)
+            if m and m.group(1).strip().lower() == stem_lower and d_stem not in disambig_matches:
+                disambig_matches.append(d_stem)
+
+        if len(disambig_matches) == 1:
+            con.close()
+            return True, disambig_matches[0]
+        elif len(disambig_matches) > 1:
+            logger.warning(
+                f"resolve_canonical_link_target: ambiguous parenthetical match for '{clean_stem}' "
+                f"found multiple candidates: {disambig_matches}. Bailing out."
+            )
+            con.close()
+            return False, clean_stem
+
+        # 4. Hyphen/Underscore Normalization
+        normalized_stem = re.sub(r"[-_\s]+", " ", stem_lower).strip()
+        query_all = "SELECT path FROM vault_documents"
+        all_rows = cursor.execute(query_all).fetchall()
+        con.close()
+
+        norm_matches = []
+        for (a_path,) in all_rows:
+            a_stem = Path(a_path).stem
+            a_norm = re.sub(r"[-_\s]+", " ", a_stem.lower()).strip()
+            if a_norm == normalized_stem and a_stem.lower() != stem_lower and a_stem not in norm_matches:
+                norm_matches.append(a_stem)
+
+        if len(norm_matches) == 1:
+            return True, norm_matches[0]
+
+    except (sqlite3.Error, OSError) as e:
+        logger.debug(f"resolve_canonical_link_target DB lookup fallback: {e}")
+
+    return False, clean_stem
+
+
+def canonicalize_document_wikilinks(
+    body: str,
+    vault_root: str | None = None,
+) -> tuple[bool, str, list[str]]:
+    """Scan and canonicalize wikilinks in markdown text where alias or disambiguation stems are used as targets.
+
+    Preserves exact reading-mode text:
+      [[Target]] -> [[CanonicalTarget|Target]]
+      [[Target|Display]] -> [[CanonicalTarget|Display]]
+      [[Target#Heading|Display]] -> [[CanonicalTarget#Heading|Display]]
+      [[Target#Heading]] -> [[CanonicalTarget#Heading|Target]]
+
+    Args:
+        body: Text (already masked by protect_code_blocks).
+        vault_root: Optional vault root directory.
+
+    Returns:
+        tuple[bool, str, list[str]]: (changed, updated_body, actions)
+    """
+    changed = False
+    actions = []
+
+    pattern = re.compile(r"\[\[([^|\]\n#^]+)(#[^|\]\n]+)?(\|[^\]\n]+)?\]\]")
+
+    def replacer(match: re.Match) -> str:
+        nonlocal changed
+        raw_full = match.group(0)
+        target_stem = match.group(1).strip()
+        subpath = match.group(2) or ""
+        display = match.group(3) or ""
+
+        is_valid, clean = is_valid_entity_target(target_stem)
+        if not is_valid or "/" in clean:
+            return raw_full
+
+        resolved, canonical_stem = resolve_canonical_link_target(clean, vault_root=vault_root)
+        if resolved and canonical_stem != clean:
+            changed = True
+            action_label = f"canonicalized_link:{clean}->{canonical_stem}"
+            if action_label not in actions:
+                actions.append(action_label)
+
+            if display:
+                return f"[[{canonical_stem}{subpath}{display}]]"
+            else:
+                return f"[[{canonical_stem}{subpath}|{clean}]]"
+
+        return raw_full
+
+    updated_body = pattern.sub(replacer, body)
+    return changed, updated_body, actions
+
+
 def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
     """Wrap un-fenced floating-point and numeric arrays in code backticks.
 
@@ -851,7 +1061,13 @@ def audit_document_links(
             changed = True
             details["actions"].append("injected_parent_breadcrumb")
 
-        # 2d. Count and track ghost links (with target validation and vault-wide resolution)
+        # 2d. Canonicalize wikilinks targeting aliases or disambiguation stems
+        c_can, masked_body, can_actions = canonicalize_document_wikilinks(masked_body, vault_root=vault_root)
+        if c_can:
+            changed = True
+            details["actions"].extend(can_actions)
+
+        # 2e. Count and track ghost links (with target validation and vault-wide resolution)
         link_matches = re.findall(r"\[\[([^|\]\n#]+)(?:[|#][^\]\n]*)?\]\]", masked_body)
         root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
         ghost_count = 0
@@ -860,8 +1076,9 @@ def audit_document_links(
             is_valid, target_clean = is_valid_entity_target(target)
             if not is_valid or "/" in target_clean:
                 continue
-            # Vault-wide resolution check: verify sibling dir, vault root, and vault_documents DB
-            if not target_note_exists(target_clean, source_path=path, vault_root=root):
+            # Vault-wide resolution check: verify sibling dir, vault root, DB, and canonical resolution
+            res_can, _ = resolve_canonical_link_target(target_clean, vault_root=root)
+            if not res_can and not target_note_exists(target_clean, source_path=path, vault_root=root):
                 ghost_count += 1
                 if target_clean not in ghost_targets:
                     ghost_targets.append(target_clean)
@@ -939,8 +1156,9 @@ def create_ghost_link_stub(
     root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
     # Vault-wide existence check
-    if target_note_exists(clean_target, source_path=source_path, vault_root=root):
-        return {"status": "already_exists", "target": clean_target}
+    res_can, canonical_name = resolve_canonical_link_target(clean_target, vault_root=root)
+    if res_can or target_note_exists(clean_target, source_path=source_path, vault_root=root):
+        return {"status": "already_exists", "target": canonical_name or clean_target}
 
     target_relpath = f"{clean_target}.md"
     target_abspath = os.path.join(root, target_relpath)

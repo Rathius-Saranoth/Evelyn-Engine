@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-08 18:27:14
+# date modified: 2026-09-13 20:27:29
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -488,6 +488,110 @@ Additional bench tests confirmed 4x speedup over baseline models.
                 include_tags=False,
             )
             self.assertFalse(res2.get("modified"), "Second run on repaired note must be strictly idempotent")
+
+    def test_tokenize_wikilink(self):
+        """Verify wikilink tokenization into stem, subpath, and display text."""
+        self.assertEqual(
+            link_librarian.tokenize_wikilink("Oura Ring"),
+            ("Oura Ring", "", ""),
+        )
+        self.assertEqual(
+            link_librarian.tokenize_wikilink("Oura Ring|ring"),
+            ("Oura Ring", "", "ring"),
+        )
+        self.assertEqual(
+            link_librarian.tokenize_wikilink("Oberon#Abilities"),
+            ("Oberon", "#Abilities", ""),
+        )
+        self.assertEqual(
+            link_librarian.tokenize_wikilink("Oberon#Abilities|kit"),
+            ("Oberon", "#Abilities", "kit"),
+        )
+        self.assertEqual(
+            link_librarian.tokenize_wikilink("Note#^block123|display text"),
+            ("Note", "#^block123", "display text"),
+        )
+
+    def test_canonicalize_document_wikilinks_and_ghost_count(self):
+        """Verify canonical link target rewriting and ghost link filtering."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            # Create a disambiguated note and a note with aliases
+            os.makedirs(os.path.join(tmp_vault, "Notes"), exist_ok=True)
+            with open(os.path.join(tmp_vault, "Notes", "Oura.md"), "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Oura\naliases: [\"Oura Ring\"]\n---\n# Oura\n")
+            with open(os.path.join(tmp_vault, "Notes", "Oberon (warframe).md"), "w", encoding="utf-8") as f:
+                f.write("---\ntitle: Oberon (warframe)\naliases: []\n---\n# Oberon (Warframe)\n")
+
+            test_body = (
+                "Here is an unaliased link [[Oura Ring]].\n"
+                "Here is an aliased link [[Oura Ring|ring]].\n"
+                "Here is a disambiguated link [[Oberon#Abilities|Oberon kit]].\n"
+                "Here is a code block that must NOT change:\n"
+                "```markdown\n[[Oura Ring]]\n```\n"
+                "Here is a real ghost link: [[Completely Unknown Note]].\n"
+            )
+
+            # Mock resolve_canonical_link_target using the temporary vault structure
+            def mock_resolver(target, vault_root=None):
+                t_lower = target.lower()
+                if t_lower == "oura ring":
+                    return True, "Oura"
+                elif t_lower == "oberon":
+                    return True, "Oberon (warframe)"
+                elif t_lower in ("oura", "oberon (warframe)"):
+                    return True, target
+                return False, target
+
+            with patch("Evelyn.tools.link_librarian.resolve_canonical_link_target", side_effect=mock_resolver):
+                changed, updated_doc, details = link_librarian.audit_document_links(
+                    content=test_body,
+                    path="Notes/TestRef.md",
+                    vault_root=tmp_vault,
+                )
+
+            self.assertTrue(changed)
+            self.assertIn("[[Oura|Oura Ring]]", updated_doc)
+            self.assertIn("[[Oura|ring]]", updated_doc)
+            self.assertIn("[[Oberon (warframe)#Abilities|Oberon kit]]", updated_doc)
+            self.assertIn("```markdown\n[[Oura Ring]]\n```", updated_doc)  # Code block preserved!
+            self.assertEqual(details["ghost_links_count"], 1)
+            self.assertEqual(details["ghost_targets"], ["Completely Unknown Note"])
+
+    def test_resolve_canonical_link_target_hierarchy(self):
+        """Verify strict 5-stage hierarchy of canonical target resolution including ambiguity guards."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "test_vault.db")
+            import sqlite3
+            con = sqlite3.connect(db_path)
+            con.execute("""
+                CREATE TABLE vault_documents (
+                    path TEXT PRIMARY KEY,
+                    title TEXT,
+                    aliases TEXT
+                )
+            """)
+            con.execute("INSERT INTO vault_documents VALUES (?, ?, ?)", ("Notes/Oura.md", "Oura", "Oura Ring,Oura Ring 4"))
+            con.execute("INSERT INTO vault_documents VALUES (?, ?, ?)", ("Notes/Programs/Antigravity (app).md", "Antigravity", ""))
+            con.execute("INSERT INTO vault_documents VALUES (?, ?, ?)", ("Notes/The Vault.md", "The Vault", "Vault"))
+            con.execute("INSERT INTO vault_documents VALUES (?, ?, ?)", ("Notes/Gem-Compass.md", "Gem-Compass", ""))
+            # Add an ambiguous case: 2 notes matching "Zeus (*)"
+            con.execute("INSERT INTO vault_documents VALUES (?, ?, ?)", ("Mythology/Zeus (myth).md", "Zeus (myth)", ""))
+            con.execute("INSERT INTO vault_documents VALUES (?, ?, ?)", ("Games/Zeus (game).md", "Zeus (game)", ""))
+            con.commit()
+            con.close()
+
+            with patch("Evelyn.tools.vault_db.get_db", side_effect=lambda: sqlite3.connect(db_path)):
+                # 1. Direct stem
+                self.assertEqual(link_librarian.resolve_canonical_link_target("Oura", vault_root=tmp_dir), (True, "Oura"))
+                # 2. Alias match
+                self.assertEqual(link_librarian.resolve_canonical_link_target("Oura Ring", vault_root=tmp_dir), (True, "Oura"))
+                # 3. Disambiguation match (single)
+                self.assertEqual(link_librarian.resolve_canonical_link_target("Antigravity", vault_root=tmp_dir), (True, "Antigravity (app)"))
+                # 4. Ambiguity guard (multiple Zeus (*))
+                self.assertEqual(link_librarian.resolve_canonical_link_target("Zeus", vault_root=tmp_dir), (False, "Zeus"))
+                # 5. Hyphen/underscore normalization
+                self.assertEqual(link_librarian.resolve_canonical_link_target("Gem Compass", vault_root=tmp_dir), (True, "Gem-Compass"))
+            con.close()
 
 
 if __name__ == "__main__":
