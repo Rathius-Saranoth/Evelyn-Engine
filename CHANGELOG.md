@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-14 20:23:52
+date modified: 2026-09-15 17:23:55
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,14 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.126] - 2026-09-15 — *Fact Consolidator Preemption Status Guard & Idle Scanner Stabilization*
+
+### Fixed & Optimized
+- **Fact Consolidator Preemption Status Guard (`Evelyn/tools/fact_consolidator.py`)**:
+  - Fixed an unconditioned status overwrite in `cancel_pending_consolidation()` where incoming chat messages would set the consolidator dashboard summary to `"Consolidation pass cancelled (chat preemption)"` even when the consolidation task was already idle or completed.
+  - Placed `_set_status_in_server()` strictly inside the active `if _consolidation_task and not _consolidation_task.done():` block to ensure idle status reflects actual scanner results.
+  - Added explicit idle status reset if `scan_context_entries()` yields no active context entries.
 
 ## [000.006.125] - 2026-09-14 — *Review-Gated Subject Grounding Auditor & Ephemeral Chat Context Viewer*
 
