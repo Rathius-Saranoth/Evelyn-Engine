@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-13 15:41:23
+# date modified: 2026-09-14 20:23:52
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5279,13 +5279,21 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                         mcur.execute("SELECT COUNT(*) FROM context_entries WHERE status='live'")
                         total_active_facts = mcur.fetchone()[0]
                         mcur.execute(
+                            "SELECT COUNT(*) FROM context_entries WHERE status='deleted' AND merged_into_id IS NOT NULL"
+                        )
+                        total_merged_facts = mcur.fetchone()[0]
+                        mcur.execute(
+                            "SELECT COUNT(*) FROM proposals WHERE type IN ('merge', 'supersede') AND status='pending'"
+                        )
+                        pending_merge_proposals = mcur.fetchone()[0]
+                        mcur.execute(
                             "SELECT COUNT(*) FROM proposals WHERE type IN ('merge', 'split', 'recategorize') AND status='pending'"
                         )
                         pending_proposals = mcur.fetchone()[0]
                     finally:
                         mconn.close()
 
-                last_scanned = sub_status.get("total_records", 0) if sub_status else 0
+                last_scanned = sub_status.get("last_run_scanned", sub_status.get("total_records", 0)) if sub_status else 0
                 proposals_written = sub_status.get("proposals_written", 0) if sub_status else 0
                 recats_written = sub_status.get("recats_written", 0) if sub_status else 0
 
@@ -5294,8 +5302,10 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "scan_state": scan_st,
                     "active_category": active_cat or (sub_status.get("active_category") if sub_status else None),
                     "total_active_facts": total_active_facts,
+                    "total_merged_facts": total_merged_facts,
                     "tracked_categories": len(scan_st),
                     "total_categories": 32,
+                    "pending_merge_proposals": pending_merge_proposals,
                     "pending_proposals": pending_proposals,
                     "last_run_scanned": last_scanned,
                     "proposals_written": proposals_written,
@@ -5794,6 +5804,62 @@ class ProposalActionRequest(BaseModel):
     target_id: int | None = None
 
 
+class GroundingAuditRequest(BaseModel):
+    """Pydantic model for triggering a grounding audit sweep."""
+
+    limit: int = 25
+    category: str | None = None
+    subject: str | None = None
+    dry_run: bool = False
+
+
+@app.get("/api/review/context_entry/{entry_id}/surrounding_chat")
+async def get_surrounding_chat_context(
+    entry_id: int,
+    window: int = 3,
+    _: None = Depends(check_auth),
+):
+    """Retrieve surrounding conversational chat turns from evelyn_chat.db for a context entry."""
+    from Evelyn.tools import grounding_auditor
+
+    def _lookup():
+        return grounding_auditor.find_surrounding_chat_context(entry_id, window=window)
+
+    res = await asyncio.to_thread(_lookup)
+    if not res:
+        raise HTTPException(status_code=404, detail="No matching chat context found for this entry.")
+    return res
+
+
+@app.post("/api/audit/grounding")
+async def audit_grounding(
+    req: GroundingAuditRequest | None = None,
+    _: None = Depends(check_auth),
+):
+    """Scan live context entries for ungrounded pronouns, bare verbs, and contradictions."""
+    from Evelyn.tools import grounding_auditor
+
+    limit = req.limit if req else 25
+    cat = req.category if req else None
+    subj = req.subject if req else None
+    dry_run = req.dry_run if req else False
+
+    def _run_audit():
+        issues = grounding_auditor.detect_grounding_issues(limit=limit, category=cat, subject=subj)
+        staged_pids = []
+        if not dry_run and issues:
+            staged_pids = grounding_auditor.stage_grounding_proposals(issues)
+        return {
+            "issues_count": len(issues),
+            "staged_proposals_count": len(staged_pids),
+            "staged_proposal_ids": staged_pids,
+            "dry_run": dry_run,
+            "issues": issues,
+        }
+
+    return await asyncio.to_thread(_run_audit)
+
+
 @app.get("/api/review/proposals")
 async def get_proposals(_: None = Depends(check_auth)):
     """Return all pending consolidation/recategorization proposals with their source entries."""
@@ -6126,6 +6192,22 @@ async def action_proposal(
                     target_category=prop["suggested_category"],
                     merged_tags=prop.get("merged_tags"),
                 )
+                memory_db.apply_proposal(id)
+            elif prop["type"] in ("rephrase", "ground_subject"):
+                source_ids = prop.get("source_ids", [])
+                source_id = source_ids[0] if source_ids else None
+                if source_id:
+                    update_kwargs: dict[str, Any] = {"observation": final_text}
+                    if prop.get("suggested_category"):
+                        update_kwargs["category"] = prop["suggested_category"]
+                    if prop.get("merged_tags"):
+                        update_kwargs["tags"] = prop["merged_tags"]
+                    topic_str = str(prop.get("topic") or "")
+                    if topic_str.startswith("Subject:"):
+                        new_subj = topic_str.replace("Subject:", "").strip()
+                        if new_subj:
+                            update_kwargs["subject"] = new_subj
+                    memory_db.update_entry(source_id, **update_kwargs)
                 memory_db.apply_proposal(id)
             elif prop["type"] == "ghost_link_stub":
                 from Evelyn.tools import link_librarian, vault_db

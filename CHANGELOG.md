@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-13 20:27:07
+date modified: 2026-09-14 20:23:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,50 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.125] - 2026-09-14 — *Review-Gated Subject Grounding Auditor & Ephemeral Chat Context Viewer*
+
+### Added & Optimized
+- **Forward Pipeline Hardening (`Evelyn/tools/fact_extractor.py`, `fact_deduplicator.py`, `fact_splitter.py`, `ingest_obsidian_knowledge.py`)**:
+  - Enforced an **Explicit Noun Subject & Actor Grounding Mandate** across extraction, deduplication, and decomposition prompts, strictly forbidding floating pronouns (`he`, `she`, `they`) and subject-less bare verbs (`Enjoys...`, `Prefers...`).
+  - Updated few-shot extraction examples covering first-person user facts, assistant reactions, and third-party actors (Biscuit, Jordan).
+  - Enriched ChromaDB vector ingestion in `ingest_obsidian_knowledge.py` to prepend `Subject: {subject}\nCategory: {category}\n` to embedding text, ensuring semantic searches properly discern actor contexts.
+- **Review-Gated Subject & Pronoun Grounding Auditor (`Evelyn/tools/grounding_auditor.py`, `scripts/audit_grounding.py`)**:
+  - Built `detect_grounding_issues()` to discover floating pronoun starts, bare verbs, and subject/category contradictions (e.g. `subject: Evelyn` in `-U` canon where text refers to `"He"`).
+  - Implemented `stage_grounding_proposals()` generating non-destructive `rephrase` proposals in the `proposals` table for human review on `dev.html`.
+  - Added CLI runner `scripts/audit_grounding.py` supporting `--dry-run`, `--execute`, `--limit`, `--category`, and `--show-chat`.
+- **Ephemeral On-Demand Surrounding Chat Retrieval (`Evelyn/tools/grounding_auditor.py`, `evelyn_server.py`)**:
+  - Implemented `find_surrounding_chat_context()` tokenizing high-signal nouns and performing FTS5 BM25 search against `messages_fts` in `evelyn_chat.db` to locate the source conversation turn and surrounding window ($M-3$ to $M+3$).
+  - Added `GET /api/review/context_entry/{entry_id}/surrounding_chat` and `POST /api/audit/grounding` endpoints to `evelyn_server.py`.
+  - Strict privacy boundary: source conversation context is queried 100% ephemerally on-demand into browser memory and is never permanently written to `context_entries` or `proposals`.
+- **Review UI & In-Place Editing (`evelyn_ui/dev.html`)**:
+  - Updated proposal rendering for `rephrase` and `ground_subject` proposals to include an editable `<textarea id="prop-edit-${item.id}">`.
+  - Added interactive `💬 View Source Chat Context` accordion button invoking `loadSurroundingChat()` to render color-coded surrounding user/assistant turns with matched message highlighting.
+  - Updated server proposal approval logic to apply edited observation text and update entry subject when specified.
+- **Hermetic Test Suite (`Evelyn/tests/test_grounding_auditor.py`)**:
+  - Added hermetic tests covering pronoun starts, contradiction detection, bare verbs, proposal staging, FTS5 surrounding chat retrieval, and FastAPI endpoints.
+
+## [000.006.124] - 2026-09-14 — *Modular Fact Consolidation Architecture, Provenance Lineage & Deduplication Telemetry*
+
+### Added & Optimized
+- **Modular Fact Consolidation Architecture (`Evelyn/tools/fact_consolidator.py`, `fact_deduplicator.py`, `fact_categorizer.py`, `fact_splitter.py`)**:
+  - Decomposed monolithic `fact_consolidator.py` into single-responsibility child engines orchestrated under `fact_consolidator`:
+    - `fact_deduplicator.py`: Fast SQL exact-duplicate merging, vector-driven nearest-neighbor candidate clustering via ChromaDB (`find_deduplication_candidates`), and LLM consolidation proposal generation (`think=True`).
+    - `fact_categorizer.py`: Taxonomy remediation, category normalization, and recategorization proposal management with 30-day anti-hysteresis protection (`is_recategorization_suppressed`) eliminating runaway proposal loops.
+    - `fact_splitter.py`: Compound entry decomposition for entries exceeding 35 words into atomic facts, with parent lineage tracking via `split_from_id`.
+  - Preserved 100% backwards-compatible facade exports in `fact_consolidator.py` (`fast_deduplicate_exact_matches`, `remediate_database_categories`, `validate_and_normalize_category`, `generate_split_proposal`, `find_consolidation_candidates`, scan state managers).
+- **Database Schema Migration & Provenance Lineage (`Evelyn/tools/db_migrator.py`, `Evelyn/tools/memory_db.py`)**:
+  - Registered and applied database migration `000.006.124` (`context_entries_provenance_and_audit_lineage`) adding `merged_into_id`, `last_audited_at`, and `split_from_id` columns and indexes to `context_entries` in `evelyn_memory.db`.
+  - Updated `delete_entry(merged_into_id=...)` to preserve 100% soft-delete audit lineage pointing to master entries.
+  - Updated `apply_fact_merge()` to soft-delete secondary records pointing to the master ID and stamp `last_audited_at` on master and secondaries.
+  - Updated `split_entry()` to stamp `split_from_id` on newly created atomic context facts.
+  - Added `get_oldest_unaudited_entries()`, `touch_entries_audited()`, and `get_fact_deduplication_metrics()` to `memory_db.py`.
+- **Deduplication Telemetry & UI Dashboard (`evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - Enriched consolidator status telemetry with `total_active_facts`, `total_merged_facts`, and `pending_merge_proposals`.
+  - Updated the Memory Consolidator card on `dev.html` with real-time badges displaying active facts, deduplicated/merged facts, and pending merge review queue count.
+- **Hermetic Test Coverage & Parity Verification (`Evelyn/tests/test_fact_deduplicator.py`, `test_fact_consolidator_parity.py`)**:
+  - Added targeted test suite `test_fact_deduplicator.py` verifying telemetry metrics calculation, 30-day anti-hysteresis flip-flop suppression, and vector-driven candidate discovery with mock ChromaDB nearest-neighbor queries.
+  - Confirmed all existing parity, scan-state, and split test suites pass cleanly.
 
 ## [000.006.123] - 2026-09-13 — *Canonical Wikilink Target Resolution & Disambiguation-Aware Ghost Link Healing*
 

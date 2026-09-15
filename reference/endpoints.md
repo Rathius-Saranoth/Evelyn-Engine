@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-13 16:02:42
+date modified: 2026-09-14 20:30:53
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -157,10 +157,20 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
     * `merge` / `supersede` — updates the primary master context entry in-place with aggregated longevity counts (`observed_count`, `retrieval_count`, `first_observed`, `last_observed`), unions domain tags, and soft-deletes secondary duplicates via `apply_fact_merge()`.
     * `split` — deletes the source compound entry and inserts decomposed atomic child context facts parsed from `final_text` as YAML/JSON.
     * `recategorize` — moves source entries to `suggested_category`. `modified_text` is accepted but unused (no document is written).
-    * `procedure_merge` — if a `target_id` is supplied or indicated in `suggested_category`, delegates to in-place master merge; otherwise inserts a new consolidated procedure parsed from `final_text` as YAML and soft-deletes source procedures.
-  * `merge_into_master`: Explicit procedure master consolidation action. Updates the target master procedure in-place with synthesized trigger patterns, steps, pitfalls, verification checks, tools, and domain tags, and marks all other source procedures as `status='merged'` pointing to the target master ID.
-  * `deny`: Rejects the proposal (`reject_proposal`). For `profile_update`, stamps source entries in `entry_document_evolution` for that document with proposal `created_at` and advances cooldown to prevent immediate repeat proposals.
-  * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
+    * `rephrase` / `ground_subject` — updates the source entry's observation text in `context_entries` with `modified_text` (or `merged_observation`), updates domain tags and category if present, and updates `subject` if `topic` starts with `Subject: <new_subject>`. Marks proposal applied.
+    * `deny`: Rejects the proposal (`reject_proposal`). For `profile_update`, stamps source entries in `entry_document_evolution` for that document with proposal `created_at` and advances cooldown to prevent immediate repeat proposals.
+    * `unlink_source`: Removes the entry identified by `source_id` from this proposal's `source_ids` list without deleting the entry itself.
+
+### `GET /api/review/context_entry/{entry_id}/surrounding_chat`
+* **Purpose**: Fetches the ephemeral surrounding conversation context for a memory entry on-demand using FTS5 BM25 search against `messages_fts` in `evelyn_chat.db`.
+* **Query Parameters**: `window` (integer, default 3) for the number of turns before and after the matched source message.
+* **Returns**: JSON object `{"matched_message_id": <int>, "messages": [{"id": <int>, "role": "user"|"assistant", "content": "...", "ts": <float>, "is_match": <bool>}]}`.
+* **Privacy Boundary**: Conversation context is strictly ephemeral in browser memory and is never permanently written to `context_entries` or `proposals`.
+
+### `POST /api/audit/grounding`
+* **Purpose**: Runs a grounding audit sweep across live context entries to detect floating pronouns (`He `, `She `, `They `), subject-less bare verbs (`Enjoys...`, `Prefers...`), and subject/pronoun contradictions.
+* **Payload**: `GroundingAuditRequest` JSON: `{"limit": int (default 25), "category": str | null, "subject": str | null, "dry_run": bool (default false)}`.
+* **Returns**: JSON object `{"issues_count": <int>, "staged_proposals_count": <int>, "staged_proposal_ids": [<int>], "dry_run": <bool>, "issues": [...]}`. Staged proposals are created as non-destructive `rephrase` proposals in the `proposals` table.
 
 ### `POST /api/context/queue_merge`
 * **Purpose**: Enqueue a list of context extractions for prioritized manual consolidation by the Fact Consolidator on its next cycle.

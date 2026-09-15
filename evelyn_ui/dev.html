@@ -1553,15 +1553,19 @@
           taskDetailsHtml = `
             <div style="font-size: 11px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-dim);">Active Target:</span>
-                <span style="color: var(--accent); font-weight: 500;">${escapeHtml(st.active_category || (t.phase || 'None'))}</span>
-              </div>
-              <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-dim);">Total Active Facts:</span>
                 <span style="color: var(--accent); font-weight: 600;">${(st.total_active_facts || 0).toLocaleString()}</span>
               </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-dim);">Deduplicated / Merged:</span>
+                <span style="color: var(--success); font-weight: 500;">${(st.total_merged_facts || 0).toLocaleString()} facts</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-dim);">Pending Merge Review:</span>
+                <span style="color: ${(st.pending_merge_proposals || 0) > 0 ? 'var(--warning)' : 'var(--success)'}; font-weight: 500;">${st.pending_merge_proposals || 0}</span>
+              </div>
               <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim);">
-                <span id="consolidator-tracked-categories">Tracked: ${st.tracked_categories || 0}/${st.total_categories || 32} categories</span>
+                <span>Phase: ${escapeHtml(t.phase || 'idle')}</span>
                 <span>Last Pass: ${st.last_run_scanned || 0} scanned</span>
               </div>
             </div>
@@ -1998,6 +2002,49 @@
           activeBtn.disabled = false;
           activeBtn.innerHTML = originalText;
         }
+      }
+    }
+
+    async function loadSurroundingChat(proposalId, sourceEntryId, btn) {
+      const container = document.getElementById(`chat-context-${proposalId}`);
+      if (!container) return;
+      if (container.style.display === 'block') {
+        container.style.display = 'none';
+        btn.textContent = '💬 View Source Chat Context';
+        return;
+      }
+      container.style.display = 'block';
+      container.innerHTML = '<div style="color: var(--text-dim); padding: 6px;">⏳ Fetching surrounding chat from chat.db...</div>';
+      btn.textContent = '▲ Hide Chat Context';
+      try {
+        const res = await fetch(`${API_BASE}/api/review/context_entry/${sourceEntryId}/surrounding_chat`, { headers: headers() });
+        if (!res.ok) {
+          container.innerHTML = '<div style="color: var(--text-dim); padding: 6px;">No matching conversation turns found in chat.db.</div>';
+          return;
+        }
+        const data = await res.json();
+        if (!data.messages || data.messages.length === 0) {
+          container.innerHTML = '<div style="color: var(--text-dim); padding: 6px;">No messages returned.</div>';
+          return;
+        }
+        container.innerHTML = `
+          <div style="font-size: 11px; color: var(--accent); font-weight: 600; margin-bottom: 6px; text-transform: uppercase;">
+            Source Conversation (Matched Message #${data.matched_message_id})
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${data.messages.map(m => `
+              <div style="padding: 6px 8px; border-radius: 4px; background: ${m.is_match ? 'rgba(59, 130, 246, 0.15)' : 'var(--surface2)'}; border-left: 3px solid ${m.role === 'user' ? '#3b82f6' : '#a855f7'};">
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin-bottom: 2px;">
+                  <span style="font-weight: 600; color: ${m.role === 'user' ? '#60a5fa' : '#c084fc'};">${escapeHtml(m.role.toUpperCase())}</span>
+                  <span>#${m.id}</span>
+                </div>
+                <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.4; color: var(--text);">${escapeHtml(m.content)}</div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } catch (err) {
+        container.innerHTML = `<div style="color: #ef4444; padding: 6px;">Error fetching chat: ${escapeHtml(err.message || err)}</div>`;
       }
     }
 
@@ -4659,9 +4706,21 @@
                 <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
                   <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Proposed Content</div>
-                    <div style="font-size: 12px; color: var(--text-dim);">Target Category: <strong style="color: var(--accent);">${escapeHtml(item.suggested_category)}</strong></div>
+                    <div style="font-size: 12px; color: var(--text-dim);">Target Category: <strong style="color: var(--accent);">${escapeHtml(item.suggested_category || '')}</strong></div>
                   </div>
-                  <pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto;">${escapeHtml(item.merged_observation)}</pre>
+                  ${(item.type === 'rephrase' || item.type === 'ground_subject') ? `
+                    <textarea id="prop-edit-${item.id}"
+                      style="width: 100%; min-height: 80px; font-family: inherit; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 6px; resize: vertical; line-height: 1.4;"
+                      placeholder="Grounded observation...">${escapeHtml(item.merged_observation)}</textarea>
+                    ${(item.source_entries && item.source_entries.length > 0) ? `
+                      <div style="margin-top: 4px;">
+                        <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 11px; padding: 4px 10px; border-radius: 4px;" onclick="loadSurroundingChat(${item.id}, ${item.source_entries[0].id}, this)">💬 View Source Chat Context</button>
+                        <div id="chat-context-${item.id}" style="display: none; margin-top: 8px; background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; max-height: 250px; overflow-y: auto;"></div>
+                      </div>
+                    ` : ''}
+                  ` : `
+                    <pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto;">${escapeHtml(item.merged_observation)}</pre>
+                  `}
                 </div>`
               }
               <details ${expandedProposalContexts.has(item.id) ? 'open' : ''} ontoggle="toggleProposalContext(${item.id}, this.open)" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px;">
