@@ -7,6 +7,8 @@ Type=simple
 User=rathius
 WorkingDirectory=/home/rathius/evelyn/services/stt
 Environment="PYTHONPATH=/home/rathius/evelyn"
+Environment="HOME=/home/rathius"
+Environment="HF_HOME=/home/rathius/.cache/huggingface"
 Environment="EVELYN_STT_DEVICE=cpu"
 Environment="EVELYN_STT_COMPUTE_TYPE=int8"
 Environment="OMP_NUM_THREADS=4"
