@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-14 20:33:46
+date modified: 2026-09-14 20:39:29
 ---
 # Evelyn Project Roadmap
 
@@ -96,6 +96,9 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **FastAPI APIRouter Server Modularization (`evelyn_server.py`)**: Decompose monolithic 7,000-line server into domain-focused APIRouter modules (`routes/chat.py`, `routes/review.py`, `routes/terminal.py`, `routes/telemetry.py`) with shared auth and lifespan dependencies.
 - [ ] **CLI & Operational Scripts Modularization (`scripts/`)**: Reorganize flat 23+ operational scripts directory into domain subfolders (`scripts/services/`, `scripts/setup/`, `scripts/maintenance/`, `scripts/ingestion/`) with unified CLI entrypoints and updated systemd service/workflow references.
+- [ ] **Test Suite Domain Modularization & Pytest Markers (`Evelyn/tests/`)**: Group 65+ flat test files into domain directories (`tests/memory/`, `tests/vault/`, `tests/server/`, `tests/integrations/`) with pytest marks for safe targeted execution in WSL2.
+- [ ] **Modular Frontend Architecture & Sidebar Tray Redesign (`evelyn_ui/`)**: Modernize UI with a collapsible left sidebar tray for unified page navigation across Chat, Dev/Triage, and Settings, decomposing monolithic 7,500-line `dev.html` and 4,000-line `index.html` into semantic markup, modular CSS, and structured ES JavaScript modules (`js/api.js`, `js/triage.js`, `js/chat.js`).
+- [ ] **Canonical Systemd Service Repository & Root Cleanliness (`systemd/`)**: Consolidate all systemd unit templates (`evelyn.service`, `evelyn-tts.service`, `evelyn-vault-watcher.service`, `syncthing.service`) into `systemd/` and relocate root TLS certificates into a dedicated `certs/` directory.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 - [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
