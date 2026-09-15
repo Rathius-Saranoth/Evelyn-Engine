@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-14 20:30:53
+date modified: 2026-09-15 18:40:39
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -326,6 +326,10 @@ Endpoints driving the background research engine and the interactive developer d
 * **Payload**: `{"description": "optional string", "tags": ["#tag1", "#tag2"] | "tag1, tag2", "taxonomy_domain": "optional string"}`
 * **Returns**: `{"status": "ok", "asset": {...}}`
 
+### `DELETE /api/media/{guid}`
+* **Purpose**: Permanently deletes an indexed media asset record and unlinks its binary file from disk.
+* **Returns**: `{"status": "ok", "deleted": true, "guid": "..."}`
+
 ---
 
 ## 8. Vault Staging & Document Ingestion Endpoints
@@ -410,6 +414,15 @@ Endpoints driving the background research engine and the interactive developer d
 
 ---
 
+## 12. Speech-to-Text (STT) Endpoints
+
+### `POST /api/stt/transcribe`
+* **Purpose**: Proxies user audio recordings (WebM/Opus, MP4, WAV) to the local STT service (`stt_server.py`), strips silences/hallucinations via Silero VAD, optionally persists the audio waveform in `media_db` (`evelyn_media.db`), and returns the transcript text along with an asset GUID for downstream 3D Affective VAD analysis.
+* **Form Parameters**: `file` (UploadFile audio recording), `language` (string, default `"en"`).
+* **Returns**: `{"text": "...", "duration_s": 2.45, "language": "en", "asset_guid": "med_aud_..."}`
+
+---
+
 [evelyn_server.py]: ../evelyn_server.py "evelyn_server.py"
 [query_reformulator.py]: ../Evelyn/tools/query_reformulator.py "query_reformulator.py"
 [chroma_rag.py]: ../Evelyn/tools/chroma_rag.py "chroma_rag.py"
@@ -418,6 +431,8 @@ Endpoints driving the background research engine and the interactive developer d
 [ingest_obsidian_knowledge.py]: ../Evelyn/tools/ingest_obsidian_knowledge.py "ingest_obsidian_knowledge.py"
 [vault_indexer.py]: ../Evelyn/tools/vault_indexer.py "vault_indexer.py"
 [tts_server.py]: ../services/tts/tts_server.py "tts_server.py"
+[stt_server.py]: ../services/stt/stt_server.py "stt_server.py"
 [fact_extractor.py]: ../Evelyn/tools/fact_extractor.py "fact_extractor.py"
 [fact_consolidator.py]: ../Evelyn/tools/fact_consolidator.py "fact_consolidator.py"
 [profile_evolver.py]: ../Evelyn/tools/profile_evolver.py "profile_evolver.py"
+

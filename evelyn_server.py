@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-14 20:50:35
+# date modified: 2026-09-15 18:16:17
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2620,6 +2620,10 @@ async def lifespan(app: FastAPI):
     from Evelyn.tools import media_db, visual_indexer
 
     media_db.init_media_db()
+    if getattr(cfg, "STT_AUDIO_RETENTION_DAYS", 0) > 0:
+        pruned_count = media_db.prune_expired_audio_assets(cfg.STT_AUDIO_RETENTION_DAYS)
+        if pruned_count > 0:
+            print(f"  {_GRN}STT Audio Pruner:{_RST} Pruned {pruned_count} expired audio assets (> {cfg.STT_AUDIO_RETENTION_DAYS}d old).")
     _lifespan_tasks.append(
         asyncio.create_task(
             visual_indexer.visual_indexing_worker_loop(
@@ -3441,6 +3445,17 @@ async def update_media_endpoint(guid: str, req: MediaUpdateRequest, _: None = De
         )
 
     return {"status": "ok", "asset": updated}
+
+
+@app.delete("/api/media/{guid}")
+async def delete_media_endpoint(guid: str, _: None = Depends(check_auth)):
+    """Delete a media asset and its physical file on disk."""
+    from Evelyn.tools import media_db
+
+    deleted = media_db.delete_media_asset(guid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return {"status": "ok", "deleted": True, "guid": guid}
 
 
 @app.post("/chat")
@@ -5104,6 +5119,72 @@ async def tts_audio_proxy(filename: str):
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=str(e)) from e
     return Response(content=resp.content, media_type="audio/wav")
+
+
+@app.post("/api/stt/transcribe")
+async def stt_transcribe_endpoint(
+    file: UploadFile = File(...),
+    language: str = Form("en"),
+    _: None = Depends(check_auth),
+):
+    """Proxy audio transcription to the local STT service and optionally persist waveform.
+
+    Receives browser audio upload, forwards to STT_SERVER_URL/v1/audio/transcriptions,
+    and if STT_PERSIST_AUDIO is enabled, persists the raw audio into media_db
+    returning the asset GUID for downstream 3D Affective VAD analysis.
+    """
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file provided")
+
+    mime_type = file.content_type or "audio/webm"
+    filename = file.filename or "recording.webm"
+
+    # Forward to STT server
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            files = {"file": (filename, raw_bytes, mime_type)}
+            data = {"language": language}
+            resp = await client.post(
+                f"{cfg.STT_SERVER_URL}/v1/audio/transcriptions",
+                files=files,
+                data=data,
+            )
+            if resp.status_code != 200:
+                detail = (
+                    resp.json().get("detail", resp.text)
+                    if resp.headers.get("content-type", "").startswith("application/json")
+                    else resp.text
+                )
+                raise HTTPException(status_code=resp.status_code, detail=f"STT service error: {detail}")
+            result = resp.json()
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="STT service is not running") from None
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="STT service timed out") from None
+
+    asset_guid = None
+    if getattr(cfg, "STT_PERSIST_AUDIO", True) and len(raw_bytes) > 0:
+        try:
+            from Evelyn.tools import media_db
+
+            asset = media_db.store_or_get_media_asset(
+                data=raw_bytes,
+                mime_type=mime_type,
+                media_type="audio",
+                original_name=filename,
+                metadata={
+                    "duration_s": result.get("duration_s"),
+                    "language": result.get("language"),
+                    "source": "stt_voice_input",
+                },
+            )
+            asset_guid = asset.get("id")
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            print(f"[STT AUDIO WARNING] Failed to persist STT audio asset in media_db: {exc}")
+
+    result["asset_guid"] = asset_guid
+    return result
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -1,5 +1,6 @@
 # media_db.py
 # date created: 2026-08-21 19:43:00
+# date modified: 2026-09-15 18:16:17
 # tags: #database, #sqlite, #media, #vision, #attachments, #guid
 
 """media_db.py — SQLite access layer for Evelyn's media and attachment assets database.
@@ -146,10 +147,15 @@ def _get_extension_for_mime(mime_type: str) -> str:
         "image/webp": ".webp",
         "image/gif": ".gif",
         "audio/wav": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/wave": ".wav",
+        "audio/webm": ".webm",
         "audio/mpeg": ".mp3",
         "audio/mp3": ".mp3",
         "audio/ogg": ".ogg",
         "audio/m4a": ".m4a",
+        "audio/mp4": ".m4a",
+        "audio/aac": ".aac",
         "application/pdf": ".pdf",
     }
     return mapping.get(mime_type.lower(), ".bin")
@@ -514,5 +520,85 @@ def list_unindexed_media(media_type: str = "image", limit: int = 50) -> list[dic
             (media_type, limit),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def delete_media_asset(guid: str) -> bool:
+    """Delete a media asset from media_assets, chat_media_links, and physical disk storage.
+
+    Args:
+        guid: Media asset GUID (e.g. med_aud_...).
+
+    Returns:
+        bool: True if asset existed and was deleted, False if not found.
+    """
+    con = get_db()
+    try:
+        row = con.execute("SELECT file_path FROM media_assets WHERE id = ?", (guid,)).fetchone()
+        if not row:
+            return False
+        rel_path = row["file_path"]
+        abs_path = Path(cfg.BASE_DIR) / "data" / rel_path
+
+        with con:
+            con.execute("DELETE FROM chat_media_links WHERE media_id = ?", (guid,))
+            con.execute("DELETE FROM media_assets WHERE id = ?", (guid,))
+
+        # Safely remove file on disk
+        try:
+            if abs_path.is_file():
+                abs_path.unlink()
+        except OSError as exc:
+            logger.warning("Could not delete physical media file %s: %s", abs_path, exc)
+
+        return True
+    finally:
+        con.close()
+
+
+def prune_expired_audio_assets(retention_days: int) -> int:
+    """Prune audio media assets older than retention_days.
+
+    If retention_days <= 0, no-op (disabled/indefinite retention).
+
+    Args:
+        retention_days: Number of days to retain audio assets.
+
+    Returns:
+        int: Number of audio assets pruned.
+    """
+    if retention_days <= 0:
+        return 0
+
+    cutoff_ts = time.time() - (retention_days * 86400)
+    con = get_db()
+    try:
+        rows = con.execute(
+            "SELECT id, file_path FROM media_assets WHERE media_type = 'audio' AND created_ts < ?",
+            (cutoff_ts,),
+        ).fetchall()
+        if not rows:
+            return 0
+
+        pruned_count = 0
+        for r in rows:
+            guid = r["id"]
+            rel_path = r["file_path"]
+            abs_path = Path(cfg.BASE_DIR) / "data" / rel_path
+
+            with con:
+                con.execute("DELETE FROM chat_media_links WHERE media_id = ?", (guid,))
+                con.execute("DELETE FROM media_assets WHERE id = ?", (guid,))
+
+            try:
+                if abs_path.is_file():
+                    abs_path.unlink()
+            except OSError as exc:
+                logger.warning("Could not delete physical media file %s: %s", abs_path, exc)
+            pruned_count += 1
+
+        logger.info("Pruned %d expired audio assets older than %d days", pruned_count, retention_days)
+        return pruned_count
     finally:
         con.close()

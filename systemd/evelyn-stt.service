@@ -1,0 +1,21 @@
+[Unit]
+Description=Evelyn Speech-to-Text (STT) Server
+After=network.target
+
+[Service]
+Type=simple
+User=rathius
+WorkingDirectory=/home/rathius/evelyn/services/stt
+Environment="PYTHONPATH=/home/rathius/evelyn"
+Environment="EVELYN_STT_DEVICE=cpu"
+Environment="EVELYN_STT_COMPUTE_TYPE=int8"
+Environment="OMP_NUM_THREADS=4"
+ExecStart=/home/rathius/evelyn/venv/bin/python stt_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

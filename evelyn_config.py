@@ -888,6 +888,14 @@ TTS_SERVER_URL = os.environ.get("EVELYN_TTS_SERVER_URL", "http://localhost:5050"
 IMAGE_SERVER_URL = os.environ.get("EVELYN_IMAGE_SERVER_URL", "http://localhost:5055")
 IMAGE_OUTPUT_DIR = os.path.join(BASE_DIR, "services", "image", "output")
 
+# Speech-to-Text (STT) Service & Voice Ingestion
+STT_SERVER_URL = os.environ.get("EVELYN_STT_SERVER_URL", "http://localhost:5060")
+STT_MODEL_SIZE = os.environ.get("EVELYN_STT_MODEL", "base.en")
+STT_DEVICE = os.environ.get("EVELYN_STT_DEVICE", "cpu")
+STT_COMPUTE_TYPE = os.environ.get("EVELYN_STT_COMPUTE_TYPE", "int8")
+STT_PERSIST_AUDIO = os.environ.get("EVELYN_STT_PERSIST_AUDIO", "true").lower() == "true"
+STT_AUDIO_RETENTION_DAYS = int(os.environ.get("EVELYN_STT_AUDIO_RETENTION_DAYS", "0"))
+
 # =============================================================================
 # Server
 # =============================================================================

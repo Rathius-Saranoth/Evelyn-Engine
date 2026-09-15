@@ -1,6 +1,6 @@
 # test_config_wiring.py
 # date created: 2026-09-06 18:46:08
-# date modified: 2026-09-06 18:46:08
+# date modified: 2026-09-15 18:16:17
 # tags:
 
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 CONFIG_PATH = Path("evelyn_config.py")
-SOURCE_DIRS = [Path("Evelyn"), Path("scripts")]
+SOURCE_DIRS = [Path("Evelyn"), Path("scripts"), Path("services")]
 ENTRYPOINT_FILES = [Path("evelyn_server.py"), Path("evelyn_setup.py")]
 
 # Whitelist of constants intended strictly for environment templates, future roadmap waves, or external inspection
@@ -107,15 +107,15 @@ def collect_used_symbols() -> set[str]:
 
     all_used = set()
     for p in py_files:
-        if not p.exists() or p == CONFIG_PATH or "tests" in p.parts:
+        if not p.exists() or p == CONFIG_PATH or "tests" in p.parts or "venv" in p.parts or ".venv" in p.parts:
             continue
         try:
-            with open(p, encoding="utf-8") as f:
+            with open(p, encoding="utf-8", errors="ignore") as f:
                 tree = ast.parse(f.read(), filename=str(p))
             visitor = SymbolUsageVisitor()
             visitor.visit(tree)
             all_used.update(visitor.used_symbols)
-        except SyntaxError:
+        except (SyntaxError, UnicodeDecodeError):
             continue
     return all_used
 
