@@ -51,10 +51,15 @@ if [ "$RESTART_OLLAMA" = true ]; then
     echo "  ✓ ollama.service restarted."
 fi
 
-# 3. Restart Evelyn TTS & AI Core
-echo "⚡ Restarting Evelyn TTS & Core Engine..."
-sudo systemctl restart evelyn-tts evelyn
-echo "  ✓ evelyn-tts.service and evelyn.service restarted."
+# 3. Restart Evelyn TTS, STT & AI Core
+echo "⚡ Restarting Evelyn Voice (TTS/STT) & Core Engine..."
+if systemctl is-active --quiet evelyn-stt 2>/dev/null || systemctl is-enabled --quiet evelyn-stt 2>/dev/null; then
+    sudo systemctl restart evelyn-tts evelyn-stt evelyn
+    echo "  ✓ evelyn-tts.service, evelyn-stt.service, and evelyn.service restarted."
+else
+    sudo systemctl restart evelyn-tts evelyn
+    echo "  ✓ evelyn-tts.service and evelyn.service restarted."
+fi
 
 # 4. Restart User Vault Watcher & Syncthing if active
 if systemctl --user is-active --quiet evelyn-vault-watcher 2>/dev/null; then
@@ -83,7 +88,7 @@ done
 if [ "$HEALTHY" = true ]; then
     echo "✅ Evelyn Engine is active and healthy!"
     # Display active statuses
-    systemctl is-active ollama evelyn-tts evelyn | paste -sd " " - | awk '{print "  Services (Ollama, TTS, Engine): " $0}'
+    systemctl is-active ollama evelyn-tts evelyn-stt evelyn 2>/dev/null | paste -sd " " - | awk '{print "  Services (Ollama, TTS, STT, Engine): " $0}'
 else
     echo "⚠️ Warning: Evelyn Engine took longer than 12s to respond to /status."
     echo "Check logs with: journalctl -u evelyn -n 30 --no-pager"
