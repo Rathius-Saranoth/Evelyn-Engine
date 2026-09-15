@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-05 19:46:45
+# date modified: 2026-09-14 20:23:52
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -37,6 +37,7 @@ import re
 import sqlite3
 import time
 from datetime import UTC, datetime
+from typing import Any
 
 import evelyn_config as cfg
 
@@ -91,7 +92,10 @@ def init_db() -> None:
             recategorized_at  REAL,
             first_observed    REAL,
             last_observed     REAL,
-            observed_count    INTEGER NOT NULL DEFAULT 1
+            observed_count    INTEGER NOT NULL DEFAULT 1,
+            merged_into_id    INTEGER,
+            last_audited_at   REAL,
+            split_from_id     INTEGER
         )
     """)
 
@@ -107,6 +111,9 @@ def init_db() -> None:
         "ALTER TABLE context_entries ADD COLUMN last_observed REAL",
         "ALTER TABLE context_entries ADD COLUMN observed_count INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE context_entries ADD COLUMN vad TEXT",
+        "ALTER TABLE context_entries ADD COLUMN merged_into_id INTEGER",
+        "ALTER TABLE context_entries ADD COLUMN last_audited_at REAL",
+        "ALTER TABLE context_entries ADD COLUMN split_from_id INTEGER",
         "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
         "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
     ]:
@@ -366,7 +373,7 @@ def update_entry(entry_id: int, **fields) -> bool:
         "category", "subject", "observation", "confidence", "source",
         "status", "date", "tags", "last_retrieved_at", "retrieval_count",
         "last_evolved_at", "recategorized_at", "first_observed", "last_observed", "observed_count",
-        "vad",
+        "vad", "merged_into_id", "last_audited_at", "split_from_id",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -538,16 +545,20 @@ def touch_entry_retrieved(entry_id: int) -> None:
         pass  # Tracking failure must never propagate to the caller
 
 
-def delete_entry(entry_id: int) -> bool:
+def delete_entry(entry_id: int, merged_into_id: int | None = None) -> bool:
     """Soft delete a context entry by ID.
 
     Args:
         entry_id: Row ID of the entry to soft delete.
+        merged_into_id: Optional ID of the master entry this was merged into.
 
     Returns:
         bool: True if updated, False otherwise.
     """
-    return update_entry(entry_id, status="deleted")
+    fields: dict[str, Any] = {"status": "deleted"}
+    if merged_into_id is not None:
+        fields["merged_into_id"] = merged_into_id
+    return update_entry(entry_id, **fields)
 
 
 def hard_delete_entry(entry_id: int) -> bool:
@@ -627,9 +638,9 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
             cur = con.execute(
                 """INSERT INTO context_entries
                    (category, subject, observation, confidence, source, status,
-                    date, tags, created_at, first_observed, last_observed, observed_count)
-                   VALUES (?, ?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, ?)""",
-                (cat, subj, obs, conf, status, entry_date, tags, now, first_obs, last_obs, obs_cnt),
+                    date, tags, created_at, first_observed, last_observed, observed_count, split_from_id)
+                   VALUES (?, ?, ?, ?, 'split', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (cat, subj, obs, conf, status, entry_date, tags, now, first_obs, last_obs, obs_cnt, source_entry_id),
             )
             new_ids.append(cur.lastrowid)
 
@@ -686,17 +697,17 @@ def apply_fact_merge(
     total_observed_count = sum(e.get("observed_count") or 1 for e in source_entries)
     total_retrieval_count = sum(e.get("retrieval_count") or 0 for e in source_entries)
 
-    first_obs_candidates = [
-        e.get("first_observed") for e in source_entries if e.get("first_observed")
-    ] or [e.get("created_at") for e in source_entries if e.get("created_at")]
+    first_obs_candidates: list[float] = [
+        float(e["first_observed"]) for e in source_entries if e.get("first_observed") is not None
+    ] or [float(e["created_at"]) for e in source_entries if e.get("created_at") is not None]
     earliest_first_observed = min(first_obs_candidates) if first_obs_candidates else time.time()
 
-    last_obs_candidates = [
-        e.get("last_observed") for e in source_entries if e.get("last_observed")
+    last_obs_candidates: list[float] = [
+        float(e["last_observed"]) for e in source_entries if e.get("last_observed") is not None
     ]
     latest_last_observed = max(last_obs_candidates) if last_obs_candidates else time.time()
 
-    dates = [e.get("date") for e in source_entries if e.get("date")]
+    dates: list[str] = [str(e["date"]) for e in source_entries if e.get("date")]
     latest_date = max(dates) if dates else master_entry.get("date")
 
     # Combine tags: existing tags + provided merged_tags
@@ -717,6 +728,7 @@ def apply_fact_merge(
     subject = master_entry.get("subject") or getattr(cfg, "USER_NAME", "Ricky")
 
     # Update master entry in place
+    now = time.time()
     update_entry(
         master_id,
         category=target_category,
@@ -730,12 +742,13 @@ def apply_fact_merge(
         last_observed=latest_last_observed,
         observed_count=total_observed_count,
         retrieval_count=total_retrieval_count,
+        last_audited_at=now,
     )
 
     # Soft delete secondary entries and remove from Chroma
     for sec in secondary_entries:
         sec_id = int(sec["id"])
-        delete_entry(sec_id)
+        delete_entry(sec_id, merged_into_id=master_id)
         with contextlib.suppress(Exception):
             from Evelyn.tools import chroma_rag
             chroma_rag.enqueue_delete(
@@ -744,6 +757,71 @@ def apply_fact_merge(
             )
 
     return master_id
+
+
+def get_oldest_unaudited_entries(limit: int = 10, category: str | None = None) -> list[dict]:
+    """Fetch live context entries prioritized by oldest audit timestamp or never audited."""
+    con = get_db()
+    try:
+        if category:
+            rows = con.execute(
+                """SELECT * FROM context_entries
+                   WHERE status = 'live' AND category = ?
+                   ORDER BY last_audited_at ASC NULLS FIRST, id ASC
+                   LIMIT ?""",
+                (category, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """SELECT * FROM context_entries
+                   WHERE status = 'live'
+                   ORDER BY last_audited_at ASC NULLS FIRST, id ASC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def touch_entries_audited(entry_ids: list[int], timestamp: float | None = None) -> None:
+    """Update last_audited_at on a batch of context entries."""
+    if not entry_ids:
+        return
+    ts = timestamp or time.time()
+    con = get_db()
+    try:
+        placeholders = ",".join("?" for _ in entry_ids)
+        con.execute(
+            f"UPDATE context_entries SET last_audited_at = ? WHERE id IN ({placeholders})",
+            [ts, *entry_ids],
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def get_fact_deduplication_metrics() -> dict[str, int]:
+    """Retrieve aggregate counts for memory health and deduplication telemetry."""
+    con = get_db()
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT COUNT(*) FROM context_entries WHERE status = 'live'")
+        live_facts = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM context_entries WHERE status = 'deleted' AND merged_into_id IS NOT NULL")
+        merged_facts = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM context_entries WHERE split_from_id IS NOT NULL")
+        split_facts = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM proposals WHERE type IN ('merge', 'supersede') AND status = 'pending'")
+        pending_merges = cur.fetchone()[0]
+        return {
+            "live_facts": live_facts,
+            "merged_facts": merged_facts,
+            "split_facts": split_facts,
+            "pending_merges": pending_merges,
+        }
+    finally:
+        con.close()
 
 
 def count_entries(status: str | None = None) -> int:

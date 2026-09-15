@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-05 19:48:20
+# date modified: 2026-09-14 20:23:52
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
@@ -230,7 +230,13 @@ def sync_memory_collection() -> None:
             if not row:
                 continue
             mtime = float(row.get("updated_at") or row.get("created_at") or 0)
-            content = f"Date: {row['date'] or 'Unknown'}\nTags: {row.get('tags', '')}\nObservation: {row['observation']}"
+            content = (
+                f"Subject: {row.get('subject', 'Unknown')}\n"
+                f"Category: {row.get('category', 'Unknown')}\n"
+                f"Date: {row['date'] or 'Unknown'}\n"
+                f"Tags: {row.get('tags', '')}\n"
+                f"Observation: {row['observation']}"
+            )
             chash = compute_content_hash(content)
 
             entry = state.get(file_path, {})
@@ -241,7 +247,13 @@ def sync_memory_collection() -> None:
                 skipped += 1
                 continue
 
-            rag_meta = {"rag_priority": "high", "rag_pinned": False, "aliases": ""}
+            rag_meta = {
+                "rag_priority": "high",
+                "rag_pinned": False,
+                "aliases": "",
+                "subject": row.get("subject", ""),
+                "category": row.get("category", ""),
+            }
             print(f"Ingesting DB Entry: {file_path}")
 
         else:

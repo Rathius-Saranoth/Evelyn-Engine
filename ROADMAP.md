@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-13 16:02:42
+date modified: 2026-09-14 20:30:53
 ---
 # Evelyn Project Roadmap
 
@@ -30,6 +30,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Semantic RAG Pipeline**: Built full-vault vector indexing in ChromaDB using `BAAI/bge-large-en-v1.5` embeddings with progressive gist-first disclosure and priority boosting.
 - [x] **Memory Management Tools**: Implemented journal writing/reading, context fact extraction, and background consolidation pipelines.
 - [x] **Fast Memory Attribution & Temporal Grounding**: Decoupled category canon codes from referent subjects for cross-perspective attribution, and integrated strict temporal grounding in memory extraction and RAG XML envelopes.
+- [x] **Modular Fact Consolidation & Subject Grounding Architecture**: Modularized fact consolidation into deduplication, anti-hysteresis categorization, and decomposition engines with soft-delete provenance lineage, explicit noun subject mandates, and non-destructive review-gated subject grounding with on-demand ephemeral source chat context.
 
 ---
 
@@ -93,6 +94,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
+- [ ] **FastAPI APIRouter Server Modularization (`evelyn_server.py`)**: Decompose monolithic 7,000-line server into domain-focused APIRouter modules (`routes/chat.py`, `routes/review.py`, `routes/terminal.py`, `routes/telemetry.py`) with shared auth and lifespan dependencies.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 - [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 

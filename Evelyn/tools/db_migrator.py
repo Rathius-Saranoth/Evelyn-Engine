@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-14 19:50:17
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -2527,6 +2527,28 @@ def migrate_000_006_121_search_available_tools_procedure(
     logger.info(f"Migration 000.006.121: Inserted starter procedure for search_available_tools (ID: {cursor.lastrowid}).")
 
 
+def migrate_000_006_124_context_entries_provenance_and_audit_lineage(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.124: Add merged_into_id, last_audited_at, split_from_id to context_entries."""
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(context_entries)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if "merged_into_id" not in cols:
+        cursor.execute("ALTER TABLE context_entries ADD COLUMN merged_into_id INTEGER DEFAULT NULL;")
+    if "last_audited_at" not in cols:
+        cursor.execute("ALTER TABLE context_entries ADD COLUMN last_audited_at REAL DEFAULT NULL;")
+    if "split_from_id" not in cols:
+        cursor.execute("ALTER TABLE context_entries ADD COLUMN split_from_id INTEGER DEFAULT NULL;")
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ce_audit ON context_entries(status, last_audited_at);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ce_merged_into ON context_entries(merged_into_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ce_split_from ON context_entries(split_from_id);")
+    logger.info("Migration 000.006.124: Added merged_into_id, last_audited_at, split_from_id columns and indexes to context_entries.")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2752,6 +2774,12 @@ MIGRATIONS: list[Migration] = [
         name="starter_procedure_search_available_tools",
         up_fn=migrate_000_006_121_search_available_tools_procedure,
         post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.124",
+        name="context_entries_provenance_and_audit_lineage",
+        up_fn=migrate_000_006_124_context_entries_provenance_and_audit_lineage,
     ),
 ]
 
