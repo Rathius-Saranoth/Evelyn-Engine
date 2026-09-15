@@ -1,6 +1,6 @@
 # fact_consolidator.py
 # date created: 2026-05-03 18:07:33
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-15 17:23:43
 # tags: #facts, #consolidation, #deduplication, #orchestrator, #governance
 
 """
@@ -230,8 +230,9 @@ def cancel_pending_consolidation() -> None:
         logger.info("[CONSOLIDATOR] Preempting background consolidation pass for incoming chat.")
         _consolidation_task.cancel()
         _consolidation_task = None
+        _consolidating = False
+        _set_status_in_server("idle", summary="Consolidation pass cancelled (chat preemption)")
     _consolidating = False
-    _set_status_in_server("idle", summary="Consolidation pass cancelled (chat preemption)")
 
 
 def _backup_memory_db() -> None:
@@ -346,6 +347,7 @@ async def _do_consolidation() -> None:
     # Step 3: Vector-First Semantic Deduplication
     records = scan_context_entries()
     if not records:
+        _set_status_in_server("idle", summary="No active context entries found to scan.")
         return
 
     _set_status_in_server(
