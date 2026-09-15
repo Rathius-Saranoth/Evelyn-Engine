@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-14 20:50:35
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5446,7 +5446,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "last_modified": mtime,
                 }
             elif key == "refresh_memory":
-                phase = task_data.get("phase", "Idle")
+                phase = task_data.get("phase") or "Idle"
                 current_step = 1
                 if (
                     "Phase 2" in phase
