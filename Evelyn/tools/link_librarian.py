@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-13 20:27:29
+# date modified: 2026-09-14 20:49:22
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -776,7 +776,7 @@ def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
 
     # 0. Clean damaged backtick boundaries from prior ad-hoc runs: `array(`[[...]]`)` -> array([[...]])
     repaired_text, c0 = re.subn(
-        r"`(array|tensor)\(`(\[\[[\s\S]*?\]\])`?\)`",
+        r"`(array|tensor)\(`(\[\[[^`\n]*?\]\])`?\)`",
         r"\1(\2)",
         text,
     )
@@ -786,7 +786,7 @@ def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
 
     # 1. Matches array([[...]]) or tensor([[...]])
     arr_pattern = re.compile(
-        r"(?<![`\w])((?:array|tensor)\s*\(\s*\[\[[\s\S]*?\]\](?:,\s*dtype=[\w\d]+)?\s*\))(?![`\w])",
+        r"(?<![`\w])((?:array|tensor)\s*\(\s*\[\[[^`\n]*?\]\](?:,\s*dtype=[\w\d]+)?\s*\))(?![`\w])",
         re.MULTILINE,
     )
     new_text, c1 = arr_pattern.subn(r"`\1`", text)
@@ -797,16 +797,32 @@ def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
     # 2. Protect newly created code backticks so float_pattern does not match inside them
     masked_text, local_placeholders = string_utils.protect_code_blocks(text)
 
-    # 3. Matches bare numeric/float 2D lists: [[0. , 0.907, 0.093]] or [[-0.5, 1.2]] or [[1.5]]
-    float_pattern = re.compile(
-        r"(?<![`\w])(\[\[\s*[-+]?\d*\.?\d+(?:_?\d+)*(?:\s*,\s*[-+]?\d*\.?\d+(?:_?\d+)*)*\s*\]\])(?![`\w])",
-        re.MULTILINE,
+    # 3. Matches bare numeric/float 2D lists without catastrophic regex backtracking: [[0. , 0.907, 0.093]] or [[-0.5, 1.2]]
+    float_bracket_pattern = re.compile(
+        r"(?<![`\w])(\[\[([^\n\]`]+)\]\])(?![`\w])"
     )
-    new_text, c2 = float_pattern.subn(r"`\1`", masked_text)
-    if c2 > 0:
-        changed = True
-        masked_text = new_text
 
+    def _replace_numeric_list(match: re.Match) -> str:
+        nonlocal changed
+        full_match = match.group(1)
+        inner = match.group(2).strip()
+        items = [x.strip() for x in inner.split(",") if x.strip()]
+        if not items:
+            return full_match
+        all_numeric = True
+        for it in items:
+            cleaned = it.replace("_", "")
+            try:
+                float(cleaned)
+            except ValueError:
+                all_numeric = False
+                break
+        if all_numeric:
+            changed = True
+            return f"`{full_match}`"
+        return full_match
+
+    masked_text = float_bracket_pattern.sub(_replace_numeric_list, masked_text)
     text = string_utils.restore_code_blocks(masked_text, local_placeholders)
     return changed, text
 
