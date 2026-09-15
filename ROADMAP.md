@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-14 20:30:53
+date modified: 2026-09-14 20:33:46
 ---
 # Evelyn Project Roadmap
 
@@ -95,6 +95,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **FastAPI APIRouter Server Modularization (`evelyn_server.py`)**: Decompose monolithic 7,000-line server into domain-focused APIRouter modules (`routes/chat.py`, `routes/review.py`, `routes/terminal.py`, `routes/telemetry.py`) with shared auth and lifespan dependencies.
+- [ ] **CLI & Operational Scripts Modularization (`scripts/`)**: Reorganize flat 23+ operational scripts directory into domain subfolders (`scripts/services/`, `scripts/setup/`, `scripts/maintenance/`, `scripts/ingestion/`) with unified CLI entrypoints and updated systemd service/workflow references.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 - [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
