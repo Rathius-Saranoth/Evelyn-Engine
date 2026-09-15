@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-14 20:30:53
+date modified: 2026-09-15 18:40:39
 ---
 # Evelyn Engine Architecture Map
 
@@ -56,6 +56,7 @@ graph TD
         end
         subgraph NUMANode1 [NUMA Node 1: Auxiliary Offload]
             TTS["[[tts_server.py]] (FastAPI)<br>(Chatterbox TTS Engine - CPUs 24-47, 72-95)"]
+            STT["[[stt_server.py]] (FastAPI)<br>(faster-whisper STT Engine - Port 5060)"]
         end
         subgraph RemoteHost [Remote GPU Host: image-host]
             Image["FLUX.1 Schnell Image Host<br>(http://image-host.internal:5055)"]
@@ -64,6 +65,7 @@ graph TD
     
     Server <-->|Prompt / Tool Call| Ollama
     Server -->|Generate Audio| TTS
+    Server -->|Transcribe Audio| STT
     Server -->|"Generate Visuals (Tailscale)"| Image
 
     %% Knowledge Sync Pipeline
@@ -190,6 +192,7 @@ Standalone background processes and tools loaded dynamically by the model during
 ### 2.6 Standalone Inference Services
 FastAPI and remote inference services designed to isolate heavy model weights and guarantee zero VRAM resource leakage.
 * **[[tts_server.py]]**: Chatterbox (F5-TTS/Matcha) server generating natural expressive speech. Bound to **NUMA Node 1** (`CPUAffinity=24-47 72-95`, `numactl --cpunodebind=1 --membind=1`) with 24 physical cores and 96 GB DRAM isolated on Socket 1.
+* **[[stt_server.py]]**: Local Speech-to-Text (faster-whisper int8 CPU) service running on port 5060. Decodes audio formats (WebM/Opus, MP4, WAV) into 16kHz mono PCM via streaming ffmpeg pipes, applies Silero VAD filtering to reject silences and hallucinations, and provides OpenAI-compatible `/v1/audio/transcriptions` endpoints.
 * **[[image_server.py]]**: FLUX.1 [schnell] server running off-node on a dedicated GPU host over private network (`http://<image-host>.<tailnet>.ts.net:5055`) to leverage workstation GPU resources.
 
 ### 2.7 The Frontend User Interface

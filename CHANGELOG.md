@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-15 17:23:55
+date modified: 2026-09-15 18:40:39
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.127] - 2026-09-15 — *Local Speech-to-Text Microservice & Voice Ingestion Pipeline*
+
+### Added & Optimized
+- **Local Speech-to-Text Microservice (`services/stt/stt_server.py`, `services/stt/requirements.txt`, `systemd/evelyn-stt.service`)**:
+  - Built standalone FastAPI server on port 5060 using `faster-whisper` (CTranslate2) with `compute_type="int8"` on CPU for sub-200ms latency without GPU VRAM contention against Ollama.
+  - Automatic container decoding via `ffmpeg` pipe, converting arbitrary browser audio (`webm/opus`, `mp4/aac`, `wav`) to 16kHz mono float32 PCM.
+  - Integrated Silero VAD filtering (`vad_filter=True`, `min_silence_duration_ms=500`) and disabled cross-take conditioning (`condition_on_previous_text=False`) to suppress noise and hallucinated silence artifacts.
+  - Duration gate filtering short utterance clicks ($< 0.5\text{s}$).
+  - Endpoints: `POST /v1/audio/transcriptions` and `GET /health`.
+- **Media Deletion & Audio Retention Subsystem (`Evelyn/tools/media_db.py`, `evelyn_server.py`, `evelyn_config.py`)**:
+  - Added `delete_media_asset(guid: str) -> bool` to remove records from `media_assets` / `chat_media_links` and safely delete files from `data/attachments/`.
+  - Added `prune_expired_audio_assets(retention_days: int) -> int` to prune `media_type="audio"` assets older than `retention_days`, defaulting to `0` (disabled / keep indefinitely for testing and calibration) via `STT_AUDIO_RETENTION_DAYS`.
+  - Added `DELETE /api/media/{guid}` endpoint and `POST /api/stt/transcribe` proxy endpoint in `evelyn_server.py` with automatic audio persistence into `evelyn_media.db` for downstream 3D Affective VAD analysis.
+- **Frontend Segmented Block Stack Draft Architecture (`evelyn_ui/index.html`)**:
+  - Implemented microphone button (`🎙️`) with pulsing red recording indicator (`⏹️`) and live duration counter.
+  - Strict hardware lifecycle management: explicitly stops media stream tracks (`track.stop()`) on completion or cancellation to extinguish the OS microphone indicator.
+  - Segmented Block Stack draft manager (`draftSegments` array): renders discrete voice cards with duration badges (`🎙️ Audio (0:12)`), in-place editable textareas, and removal buttons (`[✕]`).
+  - Instant cleanup: removing a segment card immediately invokes `DELETE /api/media/{asset_guid}` to prevent disk and database bloat.
+  - Message dispatch: concatenates active block texts with typed input and attaches voice asset GUIDs to the chat turn payload.
+- **Automated Test Suite & Wiring Verification (`Evelyn/tests/test_stt_server.py`, `Evelyn/tests/test_config_wiring.py`)**:
+  - 7 automated unit tests verifying audio decoding, health probe, short audio rejection, mocked transcription, media asset deletion, and retention pruning.
+  - Updated AST config-wiring test to scan `services/` while safely ignoring nested virtual environments.
+  - All 3 code hygiene and wiring verification stages passed cleanly (Ruff, AST config-wiring pytest, and Vulture).
 
 ## [000.006.126] - 2026-09-15 — *Fact Consolidator Preemption Status Guard & Idle Scanner Stabilization*
 

@@ -1181,6 +1181,121 @@
         color: var(--text);
         background: var(--surface);
       }
+      .mic-btn {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 18px;
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+        flex-shrink: 0;
+      }
+      .mic-btn:hover {
+        color: var(--text);
+        background: var(--surface);
+      }
+      .mic-btn.recording {
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.15);
+        animation: mic-pulse 1.2s infinite ease-in-out;
+      }
+      @keyframes mic-pulse {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+        }
+      }
+      .recording-indicator-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #ef4444;
+        padding: 2px 8px;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 12px;
+      }
+      .recording-pulse-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #ef4444;
+        animation: pulse 1s infinite;
+      }
+      #draft-segments-container {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-width: 760px;
+        margin: 0 auto 8px auto;
+      }
+      .voice-segment-card {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        transition: border-color 0.15s;
+      }
+      .voice-segment-card:focus-within {
+        border-color: var(--accent);
+      }
+      .voice-segment-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .voice-segment-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent);
+        background: rgba(124, 58, 237, 0.1);
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+      .voice-segment-textarea {
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        font-family: "Inter", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        resize: none;
+        outline: none;
+        min-height: 22px;
+      }
+      .voice-segment-close {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 2px 5px;
+        border-radius: 4px;
+        line-height: 1;
+        transition: color 0.15s, background 0.15s;
+      }
+      .voice-segment-close:hover {
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.1);
+      }
       .attachment-preview-bar {
         display: flex;
         flex-wrap: wrap;
@@ -1645,18 +1760,26 @@
 
     <footer>
       <div id="attachment-preview-bar" class="attachment-preview-bar" style="display: none;"></div>
+      <div id="draft-segments-container" style="display: none;"></div>
       <div class="input-row">
         <input type="file" id="media-file-input" accept="*/*" multiple style="display: none;" onchange="stageFiles(this.files)" />
         <button class="attach-btn" id="attach-btn" title="Attach file" type="button" onclick="document.getElementById('media-file-input').click()">📎</button>
+        <button class="mic-btn" id="mic-btn" title="Voice Input (Speech-to-Text)" type="button" onclick="toggleVoiceRecording()">🎙️</button>
         <textarea id="input" rows="1" placeholder="Message Evelyn…" autofocus></textarea>
         <button id="send-btn" title="Send">↑</button>
       </div>
       <div class="input-hint">
-        <div id="effort-chips">
-          <button class="effort-chip active" data-effort="null" id="chip-auto" title="Evelyn decides thinking depth automatically">Auto</button>
-          <button class="effort-chip" data-effort="low" id="chip-low" title="Brief thinking — fast replies">Low</button>
-          <button class="effort-chip" data-effort="medium" id="chip-mid" title="Standard reasoning">Mid</button>
-          <button class="effort-chip" data-effort="high" id="chip-high" title="Deep reflection">High</button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div id="recording-indicator" style="display: none;" class="recording-indicator-badge">
+            <span class="recording-pulse-dot"></span>
+            <span id="recording-timer">0:00</span>
+          </div>
+          <div id="effort-chips">
+            <button class="effort-chip active" data-effort="null" id="chip-auto" title="Evelyn decides thinking depth automatically">Auto</button>
+            <button class="effort-chip" data-effort="low" id="chip-low" title="Brief thinking — fast replies">Low</button>
+            <button class="effort-chip" data-effort="medium" id="chip-mid" title="Standard reasoning">Mid</button>
+            <button class="effort-chip" data-effort="high" id="chip-high" title="Deep reflection">High</button>
+          </div>
         </div>
         <span style="display: flex; gap: 12px; align-items: center">
           <a
@@ -3860,18 +3983,291 @@
         }
       });
 
+      // ---------------------------------------------------------------------------
+      // Speech-to-Text (STT) & Segmented Block Stack Draft Architecture
+      // ---------------------------------------------------------------------------
+      let draftSegments = [];
+      let _mediaRecorder = null;
+      let _audioStream = null;
+      let _audioChunks = [];
+      let _recordingStartTime = 0;
+      let _recordingInterval = null;
+      let _isRecordingVoice = false;
+
+      function renderDraftSegments() {
+        const container = document.getElementById("draft-segments-container");
+        if (!container) return;
+        if (draftSegments.length === 0) {
+          container.style.display = "none";
+          container.innerHTML = "";
+          return;
+        }
+        container.style.display = "flex";
+        container.innerHTML = "";
+        draftSegments.forEach((seg) => {
+          const card = document.createElement("div");
+          card.className = "voice-segment-card";
+          card.id = `draft-seg-${seg.id}`;
+          const durationStr = seg.duration_s ? `${Math.floor(seg.duration_s / 60)}:${Math.floor(seg.duration_s % 60).toString().padStart(2, "0")}` : "0:00";
+          card.innerHTML = `
+            <div class="voice-segment-header">
+              <div class="voice-segment-badge">
+                <span>🎙️ Audio (${durationStr})</span>
+              </div>
+              <button class="voice-segment-close" title="Remove voice take" type="button" onclick="removeDraftSegment('${seg.id}')">✕</button>
+            </div>
+            <textarea class="voice-segment-textarea" rows="1" placeholder="Transcribed text..." oninput="updateDraftSegmentText('${seg.id}', this.value); this.style.height = 'auto'; this.style.height = Math.max(24, this.scrollHeight) + 'px';">${escapeHtml(seg.text)}</textarea>
+          `;
+          container.appendChild(card);
+          const ta = card.querySelector("textarea");
+          if (ta) {
+            ta.style.height = "auto";
+            ta.style.height = Math.max(24, ta.scrollHeight) + "px";
+          }
+        });
+      }
+
+      function updateDraftSegmentText(id, text) {
+        const seg = draftSegments.find((s) => s.id === id);
+        if (seg) {
+          seg.text = text;
+        }
+      }
+
+      async function removeDraftSegment(id) {
+        const segIdx = draftSegments.findIndex((s) => s.id === id);
+        if (segIdx === -1) return;
+        const seg = draftSegments[segIdx];
+        draftSegments.splice(segIdx, 1);
+        renderDraftSegments();
+
+        // If this take persisted an audio asset on the server, delete it immediately
+        if (seg.asset_guid) {
+          try {
+            await fetch(`${API_BASE}/api/media/${seg.asset_guid}`, {
+              method: "DELETE",
+              headers: headers(),
+            });
+          } catch (e) {
+            console.warn("Could not delete uncommitted audio asset:", e);
+          }
+        }
+      }
+
+      function clearDraftSegments() {
+        draftSegments = [];
+        renderDraftSegments();
+      }
+
+      async function toggleVoiceRecording() {
+        if (_isRecordingVoice) {
+          stopVoiceRecording();
+        } else {
+          await startVoiceRecording();
+        }
+      }
+
+      async function startVoiceRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Microphone recording is not supported in this browser or environment.");
+          return;
+        }
+
+        try {
+          _audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (err) {
+          console.warn("Microphone access failed:", err);
+          if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+            alert("Microphone permission was denied. Please allow microphone access in your browser settings.");
+          } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+            alert("No microphone found on this device.");
+          } else {
+            alert(`Microphone error: ${err.message || err.name}`);
+          }
+          return;
+        }
+
+        try {
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+
+          _mediaRecorder = mimeType ? new MediaRecorder(_audioStream, { mimeType }) : new MediaRecorder(_audioStream);
+          _audioChunks = [];
+
+          _mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              _audioChunks.push(e.data);
+            }
+          };
+
+          _mediaRecorder.onstop = async () => {
+            // Hardware lifecycle: stop all tracks to release mic hardware lock
+            if (_audioStream) {
+              _audioStream.getTracks().forEach((track) => track.stop());
+              _audioStream = null;
+            }
+
+            const micBtn = document.getElementById("mic-btn");
+            const recIndicator = document.getElementById("recording-indicator");
+            if (micBtn) {
+              micBtn.classList.remove("recording");
+              micBtn.textContent = "⏳";
+              micBtn.disabled = true;
+              micBtn.title = "Transcribing audio...";
+            }
+            if (recIndicator) {
+              recIndicator.style.display = "none";
+            }
+
+            const audioBlob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || "audio/webm" });
+            _audioChunks = [];
+
+            if (audioBlob.size < 100) {
+              resetMicButton();
+              return;
+            }
+
+            try {
+              const formData = new FormData();
+              const ext = (_mediaRecorder.mimeType && _mediaRecorder.mimeType.includes("mp4")) ? "mp4" : "webm";
+              formData.append("file", audioBlob, `recording_${Date.now()}.${ext}`);
+              formData.append("language", "en");
+
+              const authHeaders = headers();
+              delete authHeaders["Content-Type"]; // Let browser set boundary
+
+              const resp = await fetch(`${API_BASE}/api/stt/transcribe`, {
+                method: "POST",
+                headers: authHeaders,
+                body: formData,
+              });
+
+              if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.detail || `Server responded with ${resp.status}`);
+              }
+
+              const data = await resp.json();
+              if (data && (data.text || data.asset_guid)) {
+                draftSegments.push({
+                  id: "seg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+                  asset_guid: data.asset_guid || null,
+                  text: data.text || "",
+                  duration_s: data.duration_s || 0,
+                });
+                renderDraftSegments();
+                // Focus the newly added segment textarea
+                const lastCard = document.querySelector("#draft-segments-container .voice-segment-card:last-child textarea");
+                if (lastCard) {
+                  lastCard.focus();
+                  lastCard.setSelectionRange(lastCard.value.length, lastCard.value.length);
+                }
+              }
+            } catch (transcribeErr) {
+              console.error("Transcription failed:", transcribeErr);
+              alert(`Transcription error: ${transcribeErr.message}`);
+            } finally {
+              resetMicButton();
+            }
+          };
+
+          _mediaRecorder.start(250);
+          _isRecordingVoice = true;
+          _recordingStartTime = Date.now();
+
+          const micBtn = document.getElementById("mic-btn");
+          const recIndicator = document.getElementById("recording-indicator");
+          const recTimer = document.getElementById("recording-timer");
+          if (micBtn) {
+            micBtn.classList.add("recording");
+            micBtn.textContent = "⏹️";
+            micBtn.title = "Click to stop recording and transcribe";
+          }
+          if (recIndicator) {
+            recIndicator.style.display = "inline-flex";
+          }
+          if (recTimer) {
+            recTimer.textContent = "0:00";
+          }
+
+          clearInterval(_recordingInterval);
+          _recordingInterval = setInterval(() => {
+            const elapsedS = Math.floor((Date.now() - _recordingStartTime) / 1000);
+            const m = Math.floor(elapsedS / 60);
+            const s = (elapsedS % 60).toString().padStart(2, "0");
+            if (recTimer) recTimer.textContent = `${m}:${s}`;
+          }, 500);
+
+        } catch (recInitErr) {
+          console.error("Failed to start MediaRecorder:", recInitErr);
+          if (_audioStream) {
+            _audioStream.getTracks().forEach((track) => track.stop());
+            _audioStream = null;
+          }
+          resetMicButton();
+          alert(`Could not start recorder: ${recInitErr.message}`);
+        }
+      }
+
+      function stopVoiceRecording() {
+        if (_mediaRecorder && _mediaRecorder.state !== "inactive") {
+          _mediaRecorder.stop();
+        }
+        clearInterval(_recordingInterval);
+        _isRecordingVoice = false;
+      }
+
+      function resetMicButton() {
+        _isRecordingVoice = false;
+        clearInterval(_recordingInterval);
+        const micBtn = document.getElementById("mic-btn");
+        const recIndicator = document.getElementById("recording-indicator");
+        if (micBtn) {
+          micBtn.classList.remove("recording");
+          micBtn.disabled = false;
+          micBtn.textContent = "🎙️";
+          micBtn.title = "Voice Input (Speech-to-Text)";
+        }
+        if (recIndicator) {
+          recIndicator.style.display = "none";
+        }
+      }
+
       async function sendMessage() {
         if (stagedAttachments.some((a) => a.uploading)) {
           console.log("Waiting for attachment uploads to complete before sending...");
           return;
         }
         const input = document.getElementById("input");
-        const text = input.value.trim();
-        const attachments = [...stagedAttachments];
+        const typedText = input.value.trim();
+
+        // Concatenate active segment texts from draftSegments stack
+        const segmentTexts = draftSegments
+          .map((s) => s.text.trim())
+          .filter((t) => t.length > 0);
+        if (typedText) {
+          segmentTexts.push(typedText);
+        }
+        const text = segmentTexts.join("\n\n");
+
+        // Collect audio attachment GUIDs for multi-clip provenance & downstream Affective VAD
+        const voiceAttachments = draftSegments
+          .filter((s) => s.asset_guid)
+          .map((s) => ({
+            id: s.asset_guid,
+            guid: s.asset_guid,
+            name: `Voice Clip (${Math.round(s.duration_s || 0)}s)`,
+            type: "audio",
+            mediaType: "audio",
+          }));
+
+        const attachments = [...stagedAttachments, ...voiceAttachments];
         if ((!text && attachments.length === 0) || isStreaming) return;
 
         input.value = "";
         input.style.height = "auto";
+        clearDraftSegments();
         clearAttachments();
         await executeChatTurn(text, attachments);
       }
