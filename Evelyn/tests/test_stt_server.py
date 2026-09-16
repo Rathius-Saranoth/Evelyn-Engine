@@ -98,6 +98,21 @@ class TestSTTServer(unittest.TestCase):
         self.assertEqual(data["language"], "en")
         self.assertGreaterEqual(data["duration_s"], 1.4)
 
+    def test_clean_whisper_text_hallucinations(self):
+        from services.stt.stt_server import clean_whisper_text
+
+        # Silence hallucinations should be completely stripped
+        self.assertEqual(clean_whisper_text("For more information please visit www.f"), "")
+        self.assertEqual(clean_whisper_text("For more information please visit www.example.com"), "")
+        self.assertEqual(clean_whisper_text("Thank you for watching! Please subscribe."), "")
+        self.assertEqual(clean_whisper_text("Subtitles by Amara.org"), "")
+        self.assertEqual(clean_whisper_text("..."), "")
+        self.assertEqual(clean_whisper_text("[silence]"), "")
+
+        # Valid text should be preserved intact
+        self.assertEqual(clean_whisper_text("Here is a test for deletion"), "Here is a test for deletion")
+        self.assertEqual(clean_whisper_text("Hello Evelyn, this is real speech."), "Hello Evelyn, this is real speech.")
+
 
 class TestMediaDbDeletionAndRetention(unittest.TestCase):
     def setUp(self):
