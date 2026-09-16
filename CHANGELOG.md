@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-15 18:40:39
+date modified: 2026-09-15 19:00:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,21 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.128] - 2026-09-15 — *Voice Input Arming Window & Web Audio Dictation Chimes*
+
+### Added & Enhanced
+- **Two-Stage Hardware Arming Lifecycle (`evelyn_ui/index.html`)**:
+  - Introduced transitional arming state (`🟡 Connecting…` / `Readying…`) upon mic activation to bridge the 1–2 second Bluetooth audio profile switch (A2DP high-fidelity sink $\leftrightarrow$ HFP/HSP bidirectional voice) and OS hardware ADC unmute.
+  - Added a 750ms settle delay ensuring the recording buffer starts only when the physical microphone hardware is hot, eliminating clipped initial words and phrases.
+  - Added user cancellation handling: clicking the mic button during the arming phase cancels the sequence, stops media stream tracks immediately, and resets UI state.
+- **Synthesized Web Audio Dictation Chimes (`evelyn_ui/index.html`)**:
+  - Implemented zero-dependency audio cues using native `AudioContext` and dual sine-wave oscillator synthesis (no external audio files or network roundtrips).
+  - **Ready Chime**: Ascending two-tone chime (D5 $587.33\text{Hz} \rightarrow$ A5 $880\text{Hz}$) signaling the user exactly when the audio channel is live and ready for speech.
+  - **Stop Chime**: Subtle descending release tone (F#5 $739.99\text{Hz} \rightarrow$ D5 $587.33\text{Hz}$) confirming the completion of the voice segment.
+- **Dynamic Arming Visuals & CSS Transitions (`evelyn_ui/index.html`)**:
+  - Added `.mic-btn.warming` styling with glowing amber pulse animation (`mic-warm-pulse`).
+  - Added `.recording-indicator-badge.warming` with amber status indicator dot and smooth color/background CSS transitions.
 
 ## [000.006.127] - 2026-09-15 — *Local Speech-to-Text Microservice & Voice Ingestion Pipeline*
 
