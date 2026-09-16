@@ -23,6 +23,7 @@ Port: 5060 (matches evelyn_config.py STT_SERVER_URL)
 import contextlib
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -51,6 +52,33 @@ MODEL_SIZE = os.environ.get("EVELYN_STT_MODEL", getattr(cfg, "STT_MODEL_SIZE", "
 DEVICE = os.environ.get("EVELYN_STT_DEVICE", getattr(cfg, "STT_DEVICE", "cpu"))
 COMPUTE_TYPE = os.environ.get("EVELYN_STT_COMPUTE_TYPE", getattr(cfg, "STT_COMPUTE_TYPE", "int8"))
 MIN_AUDIO_DURATION_S = 0.5
+
+HALLUCINATION_PATTERNS = [
+    re.compile(r"(?:for )?more info(?:rmation)?(?:\s+please)?\s+visit(?:\s+\S+)?", re.IGNORECASE),
+    re.compile(r"please visit\s+\S+", re.IGNORECASE),
+    re.compile(r"visit www\.\S*", re.IGNORECASE),
+    re.compile(r"thank(?:s| you) for watching(?:\s+and subscribing)?", re.IGNORECASE),
+    re.compile(r"please (?:like and )?subscribe", re.IGNORECASE),
+    re.compile(r"subtitles (?:by|created by|crafted by)", re.IGNORECASE),
+    re.compile(r"transcribed by\b", re.IGNORECASE),
+    re.compile(r"translated by\b", re.IGNORECASE),
+    re.compile(r"amara\.org", re.IGNORECASE),
+    re.compile(r"www\.[a-z0-9\-\.]+", re.IGNORECASE),
+    re.compile(r"https?://\S+", re.IGNORECASE),
+    re.compile(r"^\[(?:silence|music|applause|laughter|blank_audio)\]$", re.IGNORECASE),
+]
+
+
+def clean_whisper_text(text: str) -> str:
+    """Filter out common Whisper silence hallucinations and boilerplate subtitle artifacts."""
+    cleaned = text.strip()
+    for pat in HALLUCINATION_PATTERNS:
+        cleaned = pat.sub("", cleaned).strip()
+    # Strip residual punctuation if nothing meaningful remains
+    if re.match(r"^[\s\.,;:!?'\"\-_—–…\(\)\[\]]*$", cleaned):
+        return ""
+    return cleaned
+
 
 _model: WhisperModel | None = None
 
@@ -202,8 +230,17 @@ async def transcribe(
             beam_size=5,
         )
 
-        texts = [segment.text.strip() for segment in segments]
-        transcription = " ".join(t for t in texts if t).strip()
+        texts = []
+        for segment in segments:
+            no_speech = getattr(segment, "no_speech_prob", None)
+            if isinstance(no_speech, (int, float)) and no_speech > 0.6:
+                continue
+            cleaned_seg = clean_whisper_text(segment.text)
+            if cleaned_seg:
+                texts.append(cleaned_seg)
+
+        transcription = " ".join(texts).strip()
+        transcription = clean_whisper_text(transcription)
 
         elapsed = round(time.time() - start_time, 3)
         logger.info("Transcribed %.2fs audio in %.3fs: '%s'", duration_s, elapsed, transcription[:80])
