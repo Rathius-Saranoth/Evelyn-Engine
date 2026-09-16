@@ -1200,6 +1200,19 @@
         color: var(--text);
         background: var(--surface);
       }
+      .mic-btn.warming {
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.15);
+        animation: mic-warm-pulse 0.9s infinite ease-in-out;
+      }
+      @keyframes mic-warm-pulse {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 0 5px rgba(245, 158, 11, 0);
+        }
+      }
       .mic-btn.recording {
         color: #ef4444;
         background: rgba(239, 68, 68, 0.15);
@@ -1224,6 +1237,12 @@
         background: rgba(239, 68, 68, 0.1);
         border: 1px solid rgba(239, 68, 68, 0.3);
         border-radius: 12px;
+        transition: color 0.15s, background 0.15s, border-color 0.15s;
+      }
+      .recording-indicator-badge.warming {
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.35);
       }
       .recording-pulse-dot {
         width: 6px;
@@ -1231,6 +1250,9 @@
         border-radius: 50%;
         background: #ef4444;
         animation: pulse 1s infinite;
+      }
+      .recording-indicator-badge.warming .recording-pulse-dot {
+        background: #f59e0b;
       }
       #draft-segments-container {
         display: flex;
@@ -3993,6 +4015,72 @@
       let _recordingStartTime = 0;
       let _recordingInterval = null;
       let _isRecordingVoice = false;
+      let _isWarmingMic = false;
+      let _audioCtx = null;
+
+      function getAudioContext() {
+        if (!_audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            _audioCtx = new AudioContextClass();
+          }
+        }
+        if (_audioCtx && _audioCtx.state === "suspended") {
+          _audioCtx.resume();
+        }
+        return _audioCtx;
+      }
+
+      function playChime(type = "start") {
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          const masterGain = ctx.createGain();
+          masterGain.gain.setValueAtTime(0.09, now);
+          masterGain.connect(ctx.destination);
+
+          if (type === "start") {
+            // Ascending two-tone chime: D5 (587.33Hz) -> A5 (880Hz)
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = "sine";
+            osc1.frequency.setValueAtTime(587.33, now);
+            gain1.gain.setValueAtTime(0.12, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+            osc1.connect(gain1);
+            gain1.connect(masterGain);
+            osc1.start(now);
+            osc1.stop(now + 0.11);
+
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = "sine";
+            osc2.frequency.setValueAtTime(880, now + 0.08);
+            gain2.gain.setValueAtTime(0.14, now + 0.08);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+            osc2.connect(gain2);
+            gain2.connect(masterGain);
+            osc2.start(now + 0.08);
+            osc2.stop(now + 0.24);
+          } else if (type === "stop") {
+            // Subtle single descending pop: F#5 (739.99Hz) -> D5 (587.33Hz)
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(739.99, now);
+            osc.frequency.exponentialRampToValueAtTime(587.33, now + 0.09);
+            gain.gain.setValueAtTime(0.08, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+            osc.connect(gain);
+            gain.connect(masterGain);
+            osc.start(now);
+            osc.stop(now + 0.1);
+          }
+        } catch (e) {
+          console.debug("Audio chime skipped:", e);
+        }
+      }
 
       function renderDraftSegments() {
         const container = document.getElementById("draft-segments-container");
@@ -4060,11 +4148,24 @@
       }
 
       async function toggleVoiceRecording() {
+        if (_isWarmingMic) {
+          cancelVoiceRecording();
+          return;
+        }
         if (_isRecordingVoice) {
           stopVoiceRecording();
         } else {
           await startVoiceRecording();
         }
+      }
+
+      function cancelVoiceRecording() {
+        _isWarmingMic = false;
+        if (_audioStream) {
+          _audioStream.getTracks().forEach((track) => track.stop());
+          _audioStream = null;
+        }
+        resetMicButton();
       }
 
       async function startVoiceRecording() {
@@ -4073,10 +4174,35 @@
           return;
         }
 
+        _isWarmingMic = true;
+        const micBtn = document.getElementById("mic-btn");
+        const recIndicator = document.getElementById("recording-indicator");
+        const recTimer = document.getElementById("recording-timer");
+
+        // Step 1: Arming visual state (warm amber)
+        if (micBtn) {
+          micBtn.classList.remove("recording");
+          micBtn.classList.add("warming");
+          micBtn.textContent = "🟡";
+          micBtn.title = "Connecting microphone... Click to cancel.";
+        }
+        if (recIndicator) {
+          recIndicator.className = "recording-indicator-badge warming";
+          recIndicator.style.display = "inline-flex";
+        }
+        if (recTimer) {
+          recTimer.textContent = "Connecting…";
+        }
+
+        // Initialize audio context on user gesture
+        getAudioContext();
+
         try {
           _audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch (err) {
           console.warn("Microphone access failed:", err);
+          _isWarmingMic = false;
+          resetMicButton();
           if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
             alert("Microphone permission was denied. Please allow microphone access in your browser settings.");
           } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
@@ -4086,6 +4212,37 @@
           }
           return;
         }
+
+        // Check if user cancelled while waiting for permission/stream
+        if (!_isWarmingMic) {
+          if (_audioStream) {
+            _audioStream.getTracks().forEach((track) => track.stop());
+            _audioStream = null;
+          }
+          resetMicButton();
+          return;
+        }
+
+        // Step 2: Bluetooth settle delay (~750ms) to allow profile switch (A2DP -> HFP) & ADC unmute
+        if (recTimer) {
+          recTimer.textContent = "Readying…";
+        }
+        await new Promise((resolve) => setTimeout(resolve, 750));
+
+        // Check again for cancellation during settle
+        if (!_isWarmingMic) {
+          if (_audioStream) {
+            _audioStream.getTracks().forEach((track) => track.stop());
+            _audioStream = null;
+          }
+          resetMicButton();
+          return;
+        }
+
+        _isWarmingMic = false;
+
+        // Step 3: Play ready chime & start recording
+        playChime("start");
 
         try {
           const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -4111,7 +4268,7 @@
             const micBtn = document.getElementById("mic-btn");
             const recIndicator = document.getElementById("recording-indicator");
             if (micBtn) {
-              micBtn.classList.remove("recording");
+              micBtn.classList.remove("recording", "warming");
               micBtn.textContent = "⏳";
               micBtn.disabled = true;
               micBtn.title = "Transcribing audio...";
@@ -4176,15 +4333,18 @@
           _isRecordingVoice = true;
           _recordingStartTime = Date.now();
 
+          // Step 4: Active recording visual state (red pulse)
           const micBtn = document.getElementById("mic-btn");
           const recIndicator = document.getElementById("recording-indicator");
           const recTimer = document.getElementById("recording-timer");
           if (micBtn) {
+            micBtn.classList.remove("warming");
             micBtn.classList.add("recording");
             micBtn.textContent = "⏹️";
             micBtn.title = "Click to stop recording and transcribe";
           }
           if (recIndicator) {
+            recIndicator.className = "recording-indicator-badge";
             recIndicator.style.display = "inline-flex";
           }
           if (recTimer) {
@@ -4211,25 +4371,29 @@
       }
 
       function stopVoiceRecording() {
+        playChime("stop");
         if (_mediaRecorder && _mediaRecorder.state !== "inactive") {
           _mediaRecorder.stop();
         }
         clearInterval(_recordingInterval);
         _isRecordingVoice = false;
+        _isWarmingMic = false;
       }
 
       function resetMicButton() {
         _isRecordingVoice = false;
+        _isWarmingMic = false;
         clearInterval(_recordingInterval);
         const micBtn = document.getElementById("mic-btn");
         const recIndicator = document.getElementById("recording-indicator");
         if (micBtn) {
-          micBtn.classList.remove("recording");
+          micBtn.classList.remove("recording", "warming");
           micBtn.disabled = false;
           micBtn.textContent = "🎙️";
           micBtn.title = "Voice Input (Speech-to-Text)";
         }
         if (recIndicator) {
+          recIndicator.className = "recording-indicator-badge";
           recIndicator.style.display = "none";
         }
       }
