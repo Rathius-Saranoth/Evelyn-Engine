@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-15 18:40:39
+date modified: 2026-09-15 19:04:59
 ---
 # Evelyn Project Roadmap
 
@@ -42,10 +42,10 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Streaming Chatterbox TTS Engine**: Deployed local streaming F5-TTS/Matcha engine with sentence-level SSE chunked progressive playback and auto-speech toggling.
 - [x] **FLUX.1 Image Generation**: Built standalone, on-demand FLUX.1 Schnell image generation microservice (port 5055) with automatic VRAM management.
 - [x] **Multimodal Visual Memory**: Implemented SQLite media database (`evelyn_media.db`), isolated attachment store, client-side EXIF/GPS parsing, background visual indexing (`llama3.2-vision`), and interactive Chat UI Media Inspector.
+- [x] **Local Speech-to-Text (STT) & Voice Ingestion**: Lightweight local transcription microservice (Faster-Whisper / Silero VAD) with audio chunk buffering, Chat UI segmented draft stack, raw waveform persistence, and 2-stage dictation arming with Web Audio chimes.
 - [ ] **Expressive Emotional TTS & Mid-Sentence Prosody**: Natural mid-response emotional modulation and paralinguistic tags (`[laugh]`, `[sigh]`, `[chuckle]`, `[gasp]`) integrated naturally across mid-sentence speech boundaries, Chat UI styling cues, and multi-style acoustic synthesis.
 - [ ] **Standalone Media Gallery (`ui/gallery.html`)**: Build a dedicated media management dashboard with timeline views, category filtering, lightbox inspection, and visual RAG search.
 - [ ] **Google Photos Bulk Ingestion**: Build Google Takeout ingestion pipeline preserving unredacted GPS, native timestamps, and JSON sidecars into `evelyn_media.db` for lifelong visual memory.
-- [ ] **Local Speech-to-Text (STT) & Voice Ingestion**: Lightweight local transcription microservice (Faster-Whisper / Silero VAD) with audio chunk buffering, Chat UI push-to-talk/hands-free recording, and raw waveform preservation for downstream affective VAD analysis.
 - [ ] **Unified Multimodal Affective & VAD Engine**: Real-time speech prosody/audio emotion extraction and 3D VAD (Valence-Arousal-Dominance) tracking across chat and journal memory, with chronological historical backfill calibration.
 - [ ] **Geospatial & Location Awareness**: Ingest mobile GPS telemetry with geofencing (home, work, contacts) and travel-state detection for localized queries.
 - [ ] **Message Biometrics & State Mapping**: Asynchronously map message IDs to timestamped physiological metrics (Oura/Health HRV, sleep, stress) for retroactive wellbeing inquiry without prompt clutter.
