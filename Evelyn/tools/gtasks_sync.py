@@ -1,5 +1,6 @@
 # gtasks_sync.py
 # date created: 2026-08-23
+# date modified: 2026-09-17 18:13:55
 # tags: #gtasks, #google-tasks, #tasks, #sync, #offline-first, #caching
 
 """gtasks_sync.py — Google Tasks Synchronizer and Local Task Cache.
@@ -94,8 +95,12 @@ def get_gtasks_service() -> Any:
 def parse_due_datetime(due_str: str | None) -> str | None:
     """Normalize a due date/time string into RFC 3339 timestamp format.
 
+    Supports natural dates ('today', 'tomorrow', 'friday', 'this friday', 'next friday')
+    as well as standard ISO-8601 and YYYY-MM-DD formats.
+
     Args:
-        due_str: Date/time string in formats like 'YYYY-MM-DD', 'YYYY-MM-DD HH:MM:SS', or ISO-8601.
+        due_str: Date/time string in formats like 'YYYY-MM-DD', 'YYYY-MM-DD HH:MM:SS',
+                 ISO-8601, or natural keywords ('today', 'tomorrow', 'friday', 'next friday').
 
     Returns:
         RFC 3339 formatted string (e.g. '2026-08-24T12:00:00.000Z') or None if invalid/empty.
@@ -106,29 +111,11 @@ def parse_due_datetime(due_str: str | None) -> str | None:
     if not clean:
         return None
 
-    # Handle ISO-8601 strings ending in Z or offset
-    if "T" in clean:
-        try:
-            dt = datetime.datetime.fromisoformat(clean.replace("Z", "+00:00"))
-            return dt.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        except ValueError:
-            pass
+    from Evelyn.tools.time_manager import parse_natural_date_to_dt
 
-    # Handle 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM'
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
-        try:
-            dt = datetime.datetime.strptime(clean, fmt).replace(tzinfo=datetime.UTC)
-            return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        except ValueError:
-            continue
-
-    # Handle date-only 'YYYY-MM-DD' or 'YYYY/MM/DD'
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
-        try:
-            dt = datetime.datetime.strptime(clean, fmt).replace(tzinfo=datetime.UTC)
-            return dt.strftime("%Y-%m-%dT00:00:00.000Z")
-        except ValueError:
-            continue
+    parsed = parse_natural_date_to_dt(clean)
+    if parsed is not None:
+        return parsed.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     return None
 
@@ -280,16 +267,23 @@ def create_gtask(
         }
 
     try:
+        from Evelyn.tools.string_utils import sanitize_tool_input_text
+
+        clean_title = sanitize_tool_input_text(title, max_length=150, single_line=True)
+        clean_notes = sanitize_tool_input_text(notes, max_length=1000, single_line=False) if notes else ""
+        if not clean_title:
+            clean_title = "Untitled Task"
+
         body: dict[str, Any] = {
-            "title": title,
-            "notes": notes or "",
+            "title": clean_title,
+            "notes": clean_notes,
         }
 
         due_rfc = parse_due_datetime(due) if due else None
         if due_rfc:
             body["due"] = due_rfc
 
-        print(f"[GTasks Sync] Creating task: '{title}' (due: {due_rfc})...", flush=True)
+        print(f"[GTasks Sync] Creating task: '{clean_title}' (due: {due_rfc})...", flush=True)
         created_task = service.tasks().insert(
             tasklist=tasklist,
             body=body,
@@ -307,7 +301,7 @@ def create_gtask(
                 (id, tasklist_id, title, notes, due_at, status, completed_at, source, last_sync)
                 VALUES (?, ?, ?, ?, ?, 'needsAction', NULL, 'google', ?)
                 """,
-                (task_id, tasklist, title, notes or "", due_rfc, now_iso),
+                (task_id, tasklist, clean_title, clean_notes, due_rfc, now_iso),
             )
             con.commit()
         finally:

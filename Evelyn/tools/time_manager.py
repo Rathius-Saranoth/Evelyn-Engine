@@ -1,6 +1,6 @@
 # time_manager.py
 # date created: 2026-08-29
-# date modified: 2026-09-01 17:29:20
+# date modified: 2026-09-17 17:31:05
 # tags: #temporal, #time-manager, #agenda, #heartbeat, #scheduling
 
 """time_manager.py — Evelyn Temporal Management Subsystem.
@@ -11,6 +11,7 @@ autonomous operations.
 """
 
 import os
+import re
 import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
@@ -18,6 +19,150 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import evelyn_config as cfg
+
+_WEEKDAYS = {
+    "monday": 0, "mon": 0,
+    "tuesday": 1, "tue": 1, "tues": 1,
+    "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
+    "friday": 4, "fri": 4,
+    "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6,
+}
+
+
+def get_upcoming_days(current_now: datetime, count: int = 8) -> list[str]:
+    """Return structured string representations of upcoming days for temporal grounding.
+
+    Args:
+        current_now: Current localized datetime.
+        count: Number of upcoming days to enumerate (default: 8).
+
+    Returns:
+        list[str]: Formatted upcoming days with weekdays, relative markers, and ISO dates.
+    """
+    days = []
+    for i in range(1, count + 1):
+        target = current_now + timedelta(days=i)
+        day_name = target.strftime("%A")
+        date_str = target.strftime("%Y-%m-%d")
+        if i == 1:
+            lbl = f"Tomorrow ({day_name}): {date_str}"
+        elif i > 1 and day_name == (current_now + timedelta(days=1)).strftime("%A"):
+            lbl = f"{day_name} (next week): {date_str}"
+        else:
+            lbl = f"{day_name}: {date_str}"
+        days.append(lbl)
+    return days
+
+
+def parse_natural_date_to_dt(
+    text: str,
+    base_dt: datetime | None = None,
+    tz: ZoneInfo | None = None,
+) -> datetime | None:
+    """Parse natural relative dates or ISO strings into timezone-aware datetime objects.
+
+    Supports:
+    - 'today', 'tomorrow'
+    - 'monday', 'this friday', 'next friday', etc.
+    - 'YYYY-MM-DD'
+    - 'YYYY-MM-DD HH:MM:SS' / 'YYYY-MM-DD HH:MM'
+    - ISO-8601 strings
+
+    Args:
+        text: Input date string.
+        base_dt: Reference datetime (defaults to now in tz).
+        tz: Target timezone (defaults to cfg.USER_TIMEZONE).
+
+    Returns:
+        datetime | None: Timezone-aware datetime object, or None if unparseable.
+    """
+    if not text or not text.strip():
+        return None
+
+    clean = text.strip()
+    target_tz = tz or ZoneInfo(getattr(cfg, "USER_TIMEZONE", "America/Chicago"))
+
+    ref_dt = base_dt or datetime.now(target_tz)
+    ref_dt = ref_dt.replace(tzinfo=target_tz) if ref_dt.tzinfo is None else ref_dt.astimezone(target_tz)
+
+    # 1. Standard structured formats
+    iso_clean = clean.replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
+        try:
+            return datetime.strptime(iso_clean, fmt).replace(tzinfo=target_tz)
+        except ValueError:
+            continue
+
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(clean, fmt).replace(tzinfo=target_tz)
+        except ValueError:
+            continue
+
+    if "T" in clean:
+        try:
+            dt = datetime.fromisoformat(clean.replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=target_tz)
+        except ValueError:
+            pass
+
+    # 2. Natural relative expressions
+    norm = clean.lower()
+
+    # Extract optional time portion (e.g. '14:00:00', '14:00', '2pm', 'at 5:30 pm')
+    hour = 0
+    minute = 0
+    second = 0
+    m_time = re.search(r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?\b", norm)
+    if m_time:
+        raw_hr = int(m_time.group(1))
+        raw_min = int(m_time.group(2) or 0)
+        raw_sec = int(m_time.group(3) or 0)
+        meridiem = (m_time.group(4) or "").lower()
+
+        if meridiem == "pm" and raw_hr < 12:
+            raw_hr += 12
+        elif meridiem == "am" and raw_hr == 12:
+            raw_hr = 0
+
+        if 0 <= raw_hr <= 23 and 0 <= raw_min <= 59 and 0 <= raw_sec <= 59:
+            hour = raw_hr
+            minute = raw_min
+            second = raw_sec
+
+    # Evaluate day offset
+    offset: int | None = None
+    if re.search(r"\btoday\b", norm):
+        offset = 0
+    elif re.search(r"\btomorrow\b", norm):
+        offset = 1
+    else:
+        m_day = re.search(
+            r"\b(?:(this|next)\s+)?(monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|friday|fri|saturday|sat|sunday|sun)\b",
+            norm,
+        )
+        if m_day:
+            prefix = (m_day.group(1) or "").lower()
+            day_name = m_day.group(2).lower()
+            target_weekday = _WEEKDAYS[day_name]
+            cur_weekday = ref_dt.weekday()
+            days_ahead = (target_weekday - cur_weekday) % 7
+
+            if prefix == "next":
+                offset = days_ahead + 7 if days_ahead > 0 else 7
+            elif prefix == "this":
+                offset = days_ahead
+            else:
+                offset = days_ahead if days_ahead > 0 else 7
+
+    if offset is not None:
+        return (ref_dt + timedelta(days=offset)).replace(
+            hour=hour, minute=minute, second=second, microsecond=0
+        )
+
+    return None
 
 
 def get_user_idle_seconds(db_path: str | None = None) -> float:
@@ -383,6 +528,7 @@ class TimeManager:
         gap = self.evaluate_session_gap(con, current_now)
         events = self.get_calendar_agenda(con, current_now)
         tasks = self.get_imminent_tasks(con, current_now)
+        upcoming = get_upcoming_days(current_now, count=8)
         time_str = current_now.strftime("%A, %b %d, %Y, %I:%M %p %Z").replace(" 0", " ")
 
         try:
@@ -395,6 +541,7 @@ class TimeManager:
             session_gap=gap,
             calendar_events=events,
             task_events=tasks,
+            upcoming_days=upcoming,
         )
 
     def evaluate_heartbeat(

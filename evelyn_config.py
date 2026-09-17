@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-13 15:41:23
+# date modified: 2026-09-17 18:13:55
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -76,11 +76,17 @@ SUBJECT_CODE_ASSISTANT = "A"  # Migrated from "E" (Assistant)
 # Legacy or alternate user names/aliases to harmonize during database migrations
 USER_LEGACY_ALIASES: list[str] = ["Rick", "Richard"]
 
-# Persona document basenames — Canonical Persona Triad
+# Persona document basenames — Core Directives + Canonical Persona Triad
+PERSONA_FILE_CORE_DIRECTIVES = "Core_Directives.md"
 PERSONA_FILE_ASSISTANT = "Assistant_Profile.md"
 PERSONA_FILE_USER = "User_Profile.md"
 PERSONA_FILE_DIRECTIVES = "System_Directives.md"
-PERSONA_FILES = [PERSONA_FILE_ASSISTANT, PERSONA_FILE_USER, PERSONA_FILE_DIRECTIVES]
+PERSONA_FILES = [
+    PERSONA_FILE_CORE_DIRECTIVES,
+    PERSONA_FILE_ASSISTANT,
+    PERSONA_FILE_USER,
+    PERSONA_FILE_DIRECTIVES,
+]
 
 
 # =============================================================================
@@ -228,7 +234,12 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(reference\s+library|appliance\s+manual|specs?|user\s+guide|troubleshooting\s+guide)\b",
         r"\b(water\s+heater|hvac|dishwasher|refrigerator|appliance|furnace|blower|sound\s+blaster|motherboard|sennheiser)\b",
     ],
-    "create_calendar_event": [r"\b(calendar|event|schedule|meeting|appointment|remind\s+me\s+at)\b"],
+    "create_calendar_event": [
+        r"\b(create|add|new|schedule|book|set\s+up)\s+(?:a\s+|the\s+|this\s+|my\s+|new\s+)?(?:calendar\s+)?(?:event|meeting|appointment|entry|call|sync)\b",
+        r"\b(schedule|book)\s+(?:a\s+|an\s+|the\s+|this\s+|my\s+)?.*?(?:appointment|meeting|visit|event)\b",
+        r"\b(add|put)\s+.*?\s+(?:to|on)\s+(?:my\s+|the\s+)?(?:calendar|schedule)\b",
+        r"\bremind\s+me\s+at\b",
+    ],
     "delete_calendar_event": [
         r"\b(cancel|delete|remove)\s+(?:the\s+|a\s+|this\s+|my\s+)?(calendar|event|meeting|appointment)\b",
     ],
@@ -236,8 +247,9 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(sync|refresh)\s+(?:my\s+|the\s+)?(?:google\s+)?calendar\b",
     ],
     "create_task": [
-        r"\b(create|add|new)\s+(?:a\s+|the\s+|this\s+|my\s+|new\s+)?task\b",
-        r"\badd\s+(?:a\s+)?task\s+to\s+(?:my\s+|the\s+)?(?:list|tasks)\b",
+        r"\b(create|add|new)\s+(?:a\s+|the\s+|this\s+|my\s+|new\s+)?(?:task|reminder|agenda\s+item|to-do|todo)\b",
+        r"\b(add|put|insert)\s+.*?\s+(?:to|on|in)\s+(?:my\s+|the\s+)?(?:agenda|todo|to-do|task\s+list|tasks)\b",
+        r"\b(remember\s+to|need\s+to\s+remember|remind\s+me\s+to|set\s+(?:a\s+)?reminder)\b",
     ],
     "complete_task": [
         r"\b(complete|finish|done|check\s+off)\s+(?:the\s+|a\s+|this\s+|my\s+)?task\b",

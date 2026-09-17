@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-13 15:41:23
+# date modified: 2026-09-17 18:13:55
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -2271,8 +2271,18 @@ def create_calendar_event(
         str: Success or error message with event details.
     """
     try:
-        title = title or str(kwargs.get("summary") or kwargs.get("name") or "")
+        from Evelyn.tools.string_utils import sanitize_tool_input_text
+
+        title = sanitize_tool_input_text(
+            title or str(kwargs.get("summary") or kwargs.get("name") or ""),
+            max_length=150,
+            single_line=True,
+        )
         start_at = start_at or str(kwargs.get("start_time") or kwargs.get("start") or kwargs.get("date") or "")
+        if not title:
+            return "Error: create_calendar_event requires a title."
+        if not start_at:
+            return "Error: create_calendar_event requires a start_at datetime."
         recurrence = None
         if recurrence_rule:
             rule = recurrence_rule.strip().lower()
@@ -2379,7 +2389,13 @@ def create_task(
     """
     _reload()
     try:
-        title = title or str(kwargs.get("task_title") or kwargs.get("name") or kwargs.get("summary") or "")
+        from Evelyn.tools.string_utils import sanitize_tool_input_text
+
+        title = sanitize_tool_input_text(
+            title or str(kwargs.get("task_title") or kwargs.get("name") or kwargs.get("summary") or ""),
+            max_length=150,
+            single_line=True,
+        )
         due_at = due_at or kwargs.get("due") or kwargs.get("date") or kwargs.get("due_date")
         notes = notes or kwargs.get("description") or kwargs.get("details")
         if not title:
@@ -4004,6 +4020,18 @@ _ANAPHORIC_TRIGGERS = re.compile(
     re.IGNORECASE,
 )
 
+_AFFIRMATION_TRIGGERS = re.compile(
+    r"^(?:yes|yeah|yea|yep|yup|sure|please\s+do|go\s+ahead|do\s+it|proceed|sounds\s+good|definitely|absolutely|please)\b|"
+    r"\b(?:i\s+would\s+(?:very\s+much\s+)?appreciate\s+(?:that|it)|yes\s+please)\b",
+    re.IGNORECASE,
+)
+
+_ASSISTANT_OFFER_RE = re.compile(
+    r"(?:shall\s+i|would\s+you\s+like\s+me\s+to|should\s+i|do\s+you\s+want\s+me\s+to|want\s+me\s+to|"
+    r"can\s+i\s+(?:go\s+ahead\s+and\s+)?|i\s+can\s+.*?if\s+you(?:'d|\s+would)?\s+like)\b[^?.!]*\?",
+    re.IGNORECASE,
+)
+
 
 def get_active_tools(
     user_message: str = "",
@@ -4098,6 +4126,28 @@ def get_active_tools(
                             if re.search(pat, prior_text, re.IGNORECASE):
                                 active_names.add(tool_name)
                                 break
+
+        # Guarded Assistant Offer Resolution:
+        # If user explicitly affirmed an offer, scan ONLY the assistant's terminal closing offer sentence
+        # (e.g. "Shall I go ahead and add that to your agenda now?") to safely surface the offered tool
+        # without full-prose leakage or tool-inflation feedback loops.
+        if _AFFIRMATION_TRIGGERS.search(user_message):
+            prior_asst_msgs = [
+                m.get("content", "")
+                for m in recent_history
+                if isinstance(m, dict) and m.get("role") == "assistant" and m.get("content")
+            ]
+            if prior_asst_msgs:
+                last_asst_text = prior_asst_msgs[-1]
+                m_offer = _ASSISTANT_OFFER_RE.search(last_asst_text)
+                if m_offer:
+                    offer_text = m_offer.group(0)
+                    for tool_name, pattern_list in patterns_map.items():
+                        if tool_name in _MODEL_TOOL_MAP and tool_name not in active_names:
+                            for pat in pattern_list:
+                                if re.search(pat, offer_text, re.IGNORECASE):
+                                    active_names.add(tool_name)
+                                    break
 
     if exclude_tools:
         active_names -= set(exclude_tools)
