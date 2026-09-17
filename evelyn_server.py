@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-15 18:16:17
+# date modified: 2026-09-17 18:13:55
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -580,6 +580,7 @@ def load_system_prompt() -> str:
         f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
         f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
         "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
+        f"6. Tool Execution Ground Truth: Results returned by tools are definitive truth. If a tool call fails, encounters an API error, or cannot execute, report the failure directly to {cfg.USER_NAME}. Never declare or simulate that an operation succeeded if the tool returned an error or was not called.\n"
         "</system_telemetry_directives>"
     )
     parts.append(
@@ -1713,6 +1714,25 @@ async def _agentic_stream_loop(
                 tools_used_list.append(tool_entry)
                 tool_metadata_list.append(meta_entry)
 
+                is_failure = (
+                    tool_status == "error"
+                    or str(result).startswith(
+                        ("Error:", "Error executing", "Failed to", "Error creating", "Error syncing", "Tool '")
+                    )
+                    or "HttpError" in str(result)
+                )
+                if is_failure:
+                    tool_status = "error"
+                    tool_content = (
+                        f"[TOOL EXECUTION FAILED]\n"
+                        f"Tool: {fn_name}\n"
+                        f"Error: {result}\n"
+                        f"Directive: The operation did not succeed. You must inform {cfg.USER_NAME} that the "
+                        f"operation failed with this error. Do not claim, imply, or simulate that the action was completed."
+                    )
+                else:
+                    tool_content = str(result)
+
                 yield f"data: {json.dumps({'type': 'tool_end', 'round': round_num, 'tool': fn_name, 'status': tool_status, 'summary': str(result)[:300], 'data': approval_id_or_data})}\n\n"
                 if approval_id_or_data:
                     yield f"data: {json.dumps({'type': 'tool_data', 'name': fn_name, 'data': approval_id_or_data})}\n\n"
@@ -1720,7 +1740,7 @@ async def _agentic_stream_loop(
                 msgs.append(
                     {
                         "role": "tool",
-                        "content": str(result),
+                        "content": tool_content,
                         "name": fn_name,
                     }
                 )
@@ -5858,6 +5878,7 @@ async def get_identity():
         "subject_code_user": cfg.SUBJECT_CODE_USER,
         "subject_code_assistant": cfg.SUBJECT_CODE_ASSISTANT,
         "persona_files": {
+            "core_directives": cfg.PERSONA_FILE_CORE_DIRECTIVES,
             "assistant": cfg.PERSONA_FILE_ASSISTANT,
             "user": cfg.PERSONA_FILE_USER,
             "directives": cfg.PERSONA_FILE_DIRECTIVES,

@@ -1,6 +1,6 @@
 # gcal_sync.py
 # date created: 2026-06-19
-# date modified: 2026-06-27
+# date modified: 2026-09-17 18:13:55
 # tags: #gcal, #sync, #google-calendar, #offline-first, #caching
 
 """gcal_sync.py — Google Calendar Synchronizer and Local Event Cache.
@@ -14,6 +14,8 @@ import datetime
 import os
 import sqlite3
 import time
+import zoneinfo
+from typing import Any
 
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
@@ -83,8 +85,8 @@ def sync_gcal_events(days_back: int = 7, days_forward: int = 30) -> dict:
 
     try:
         now = datetime.datetime.now(datetime.UTC)
-        time_min = (now - datetime.timedelta(days=days_back)).isoformat() + "Z"
-        time_max = (now + datetime.timedelta(days=days_forward)).isoformat() + "Z"
+        time_min = (now - datetime.timedelta(days=days_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        time_max = (now + datetime.timedelta(days=days_forward)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         print(f"[GCal Sync] Pulling events between {time_min} and {time_max}...", flush=True)
         events_result = service.events().list(
@@ -190,29 +192,25 @@ def get_cached_gcal_events(days_back: int = 7, days_forward: int = 30) -> list:
 def parse_local_datetime(dt_str: str) -> datetime.datetime:
     """Parse a datetime string in local time, adding the local timezone information.
 
+    Supports natural dates ('today', 'tomorrow', 'friday', 'this friday', 'next friday')
+    as well as standard ISO-8601 and YYYY-MM-DD formats.
+
     Args:
-        dt_str: String in format 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' or ISO-8601 format.
+        dt_str: String in format 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' or ISO-8601 format,
+                or natural date keyword.
 
     Returns:
         datetime.datetime: Timezone-aware datetime object.
     """
-    dt_str = dt_str.strip().replace("T", " ")
+    from Evelyn.tools.time_manager import parse_natural_date_to_dt
 
-    # Try parsing date-only first (normalize to midnight)
-    if len(dt_str) <= 10:
-        dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
-    else:
-        # Try 'YYYY-MM-DD HH:MM:SS'
-        try:
-            dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
-        except ValueError:
-            # Fall back to standard ISO parsing if offset/etc is already present
-            dt = datetime.datetime.fromisoformat(dt_str)
+    user_tz = zoneinfo.ZoneInfo(getattr(cfg, "USER_TIMEZONE", "America/Chicago"))
+    parsed = parse_natural_date_to_dt(dt_str, tz=user_tz)
+    if parsed is not None:
+        return parsed
 
-    if dt.tzinfo is None:
-        # Make it aware using local timezone
-        dt = dt.astimezone()
-    return dt
+    # Fallback to local now
+    return datetime.datetime.now(user_tz)
 
 
 def create_gcal_event(
@@ -221,7 +219,7 @@ def create_gcal_event(
     end_at: str | None = None,
     description: str | None = None,
     location: str | None = None,
-    recurrence: list | None = None
+    recurrence: list | None = None,
 ) -> dict:
     """Create a new event on Google Calendar, then cache it locally.
 
@@ -240,13 +238,15 @@ def create_gcal_event(
     if not service:
         return {
             "status": "unconfigured",
-            "message": "Google Calendar token not found or expired. Run scripts/setup_gcal.py."
+            "message": "Google Calendar token not found or expired. Run scripts/setup_gcal.py.",
         }
 
     try:
         # Parse start time
         start_dt = parse_local_datetime(start_at)
-        is_all_day = (len(start_at.strip()) <= 10)
+        is_all_day = len(start_at.strip()) <= 10 and not any(
+            t_kw in start_at.lower() for t_kw in ("at", "am", "pm", ":")
+        )
 
         # Calculate or parse end time
         if end_at:
@@ -254,27 +254,43 @@ def create_gcal_event(
         else:
             end_dt = start_dt + datetime.timedelta(days=1) if is_all_day else start_dt + datetime.timedelta(hours=1)
 
+        user_tz = getattr(cfg, "USER_TIMEZONE", "America/Chicago")
+
+        from Evelyn.tools.string_utils import sanitize_tool_input_text
+
+        clean_summary = sanitize_tool_input_text(summary, max_length=150, single_line=True)
+        clean_desc = sanitize_tool_input_text(description, max_length=1000, single_line=False) if description else ""
+        clean_loc = sanitize_tool_input_text(location, max_length=150, single_line=True) if location else ""
+        if not clean_summary:
+            clean_summary = "Untitled Event"
+
         # Build request body
-        event_body = {
-            "summary": summary,
-            "description": description or "",
-            "location": location or ""
+        event_body: dict[str, Any] = {
+            "summary": clean_summary,
+            "description": clean_desc,
+            "location": clean_loc,
         }
 
         if is_all_day:
             event_body["start"] = {"date": start_dt.strftime("%Y-%m-%d")}
             event_body["end"] = {"date": end_dt.strftime("%Y-%m-%d")}
         else:
-            event_body["start"] = {"dateTime": start_dt.isoformat()}
-            event_body["end"] = {"dateTime": end_dt.isoformat()}
+            event_body["start"] = {
+                "dateTime": start_dt.isoformat(),
+                "timeZone": user_tz,
+            }
+            event_body["end"] = {
+                "dateTime": end_dt.isoformat(),
+                "timeZone": user_tz,
+            }
 
         if recurrence:
             event_body["recurrence"] = recurrence
 
-        print(f"[GCal Sync] Creating event: {summary} at {start_at}...", flush=True)
+        print(f"[GCal Sync] Creating event: {clean_summary} at {start_at}...", flush=True)
         created_event = service.events().insert(
             calendarId="primary",
-            body=event_body
+            body=event_body,
         ).execute()
 
         event_id = created_event.get("id")

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-15 19:00:24
+date modified: 2026-09-17 18:13:55
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,40 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.130] - 2026-09-17 — *Core Directives Architecture, Tool Error Interception & Input Sanitization*
+
+### Added & Architectural
+- **Immutable Core Directives Architecture (`Evelyn/persona/Core_Directives.md`, `evelyn_config.py`, `evelyn_server.py`)**:
+  - Introduced `Core_Directives.md` to define non-negotiable foundational boundaries on operational honesty, failure transparency, and truthful sanctuary.
+  - Registered `PERSONA_FILE_CORE_DIRECTIVES = "Core_Directives.md"` loaded first in `cfg.PERSONA_FILES` and assembled into the head of every system prompt.
+  - Strictly isolated `Core_Directives.md` from `profile_evolver.py` (`DOCUMENT_CATEGORIES` and `CANONICAL_DOCUMENT_SECTIONS`), making it permanently immune to automated idle-time profile drift or evolution.
+  - Added Engine Directive 6 in `<system_telemetry_directives>` establishing tool returns as absolute ground truth and barring false claims of task completion.
+
+### Fixed & Hardened
+- **Deterministic Tool Failure Interception in Agentic Loop (`evelyn_server.py`)**:
+  - In `_agentic_stream_loop()`, intercepted failed tool executions (`tool_status == "error"`, exceptions, or error string returns).
+  - Injected structured failure directives (`[TOOL EXECUTION FAILED] Tool: {fn_name}\nError: ...\nDirective: The operation did not succeed. You must inform {cfg.USER_NAME} that the operation failed with this error. Do not claim, imply, or simulate that the action was completed.`).
+  - Preemptively eliminated paternalistic doublethink and CoT rationalizations where the model previously claimed operations were "done" to shield the user from backend errors.
+- **Canonical Tool Input Sanitization (`Evelyn/tools/string_utils.py`, `Evelyn/tools/gtasks_sync.py`, `Evelyn/tools/gcal_sync.py`, `Evelyn/tools/evelyn_tools.py`)**:
+  - Implemented `sanitize_tool_input_text()` in `string_utils.py`, stripping HTML/XML tags, code fences, and carriage returns, extracting single-line titles, normalizing whitespace, and bounding lengths cleanly.
+  - Integrated sanitization into `create_gtask()`, `create_gcal_event()`, `create_task()`, and `create_calendar_event()`, preventing unprompted model hallucinations (such as 1,500 characters of HTML tutorial text) from triggering Google API 400 Bad Request / Invalid Value rejections.
+
+## [000.006.129] - 2026-09-17 — *GCal Timezone Safety, Upcoming Days Grounding & Loop-Safe Tool Surfacing*
+
+### Fixed & Enhanced
+- **Google Calendar API Timezone & Timestamp Compliance (`Evelyn/tools/gcal_sync.py`)**:
+  - Fixed Google Calendar API `HttpError 400: "Missing time zone definition for start time"` by explicitly passing `"timeZone": user_tz` in `start` and `end` JSON payloads inside `create_gcal_event()`.
+  - Fixed Google Calendar query parameter `HttpError 400: "Bad Request"` in `sync_events()` caused by invalid duplicate RFC 3339 suffix formatting (`+00:00Z`), standardizing on `strftime("%Y-%m-%dT%H:%M:%SZ")`.
+  - Refactored `parse_local_datetime()` to parse naive local datetimes into `cfg.USER_TIMEZONE` (`America/Chicago`) timezone-aware objects instead of forcing naive UTC replacement.
+- **Deterministic `<upcoming_days>` Grounding (`Evelyn/tools/time_manager.py`, `Evelyn/tools/string_utils.py`)**:
+  - Added `get_upcoming_days()` in `time_manager.py` enumerating the next 8 days with explicit weekday names, relative tags (`Tomorrow (Friday)`, `Saturday`, `Friday (next week)`), and ISO dates (`YYYY-MM-DD`).
+  - Integrated `<upcoming_days>` into `build_temporal_envelope()` in `string_utils.py`, providing the LLM with an unambiguous ground-truth calendar truth table on every turn and eliminating mental calendar arithmetic hallucinations.
+  - Implemented `parse_natural_date_to_dt()` in `time_manager.py`, canonicalizing natural relative keywords (`today`, `tomorrow`, `this friday`, `next friday`) across `gcal_sync.py` and `gtasks_sync.py`.
+- **Loop-Safe Assistant Offer Resolution (`Evelyn/tools/evelyn_tools.py`, `evelyn_config.py`)**:
+  - Implemented guarded assistant offer tool inheritance in `get_active_tools()` gated on explicit user affirmations (`_AFFIRMATION_TRIGGERS`) and assistant closing question patterns (`_ASSISTANT_OFFER_RE`: `Shall I...?`, `Would you like me to...?`).
+  - Confined intent scanning strictly to the assistant's terminal proposal sentence, preventing full-prose leakage, tool inflation, or multi-turn runaway tool loops.
+  - Broadened `create_task` intent patterns in `evelyn_config.py` to recognize natural phrasing (`remember to...`, `remind me to...`, `set a reminder`, `add ... to my agenda/todo`).
 
 ## [000.006.128] - 2026-09-15 — *Voice Input Arming Window & Web Audio Dictation Chimes*
 

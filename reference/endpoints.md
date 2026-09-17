@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-15 18:40:39
+date modified: 2026-09-17 18:25:15
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -21,7 +21,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `GET /api/identity`
 * **Purpose**: Exposes dynamic engine identity parameters, operator names, subject codes, and configured persona markdown files.
-* **Returns**: JSON object `{"assistant_name": "Evelyn", "user_name": "Alex", "subject_code_user": "U", "subject_code_assistant": "A", "persona_files": {"assistant": "...", "user": "...", "directives": "..."}}`.
+* **Returns**: JSON object `{"assistant_name": "Evelyn", "user_name": "Alex", "subject_code_user": "U", "subject_code_assistant": "A", "persona_files": {"core_directives": "Core_Directives.md", "assistant": "...", "user": "...", "directives": "..."}}`.
 
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.

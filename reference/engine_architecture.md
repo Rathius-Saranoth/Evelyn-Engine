@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-15 18:40:39
+date modified: 2026-09-17 18:25:15
 ---
 # Evelyn Engine Architecture Map
 
@@ -17,8 +17,8 @@ This document serves as the master structural blueprint of the **Evelyn Engine**
 | **API & Integrations** | [[endpoints.md]] · [[google_access.md]] |
 | **Hardware & Environment** | [[system_specs.md]] · [[HPE Server Specs.md]] · [[REQUIREMENTS.md]] · [[SETUP_GUIDE.md]] |
 | **Microservices & Vision** | [[REQUIREMENTS_IMAGE_HOST.md]] |
-| **Persona & Behavior** | [[System_Directives.md]] · [[Assistant_Profile.md]] · [[User_Profile.md]] |
-| **Templates & Scaffolding** | [[System_Directives.example.md]] · [[Assistant_Profile.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
+| **Persona & Behavior** | [[Core_Directives.md]] · [[System_Directives.md]] · [[Assistant_Profile.md]] · [[User_Profile.md]] |
+| **Templates & Scaffolding** | [[Core_Directives.example.md]] · [[System_Directives.example.md]] · [[Assistant_Profile.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
 | **Standards & Workflows** | [[AGENTS.md]] · [[docstring_guide.md]] · [[quality-review.md]] · [[start-services.md]] · [[restart-services.md]] · [[debug-chat-db.md]] · [[backup-to-github.md]] |
 | **Roadmap & History** | [[ROADMAP.md]] · [[CHANGELOG.md]] · [[ROLLBACK.md]] · [[SUPPORT.md]] |
 

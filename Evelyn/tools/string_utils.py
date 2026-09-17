@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-17 18:13:55
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -32,6 +32,7 @@ Exports:
     is_conversational_phatic() — Determines whether a turn is a brief phatic greeting/pleasantry.
     detect_deterministic_read_intent() — Detects high-confidence 0-argument deterministic read queries.
     calculate_token_fuzzy_score() — Token-aligned fuzzy similarity with numerical discrepancy guards.
+    sanitize_tool_input_text() — Sanitizes, strips HTML/fences, and bounds inbound tool text arguments.
 
 Key config: Standard library only (zero internal project dependencies).
 See also: reference/xml_injection_conventions.md · reference/engine_architecture.md
@@ -472,6 +473,7 @@ def build_temporal_envelope(
     session_gap: dict[str, Any] | None = None,
     calendar_events: list[dict[str, Any]] | None = None,
     task_events: list[dict[str, Any]] | None = None,
+    upcoming_days: list[str] | None = None,
 ) -> str:
     """Build a standardized <temporal_context> telemetry envelope.
 
@@ -480,11 +482,17 @@ def build_temporal_envelope(
         session_gap: Optional dict with 'status', 'duration_str', etc.
         calendar_events: Optional list of dicts with 'title', 'start_str', 'status'.
         task_events: Optional list of dicts with 'title', 'due_str', 'status'.
+        upcoming_days: Optional list of formatted upcoming day/date strings.
 
     Returns:
         Structured <temporal_context> XML string.
     """
     children = [f"<current_time>{escape_xml_content(current_time)}</current_time>"]
+
+    if upcoming_days:
+        clean_days = [d.strip() for d in upcoming_days if d and str(d).strip()]
+        if clean_days:
+            children.append(wrap_xml_envelope("upcoming_days", body=clean_days))
 
     if session_gap and session_gap.get("status") != "active_flow":
         duration = session_gap.get("duration_str", "")
@@ -1032,5 +1040,52 @@ def calculate_token_fuzzy_score(query: str, target: str) -> float:
         final_score = min(final_score, 0.50)
 
     return round(final_score, 4)
+
+
+def sanitize_tool_input_text(
+    text: str | None,
+    max_length: int = 150,
+    single_line: bool = True,
+) -> str:
+    """Sanitize and bound inbound text arguments for model-facing tools.
+
+    Strips HTML/XML tags, code fences, runaway control characters, and normalizes
+    whitespace. If single_line is True, extracts only the first valid non-empty line
+    to prevent runaway pre-training code blocks or document dumps from corrupting API payloads.
+
+    Args:
+        text: Inbound text string from tool call arguments.
+        max_length: Maximum allowed character length. Defaults to 150.
+        single_line: Whether to enforce single-line titles/summaries. Defaults to True.
+
+    Returns:
+        Cleaned, bounded, and sanitized text string.
+    """
+    if not text:
+        return ""
+    s = str(text).strip()
+    if not s:
+        return ""
+
+    # Strip HTML/XML tags (<...>)
+    s = re.sub(r"<[^>]+>", "", s)
+
+    # Strip markdown code fences (```...```) and backticks
+    s = re.sub(r"```[a-zA-Z0-9_-]*", "", s)
+    s = s.replace("```", "").replace("`", "")
+
+    if single_line:
+        # Extract the first non-empty line
+        lines = [line.strip() for line in s.splitlines() if line.strip()]
+        s = lines[0] if lines else ""
+
+    # Normalize internal whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Bound length cleanly
+    if len(s) > max_length:
+        s = s[:max_length].rstrip()
+
+    return s
 
 
