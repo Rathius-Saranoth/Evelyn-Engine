@@ -1400,8 +1400,9 @@
         checkUnauthorized(res);
         if (res.ok) {
           allProcedures = await res.json();
+          const liveCount = (allProcedures || []).filter(p => p.status === 'live').length;
           const procCountEl = document.getElementById('count-all-proc');
-          if (procCountEl) procCountEl.textContent = allProcedures.length;
+          if (procCountEl) procCountEl.textContent = liveCount;
           if (currentTab === 'procedures-mgmt') {
             renderProceduresHeader();
             renderProceduresList();
@@ -1762,7 +1763,8 @@
       document.getElementById('count-triage').textContent = unifiedItems.length;
       document.getElementById('count-res').textContent = researchTasks.length;
       const allProcEl = document.getElementById('count-all-proc');
-      if (allProcEl) allProcEl.textContent = allProcedures.length;
+      const liveProcCount = (allProcedures || []).filter(p => p.status === 'live').length;
+      if (allProcEl) allProcEl.textContent = liveProcCount;
 
       const filterExt = document.getElementById('count-filter-ext');
       if (filterExt) filterExt.textContent = extCount;
@@ -4119,7 +4121,7 @@
     }
 
     function parseProposalReason(reasonStr) {
-      if (!reasonStr) return { summary: '', added: [], modified: [], removed: [], candidate_ledger: '' };
+      if (!reasonStr) return { summary: '', added: [], modified: [], removed: [], rejections_summary: null, rejected: [], candidate_ledger: '' };
       try {
         const parsed = JSON.parse(reasonStr);
         if (typeof parsed === 'object' && parsed !== null) {
@@ -4128,11 +4130,13 @@
             added: Array.isArray(parsed.added) ? parsed.added : [],
             modified: Array.isArray(parsed.modified) ? parsed.modified : [],
             removed: Array.isArray(parsed.removed) ? parsed.removed : [],
+            rejections_summary: parsed.rejections_summary || null,
+            rejected: Array.isArray(parsed.rejected) ? parsed.rejected : [],
             candidate_ledger: parsed.candidate_ledger || ''
           };
         }
       } catch (_) {}
-      return { summary: String(reasonStr), added: [], modified: [], removed: [], candidate_ledger: '' };
+      return { summary: String(reasonStr), added: [], modified: [], removed: [], rejections_summary: null, rejected: [], candidate_ledger: '' };
     }
 
     function renderReasonBadges(parsed) {
@@ -4146,6 +4150,26 @@
       if (parsed.removed && parsed.removed.length > 0) {
         badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;">-${parsed.removed.length} Removed</span>`);
       }
+
+      if (parsed.rejected && parsed.rejected.length > 0) {
+        const conflictCount = parsed.rejections_summary ? (parsed.rejections_summary.conflicts_with_precedent || 0) : 0;
+        const dupeCount = parsed.rejections_summary ? (parsed.rejections_summary.duplicate_of_precedent || 0) : 0;
+        const domainCount = parsed.rejections_summary ? (parsed.rejections_summary.domain_violation || 0) : 0;
+
+        if (conflictCount > 0) {
+          badges.push(`<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 11px;">⚠️ ${conflictCount} Conflict${conflictCount > 1 ? 's' : ''} Blocked</span>`);
+        }
+        if (dupeCount > 0) {
+          badges.push(`<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px;">🚫 ${dupeCount} Duplicate${dupeCount > 1 ? 's' : ''} Filtered</span>`);
+        }
+        if (domainCount > 0) {
+          badges.push(`<span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 11px;">🛑 ${domainCount} Domain Violation${domainCount > 1 ? 's' : ''} Blocked</span>`);
+        }
+        if (conflictCount === 0 && dupeCount === 0 && domainCount === 0) {
+          badges.push(`<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px;">⚠️ ${parsed.rejected.length} Rejected</span>`);
+        }
+      }
+
       if (badges.length === 0) return '';
 
       const allChanges = [
@@ -4153,6 +4177,33 @@
         ...(parsed.modified || []).map(x => `<li style="color: #38bdf8; margin-bottom: 2px;"><strong>~ Modified:</strong> ${escapeHtml(x)}</li>`),
         ...(parsed.removed || []).map(x => `<li style="color: #f87171; margin-bottom: 2px;"><strong>- Removed:</strong> ${escapeHtml(x)}</li>`)
       ].join('');
+
+      const rejectedList = (parsed.rejected || []).map(r => {
+        let badgeStyle = 'background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);';
+        let reasonLabel = 'Rejected';
+        if (r.reason === 'conflicts_with_precedent') {
+          badgeStyle = 'background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4);';
+          reasonLabel = 'Conflict with Precedent';
+        } else if (r.reason === 'duplicate_of_precedent') {
+          badgeStyle = 'background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);';
+          reasonLabel = 'Duplicate of Precedent';
+        } else if (r.reason === 'domain_violation') {
+          badgeStyle = 'background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4);';
+          reasonLabel = 'Domain Violation';
+        }
+        return `
+          <li style="margin-bottom: 6px; padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: 4px; border-left: 3px solid ${r.reason === 'conflicts_with_precedent' ? '#f87171' : '#fbbf24'};">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap;">
+              <span class="badge" style="${badgeStyle} font-size: 10px; padding: 1px 5px;">${escapeHtml(reasonLabel)}</span>
+              ${r.similarity_score ? `<span style="font-size: 10px; color: var(--text-dim); font-family: monospace;">score: ${r.similarity_score}</span>` : ''}
+              ${r.precedent_doc ? `<span style="font-size: 10px; color: var(--accent); font-family: monospace;">${escapeHtml(r.precedent_doc)}</span>` : ''}
+            </div>
+            <div style="font-size: 12px; color: var(--text); font-weight: 500;">${escapeHtml(r.candidate || '')}</div>
+            ${r.matched_rule ? `<div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Matched Rule: <span style="color: var(--text);">${escapeHtml(r.matched_rule)}</span></div>` : ''}
+            ${r.details ? `<div style="font-size: 11px; color: var(--text-dim); font-style: italic; margin-top: 2px;">${escapeHtml(r.details)}</div>` : ''}
+          </li>
+        `;
+      }).join('');
 
       return `
         <div style="margin-top: 6px;">
@@ -4163,6 +4214,14 @@
                 Itemized Ledger Changes (${(parsed.added.length + parsed.modified.length + parsed.removed.length)})
               </summary>
               <ul style="margin: 6px 0 0 16px; padding: 0; line-height: 1.5;">${allChanges}</ul>
+            </details>
+          ` : ''}
+          ${rejectedList ? `
+            <details style="margin-top: 8px; font-size: 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 4px; padding: 6px 10px;">
+              <summary style="cursor: pointer; color: #f87171; font-weight: 600; outline: none; user-select: none;">
+                🛡️ Rejected Items (${parsed.rejected.length})
+              </summary>
+              <ul style="margin: 8px 0 0 0; padding: 0; list-style: none; line-height: 1.4;">${rejectedList}</ul>
             </details>
           ` : ''}
         </div>
