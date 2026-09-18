@@ -1,6 +1,6 @@
 # trigger_profile_evolution.py
 # date created: 2026-06-29
-# date modified: 2026-09-07 15:18:33
+# date modified: 2026-09-18 18:51:33
 # tags: #persona, #evolution, #manual, #utility
 
 """Standalone manual trigger for Evelyn's profile evolution pipeline.
@@ -43,6 +43,7 @@ import memory_db
 import task_manager
 from profile_evolver import (
     DOCUMENT_CATEGORIES,
+    DOCUMENT_EVOLUTION_ORDER,
     _draft_path,
     _evolve_document,
     _load_evolution_state,
@@ -52,6 +53,7 @@ from profile_evolver import (
 import evelyn_config as cfg
 
 MIN_ENTRIES = getattr(cfg, "PROFILE_EVOLUTION_MIN_ENTRIES", 5)
+DEFAULT_MAX_ENTRIES = getattr(cfg, "PROFILE_EVOLUTION_MAX_ENTRIES_PER_RUN", 30)
 
 
 async def main() -> None:
@@ -68,7 +70,14 @@ async def main() -> None:
         dest="doc",
         type=str,
         default=None,
-        help="Target a specific document filename (e.g. User_Profile.md).",
+        help="Target a specific document filename (e.g. System_Directives.md).",
+    )
+    parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=DEFAULT_MAX_ENTRIES,
+        help=f"Maximum entries to evaluate per document (default: {DEFAULT_MAX_ENTRIES}).",
     )
     args = parser.parse_args()
 
@@ -76,18 +85,19 @@ async def main() -> None:
     pending_props = memory_db.get_pending_proposals("profile_update")
     pending_files = {p["suggested_category"] for p in pending_props}
 
-    target_docs = DOCUMENT_CATEGORIES
+    ordered_docs = [doc for doc in DOCUMENT_EVOLUTION_ORDER if doc in DOCUMENT_CATEGORIES]
     if args.doc:
-        target_docs = {k: v for k, v in DOCUMENT_CATEGORIES.items() if args.doc.lower() in k.lower()}
-        if not target_docs:
-            print(f"[TRIGGER] Unknown document: {args.doc}. Available: {list(DOCUMENT_CATEGORIES.keys())}")
+        ordered_docs = [doc for doc in ordered_docs if args.doc.lower() in doc.lower()]
+        if not ordered_docs:
+            print(f"[TRIGGER] Unknown document: {args.doc}. Available: {ordered_docs}")
             return
 
-    print(f"[TRIGGER] Starting manual profile evolution — {len(target_docs)} document(s) to check.\n")
+    print(f"[TRIGGER] Starting manual profile evolution — {len(ordered_docs)} document(s) to check.\n")
     task_manager.set_running("profile_evolver", phase="Manual Profile Evolution")
 
     try:
-        for filename, categories in target_docs.items():
+        for filename in ordered_docs:
+            categories = DOCUMENT_CATEGORIES.get(filename, [])
             if filename in pending_files and not args.force:
                 print(f"[TRIGGER] {filename}: Has a pending profile update. Skipping (use --force to bypass).\n")
                 continue
@@ -102,6 +112,13 @@ async def main() -> None:
             for cat in categories:
                 entries = memory_db.get_entries_by_category_for_document(cat, document_name=filename, status="live")
                 changed_entries.extend(entries)
+
+            # Sort chronologically (oldest-first)
+            changed_entries.sort(key=lambda e: (e.get("date") or "", e.get("id") or 0))
+
+            if args.limit > 0 and len(changed_entries) > args.limit:
+                print(f"[TRIGGER] {filename}: Backlog capped from {len(changed_entries)} to {args.limit} entries.")
+                changed_entries = changed_entries[:args.limit]
 
             resume_note = " (draft on disk — will resume)" if draft_exists else ""
             print(f"[TRIGGER] {filename}: {len(changed_entries)} qualifying entries (need {MIN_ENTRIES}){resume_note}.")

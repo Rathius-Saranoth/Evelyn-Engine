@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-18 17:42:28
+# date modified: 2026-09-18 18:51:33
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.133"
-__version_info__ = (0, 6, 133)
-__version_name__ = "Profile Evolver 4-Tier Precedence Hierarchy, Adaptive Deduplication & Rejection Telemetry"
+__version__ = "000.006.134"
+__version_info__ = (0, 6, 134)
+__version_name__ = "Dev UI Rejection Visibility, Procedures Badge Scoping & Evolver Change Detection"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

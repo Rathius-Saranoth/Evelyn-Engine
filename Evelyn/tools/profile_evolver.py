@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-18 17:42:28
+# date modified: 2026-09-18 18:51:33
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -2008,6 +2008,13 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     ledger_filename = profile_ledger.get_ledger_filename(filename)
     ledger_path = os.path.join(persona_dir, ledger_filename)
 
+    # Always load canonical baseline sections for change detection
+    if os.path.exists(ledger_path):
+        raw_canonical = await asyncio.to_thread(_sync_read_file, ledger_path)
+    else:
+        raw_canonical = current_content
+    _baseline_fm, baseline_sections = profile_ledger.parse_ledger(raw_canonical)
+
     if os.path.exists(draft_file) and draft_cursor > 0.0:
         raw_ledger = await asyncio.to_thread(_sync_read_file, draft_file)
         ledger_frontmatter, current_sections = profile_ledger.parse_ledger(raw_ledger)
@@ -2018,11 +2025,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             flush=True,
         )
     else:
-        if os.path.exists(ledger_path):
-            raw_ledger = await asyncio.to_thread(_sync_read_file, ledger_path)
-        else:
-            raw_ledger = current_content
-        ledger_frontmatter, current_sections = profile_ledger.parse_ledger(raw_ledger)
+        ledger_frontmatter = _baseline_fm
+        current_sections = {k: list(v) for k, v in baseline_sections.items()}
         draft_cursor = 0.0
 
     batch_size = getattr(cfg, "PROFILE_EVOLUTION_BATCH_SIZE", 40)
@@ -2202,8 +2206,11 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     # ---------------------------------------------------------------------------
     # Evaluation of Changes & Budget Pruning
     # ---------------------------------------------------------------------------
-    has_changes = any(cumulative_changelog[k] for k in ("added", "modified", "removed"))
-    if not has_changes and draft_cursor == 0.0:
+    has_changelog_changes = any(cumulative_changelog[k] for k in ("added", "modified", "removed"))
+    sections_changed = (current_sections != baseline_sections)
+    has_changes = has_changelog_changes or sections_changed
+
+    if not has_changes:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
         _clear_draft(filename, state)
 

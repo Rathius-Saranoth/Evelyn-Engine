@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-18 17:42:28
+date modified: 2026-09-18 18:51:33
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.134] - 2026-09-18 — *Dev UI Rejection Visibility, Procedures Badge Scoping & Evolver Change Detection*
+
+### Added & UI Refinements
+- **Proposal Rejection Audit Visualizer (`evelyn_ui/dev.html`)**:
+  - Added dedicated badges for blocked items in proposal review cards (`⚠️ Conflicts Blocked`, `🚫 Duplicates Filtered`, `🛑 Domain Violations Blocked`).
+  - Added an expandable `🛡️ Rejected Items (N)` panel displaying individual candidates with candidate text, precedent doc, matched rule, similarity score, and details.
+- **Procedures Tab Badge Scoped to Active Rules (`evelyn_ui/dev.html`)**:
+  - Updated the top carousel tab `⚙️ Procedures (N)` in `🗂️ Workspaces & Tools` to count only active procedures (`status === 'live'`) rather than the uncurated total of all procedures, while preserving full status filtering (`All`, `Live`, `Pending Review`, `Merged`, `Rejected`, `Archived`) in the management tab.
+
+### Changed & Hardened
+- **Baseline Change Detection (`Evelyn/tools/profile_evolver.py`)**:
+  - Hardened `_evolve_document()` to explicitly verify `current_sections != baseline_sections` in addition to changelog events, preventing false "no changes" evaluation when resuming drafts with subtle updates.
+- **Evolution Trigger Script (`scripts/trigger_profile_evolution.py`)**:
+  - Enforced `DOCUMENT_EVOLUTION_ORDER` top-down execution order.
+  - Added `--limit` parameter (defaulting to `cfg.PROFILE_EVOLUTION_MAX_ENTRIES_PER_RUN` = 30) with oldest-first chronological sorting to prevent token budget blowouts on large backlogs.
 
 ## [000.006.133] - 2026-09-18 — *Profile Evolver 4-Tier Precedence Hierarchy, Adaptive Deduplication & Rejection Telemetry*
 
