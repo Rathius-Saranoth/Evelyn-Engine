@@ -2732,7 +2732,6 @@ async def lifespan(app: FastAPI):
                     from Evelyn.tools import auto_journaler
 
                     t_aj = asyncio.create_task(auto_journaler.run_auto_journaling())
-                    auto_journaler._auto_journal_task = t_aj
                     _server_background_tasks.add(t_aj)
                     t_aj.add_done_callback(_server_background_tasks.discard)
                 elif dispatched_task == "ambient_reflector":

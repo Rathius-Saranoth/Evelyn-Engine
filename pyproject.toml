@@ -74,5 +74,5 @@ python_files = ["test_*.py"]
 exclude = ["Evelyn/tests", "venv", "scripts/archive", "data"]
 ignore_decorators = ["@app.get", "@app.post", "@app.put", "@app.delete", "@app.patch", "@app.on_event", "@app.websocket", "@pytest.fixture"]
 ignore_names = ["visit_*", "test_*", "setUp", "tearDown", "db_map", "db_paths", "pending_recat_sources", "all_live_procs"]
-min_confidence = 70
+min_confidence = 60
 paths = ["evelyn_server.py", "evelyn_config.py", "Evelyn/", ".vulture_whitelist.py"]

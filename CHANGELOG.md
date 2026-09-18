@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-17 18:13:55
+date modified: 2026-09-17 18:49:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,28 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.131] - 2026-09-17 — *Vulture 60% Confidence Migration, Dead-Code Pruning & Triage Protocol*
+
+### Added & Architectural
+- **Vulture 60% Confidence Migration & Strict Zero-Dead-Function Standard (`pyproject.toml`, `scripts/check_code_hygiene.py`)**:
+  - Lowered Vulture `--min-confidence` threshold from `70%` to `60%`, enabling Vulture to actively audit functions, methods, classes, and variables (which are assigned 60% confidence in Vulture's discrete engine) rather than only checking unused imports and unreachable lines.
+  - Updated default `--min-confidence` parameter in `scripts/check_code_hygiene.py` and `pyproject.toml` to `60`.
+- **Triage Before Deletion Protocol (`AGENTS.md` Rule 11, `.agents/workflows/verify-wiring.md`)**:
+  - Established a mandatory 4-category triage protocol for all future Vulture findings to prevent premature or reckless code deletion.
+  - Mandated that agents must classify flagged symbols into external script/service callers, canonical public primitives, unwired features, or verified dead code before modifying any code.
+- **Framework & External Consumer Whitelist Expansion (`.vulture_whitelist.py`)**:
+  - Registered symbols actively consumed by standalone scripts and services outside the core engine scan path (`enqueue_remap`, `find_semantic_neighbors`, `move_document`, `get_all_entities`, `get_ollama_status`, `STT_MODEL_SIZE`, `STT_DEVICE`, `STT_COMPUTE_TYPE`, `rollback_db`, `CONTEXT_DIR`).
+  - Registered canonical public utility primitives and dataclass telemetry attributes (`DrainResult.duration_ms`, `register_provider`, `record_media_share`, `record_system_alert`, `link_rag_telemetry_to_message`, `tokenize_wikilink`, `run_master_librarian_audit`, `run_master_librarian_audit_async`, `get_entry_document_evolutions`, `get_all_queued_fact_merge_ids`, `query_ollama_json`, `get_profile_filename`, `build_memory_context_envelope`, `get_idle_queue`, `acquire_next_idle_task`, `reset_alert_cache`, `is_valid_version`, `normalize_vault_path`, `append_context_log`, `update_context_log`).
+
+### Pruned & Cleaned
+- **Dead Code Pruning Across Engine Tools (`Evelyn/tools/`)**:
+  - Pruned unused `VAULT_BASE` and deprecated `log_context_fact` / `update_context_fact` routines from `Evelyn/tools/evelyn_tools.py`.
+  - Pruned obsolete `search_vault_map` from `Evelyn/tools/context_manager.py` (superseded by `vault_db.search_documents`).
+  - Pruned redundant 1-line wrapper routines `clean_gist` and `normalize_path` from `Evelyn/tools/vault_indexer.py`.
+  - Pruned abandoned scan state globals and functions (`_load_scan_state`, `_save_scan_state`, `_SCAN_STATE_FILE`, `_category_scan_state`) and obsolete legacy facades (`find_consolidation_candidates`, `_filter_semantically_relevant_window`, unused `thinking_buffer`) from `Evelyn/tools/fact_consolidator.py`.
+  - Pruned unread `_auto_journal_task` attribute assignment and declaration from `evelyn_server.py` and `Evelyn/tools/auto_journaler.py`.
+  - Removed obsolete test file `Evelyn/tests/test_fact_consolidator_scan_state.py`.
 
 ## [000.006.130] - 2026-09-17 — *Core Directives Architecture, Tool Error Interception & Input Sanitization*
 

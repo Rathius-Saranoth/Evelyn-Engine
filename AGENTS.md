@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-13 16:17:52
+date modified: 2026-09-17 18:49:24
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -98,5 +98,10 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 - **Mandatory Hygiene Check**: After completing any functional change or refactor, agents must run `PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py` and confirm all 3 deterministic stages (Ruff static linting, AST config-wiring pytest, and Vulture compiler-level dead code audit) exit with `0`.
 - **Two-File Contract Auditing**: When modifying or adding producer-consumer relationships (e.g. `evelyn_config.py` <-> `chroma_rag.py`, `evelyn_tools.py` <-> `evelyn_server.py`), audit only the isolated diff pair between caller and callee to prove end-to-end wiring.
 - **Whitelist Discipline**: Dynamic framework hooks (FastAPI route entrypoints, Pydantic response models) belong in `.vulture_whitelist.py`. Whitelisting internal helper functions or unused application logic to mask dead code is strictly forbidden.
+- **Triage Before Deletion Protocol (60% Confidence Standard)**: Vulture runs at 60% confidence to aggressively detect uncalled functions and unused variables. However, agents must **NEVER** blindly delete or whitelist symbols simply because Vulture flagged them. Before modifying code to resolve a Vulture finding, agents must classify the symbol into one of four categories:
+  1. *External Consumer / Standalone Script Caller*: Called by standalone scripts in `scripts/`, services in `services/`, or MCP tools in `scripts/sqlite_mcp_server.py` outside Vulture's core scan paths. -> Register mock symbol in `.vulture_whitelist.py`.
+  2. *Canonical Public Primitive*: An intentional public library method, dataclass telemetry field, or canonical parser/builder utility (e.g. in `string_utils.py`, `path_utils.py`). -> Register in `.vulture_whitelist.py`.
+  3. *Unwired Feature ("Oops Forgot to Wire It Up")*: An authored routine that was intended to be invoked by downstream engine consumers. -> Wire up the caller in the engine.
+  4. *Genuinely Superseded / Dead Code*: An abandoned helper, superseded duplicate facade, or legacy routine replaced by newer subsystems. -> Safely prune after verifying replacement.
 
 

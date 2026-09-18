@@ -31,22 +31,11 @@ import vault_db
 
 import evelyn_config as cfg
 from Evelyn.tools.frontmatter_utils import parse_frontmatter
-from Evelyn.tools.path_utils import is_vault_excluded, normalize_vault_path
-from Evelyn.tools.string_utils import clean_llm_gist
+from Evelyn.tools.path_utils import is_vault_excluded
 
 OBSIDIAN_ROOT = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
 SUMMARY_MAX_CHARS = 500
-
-
-def clean_gist(text: str) -> str:
-    """Strip thinking tags, LaTeX markup, and leading 'summary:' prefixes from LLM output."""
-    return clean_llm_gist(text)
-
-
-def normalize_path(path: str) -> str:
-    """Return a normalized lower-case path string for safe comparison."""
-    return normalize_vault_path(path)
 
 
 def is_excluded(dir_path: str) -> bool:

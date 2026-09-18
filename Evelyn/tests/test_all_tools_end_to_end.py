@@ -20,7 +20,6 @@ for p in (BASE_DIR, ROOT_DIR, TOOLS_DIR):
         sys.path.insert(0, p)
 
 import chroma_rag
-import context_manager
 import evelyn_tools
 import task_manager
 import vault_db
@@ -62,16 +61,10 @@ class TestAllToolsEndToEnd(unittest.TestCase):
                 self.assertNotIn("recall_specific_memory", ctx)
             mock_log.assert_called_once()
 
-    def test_04_vault_db_and_context_search(self):
-        """Test SQLite vault search and context manager preview rendering."""
+    def test_04_vault_db_search(self):
+        """Test SQLite vault search."""
         results = vault_db.search_documents("Journal", limit=3)
         self.assertIsInstance(results, list)
-
-        rendered = context_manager.search_vault_map("Journal", limit=3)
-        self.assertIsInstance(rendered, str)
-        if results:
-            self.assertIn("Top", rendered)
-            self.assertIn("Path:", rendered)
 
     def test_05_read_journal_tools(self):
         """Test journal reading tools."""

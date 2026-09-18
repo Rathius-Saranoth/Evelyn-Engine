@@ -2,7 +2,7 @@
 description: Deterministic AST wiring and compiler-level dead-code verification to eliminate uncalled functions and unwired code
 title: verify-wiring.md
 date created: 2026-09-06 18:46:25
-date modified: 2026-09-13 16:17:52
+date modified: 2026-09-17 18:49:24
 tags: [wiring, dead-code, hygiene, verification, ast, vulture, workflow, evelyn]
 ---
 
@@ -57,10 +57,14 @@ Never add a configuration constant in `evelyn_config.py` or a helper in `Evelyn/
 ### Stage 2: AST Config Wiring Test
 If a constant is intentionally reserved for environment templates or future roadmap scopes, register it explicitly in `CONFIG_WHITELIST` within `Evelyn/tests/test_config_wiring.py`.
 
-### Stage 3: Vulture Whitelist Maintenance
+### Stage 3: Vulture Whitelist Maintenance & Triage Protocol
 FastAPI endpoints, Pydantic response models, and dynamic tool definitions registered in `MODEL_TOOL_DEFINITIONS` lack static in-repo call sites. Dynamic framework entry points are declared in `.vulture_whitelist.py`.
-- If introducing an external route or framework hook, register its mock symbol in `.vulture_whitelist.py` (`_.new_endpoint_or_model`).
-- Internal business logic and utility helpers must have genuine in-repo callers and must NOT be whitelisted.
+- **Triage Before Deletion**: Vulture runs at `60%` confidence to detect uncalled functions. Never blindly delete or whitelist a symbol. Classify it first:
+  1. *External Consumer / Standalone Script*: Called by scripts in `scripts/`, background services in `services/`, or MCP tools (`scripts/sqlite_mcp_server.py`) -> Register mock symbol in `.vulture_whitelist.py`.
+  2. *Canonical Public Library Primitive*: An intentional library API, dataclass telemetry field, or canonical parser utility -> Register in `.vulture_whitelist.py`.
+  3. *Unwired Feature*: An authored function that was intended to be called by downstream engine logic -> Wire up the consumer.
+  4. *Genuinely Dead Code*: Abandoned legacy facades, uncalled scan states, or obsolete helpers -> Safely prune with verification.
+- Internal business logic and utility helpers must have genuine in-repo callers and must NOT be whitelisted to bypass the gate.
 
 ### Stage 4: Two-File Contract Auditing
 When performing code reviews, constrain the review strictly to isolated producer-consumer file pairs rather than asking broad repository questions:

@@ -9,10 +9,8 @@ context_manager.py — Context Category management for Evelyn's memory system.
 Provides two sets of functionality:
   - Standalone helper functions used by ``evelyn_tools.py`` and other modules:
       append_context_log()  — Create a new context entry in evelyn_memory.db pending review.
-      search_vault_map()    — Fast keyword search across indexed vault documents in evelyn_vault.db.
-  - These same functions are registered as LLM-callable tools in ``evelyn_tools.py``.
-
-Context entries are stored in SQLite (evelyn_memory.db) with lifecycle statuses
+      update_context_log()  — Create an update proposal for existing context entries.
+  - Context entries are stored in SQLite (evelyn_memory.db) with lifecycle statuses
 ('extracted', 'pending_review', 'live', 'archived', 'deleted').
 """
 
@@ -83,48 +81,6 @@ def append_context_log(
         return f"Error writing context entry: {e}"
 
     return f"Created Context Entry (ID: {row_id}) pending review."
-
-
-def search_vault_map(query: str, limit: int = 5) -> str:
-    """Searches the SQLite vault map for files matching the query string.
-
-    Scoring heuristic (higher = stronger match):
-      +10 points  -- query found in the file title
-      +5 points   -- query found in a tag
-      +2 points   -- query found in the text preview snippet
-
-    Results are sorted by descending score; only the top ``limit`` entries
-    are returned. Matching is case-insensitive.
-
-    Args:
-        query: The search term (e.g. ``"Tenser"`` or ``"Void Connections"``).
-        limit: Maximum number of results to return. Defaults to 5.
-
-    Returns:
-        str: A formatted, human-readable block of the top matches, each showing
-        title, file path, tags, and snippet. Returns an error string if the vault
-        map database is missing or unreadable.
-    """
-    import vault_db
-
-    try:
-        results = vault_db.search_documents(query, limit=limit)
-    except (sqlite3.Error, OSError, ValueError) as e:
-        return f"Error reading vault map database: {e}"
-
-    if not results:
-        return f"No results found in the Obsidian Vault for '{query}'."
-
-    output = f"Top {len(results)} Vault Search Results for '{query}':\n\n"
-    for r in results:
-        output += f"--- {r['title']} ---\n"
-        output += f"Path: {r['path']}\n"
-        if r["tags"]:
-            output += f"Tags: {', '.join(r['tags'])}\n"
-        snippet = r.get("snippet") or r.get("gist") or ""
-        output += f"Preview: {snippet}\n\n"
-
-    return output.strip()
 
 
 def update_context_log(target_filepaths: list, new_summary: str) -> str:

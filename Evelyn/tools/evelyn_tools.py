@@ -35,7 +35,6 @@ from typing import Any
 import evelyn_config as cfg
 
 TOOLS_DIR = getattr(cfg, "TOOLS_DIR", r"/home/rathius/evelyn/Evelyn/tools")
-VAULT_BASE = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
 
 def get_jaccard_similarity(str1: str = "", str2: str = "", **kwargs) -> float:
@@ -83,7 +82,6 @@ if TOOLS_DIR not in sys.path:
 
 
 import chroma_rag
-import context_manager  # [[context_manager.py]]
 import dream_manager
 import gcal_sync
 import gdrive_sync
@@ -103,7 +101,6 @@ def _reload():
         "chroma_rag",
         "dream_manager",
         "journal_manager",
-        "context_manager",
         "ingest_obsidian_knowledge",
         "gcal_sync",
         "gtasks_sync",
@@ -382,56 +379,6 @@ def recall_specific_memory(file_path: str = "", **kwargs) -> str:
     file_path = file_path or str(kwargs.get("filepath") or kwargs.get("path") or kwargs.get("file") or "")
     _log_deprecation("recall_specific_memory", f"file_path='{file_path}'")
     return "[NOTICE] 'recall_specific_memory' is deprecated. Vault files are indexed in Chroma RAG context. For non-vault code/workspace files, use 'read_file'."
-
-
-def log_context_fact(category: str = "", summary: str = "", secondary_cats: str = "", **kwargs) -> str:
-    """Write a context fact file to the in-vault Pending folder.
-
-    Args:
-        category: Primary category/domain.
-        summary: Precise fact summary.
-        secondary_cats: Comma-separated secondary categories.
-        **kwargs: Flexible keyword arguments.
-
-    Returns:
-        str: Confirmation message.
-    """
-    _reload()
-    category = category or str(kwargs.get("cat") or kwargs.get("domain") or "")
-    summary = summary or str(kwargs.get("fact") or kwargs.get("text") or "")
-    secondary_cats = secondary_cats or str(kwargs.get("refs") or kwargs.get("tags") or "")
-    if not summary.strip():
-        return "Error: log_context_fact called with blank summary. Aborted."
-    refs = [c.strip() for c in secondary_cats.split(",")] if secondary_cats.strip() else []
-    subject = kwargs.get("subject") or kwargs.get("subj")
-    tags = kwargs.get("tags")
-    return context_manager.append_context_log(
-        category_code=category,
-        summary=summary,
-        secondary_cats=refs,
-        subject=subject,
-        tags=tags,
-    )
-
-
-def update_context_fact(target_filepaths: list | None = None, new_summary: str = "", **kwargs) -> str:
-    """Queue an update request for an existing vault context file.
-
-    Args:
-        target_filepaths: List of vault paths targeted for consolidation.
-        new_summary: Revised context summary.
-        **kwargs: Flexible keyword arguments.
-
-    Returns:
-        str: Confirmation message.
-    """
-    _reload()
-    if target_filepaths is None:
-        target_filepaths = kwargs.get("filepaths") or kwargs.get("paths") or []
-    new_summary = new_summary or str(kwargs.get("summary") or kwargs.get("revised_summary") or "")
-    if not new_summary.strip():
-        return "Error: update_context_fact called with blank new_summary. Aborted."
-    return context_manager.update_context_log(target_filepaths, new_summary)
 
 
 def generate_image(
