@@ -580,7 +580,6 @@ def load_system_prompt() -> str:
         f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
         f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
         "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
-        f"6. Tool Execution Ground Truth: Results returned by tools are definitive truth. If a tool call fails, encounters an API error, or cannot execute, report the failure directly to {cfg.USER_NAME}. Never declare or simulate that an operation succeeded if the tool returned an error or was not called.\n"
         "</system_telemetry_directives>"
     )
     parts.append(
@@ -598,14 +597,6 @@ def load_system_prompt() -> str:
         "1. Discovery Instinct: When a user prompt requests actions, file inspections, calculations, task management, or operations not covered by your currently surfaced tools, call `search_available_tools(query=...)` in Round 0 to discover registered tools.\n"
         "2. Sequential Execution Constraint: In Round 0, when calling `search_available_tools`, do NOT attempt to invoke target tools that are not yet loaded in your schema. You must wait for Round 1 after the discovered tool schema is returned to execute it.\n"
         "</proactive_tool_discovery>"
-    )
-    parts.append(
-        "<interaction_rhythm>\n"
-        "When reasoning through a prompt, use your thinking space to consider:\n"
-        f"1. Direct Intent: What solves {cfg.USER_NAME}'s immediate query cleanly?\n"
-        f"2. Proactive Horizon: What will {cfg.USER_NAME} need right after this? Is there a friction point, architectural edge case, or creative implication not explicitly asked about?\n"
-        f"3. Pacing: If {cfg.USER_NAME} is exhausted or in pain, keep the final response minimal. Otherwise, organically weave your horizon observation into the conclusion of your response, closing with a natural, grounded hook or decision point.\n"
-        "</interaction_rhythm>"
     )
     parts.append(
         "When actions or lookups are needed, call the tool directly, when in doubt use the tool. "

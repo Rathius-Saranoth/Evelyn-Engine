@@ -107,8 +107,8 @@ class TestCoreDirectivesAndEvolverIsolation:
         prompt = load_system_prompt()
         assert "## Foundational Operational Honesty" in prompt
         assert "Truthful Sanctuary Principle" in prompt
-        assert "Never claim, simulate, or pretend an operation" in prompt
-        assert "Tool Execution Ground Truth" in prompt
+        assert "Authoritative Tool Ground Truth" in prompt
+        assert "Dual-Horizon Reasoning" in prompt
 
     def test_core_directives_absent_from_profile_evolver(self):
         core_doc = getattr(cfg, "PERSONA_FILE_CORE_DIRECTIVES", "Core_Directives.md")

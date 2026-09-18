@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-17 18:49:24
+date modified: 2026-09-18 17:42:28
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,48 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.133] - 2026-09-18 — *Profile Evolver 4-Tier Precedence Hierarchy, Adaptive Deduplication & Rejection Telemetry*
+
+### Added & Architectural
+- **Strict 4-Tier Precedence Hierarchy (`Evelyn/tools/profile_evolver.py`)**:
+  - Implemented unidirectional precedent resolution hierarchy: `Core_Directives.md` (Tier 0, immutable) -> `System_Directives.md` (Tier 1) -> `Assistant_Profile.md` (Tier 2) -> `User_Profile.md` (Tier 3).
+  - Wired `DOCUMENT_EVOLUTION_ORDER = [PERSONA_FILE_DIRECTIVES, PERSONA_FILE_ASSISTANT, PERSONA_FILE_USER]` ensuring evolution passes evaluate top-down.
+  - Implemented `_load_precedent_documents()` to dynamically extract live precedent rules from disk, isolating subordinate documents from sibling in-flight drafts to prevent cross-draft dependency corruption.
+- **Adaptive Lexical Gate & Hard Domain Boundary Guards (`Evelyn/tools/profile_evolver.py`)**:
+  - Implemented `_filter_delta_against_precedents()` combining `string_utils.calculate_token_fuzzy_score` (threshold $\ge 0.75$) for short directives (<8 tokens) and `evelyn_tools.get_jaccard_similarity` (threshold $\ge 0.70$) for long phrases ($\ge 8$ tokens) to prevent precedent rephrasing and semantic drift.
+  - Enforced hard domain regex guards (`DOMAIN_BANNED_PATTERNS`) to strictly reject operational tool/inquiry directives in `Assistant_Profile.md` and `User_Profile.md`.
+  - Added `_sanitize_and_validate_narrative_boundaries()` for surgical sentence-level regex stripping of operational leaks in Assistant narrative prose with fallback to baseline if structural invariants fail.
+- **Audit Logging & Structured Rejection Telemetry**:
+  - Structured rejections tracked in proposal payloads with `rejections_summary` counts (`duplicate_of_precedent`, `conflicts_with_precedent`, `domain_violation`) and telemetry (`candidate`, `precedent_doc`, `matched_rule`, `similarity_score`, `details`), capped at top 10 to avoid SQLite row bloat.
+  - Added `touch_entry_evolved()` stamping and `state["last_run_per_doc"]` timestamp updates on `NO_CORE_CHANGES` to guarantee loop termination and prevent infinite re-evaluation cycles with zero disk churn.
+- **Automated Verification Suite**:
+  - Created `Evelyn/tests/test_profile_evolver_hierarchy_and_rejections.py` covering sequence order, unidirectional precedence, live precedent loading, adaptive lexical gates, domain boundary blocking, surgical narrative sanitization, and zero-disk-churn stamping.
+
+### Changed & Hardened
+- **Hardening Test Compatibility (`Evelyn/tests/test_profile_evolver_hardening.py`)**:
+  - Updated `test_runaway_proposal_circuit_breaker_blocks_staging` to patch `profile_ledger.compile_clean_markdown`, ensuring full compatibility with the authoritative ledger architecture.
+
+## [000.006.132] - 2026-09-18 — *Core Directives Consolidation, Redundancy Elimination & Immutable Guardrails*
+
+### Added & Architectural
+- **Expanded Immutable Core Directives (`Evelyn/persona/Core_Directives.md`, `templates/Core_Directives.example.md`)**:
+  - Unified operational candor and authentic sincerity directives into `## Foundational Operational Honesty & Authenticity` (`Critical Candor & Sincerity`, `Capability Honesty`, `Development Rigor`).
+  - Formally established `## Interaction Rhythm & Forward Momentum` (`Dual-Horizon Reasoning`, `Adaptive Pacing`, `Proactive Engagement Over Corporate Fluff`) as non-negotiable conversational architecture.
+  - Anchored `## Inviolable Relational Boundaries & Transparency` (`Full System Transparency`, `Relational Framing & Terminology Boundaries`) to ensure user visibility and relationship dynamics cannot be eroded or drifted by the autonomous profile evolver.
+
+### Changed & Pruned
+- **Redundancy Elimination in Server Prompt (`evelyn_server.py`)**:
+  - Removed duplicate Item 6 (`Tool Execution Ground Truth`) from `<system_telemetry_directives>` in `load_system_prompt()`, relying directly on `Core_Directives.md` as single source of truth.
+  - Pruned `<interaction_rhythm>` XML envelope from `load_system_prompt()`, consolidating behavioral pacing into `Core_Directives.md`.
+- **System Directives Refinement (`Evelyn/persona/System_Directives.md`, `System_Directives_facts.md`)**:
+  - Migrated `Direct Candor`, `Capability Honesty`, `Authentic Sincerity`, and `Development Rigor` to `Core_Directives.md`.
+  - Pruned duplicate `Verification` and `Proactive Engagement` bullets.
+  - Cleaned `Concise Communication` to eliminate redundant forward-momentum phrasing.
+  - Synchronized `System_Directives_facts.md` ledger to maintain structural and category parity.
+- **Assistant Profile Polish (`Evelyn/persona/Assistant_Profile.md`, `Assistant_Profile_facts.md`)**:
+  - Pruned mechanical operational inquiry and forward momentum clauses from `Voice & Communication`, focusing narrative voice on authentic British cadence, emotional pacing, and literal interpretation.
+  - Synchronized `Assistant_Profile_facts.md` ledger.
 
 ## [000.006.131] - 2026-09-17 — *Vulture 60% Confidence Migration, Dead-Code Pruning & Triage Protocol*
 
