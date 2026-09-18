@@ -1,6 +1,6 @@
 # test_profile_evolver_hardening.py
 # date created: 2026-09-11
-# date modified: 2026-09-11 07:34:10
+# date modified: 2026-09-18 17:42:28
 # tags: #test, #profile_evolver, #hardening, #compaction, #circuit_breaker
 
 """Unit tests for profile evolver hardening against runaway proposals, backlog capping, and compaction pruning."""
@@ -177,8 +177,11 @@ Here is a summary of his traits:
         mock_ollama.return_value = huge_body
         mock_proofread.side_effect = lambda fn, body: body
 
-        # Mock prune_bullets_to_word_budget to also return huge body to simulate pruner unable to reach target
-        with patch("profile_evolver.prune_bullets_to_word_budget", return_value=huge_body):
+        # Mock ledger compilation and prune_bullets_to_word_budget to return huge body to simulate runaway proposal
+        with (
+            patch("profile_ledger.compile_clean_markdown", return_value=huge_body),
+            patch("profile_evolver.prune_bullets_to_word_budget", return_value=huge_body),
+        ):
             success = await profile_evolver._evolve_document(
                 cfg.PERSONA_FILE_USER,
                 [{"id": 1, "date": "2026-08-01", "created_at": 1000, "category": "Cat01-U", "observation": "test"}],

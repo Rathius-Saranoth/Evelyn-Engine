@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-12 09:46:57
+# date modified: 2026-09-18 17:42:28
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -37,10 +37,12 @@ import httpx
 import evelyn_config as cfg
 
 try:
+    import evelyn_tools
     import memory_db
     import profile_ledger
+    import string_utils
 except ImportError:
-    from Evelyn.tools import memory_db, profile_ledger
+    from Evelyn.tools import evelyn_tools, memory_db, profile_ledger, string_utils
 
 
 def _sync_read_file(path: str) -> str:
@@ -90,6 +92,56 @@ DOCUMENT_CATEGORIES = {
         f"Cat14-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat16-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat16-{cfg.SUBJECT_CODE_USER}",
+    ],
+}
+
+# ---------------------------------------------------------------------------
+# Strict Unidirectional Precedence Hierarchy & Evolution Order
+# ---------------------------------------------------------------------------
+DOCUMENT_EVOLUTION_ORDER: list[str] = [
+    cfg.PERSONA_FILE_DIRECTIVES,  # Priority 2: System Directives evolves first
+    cfg.PERSONA_FILE_ASSISTANT,   # Priority 3: Assistant Profile evolves second
+    cfg.PERSONA_FILE_USER,        # Priority 4: User Profile evolves third
+]
+
+DOCUMENT_HIERARCHY_PRECEDENCE: dict[str, list[str]] = {
+    cfg.PERSONA_FILE_DIRECTIVES: [
+        cfg.PERSONA_FILE_CORE_DIRECTIVES,
+    ],
+    cfg.PERSONA_FILE_ASSISTANT: [
+        cfg.PERSONA_FILE_CORE_DIRECTIVES,
+        cfg.PERSONA_FILE_DIRECTIVES,
+    ],
+    cfg.PERSONA_FILE_USER: [
+        cfg.PERSONA_FILE_CORE_DIRECTIVES,
+        cfg.PERSONA_FILE_DIRECTIVES,
+        cfg.PERSONA_FILE_ASSISTANT,
+    ],
+}
+
+# Domain boundary patterns (prohibited tokens/concepts per subordinate document)
+DOMAIN_BANNED_PATTERNS: dict[str, list[re.Pattern]] = {
+    cfg.PERSONA_FILE_ASSISTANT: [
+        re.compile(
+            r"\b(?:write_file|read_file|run_command|search_available_tools|search_vault_by_vector|query_database)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:docstring cues?|Round 0|Round 1|tool schema|mechanical steps|file extension)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\bPEP\s*8\b", re.IGNORECASE),
+        re.compile(r"\boperational inquiries\b", re.IGNORECASE),
+    ],
+    cfg.PERSONA_FILE_USER: [
+        re.compile(
+            r"\b(?:assistant persona|voice is melodic|British accent|Evelyn acts as|Evelyn embodies)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:write_file|read_file|run_command|search_available_tools)\b",
+            re.IGNORECASE,
+        ),
     ],
 }
 
@@ -635,6 +687,213 @@ def repair_missing_sections(filename: str, original_body: str, candidate_body: s
             reconstructed_blocks.append(f"{h}\n{orig_content}")
 
     return "\n\n".join(reconstructed_blocks).strip()
+
+
+def _load_precedent_documents(filename: str, persona_dir: str) -> tuple[str, list[tuple[str, str, str]]]:
+    """Load active on-disk precedent documents and extract precedent bullets.
+
+    Args:
+        filename: Target document filename being evaluated.
+        persona_dir: Directory containing live persona files.
+
+    Returns:
+        tuple[str, list[tuple[str, str, str]]]: (precedent_docs_str, precedent_bullets)
+            where precedent_bullets is a list of (doc_name, label, text).
+    """
+    precedent_names = DOCUMENT_HIERARCHY_PRECEDENCE.get(filename, [])
+    precedent_docs_context: list[str] = []
+    precedent_bullets: list[tuple[str, str, str]] = []
+    bullet_re = re.compile(
+        r"^\s*[-*]\s+(?:\*?\[Tier \d+\]\*?\s+)?\*\*([^*]+?)\*\*:\s*(.+)$", re.MULTILINE
+    )
+
+    for p_name in precedent_names:
+        p_path = os.path.join(persona_dir, p_name)
+        if os.path.exists(p_path):
+            try:
+                p_content = _sync_read_file(p_path)
+                _, p_body = split_frontmatter(p_content)
+                precedent_docs_context.append(
+                    f"DOCUMENT: {p_name} (AUTHORITATIVE PRECEDENT)\nCONTENT:\n{p_body.strip()}"
+                )
+
+                # Extract bullets from live markdown file
+                for match in bullet_re.finditer(p_body):
+                    label = match.group(1).strip()
+                    text = match.group(2).strip()
+                    precedent_bullets.append((p_name, label, text))
+
+                # Also inspect facts ledger if available for complete bullet inventory
+                ledger_name = profile_ledger.get_ledger_filename(p_name)
+                ledger_path = os.path.join(persona_dir, ledger_name)
+                if os.path.exists(ledger_path) and ledger_name != p_name:
+                    l_content = _sync_read_file(ledger_path)
+                    _, l_body = split_frontmatter(l_content)
+                    for match in bullet_re.finditer(l_body):
+                        label = match.group(1).strip()
+                        text = match.group(2).strip()
+                        if not any(b[1] == label and b[0] == p_name for b in precedent_bullets):
+                            precedent_bullets.append((p_name, label, text))
+            except OSError as e_p:
+                print(
+                    f"[PROFILE EVOLVER] Warning: could not load precedent doc {p_name}: {e_p}",
+                    flush=True,
+                )
+
+    precedent_docs_str = "\n\n".join(precedent_docs_context) if precedent_docs_context else "None"
+    return precedent_docs_str, precedent_bullets
+
+
+def _filter_delta_against_precedents(
+    filename: str,
+    delta: dict[str, Any],
+    precedent_bullets: list[tuple[str, str, str]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Filter candidate added/modified items against domain boundaries and precedent rules.
+
+    Args:
+        filename: Target document filename.
+        delta: Parsed JSON delta with 'added', 'modified', 'removed'.
+        precedent_bullets: List of (doc_name, label, text) extracted from precedent docs.
+
+    Returns:
+        tuple[dict[str, Any], list[dict[str, Any]]]: (sanitized_delta, rejections_list)
+    """
+    rejections: list[dict[str, Any]] = []
+    banned_patterns = DOMAIN_BANNED_PATTERNS.get(filename, [])
+
+    for op in ("added", "modified"):
+        items = delta.get(op, [])
+        if not items:
+            continue
+        accepted_items = []
+        for item in items:
+            fact_text = item.get("fact") or item.get("new_fact") or ""
+            label_text = item.get("label") or ""
+            combined_candidate = f"{label_text}: {fact_text}".strip()
+
+            # 1. Domain boundary check
+            domain_violation = False
+            for pat in banned_patterns:
+                if pat.search(combined_candidate):
+                    rejections.append({
+                        "candidate": combined_candidate,
+                        "reason": "domain_violation",
+                        "target_doc": filename,
+                        "details": f"Candidate contains pattern prohibited in {filename}: {pat.pattern}",
+                    })
+                    domain_violation = True
+                    break
+            if domain_violation:
+                continue
+
+            # 2. Adaptive lexical check against precedent bullets
+            cand_tokens = len(combined_candidate.split())
+            is_dup = False
+            for p_doc, p_label, p_text in precedent_bullets:
+                prec_full = f"{p_label}: {p_text}"
+                if cand_tokens < 8:
+                    score = string_utils.calculate_token_fuzzy_score(combined_candidate, prec_full)
+                    if score >= 0.75:
+                        rejections.append({
+                            "candidate": combined_candidate,
+                            "reason": "duplicate_of_precedent",
+                            "precedent_doc": p_doc,
+                            "matched_rule": p_label,
+                            "similarity_score": round(score, 3),
+                            "details": f"Token fuzzy similarity {score:.2f} >= 0.75 with rule in {p_doc}",
+                        })
+                        is_dup = True
+                        break
+                else:
+                    jaccard = evelyn_tools.get_jaccard_similarity(combined_candidate, prec_full)
+                    if jaccard >= 0.70:
+                        rejections.append({
+                            "candidate": combined_candidate,
+                            "reason": "duplicate_of_precedent",
+                            "precedent_doc": p_doc,
+                            "matched_rule": p_label,
+                            "similarity_score": round(jaccard, 3),
+                            "details": f"Jaccard similarity {jaccard:.2f} >= 0.70 with rule in {p_doc}",
+                        })
+                        is_dup = True
+                        break
+            if is_dup:
+                continue
+
+            accepted_items.append(item)
+
+        delta[op] = accepted_items
+
+    return delta, rejections
+
+
+def _sanitize_and_validate_narrative_boundaries(
+    candidate_body: str,
+    baseline_body: str,
+) -> tuple[str, bool, str]:
+    """Inspect Assistant_Profile narrative prose for operational/tool bleed.
+
+    Attempts a surgical regex sanitization first to strip offending sentences or clauses;
+    falls back to baseline_body only if structural invariants fail after sanitization.
+
+    Args:
+        candidate_body: Generated candidate narrative markdown.
+        baseline_body: Previous valid baseline body.
+
+    Returns:
+        tuple[str, bool, str]: (result_body, was_clean_or_sanitized, status_reason)
+    """
+    patterns = DOMAIN_BANNED_PATTERNS.get(cfg.PERSONA_FILE_ASSISTANT, [])
+    if not patterns:
+        return candidate_body, True, "No patterns defined"
+
+    candidate_sections = extract_sections(candidate_body)
+    voice_content = candidate_sections.get("## Voice & Communication", "")
+    if not voice_content:
+        return candidate_body, True, "Voice section absent"
+
+    has_leak = any(pat.search(voice_content) for pat in patterns)
+    if not has_leak:
+        return candidate_body, True, "Clean narrative boundaries"
+
+    # Attempt targeted sanitization: split into sentences and filter out offending sentences
+    sentences = re.split(r"(?<=[.!?])\s+", voice_content.strip())
+    sanitized_sentences = []
+    stripped_count = 0
+    for s in sentences:
+        if any(pat.search(s) for pat in patterns):
+            stripped_count += 1
+        else:
+            sanitized_sentences.append(s)
+
+    sanitized_voice = " ".join(sanitized_sentences)
+    candidate_sections["## Voice & Communication"] = sanitized_voice
+
+    # Reassemble body following canonical headers
+    canonical_headers = CANONICAL_DOCUMENT_SECTIONS.get(cfg.PERSONA_FILE_ASSISTANT, [])
+    reassembled_parts = []
+    for h in canonical_headers:
+        content = candidate_sections.get(h, "")
+        reassembled_parts.append(f"{h}\n{content.strip()}")
+    sanitized_body = "\n\n".join(reassembled_parts)
+
+    # Validate structural invariants
+    is_valid, reason, _ = validate_document_structure(
+        cfg.PERSONA_FILE_ASSISTANT, baseline_body, sanitized_body
+    )
+    if is_valid:
+        print(
+            f"[PROFILE EVOLVER] Sanitized narrative operational leak: stripped {stripped_count} sentence(s).",
+            flush=True,
+        )
+        return sanitized_body, True, f"Sanitized {stripped_count} operational sentence(s)"
+    else:
+        print(
+            f"[PROFILE EVOLVER WARNING] Narrative sanitization structural check failed ({reason}); falling back to baseline.",
+            flush=True,
+        )
+        return baseline_body, False, f"Structural check failed after strip: {reason}"
 
 
 # ---------------------------------------------------------------------------
@@ -1368,7 +1627,8 @@ async def run_profile_evolution():
         pending_props = memory_db.get_pending_proposals("profile_update")
         pending_files = {p["suggested_category"] for p in pending_props}
 
-        for filename, categories in DOCUMENT_CATEGORIES.items():
+        for filename in DOCUMENT_EVOLUTION_ORDER:
+            categories = DOCUMENT_CATEGORIES.get(filename, [])
             if filename in pending_files:
                 print(
                     f"[PROFILE EVOLVER] {filename} has a pending profile update. Skipping.",
@@ -1737,22 +1997,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     current_content = await asyncio.to_thread(_sync_read_file, fpath)
     frontmatter, current_body = split_frontmatter(current_content)
 
-    # Cross-document context to prevent topical redundancy
-    other_docs_context = []
-    for other_name in DOCUMENT_CATEGORIES:
-        if other_name == filename:
-            continue
-        other_path = _draft_path(other_name)
-        if not os.path.exists(other_path):
-            other_path = os.path.join(persona_dir, other_name)
-        if os.path.exists(other_path):
-            try:
-                other_content = await asyncio.to_thread(_sync_read_file, other_path)
-                _, other_body = split_frontmatter(other_content)
-                other_docs_context.append(f"DOCUMENT: {other_name}\nCONTENT:\n{other_body.strip()}")
-            except OSError as e_other:
-                print(f"[PROFILE EVOLVER] Warning: could not load other doc {other_name}: {e_other}", flush=True)
-    other_docs_str = "\n\n".join(other_docs_context) if other_docs_context else "None"
+    # Load active on-disk precedent documents and extract precedent bullets
+    precedent_docs_str, precedent_bullets = _load_precedent_documents(filename, persona_dir)
 
     # ---------------------------------------------------------------------------
     # Resume detection — load working ledger from draft or live ledger file
@@ -1789,7 +2035,12 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         e for e in sorted_entries if max(e.get("created_at", 0) or 0, e.get("updated_at", 0) or 0) > draft_cursor
     ]
 
-    cumulative_changelog: dict[str, list[str]] = {"added": [], "modified": [], "removed": []}
+    cumulative_changelog: dict[str, list[Any]] = {
+        "added": [],
+        "modified": [],
+        "removed": [],
+        "rejected": [],
+    }
     canonical_sections = CANONICAL_DOCUMENT_SECTIONS.get(filename, [])
     canonical_sections_str = "\n".join(f"- {s}" for s in canonical_sections) if canonical_sections else ""
 
@@ -1825,9 +2076,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"TARGET PERSPECTIVE: {perspective}\n\n"
                 f"PERSPECTIVE RULES:\n"
                 f"{guidelines}\n\n"
-                f"OTHER ACTIVE SYSTEM PROMPT DOCUMENTS (Do NOT duplicate any information covered here):\n"
+                f"AUTHORITATIVE PRECEDENT DOCUMENTS (HIGHER PRIORITY — SUPREME AUTHORITY):\n"
+                f"The following active on-disk documents have absolute precedence over {filename}.\n"
                 f"---\n"
-                f"{other_docs_str}\n"
+                f"{precedent_docs_str}\n"
                 f"---\n\n"
                 f"REQUIRED CANONICAL SECTION HEADERS:\n"
                 f"{canonical_sections_str}\n\n"
@@ -1850,7 +2102,14 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"   - STRICTLY FORBID scare quotes, coined metaphors, or figurative nicknames.\n"
                 f"   - NO CONFLATION: Keep distinct traits and observations strictly separated into individual bullet points. Do NOT merge unrelated topics into composite sentences.\n"
                 f"   - Apply the PERSPECTIVE RULES strictly.\n"
-                f"4. ATOMIC DELTA: If updates are warranted, specify exactly which items are added, modified, or removed. If an existing bullet covers the observation, either modify it or do nothing. If the observation is already known, do NOT add duplicates.\n"
+                f"4. ATOMIC DELTA & HIERARCHICAL PRECEDENCE:\n"
+                f"   - STRICT NON-DUPLICATION: Do NOT propose any facts, guidelines, or traits that duplicate, reword, or restate concepts already established in the Precedent Documents above.\n"
+                f"   - STRICT NON-CONTRADICTION: Subordinate documents are STRICTLY FORBIDDEN from proposing facts that negate, weaken, conflict with, or undermine any rule in a Precedent Document. Situational nuances (e.g. softening tone during illness) are permitted ONLY when they align with superior directives; directly contradicting core invariants (truthful reporting, critical candor, execution ground truth, no sycophancy) is strictly prohibited.\n"
+                f"   - DOMAIN BOUNDARIES:\n"
+                f"     * System Directives exclusively owns operational mechanisms, tool dispatch, code hygiene, and routines.\n"
+                f"     * Assistant Profile exclusively owns narrative voice, cadence, aesthetic, and emotional warmth. (Must NOT define tool mechanics).\n"
+                f"     * User Profile exclusively owns personal context, health, and lifestyle. (Must NOT define assistant/system behaviors).\n"
+                f"   - If updates are warranted, specify exactly which items are added, modified, or removed. If an existing bullet covers the observation, either modify it or do nothing. If the observation is already known, do NOT add duplicates.\n"
                 f"5. CANONICAL SECTIONS: All additions/modifications must target one of the canonical section headers listed above.\n"
                 f"6. JSON OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
                 f"{{\n"
@@ -1908,14 +2167,21 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             if raw_delta:
                 delta = _parse_json_delta(raw_delta)
                 if delta:
+                    # Filter proposed changes against precedents and domain boundaries
+                    delta, pass_rejections = _filter_delta_against_precedents(
+                        filename, delta, precedent_bullets
+                    )
+                    cumulative_changelog["rejected"].extend(pass_rejections)
+
                     current_sections, pass_changelog = profile_ledger.apply_ledger_delta(current_sections, delta)
                     cumulative_changelog["added"].extend(pass_changelog["added"])
                     cumulative_changelog["modified"].extend(pass_changelog["modified"])
                     cumulative_changelog["removed"].extend(pass_changelog["removed"])
-                    if any(pass_changelog.values()):
+                    if any(pass_changelog.values()) or pass_rejections:
                         print(
                             f"[PROFILE EVOLVER] {filename}: Pass {batch_idx} delta applied: "
-                            f"{len(pass_changelog['added'])} added, {len(pass_changelog['modified'])} modified, {len(pass_changelog['removed'])} removed.",
+                            f"{len(pass_changelog['added'])} added, {len(pass_changelog['modified'])} modified, "
+                            f"{len(pass_changelog['removed'])} removed, {len(pass_rejections)} rejected.",
                             flush=True,
                         )
                 else:
@@ -1936,11 +2202,31 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     # ---------------------------------------------------------------------------
     # Evaluation of Changes & Budget Pruning
     # ---------------------------------------------------------------------------
-    has_changes = any(cumulative_changelog.values())
+    has_changes = any(cumulative_changelog[k] for k in ("added", "modified", "removed"))
     if not has_changes and draft_cursor == 0.0:
         print(f"[PROFILE EVOLVER] No changes proposed for {filename}.", flush=True)
         _clear_draft(filename, state)
-        update_doc_status(state, filename, "NO_CORE_CHANGES", f"{len(new_entries)} entries evaluated; no core changes")
+
+        now_ts = time.time()
+        for entry in new_entries:
+            eid = entry.get("id")
+            if eid:
+                memory_db.touch_entry_evolved(int(eid), filename, now_ts)
+
+        state["last_run_per_doc"][filename] = now_ts
+        _save_evolution_state(state)
+
+        rejections_note = (
+            f" ({len(cumulative_changelog['rejected'])} rejected)"
+            if cumulative_changelog["rejected"]
+            else ""
+        )
+        update_doc_status(
+            state,
+            filename,
+            "NO_CORE_CHANGES",
+            f"{len(new_entries)} entries evaluated; no core changes{rejections_note}",
+        )
         return False
 
     # Deterministic Word Budget Pruning on Authoritative Ledger
@@ -1961,12 +2247,17 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"DOCUMENT: {filename}\n"
             f"TARGET PERSPECTIVE: {perspective}\n\n"
             f"PERSPECTIVE RULES:\n{guidelines}\n\n"
+            f"PRECEDENT DOCUMENTS (DO NOT DUPLICATE OR CONTRADICT):\n"
+            f"---\n{precedent_docs_str}\n---\n\n"
             f"REQUIRED CANONICAL SECTION HEADERS:\n{canonical_sections_str}\n\n"
             f"AUTHORITATIVE FACT INVENTORY (Transform all facts into continuous narrative prose under their respective headers):\n"
             f"---\n{clean_bullets}\n---\n\n"
             f"CRITICAL INSTRUCTIONS:\n"
             f"- Transform the fact inventory into rich, continuous first-person narrative prose under each canonical header.\n"
             f"- STRICTLY FORBID BULLET POINTS: Every section must be composed of smooth, expressive prose paragraphs.\n"
+            f"- STRICT PROHIBITION ON OPERATIONAL EXPANSION: Do NOT invent, narrate, or rephrase operational tool rules, tool names, forward-momentum mechanics, response formatting, or query resolution directives. Those belong exclusively to Core Directives and System Directives.\n"
+            f"- Confine '## Voice & Communication' strictly to {cfg.ASSISTANT_NAME}'s vocal aesthetic, British cadence, emotional tone, narrative warmth, and literal interpretation.\n"
+            f"- NO CONFLICT: Never output prose that contradicts the Truthful Sanctuary Principle, Critical Candor, or Execution Integrity established in Core Directives.\n"
             f"- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence.\n"
             f"- NO SCARE QUOTES OR SELF-EXPLAINING PARENTHETICALS: Strip quotes around concepts. Embody traits directly.\n"
             f"- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract.\n"
@@ -1991,6 +2282,9 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             synth_result = await _call_ollama(synth_messages)
             synth_clean = extract_markdown_content(synth_result) if synth_result else ""
             synth_clean = normalize_document_text(synth_clean)
+            synth_clean, _was_sanitized, _san_reason = _sanitize_and_validate_narrative_boundaries(
+                synth_clean, current_body
+            )
             is_valid, reason, _ = validate_document_structure(filename, current_body, synth_clean)
             if not is_valid:
                 print(
@@ -2036,7 +2330,27 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     if proposed_body.strip() == current_body.strip():
         print(f"[PROFILE EVOLVER] Proposed body identical to current document for {filename}.", flush=True)
         _clear_draft(filename, state)
-        update_doc_status(state, filename, "NO_CORE_CHANGES", f"{len(new_entries)} entries evaluated; no core changes")
+
+        now_ts = time.time()
+        for entry in new_entries:
+            eid = entry.get("id")
+            if eid:
+                memory_db.touch_entry_evolved(int(eid), filename, now_ts)
+
+        state["last_run_per_doc"][filename] = now_ts
+        _save_evolution_state(state)
+
+        rejections_note = (
+            f" ({len(cumulative_changelog['rejected'])} rejected)"
+            if cumulative_changelog["rejected"]
+            else ""
+        )
+        update_doc_status(
+            state,
+            filename,
+            "NO_CORE_CHANGES",
+            f"{len(new_entries)} entries evaluated; no core changes{rejections_note}",
+        )
         return False
 
     # Package Proposal with Structured Reason & Candidate Ledger
@@ -2047,7 +2361,26 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         summary_parts.append(f"Updated {len(cumulative_changelog['modified'])} facts")
     if cumulative_changelog["removed"]:
         summary_parts.append(f"Removed {len(cumulative_changelog['removed'])} facts")
-    summary_text = f"Evolving {filename}: {', '.join(summary_parts)}." if summary_parts else f"Evolving {filename} based on recent context entries."
+    if cumulative_changelog["rejected"]:
+        summary_parts.append(f"{len(cumulative_changelog['rejected'])} rejected")
+    summary_text = (
+        f"Evolving {filename}: {', '.join(summary_parts)}."
+        if summary_parts
+        else f"Evolving {filename} based on recent context entries."
+    )
+
+    rejections_summary = {
+        "duplicate_of_precedent": sum(
+            1 for r in cumulative_changelog["rejected"] if r.get("reason") == "duplicate_of_precedent"
+        ),
+        "conflicts_with_precedent": sum(
+            1 for r in cumulative_changelog["rejected"] if r.get("reason") == "conflicts_with_precedent"
+        ),
+        "domain_violation": sum(
+            1 for r in cumulative_changelog["rejected"] if r.get("reason") == "domain_violation"
+        ),
+    }
+    capped_rejected = cumulative_changelog["rejected"][:10]
 
     current_time_str = datetime.datetime.now(datetime.UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
     updated_ledger_frontmatter = update_frontmatter_modified_date(ledger_frontmatter, current_time_str)
@@ -2058,6 +2391,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
         "added": cumulative_changelog["added"],
         "modified": cumulative_changelog["modified"],
         "removed": cumulative_changelog["removed"],
+        "rejections_summary": rejections_summary,
+        "rejected": capped_rejected,
         "candidate_ledger": candidate_ledger_text,
     }
     reason_str = json.dumps(reason_payload, indent=2)
@@ -2077,6 +2412,8 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
     )
     print(f"[PROFILE EVOLVER] Created profile_update proposal for {filename}.", flush=True)
     update_doc_status(state, filename, "PROPOSAL_STAGED", f"Proposal staged ({len(new_entries)} entries)")
+    state["last_run_per_doc"][filename] = time.time()
+    _save_evolution_state(state)
     _clear_draft(filename, state)
     return True
 
