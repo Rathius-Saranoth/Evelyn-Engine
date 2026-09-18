@@ -167,21 +167,21 @@ def test_contiguous_chunk_fusion():
 
 
 def test_fact_consolidation_semantic_prefilter():
-    """Verify semantic pre-filtering and Jaccard token overlap in fact consolidator."""
-    from Evelyn.tools import fact_consolidator
+    """Verify semantic pre-filtering and Jaccard token overlap in fact deduplication."""
+    from Evelyn.tools import fact_deduplicator
 
     # Test token Jaccard calculation
     text_a = "Prefers dark roast espresso coffee with oat milk"
     text_b = "Orders oat milk espresso coffee every morning"
     text_c = "Drives a 2018 Honda Civic to the grocery market"
 
-    sim_ab = fact_consolidator._calculate_token_jaccard(text_a, text_b)
-    sim_ac = fact_consolidator._calculate_token_jaccard(text_a, text_c)
+    sim_ab = fact_deduplicator.calculate_token_jaccard(text_a, text_b)
+    sim_ac = fact_deduplicator.calculate_token_jaccard(text_a, text_c)
 
     assert sim_ab > 0.20
     assert sim_ac == 0.0
 
-    # Test window filtering
+    # Test token jaccard filtering on candidate items
     anchor = {
         "id": 1,
         "summary": "User prefers dark roast Ethiopian espresso beans and oat milk latte.",
@@ -205,9 +205,10 @@ def test_fact_consolidation_semantic_prefilter():
         },
     ]
 
-    filtered = fact_consolidator._filter_semantically_relevant_window(
-        anchor, comparison_window, max_distance=0.0  # Force purely lexical path for hermetic testing
-    )
+    filtered = [
+        r for r in comparison_window
+        if fact_deduplicator.calculate_token_jaccard(anchor["summary"], r["summary"]) >= 0.15
+    ]
     filtered_ids = [r["id"] for r in filtered]
     assert 2 in filtered_ids
     assert 4 in filtered_ids

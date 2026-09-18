@@ -65,3 +65,37 @@ _.TAG_LIBRARIAN_BATCH_SIZE
 _.TAG_LIBRARIAN_ENABLED
 _.TAG_LIBRARIAN_FORMAT_RULES
 _.TAG_LIBRARIAN_IDLE_THRESHOLD
+_.CONTEXT_DIR
+
+# Standalone scripts, services, and MCP tools consumers
+_.enqueue_remap
+_.find_semantic_neighbors
+_.move_document
+_.get_all_entities
+_.get_ollama_status
+_.STT_MODEL_SIZE
+_.STT_DEVICE
+_.STT_COMPUTE_TYPE
+_.rollback_db
+
+# Public library primitives, dataclass telemetry, and utility helpers
+_.duration_ms
+_.register_provider
+_.record_media_share
+_.record_system_alert
+_.link_rag_telemetry_to_message
+_.tokenize_wikilink
+_.run_master_librarian_audit
+_.run_master_librarian_audit_async
+_.get_entry_document_evolutions
+_.get_all_queued_fact_merge_ids
+_.query_ollama_json
+_.get_profile_filename
+_.build_memory_context_envelope
+_.get_idle_queue
+_.acquire_next_idle_task
+_.reset_alert_cache
+_.is_valid_version
+_.normalize_vault_path
+_.append_context_log
+_.update_context_log

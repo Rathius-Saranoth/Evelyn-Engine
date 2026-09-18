@@ -84,8 +84,8 @@ def main() -> int:
     parser.add_argument(
         "--min-confidence",
         type=int,
-        default=70,
-        help="Minimum confidence threshold for Vulture (default: 70).",
+        default=60,
+        help="Minimum confidence threshold for Vulture (default: 60).",
     )
     parser.add_argument(
         "--skip-ruff",

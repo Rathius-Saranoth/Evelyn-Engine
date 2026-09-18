@@ -44,7 +44,6 @@ from Evelyn.tools.string_utils import escape_xml_content, wrap_xml_envelope
 logger = logging.getLogger("evelyn.auto_journaler")
 
 TASK_NAME = "auto_journaler"
-_auto_journal_task: asyncio.Task | None = None
 
 
 def resolve_target_journal_date(

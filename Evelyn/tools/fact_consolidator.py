@@ -32,7 +32,6 @@ import datetime
 import importlib
 import json
 import logging
-import os
 import re
 import sqlite3
 import time
@@ -49,10 +48,9 @@ from Evelyn.tools import (
 )
 from Evelyn.tools.fact_categorizer import (
     remediate_database_categories,
-    validate_and_normalize_category,
 )
-from Evelyn.tools.fact_deduplicator import (
-    calculate_token_jaccard as _calculate_token_jaccard,
+from Evelyn.tools.fact_categorizer import (
+    validate_and_normalize_category as validate_and_normalize_category,
 )
 from Evelyn.tools.fact_deduplicator import (
     fast_deduplicate_exact_matches,
@@ -68,14 +66,6 @@ _background_tasks: set[asyncio.Task] = set()
 _consolidating = False
 _last_run_ts: float = 0.0
 _group_start_index: int = 0
-_category_scan_state: dict[str, dict] = {}
-
-# State file lives next to the chat DB for colocation with other state files.
-_SCAN_STATE_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(cfg.CHAT_DB_PATH)),
-    "evelyn_consolidation_offsets.json",
-)
-
 _consolidation_task: asyncio.Task | None = None
 
 
@@ -122,39 +112,6 @@ def _set_status_in_server(
         )
 
 
-def _load_scan_state() -> None:
-    """Load per-category anchor scan state from disk into _category_scan_state."""
-    global _category_scan_state
-    try:
-        with open(_SCAN_STATE_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            cleaned_data: dict[str, dict] = {}
-            for cat_key, val in data.items():
-                if not isinstance(val, dict):
-                    continue
-                norm_cat = validate_and_normalize_category(cat_key)
-                if norm_cat and (norm_cat not in cleaned_data or cat_key == norm_cat):
-                    cleaned_data[norm_cat] = val
-            _category_scan_state = cleaned_data
-            if len(cleaned_data) != len(data):
-                _save_scan_state()
-    except FileNotFoundError:
-        _category_scan_state = {}
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"[CONSOLIDATOR] Could not load scan state: {e}")
-        _category_scan_state = {}
-
-
-def _save_scan_state() -> None:
-    """Persist _category_scan_state to disk."""
-    try:
-        with open(_SCAN_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_category_scan_state, f, indent=2)
-    except OSError as e:
-        logger.warning(f"[CONSOLIDATOR] Could not save scan state: {e}")
-
-
 async def _call_ollama(
     messages: list[dict],
     timeout: int = 60,
@@ -193,7 +150,6 @@ async def _call_ollama(
     }
 
     content_buffer = ""
-    thinking_buffer = ""
 
     try:
         async with (
@@ -213,7 +169,6 @@ async def _call_ollama(
                     chunk = json.loads(line)
                     msg = chunk.get("message", {})
                     content_buffer += msg.get("content", "")
-                    thinking_buffer += msg.get("thinking", "")
                 except json.JSONDecodeError:
                     continue
 
@@ -296,34 +251,6 @@ def scan_context_entries() -> list[dict]:
 async def generate_consolidation_proposal(cluster: dict) -> str | None:
     """Generate consolidation proposal delegating to fact_deduplicator."""
     return await fact_deduplicator.generate_consolidation_proposal(cluster, _call_ollama)
-
-
-async def find_consolidation_candidates(
-    records: list[dict] | None = None,
-    cat00: str | None = None,
-) -> tuple[list[dict], list[dict]]:
-    """Legacy facade returning candidate clusters and recat suggestions."""
-    clusters = fact_deduplicator.find_deduplication_candidates(
-        batch_limit=getattr(cfg, "CONSOLIDATION_BATCH_SIZE", 6),
-        distance_threshold=getattr(cfg, "CONSOLIDATION_VECTOR_PREFILTER_DISTANCE", 0.40),
-    )
-    return clusters, []
-
-
-def _filter_semantically_relevant_window(
-    anchor: dict,
-    comparison_window: list[dict],
-    max_distance: float | None = None,
-) -> list[dict]:
-    """Backwards compatibility wrapper for tests."""
-    _ = max_distance
-    anchor_obs = str(anchor.get("summary") or anchor.get("observation") or "").strip()
-    relevant = []
-    for r in comparison_window:
-        obs = str(r.get("summary") or r.get("observation") or "").strip()
-        if _calculate_token_jaccard(anchor_obs, obs) >= 0.15:
-            relevant.append(r)
-    return relevant
 
 
 # ============================================================================
