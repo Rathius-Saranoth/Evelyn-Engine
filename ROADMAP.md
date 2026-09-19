@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-18 19:44:55
+date modified: 2026-09-19 09:43:56
 ---
 # Evelyn Project Roadmap
 
@@ -83,7 +83,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Developer Web UI**: Touch-optimized web dashboard (`dev.html`) with live Heavy Task telemetry, Unified Triage Queue, and Deep Research monitor.
 - [x] **Vault Maintenance & Staging Pipeline**: Automated PDF staging queues with domain routing, rich index cards, content-hash (SHA-256) tracking, and zero-overhead reorganization.
 - [x] **Master Librarian & Semantic Tagging Engine**: Decoupled 2-tier vault curation ecosystem separating rapid reflex housekeeping (`master_librarian`, format, and link healing) from heavy diurnal semantic Tag RAG clustering under the canonical `backlog_drainer` framework.
-- [x] **Single-Stream Agentic Architecture & Telemetry**: Unified streaming inference loop with live thinking deltas, intermediate tool execution, canonical XML telemetry envelopes, direct dense vector RAG, and dynamic tool surfacing.
+- [x] **Native Multi-Channel Agentic Architecture & Telemetry**: Unified streaming inference loop consuming the model's native reasoning, tool-call, and content channels directly, with structured per-round traces persisted for identical live and restored rendering, a reasoning budget that breaks runaway thought loops, canonical XML telemetry envelopes, direct dense vector RAG, and dynamic tool surfacing.
 - [x] **Multi-Node Distributed Expansion**: Distributed service workloads across dedicated infrastructure (dual CPU host allocation and dedicated remote FLUX.1 host).
 - [x] **Deterministic Code Hygiene & Wiring Verification**: Mandatory 3-stage validation gate integrating Ruff static linting, AST config-wiring pytest checks, and Vulture compiler-level dead-code auditing.
 - [x] **Conversational Feedback & Quality Telemetry**: Interactive response rating (upvote/downvote) in Chat UI with satisfaction analytics and persistent RAG retrieval event inspection in DevUI.

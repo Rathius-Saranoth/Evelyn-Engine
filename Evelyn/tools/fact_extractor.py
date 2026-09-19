@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-19 09:31:34
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -45,6 +45,11 @@ from Evelyn.tools.tag_librarian import is_excluded_tag, normalize_tag_format
 # ---------------------------------------------------------------------------
 # Module-level regex constants
 # ---------------------------------------------------------------------------
+
+# Generation terminators for structured YAML extraction. Owned here rather than
+# inherited from conversational config: these fences are the only strings that
+# legitimately end an extraction pass.
+_EXTRACTION_STOPS: tuple[str, ...] = ("\n```\n", "\n```", "```\n")
 
 _YAML_BLOCK_RE = re.compile(r"```(?:facts|yaml)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _FACTS_KEY_RE  = re.compile(r"^\s*facts\s*:", re.MULTILINE)
@@ -1096,12 +1101,10 @@ async def _do_extraction(messages: list[dict]):
     # Scale token budget to batch size with generous headroom for grounded extractions
     options["num_predict"] = max(1024, min(128 * len(messages), 1536))
 
-    # Configure extraction stop sequences to halt model generation immediately upon closing the YAML fence
-    extraction_stops = list(cfg.STOP_SEQUENCES or [])
-    for s in ["\n```\n", "\n```", "```\n"]:
-        if s not in extraction_stops:
-            extraction_stops.append(s)
-    options["stop"] = extraction_stops
+    # Halt generation immediately upon the closing YAML fence. These terminators are
+    # owned by the extractor: conversational stop strings must never be inherited here,
+    # since a spurious mid-block match would silently truncate the YAML into partial facts.
+    options["stop"] = list(_EXTRACTION_STOPS)
 
     payload = {
         "model": model,
@@ -1174,7 +1177,7 @@ async def _do_extraction(messages: list[dict]):
 
     payload["messages"] = proc_messages
     payload["options"]["num_predict"] = 384
-    payload["options"]["stop"] = extraction_stops
+    payload["options"]["stop"] = list(_EXTRACTION_STOPS)
 
     print(
         f"[EXTRACTOR] Extracting procedures from {len(messages)} new message(s)...",

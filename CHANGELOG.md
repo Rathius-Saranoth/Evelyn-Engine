@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-19 12:00:00
+date modified: 2026-09-19 09:31:34
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,67 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.140] - 2026-09-19 — *Reasoning Pipeline Overhaul — Native Multi-Channel Streaming & Structured Traces*
+
+Rebuilds the prompt → reasoning → tool → response chain around Gemma 4's native multi-channel
+output. The previous pipeline was assembled incrementally for a single-stream model that inlined
+`<think>` tags and sentinel tokens into the content channel; that model is long gone, but its
+parsing machinery, in-band control protocols and text-marker persistence format remained.
+
+Diagnosis was empirical. Against the live engine, Gemma 4 never emits `<think>` in the content
+channel in any thinking mode, reasoning always arrives in the separate `thinking` field, and Ollama
+*does* apply `options.stop` to that reasoning channel — a firing stop sequence halts the turn with
+`done_reason: "stop"` and empty content, so stop strings could never force an answer.
+
+### Fixed
+- **Runaway reasoning now yields a reply instead of a dead turn.** Gemma 4 can loop on
+  self-termination tokens ("Ready. Done. Perfect. Stop thinking. Go.") indefinitely without emitting
+  content. A new reasoning budget (`THINK_BUDGET_CHARS`, default 16000) cancels the round when
+  native reasoning exceeds the ceiling and re-issues the identical turn with thinking disabled,
+  which guarantees a response. Trips are counted in `think_budget_trips` and surfaced live as a
+  `think_budget_exceeded` SSE event.
+- **Tool failures no longer render as successes on reload.** `tool_end` streamed a real `status`,
+  but the persisted metadata carried none and history reconstruction hard-coded the success class,
+  so any failed tool appeared green after a refresh. Status is now recorded per tool in the
+  structured trace and rendered faithfully in both live and restored views.
+- **Non-functional stop sequences removed.** `STOP_SEQUENCES` was `["(Send).", "(Final).", "(Done).",
+  "*Perfect."]`; across a 29,306-character runaway reasoning trace, none of the four ever matched
+  what the model actually emits. In `fact_extractor` they were inherited into structured YAML
+  extraction where a spurious match would have silently truncated a block into partial facts.
+
+### Changed
+- **Legacy `<think>` state machine deleted** (`evelyn_server.py`). Roughly 70 lines of `parse_buf` /
+  `in_think` tag scanning with partial-boundary lookahead ran on every content delta and buffered
+  any chunk ending in a prefix of `<think>`. Content is now a direct passthrough.
+- **Structured per-round reasoning trace.** The loop previously flattened structured round data into
+  one string with `[Round N]` markers, stored it in a single TEXT column, and the UI re-parsed it
+  with a regex that still expected `[Initial]`/`[Tool N]`/`[Response]` labels the server had stopped
+  emitting. Rounds are now emitted on `_state` as structured records and persisted to
+  `messages.trace_json`. The flat `thinking` column is retained as a human-readable mirror.
+- **Single UI trace renderer.** Live streaming and history reconstruction now share one code path.
+  Messages saved before this release have no structured trace and degrade to a single Reasoning
+  block; no history rewrite is performed.
+- **`fact_extractor` owns its terminators** via `_EXTRACTION_STOPS` (the closing YAML fences) rather
+  than seeding from conversational config. `query_reformulator` drops stop sequences entirely — with
+  `num_predict=50` and `think=False` they were inert.
+
+### Removed
+- **`{"requested_effort":"X"}` self-election protocol** and `THINK_SELF_ELECT`. The marker was an
+  in-band text protocol riding on the content channel, which native thinking moved out of reach: all
+  emissions landed in the reasoning stream where the parser never looked. It could not have worked
+  even on a match, since `think` is a request-level parameter fixed before the round begins. Effort
+  now resolves from the heuristic classifier, tool escalation, and the UI chip.
+- **`cfg.STOP_SEQUENCES`**, now consumer-free.
+- **Legacy `.think-block` CSS** and the `[Round N]` parsing in both UI render paths.
+
+### Migrations
+- **`000.006.140` (chat)** — `messages_structured_reasoning_trace_column`: adds `messages.trace_json`.
+
+### Tests
+- `Evelyn/tests/test_reasoning_trace_and_budget.py` — structured trace shape, verbatim content
+  passthrough for literal `<think>` text, budget trip and single retry with thinking disabled,
+  budget disabled via zero, and failed-tool status fidelity in the persisted trace.
 
 ## [000.006.139] - 2026-09-19 — *Behavioral Hardening — Partner Framing, Tier Ratchet Repair & Wind-Down Precision*
 

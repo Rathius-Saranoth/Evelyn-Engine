@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-18 19:33:58
+# date modified: 2026-09-19 09:31:34
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -315,6 +315,10 @@ CREATE INDEX IF NOT EXISTS idx_ambient_type_feed ON daily_ambient_impressions(ty
 MIGRATE_000_006_044_CHAT_CHANNELS_SQL = """
 ALTER TABLE messages ADD COLUMN channel_id TEXT DEFAULT 'main';
 CREATE INDEX IF NOT EXISTS idx_messages_channel_id_id ON messages (channel_id, id);
+"""
+
+MIGRATE_000_006_140_MESSAGE_TRACE_SQL = """
+ALTER TABLE messages ADD COLUMN trace_json TEXT;
 """
 
 # Master Migration Registry
@@ -2801,6 +2805,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.136",
         name="vault_documents_semantic_tag_audit_column",
         up_fn=migrate_000_006_136_semantic_tag_column,
+    ),
+    Migration(
+        target_db="chat",
+        version="000.006.140",
+        name="messages_structured_reasoning_trace_column",
+        up_sql=MIGRATE_000_006_140_MESSAGE_TRACE_SQL,
     ),
 ]
 
