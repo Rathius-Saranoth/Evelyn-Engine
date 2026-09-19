@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-18 18:51:33
+date modified: 2026-09-18 19:33:58
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,41 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.136] - 2026-09-18 — *Dedicated Semantic Tagging Subsystem & Diurnal Tag RAG Drainer*
+
+### Added & Architecture
+- **Dedicated Semantic Tagging Subsystem (`Evelyn/tools/tag_librarian.py`)**:
+  - Decoupled rapid reflex housekeeping (<3s) from heavy semantic Tag RAG and local Ollama inference.
+  - Implemented `audit_single_document_semantic()` supporting single-document evaluation, taxonomy candidate matching, Ollama classification, and atomic frontmatter tag updates.
+  - Implemented `run_semantic_tag_audit()` and `run_semantic_tag_audit_async()` driven by `backlog_drainer` with cooperative yielding and batch limits (`cfg.TAG_LIBRARIAN_BATCH_SIZE = 2`).
+  - Added CLI flag `--semantic-tags` to `scripts/master_librarian.py` to drain the semantic tag queue directly via terminal.
+- **Database Schema Migration (`Evelyn/tools/db_migrator.py`)**:
+  - Registered migration `000.006.136` (`vault_documents_semantic_tag_audit_column`) on `vault` database adding column `last_semantic_tag_audit REAL DEFAULT 0` and index `idx_vault_docs_semantic_tag`.
+- **5-Tier Urgency-Ranked Priority Queue (`Evelyn/tools/vault_db.py`)**:
+  - Implemented `fetch_next_documents_for_semantic_tag_audit()` with 5-tier urgency ranking:
+    1. Un-audited documents missing tags completely (`last_semantic_tag_audit = 0 AND tags IS NULL / empty`).
+    2. Un-audited documents with multi-dash flat tags.
+    3. Un-audited documents with simple flat tags without hierarchy.
+    4. Un-audited documents with existing hierarchy tags.
+    5. Modified documents (`mtime > last_semantic_tag_audit`) followed by cooldown rotation (`cutoff = now - 86400`).
+  - Added structural folder exclusions (`Templates/`, `Attachments/`, `Bases/`, dotfiles) and configurable exclusions (`cfg.TAG_LIBRARIAN_EXCLUDED_DOCUMENTS`).
+  - Implemented `update_document_semantic_tag_audit()` to record audit timestamps and normalized tags.
+  - Added optional `last_semantic_tag_audit` parameter to `upsert_document()`.
+- **Server Background Task Wiring (`evelyn_server.py`)**:
+  - Scheduled `"tag_librarian"` as `TaskSchedule.DIURNAL` in `task_manager.py` (idle delay $\ge$ 20 minutes, 2 items per burst).
+  - Wired `_idle_tag_librarian_loop()` in server lifespan startup, `run_tag_librarian_task()` subprocess executor, and `/api/heavy_tasks` status reporting with queue metrics (`queue_remaining`, `total_evaluated`, `evaluated_pct`).
+- **Automated Verification Suite (`Evelyn/tests/test_semantic_tagger.py`)**:
+  - Authored hermetic unit tests covering 5-tier queue ordering, folder exclusion filtering, timestamp updating, mocked Tag RAG + Ollama execution, and asynchronous backlog drainer execution.
+
+## [000.006.135] - 2026-09-18 — *Librarian Tier 2 Ghost Link Proposal Gate & Tag Audit Timestamp Synchronization*
+
+### Fixed & Hardened
+- **Ghost Link Tier 2 Proposal Gate (`Evelyn/tools/master_librarian.py`)**:
+  - Fixed an issue where disabling `MASTER_LIBRARIAN_AUTO_STUBS` forced `min_refs = 999999`, which inadvertently bypassed Tier 2 proposal generation for all ghost links.
+  - Sourced `min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2)` unconditionally, enabling qualifying ghost links cited across multiple notes to register Tier 2 review proposals in `evelyn_memory.db` (`/api/review/unified`) for human curation.
+- **Tag Audit Timestamp Synchronization (`Evelyn/tools/vault_db.py`)**:
+  - Added `last_tag_audit = ?` to `update_document_librarian_audit()`, ensuring the database accurately reflects that tag normalization and parent inheritance are evaluated on every single-pass Master Librarian sweep.
 
 ## [000.006.134] - 2026-09-18 — *Dev UI Rejection Visibility, Procedures Badge Scoping & Evolver Change Detection*
 

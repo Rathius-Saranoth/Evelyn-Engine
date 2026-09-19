@@ -43,6 +43,7 @@ import subprocess
 import sys
 import time
 from enum import StrEnum
+from typing import Any
 
 import psutil
 
@@ -61,7 +62,7 @@ class TaskSchedule(StrEnum):
 
 TASK_SCHEDULE_MAP: dict[str, TaskSchedule] = {
     "extractor": TaskSchedule.REFLEX,
-    "tag_librarian": TaskSchedule.REFLEX,
+    "tag_librarian": TaskSchedule.DIURNAL,
     "master_librarian": TaskSchedule.REFLEX,
     "refresh_memory": TaskSchedule.REFLEX,
     "vault_map": TaskSchedule.REFLEX,
@@ -118,13 +119,13 @@ _spawned_subprocesses: list = []
 _watchdog_task = None
 
 
-def register_subprocess(proc: subprocess.Popen) -> None:
+def register_subprocess(proc: Any) -> None:
     """Track a spawned subprocess for graceful teardown upon server shutdown."""
     if proc not in _spawned_subprocesses:
         _spawned_subprocesses.append(proc)
 
 
-def unregister_subprocess(proc: subprocess.Popen) -> None:
+def unregister_subprocess(proc: Any) -> None:
     """Remove a finished subprocess from the tracking registry."""
     if proc in _spawned_subprocesses:
         _spawned_subprocesses.remove(proc)

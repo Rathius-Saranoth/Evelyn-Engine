@@ -93,6 +93,11 @@ def main():
         help="Prune 0-usage orphan master tags and synchronize Chroma vector taxonomy.",
     )
     parser.add_argument(
+        "--semantic-tags",
+        action="store_true",
+        help="Run dedicated Tag Librarian semantic Tag RAG audit queue.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print verbose transformation and link details.",
@@ -128,6 +133,85 @@ def main():
 
     include_tags = not args.no_tags
     enable_llm_tags = args.llm_tags
+
+    # Semantic Tag RAG audit mode
+    if args.semantic_tags:
+        from Evelyn.tools import tag_librarian
+        if args.path:
+            print(f"\n[SEMANTIC TAGGER] Target Document: {args.path}\n")
+            res = tag_librarian.audit_single_document_semantic(args.path, dry_run=args.dry_run)
+            status = res.get("status")
+            changed = res.get("modified", False)
+            if status == "error":
+                print(f"❌ [ERROR] {args.path}: {res.get('message')}")
+            elif changed:
+                print(f"✏️  [TAGS UPDATED] {args.path}")
+                print(f"    Tags: {res.get('final_tags')}")
+            else:
+                print(f"✓ [TAGS UP TO DATE] {args.path}")
+                print(f"    Tags: {res.get('final_tags')}")
+            return
+
+        limit = 0 if args.all else args.limit
+        print(f"[SEMANTIC TAGGER] Target: {'All eligible notes' if limit == 0 else f'{limit} documents'}")
+        print(f"Batch Size: {args.batch_size}")
+        print("Press Ctrl+C at any time to gracefully stop.\n")
+
+        def _fetch_tag_docs(fetch_limit: int) -> list[dict]:
+            if _stop_requested:
+                return []
+            if limit > 0:
+                remaining = limit - audited_count
+                if remaining <= 0:
+                    return []
+                fetch_limit = min(fetch_limit, remaining)
+            return vault_db.fetch_next_documents_for_semantic_tag_audit(fetch_limit)
+
+        def _process_tag_doc(doc: dict) -> None:
+            nonlocal audited_count, modified_count, clean_count, error_count
+            if _stop_requested or (limit > 0 and audited_count >= limit):
+                return
+            doc_path = doc.get("path", "")
+            t0 = time.time()
+            res = tag_librarian.audit_single_document_semantic(doc_path, dry_run=args.dry_run)
+            audited_count += 1
+            elapsed = int((time.time() - t0) * 1000)
+            status = res.get("status")
+            changed = res.get("modified", False)
+
+            if status == "error":
+                error_count += 1
+                print(f"❌ [ERROR] ({audited_count}) {doc_path}: {res.get('message')}")
+                return
+
+            if changed:
+                modified_count += 1
+                print(f"✏️  [TAGS UPDATED] ({audited_count}{f'/{limit}' if limit > 0 else ''}) {doc_path} ({elapsed}ms)")
+                print(f"    Previous: {res.get('previous_tags')}")
+                print(f"    Updated:  {res.get('final_tags')}")
+            else:
+                clean_count += 1
+                print(f"✓ [TAGS CLEAN] ({audited_count}{f'/{limit}' if limit > 0 else ''}) {doc_path} ({elapsed}ms)")
+
+        drain_cfg = backlog_drainer.DrainConfig(
+            batch_size=args.batch_size,
+            max_batches=0 if limit == 0 else (limit // args.batch_size + 1),
+            delay_between_items=0.5,
+            manage_task_lifecycle=False,
+        )
+        backlog_drainer.drain_backlog(
+            task_name="tag_librarian",
+            fetch_batch_fn=_fetch_tag_docs,
+            process_item_fn=_process_tag_doc,
+            config=drain_cfg,
+        )
+
+        total_elapsed = round(time.time() - start_time, 2)
+        print("\n" + "=" * 68)
+        print(f" 🏷️  Semantic Tag Audit Completed in {total_elapsed}s")
+        print(f"    Audited: {audited_count} | Modified: {modified_count} | Clean: {clean_count} | Errors: {error_count}")
+        print("=" * 68)
+        return
 
     # Single path audit mode
     if args.path:

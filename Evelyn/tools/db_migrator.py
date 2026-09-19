@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-14 19:50:17
+# date modified: 2026-09-18 19:33:58
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -2549,6 +2549,21 @@ def migrate_000_006_124_context_entries_provenance_and_audit_lineage(
     logger.info("Migration 000.006.124: Added merged_into_id, last_audited_at, split_from_id columns and indexes to context_entries.")
 
 
+def migrate_000_006_136_semantic_tag_column(
+    conn: sqlite3.Connection,
+    db_map: dict[str, str],
+    cfg_obj: object,
+) -> None:
+    """Migration 000.006.136: Add last_semantic_tag_audit column and index to vault_documents."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(vault_documents)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    if "last_semantic_tag_audit" not in existing_cols:
+        cur.execute("ALTER TABLE vault_documents ADD COLUMN last_semantic_tag_audit REAL DEFAULT 0;")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_vault_docs_semantic_tag ON vault_documents(last_semantic_tag_audit);")
+    logger.info("Migration 000.006.136: Added last_semantic_tag_audit column and index to vault_documents.")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2780,6 +2795,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.124",
         name="context_entries_provenance_and_audit_lineage",
         up_fn=migrate_000_006_124_context_entries_provenance_and_audit_lineage,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.136",
+        name="vault_documents_semantic_tag_audit_column",
+        up_fn=migrate_000_006_136_semantic_tag_column,
     ),
 ]
 

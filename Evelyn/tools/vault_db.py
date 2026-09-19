@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-13 14:00:38
+# date modified: 2026-09-18 19:33:58
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -57,7 +57,8 @@ def init_db() -> None:
             tags TEXT,
             aliases TEXT,
             indexed_at REAL,
-            last_tag_audit REAL
+            last_tag_audit REAL,
+            last_semantic_tag_audit REAL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS master_tag_taxonomy (
@@ -97,6 +98,8 @@ def init_db() -> None:
         con.execute("ALTER TABLE vault_documents ADD COLUMN last_librarian_audit REAL")
     with contextlib.suppress(sqlite3.OperationalError):
         con.execute("ALTER TABLE vault_documents ADD COLUMN ghost_link_count INTEGER DEFAULT 0")
+    with contextlib.suppress(sqlite3.OperationalError):
+        con.execute("ALTER TABLE vault_documents ADD COLUMN last_semantic_tag_audit REAL DEFAULT 0")
     con.commit()
     con.close()
 
@@ -104,7 +107,7 @@ def init_db() -> None:
 def upsert_document(
     path: str, title: str, mtime: float, gist: str = "",
     gist_failed: bool = False, rag_priority: str = "normal", rag_pinned: bool = False,
-    tags: str = "", aliases: str = ""
+    tags: str = "", aliases: str = "", last_semantic_tag_audit: float | None = None
 ) -> None:
     """Insert or update a document in the vault map.
 
@@ -118,24 +121,43 @@ def upsert_document(
         rag_pinned: Whether document is pinned in RAG context.
         tags: Comma-separated tag string.
         aliases: Comma-separated aliases string.
+        last_semantic_tag_audit: Optional epoch timestamp of last semantic tag audit.
     """
     path = path.replace('\\', '/')
     con = get_db()
-    con.execute("""
-        INSERT INTO vault_documents
-        (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, indexed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(path) DO UPDATE SET
-            title = excluded.title,
-            mtime = excluded.mtime,
-            gist = excluded.gist,
-            gist_failed = excluded.gist_failed,
-            rag_priority = excluded.rag_priority,
-            rag_pinned = excluded.rag_pinned,
-            tags = excluded.tags,
-            aliases = excluded.aliases,
-            indexed_at = excluded.indexed_at
-    """, (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, time.time()))
+    if last_semantic_tag_audit is not None:
+        con.execute("""
+            INSERT INTO vault_documents
+            (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, indexed_at, last_semantic_tag_audit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                title = excluded.title,
+                mtime = excluded.mtime,
+                gist = excluded.gist,
+                gist_failed = excluded.gist_failed,
+                rag_priority = excluded.rag_priority,
+                rag_pinned = excluded.rag_pinned,
+                tags = excluded.tags,
+                aliases = excluded.aliases,
+                indexed_at = excluded.indexed_at,
+                last_semantic_tag_audit = excluded.last_semantic_tag_audit
+        """, (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, time.time(), last_semantic_tag_audit))
+    else:
+        con.execute("""
+            INSERT INTO vault_documents
+            (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                title = excluded.title,
+                mtime = excluded.mtime,
+                gist = excluded.gist,
+                gist_failed = excluded.gist_failed,
+                rag_priority = excluded.rag_priority,
+                rag_pinned = excluded.rag_pinned,
+                tags = excluded.tags,
+                aliases = excluded.aliases,
+                indexed_at = excluded.indexed_at
+        """, (path, title, mtime, gist, gist_failed, rag_priority, rag_pinned, tags, aliases, time.time()))
     con.commit()
     con.close()
 
@@ -392,6 +414,117 @@ def update_document_tag_audit(path: str, tags: str | None = None) -> None:
     con.close()
 
 
+def fetch_next_documents_for_semantic_tag_audit(
+    batch_size: int = 2,
+    cooldown_seconds: int = 86400,
+) -> list[dict[str, Any]]:
+    """Fetch the next batch of vault documents prioritized for semantic Tag RAG evaluation.
+
+    Prioritization:
+        1. Documents never evaluated (last_semantic_tag_audit = 0 or NULL)
+           sub-prioritized by:
+           - Missing tags entirely
+           - Flat hyphen tags (e.g. 'bad-coding-habits')
+           - Flat tags without hierarchy slashes
+           - Existing hierarchy tags
+        2. Documents modified after last semantic tag audit (mtime > last_semantic_tag_audit)
+        3. Documents past the cooldown threshold (oldest last_semantic_tag_audit first)
+
+    Excluded documents (TAG_LIBRARIAN_EXCLUDED_DOCUMENTS) are strictly omitted.
+
+    Args:
+        batch_size: Maximum documents to fetch (default: 2).
+        cooldown_seconds: Minimum seconds before re-auditing clean notes (default: 24h / 86400s).
+
+    Returns:
+        list[dict[str, Any]]: List of document metadata dicts.
+    """
+    init_db()
+    con = get_db()
+    now = time.time()
+    cutoff = now - cooldown_seconds
+    excluded_paths = getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", [])
+
+    where_clauses = [
+        "(last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0 OR mtime > last_semantic_tag_audit OR last_semantic_tag_audit <= ?)",
+        "path NOT LIKE 'Templates/%'",
+        "path NOT LIKE 'templates/%'",
+        "path NOT LIKE 'Attachments/%'",
+        "path NOT LIKE 'attachments/%'",
+        "path NOT LIKE 'Bases/%'",
+        "path NOT LIKE 'bases/%'",
+        "path NOT LIKE '.%'",
+    ]
+    params: list[Any] = [cutoff]
+
+    if excluded_paths:
+        placeholders = ", ".join(["?"] * len(excluded_paths))
+        where_clauses.append(f"path NOT IN ({placeholders})")
+        params.extend(excluded_paths)
+
+    where_sql = " AND ".join(where_clauses)
+    params.append(batch_size)
+
+    query = f"""
+        SELECT * FROM vault_documents
+        WHERE {where_sql}
+        ORDER BY
+            -- Prioritize un-audited docs over audited docs
+            CASE WHEN last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0 THEN 0 ELSE 1 END ASC,
+            -- Tiered urgency among un-audited docs
+            CASE
+                -- Tier 1: No tags at all
+                WHEN (last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0) AND (tags IS NULL OR trim(tags) = '' OR trim(tags) = '[]') THEN 1
+                -- Tier 2: Multi-dash flat tags
+                WHEN (last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0) AND (tags LIKE '%-%') AND (tags NOT LIKE '%/%') THEN 2
+                -- Tier 3: Simple flat tags without slashes
+                WHEN (last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0) AND (tags NOT LIKE '%/%') THEN 3
+                -- Tier 4: Un-audited documents with existing hierarchy
+                WHEN (last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0) THEN 4
+                -- Tier 5: Modified documents
+                WHEN mtime > last_semantic_tag_audit THEN 5
+                -- Tier 6: Cooldown expired rotation
+                ELSE 6
+            END ASC,
+            last_semantic_tag_audit ASC,
+            mtime DESC
+        LIMIT ?
+    """
+    rows = con.execute(query, params).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def update_document_semantic_tag_audit(path: str, tags: str | None = None) -> None:
+    """Update the last_semantic_tag_audit timestamp (and optionally tags) for a vault document.
+
+    Args:
+        path: Relative or absolute path of the document.
+        tags: Optional updated comma-separated tags string.
+    """
+    vault_base = getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    norm_path = path.replace('\\', '/')
+    norm_vault = vault_base.replace('\\', '/').rstrip('/')
+    if norm_path.startswith(norm_vault + "/"):
+        norm_path = norm_path[len(norm_vault) + 1:]
+
+    init_db()
+    con = get_db()
+    now = time.time()
+    if tags is not None:
+        con.execute(
+            "UPDATE vault_documents SET last_semantic_tag_audit = ?, tags = ? WHERE path = ?",
+            (now, tags, norm_path),
+        )
+    else:
+        con.execute(
+            "UPDATE vault_documents SET last_semantic_tag_audit = ? WHERE path = ?",
+            (now, norm_path),
+        )
+    con.commit()
+    con.close()
+
+
 def move_document(old_path: str, new_path: str) -> bool:
     """Atomically update a document's relative path in the vault map on rename/move.
 
@@ -547,8 +680,9 @@ def update_document_librarian_audit(
         "last_librarian_audit = ?",
         "last_link_audit = ?",
         "last_format_audit = ?",
+        "last_tag_audit = ?",
     ]
-    vals: list[Any] = [now, now, now]
+    vals: list[Any] = [now, now, now, now]
 
     if ghost_count is not None:
         set_clauses.append("ghost_link_count = ?")
