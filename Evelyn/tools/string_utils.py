@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-17 18:13:55
+# date modified: 2026-09-19 11:02:30
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -772,8 +772,18 @@ def extract_link_context(body: str, target: str, window_chars: int = 180) -> str
     start = max(0, match.start() - window_chars)
     end = min(len(body), match.end() + window_chars)
     raw_slice = body[start:end]
-    # Strip markdown table syntax or frontmatter boundaries if slice caught them
-    raw_slice = raw_slice.replace("---", " ").replace("|", " ")
+    # Strip markdown table syntax or frontmatter boundaries if slice caught them.
+    # Alias pipes inside wikilinks must survive: a blanket replace turns
+    # [[Alex|Alex]] into [[Alex Alex]], and this excerpt is written verbatim
+    # into the Context & Mentions section of any stub note approved from it, so a
+    # bare replace manufactures the very ghost links the librarian exists to remove.
+    raw_slice = raw_slice.replace("---", " ")
+    raw_slice = re.sub(
+        r"\[\[[^\]\n]*\]\]",
+        lambda m: m.group(0).replace("|", "\x00"),
+        raw_slice,
+    )
+    raw_slice = raw_slice.replace("|", " ").replace("\x00", "|")
     clean = " ".join(raw_slice.split())
     clean = re.sub(r"^[\W_]+|[\W_]+$", "", clean)
     return clean

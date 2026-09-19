@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-19 10:40:54
+date modified: 2026-09-19 11:10:15
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,75 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.146] - 2026-09-19 — *Redundant Alias Condensing — Self-Referential Wikilinks Collapsed*
+
+A wikilink whose alias repeats its own target carries no information and renders identically,
+so the pipe is pure noise. The vault held 401 such links across 160 notes, overwhelmingly
+`[[Alex|Alex]]` (373) — the shape identity parameterization leaves behind when it rewrites
+both sides of an aliased link to the same configured name.
+
+### Added
+- **`condense_redundant_aliases()`** collapses `[[X|X]]` to `[[X]]`, including the
+  table-escaped form `[[X\|X]]` (which condenses safely, since the result has no pipe left to
+  escape). Embeds are handled on the same terms and keep their `!` prefix. Wired into
+  `audit_document_links` ahead of canonicalization, so the librarian now self-heals this shape
+  and the canonicalizer sees clean targets.
+
+### Preserved by design
+- **Case-only aliases** (`[[Music|music]]`, 52 in the vault) — the display casing is a
+  deliberate choice for mid-sentence rendering, not redundancy.
+- **Subpath and block targets** (`[[Note#Section|Note]]`) — the display genuinely differs from
+  the full target, so the alias is load-bearing.
+
+### Vault Data Repair
+- **401 aliases condensed across 160 notes** via `scripts/personal/condense_redundant_aliases.py`,
+  which delegates to the canonical engine function rather than carrying its own regex. Verified
+  idempotent: a second pass reports zero, with all 52 case-only aliases intact and no escaped
+  table pipes affected.
+
+## [000.006.145] - 2026-09-19 — *Excerpt Alias Integrity — Wikilink Pipes Preserved in Harvested Context*
+
+Found while reviewing the first live ghost link stub proposal. `extract_link_context` stripped
+markdown table syntax with a blanket `.replace("|", " ")`, which also flattened the alias pipe
+inside every wikilink it captured: `[[Alex|Alex]]` became `[[Alex Alex]]` and
+`[[Sekulich Family|Sekulich family's history]]` became one run-on target.
+
+This was not cosmetic. The harvested excerpt is written verbatim into the `## 🧭 Context &
+Mentions` section of any stub note approved from the proposal, so approving a stub would have
+introduced new unresolvable targets into the vault — the link librarian manufacturing the exact
+ghost links it exists to reduce.
+
+### Fixed
+- **Alias pipes survive excerpt extraction.** Pipes inside `[[...]]` are protected before the
+  table-pipe sweep and restored afterwards, so aliased links keep their form while bare pipes
+  from table rows are still flattened. Covered by a regression test asserting both halves.
+
+### Verified
+- The vault itself was never damaged: a full scan found zero occurrences of the malformed forms,
+  confirming wikilink canonicalization had written correct aliased links all along. The
+  corruption existed only in harvested excerpts and the proposals built from them.
+
+## [000.006.144] - 2026-09-19 — *Stub Synthesis Recovery — Reasoning Disabled & Configurable Timeout*
+
+Found by running the ghost link stub pipeline live against a real entity once the honest
+`synthesis_mode` badge from 000.006.142 made the failure visible. Entity stub abstracts were
+never actually written by the model: the call left `think` unset, so Gemma 4 reasoned before
+answering, and it passed a hardcoded `timeout=18` against `query_ollama`'s own 120s default.
+Measured on a five-reference target, reasoning enabled took **26.9s** — past the ceiling every
+time — so the call always returned empty and silently fell back to the deterministic compiler.
+With reasoning disabled the same call returns in **2.2s**, and the abstract is better: it picks
+up a detail the fallback cannot express at all, since the fallback only lists citing notes.
+
+### Added
+- `LIBRARIAN_STUB_SYNTHESIS_TIMEOUT` (default 45) replaces the hardcoded literal.
+
+### Fixed
+- **Stub synthesis now reaches the model.** `synthesize_entity_abstract` passes `think=False`,
+  matching the tag librarian's existing enforcement, and reads its timeout from config. A
+  regression test asserts both, since the flag is load-bearing and its absence fails silently
+  rather than raising — the Ollama client returns an empty string on timeout, so the exception
+  path never fires and only the empty-result warning catches it.
 
 ## [000.006.143] - 2026-09-19 — *Array Fence Integrity — Qualifier Preservation & Vault Reconstruction*
 

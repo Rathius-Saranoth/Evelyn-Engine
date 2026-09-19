@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-19 10:40:54
+# date modified: 2026-09-19 11:10:15
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -15,6 +15,7 @@ Exports:
     tokenize_wikilink()             — Tokenizes [[Target#Heading|Display]] into stem, subpath, and display.
     resolve_canonical_link_target() — Resolves wikilink target to canonical note stem with alias and disambiguation priority.
     canonicalize_document_wikilinks() — Rewrites alias and disambiguation targets to [[CanonicalTarget|OriginalText]].
+    condense_redundant_aliases()    — Collapses self-referential aliases [[X|X]] to [[X]].
 """
 
 from __future__ import annotations
@@ -230,10 +231,14 @@ def synthesize_entity_abstract(
             f"State the facts directly."
         )
         try:
+            # think=False is load-bearing: with reasoning enabled this call measured 26.9s
+            # against the former 18s ceiling and could never return, so every stub silently
+            # fell back to the deterministic compiler. Disabled it runs in ~2.2s.
             res = ollama_client.query_ollama(
                 prompt=prompt,
                 system="You are an expert archivist and PKM librarian writing concise, objective entity abstracts.",
-                timeout=18,
+                timeout=getattr(cfg, "LIBRARIAN_STUB_SYNTHESIS_TIMEOUT", 45),
+                think=False,
             )
             clean_res = string_utils.clean_llm_gist(res)
             clean_res = string_utils.strip_thinking_tags(clean_res).strip()
@@ -732,6 +737,46 @@ def resolve_canonical_link_target(
     return False, clean_stem
 
 
+def condense_redundant_aliases(body: str) -> tuple[bool, int, str]:
+    """Collapse wikilinks whose alias repeats the target exactly: [[X|X]] -> [[X]].
+
+    An alias that matches its own target carries no information and renders identically,
+    so the pipe is pure noise. Handles the table-escaped form ([[X\\|X]]) as well, which
+    condenses safely because the result contains no pipe to escape.
+
+    Deliberately left alone:
+      - Case-only differences ([[Music|music]]), where the display casing is intentional.
+      - Subpath or block targets ([[Note#Section|Note]]), where the display genuinely
+        differs from the full target.
+
+    Embeds are condensed on the same terms, keeping their "!" prefix: an image spec such
+    as ![[photo.png|300]] has a differing display and is untouched, while a self-referential
+    ![[Note|Note]] is just as redundant as the inline form.
+
+    Args:
+        body: Text (already masked by protect_code_blocks).
+
+    Returns:
+        tuple[bool, int, str]: (changed, count_condensed, updated_body)
+    """
+    pattern = re.compile(
+        WIKILINK_OPEN_GUARD + r"\[\[([^\[\]\n|#^]+?)\\?\|([^\[\]\n|]*?)\]\]"
+    )
+    count = 0
+
+    def _replace(match: re.Match) -> str:
+        nonlocal count
+        target = match.group(1).strip()
+        display = match.group(2).strip()
+        if not target or target != display:
+            return match.group(0)
+        count += 1
+        return f"[[{target}]]"
+
+    updated = pattern.sub(_replace, body)
+    return count > 0, count, updated
+
+
 def canonicalize_document_wikilinks(
     body: str,
     vault_root: str | None = None,
@@ -1222,6 +1267,13 @@ def audit_document_links(
         if c_crumb:
             changed = True
             details["actions"].append("injected_parent_breadcrumb")
+
+        # 2c-bis. Collapse self-referential aliases ([[X|X]]) before canonicalization
+        c_cond, n_cond, masked_body = condense_redundant_aliases(masked_body)
+        if c_cond:
+            changed = True
+            details["condensed_aliases"] = n_cond
+            details["actions"].append(f"condensed_{n_cond}_redundant_aliases")
 
         # 2d. Canonicalize wikilinks targeting aliases or disambiguation stems
         c_can, masked_body, can_actions = canonicalize_document_wikilinks(masked_body, vault_root=vault_root)

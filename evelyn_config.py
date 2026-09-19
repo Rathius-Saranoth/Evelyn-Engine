@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-19 09:31:34
+# date modified: 2026-09-19 10:55:07
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1070,6 +1070,7 @@ LIBRARIAN_GHOST_STUB_MIN_CONTEXT_CHARS = 200  # Minimum combined context charact
 LIBRARIAN_GHOST_STUB_MIN_SNIPPET_CHARS = 60  # Minimum single-excerpt context threshold
 LIBRARIAN_STUB_LLM_SYNTHESIS = True  # Enable local Ollama synthesis for multi-reference stub abstracts
 LIBRARIAN_STUB_MAX_HARVEST_REFS = 12  # Maximum referencing notes to harvest per entity stub
+LIBRARIAN_STUB_SYNTHESIS_TIMEOUT = 45  # Socket timeout for stub abstract synthesis (think=False keeps real calls near 2s)
 MASTER_LIBRARIAN_AUTO_STUBS = False  # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",
