@@ -1027,7 +1027,8 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 TAG_LIBRARIAN_ENABLED = True
 # Wave 4 idle trigger (20 minutes / 1200s). Staggered after deep research.
 TAG_LIBRARIAN_IDLE_THRESHOLD = 1200  # 20 minutes idle (Wave 4)
-TAG_LIBRARIAN_BATCH_SIZE = 5  # Process 5 documents per idle trigger
+TAG_LIBRARIAN_BATCH_SIZE = 2  # Process 2 documents per idle trigger
+TAG_LIBRARIAN_COOLDOWN_SECONDS = 86400  # 24 hours minimum before re-evaluating unchanged notes
 
 # Specific document relative paths excluded from Tag Librarian auditing
 TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [

@@ -99,3 +99,7 @@ _.is_valid_version
 _.normalize_vault_path
 _.append_context_log
 _.update_context_log
+_.run_semantic_tag_audit
+_.run_semantic_tag_audit_async
+_.fetch_next_document_for_tag_audit
+_.update_document_tag_audit

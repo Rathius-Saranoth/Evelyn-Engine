@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-17 18:13:55
+# date modified: 2026-09-18 19:33:58
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2535,6 +2535,80 @@ async def run_master_librarian_task(
             task_manager.clear_running("master_librarian", status="idle")
 
 
+async def run_tag_librarian_task(
+    batch_size: int | None = None,
+    max_batches: int = 1,
+):
+    """Runs Tag Librarian semantic Tag RAG audit pass in a dedicated isolated worker subprocess."""
+    import task_manager
+
+    if is_any_heavy_task_running():
+        return
+
+    bs = batch_size or getattr(cfg, "TAG_LIBRARIAN_BATCH_SIZE", 2)
+    limit = bs * max_batches
+    script_path = str(BASE_DIR / "scripts" / "master_librarian.py")
+    cmd = [
+        sys.executable,
+        "-u",
+        script_path,
+        "--semantic-tags",
+        "--batch-size",
+        str(bs),
+        "--limit",
+        str(limit),
+    ]
+
+    task_manager.set_running("tag_librarian", phase="Starting Tag Librarian semantic audit subprocess...")
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(BASE_DIR),
+        )
+        task_manager.register_subprocess(proc)
+        task_manager._active_handles["tag_librarian"] = proc
+
+        if proc.stdout:
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    break
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if line:
+                    print(f"{_CYN}[TAG LIBRARIAN]{_RST} {line}", flush=True)
+                    if line.startswith(("✏️", "✓")) or "Target:" in line or "Audited:" in line:
+                        task_manager.set_running("tag_librarian", phase=line[:60])
+
+        await proc.wait()
+        if proc.returncode == 0:
+            print(f"{_CYN}[TAG LIBRARIAN]{_RST} Semantic tag audit completed successfully.", flush=True)
+            task_manager.clear_running("tag_librarian", status="idle")
+        else:
+            task_manager.clear_running(
+                "tag_librarian",
+                status="error",
+                error=f"Process exited with code {proc.returncode}",
+            )
+    except asyncio.CancelledError:
+        print(f"{_YEL}[TAG LIBRARIAN]{_RST} Task cancelled, terminating subprocess...", flush=True)
+        if proc:
+            task_manager.terminate_task_subprocess("tag_librarian")
+        task_manager.clear_running("tag_librarian", status="idle")
+        raise
+    except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
+        print(f"[TAG LIBRARIAN] Error during semantic tag audit: {e}", flush=True)
+        task_manager.clear_running("tag_librarian", status="error", error=str(e))
+    finally:
+        if proc:
+            task_manager.unregister_subprocess(proc)
+        task_manager._active_handles.pop("tag_librarian", None)
+        if task_manager.get_status("tag_librarian") == "running":
+            task_manager.clear_running("tag_librarian", status="idle")
+
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -3146,10 +3220,21 @@ async def lifespan(app: FastAPI):
     _lifespan_tasks.append(asyncio.create_task(_idle_profile_evolution_loop()))
     print(f"  {_GRN}Profile Evolver:{_RST} idle timer started (threshold=60m, cooldown=24h/doc)")
 
-    # Idle-time Tag Librarian alias (routed to Master Librarian)
-    async def run_tag_librarian_task():
-        """Alias routing legacy tag_librarian triggers to the unified Master Librarian orchestrator."""
-        await run_master_librarian_task()
+    # Idle-time Tag Librarian loop (Diurnal Semantic Tag RAG)
+    async def _idle_tag_librarian_loop():
+        """Background loop that periodically enqueues Tag Librarian semantic audit."""
+        while True:
+            await asyncio.sleep(600)  # Check every 10 minutes
+            importlib.reload(cfg)
+            if not getattr(cfg, "TAG_LIBRARIAN_ENABLED", True):
+                continue
+            idle_seconds = _get_current_idle_seconds()
+            threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 1200)
+            if idle_seconds >= threshold:
+                task_manager.enqueue_idle_task("tag_librarian")
+
+    _lifespan_tasks.append(asyncio.create_task(_idle_tag_librarian_loop()))
+    print(f"  {_CYN}Tag Librarian:{_RST} idle loop started (threshold=20m, limit=2 docs/run)")
 
     # Idle-time Master Librarian loop
     async def _idle_master_librarian_loop():
@@ -3751,14 +3836,19 @@ async def chat_upload_attachment(
     get_budget_fn = getattr(cfg, "get_chat_upload_max_chars", None)
     ratio = getattr(cfg, "CHAT_UPLOAD_CONTEXT_RATIO", 0.35)
     raw_max = getattr(cfg, "MAX_UPLOAD_DOCUMENT_CHARS", 100000)
+    max_chars = 100000
     if isinstance(raw_max, int):
-        max_chars: int = raw_max
+        max_chars = raw_max
     elif isinstance(raw_max, (str, float)):
-        max_chars = int(raw_max)
-    else:
-        max_chars = 100000
+        try:
+            max_chars = int(raw_max)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            max_chars = 100000
     if callable(get_budget_fn):
-        max_chars = int(get_budget_fn(doc_type, ratio=ratio))
+        budget_val = get_budget_fn(doc_type, ratio=ratio)
+        if isinstance(budget_val, (int, float, str)):
+            with contextlib.suppress(ValueError, TypeError):
+                max_chars = int(budget_val)
 
     truncated = False
     if doc_type == "pdf":
@@ -5255,6 +5345,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         ("procedure_consolidator", "Procedure Consolidator"),
         ("profile_evolver", "Profile Evolver"),
         ("master_librarian", "Master Librarian"),
+        ("tag_librarian", "Tag Librarian"),
         ("refresh_memory", "Memory Refresh"),
         ("sync", "Chroma Sync"),
         ("vault_map", "Vault Map Generator"),
@@ -5362,6 +5453,8 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
 
                 mdb_path = str(BASE_DIR / "data" / "evelyn_memory.db")
                 total_active_facts = 0
+                total_merged_facts = 0
+                pending_merge_proposals = 0
                 pending_proposals = 0
                 if os.path.exists(mdb_path):
                     mconn = sqlite3.connect(mdb_path, timeout=1.0)
@@ -5461,6 +5554,43 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
                     "audit_pct": audit_pct,
                     "ghost_links": ghosts,
                     "curation_events": curations,
+                    "master_tags": master_tags_cnt,
+                }
+            elif key == "tag_librarian":
+                vdb = str(getattr(cfg, "VAULT_DB_PATH", BASE_DIR / "data" / "evelyn_vault.db"))
+                audited = 0
+                total = 0
+                flat_tags = 0
+                master_tags_cnt = 0
+                if os.path.exists(vdb):
+                    conn = sqlite3.connect(vdb, timeout=1.0)
+                    try:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "SELECT COUNT(*) FROM vault_documents WHERE last_semantic_tag_audit IS NOT NULL AND last_semantic_tag_audit > 0"
+                        )
+                        audited = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM vault_documents")
+                        total = cur.fetchone()[0]
+                        cur.execute(
+                            "SELECT COUNT(*) FROM vault_documents WHERE (last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0) AND (tags LIKE '%-%' OR tags NOT LIKE '%/%')"
+                        )
+                        flat_tags = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM master_tag_taxonomy")
+                        master_tags_cnt = cur.fetchone()[0]
+                    except (sqlite3.Error, OSError):
+                        pass
+                    finally:
+                        conn.close()
+                audit_pct = round((audited / total * 100), 1) if total > 0 else 0.0
+                un_audited = max(0, total - audited)
+                sub_status = {
+                    **(sub_status or {}),
+                    "audited_notes": audited,
+                    "total_notes": total,
+                    "audit_pct": audit_pct,
+                    "un_audited_backlog": un_audited,
+                    "flat_tags_backlog": flat_tags,
                     "master_tags": master_tags_cnt,
                 }
             elif key == "sync":

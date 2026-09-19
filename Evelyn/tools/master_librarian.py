@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-06 08:27:31
+# date modified: 2026-09-18 19:07:42
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -87,6 +87,8 @@ def audit_single_document(
         doc_info = vault_db.get_document(doc_path)
         title = doc_info.get("title", "") if doc_info else os.path.basename(doc_path)
 
+    assert doc_path is not None
+
     if vault_root:
         abs_path = os.path.join(root, doc_path)
     else:
@@ -155,7 +157,7 @@ def audit_single_document(
     stubs_created = []
     proposals_logged = []
     if ghost_targets and not dry_run:
-        min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2) if auto_create_ghost_stubs else 999999
+        min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2)
         _, doc_body = frontmatter_utils.parse_frontmatter(content)
         for gt in ghost_targets:
             excerpt = extract_link_context(doc_body, gt)

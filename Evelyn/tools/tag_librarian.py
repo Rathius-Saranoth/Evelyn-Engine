@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-12 10:10:58
+# date modified: 2026-09-18 19:33:58
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -22,6 +22,7 @@ See also: reference/engine_architecture.md
 """
 
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -34,7 +35,9 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import evelyn_config as cfg
-from Evelyn.tools import chroma_rag, vault_db
+from Evelyn.tools import backlog_drainer, chroma_rag, vault_db
+
+logger = logging.getLogger("evelyn.tag_librarian")
 from Evelyn.tools.frontmatter_utils import (
     parse_frontmatter,
     update_frontmatter_field,
@@ -72,6 +75,11 @@ def is_excluded_document(path: str) -> bool:
         bool: True if the document path is configured in TAG_LIBRARIAN_EXCLUDED_DOCUMENTS.
     """
     clean_path = path.replace("\\", "/").strip()
+    # Exclude non-note folders and hidden files
+    for prefix in ("Templates/", "templates/", "Attachments/", "attachments/", "Bases/", "bases/", "."):
+        if clean_path.startswith(prefix) or f"/{prefix}" in clean_path:
+            return True
+
     excluded_paths = getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", [])
     for ex in excluded_paths:
         clean_ex = ex.replace("\\", "/").strip()
@@ -485,8 +493,9 @@ def audit_document_tags(
 
         candidate_list_text = (
             "\n".join([
-                f"- #{c['tag']} (category: {c['category']}, match distance: {c['distance']:.2f}): {c['description'] or 'No description'}"
+                f"- #{c.get('tag', '')} (category: {c.get('category', 'general')}, match distance: {float(c.get('distance', 1.0)):.2f}): {c.get('description') or 'No description'}"
                 for c in candidate_tags
+                if c.get("tag")
             ])
             if candidate_tags
             else "No existing master tags matched."
@@ -561,52 +570,65 @@ def audit_document_tags(
     return modified, new_content, details
 
 
-def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
+def audit_single_document_semantic(
+    doc_path: str | None = None,
+    vault_root: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     """Audit a single vault document against the Master Tag Taxonomy using Tag RAG.
 
     Args:
-        doc_path: Optional relative path of document to audit. If None, fetches next.
+        doc_path: Optional relative path of document to audit. If None, fetches next prioritized doc.
+        vault_root: Optional vault root directory override.
+        dry_run: If True, simulates transformations without writing to disk or database.
 
     Returns:
-        Dict[str, Any]: Result summary dict with status, path, tags_added, tags_removed.
+        dict[str, Any]: Result summary dict with status, path, tags_added, tags_removed.
     """
+    root = vault_root or VAULT_ROOT
     if not doc_path:
-        doc_info = vault_db.fetch_next_document_for_tag_audit()
-        if not doc_info:
+        docs = vault_db.fetch_next_documents_for_semantic_tag_audit(batch_size=1)
+        if not docs:
             return {"status": "empty", "message": "No documents found in vault DB."}
-        doc_path = doc_info["path"]
-    else:
-        doc_info = vault_db.get_document(doc_path)
+        doc_path = docs[0]["path"]
+
+    assert doc_path is not None
 
     # Check document path exclusions
     if is_excluded_document(doc_path):
-        vault_db.update_document_tag_audit(doc_path)
+        if not dry_run:
+            vault_db.update_document_semantic_tag_audit(doc_path)
         return {"status": "skipped", "path": doc_path, "message": "Document path is excluded from tag auditing."}
 
     # Resolve absolute file path
-    try:
-        abs_path = str(to_vault_abspath(doc_path))
-    except (ValueError, TypeError):
-        abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(VAULT_ROOT, doc_path)
+    if vault_root:
+        abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(vault_root, doc_path)
+    else:
+        try:
+            abs_path = str(to_vault_abspath(doc_path))
+        except (ValueError, TypeError):
+            abs_path = doc_path if os.path.isabs(doc_path) else os.path.join(root, doc_path)
     if not os.path.exists(abs_path):
-        vault_db.update_document_tag_audit(doc_path)
+        if not dry_run:
+            vault_db.update_document_semantic_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": "File not found on disk."}
 
     try:
         with open(abs_path, encoding="utf-8") as f:
             content = f.read()
     except OSError as e:
-        vault_db.update_document_tag_audit(doc_path)
+        if not dry_run:
+            vault_db.update_document_semantic_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": f"Read error: {e}"}
 
     changed, new_content, details = audit_document_tags(
         content=content,
         path=doc_path,
-        vault_root=VAULT_ROOT,
+        vault_root=root,
         enable_llm=True,
     )
 
-    if changed:
+    if changed and not dry_run:
         try:
             write_file_with_frontmatter(abs_path, new_content, preserve_mtime=True)
             tags_str = ", ".join(details.get("final_tags", []))
@@ -619,13 +641,14 @@ def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
                     extra_metadata={"tags": tags_str},
                 )
             except Exception as ve:  # noqa: BLE001
-                print(f"[TAG LIBRARIAN] Single-file vector update skipped: {ve}")
+                logger.warning(f"[TAG LIBRARIAN] Single-file vector update skipped: {ve}")
         except OSError as e:
-            vault_db.update_document_tag_audit(doc_path)
+            vault_db.update_document_semantic_tag_audit(doc_path)
             return {"status": "error", "path": doc_path, "message": f"Write error: {e}"}
 
     tags_str = ", ".join(details.get("final_tags", []))
-    vault_db.update_document_tag_audit(doc_path, tags=tags_str)
+    if not dry_run:
+        vault_db.update_document_semantic_tag_audit(doc_path, tags=tags_str)
 
     return {
         "status": "success",
@@ -634,7 +657,109 @@ def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
         "previous_tags": details.get("previous_tags", []),
         "final_tags": details.get("final_tags", []),
         "min_taxonomy_distance": details.get("min_taxonomy_distance", 1.0),
+        "new_masters": details.get("new_masters", []),
     }
+
+
+def audit_single_document(doc_path: str | None = None) -> dict[str, Any]:
+    """Backward-compatible wrapper for single document semantic audit."""
+    return audit_single_document_semantic(doc_path=doc_path)
+
+
+def run_semantic_tag_audit(
+    batch_size: int = 2,
+    max_batches: int = 1,
+    deadline: float | None = None,
+    delay_between_items: float = 0.5,
+    auto_re_enqueue: bool = True,
+    cooldown_seconds: int | None = None,
+) -> backlog_drainer.DrainResult:
+    """Execute a batched semantic Tag RAG audit pass using backlog_drainer.
+
+    Args:
+        batch_size: Documents per batch (default: 2).
+        max_batches: Maximum batches per run (default: 1).
+        deadline: Optional epoch deadline timestamp.
+        delay_between_items: Pause between notes in seconds (default: 0.5s).
+        auto_re_enqueue: Whether to re-enqueue in task_manager when yielding.
+        cooldown_seconds: Minimum seconds before re-auditing notes (default: 24h).
+
+    Returns:
+        backlog_drainer.DrainResult: Outcome summary.
+    """
+    cooldown = (
+        cooldown_seconds
+        if cooldown_seconds is not None
+        else getattr(cfg, "TAG_LIBRARIAN_COOLDOWN_SECONDS", 86400)
+    )
+
+    drain_cfg = backlog_drainer.DrainConfig(
+        batch_size=batch_size,
+        max_batches=max_batches,
+        delay_between_items=delay_between_items,
+        deadline=deadline,
+        yield_check_interval=1,
+        auto_re_enqueue=auto_re_enqueue,
+        manage_task_lifecycle=True,
+    )
+
+    def _fetch(limit: int) -> list[dict[str, Any]]:
+        return vault_db.fetch_next_documents_for_semantic_tag_audit(
+            batch_size=limit,
+            cooldown_seconds=cooldown,
+        )
+
+    def _process(doc: dict[str, Any]) -> None:
+        audit_single_document_semantic(doc_path=doc["path"])
+
+    return backlog_drainer.drain_backlog(
+        task_name="tag_librarian",
+        fetch_batch_fn=_fetch,
+        process_item_fn=_process,
+        config=drain_cfg,
+    )
+
+
+async def run_semantic_tag_audit_async(
+    batch_size: int = 2,
+    max_batches: int = 1,
+    deadline: float | None = None,
+    delay_between_items: float = 0.5,
+    auto_re_enqueue: bool = True,
+    cooldown_seconds: int | None = None,
+) -> backlog_drainer.DrainResult:
+    """Execute a batched semantic Tag RAG audit pass asynchronously with cooperative yield."""
+    cooldown = (
+        cooldown_seconds
+        if cooldown_seconds is not None
+        else getattr(cfg, "TAG_LIBRARIAN_COOLDOWN_SECONDS", 86400)
+    )
+
+    drain_cfg = backlog_drainer.DrainConfig(
+        batch_size=batch_size,
+        max_batches=max_batches,
+        delay_between_items=delay_between_items,
+        deadline=deadline,
+        yield_check_interval=1,
+        auto_re_enqueue=auto_re_enqueue,
+        manage_task_lifecycle=True,
+    )
+
+    def _fetch(limit: int) -> list[dict[str, Any]]:
+        return vault_db.fetch_next_documents_for_semantic_tag_audit(
+            batch_size=limit,
+            cooldown_seconds=cooldown,
+        )
+
+    def _process(doc: dict[str, Any]) -> None:
+        audit_single_document_semantic(doc_path=doc["path"])
+
+    return await backlog_drainer.drain_backlog_async(
+        task_name="tag_librarian",
+        fetch_batch_fn=_fetch,
+        process_item_fn=_process,
+        config=drain_cfg,
+    )
 
 
 def seed_master_taxonomy_from_vault() -> int:

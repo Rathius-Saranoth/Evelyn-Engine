@@ -1,17 +1,24 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-13 20:27:29
+# date modified: 2026-09-18 19:07:42
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
 
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import evelyn_config as cfg
-from Evelyn.tools import format_librarian, link_librarian, master_librarian, string_utils
+from Evelyn.tools import (
+    format_librarian,
+    link_librarian,
+    master_librarian,
+    string_utils,
+    vault_db,
+)
 
 
 class TestMasterLibrarianPipeline(unittest.TestCase):
@@ -592,6 +599,77 @@ Additional bench tests confirmed 4x speedup over baseline models.
                 # 5. Hyphen/underscore normalization
                 self.assertEqual(link_librarian.resolve_canonical_link_target("Gem Compass", vault_root=tmp_dir), (True, "Gem-Compass"))
             con.close()
+
+    def test_master_librarian_tier_2_proposal_logging(self):
+        """Verify Master Librarian routes recurring ghost links to Tier 2 proposals when auto_create is False."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            doc1_path = os.path.join(tmp_vault, "Source1.md")
+            doc2_path = os.path.join(tmp_vault, "Source2.md")
+            with open(doc1_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "# Source 1\n"
+                    "The legendary artifact [[Excalibur]] was discovered in the mystical cave during the exploration.\n"
+                )
+            with open(doc2_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "# Source 2\n"
+                    "Ancient manuscripts describe [[Excalibur]] as a weapon of great power forged by mystical beings.\n"
+                )
+
+            with patch("Evelyn.tools.memory_db.get_pending_proposals", return_value=[]), \
+                 patch("Evelyn.tools.memory_db.insert_proposal", return_value=999) as mock_insert, \
+                 patch("Evelyn.tools.vault_db.update_document_librarian_audit"), \
+                 patch("Evelyn.tools.vault_db.log_librarian_activity"), \
+                 patch.object(cfg, "MASTER_LIBRARIAN_AUTO_STUBS", False), \
+                 patch.object(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2), \
+                 patch.object(cfg, "LIBRARIAN_GHOST_STUB_MIN_CONTEXT_CHARS", 50), \
+                 patch.object(cfg, "LIBRARIAN_GHOST_STUB_MIN_SNIPPET_CHARS", 20):
+
+                res = master_librarian.audit_single_document(
+                    doc_path="Source1.md",
+                    vault_root=tmp_vault,
+                    auto_create_ghost_stubs=False,
+                )
+
+                self.assertEqual(res["status"], "ok")
+                self.assertIn("proposed_stubs:1", res["actions"])
+                mock_insert.assert_called_once()
+                call_kwargs = mock_insert.call_args[1]
+                self.assertEqual(call_kwargs["type"], "ghost_link_stub")
+                self.assertEqual(call_kwargs["topic"], "Excalibur")
+
+    def test_vault_db_librarian_audit_updates_tag_timestamp(self):
+        """Verify update_document_librarian_audit sets last_tag_audit along with librarian/link/format audits."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "vault.db")
+            con = sqlite3.connect(db_path)
+            con.execute(
+                "CREATE TABLE vault_documents ("
+                "path TEXT PRIMARY KEY, title TEXT, mtime REAL, tags TEXT, aliases TEXT, "
+                "last_librarian_audit REAL DEFAULT 0, last_link_audit REAL DEFAULT 0, "
+                "last_format_audit REAL DEFAULT 0, last_tag_audit REAL DEFAULT 0, ghost_link_count INTEGER DEFAULT 0)"
+            )
+            con.execute("INSERT INTO vault_documents (path, title) VALUES ('test.md', 'Test Note')")
+            con.commit()
+            con.close()
+
+            with patch("Evelyn.tools.vault_db.get_db", side_effect=lambda: sqlite3.connect(db_path)), \
+                 patch.object(cfg, "VAULT_DB_PATH", db_path):
+                vault_db.update_document_librarian_audit("test.md", ghost_count=3)
+
+            con = sqlite3.connect(db_path)
+            row = con.execute(
+                "SELECT last_librarian_audit, last_link_audit, last_format_audit, last_tag_audit, ghost_link_count "
+                "FROM vault_documents WHERE path = 'test.md'"
+            ).fetchone()
+            con.close()
+
+            self.assertIsNotNone(row)
+            self.assertGreater(row[0], 0)  # last_librarian_audit
+            self.assertGreater(row[1], 0)  # last_link_audit
+            self.assertGreater(row[2], 0)  # last_format_audit
+            self.assertGreater(row[3], 0)  # last_tag_audit
+            self.assertEqual(row[4], 3)    # ghost_link_count
 
 
 if __name__ == "__main__":
