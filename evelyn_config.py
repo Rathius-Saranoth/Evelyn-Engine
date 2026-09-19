@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-17 18:13:55
+# date modified: 2026-09-18 20:54:27
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1053,7 +1053,7 @@ TAG_LIBRARIAN_FORMAT_RULES = {
 # Chroma Vector Tag Taxonomy Settings (Tag RAG)
 CHROMA_TAG_COLLECTION = "evelyn_tag_taxonomy"
 CHROMA_MEDIA_COLLECTION = "evelyn_media"
-TAG_LIBRARIAN_TOP_K_TAGS = 35  # Max semantically matched master tags to retrieve
+TAG_LIBRARIAN_TOP_K_TAGS = 10  # Max semantically matched master tags to retrieve
 TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55  # Cosine distance above which a note domain is deemed novel
 
 # =============================================================================

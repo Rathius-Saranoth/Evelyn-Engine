@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-18 20:05:16
+# date modified: 2026-09-18 20:54:27
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -340,7 +340,7 @@ def retrieve_candidate_tags_for_document(
             for r in results:
                 meta = r.get("metadata") or {}
                 tag = meta.get("tag")
-                if not tag or is_excluded_tag(tag):
+                if not tag or is_excluded_tag(tag) or tag in current_tags:
                     continue
                 dist = float(r.get("distance", 1.0))
 
@@ -408,8 +408,8 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     return _canonical_query_ollama(
         prompt=prompt,
         system=system_prompt if system_prompt else None,
-        options={"temperature": 0.2, "num_predict": 2048},
-        timeout=120,
+        options={"temperature": 0.1, "num_predict": 2048},
+        timeout=60,
         think=True,
     )
 
@@ -484,7 +484,7 @@ def audit_document_tags(
         doc_info = vault_db.get_document(path) if path else None
         gist = doc_info.get("gist", "") if doc_info else ""
 
-        candidate_tags, min_dist, novelty_guidance = retrieve_candidate_tags_for_document(
+        candidate_tags, min_dist, _novelty_guidance = retrieve_candidate_tags_for_document(
             title=title,
             gist=gist,
             body_sample=body[:1500],
@@ -494,7 +494,7 @@ def audit_document_tags(
 
         candidate_list_text = (
             "\n".join([
-                f"- #{c.get('tag', '')} (category: {c.get('category', 'general')}, match distance: {float(c.get('distance', 1.0)):.2f}): {c.get('description') or 'No description'}"
+                f"- #{c.get('tag', '')} ({c.get('category', 'general')})"
                 for c in candidate_tags
                 if c.get("tag")
             ])
@@ -502,34 +502,45 @@ def audit_document_tags(
             else "No existing master tags matched."
         )
 
+        # Summarize auditable tags if extensive to prevent model deliberation loops
+        if len(auditable_tags) > 6:
+            tag_summary = f"{len(auditable_tags)} legacy tags (including: {', '.join(auditable_tags[:5])}...)"
+        else:
+            tag_summary = f"{auditable_tags}"
+
         system_prompt = (
-            "You are an expert taxonomy librarian maintaining a structured, nested tag hierarchy for a personal Obsidian knowledge vault.\n"
-            "Your goal is to organize notes under clear, domain-level nested tags that reduce clutter, group related concepts, and resolve ambiguous terms using note context.\n\n"
-            "Taxonomy & Nesting Principles:\n"
-            "1. Domain-Level Hierarchies: Group flat concepts into logical multi-tier domains using forward slashes (e.g. #3D-Printing/Slicing, #3D-Modeling/Topology, #AI/LLM/Inference, #AI/RAG/Evaluation, #Mood/Peace, #Lore/Worldbuilding, #Contact/Friend, #Media/Game).\n"
-            "2. Semantic & Contextual Disambiguation: Use the full context of the note to disambiguate polysemous or broad words.\n"
-            "3. Tag Formatting Rules: Lowercase hyphens for concepts, TitleCase with underscores for proper entities.\n"
-            "4. Output Format: Return a valid JSON object with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
-            "5. Thinking Directive: Keep internal thinking concise (under 100 words). Do not deliberate in repetitive loops. Once candidates are identified, immediately produce the final JSON block.\n"
+            "You are an expert taxonomy librarian maintaining a clean, structured tag hierarchy for an Obsidian vault.\n"
+            "Organize notes under 2-4 clean, domain-level nested tags (e.g. #3D-Printing/Slicing, #Tech/GIS, #Craft/Tailoring, #Music/Cello).\n"
+            "Consolidate cluttered or flat legacy tags into high-level categories.\n"
+            "Output valid JSON with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
+            "CRITICAL: Keep internal thinking under 80 words. Do NOT deliberate in loops or debate tags. Make your decision once and output JSON immediately.\n"
         )
 
         user_prompt = (
             f"Document Title: {title}\n"
             f"Document Path: {path}\n"
-            f"Document Summary/Gist: {gist}\n"
-            f"Current Auditable Tags: {auditable_tags}\n\n"
-            f"--- SEMANTICALLY MATCHED MASTER TAGS (TAG RAG) ---\n"
+            f"Current Tags: {tag_summary}\n\n"
+            f"--- CANDIDATE MASTER TAGS ---\n"
             f"{candidate_list_text}\n\n"
-            f"--- NOVELTY & ALIGNMENT GUIDANCE ---\n"
-            f"{novelty_guidance}\n\n"
             f"--- NOTE CONTENT SAMPLE ---\n"
-            f"'''\n{body[:1500]}\n'''\n\n"
-            "Evaluate tag suitability for this document. Select 2-5 highly relevant tags from the Master Taxonomy or suggest new nested tags if appropriate."
+            f"'''\n{body[:800]}\n'''\n\n"
+            "Consolidate into 2-4 clean domain tags. Output JSON immediately."
         )
 
         try:
             response_text = query_ollama(user_prompt, system_prompt)
             json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if not json_match:
+                logger.info("Reasoning token limit reached or no JSON for %s; retrying with direct inference fallback.", path)
+                response_text = _canonical_query_ollama(
+                    prompt=user_prompt,
+                    system=system_prompt,
+                    options={"temperature": 0.1, "num_predict": 1024},
+                    timeout=30,
+                    think=False,
+                )
+                json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+
             if json_match:
                 parsed = json.loads(json_match.group(0))
                 tags_to_keep = [normalize_tag_format(t) for t in parsed.get("tags_to_keep", []) if t]

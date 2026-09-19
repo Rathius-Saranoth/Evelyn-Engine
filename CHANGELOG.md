@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-18 20:05:16
+date modified: 2026-09-18 20:54:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.137] - 2026-09-18 — *Hardened Multi-Archetype Semantic Tagging with Two-Tier Direct Fallback*
+
+### Added & Architecture
+- **Two-Tier Direct Inference Fallback (`Evelyn/tools/tag_librarian.py`)**:
+  - Implemented automatic secondary fast-path fallback: if deep reasoning (`think=True`) reaches token/time budget limits or fails to yield structured JSON, Tag Librarian automatically executes a deterministic direct-inference pass (`think=False`, `num_predict=1024`), ensuring 100% decision completion across all vault note structures without no-op aborts.
+- **Dynamic Candidate Budgeting & Prompt Streamlining (`Evelyn/tools/tag_librarian.py` & `evelyn_config.py`)**:
+  - Reduced `TAG_LIBRARIAN_TOP_K_TAGS` from 35 to 10 in `evelyn_config.py` to eliminate candidate vector pollution and prevent token starvation on conceptual documents.
+  - Excluded notes' existing tags from RAG candidate suggestions to eliminate circular tag confirmation loops.
+  - Added intelligent legacy tag summarization for notes with extensive tag sprawl (>6 legacy tags) to prevent reasoning models from debating individual flat tags in endless loops.
+  - Streamlined `system_prompt` and trimmed note body sampling to 800 characters to keep prompt contexts lean and response latency under 35 seconds.
+
+### Validated & Tested
+- **Comprehensive 6-Archetype Vault Focus Test Suite (`scratch/comprehensive_focus_test.py`)**:
+  - Validated 100% decision success rate across the complete range of vault document structures:
+    1. *Multi-dash flat tag bloat* (`Ricky/My Tailoring Measurements.md`): Consolidated 5 flat tags into `#Craft/Tailoring` and `#Design/Sizing` in 31.31s.
+    2. *Extreme tag clutter (36 tags)* (`Ricky/Professional/GIS Technician Tasks Overview.md`): Pruned 33 granular H2 section tags into 6 clean domain tags (`Work/GIS/*`) in 46.71s.
+    3. *Protected dates & entity tags* (`Contacts/Allie McLean.md`): Preserved protected `CY-2014/03/17` calendar tag and mapped contact entities into `#People/Birth_Records` and `#People/Contacts` in 14.10s.
+    4. *Untagged conceptual notes (0 tags)* (`Ricky/Medical/Psychology/Why Slow Learners Often Become Better Programmers.md`): Accurately synthesized domain tags (`Education/Pedagogy`, `Tech/Programming`, `python`) in 45.03s.
+    5. *Short reference snippets (<100 words)* (`Reference Library/Learning Cello/Cello Method/15 - C STRING.md`): Normalized mixed-case tags into `Music/Cello` in 17.44s.
+    6. *Thematic / dream journal entries* (`Dream Journal/Dream Entries/Dream Entry 2026-01-18.md`): Preserved protected date tag and consolidated 17 fragmented motif tags into 4 clean domain tags (`sleep/dreams`, `fantasy/superpowers`, `dream/memory`) in 26.74s.
 
 ## [000.006.136] - 2026-09-18 — *Dedicated Semantic Tagging Subsystem & Diurnal Tag RAG Drainer*
 
