@@ -4661,6 +4661,7 @@
           const sourcePath = parsed.source_path || item.suggested_category || 'Unknown Source';
           const excerpt = parsed.context_excerpt || '';
           const abstract = parsed.synthesized_abstract || '';
+          const isLlmSynthesis = parsed.synthesis_mode === 'llm';
           const domain = parsed.domain || '';
           const tags = (parsed.tags && parsed.tags.length > 0) ? parsed.tags.join(', ') : (item.merged_tags || 'stub, concept');
           const refCount = parsed.ref_count !== undefined ? parsed.ref_count : (parsed.sources ? parsed.sources.length : 1);
@@ -4689,7 +4690,7 @@
                   <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                       <div style="font-size: 11px; color: #818cf8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Synthesized Executive Abstract</div>
-                      <span class="badge" style="font-size: 10px; background: rgba(99, 102, 241, 0.2); color: #c7d2fe;">Multi-Reference LLM Synthesis</span>
+                      <span class="badge" style="font-size: 10px; background: ${isLlmSynthesis ? 'rgba(99, 102, 241, 0.2)' : 'rgba(245, 158, 11, 0.18)'}; color: ${isLlmSynthesis ? '#c7d2fe' : '#fbbf24'};" title="${isLlmSynthesis ? 'Abstract written by local Ollama synthesis.' : 'Ollama synthesis was unavailable or returned nothing usable; this abstract was compiled deterministically from the harvested references.'}">${isLlmSynthesis ? 'Multi-Reference LLM Synthesis' : 'Deterministic Fallback — No LLM Synthesis'}</span>
                     </div>
                     <div style="font-size: 13px; color: var(--text); line-height: 1.5; font-style: italic; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border-left: 3px solid #818cf8;">
                       "${escapeHtml(abstract)}"
@@ -4714,7 +4715,7 @@
                       ${references.map(ref => `
                         <div style="background: #07070a; padding: 8px 10px; border-radius: 4px; border: 1px solid var(--border);">
                           <div style="font-size: 11px; color: #60a5fa; font-weight: 600; margin-bottom: 3px;">[[${escapeHtml(ref.source)}]]</div>
-                          <div style="font-size: 12px; color: var(--text); font-style: italic; line-height: 1.4;">"${escapeHtml(ref.snippet)}"</div>
+                          <div style="font-size: 12px; color: var(--text); font-style: italic; line-height: 1.4;">"${escapeHtml(ref.snippet || ref.context || '')}"</div>
                         </div>
                       `).join('')}
                     </div>

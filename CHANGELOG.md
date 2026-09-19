@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-19 09:31:34
+date modified: 2026-09-19 10:40:54
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,105 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.143] - 2026-09-19 — *Array Fence Integrity — Qualifier Preservation & Vault Reconstruction*
+
+Found by the quality review pass over 000.006.142. The array-fencing regex anchored on a bare
+`array`/`tensor` name with a `(?<![`\w])` lookbehind, which a preceding `.` satisfies. Every
+dotted call was therefore fenced from the function name onward, leaving the qualifier stranded
+outside: ``torch.tensor([[1, 2]])`` became ``torch.`tensor([[1, 2]])```. This was live engine
+behaviour, not legacy damage, and had already corrupted 11 notes.
+
+### Fixed
+- **Dotted qualifiers are kept inside the fence.** `arr_pattern` now carries an optional
+  `(?:[A-Za-z_]\w*\.)*` prefix and a `(?<![`\w.])` lookbehind, so `np.array(...)` and
+  `torch.tensor(...)` are wrapped whole while bare `array(...)` still matches as before.
+- **`reattach_split_array_qualifiers()` repairs prior damage.** It rejoins stranded qualifiers
+  and strips doubled backticks an earlier pass left around a literal, leaving it bare for the
+  normal wrapper to re-fence cleanly. Prose spans such as ` ``bash pip install ...`` ` do not
+  match and are untouched.
+- **Repair placed at the correct pipeline stage.** `audit_document_links` masks inline code
+  before calling the wrapper, so a repair living inside `wrap_spurious_code_arrays` can never
+  fire from the engine — by then the damaged span is a placeholder and the qualifier is no
+  longer adjacent to it. The call now sits beside the existing pre-mask fracture repair.
+
+### Vault Data Repair
+- **19 spans across 11 notes** rejoined or de-doubled, all re-verified against the source PDFs.
+- **`132 - Creating a Windowed Dataset.md`** had an inline span straddling a page-break artifact
+  (opened on one line, closed four lines later), which desynchronised backtick pairing for the
+  rest of the passage and caused earlier span-based passes to skip or double-wrap it. The passage
+  was reconstructed from the book and now matches it exactly with balanced fences.
+- **Two spans the generic rule could not cover**, both restored from source: a second occurrence
+  in `041 - Downloading and Running an LLM.md` missed because the file was completed under the
+  earlier nested-only rule, and a 3-D tensor in `048 - Creating Contextualized Word Embeddings
+  with Language Models.md` whose `...` truncation fails the numeric predicate and whose book form
+  is `[[ [...] ]]`, needing two brackets per side rather than one.
+
+## [000.006.142] - 2026-09-19 — *Numeric Literal Fencing — Nested Array Wrapping & Honest Synthesis Reporting*
+
+Follow-up to the ghost link stub investigation. Closes the gap that let un-fenced numeric
+literals sit exposed in PDF-extracted notes, retires a divergent copy of the wrapping logic,
+and stops the review UI from crediting the LLM for abstracts it did not write.
+
+### Added
+- **Nested numeric literals are now fenced.** `wrap_spurious_code_arrays` previously matched
+  only flat 2-D lists, leaving `[[2, 0.5], [3, 1]]` and `[[0.7, 0.3], [1.0, 0.0]]` bare in the
+  vault where every `[[...]]` consumer could misread them. A new `_wrap_numeric_bracket_literals`
+  scanner walks each candidate with a bracket-depth counter instead of a nested quantifier, so
+  cost stays linear — a 28 KB pathological line resolves in ~320 ms with no backtracking cliff.
+  `None`, `-inf`, signed values and underscore digit separators are all recognised.
+- **`synthesis_mode` on the entity stub contract.** `synthesize_entity_abstract` now returns
+  `(abstract, mode)`, carried through `StubPayload`, the XML envelope and the review endpoints.
+  Payloads written before this field degrade to `fallback`.
+
+### Fixed
+- **The review UI no longer labels deterministic fallbacks as LLM synthesis.** The badge read
+  "Multi-Reference LLM Synthesis" unconditionally. It now reflects `synthesis_mode`, rendering
+  "Deterministic Fallback — No LLM Synthesis" in amber with an explanatory tooltip when Ollama
+  was unavailable or returned nothing usable.
+- **Silent synthesis failures are now logged.** Both the exception path and the too-short-result
+  path dropped to `logger.debug`, so an 18-second Ollama timeout left no trace above debug level.
+  Both now log at warning with the target name.
+- **Legacy remediation script migrated to the canonical wrapper.** `remediate_spurious_and_entities.py`
+  carried its own three regexes for the same job, in violation of the DRY protocol. It now calls
+  `wrap_spurious_code_arrays` behind `protect_code_blocks` and rewrites only the note body.
+
+### Vault Data Repair
+- **73 mangled numeric literals restored across 36 Reference Library notes.** An untracked ad-hoc
+  run had matched literals with a non-greedy `\[\[(.*?)\]\]` pattern and substituted the *inner*
+  group, replacing each literal's own outer `[` and `]` with a backtick —
+  `torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])` became
+  ``torch.tensor(`[[1, 2], [3, 4]`, `[5, 6], [7, 8]]`)``. Every affected span was verified against
+  the source PDFs in the vault's `Attachments/Source Material` folder before any write: 61 by
+  automatic digit-signature match on original bracket depth, the remaining 12 by targeted lookup.
+  All 73 were `[[...]]` in the source, so a uniform one-bracket restoration reproduces the books
+  exactly. Repaired by `scripts/personal/repair_mangled_array_literals.py`, which is dry-run by
+  default and records completed notes, since a restored split literal is structurally
+  indistinguishable from its own damaged form and would otherwise be eaten by a second pass.
+
+## [000.006.141] - 2026-09-19 — *Ghost Link Stub Integrity — Code Subscript Rejection & Mention Rendering*
+
+Fixes ghost link stub proposals synthesized from Python source code rather than from vault entities.
+PDF-extracted Reference Library notes carry un-fenced pandas/NumPy code, and double-subscript syntax
+(`iris.data[["petal length (cm)", "petal width (cm)"]]`) is byte-identical to a wikilink. The link
+auditor harvested those fragments as recurring ghost links, cleared the multi-reference quality gate
+on the strength of three code blocks quoting the same textbook snippet, and queued them for review.
+
+### Fixed
+- **Code subscripts are no longer mistaken for wikilinks.** `is_valid_entity_target` now rejects any
+  candidate stem containing characters that never appear in vault note stems but are ubiquitous in
+  source code (`"`, `*`, `<`, `>`, `{`, `}`, `=`, `;`, backtick). Audited against all 7,139 wikilink
+  targets present in the vault: the 15 rejections are all code fragments, and no legitimate stem is
+  affected — colons and parentheses (`Clair Obscur: Expedition 33`, `Oberon (warframe)`) still pass.
+- **Second-layer subscript guard on link scanning.** `WIKILINK_OPEN_GUARD` prevents `[[` preceded by
+  an identifier character, `)` or `]` from matching at all, since that form is an indexing expression
+  rather than a link. Applied to both the ghost link scan and `canonicalize_document_wikilinks`.
+  Markdown italic emphasis (`_[[Target]]`) is deliberately exempt and still resolves.
+- **Harvested mentions rendered as empty quotes in the review UI.** `parse_stub_xml` rebuilt each
+  reference with `source` and `context` only, while the dev review panel reads `ref.snippet` — the
+  field `harvest_entity_references` populates. Every harvested excerpt therefore displayed as `""`
+  despite being present in the stored XML payload. The parser now restores `snippet` parity, and the
+  panel falls back to `context` so payloads written before this release render correctly.
 
 ## [000.006.140] - 2026-09-19 — *Reasoning Pipeline Overhaul — Native Multi-Channel Streaming & Structured Traces*
 
