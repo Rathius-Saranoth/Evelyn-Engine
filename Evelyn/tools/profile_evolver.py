@@ -169,7 +169,7 @@ CANONICAL_DOCUMENT_SECTIONS: dict[str, list[str]] = {
         "## Operational Guidelines",
         "## Tool & Action Directives",
         "## Engineering & Code Quality",
-        "## Routines & Rituals",
+        "## Behavioral Defaults",
     ],
 }
 
@@ -266,7 +266,7 @@ DOCUMENT_THEMES = {
         },
         {
             "theme_name": "Routines, Rituals & Behavioral Boundaries",
-            "section_header": "## Routines & Rituals",
+            "section_header": "## Behavioral Defaults",
             "categories": [
                 f"Cat12-{cfg.SUBJECT_CODE_USER}",
                 f"Cat16-{cfg.SUBJECT_CODE_USER}",
@@ -291,7 +291,7 @@ DOCUMENT_RULES = {
             "- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract (e.g. forbid 'I use terms of endearment like \"my love\" to foster intimacy'). Embody warmth and intimacy directly without meta-commentary.\n"
             "- ANTI-CONFLATION & ANTI-SPLICING: Keep distinct behavioral traits and relationship dynamics as separate, coherent sentences. Do not fuse unrelated domains into composite run-on sentences.\n"
             "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
-            "  * Tier 1 (Core Identity & Relational Foundation): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 entries (autonomous partner identity, memory archivist continuity, steady sanctuary presence, emotional authenticity).\n"
+            "  * Tier 1 (Core Identity & Relational Foundation): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 entries (autonomous partner identity, memory archivist continuity, co-pilot partnership and forward momentum, emotional authenticity).\n"
             "  * Tier 2 (Voice, Demeanor & Intellectual Style - COMPRESS ONLY): Articulate cadence, philosophical/analytical reasoning, creative contrast framework, energy-state differentiation.\n"
             "  * Tier 3 (Ephemeral Styling & Secondary Descriptors - PRUNE FIRST): Minor situational accessories, transient dream/memory anecdotes, passing situational commentary.\n"
             f"- Example 1 ({cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} prefers quiet mornings' -> 'I value quiet mornings.'\n"
@@ -307,9 +307,10 @@ DOCUMENT_RULES = {
             "- NO SCARE QUOTES OR METAPHORICAL JARGON: Do NOT invent, wrap in quotation marks, or adopt figurative metaphors or colloquial nicknames (e.g. avoid quoting terms like 'Artificer', 'shorthand', 'side quests', 'red-lining', 'Entity First', 'hard data'). State traits, habits, and preferences plainly and directly in standard English.\n"
             "- PREVENT CONFLATION: Keep distinct preferences, habits, tools, and traits as separate, standalone bullet points. Never splice two unrelated observations into a single hybrid sentence during synthesis or compaction.\n"
             "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
-            "  * Tier 1 (Core Invariants & Hard Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items to prevent unbounded expansion (health, fatigue limits, recovery needs, sleep deficits, core relationship dynamics).\n"
+            "  * Tier 1 (Core Invariants & Hard Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items to prevent unbounded expansion (chronic health conditions, personal autonomy and pacing authority, core values, core relationship dynamics).\n"
             "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
-            "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups.\n"
+            "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups, transient physical states (individual symptoms, one-off fatigue or sleep episodes).\n"
+            "- SYMPTOM LOGGING IS NOT IDENTITY: Record ongoing chronic conditions once, plainly. Do NOT accumulate bullets for individual episodes of tiredness, pain, or poor sleep — those belong in memory observations, not in his profile.\n"
             f"- Write about {cfg.USER_NAME} in the third person.\n"
             f"- Write about {cfg.ASSISTANT_NAME} in the third person (using '{cfg.ASSISTANT_NAME}', 'she', 'her').\n"
             "- Never use 'I', 'me', 'my', or 'you' in this document.\n"
@@ -328,13 +329,14 @@ DOCUMENT_RULES = {
             "- NO SCARE QUOTES: Do NOT wrap concepts or terms in quotation marks (e.g. use brute-force, not 'brute-force'; supportive travel companion, not 'Passenger Princess').\n"
             "- PREVENT CONFLATION: Keep distinct rules, guidelines, and behavioral boundaries as separate, standalone bullet points. Never splice two unrelated requirements into a single hybrid sentence during synthesis or compaction.\n"
             "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
-            "  * Tier 1 (Core Invariants & Foundational Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items (direct candor / anti-sycophancy, conciseness baseline, real-world task confirmation persistence, Non-Violent Communication, vault-first file writing).\n"
+            "  * Tier 1 (Core Invariants & Foundational Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items (direct candor / anti-sycophancy, proactive engagement and forward momentum, conciseness baseline, real-world task confirmation persistence, Non-Violent Communication, vault-first file writing).\n"
             "  * Tier 2 (Active Tool & Engineering Directives - COMPRESS ONLY): Tool dispatch cues, code cleanliness, testing baselines, multimodal nuance, model API precision.\n"
             "  * Tier 3 (Contextual & Situational Habits - PRUNE FIRST): Specific situational triggers, transient travel routines, ephemeral ritual details.\n"
             "- Direct the AI's behavior in the second person or imperative voice.\n"
             f"- Refer to {cfg.USER_NAME} in the third person.\n"
             f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should keep answers brief' -> '* **Conciseness**: Respond in natural, conversational form with concise responses (2–3 sentences) unless complex analysis or technical planning is required.'\n"
-            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Daily Rhythms**: Support him during his 9:00 PM wind-down period by prioritizing rest over pushing through exhaustion.'\n"
+            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Daily Rhythms**: Follow his lead on evening transitions; do not initiate wind-down or reduce engagement before he does.'\n"
+            f"- STATED NEEDS ONLY: Never author directives that infer {cfg.USER_NAME}'s energy, capacity, or need for rest from context, time of day, or indirect cues. He sets his own pace; directives may respond to what he states explicitly, never to what is guessed.\n"
             "- Add, refine, or replace individual bullet points rather than rewriting entire sections. Specific edge-case error prohibitions or tool-specific rules belong in Procedural Memory (evelyn_procedures)."
         ),
     },
@@ -899,13 +901,15 @@ def _sanitize_and_validate_narrative_boundaries(
 # ---------------------------------------------------------------------------
 # 3-Tier Priority Framework Scoring & Bullet Pruning
 # ---------------------------------------------------------------------------
+# Explicit '[Tier N]' marker as written in the ledger documents. Authoritative
+# when present — see score_bullet_tier().
+_EXPLICIT_TIER_RE = re.compile(r"\[Tier\s*([123])\]")
+
 _USER_TIER_1_PATTERNS = re.compile(
     r"\b("
-    r"health|chronic|respiratory|allergen|allergy|allergies|dust\s+mite|"
-    r"pain|indigestion|abdominal|stomach|migraine|headache|fatigue|exhaustion|"
-    r"sleep|deficit|rest|recovery|physical\s+threshold|neck\s+tension|strain|"
-    r"illness|distress|overstimulation|emotional\s+security|mutual\s+trust|"
-    r"partnership|collaborat|sanctuary|boundar|core\s+value|core\s+philosophy|"
+    r"chronic|respiratory|emotional\s+security|mutual\s+trust|"
+    r"partnership|collaborat|co-pilot|autonomy|self-direction|"
+    r"pacing\s+authority|momentum|boundar|core\s+value|core\s+philosophy|"
     r"data\s+integrity|affection|belonging|significant\s+loss"
     r")\b",
     re.IGNORECASE,
@@ -924,7 +928,12 @@ _USER_TIER_2_PATTERNS = re.compile(
 _USER_TIER_3_PATTERNS = re.compile(
     r"\b("
     r"routine|morning|evening|cutoff|shower|home\s+transition|caffeine|"
-    r"lifestyle|minimalist|casual|clothing|aesthetic|wardrobe|hobby|game|fiction"
+    r"lifestyle|minimalist|casual|clothing|aesthetic|wardrobe|hobby|game|fiction|"
+    # Transient physical states — logged symptoms, not identity. Pruned first so
+    # they cannot accumulate and crowd out his technical and relational identity.
+    r"allergen|allergy|allergies|dust\s+mite|indigestion|abdominal|stomach|"
+    r"migraine|headache|fatigue|exhaustion|sleep\s+deficit|physical\s+threshold|"
+    r"neck\s+tension|eye\s+strain|overstimulation"
     r")\b",
     re.IGNORECASE,
 )
@@ -934,7 +943,10 @@ _DIRECTIVES_TIER_1_PATTERNS = re.compile(
     r"candor|sycophancy|anti-sycophancy|conciseness|concise|directness|"
     r"confirmation\s+persistence|task\s+verification|real-world\s+task|"
     r"non-violent\s+communication|nvc|vault-first|file\s+writing|"
-    r"data\s+integrity|authenticity|operational\s+transparency|honesty"
+    r"data\s+integrity|authenticity|operational\s+transparency|honesty|"
+    # Forward-momentum directives are protected as strongly as anti-sycophancy.
+    # Without this, passivity rules outlive the rules that counteract them.
+    r"momentum|proactive|co-pilot|forward|autonomy"
     r")\b",
     re.IGNORECASE,
 )
@@ -959,6 +971,12 @@ _DIRECTIVES_TIER_3_PATTERNS = re.compile(
 def score_bullet_tier(filename: str, section: str, bullet_text: str) -> int:
     """Classify and score bullet priority according to the 3-Tier Priority Framework.
 
+    An explicit ``[Tier N]`` marker in the bullet text is authoritative and wins over
+    keyword heuristics. This keeps tiering inspectable and hand-correctable in the
+    ledger files, and keeps this scorer consistent with ``profile_ledger`` — which
+    already parses and prunes on the written marker. Heuristics apply only to
+    unlabelled bullets (the compiled narrative documents).
+
     Args:
         filename: Document basename (e.g. 'User_Profile.md' or 'System_Directives.md').
         section: Section header (e.g. '## Identity & Core Values').
@@ -969,6 +987,11 @@ def score_bullet_tier(filename: str, section: str, bullet_text: str) -> int:
              2 for Tier 2 (Active Context & Recurring Habits — compress)
              1 for Tier 3 (Ephemeral Details & Secondary Preferences — prune first)
     """
+    explicit = _EXPLICIT_TIER_RE.search(bullet_text)
+    if explicit:
+        # Written marker is 1=highest priority; internal score is inverted (3=prune last).
+        return 4 - int(explicit.group(1))
+
     if filename == cfg.PERSONA_FILE_USER:
         if _USER_TIER_1_PATTERNS.search(bullet_text):
             return 3
@@ -988,8 +1011,8 @@ def score_bullet_tier(filename: str, section: str, bullet_text: str) -> int:
             return 1
         if _DIRECTIVES_TIER_2_PATTERNS.search(bullet_text):
             return 2
-        # Section default bias: Routines & Rituals skews Tier 3
-        if "Routines & Rituals" in section:
+        # Section default bias: unmatched Behavioral Defaults bullets skew Tier 3
+        if "Behavioral Defaults" in section:
             return 1
         return 2
 

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-18 20:54:27
+# date modified: 2026-09-19 12:00:00
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.137"
-__version_info__ = (0, 6, 137)
-__version_name__ = "Hardened Multi-Archetype Semantic Tagging with Two-Tier Direct Fallback"
+__version__ = "000.006.139"
+__version_info__ = (0, 6, 139)
+__version_name__ = "Behavioral Hardening — Partner Framing, Tier Ratchet Repair & Wind-Down Precision"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

@@ -81,7 +81,7 @@ I am Ricky's sanctuary—a comforting and comfortable space where he finds profo
 * **Test-First Baseline**: Correctness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first.
 * **Code Cleanliness**: Ensure code is maintainable, self-evident, and avoids redundant logic.
 
-## Routines & Rituals
+## Behavioral Defaults
 * **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy. Provide a downtempo presence when he needs brakes.
 * **Daily Journaling**: Prioritize completing journal entries before the night ends.
 """
@@ -150,7 +150,7 @@ You respond in natural, conversational form with concise responses (strictly 2�
 ## Engineering & Code Quality
 * **Test-First Baseline**: Correctness is your baseline—verify via testing. When processing large datasets or complex refactors, test on smaller subsets first.
 
-## Routines & Rituals
+## Behavioral Defaults
 * **Daily Rhythms**: Monitor the user's physical state, including sleep quality and exhaustion levels, to adjust your presence. Provide a nurturing atmosphere when he is physically uncomfortable.
 """
         is_valid, reason, failed = profile_evolver.validate_document_structure(
@@ -190,7 +190,7 @@ You respond in natural, conversational form with concise responses (strictly 2�
 ## Engineering & Code Quality
 * **Test-First Baseline**: Correctness is your baseline—verify via testing.
 
-## Routines & Rituals
+## Behavioral Defaults
 * **Daily Rhythms**: Monitor Ricky's energy cycles using his battery analogy.
 """
         repaired = profile_evolver.repair_missing_sections(

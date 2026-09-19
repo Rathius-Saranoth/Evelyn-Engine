@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-18 20:54:27
+# date modified: 2026-09-18 21:33:51
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -140,6 +140,61 @@ def normalize_tag_format(tag: str, is_entity: bool | None = None) -> str:
             norm_parts.append("-".join(words))
 
     return "/".join(norm_parts)
+
+
+def _extract_document_skeleton(body: str, gist: str = "") -> str:
+    """Build a structured document skeleton for LLM classification.
+
+    Instead of a raw character slice (which cuts off mid-sentence on large docs),
+    this extracts the semantic outline: all headings, a stored gist, and the
+    opening prose paragraph. Gives the model full thematic coverage in far fewer
+    tokens — critical for multi-section overview documents.
+
+    Args:
+        body: Raw markdown body text (post-frontmatter).
+        gist: Pre-computed semantic summary from vault DB (may be empty).
+
+    Returns:
+        str: Structured skeleton string for inclusion in the LLM prompt.
+    """
+    parts: list[str] = []
+
+    # 1. Vault gist (semantic summary already computed by indexer)
+    # Skip if the gist is clearly a markdown link list (ToC noise from indexer)
+    if gist and gist.strip() and not gist.strip().startswith("- ["):
+        parts.append(f"[Semantic Summary]: {gist.strip()}")
+
+    # 2. Headings outline (full topic map — cheap in tokens, high signal)
+    headings = re.findall(r"^(#{1,3} .+)", body, re.MULTILINE)
+    if headings:
+        # Deduplicate while preserving order (e.g. ToC anchor dupes)
+        seen: set[str] = set()
+        unique_headings: list[str] = []
+        for h in headings:
+            if h not in seen:
+                seen.add(h)
+                unique_headings.append(h)
+        parts.append("[Document Structure]:\n" + "\n".join(unique_headings))
+
+    # 3. Opening paragraph (document intent / introduction)
+    # Skip headings, list items, and markdown link lines (ToC / bullet noise)
+    non_heading_lines = [
+        line for line in body.splitlines()
+        if line.strip()
+        and not line.startswith("#")
+        and not line.lstrip().startswith("-")
+        and not line.lstrip().startswith("[")
+        and not line.lstrip().startswith("|")
+    ]
+    if non_heading_lines:
+        opening = " ".join(non_heading_lines[:6])  # ~2-3 sentences
+        parts.append(f"[Opening Content]: {opening[:400]}")
+
+    # 4. Fallback: raw slice if no structure could be extracted
+    if not parts:
+        parts.append(body[:1200])
+
+    return "\n\n".join(parts)
 
 
 def parse_frontmatter_tags(content: str) -> tuple[list[str], str]:
@@ -504,39 +559,74 @@ def audit_document_tags(
 
         # Summarize auditable tags if extensive to prevent model deliberation loops
         if len(auditable_tags) > 6:
-            tag_summary = f"{len(auditable_tags)} legacy tags (including: {', '.join(auditable_tags[:5])}...)"
+            tag_summary = f"{len(auditable_tags)} legacy tags (including: {', '.join(auditable_tags[:5])} ...)"
         else:
-            tag_summary = f"{auditable_tags}"
+            tag_summary = ", ".join(auditable_tags) if auditable_tags else "none"
 
         system_prompt = (
-            "You are an expert taxonomy librarian maintaining a clean, structured tag hierarchy for an Obsidian vault.\n"
-            "Organize notes under 2-4 clean, domain-level nested tags (e.g. #3D-Printing/Slicing, #Tech/GIS, #Craft/Tailoring, #Music/Cello).\n"
-            "Consolidate cluttered or flat legacy tags into high-level categories.\n"
-            "Output valid JSON with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
-            "CRITICAL: Keep internal thinking under 80 words. Do NOT deliberate in loops or debate tags. Make your decision once and output JSON immediately.\n"
+            "You are a professional library cataloger maintaining a Faceted Classification system for a personal knowledge vault.\n"
+            "Your role mirrors a research librarian filing books: you classify documents by SUBJECT MATTER, not by the author's role or employer.\n\n"
+            "CLASSIFICATION RULES:\n"
+            "1. DOMAIN TAGS: Assign tags for each genuine subject the document covers.\n"
+            "   - Use nested Domain/Subdomain only when specialization warrants it (e.g. #Tech/GIS, #Craft/Tailoring, #Music/Cello, #Science/Geology).\n"
+            "   - A document on GIS gets #Tech/GIS — not #Work or #Job. A document on genealogy gets #Genealogy — not #Hobby.\n"
+            "   - Multi-topic documents MUST receive a tag for EACH meaningful subject area. Do not collapse them into one tag.\n"
+            "2. TYPE/FORM FACETS: Assign exactly one orthogonal facet for the document's form or nature:\n"
+            "   - #type/overview, #type/manual, #type/guide, #type/journal-entry, #type/reference, #type/list, #type/recipe, #type/notes, #type/log\n"
+            "   - This facet is SEPARATE from domain tags — never mix form with subject.\n"
+            "3. EXISTING TAGS: Evaluate each current tag for correctness and format.\n"
+            "   - Tags already in Domain/Subdomain or Domain/Subdomain/Leaf format are ALREADY WELL-CATALOGED structured facets — treat them as correct and preserve them unless they are factually wrong about the document's content.\n"
+            "   - Only flat or un-nested tags (e.g. 'gis-technician', 'dream-journal') need reformatting into a proper hierarchy.\n"
+            "   - Remove only tags that are genuinely wrong, exact redundant duplicates, or meaningless noise.\n"
+            "4. QUANTITY GUIDE: Simple notes: 2-4 tags total. Multi-topic reference documents: as many domain tags as genuinely needed. Never pad; never truncate coverage.\n"
+            "5. FORMAT: All tags use Title-Case with hyphens for multi-word terms. Subdomains separated by /. No spaces.\n\n"
+            "Output valid JSON only with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
+            "CRITICAL: Decide once, output JSON immediately. Do NOT loop or debate."
         )
 
         user_prompt = (
             f"Document Title: {title}\n"
             f"Document Path: {path}\n"
             f"Current Tags: {tag_summary}\n\n"
-            f"--- CANDIDATE MASTER TAGS ---\n"
+            f"--- CANDIDATE MASTER TAGS (from vault taxonomy) ---\n"
             f"{candidate_list_text}\n\n"
-            f"--- NOTE CONTENT SAMPLE ---\n"
-            f"'''\n{body[:800]}\n'''\n\n"
-            "Consolidate into 2-4 clean domain tags. Output JSON immediately."
+            f"--- DOCUMENT SKELETON (headings + gist + opening) ---\n"
+            f"'''\n{_extract_document_skeleton(body, gist)}\n'''\n\n"
+            "Classify this document using Faceted Classification.\n"
+            "1. Assess each current tag: keep if accurate and well-formatted, reformat if needed, remove if wrong or redundant.\n"
+            "2. Add domain tags for any subject areas not yet covered.\n"
+            "3. Add exactly one #type/ facet for the document's form.\n"
+            "4. Do not collapse a multi-topic document into fewer than its genuine subject areas.\n"
+            "Output JSON immediately."
         )
 
+        # Fix 1: High-tag-count bypass — docs with >15 legacy tags need mechanical
+        # reformatting, not deep reasoning. Routing think=True on 15+ tags causes the
+        # model to deliberate over each one individually, reliably hitting the timeout.
+        # Route directly to think=False for these; the result is faster and equally good.
+        use_fast_path = len(auditable_tags) > 15
+        if use_fast_path:
+            logger.info("High tag count (%d tags) for %s — routing directly to fast-path inference.", len(auditable_tags), path)
+
         try:
-            response_text = query_ollama(user_prompt, system_prompt)
+            if use_fast_path:
+                response_text = _canonical_query_ollama(
+                    prompt=user_prompt,
+                    system=system_prompt,
+                    options={"temperature": 0.1, "num_predict": 1536},
+                    timeout=60,
+                    think=False,
+                )
+            else:
+                response_text = query_ollama(user_prompt, system_prompt)
             json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
             if not json_match:
                 logger.info("Reasoning token limit reached or no JSON for %s; retrying with direct inference fallback.", path)
                 response_text = _canonical_query_ollama(
                     prompt=user_prompt,
                     system=system_prompt,
-                    options={"temperature": 0.1, "num_predict": 1024},
-                    timeout=30,
+                    options={"temperature": 0.1, "num_predict": 1536},
+                    timeout=60,
                     think=False,
                 )
                 json_match = re.search(r"\{.*\}", response_text, re.DOTALL)

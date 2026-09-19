@@ -1024,7 +1024,8 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 # =============================================================================
 # Tag Librarian Configuration (Incremental Vault Tag Maintenance)
 # =============================================================================
-TAG_LIBRARIAN_ENABLED = True
+TAG_LIBRARIAN_ENABLED = False  # Disabled — classification logic under revision
+
 # Wave 4 idle trigger (20 minutes / 1200s). Staggered after deep research.
 TAG_LIBRARIAN_IDLE_THRESHOLD = 1200  # 20 minutes idle (Wave 4)
 TAG_LIBRARIAN_BATCH_SIZE = 2  # Process 2 documents per idle trigger
