@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-19 10:40:54
+# date modified: 2026-09-19 11:10:15
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -385,6 +385,30 @@ array([[1.5, 2.5]])
             )
             self.assertEqual(details["ghost_links_count"], 2)
 
+    def test_extract_link_context_preserves_alias_pipes(self):
+        """Verify alias pipes survive extraction while table pipes are still stripped.
+
+        Regression guard: a blanket '|' replace turned [[Ricky|Ricky]] into
+        [[Ricky Ricky]]. That excerpt is written verbatim into the Context & Mentions
+        section of an approved stub, so the librarian was manufacturing ghost links.
+        """
+        from Evelyn.tools.string_utils import extract_link_context
+
+        body = (
+            "He mentioned [[Ricky|Ricky]] has a great grandfather born in [[Yugoslavia]], "
+            "with ties to [[Hvar Island]] in [[Croatia]] per the "
+            "[[Sekulich Family|Sekulich family's history]] record."
+        )
+        ctx = extract_link_context(body, "Croatia", window_chars=180)
+        self.assertIn("[[Ricky|Ricky]]", ctx)
+        self.assertIn("[[Sekulich Family|Sekulich family's history]]", ctx)
+        self.assertNotIn("[[Ricky Ricky]]", ctx)
+
+        # Bare pipes from markdown tables must still be neutralised
+        table_ctx = extract_link_context("a | b | c [[Croatia]] d | e", "Croatia", window_chars=180)
+        self.assertNotIn("|", table_ctx)
+        self.assertIn("[[Croatia]]", table_ctx)
+
     def test_extract_link_context_clean_isolation(self):
         """Verify extract_link_context slices surrounding sentence and omits YAML headers."""
         raw_body = """
@@ -549,6 +573,32 @@ Additional bench tests confirmed 4x speedup over baseline models.
         self.assertIn("Chapter1", abstract)
         self.assertIn("Chapter2", abstract)
 
+    def test_stub_synthesis_disables_thinking_and_uses_config_timeout(self):
+        """Verify the abstract call disables reasoning and honours the configured timeout.
+
+        Regression guard: with thinking enabled this call measured 26.9s against a
+        hardcoded 18s ceiling, so synthesis timed out every time and silently fell back.
+        """
+        captured = {}
+
+        def fake_query(**kwargs):
+            captured.update(kwargs)
+            return "Croatia is a country in Southeast Europe with extensive parish records."
+
+        with patch("Evelyn.tools.ollama_client.query_ollama", side_effect=fake_query), \
+             patch.object(cfg, "LIBRARIAN_STUB_LLM_SYNTHESIS", True), \
+             patch.object(cfg, "LIBRARIAN_STUB_SYNTHESIS_TIMEOUT", 45):
+            abstract, mode = link_librarian.synthesize_entity_abstract(
+                "Croatia",
+                [{"source": "A.md", "context": "Records held in Croatia."},
+                 {"source": "B.md", "context": "Ancestry traced to Croatia."}],
+            )
+
+        self.assertEqual(mode, "llm")
+        self.assertIn("Southeast Europe", abstract)
+        self.assertIs(captured.get("think"), False, "reasoning must be disabled for stub synthesis")
+        self.assertEqual(captured.get("timeout"), 45, "timeout must come from config, not a literal")
+
     def test_synthesis_mode_survives_xml_roundtrip(self):
         """Verify the stub envelope reports honestly whether Ollama wrote the abstract."""
         payload = link_librarian.StubPayload(
@@ -631,6 +681,36 @@ Additional bench tests confirmed 4x speedup over baseline models.
             link_librarian.tokenize_wikilink("Note#^block123|display text"),
             ("Note", "#^block123", "display text"),
         )
+
+    def test_condense_redundant_aliases(self):
+        """Verify [[X|X]] collapses to [[X]] while meaningful aliases survive."""
+        changed, count, out = link_librarian.condense_redundant_aliases(
+            "He said [[Ricky|Ricky]] and [[Fox|Fox]] arrived."
+        )
+        self.assertTrue(changed)
+        self.assertEqual(count, 2)
+        self.assertEqual(out, "He said [[Ricky]] and [[Fox]] arrived.")
+
+        # Table-escaped pipes condense too; the result needs no escaping
+        _, _, out = link_librarian.condense_redundant_aliases("| [[Ricky\\|Ricky]] |")
+        self.assertIn("[[Ricky]]", out)
+        self.assertNotIn("\\|", out)
+
+        # Embeds keep their "!" prefix
+        _, _, out = link_librarian.condense_redundant_aliases("![[Daily Note|Daily Note]]")
+        self.assertEqual(out, "![[Daily Note]]")
+
+        # Must NOT touch these
+        for keep in [
+            "Case display [[Music|music]] stays.",
+            "Subpath [[Note#Section|Note]] stays.",
+            "Image ![[photo.png|300]] stays.",
+            "Real alias [[Sekulich Family|Sekulich family history]] stays.",
+            "Plain [[Croatia]] untouched.",
+        ]:
+            changed, count, out = link_librarian.condense_redundant_aliases(keep)
+            self.assertFalse(changed, f"wrongly condensed: {keep}")
+            self.assertEqual(out, keep)
 
     def test_canonicalize_document_wikilinks_and_ghost_count(self):
         """Verify canonical link target rewriting and ghost link filtering."""
