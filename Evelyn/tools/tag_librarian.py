@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-18 19:54:45
+# date modified: 2026-09-18 20:05:16
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -408,9 +408,9 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     return _canonical_query_ollama(
         prompt=prompt,
         system=system_prompt if system_prompt else None,
-        options={"temperature": 0.2, "num_predict": 1024},
+        options={"temperature": 0.2, "num_predict": 2048},
         timeout=120,
-        think=False,
+        think=True,
     )
 
 
@@ -509,7 +509,8 @@ def audit_document_tags(
             "1. Domain-Level Hierarchies: Group flat concepts into logical multi-tier domains using forward slashes (e.g. #3D-Printing/Slicing, #3D-Modeling/Topology, #AI/LLM/Inference, #AI/RAG/Evaluation, #Mood/Peace, #Lore/Worldbuilding, #Contact/Friend, #Media/Game).\n"
             "2. Semantic & Contextual Disambiguation: Use the full context of the note to disambiguate polysemous or broad words.\n"
             "3. Tag Formatting Rules: Lowercase hyphens for concepts, TitleCase with underscores for proper entities.\n"
-            "4. Output Format: Return ONLY a valid JSON object with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
+            "4. Output Format: Return a valid JSON object with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
+            "5. Thinking Directive: Keep internal thinking concise (under 100 words). Do not deliberate in repetitive loops. Once candidates are identified, immediately produce the final JSON block.\n"
         )
 
         user_prompt = (
