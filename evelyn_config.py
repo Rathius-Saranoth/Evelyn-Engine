@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-18 20:54:27
+# date modified: 2026-09-19 09:31:34
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -142,12 +142,6 @@ SEED = 0
 # Range: -2–∞       |  Ollama default: -1
 NUM_PREDICT = 8192
 
-# Stop sequences — generation halts immediately when any of these strings are
-# produced. Primarily added to prevent the model from looping inside its own
-# <think> block on self-prompting tokens like "(Send)." instead of emitting
-# the final response. Set to an empty list [] to disable.
-STOP_SEQUENCES = ["(Send).", "(Final).", "(Done).", "*Perfect."]
-
 # =============================================================================
 # History
 # =============================================================================
@@ -187,10 +181,16 @@ TOOL_LOOP_NUM_PREDICT = 8192
 # final response's thinking block is shown.
 SHOW_TOOL_LOOP_THINKING = True
 
-# When True, Evelyn may self-elect her response effort during Tool Round 0 by
-# including {"requested_effort":"X"} in her output. This overrides the heuristic
-# classifier but not a UI chip override. Set to False to disable self-election.
-THINK_SELF_ELECT = True
+# Maximum characters of native reasoning Evelyn may emit in a single round
+# before the loop intervenes. Gemma 4 can enter self-prompting loops where it
+# repeatedly tries to terminate its own thought chain ("Ready. Done. Perfect.
+# Stop thinking. Go.") without ever emitting a response. Stop sequences cannot
+# solve this — Ollama applies them to the thinking channel, so a match kills the
+# turn with empty content instead of forcing an answer. When this ceiling is
+# crossed the round is cancelled and re-issued with thinking disabled, which
+# guarantees a real reply. Set to 0 to disable the guard entirely.
+# ~16000 chars ≈ 4000 tokens — roughly 2x a deep-but-healthy reasoning pass.
+THINK_BUDGET_CHARS = 16000
 
 # --- Dynamic Tool Tiering & Intent Patterns ---
 # Core tools are always included in the system prompt for routine conversational turns.

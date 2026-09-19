@@ -469,6 +469,15 @@
         max-height: 220px;
         overflow-y: auto;
       }
+      .trace-budget-notice {
+        font-size: 11px;
+        color: #fde047;
+        background: rgba(253, 224, 71, 0.08);
+        border: 1px solid rgba(253, 224, 71, 0.25);
+        border-radius: 4px;
+        padding: 4px 8px;
+        margin-top: 4px;
+      }
       .trace-tool-body {
         display: flex;
         flex-wrap: wrap;
@@ -502,63 +511,6 @@
       .trace-tool-chip.error {
         border-color: rgba(239, 68, 68, 0.4);
         color: #fca5a5;
-      }
-
-      /* Legacy Thinking block */
-      .think-block {
-        border: 1px solid var(--think-border);
-        border-radius: 8px;
-        overflow: hidden;
-        margin-bottom: 8px;
-        background: var(--think-bg);
-        max-width: min(100%, 680px);
-        min-width: 0;
-      }
-      .think-header {
-        padding: 6px 12px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-        user-select: none;
-        border-bottom: 1px solid var(--think-border);
-      }
-      .think-header:hover {
-        background: rgba(255, 255, 255, 0.03);
-      }
-      .think-icon {
-        font-size: 14px;
-      }
-      .think-label {
-        font-size: 12px;
-        color: var(--think-text);
-        font-weight: 500;
-      }
-      .think-chevron {
-        margin-left: auto;
-        font-size: 11px;
-        color: var(--text-dim);
-        transition: transform 0.2s;
-      }
-      .think-block.open .think-chevron {
-        transform: rotate(180deg);
-      }
-      .think-content {
-        padding: 10px 14px;
-        font-size: 13px;
-        color: var(--think-text);
-        font-family: "JetBrains Mono", monospace;
-        line-height: 1.5;
-        display: none;
-        max-height: 300px;
-        overflow-y: auto;
-        overflow-x: auto;
-        white-space: pre-wrap;
-        max-width: 100%;
-        min-width: 0;
-      }
-      .think-block.open .think-content {
-        display: block;
       }
 
       /* Tool activity */
@@ -2070,19 +2022,47 @@
       // ---------------------------------------------------------------------------
       // Activity Stepper & Trace Handler
       // ---------------------------------------------------------------------------
-      function renderActivityTraceBlock(thinkingText, toolsUsedStr) {
-        if (!thinkingText && !toolsUsedStr) return null;
+      // Builds the collapsed trace shown on already-persisted messages.
+      // `traceJson` is the authoritative structured record written since the
+      // multi-channel overhaul. Messages saved before it have no structured
+      // trace, so they degrade to a single flat Reasoning block.
+      function renderActivityTraceBlock(thinkingText, toolsUsedStr, traceJson) {
+        let rounds = null;
+        if (traceJson) {
+          try {
+            const parsed = typeof traceJson === "string" ? JSON.parse(traceJson) : traceJson;
+            if (Array.isArray(parsed) && parsed.length > 0) rounds = parsed;
+          } catch (e) {
+            rounds = null;
+          }
+        }
+
+        if (!rounds && !thinkingText && !toolsUsedStr) return null;
 
         const details = document.createElement("details");
         details.className = "agent-activity-trace";
         details.open = false;
 
-        const words = thinkingText ? (thinkingText.trim().match(/\s+/g) || []).length + (thinkingText.trim() ? 1 : 0) : 0;
-        const toolsList = toolsUsedStr ? toolsUsedStr.split(",").filter(Boolean) : [];
-        const toolsMeta = toolsList.length > 0 ? `${toolsList.length} tool${toolsList.length > 1 ? "s" : ""} used` : "";
+        const countWords = (t) => {
+          const s = (t || "").trim();
+          return s ? (s.match(/\s+/g) || []).length + 1 : 0;
+        };
+
+        let words = 0;
+        let toolCount = 0;
+        if (rounds) {
+          rounds.forEach((r) => {
+            words += countWords(r.thinking);
+            toolCount += (r.tools || []).length;
+          });
+        } else {
+          words = countWords(thinkingText);
+          toolCount = toolsUsedStr ? toolsUsedStr.split(",").filter(Boolean).length : 0;
+        }
+
         const metaParts = [];
         if (words > 0) metaParts.push(`${words} words`);
-        if (toolsMeta) metaParts.push(toolsMeta);
+        if (toolCount > 0) metaParts.push(`${toolCount} tool${toolCount > 1 ? "s" : ""} used`);
 
         details.innerHTML = `
           <summary class="trace-summary">
@@ -2092,47 +2072,61 @@
           </summary>
           <div class="trace-body"></div>
         `;
-
         const body = details.querySelector(".trace-body");
 
-        if (thinkingText) {
-          const sections = thinkingText.split(/(?=\[(?:Initial|Round \d+|Tool \d+|Response)\]\n)/g);
-          if (sections.length > 1) {
-            sections.forEach((sec, idx) => {
-              const mLabel = sec.match(/^\[(Initial|Round \d+|Tool \d+|Response)\]\n([\s\S]*)$/);
-              const header = mLabel ? mLabel[1] : `Round ${idx + 1}`;
-              const content = mLabel ? mLabel[2].trim() : sec.trim();
-              if (content) {
-                const step = document.createElement("div");
-                step.className = "trace-step";
-                step.innerHTML = `
-                  <div class="trace-step-header">● ${header}</div>
-                  <div class="trace-thought-body">${escapeHtml(content)}</div>
-                `;
-                body.appendChild(step);
-              }
-            });
-          } else if (thinkingText.trim()) {
+        if (rounds) {
+          const multi = rounds.length > 1;
+          rounds.forEach((r) => {
             const step = document.createElement("div");
             step.className = "trace-step";
-            step.innerHTML = `
-              <div class="trace-step-header">● Reasoning</div>
-              <div class="trace-thought-body">${escapeHtml(thinkingText.trim())}</div>
-            `;
+            const heading = multi ? `Round ${r.round}: Reasoning & Exploration` : "Reasoning";
+            let html = `<div class="trace-step-header">● ${escapeHtml(heading)}</div>`;
+            if (r.thinking) {
+              html += `<div class="trace-thought-body">${escapeHtml(r.thinking)}</div>`;
+            }
+            if (r.budget_tripped) {
+              html += `<div class="trace-budget-notice">⚠️ Reasoning exceeded its budget — answered with thinking disabled.</div>`;
+            }
+            if ((r.tools || []).length > 0) {
+              html += `<div class="trace-tool-body">`;
+              r.tools.forEach((t) => {
+                const failed = t.status === "error";
+                const cls = failed ? "error" : "ok";
+                const icon = failed ? "⚠️" : "🛠️";
+                const label = failed ? `${t.name} failed` : `${t.name} completed`;
+                html += `<div class="trace-tool-chip ${cls}" title="${escapeHtml(t.summary || "")}"><span>${icon} ${escapeHtml(label)}</span></div>`;
+              });
+              html += `</div>`;
+            }
+            step.innerHTML = html;
             body.appendChild(step);
-          }
+          });
+          return details;
         }
 
-        if (toolsList.length > 0) {
-          const toolStep = document.createElement("div");
-          toolStep.className = "trace-step";
-          let chipsHtml = `<div class="trace-step-header">● Tools Executed</div><div class="trace-tool-body">`;
-          toolsList.forEach((t) => {
-            chipsHtml += `<div class="trace-tool-chip ok"><span>🛠️ ${escapeHtml(t)}</span></div>`;
-          });
-          chipsHtml += `</div>`;
-          toolStep.innerHTML = chipsHtml;
-          body.appendChild(toolStep);
+        // Legacy fallback: flat pre-overhaul thinking text.
+        if (thinkingText && thinkingText.trim()) {
+          const step = document.createElement("div");
+          step.className = "trace-step";
+          step.innerHTML = `
+            <div class="trace-step-header">● Reasoning</div>
+            <div class="trace-thought-body">${escapeHtml(thinkingText.trim())}</div>
+          `;
+          body.appendChild(step);
+        }
+        if (toolsUsedStr) {
+          const toolsList = toolsUsedStr.split(",").filter(Boolean);
+          if (toolsList.length > 0) {
+            const toolStep = document.createElement("div");
+            toolStep.className = "trace-step";
+            let chipsHtml = `<div class="trace-step-header">● Tools Executed</div><div class="trace-tool-body">`;
+            toolsList.forEach((t) => {
+              chipsHtml += `<div class="trace-tool-chip"><span>🛠️ ${escapeHtml(t)}</span></div>`;
+            });
+            chipsHtml += `</div>`;
+            toolStep.innerHTML = chipsHtml;
+            body.appendChild(toolStep);
+          }
         }
 
         return details;
@@ -2200,15 +2194,8 @@
 
         function handleThinking(roundNum, delta) {
           if (isFinalized) return;
-          let r = roundNum;
-          const labelMatch = delta.match(/^\[(Initial|Round (\d+)|Tool (\d+)|Response)\]\n/);
-          let cleanDelta = delta;
-          if (labelMatch) {
-            if (labelMatch[2]) r = parseInt(labelMatch[2], 10);
-            else if (labelMatch[3]) r = parseInt(labelMatch[3], 10);
-            cleanDelta = delta.slice(labelMatch[0].length);
-          }
-          const rObj = getOrCreateRound(r);
+          const rObj = getOrCreateRound(roundNum);
+          const cleanDelta = delta;
           if (cleanDelta) {
             rObj.thought.textContent += cleanDelta;
             rObj.thought.scrollTop = rObj.thought.scrollHeight;
@@ -2233,6 +2220,16 @@
             const titleEl = traceEl.querySelector(".trace-summary-title");
             if (titleEl) titleEl.textContent = "Thought process & actions";
           }
+        }
+
+        function handleBudgetExceeded(roundNum) {
+          const rObj = getOrCreateRound(roundNum);
+          if (rObj.step.querySelector(".trace-budget-notice")) return;
+          const notice = document.createElement("div");
+          notice.className = "trace-budget-notice";
+          notice.textContent = "⚠️ Reasoning exceeded its budget — answering with thinking disabled.";
+          rObj.step.insertBefore(notice, rObj.tools);
+          scrollBottom();
         }
 
         function handleToolStart(roundNum, toolName, args) {
@@ -2291,6 +2288,7 @@
         return {
           handleThinking,
           finishThinking,
+          handleBudgetExceeded,
           handleToolStart,
           handleToolEnd,
           handleDelta,
@@ -3101,6 +3099,17 @@
           } else {
             setStatus("Thinking…");
           }
+          return;
+        }
+
+        if (evt.type === "think_budget_exceeded") {
+          if (currentStream.thinkingHandler && currentStream.thinkingHandler.handleBudgetExceeded) {
+            currentStream.thinkingHandler.handleBudgetExceeded(evt.round || 1);
+          }
+          if (currentStream.addActivity) {
+            currentStream.addActivity("⚠️", "Reasoning budget exceeded — retrying without thinking");
+          }
+          setStatus("Reasoning budget exceeded — retrying…");
           return;
         }
 
@@ -4573,7 +4582,7 @@
           container.appendChild(divider);
         } else if (m.role === "assistant") {
           const wrap = createAssistantMessage(m.ts);
-          const traceBlock = renderActivityTraceBlock(m.thinking, m.tools_used);
+          const traceBlock = renderActivityTraceBlock(m.thinking, m.tools_used, m.trace_json);
           if (traceBlock) {
             wrap.appendChild(traceBlock);
           }

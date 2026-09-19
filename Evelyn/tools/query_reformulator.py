@@ -1,6 +1,6 @@
 # query_reformulator.py
 # date created: 2026-04-26 13:03:48
-# date modified: 2026-09-05 19:48:43
+# date modified: 2026-09-19 09:31:34
 # tags: #query, #reformulation, #search, #keywords, #prompts
 
 """
@@ -138,9 +138,6 @@ def reformulate_query(user_message: str) -> str:
         }.items()
         if val is not None
     })
-    if cfg.STOP_SEQUENCES:
-        options["stop"] = cfg.STOP_SEQUENCES
-
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": [

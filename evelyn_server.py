@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-18 19:33:58
+# date modified: 2026-09-19 09:31:34
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -302,14 +302,6 @@ async def stream_session_events(session: ActiveStreamSession, after: int = -1, r
 # Thinking-effort classifier
 # ---------------------------------------------------------------------------
 
-# Regex for stripping model-emitted self-election hints from content streams.
-# Applied in pass1 content cleanup AND in _stream_content to prevent leaking
-# into chat bubbles. Defined here so both sites share the same compiled pattern.
-_SELF_ELECT_RE = re.compile(
-    r'\s*\{"requested_effort":\s*"(?:low|medium|high|max)"\}\s*',
-    re.IGNORECASE,
-)
-
 # Trivial pattern: must be the ENTIRE message (fullmatch), must be short (<45 chars).
 # "Thanks! Why didn't that work?" → fails fullmatch → falls to medium. ✓
 _TRIVIAL_RE = re.compile(
@@ -598,14 +590,7 @@ def load_system_prompt() -> str:
         "2. Sequential Execution Constraint: In Round 0, when calling `search_available_tools`, do NOT attempt to invoke target tools that are not yet loaded in your schema. You must wait for Round 1 after the discovered tool schema is returned to execute it.\n"
         "</proactive_tool_discovery>"
     )
-    parts.append(
-        "When actions or lookups are needed, call the tool directly, when in doubt use the tool. "
-        "If a turn calls for unusually deep reflection (complex multi-step analysis, technical planning, "
-        'or deep emotional nuance), you may include {"requested_effort":"high"} on its own line before '
-        "your response. For brief acknowledgments or casual sign-offs where deep reasoning is "
-        'unnecessary, include {"requested_effort":"low"} instead. '
-        "Do not include this marker in routine replies."
-    )
+    parts.append("When actions or lookups are needed, call the tool directly, when in doubt use the tool.")
     for fname in cfg.PERSONA_FILES:
         fpath = PERSONA_DIR / fname
         if fpath.exists():
@@ -708,6 +693,10 @@ def init_db():
     # Migrate: add tools_used column if missing (existing DBs)
     with suppress(sqlite3.OperationalError):
         con.execute("ALTER TABLE messages ADD COLUMN tools_used TEXT")
+
+    # Migrate: structured reasoning trace (canonical step 000.006.140)
+    with suppress(sqlite3.OperationalError):
+        con.execute("ALTER TABLE messages ADD COLUMN trace_json TEXT")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS message_metrics (
@@ -1048,6 +1037,7 @@ def update_message(
     thinking: str | None = None,
     tools_used: str | None = None,
     tool_metadata: str | None = None,
+    trace_json: str | None = None,
 ):
     """Update an existing message row in the chat history database.
 
@@ -1057,11 +1047,12 @@ def update_message(
         thinking: Optional thinking/reasoning process text to save.
         tools_used: Optional comma-separated list of tools used.
         tool_metadata: Optional JSON-serialized metadata for tools.
+        trace_json: Optional JSON-serialized structured per-round reasoning trace.
     """
     con = get_db()
     con.execute(
-        "UPDATE messages SET content = ?, thinking = ?, tools_used = ?, tool_metadata = ? WHERE id = ?",
-        (content, thinking, tools_used, tool_metadata, row_id),
+        "UPDATE messages SET content = ?, thinking = ?, tools_used = ?, tool_metadata = ?, trace_json = ? WHERE id = ?",
+        (content, thinking, tools_used, tool_metadata, trace_json, row_id),
     )
     con.commit()
     con.close()
@@ -1281,8 +1272,6 @@ async def call_ollama_stream(messages: list[dict], tools: list[dict] | None = No
         }.items()
         if v is not None
     }
-    if cfg.STOP_SEQUENCES:
-        options["stop"] = cfg.STOP_SEQUENCES
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": messages,
@@ -1347,8 +1336,6 @@ async def call_ollama_full(
         }.items()
         if v is not None
     }
-    if cfg.STOP_SEQUENCES:
-        options["stop"] = cfg.STOP_SEQUENCES
     payload = {
         "model": cfg.MODEL_NAME,
         "messages": messages,
@@ -1419,6 +1406,10 @@ async def _agentic_stream_loop(
     final_content = ""
     tools_used_list = []
     tool_metadata_list = []
+    # Structured per-round reasoning trace. This is the authoritative record the
+    # UI renders from; accumulated_thinking is kept as a flat human-readable
+    # mirror so pre-overhaul rows and this one degrade to the same fallback.
+    round_records: list[dict[str, Any]] = []
 
     current_think_effort = think_effort if think_effort is not None else cfg.THINK
     think_source = "ui_override" if ui_override else "heuristic"
@@ -1436,8 +1427,7 @@ async def _agentic_stream_loop(
 
     loop = asyncio.get_running_loop()
     _SENTINEL = object()
-    OPEN_TAG = "<think>"
-    CLOSE_TAG = "</think>"
+    think_budget = int(getattr(cfg, "THINK_BUDGET_CHARS", 0) or 0)
 
     initial_tools = tools if tools is not None else MODEL_TOOL_DEFINITIONS
     active_tool_map: dict[str, dict[str, Any]] = {
@@ -1464,169 +1454,140 @@ async def _agentic_stream_loop(
         round_thinking = ""
         round_content = ""
         round_tool_calls = []
-        parse_buf = ""
-        in_think = False
+        round_budget_tripped = False
+        effort_for_round = current_think_effort
 
-        print(
-            f"{_CYN}[STREAM ROUND {round_num}/{cfg.MAX_TOOL_ROUNDS}]{_RST} "
-            f"think={current_think_effort}, tools={'None' if tools_for_round is None else len(tools_for_round)}. Roles:",
-            [m["role"] for m in msgs],
-            flush=True,
-        )
+        # Each round gets at most two attempts. Attempt 1 runs at the resolved
+        # effort. If native reasoning blows past THINK_BUDGET_CHARS the model is
+        # looping on self-termination tokens and will never emit content, so the
+        # stream is cancelled and attempt 2 re-runs the identical turn with
+        # thinking disabled — which guarantees a reply instead of a dead turn.
+        for attempt in (1, 2):
+            if attempt == 2:
+                effort_for_round = False
+                round_content = ""
+                round_tool_calls = []
 
-        queue: asyncio.Queue = asyncio.Queue()
+            print(
+                f"{_CYN}[STREAM ROUND {round_num}/{cfg.MAX_TOOL_ROUNDS}]{_RST} "
+                f"think={effort_for_round}, attempt={attempt}, "
+                f"tools={'None' if tools_for_round is None else len(tools_for_round)}. Roles:",
+                [m["role"] for m in msgs],
+                flush=True,
+            )
 
-        async def _feed(feed_msgs, feed_tools, feed_think, target_q=queue):
-            try:
-                async for line in call_ollama_stream(feed_msgs, tools=feed_tools, think_effort=feed_think):
-                    await target_q.put(("line", line))
-            except (httpx.HTTPError, RuntimeError, OSError, ValueError) as exc:
-                await target_q.put(("error", exc))
-                return
-            await target_q.put(("done", _SENTINEL))
+            queue: asyncio.Queue = asyncio.Queue()
 
-        feeder = asyncio.create_task(_feed(msgs, tools_for_round, current_think_effort))
-
-        try:
-            while True:
+            async def _feed(feed_msgs, feed_tools, feed_think, target_q=queue):
                 try:
-                    kind, item = await asyncio.wait_for(queue.get(), timeout=1.0)
-                except TimeoutError:
-                    yield 'data: {"type":"heartbeat"}\n\n'
-                    continue
+                    async for line in call_ollama_stream(feed_msgs, tools=feed_tools, think_effort=feed_think):
+                        await target_q.put(("line", line))
+                except (httpx.HTTPError, RuntimeError, OSError, ValueError) as exc:
+                    await target_q.put(("error", exc))
+                    return
+                await target_q.put(("done", _SENTINEL))
 
-                if kind == "error":
-                    print(
-                        f"{_RED}[STREAM ERROR R{round_num}]{_RST} {type(item).__name__}: {item}",
-                        flush=True,
-                    )
-                    raise item
-                if kind == "done":
-                    break
+            feeder = asyncio.create_task(_feed(msgs, tools_for_round, effort_for_round))
 
-                chunk = {}
-                with contextlib.suppress(json.JSONDecodeError):
-                    chunk = json.loads(item)
-                if not chunk:
-                    continue
+            try:
+                while True:
+                    try:
+                        kind, item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    except TimeoutError:
+                        yield 'data: {"type":"heartbeat"}\n\n'
+                        continue
 
-                msg = chunk.get("message", {})
+                    if kind == "error":
+                        print(
+                            f"{_RED}[STREAM ERROR R{round_num}]{_RST} {type(item).__name__}: {item}",
+                            flush=True,
+                        )
+                        raise item
+                    if kind == "done":
+                        break
 
-                # 1. Native thinking field
-                native_think = msg.get("thinking", "")
-                if native_think:
-                    round_thinking += native_think
-                    yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': native_think})}\n\n"
+                    chunk = {}
+                    with contextlib.suppress(json.JSONDecodeError):
+                        chunk = json.loads(item)
+                    if not chunk:
+                        continue
 
-                # 2. Tool calls (captured when emitted by model, accumulated across streaming chunks)
-                if msg.get("tool_calls"):
-                    for tc in msg["tool_calls"]:
-                        tc_id = tc.get("id")
-                        tc_fn = tc.get("function", {}).get("name")
-                        tc_args = tc.get("function", {}).get("arguments")
-                        if tc_id:
-                            if not any(existing.get("id") == tc_id for existing in round_tool_calls):
-                                round_tool_calls.append(tc)
-                        elif not any(
-                            existing.get("function", {}).get("name") == tc_fn
-                            and existing.get("function", {}).get("arguments") == tc_args
-                            for existing in round_tool_calls
+                    msg = chunk.get("message", {})
+
+                    # 1. Native reasoning channel. Gemma 4 never places <think>
+                    #    tags in content — reasoning always arrives here.
+                    native_think = msg.get("thinking", "")
+                    if native_think:
+                        round_thinking += native_think
+                        yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': native_think})}\n\n"
+
+                        if (
+                            think_budget > 0
+                            and not round_budget_tripped
+                            and len(round_thinking) > think_budget
                         ):
-                            round_tool_calls.append(tc)
-
-                # 3. Content field parsing
-                text_delta = msg.get("content", "")
-                if text_delta:
-                    for _tok in _LEAKED_MODEL_TOKENS:
-                        text_delta = text_delta.replace(_tok, "")
-
-                    # Self-election parsing in Round 1
-                    if round_num == 1 and cfg.THINK_SELF_ELECT and not ui_override:
-                        m_elect = _SELF_ELECT_RE.search(text_delta)
-                        if m_elect:
-                            elected = re.search(
-                                r'"requested_effort":\s*"(low|medium|high|max)"',
-                                m_elect.group(0),
-                                re.IGNORECASE,
+                            round_budget_tripped = True
+                            aggregated_metrics["think_budget_trips"] = (
+                                aggregated_metrics.get("think_budget_trips", 0) + 1
                             )
-                            if elected:
-                                current_think_effort = elected.group(1)
-                                think_source = "self_elect"
-                                aggregated_metrics["think_effort"] = str(current_think_effort)
-                                aggregated_metrics["think_source"] = think_source
-                                dlog(f"Self-elected think effort: {current_think_effort}")
+                            print(
+                                f"{_RED}[THINK BUDGET R{round_num}]{_RST} reasoning exceeded "
+                                f"{think_budget} chars ({len(round_thinking)}). "
+                                f"Cancelling and re-issuing with thinking disabled.",
+                                flush=True,
+                            )
+                            yield f"data: {json.dumps({'type': 'think_budget_exceeded', 'round': round_num, 'chars': len(round_thinking), 'budget': think_budget})}\n\n"
+                            break
 
-                    text_delta = _SELF_ELECT_RE.sub("", text_delta)
-                    parse_buf += text_delta
+                    # 2. Native tool calls, accumulated across streaming chunks.
+                    if msg.get("tool_calls"):
+                        for tc in msg["tool_calls"]:
+                            tc_id = tc.get("id")
+                            tc_fn = tc.get("function", {}).get("name")
+                            tc_args = tc.get("function", {}).get("arguments")
+                            if tc_id:
+                                if not any(existing.get("id") == tc_id for existing in round_tool_calls):
+                                    round_tool_calls.append(tc)
+                            elif not any(
+                                existing.get("function", {}).get("name") == tc_fn
+                                and existing.get("function", {}).get("arguments") == tc_args
+                                for existing in round_tool_calls
+                            ):
+                                round_tool_calls.append(tc)
 
-                    while parse_buf:
-                        if in_think:
-                            ct_idx = parse_buf.find(CLOSE_TAG)
-                            if ct_idx == -1:
-                                safe = len(parse_buf) - len(CLOSE_TAG)
-                                if safe > 0:
-                                    out = parse_buf[:safe]
-                                    round_thinking += out
-                                    yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': out})}\n\n"
-                                    parse_buf = parse_buf[safe:]
-                                break
-                            else:
-                                if ct_idx > 0:
-                                    out = parse_buf[:ct_idx]
-                                    round_thinking += out
-                                    yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': out})}\n\n"
-                                parse_buf = parse_buf[ct_idx + len(CLOSE_TAG) :]
-                                in_think = False
-                        else:
-                            ot_idx = parse_buf.find(OPEN_TAG)
-                            if ot_idx == -1:
-                                found_partial = False
-                                for plen in range(len(OPEN_TAG) - 1, 0, -1):
-                                    if parse_buf.endswith(OPEN_TAG[:plen]):
-                                        safe = len(parse_buf) - plen
-                                        if safe > 0:
-                                            out = parse_buf[:safe]
-                                            round_content += out
-                                            yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': out})}\n\n"
-                                            parse_buf = parse_buf[safe:]
-                                        found_partial = True
-                                        break
-                                if not found_partial:
-                                    round_content += parse_buf
-                                    yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': parse_buf})}\n\n"
-                                    parse_buf = ""
-                                break
-                            else:
-                                if ot_idx > 0:
-                                    out = parse_buf[:ot_idx]
-                                    round_content += out
-                                    yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': out})}\n\n"
-                                parse_buf = parse_buf[ot_idx + len(OPEN_TAG) :]
-                                in_think = True
+                    # 3. Content channel — direct passthrough.
+                    text_delta = msg.get("content", "")
+                    if text_delta:
+                        cleaned = text_delta
+                        for _tok in _LEAKED_MODEL_TOKENS:
+                            cleaned = cleaned.replace(_tok, "")
+                        if cleaned != text_delta:
+                            dlog(f"Stripped leaked model token(s) from content delta in round {round_num}")
+                        if cleaned:
+                            round_content += cleaned
+                            yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': cleaned})}\n\n"
 
-                # 4. Stream completion metrics
-                if chunk.get("done"):
-                    for m_key in (
-                        "prompt_eval_count",
-                        "eval_count",
-                        "prompt_eval_duration",
-                        "eval_duration",
-                        "total_duration",
-                        "load_duration",
-                    ):
-                        if chunk.get(m_key):
-                            aggregated_metrics[m_key] = aggregated_metrics.get(m_key, 0) + chunk[m_key]
-                    if parse_buf:
-                        if in_think:
-                            round_thinking += parse_buf
-                            yield f"data: {json.dumps({'type': 'thinking', 'round': round_num, 'delta': parse_buf})}\n\n"
-                        else:
-                            round_content += parse_buf
-                            yield f"data: {json.dumps({'type': 'text', 'round': round_num, 'delta': parse_buf})}\n\n"
-                    break
-        finally:
-            if not feeder.done():
-                feeder.cancel()
+                    # 4. Stream completion metrics
+                    if chunk.get("done"):
+                        for m_key in (
+                            "prompt_eval_count",
+                            "eval_count",
+                            "prompt_eval_duration",
+                            "eval_duration",
+                            "total_duration",
+                            "load_duration",
+                        ):
+                            if chunk.get(m_key):
+                                aggregated_metrics[m_key] = aggregated_metrics.get(m_key, 0) + chunk[m_key]
+                        break
+            finally:
+                if not feeder.done():
+                    feeder.cancel()
+
+            # Attempt 1 ends here unless the budget tripped; attempt 2 always
+            # runs with thinking disabled and therefore cannot trip again.
+            if not round_budget_tripped:
+                break
 
         # Check round outcome
         if round_tool_calls:
@@ -1638,8 +1599,15 @@ async def _agentic_stream_loop(
                 yield f"data: {json.dumps({'type': 'quarantine_preamble', 'round': round_num, 'text': round_content})}\n\n"
 
             if round_thinking.strip():
-                label = f"[Round {round_num}]\n"
-                accumulated_thinking += f"{label}{round_thinking.strip()}\n\n"
+                accumulated_thinking += f"{round_thinking.strip()}\n\n"
+
+            round_record: dict[str, Any] = {
+                "round": round_num,
+                "thinking": round_thinking.strip(),
+                "tools": [],
+                "budget_tripped": round_budget_tripped,
+            }
+            round_records.append(round_record)
 
             # Append assistant turn with tool calls
             msgs.append(
@@ -1672,6 +1640,13 @@ async def _agentic_stream_loop(
                 tool_entry = fn_name
                 meta_entry: dict[str, Any] = {"name": fn_name, "args": fn_args, "data": None}
                 approval_id_or_data = None
+                tool_record: dict[str, Any] = {
+                    "name": fn_name,
+                    "args": fn_args,
+                    "status": tool_status,
+                    "summary": str(result)[:300],
+                }
+                round_record["tools"].append(tool_record)
 
                 if fn_name == "generate_image":
                     m_img = re.search(r"(/images/[^\s\)]+)", str(result))
@@ -1723,6 +1698,12 @@ async def _agentic_stream_loop(
                     )
                 else:
                     tool_content = str(result)
+
+                # Persist the settled status so a reloaded trace shows failures
+                # as failures instead of defaulting every chip to success.
+                tool_record["status"] = tool_status
+                if approval_id_or_data:
+                    tool_record["data"] = approval_id_or_data
 
                 yield f"data: {json.dumps({'type': 'tool_end', 'round': round_num, 'tool': fn_name, 'status': tool_status, 'summary': str(result)[:300], 'data': approval_id_or_data})}\n\n"
                 if approval_id_or_data:
@@ -1828,11 +1809,18 @@ async def _agentic_stream_loop(
             # Terminal response reached (no tool calls)
             final_content = round_content
             if round_thinking.strip():
-                label = f"[Round {round_num}]\n" if round_num > 1 or accumulated_thinking else ""
-                accumulated_thinking += f"{label}{round_thinking.strip()}\n\n"
+                accumulated_thinking += f"{round_thinking.strip()}\n\n"
+            round_records.append(
+                {
+                    "round": round_num,
+                    "thinking": round_thinking.strip(),
+                    "tools": [],
+                    "budget_tripped": round_budget_tripped,
+                }
+            )
             break
 
-    yield f"data: {json.dumps({'type': '_state', 'content': final_content, 'thinking': accumulated_thinking.strip(), 'tools_used': tools_used_list, 'tool_metadata': tool_metadata_list, 'metrics': aggregated_metrics})}\n\n"
+    yield f"data: {json.dumps({'type': '_state', 'content': final_content, 'thinking': accumulated_thinking.strip(), 'trace': round_records, 'tools_used': tools_used_list, 'tool_metadata': tool_metadata_list, 'metrics': aggregated_metrics})}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1904,6 +1892,7 @@ async def _process_chat_background(
     metrics_dict = {}
     tools_used_list = []
     tool_metadata_list = []
+    trace_records: list[dict] = []
 
     async def put(type_: str, **kw):
         """Enqueue a serialized SSE event dictionary to the active stream session."""
@@ -2084,6 +2073,7 @@ async def _process_chat_background(
                     if d.get("type") == "_state":
                         content_buf = d.get("content", "")
                         thinking_buf = d.get("thinking", "")
+                        trace_records = d.get("trace", [])
                         tools_used_list = d.get("tools_used", [])
                         tool_metadata_list = d.get("tool_metadata", [])
                         metrics_dict.update(d.get("metrics", {}))
@@ -2112,6 +2102,7 @@ async def _process_chat_background(
         # Always commit to DB inside shielded block — independent of whether task is cancelled
         tools_str = ",".join(tools_used_list) if tools_used_list else None
         tools_meta_str = json.dumps(tool_metadata_list) if tool_metadata_list else None
+        trace_str = json.dumps(trace_records) if trace_records else None
 
         if session.is_cancelled or session.status == "stopped":
             update_message(
@@ -2120,6 +2111,7 @@ async def _process_chat_background(
                 thinking=thinking_buf.strip() if thinking_buf.strip() else None,
                 tools_used=tools_str,
                 tool_metadata=tools_meta_str,
+                trace_json=trace_str,
             )
             session.push_chunk(f"data: {json.dumps({'type': 'stopped'})}\n\n")
             session.mark_complete(status="stopped")
@@ -2133,6 +2125,7 @@ async def _process_chat_background(
                     thinking=thinking_buf.strip() if thinking_buf.strip() else None,
                     tools_used=tools_str,
                     tool_metadata=tools_meta_str,
+                    trace_json=trace_str,
                 )
                 save_message_metrics(assistant_row_id, metrics_dict)
             else:
@@ -2142,6 +2135,7 @@ async def _process_chat_background(
                     thinking=thinking_buf.strip() if thinking_buf.strip() else None,
                     tools_used=tools_str,
                     tool_metadata=tools_meta_str,
+                    trace_json=trace_str,
                 )
                 dlog(
                     "WARNING: empty assistant response. thinking len:",
@@ -3423,7 +3417,6 @@ async def status(_: None = Depends(check_auth)):
         "model": cfg.MODEL_NAME,
         "think": cfg.THINK,
         "think_tool_loop": cfg.THINK_TOOL_LOOP,
-        "think_self_elect": getattr(cfg, "THINK_SELF_ELECT", True),
         "debug": cfg.DEBUG_LOGGING,
         "num_ctx": cfg.NUM_CTX,
     }
@@ -3704,7 +3697,7 @@ async def get_history(
     if before:
         rows = con.execute(
             """
-            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts,
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.trace_json, m.ts,
                    mm.prompt_eval_count, mm.eval_count, mm.think_effort, mm.think_source
             FROM messages m
             LEFT JOIN message_metrics mm ON m.id = mm.message_id
@@ -3716,7 +3709,7 @@ async def get_history(
     else:
         rows = con.execute(
             """
-            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.ts,
+            SELECT m.id, m.role, m.content, m.thinking, m.tools_used, m.tool_metadata, m.trace_json, m.ts,
                    mm.prompt_eval_count, mm.eval_count, mm.think_effort, mm.think_source
             FROM messages m
             LEFT JOIN message_metrics mm ON m.id = mm.message_id

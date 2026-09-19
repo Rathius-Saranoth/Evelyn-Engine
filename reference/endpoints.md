@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-17 18:25:15
+date modified: 2026-09-19 09:31:34
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -17,7 +17,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `GET /status`
 * **Purpose**: Performs a quick health check on the server runtime and connection statuses of downstream local services (Ollama, TTS server, Image server).
-* **Returns**: JSON object showing service statuses, active model parameters, thinking effort settings (`think`, `think_tool_loop`, `think_self_elect`), and active context limit (`num_ctx`).
+* **Returns**: JSON object showing service statuses, active model parameters, thinking effort settings (`think`, `think_tool_loop`), and active context limit (`num_ctx`).
 
 ### `GET /api/identity`
 * **Purpose**: Exposes dynamic engine identity parameters, operator names, subject codes, and configured persona markdown files.
@@ -25,12 +25,12 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.
-* **Payload**: JSON object `{"message": "<user text>", "think": "<optional effort level>", "documents": [{"name": "...", "content": "..."}], "attachments": [...]}` where `think` can be `"low"`, `"medium"`, `"high"`, `"max"`, or `false` (overrides heuristic/self-election when provided).
+* **Payload**: JSON object `{"message": "<user text>", "think": "<optional effort level>", "documents": [{"name": "...", "content": "..."}], "attachments": [...]}` where `think` can be `"low"`, `"medium"`, `"high"`, `"max"`, or `false` (overrides the heuristic classifier and tool escalation when provided).
 * **Flow**:
   1. Runs [[query_reformulator.py]] for conversational keywords.
   2. Executes semantic vector search via [[chroma_rag.py]] across `evelyn_memory` full-text index using `BAAI/bge-large-en-v1.5` (1024-dim, 1,600-char chunks) with priority score boosting (`rag_priority: high` multiplier 0.75).
   3. Query matches dense facts from [[context_manager.py]].
-  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** through `_agentic_stream_loop()`, forwarding native thinking deltas in real-time, tool execution lifecycle events (`tool_start`, `tool_end`, `tool_data`), quarantine preamble suppression, uploaded document `<uploaded_document>` XML context injection, and per-message telemetry accounting (`finalize`).
+  4. Pre-classifies thinking effort (`classify_message_effort`) and streams **Server-Sent Events (SSE)** through `_agentic_stream_loop()`, forwarding native thinking deltas in real-time, tool execution lifecycle events (`tool_start`, `tool_end`, `tool_data`), reasoning budget breaks (`think_budget_exceeded`), quarantine preamble suppression, uploaded document `<uploaded_document>` XML context injection, and per-message telemetry accounting (`finalize`).
 
 ### `POST /api/chat/upload`
 * **Purpose**: Uploads and extracts text from user-attached documents (PDF, Markdown, code files, text, JSON, CSV) for injection into chat turns.
@@ -363,7 +363,7 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: `{"status": "ok", "count": N, "events": [...], "days": 1.0}`
 
 ### `GET /telemetry/thinking`
-* **Purpose**: Returns aggregate statistics on resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `self_elected`, `tool_escalation`, `ui_override`), and recent message audit traces.
+* **Purpose**: Returns aggregate statistics on resolved thinking effort levels (`low`, `medium`, `high`, `max`), resolution sources (`heuristic`, `tool_escalation`, `ui_override`), and recent message audit traces.
 * **Returns**: `{"effort_counts": {...}, "source_counts": {...}, "recent_logs": [...]}`
 
 ### `GET /api/vault/note`
