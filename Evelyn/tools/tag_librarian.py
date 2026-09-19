@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-18 19:33:58
+# date modified: 2026-09-18 19:54:45
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -410,6 +410,7 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
         system=system_prompt if system_prompt else None,
         options={"temperature": 0.2, "num_predict": 1024},
         timeout=120,
+        think=False,
     )
 
 
@@ -553,14 +554,24 @@ def audit_document_tags(
 
                 # Upsert newly minted master tags
                 for m in new_masters:
-                    ntag = normalize_tag_format(m.get("tag", ""))
-                    if ntag and not is_excluded_tag(ntag):
+                    if isinstance(m, dict):
+                        ntag = normalize_tag_format(m.get("tag", ""))
                         cat = m.get("category", ntag.split("/")[0] if "/" in ntag else "general")
                         desc = m.get("description", f"Obsidian notes tagged under {ntag}")
+                    elif isinstance(m, str):
+                        ntag = normalize_tag_format(m)
+                        cat = ntag.split("/")[0] if "/" in ntag else "general"
+                        desc = f"Obsidian notes tagged under {ntag}"
+                    else:
+                        continue
+                    if ntag and not is_excluded_tag(ntag):
                         vault_db.upsert_master_tag(ntag, category=cat, description=desc, usage_count=1)
                         index_master_tag_in_chroma(ntag, category=cat, description=desc, usage_count=1)
         except Exception as llm_err:  # noqa: BLE001
             print(f"[TAG LIBRARIAN] LLM semantic tagging failed for {path}: {llm_err}")
+
+        if not details["llm_evaluated"]:
+            print(f"[TAG LIBRARIAN] Warning: LLM semantic tagging did not yield a valid JSON decision for {path}")
 
     modified = (set(final_tags_list) != set(current_tags))
     new_content = content

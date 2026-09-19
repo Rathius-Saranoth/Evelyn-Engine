@@ -1,6 +1,6 @@
 # ollama_client.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-18 19:54:44
 # tags: #ollama, #llm, #http, #gateway, #json, #utils
 
 """
@@ -45,6 +45,7 @@ def query_ollama(
     timeout: int = 120,
     strip_thinking: bool = True,
     images: list[str] | None = None,
+    think: bool | None = None,
 ) -> str:
     """Execute a synchronous HTTP request to the local Ollama instance.
 
@@ -57,6 +58,7 @@ def query_ollama(
         timeout: Socket read timeout in seconds.
         strip_thinking: Whether to automatically remove <think> tags.
         images: Optional list of base64-encoded image strings for multimodal/vision models.
+        think: Optional boolean override to enable/disable reasoning thinking tokens.
 
     Returns:
         Generated response text string, or empty string on network/execution failure.
@@ -76,6 +78,8 @@ def query_ollama(
             payload["options"] = options
         if images:
             payload["images"] = images
+        if think is not None:
+            payload["think"] = think
     else:
         # Default: /api/chat
         messages = []
@@ -93,6 +97,8 @@ def query_ollama(
         }
         if options:
             payload["options"] = options
+        if think is not None:
+            payload["think"] = think
 
     data_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
