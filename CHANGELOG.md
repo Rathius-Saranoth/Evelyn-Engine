@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-18 20:54:27
+date modified: 2026-09-19 12:00:00
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,71 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.139] - 2026-09-19 — *Behavioral Hardening — Partner Framing, Tier Ratchet Repair & Wind-Down Precision*
+
+Corrects a long-running drift in which the assistant's framing moved from partner/co-pilot toward
+caretaker. Diagnosis was measured rather than inferred: the persona layer carried a 20:8
+nurse-to-momentum instruction ratio at 21.5% of the context window, while `profile_evolver`
+mechanically protected symptom vocabulary and pruned technical identity first.
+
+### Fixed
+- **Evolver tier ratchet (`Evelyn/tools/profile_evolver.py`)**: `_USER_TIER_1_PATTERNS` protected
+  `fatigue|exhaustion|sleep|rest|pain|migraine|...` (pruned last) while `_USER_TIER_2_PATTERNS`
+  (`technical|architect|infrastructure|...`) was pruned first. Over successive evolution passes this
+  deterministically converted the user profile into a symptom log. Transient physical states are now
+  Tier 3; chronic conditions remain Tier 1; autonomy and partnership vocabulary promoted to Tier 1.
+- **Forward-momentum directives now protected**: `_DIRECTIVES_TIER_1_PATTERNS` gained
+  `momentum|proactive|co-pilot|forward|autonomy`, so anti-passivity rules are as durable as the
+  existing anti-sycophancy rules rather than being pruned before them.
+- **Self-regenerating wind-down rule**: the evolver's own few-shot example taught
+  `'**Daily Rhythms**: ... prioritizing rest over pushing through exhaustion'` — verbatim the bullet
+  it kept reproducing in `System_Directives.md`. Example replaced with a follow-his-lead formulation,
+  plus an explicit constraint against authoring directives that infer capacity from indirect cues.
+- **Procedure 1034 retrieval precision**: trigger and tags were broad enough to fire on any end-of-day
+  conversation, and step 1 forbade introducing "new tasks, technical problems, or analytical questions".
+  Measured against 60 genuine bedtime messages and 860 other turns, the original wording achieved
+  23.3% recall at 20.5% false-fire; the curated wording achieves 65.0% at 7.6%. Replayed against 689
+  logged turns, firing rate drops from 18.0% to 8.0%. Journaling mechanics preserved verbatim.
+
+### Changed
+- **Tier markers are now authoritative** (`score_bullet_tier`): an explicit `[Tier N]` marker in a
+  bullet wins over keyword heuristics, matching how `profile_ledger` already prunes. Tiering is now
+  inspectable and hand-correctable in the ledger files rather than hidden in a regex.
+- **`## Routines & Rituals` renamed to `## Behavioral Defaults`** across
+  `CANONICAL_DOCUMENT_SECTIONS`, `DOCUMENT_THEMES`, the section tier bias, both persona documents,
+  the open-source template, and the section invariant tests. Extracted facts retain a canonical home.
+- **Persona slimmed** from 3,517 to 3,233 tokens (21.5% → 19.7% of `NUM_CTX`). Caretaking
+  prescriptions removed from `Assistant_Profile.md`, `User_Profile.md`, and `System_Directives.md`;
+  identity, voice and relational framing retained. `Explicit Completion Mandate` relocated from
+  Routines to Operational Guidelines — it is an operational honesty rule, not a ritual.
+- **Stated-needs principle added** to `Core_Directives.md` and both directive documents: a report of
+  tiredness is information, not an instruction; only an explicit request changes the pace. Adaptive
+  Pacing no longer triggers on inferred exhaustion, and an Anti-Regression Clause breaks repeated
+  passive-response cycles.
+- **Procedures 41, 1067, 1754 curated** toward presenting information and proposing concrete next
+  steps rather than prescribing rest. Procedure 41 (avoidance loops) hardened as the counter-signal.
+
+### Added
+- `Evelyn/tests/test_profile_evolver_tiers.py` — asserts technical identity outranks transient
+  symptoms, momentum directives score Tier 1, explicit markers override heuristics, and the
+  assistant journal remains RAG-excluded (that feedback loop was the largest historical drift driver,
+  closed on 2026-09-10; the test prevents silent regression).
+- `scripts/curate_behavior_procedures.py` — idempotent procedure curation with timestamped JSON
+  rollback. Data curation per AGENTS.md §5; no DDL, so no migration step.
+
+## [000.006.138] - 2026-09-18 — *Faceted Classification Cataloging Prompt — Professional Librarian Model*
+
+### Changed
+- **Restored & Hardened Faceted Classification Prompt (`Evelyn/tools/tag_librarian.py`)**:
+  - Replaced degraded "2-4 clean domain tags" prompt with a proper **Faceted Classification** model aligned with professional library cataloging practice.
+  - Librarian is now explicitly instructed to classify by **subject matter** — not by the user's role or employer (e.g. a GIS document receives `#Tech/GIS`, not `#Work`).
+  - Multi-topic documents **must** receive a domain tag for each genuine subject area; collapsing is no longer permitted.
+  - Added a mandatory **orthogonal `#type/` facet** (form/nature of document) as a separate axis from domain tags (e.g. `#type/overview`, `#type/journal-entry`, `#type/manual`).
+  - Existing tags are now audited: accurate well-formed tags are kept; flat-dashed tags are reformatted into domain hierarchy; only genuinely wrong or redundant tags are removed.
+  - Quantity guide changed from a hard ceiling ("2-4") to a flexible principle: simple notes 2-4, multi-topic reference documents as many as genuinely needed.
+  - Expanded note body sample from 800 to 1200 characters to provide better classification context.
+  - Tag summary rendering improved: ≤6 tags shown as comma-separated list; >6 shown as summarized count with leading examples.
 
 ## [000.006.137] - 2026-09-18 — *Hardened Multi-Archetype Semantic Tagging with Two-Tier Direct Fallback*
 

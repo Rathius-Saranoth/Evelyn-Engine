@@ -31,6 +31,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Memory Management Tools**: Implemented journal writing/reading, context fact extraction, and background consolidation pipelines.
 - [x] **Fast Memory Attribution & Temporal Grounding**: Decoupled category canon codes from referent subjects for cross-perspective attribution, and integrated strict temporal grounding in memory extraction and RAG XML envelopes.
 - [x] **Modular Fact Consolidation & Subject Grounding Architecture**: Modularized fact consolidation into deduplication, anti-hysteresis categorization, and decomposition engines with soft-delete provenance lineage, explicit noun subject mandates, and non-destructive review-gated subject grounding with on-demand ephemeral source chat context.
+- [ ] **Dedicated Health Observation Module**: Route physiological and symptom observations out of the general context entry pool into a purpose-built health store queried on demand, so historical health patterns remain available for reference and trend recognition without occupying general retrieval space or biasing conversational framing.
 
 ---
 
