@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-18 19:33:58
+date modified: 2026-09-18 19:54:44
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -21,6 +21,9 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
   - Implemented `audit_single_document_semantic()` supporting single-document evaluation, taxonomy candidate matching, Ollama classification, and atomic frontmatter tag updates.
   - Implemented `run_semantic_tag_audit()` and `run_semantic_tag_audit_async()` driven by `backlog_drainer` with cooperative yielding and batch limits (`cfg.TAG_LIBRARIAN_BATCH_SIZE = 2`).
   - Added CLI flag `--semantic-tags` to `scripts/master_librarian.py` to drain the semantic tag queue directly via terminal.
+- **Ollama Client Non-Reasoning Fast Path (`Evelyn/tools/ollama_client.py` & `tag_librarian.py`)**:
+  - Added `think: bool | None` parameter to `query_ollama()` and configured `think=False` for Tag Librarian, preventing models with native reasoning (Gemma 4) from exhausting token budgets on internal `<think>` traces and ensuring rapid (<12s) structured JSON classification.
+  - Hardened `new_master_tags` ingestion to accept both dictionary and string taxonomy suggestions.
 - **Database Schema Migration (`Evelyn/tools/db_migrator.py`)**:
   - Registered migration `000.006.136` (`vault_documents_semantic_tag_audit_column`) on `vault` database adding column `last_semantic_tag_audit REAL DEFAULT 0` and index `idx_vault_docs_semantic_tag`.
 - **5-Tier Urgency-Ranked Priority Queue (`Evelyn/tools/vault_db.py`)**:
