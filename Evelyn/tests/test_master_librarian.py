@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-18 19:07:42
+# date modified: 2026-09-19 10:40:54
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -70,6 +70,56 @@ And inline code that MUST NOT be touched:
         self.assertIn("```python\nx = array([[1.0, 2.0]], dtype=float32)\n```", restored)
         # Inline code must remain unchanged (not double-wrapped)
         self.assertIn("`tensor([[5.0]])`", restored)
+
+    def test_qualified_array_calls_are_fenced_whole(self):
+        """Verify np./torch. qualifiers stay inside the fence instead of being split off."""
+        for src, want in [
+            ("cube = torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])",
+             "`torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])`"),
+            ("x = np.array([[1, 2], [3, 4]])", "`np.array([[1, 2], [3, 4]])`"),
+            ("array([[0.33149648]], dtype=float32)", "`array([[0.33149648]], dtype=float32)`"),
+        ]:
+            changed, out = link_librarian.wrap_spurious_code_arrays(src)
+            self.assertTrue(changed, f"Failed to wrap: {src}")
+            self.assertIn(want, out)
+
+        # An already-fenced span must not be wrapped twice
+        changed, out = link_librarian.wrap_spurious_code_arrays("already `tensor([[5.0]])` fenced")
+        self.assertFalse(changed)
+
+    def test_reattach_split_array_qualifiers_heals_prior_damage(self):
+        """Verify the pre-mask repair rejoins split qualifiers and strips doubled fences."""
+        changed, out = link_librarian.reattach_split_array_qualifiers(
+            "xs = torch.`tensor([[-1.0], [0.0]], dtype=torch.float32)`"
+        )
+        self.assertTrue(changed)
+        self.assertIn("`torch.tensor([[-1.0], [0.0]], dtype=torch.float32)`", out)
+
+        changed, out = link_librarian.reattach_split_array_qualifiers("out ``[[0.33149648]]`` here")
+        self.assertTrue(changed)
+        self.assertIn("[[0.33149648]]", out)
+        self.assertNotIn("``", out)
+
+        # Prose spans using doubled backticks must survive untouched
+        prose = "prose ``bash pip install langchain `` stays"
+        changed, out = link_librarian.reattach_split_array_qualifiers(prose)
+        self.assertFalse(changed)
+        self.assertEqual(out, prose)
+
+    def test_nested_numeric_literals_are_fenced(self):
+        """Verify nested numeric lists are wrapped whole, with wikilinks left alone."""
+        changed, out = link_librarian.wrap_spurious_code_arrays("X_new = [[2, 0.5], [3, 1]] y = 1")
+        self.assertTrue(changed)
+        self.assertIn("`[[2, 0.5], [3, 1]]`", out)
+
+        changed, out = link_librarian.wrap_spurious_code_arrays("tp = [[0.0, 1.0], None, [0.0, 1.0]]")
+        self.assertTrue(changed)
+        self.assertIn("`[[0.0, 1.0], None, [0.0, 1.0]]`", out)
+
+        for untouched in ["A link [[Voron StealthBurner]] here", "Italic _[[Sad Machine]] here"]:
+            changed, out = link_librarian.wrap_spurious_code_arrays(untouched)
+            self.assertFalse(changed)
+            self.assertEqual(out, untouched)
 
     def test_link_librarian_alias_hygiene_and_doc_types(self):
         """Verify possessive alias pruning and doc-type alias tag migration."""
@@ -241,6 +291,9 @@ array([[1.5, 2.5]])
         # Deserialize back to payload
         parsed = link_librarian.parse_stub_xml(xml_str)
         self.assertEqual(parsed.target_name, "QuantumProcessor")
+        # Parsed references must carry 'snippet' parity with harvest_entity_references
+        for ref in parsed.references:
+            self.assertEqual(ref.get("snippet"), ref.get("context"))
         self.assertEqual(parsed.source_path, "Research/Hardware.md")
         self.assertEqual(parsed.ref_count, 3)
 
@@ -287,6 +340,50 @@ array([[1.5, 2.5]])
         # OCR private-use glyphs
         valid, _ = link_librarian.is_valid_entity_target("01 - \uf0ea !")
         self.assertFalse(valid)
+
+        # Source code fragments captured by double-bracket syntax collisions
+        for code_frag in [
+            '"petal length (cm)", "petal width (cm)"',
+            '"housing_median_age"',
+            '"latitude", "longitude"',
+            "${link}",
+            'review["label"',
+        ]:
+            valid, _ = link_librarian.is_valid_entity_target(code_frag)
+            self.assertFalse(valid, f"Failed to reject code fragment target: {code_frag}")
+
+        # Legitimate stems carrying colons or parentheses must survive
+        for legit in ["Clair Obscur: Expedition 33", "NieR: Automata", "Oberon (warframe)"]:
+            valid, clean = link_librarian.is_valid_entity_target(legit)
+            self.assertTrue(valid, f"Wrongly rejected legitimate target: {legit}")
+            self.assertEqual(clean, legit)
+
+    def test_code_subscript_not_counted_as_ghost_link(self):
+        """Verify pandas/NumPy double-subscripts are never harvested as ghost links."""
+        with tempfile.TemporaryDirectory() as tmp_vault:
+            test_body = (
+                "Loading the iris dataset (introduced in Chapter 4):\n"
+                'X = iris.data[["petal length (cm)", "petal width (cm)"]].values\n'
+                'housing_num = housing[["housing_median_age"]]\n'
+                "An italicized real link _[[Sad Machine]] must still register.\n"
+                "And a plain ghost link [[Completely Unknown Note]].\n"
+            )
+
+            def mock_resolver(target, vault_root=None):
+                return False, target
+
+            with patch("Evelyn.tools.link_librarian.resolve_canonical_link_target", side_effect=mock_resolver):
+                _, _, details = link_librarian.audit_document_links(
+                    content=test_body,
+                    path="Notes/Perceptron.md",
+                    vault_root=tmp_vault,
+                )
+
+            self.assertEqual(
+                sorted(details["ghost_targets"]),
+                ["Completely Unknown Note", "Sad Machine"],
+            )
+            self.assertEqual(details["ghost_links_count"], 2)
 
     def test_extract_link_context_clean_isolation(self):
         """Verify extract_link_context slices surrounding sentence and omits YAML headers."""
@@ -446,10 +543,26 @@ Additional bench tests confirmed 4x speedup over baseline models.
             {"source": "Chapter2.md", "snippet": "Gregory negotiated trade terms with foreign dignitaries to restore local prosperity."},
         ]
         # Test fallback directly with synthesis disabled
-        abstract = link_librarian.synthesize_entity_abstract("Gregory", references, use_llm=False)
+        abstract, mode = link_librarian.synthesize_entity_abstract("Gregory", references, use_llm=False)
+        self.assertEqual(mode, "fallback")
         self.assertIn("cited across 2 notes in the vault", abstract)
         self.assertIn("Chapter1", abstract)
         self.assertIn("Chapter2", abstract)
+
+    def test_synthesis_mode_survives_xml_roundtrip(self):
+        """Verify the stub envelope reports honestly whether Ollama wrote the abstract."""
+        payload = link_librarian.StubPayload(
+            target_name="QuantumProcessor",
+            synthesized_abstract="A processor used for lab benchmarking of vector workloads.",
+            synthesis_mode="llm",
+        )
+        xml_str = link_librarian.render_stub_xml(payload)
+        self.assertIn('synthesis_mode="llm"', xml_str)
+        self.assertEqual(link_librarian.parse_stub_xml(xml_str).synthesis_mode, "llm")
+
+        # Payloads written before this field existed must degrade to 'fallback'
+        legacy = '<entity_stub target="Legacy" ref_count="2" min_refs="2" context_chars="0" />'
+        self.assertEqual(link_librarian.parse_stub_xml(legacy).synthesis_mode, "fallback")
 
     def test_notation_title_healing_and_idempotency(self):
         """Verify format librarian repairs notation titles and subsequent runs are strictly idempotent."""

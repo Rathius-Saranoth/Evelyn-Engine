@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-19 09:31:34
+# date modified: 2026-09-19 10:23:53
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5888,6 +5888,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
                         "references": payload.references,
                         "synthesized_abstract": payload.synthesized_abstract,
                         "total_context_chars": payload.total_context_chars,
+                        "synthesis_mode": payload.synthesis_mode,
                     }
                 except ET.ParseError, ValueError, TypeError:
                     p["parsed_payload"] = None
@@ -6127,6 +6128,7 @@ async def get_proposals(_: None = Depends(check_auth)):
                         "references": payload.references,
                         "synthesized_abstract": payload.synthesized_abstract,
                         "total_context_chars": payload.total_context_chars,
+                        "synthesis_mode": payload.synthesis_mode,
                     }
                 except ET.ParseError, ValueError, TypeError:
                     p["parsed_payload"] = None

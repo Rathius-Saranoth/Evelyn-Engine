@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-14 20:49:22
+# date modified: 2026-09-19 10:40:54
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -72,6 +72,16 @@ EXCLUDED_TARGET_STEMS = {
     "agents",
 }
 
+# Characters that never occur in legitimate vault note stems but are ubiquitous in
+# source code fragments (pandas/NumPy double-subscripts, JS template literals, HTML).
+# Verified against every wikilink target in the vault: zero legitimate hits.
+CODE_FRAGMENT_CHARS = frozenset('"*<>{}=;`')
+
+# A "[[" preceded by an identifier character, ")" or "]" is a code subscript
+# (e.g. iris.data[["petal length (cm)"]]), not a wikilink. Markdown italics use
+# "_[[Target]]", so "_" is deliberately excluded from the guard.
+WIKILINK_OPEN_GUARD = r"(?<![A-Za-z0-9)\]])"
+
 
 @dataclass
 class StubPayload:
@@ -88,6 +98,7 @@ class StubPayload:
     references: list[dict[str, str]] = field(default_factory=list)
     synthesized_abstract: str = ""
     total_context_chars: int = 0
+    synthesis_mode: str = "fallback"
 
 
 def harvest_entity_references(
@@ -182,7 +193,7 @@ def synthesize_entity_abstract(
     references: list[dict[str, str]],
     domain: str = "",
     use_llm: bool | None = None,
-) -> str:
+) -> tuple[str, str]:
     """Synthesize a cohesive multi-reference executive abstract for an entity using local Ollama.
 
     Args:
@@ -192,10 +203,11 @@ def synthesize_entity_abstract(
         use_llm: Optional override for local Ollama LLM synthesis.
 
     Returns:
-        str: Concise 2-3 sentence synthesized abstract.
+        tuple[str, str]: (abstract, synthesis_mode) where mode is 'llm' when Ollama
+        produced the text and 'fallback' when it was compiled deterministically.
     """
     if not references:
-        return f"Conceptual entity stub for [[{target_name}]]."
+        return f"Conceptual entity stub for [[{target_name}]].", "fallback"
 
     # Build reference context block
     ref_lines = []
@@ -226,16 +238,22 @@ def synthesize_entity_abstract(
             clean_res = string_utils.clean_llm_gist(res)
             clean_res = string_utils.strip_thinking_tags(clean_res).strip()
             if clean_res and len(clean_res) >= 30:
-                return clean_res
+                return clean_res, "llm"
+            logger.warning(
+                "Ollama abstract synthesis returned %d usable chars for %r; using deterministic fallback",
+                len(clean_res),
+                target_name,
+            )
         except (OSError, ValueError, KeyError, TimeoutError) as e:
-            logger.debug("Ollama abstract synthesis fallback triggered: %s", e)
+            logger.warning("Ollama abstract synthesis failed for %r, using fallback: %s", target_name, e)
 
     # Fallback compilation if Ollama is disabled, offline, or returns empty
     if len(references) == 1:
         src_stem = os.path.splitext(os.path.basename(references[0].get("source", "")))[0]
         return (
             f"Conceptual entity stub for [[{target_name}]], referenced from [[{src_stem}]]. "
-            f"Context: \"{references[0].get('context', '')}\""
+            f"Context: \"{references[0].get('context', '')}\"",
+            "fallback",
         )
     else:
         src_stems = [os.path.splitext(os.path.basename(r.get("source", "")))[0] for r in references]
@@ -244,7 +262,8 @@ def synthesize_entity_abstract(
             src_list += f", and {len(src_stems) - 4} other notes"
         return (
             f"Conceptual entity stub for [[{target_name}]], cited across {len(references)} notes in the vault "
-            f"(including {src_list})."
+            f"(including {src_list}).",
+            "fallback",
         )
 
 
@@ -264,6 +283,7 @@ def render_stub_xml(payload: StubPayload) -> str:
             "ref_count": str(payload.ref_count),
             "min_refs": str(payload.min_refs),
             "context_chars": str(payload.total_context_chars),
+            "synthesis_mode": payload.synthesis_mode or "fallback",
         },
     )
 
@@ -311,6 +331,7 @@ def parse_stub_xml(xml_str: str) -> StubPayload:
     ref_count = int(root.attrib.get("ref_count", "0"))
     min_refs = int(root.attrib.get("min_refs", "2"))
     ctx_chars = int(root.attrib.get("context_chars", "0"))
+    synthesis_mode = root.attrib.get("synthesis_mode", "") or "fallback"
 
     abstract = root.findtext("abstract") or ""
     source_path = root.findtext("source_path") or ""
@@ -328,12 +349,12 @@ def parse_stub_xml(xml_str: str) -> StubPayload:
             c = s_el.text or ""
             if p:
                 sources.append(p)
-                references.append({"source": p, "context": c})
+                references.append({"source": p, "context": c, "snippet": c})
 
     if not sources and source_path:
         sources = [source_path]
         if context:
-            references = [{"source": source_path, "context": context}]
+            references = [{"source": source_path, "context": context, "snippet": context}]
 
     if not ctx_chars:
         ctx_chars = sum(len(r.get("context", "")) for r in references) or len(context)
@@ -350,6 +371,7 @@ def parse_stub_xml(xml_str: str) -> StubPayload:
         references=references,
         synthesized_abstract=abstract,
         total_context_chars=ctx_chars,
+        synthesis_mode=synthesis_mode,
     )
 
 
@@ -490,6 +512,11 @@ def is_valid_entity_target(target: str) -> tuple[bool, str]:
 
     # Reject purely punctuation or symbol strings
     if not re.search(r"[a-zA-Z0-9]", clean):
+        return False, ""
+
+    # Reject embedded source code fragments captured by double-bracket syntax collisions
+    # (pandas/NumPy subscripts, JS template literals) rather than authentic wikilinks
+    if CODE_FRAGMENT_CHARS & set(clean):
         return False, ""
 
     return True, clean
@@ -727,7 +754,7 @@ def canonicalize_document_wikilinks(
     changed = False
     actions = []
 
-    pattern = re.compile(r"\[\[([^|\]\n#^]+)(#[^|\]\n]+)?(\|[^\]\n]+)?\]\]")
+    pattern = re.compile(WIKILINK_OPEN_GUARD + r"\[\[([^|\]\n#^]+)(#[^|\]\n]+)?(\|[^\]\n]+)?\]\]")
 
     def replacer(match: re.Match) -> str:
         nonlocal changed
@@ -758,6 +785,137 @@ def canonicalize_document_wikilinks(
     return changed, updated_body, actions
 
 
+def reattach_split_array_qualifiers(text: str) -> tuple[bool, str]:
+    """Re-join a module qualifier that an earlier fence split off from its call.
+
+    A previous wrapping pattern anchored on a bare ``array``/``tensor`` name, so a dotted
+    call was fenced from the function name onward and the qualifier was left outside:
+    ``torch.`tensor([[1, 2]])``` instead of ```torch.tensor([[1, 2]])```.
+
+    Also strips doubled backticks an earlier pass left around a literal or call, e.g.
+    ``torch.`tensor(``[[10.0]]``, dtype=torch.float32)``` .
+
+    This must run on the raw body, before protect_code_blocks masks inline spans — once
+    the damaged span is a placeholder the qualifier is no longer adjacent to it.
+
+    Args:
+        text: Raw markdown body (NOT masked).
+
+    Returns:
+        tuple[bool, str]: (changed, updated_text)
+    """
+    # Strip doubled backticks fenced around a literal or call by an earlier pass. The
+    # literal is left bare so the normal wrapper re-fences it as a single clean span;
+    # prose spans such as ``bash pip install ...`` do not match and are untouched.
+    text, c_double = re.subn(
+        r"``(\s*(?:\[\[[^`\n]*?\]\]|(?:[A-Za-z_]\w*\.)*(?:array|tensor)\s*\([^`\n]*?\))\s*)``",
+        r"\1",
+        text,
+    )
+    repaired, count = re.subn(
+        r"((?:[A-Za-z_]\w*\.)+)`((?:array|tensor)\s*\([^`\n]*?\))`",
+        r"`\1\2`",
+        text,
+    )
+    return (count + c_double) > 0, repaired
+
+
+def _is_numeric_literal_body(inner: str) -> bool:
+    """Check whether the inside of a [[...]] span is a pure numeric list literal.
+
+    Accepts flat and nested numeric sequences, including Python's ``None`` holes and
+    underscore digit separators: "0.5, 1.2", "2, 0.5], [3, 1", "None, [0.8, 0.1]".
+    Rejects anything containing letters beyond ``None`` — i.e. every authentic wikilink.
+
+    Args:
+        inner: Text between the opening and closing double brackets.
+
+    Returns:
+        bool: True when every element is numeric, ``None``, or a nested numeric group.
+    """
+    stripped = inner.strip()
+    if not stripped:
+        return False
+    # Flatten nested groups; structure was already validated by the depth scanner
+    flat = stripped.replace("[", ",").replace("]", ",")
+    items = [x.strip() for x in flat.split(",") if x.strip()]
+    if not items:
+        return False
+    for it in items:
+        if it == "None":
+            continue
+        try:
+            float(it.replace("_", ""))
+        except ValueError:
+            return False
+    return True
+
+
+def _wrap_numeric_bracket_literals(text: str, max_span: int = 2000) -> tuple[bool, str]:
+    """Wrap un-fenced numeric ``[[...]]`` literals in backticks via a linear depth scan.
+
+    Walks each candidate opening ``[[`` forward with a bracket-depth counter instead of
+    using a nested regex quantifier, so runtime stays linear in the length of the text
+    regardless of how many brackets a PDF-extracted code line contains.
+
+    Args:
+        text: Markdown text (already masked by protect_code_blocks).
+        max_span: Maximum literal length to consider, guarding against runaway scans.
+
+    Returns:
+        tuple[bool, str]: (changed, updated_text)
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    changed = False
+
+    while i < n:
+        if text[i] == "[" and i + 1 < n and text[i + 1] == "[":
+            # Never re-wrap an already fenced literal, and never split an identifier
+            prev = text[i - 1] if i > 0 else ""
+            if prev == "`" or prev.isalnum() or prev == "_":
+                out.append(text[i])
+                i += 1
+                continue
+
+            depth = 0
+            j = i
+            end = -1
+            limit = min(n, i + max_span)
+            while j < limit:
+                ch = text[j]
+                if ch == "\n" or ch == "`":
+                    break
+                if ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        end = j + 1
+                        break
+                j += 1
+
+            # A closing "]]" requires the span to end on two consecutive brackets
+            if end > 0 and end - i >= 4 and text[end - 2] == "]":
+                after = text[end] if end < n else ""
+                if not (after == "`" or after.isalnum() or after == "_"):
+                    span = text[i:end]
+                    if _is_numeric_literal_body(span[2:-2]):
+                        out.append(f"`{span}`")
+                        changed = True
+                        i = end
+                        continue
+
+            out.append(text[i])
+            i += 1
+        else:
+            out.append(text[i])
+            i += 1
+
+    return changed, "".join(out)
+
+
 def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
     """Wrap un-fenced floating-point and numeric arrays in code backticks.
 
@@ -784,9 +942,10 @@ def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
         changed = True
         text = repaired_text
 
-    # 1. Matches array([[...]]) or tensor([[...]])
+    # 1. Matches array([[...]]) or tensor([[...]]), including any dotted qualifier so the
+    #    fence wraps the whole call rather than splitting np.array into np. + `array(...)`
     arr_pattern = re.compile(
-        r"(?<![`\w])((?:array|tensor)\s*\(\s*\[\[[^`\n]*?\]\](?:,\s*dtype=[\w\d]+)?\s*\))(?![`\w])",
+        r"(?<![`\w.])((?:[A-Za-z_]\w*\.)*(?:array|tensor)\s*\(\s*\[\[[^`\n]*?\]\](?:,\s*dtype=[\w\d]+)?\s*\))(?![`\w])",
         re.MULTILINE,
     )
     new_text, c1 = arr_pattern.subn(r"`\1`", text)
@@ -797,32 +956,13 @@ def wrap_spurious_code_arrays(text: str) -> tuple[bool, str]:
     # 2. Protect newly created code backticks so float_pattern does not match inside them
     masked_text, local_placeholders = string_utils.protect_code_blocks(text)
 
-    # 3. Matches bare numeric/float 2D lists without catastrophic regex backtracking: [[0. , 0.907, 0.093]] or [[-0.5, 1.2]]
-    float_bracket_pattern = re.compile(
-        r"(?<![`\w])(\[\[([^\n\]`]+)\]\])(?![`\w])"
-    )
+    # 3. Wrap bare numeric literals, flat or nested: [[0.907, 0.093]], [[2, 0.5], [3, 1]],
+    #    [[0.7, 0.0], [1.0, 0.0]]. Scanned linearly rather than matched with a nested
+    #    quantifier, which is what caused the prior catastrophic-backtracking freeze.
+    c3, masked_text = _wrap_numeric_bracket_literals(masked_text)
+    if c3:
+        changed = True
 
-    def _replace_numeric_list(match: re.Match) -> str:
-        nonlocal changed
-        full_match = match.group(1)
-        inner = match.group(2).strip()
-        items = [x.strip() for x in inner.split(",") if x.strip()]
-        if not items:
-            return full_match
-        all_numeric = True
-        for it in items:
-            cleaned = it.replace("_", "")
-            try:
-                float(cleaned)
-            except ValueError:
-                all_numeric = False
-                break
-        if all_numeric:
-            changed = True
-            return f"`{full_match}`"
-        return full_match
-
-    masked_text = float_bracket_pattern.sub(_replace_numeric_list, masked_text)
     text = string_utils.restore_code_blocks(masked_text, local_placeholders)
     return changed, text
 
@@ -1055,6 +1195,12 @@ def audit_document_links(
         changed = True
         details["actions"].append("repaired_fractured_array_backticks")
 
+    # Still pre-mask: a split qualifier is only adjacent to its span before masking
+    c_qual, body = reattach_split_array_qualifiers(body)
+    if c_qual:
+        changed = True
+        details["actions"].append("reattached_split_array_qualifiers")
+
     # Mask code blocks to protect authentic code
     masked_body, placeholders = string_utils.protect_code_blocks(body)
     try:
@@ -1084,7 +1230,10 @@ def audit_document_links(
             details["actions"].extend(can_actions)
 
         # 2e. Count and track ghost links (with target validation and vault-wide resolution)
-        link_matches = re.findall(r"\[\[([^|\]\n#]+)(?:[|#][^\]\n]*)?\]\]", masked_body)
+        link_matches = re.findall(
+            WIKILINK_OPEN_GUARD + r"\[\[([^|\]\n#]+)(?:[|#][^\]\n]*)?\]\]",
+            masked_body,
+        )
         root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
         ghost_count = 0
         ghost_targets = []
@@ -1216,7 +1365,9 @@ def create_ghost_link_stub(
         }
 
     # 3. Multi-Reference Abstract Synthesis
-    synthesized_abstract = synthesize_entity_abstract(clean_target, harvested_refs, domain=domain)
+    synthesized_abstract, synthesis_mode = synthesize_entity_abstract(
+        clean_target, harvested_refs, domain=domain
+    )
     sources = [r["source"] for r in harvested_refs]
     primary_source = source_path or (sources[0] if sources else "Vault")
     primary_context = context_excerpt or (harvested_refs[0]["context"] if harvested_refs else "")
@@ -1233,6 +1384,7 @@ def create_ghost_link_stub(
         references=harvested_refs,
         synthesized_abstract=synthesized_abstract,
         total_context_chars=total_context_chars,
+        synthesis_mode=synthesis_mode,
     )
     xml_payload = render_stub_xml(payload)
 
