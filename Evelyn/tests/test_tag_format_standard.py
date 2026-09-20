@@ -661,3 +661,48 @@ class TestBlindExtractionPipeline:
         monkeypatch.setattr(tag_librarian.chroma_rag, "query_collection", boom)
         _applied, proposals = tag_librarian.reconcile_subjects(["sleep tracking"], [])
         assert proposals == ["sleep-tracking"]
+
+
+class TestStalenessRemoval:
+    """Removal is a positive assertion with a ceiling, never an inference from silence."""
+
+    def _mock(self, monkeypatch, response):
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(tag_librarian, "_canonical_query_ollama", lambda **k: response)
+        return tag_librarian
+
+    def test_named_stale_tags_are_returned(self, monkeypatch):
+        tl = self._mock(monkeypatch, '{"stale": ["python", "gardening"]}')
+        out = tl.verify_tags_still_apply("cello practice", "Cello", ["music", "python", "gardening"])
+        assert sorted(out) == ["gardening", "python"]
+
+    def test_empty_response_removes_nothing(self, monkeypatch):
+        """A malformed or empty answer must never be read as 'remove everything'."""
+        tl = self._mock(monkeypatch, "")
+        assert tl.verify_tags_still_apply("x", "T", ["a", "b", "c"]) == []
+
+    def test_tags_not_on_the_document_are_ignored(self, monkeypatch):
+        """The model cannot remove something the document does not carry."""
+        tl = self._mock(monkeypatch, '{"stale": ["not-present"]}')
+        assert tl.verify_tags_still_apply("x", "T", ["a", "b"]) == []
+
+    def test_protected_tags_are_never_candidates(self, monkeypatch):
+        tl = self._mock(monkeypatch, '{"stale": ["CY-2026/09/20"]}')
+        assert tl.verify_tags_still_apply("x", "T", ["CY-2026/09/20", "a"]) == []
+
+    def test_small_tag_sets_allow_a_couple_of_removals(self, monkeypatch):
+        """A ratio is meaningless on a three-tag note where two are genuinely wrong."""
+        tl = self._mock(monkeypatch, '{"stale": ["python", "gardening"]}')
+        out = tl.verify_tags_still_apply("cello", "Cello", ["music", "python", "gardening"])
+        assert sorted(out) == ["gardening", "python"]
+
+    def test_mass_removal_is_treated_as_a_malfunction(self, monkeypatch):
+        """The September collapse called 33 of 36 tags wrong. That verdict is refused."""
+        tl = self._mock(monkeypatch, '{"stale": ["a","b","c","d","e","f","g","h"]}')
+        tags = [chr(97 + i) for i in range(10)]
+        assert tl.verify_tags_still_apply("x", "T", tags) == []
+
+    def test_removal_within_the_ceiling_is_allowed(self, monkeypatch):
+        tl = self._mock(monkeypatch, '{"stale": ["a","b"]}')
+        tags = [chr(97 + i) for i in range(10)]
+        assert sorted(tl.verify_tags_still_apply("x", "T", tags)) == ["a", "b"]

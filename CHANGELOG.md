@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 15:09:17
+date modified: 2026-09-20 15:13:46
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.179] - 2026-09-20 — *Staleness as a Positive Assertion*
+
+Documents change; tags outlive what they describe. But the previous librarian inferred removal from
+**silence** — anything the model failed to echo back was deleted — which is how a 36-tag document
+became a 3-tag one. Blind extraction removed that failure by making removal impossible, which is
+safe but leaves genuine staleness unaddressed.
+
+### Added
+- **`verify_tags_still_apply()`** asks the opposite question in its own pass, and requires the model
+  to **name** what is stale. A tag it fails to mention is kept, so a truncated, malformed or empty
+  answer removes nothing — the inversion is the whole safety property.
+- **A removal ceiling.** A pass may retire at most a third of a document's tags; beyond that the
+  verdict is treated as a malfunction and nothing is removed. The September collapse called 33 of
+  36 tags wrong, and this refuses exactly that shape of answer.
+- **An absolute allowance beneath the ceiling.** A ratio is meaningless on a three-tag note where
+  two are genuinely wrong, so up to two removals are always permitted. Found by a test, not by
+  reasoning.
+
+### Verified
+Measured against four cases before building: obviously wrong tags caught 3/3 with no false
+positives; all-valid tags flagged nothing; loosely-relevant tags flagged nothing; and a document
+whose subject had changed had exactly its two obsolete tags identified.
 
 ## [000.006.178] - 2026-09-20 — *Blind Extraction — Ask What It Is About, Reconcile Afterwards*
 

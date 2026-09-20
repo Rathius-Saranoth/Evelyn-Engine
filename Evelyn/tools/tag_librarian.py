@@ -11,6 +11,7 @@ Exports:
     canonicalize_date_tag()               — Resolves EDTF date anchors (reduced precision / unspecified digits).
     read_document_for_classification()    — Full text when it fits; chunked subject extraction when it does not.
     classify_document_subjects()          — Blind extraction, then deterministic reconciliation (§6.1).
+    verify_tags_still_apply()             — Positive-assertion staleness check, with a removal ceiling.
     normalize_tag_format()                — Standardizes tags to lowercase-hyphen-slash form (taxonomy §5).
     strip_subject_duplicate_tags()        — Drops tags that merely restate a record's own subject.
     audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
@@ -488,6 +489,76 @@ def classify_document_subjects(
     return applied[: len(existing) + cap], proposals[:cap]
 
 
+# A pass may retire at most this share of a document's tags. Beyond it the verdict is
+# treated as a malfunction rather than an instruction — no legitimate edit retires most
+# of a document's catalogue at once. A small absolute allowance sits underneath it, because
+# a ratio is meaningless on a three-tag note where two are genuinely wrong.
+STALE_REMOVAL_MAX_RATIO = 0.34
+STALE_REMOVAL_ALWAYS_ALLOWED = 2
+
+
+def verify_tags_still_apply(body: str, title: str, tags: list[str]) -> list[str]:
+    """Ask which of a document's existing tags no longer describe it.
+
+    Separate from subject extraction on purpose. Extraction answers "what is this about",
+    which says nothing about what a document is *not* about — so removal cannot be inferred
+    from it, and inferring it from silence is what collapsed a 36-tag document to three.
+
+    This pass asks the opposite question and requires a **positive assertion**: the model
+    names the tags that are stale. A tag it fails to mention is kept, so a truncated,
+    malformed or empty answer removes nothing.
+
+    Args:
+        body: Document body.
+        title: Document title.
+        tags: Every tag currently on the document. All of them are shown (§7.1 rule 2).
+
+    Returns:
+        list[str]: Tags the model asserts no longer apply, empty on any failure.
+    """
+    auditable = [t for t in tags if t and not is_excluded_tag(t)]
+    if not auditable:
+        return []
+
+    system = (
+        "For each tag, decide whether the document is genuinely about that subject. "
+        "Be conservative: keep a tag if it is even loosely relevant. Only list a tag as "
+        "stale when the document clearly has nothing to do with it.\n"
+        'Output ONLY JSON: {"stale": []}'
+    )
+    listing = "\n".join(f"- {t}" for t in auditable)
+    user = (
+        f"Document: {title}\n\n--- DOCUMENT ---\n{body[:FULL_TEXT_LIMIT]}\n\n"
+        f"--- TAGS ({len(auditable)}) ---\n{listing}\n\nOutput JSON now."
+    )
+
+    try:
+        raw = _canonical_query_ollama(
+            prompt=user, system=system,
+            options={"temperature": 0.0, "num_predict": 512}, timeout=90, think=False,
+        )
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return []
+        claimed = json.loads(match.group(0)).get("stale", []) or []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[TAG LIBRARIAN] Staleness check failed for %s: %s", title, exc)
+        return []
+
+    # Only tags the document actually carries, and never a protected one.
+    stale = [t for t in (normalize_tag_format(str(c)) for c in claimed) if t in set(auditable)]
+
+    over_ratio = len(stale) / len(auditable) > STALE_REMOVAL_MAX_RATIO
+    if stale and over_ratio and len(stale) > STALE_REMOVAL_ALWAYS_ALLOWED:
+        logger.warning(
+            "[TAG LIBRARIAN] %s: %d/%d tags called stale, above the %.0f%% ceiling — "
+            "treating as a malfunction and removing nothing.",
+            title, len(stale), len(auditable), STALE_REMOVAL_MAX_RATIO * 100,
+        )
+        return []
+    return stale
+
+
 def parse_frontmatter_tags(content: str) -> tuple[list[str], str]:
     """Extract frontmatter tags and return (tags_list, body_content).
 
@@ -737,6 +808,13 @@ def audit_document_tags(
         for tag in applied:
             if tag and tag not in final_tags_list:
                 final_tags_list.append(tag)
+
+        # Removal is a separate question with its own pass, because it cannot be inferred
+        # from what a document is about. Protected tags are never candidates.
+        stale = verify_tags_still_apply(body, title, final_tags_list)
+        if stale:
+            final_tags_list = [t for t in final_tags_list if t not in set(stale)]
+            details["tags_removed"] = stale
 
         final_tags_list = sorted(taxonomy_db.canonicalize_tags(final_tags_list))
         details["final_tags"] = final_tags_list

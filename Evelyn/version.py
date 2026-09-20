@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 15:09:17
+# date modified: 2026-09-20 15:13:46
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.178"
-__version_info__ = (0, 6, 178)
-__version_name__ = "Blind Extraction — Ask What It Is About, Reconcile Afterwards"
+__version__ = "000.006.179"
+__version_info__ = (0, 6, 179)
+__version_name__ = "Staleness as a Positive Assertion"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
