@@ -580,3 +580,47 @@ class TestClassifierInvariants:
         tag_librarian.audit_document_tags(self._note(many), path="n.md", enable_llm=True)
         for tag in many:
             assert tag in seen["user"], f"{tag} was hidden from the model"
+
+
+class TestDocumentReading:
+    """The classifier reads what the document says, not a guess at what it says."""
+
+    def test_short_document_is_sent_whole(self):
+        from Evelyn.tools.tag_librarian import read_document_for_classification
+        body = "# Note\n\nA short note about cello practice and posture.\n"
+        out = read_document_for_classification(body, "", "Cello")
+        assert "[Full document]" in out
+        assert "posture" in out
+
+    def test_long_document_is_chunked_and_subjects_merged(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+        seen = []
+        def fake(chunk, title):
+            seen.append(len(chunk))
+            return [f"subject-{len(seen)}"]
+        monkeypatch.setattr(tag_librarian, "_extract_chunk_subjects", fake)
+        body = "\n\n".join(f"## Section {i}\n\n" + ("filler text " * 120) for i in range(8))
+        out = tag_librarian.read_document_for_classification(body, "", "Long")
+        assert len(seen) > 1, "a long document must be read in more than one piece"
+        assert "Subjects found by reading the document in full" in out
+        assert "subject-1" in out
+
+    def test_chunk_count_is_capped(self, monkeypatch):
+        """A 360KB note must not trigger 90 inference calls."""
+        from Evelyn.tools import tag_librarian
+        calls = []
+        monkeypatch.setattr(
+            tag_librarian, "_extract_chunk_subjects",
+            lambda chunk, title: calls.append(1) or ["x"],
+        )
+        huge = ("paragraph text here. " * 40 + "\n\n") * 900
+        tag_librarian.read_document_for_classification(huge, "", "Huge")
+        assert len(calls) <= tag_librarian.MAX_CHUNKS_READ
+
+    def test_chunk_extraction_failure_degrades_to_skeleton(self, monkeypatch):
+        """A failed read must not lose the document — the skeleton still carries structure."""
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(tag_librarian, "_extract_chunk_subjects", lambda c, t: [])
+        body = "\n\n".join(f"## Heading {i}\n\n" + ("words " * 200) for i in range(5))
+        out = tag_librarian.read_document_for_classification(body, "", "Doc")
+        assert "Heading 0" in out

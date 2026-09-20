@@ -9,6 +9,7 @@ tag_librarian.py — Incremental Obsidian Tag Maintenance & Taxonomy Management.
 Exports:
     is_excluded_tag()                     — Checks if a tag matches protected exclusion rules (e.g. CY-YYYY/MM/DD).
     canonicalize_date_tag()               — Resolves EDTF date anchors (reduced precision / unspecified digits).
+    read_document_for_classification()    — Full text when it fits; chunked subject extraction when it does not.
     normalize_tag_format()                — Standardizes tags to lowercase-hyphen-slash form (taxonomy §5).
     strip_subject_duplicate_tags()        — Drops tags that merely restate a record's own subject.
     audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
@@ -267,6 +268,102 @@ def _extract_document_skeleton(body: str, gist: str = "") -> str:
     if not parts:
         parts.append(body[:1200])
 
+    return "\n\n".join(parts)
+
+
+# A document is classified from what it says, not from a guess at what it says.
+# Short notes go whole; long ones are read in chunks and their subjects merged. The
+# previous approach sent a skeleton of headings for every document regardless of size,
+# which threw away the full text of the ~73% that would have fitted comfortably.
+FULL_TEXT_LIMIT = 6000      # chars a single prompt carries comfortably
+MAX_CHUNKS_READ = 12        # ceiling on map calls for one document
+CHUNK_SIZE = 4000
+
+
+def _extract_chunk_subjects(chunk: str, title: str) -> list[str]:
+    """Ask for the subjects present in one chunk of a document.
+
+    Deliberately narrow: this pass names what the chunk is about and nothing else. It
+    does not see the vocabulary, the existing tags, or the format rules, so it cannot be
+    pulled into deciding the document's tags from a fragment of it.
+
+    Args:
+        chunk: A slice of the document body.
+        title: Document title, for orientation only.
+
+    Returns:
+        list[str]: Lowercase subject phrases, empty on any failure.
+    """
+    system = (
+        "List the distinct subjects this text covers. Output ONLY a JSON array of short "
+        'lowercase noun phrases, e.g. ["floodplain management", "drone operations"]. '
+        "No commentary. If the text covers one subject, return one item."
+    )
+    try:
+        raw = _canonical_query_ollama(
+            prompt=f"Document: {title}\n\n{chunk}",
+            system=system,
+            options={"temperature": 0.0, "num_predict": 256},
+            timeout=45,
+            think=False,
+        )
+        match = re.search(r"\[.*\]", raw, re.DOTALL)
+        if not match:
+            return []
+        return [str(x).strip().lower() for x in json.loads(match.group(0)) if str(x).strip()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def read_document_for_classification(body: str, gist: str, title: str) -> str:
+    """Build the document view the classifier reasons over.
+
+    Three sizes, and the whole point is that the small ones stop being guessed at:
+
+    - **Fits in one prompt** — send the body verbatim. Most notes are here.
+    - **Too long** — chunk it, name the subjects in each chunk, and present the merged
+      list alongside the structural skeleton. The model then reasons over what the
+      document actually covers rather than over its table of contents.
+    - **Very long** — the same, but chunks are sampled evenly to a fixed ceiling, so the
+      number of calls stays bounded no matter how large the note is.
+
+    Each call sees a bounded slice, which is what keeps this away from the timeout that
+    the previous design hit and then "fixed" by degrading the classifier.
+
+    Args:
+        body: Markdown body, post-frontmatter.
+        gist: Stored semantic summary, may be empty.
+        title: Document title.
+
+    Returns:
+        str: The document view for the classification prompt.
+    """
+    from Evelyn.tools.web_reader import chunk_text
+
+    body = (body or "").strip()
+    if not body:
+        return _extract_document_skeleton(body, gist)
+
+    if len(body) <= FULL_TEXT_LIMIT:
+        return f"[Full document]\n{body}"
+
+    chunks = chunk_text(body, chunk_size=CHUNK_SIZE, overlap=400)
+    if len(chunks) > MAX_CHUNKS_READ:
+        step = len(chunks) / MAX_CHUNKS_READ
+        chunks = [chunks[int(i * step)] for i in range(MAX_CHUNKS_READ)]
+
+    subjects: list[str] = []
+    for chunk in chunks:
+        for subject in _extract_chunk_subjects(chunk, title):
+            if subject not in subjects:
+                subjects.append(subject)
+
+    parts = [_extract_document_skeleton(body, gist)]
+    if subjects:
+        parts.append(
+            "[Subjects found by reading the document in full]\n"
+            + "\n".join(f"- {s}" for s in subjects)
+        )
     return "\n\n".join(parts)
 
 
@@ -661,7 +758,7 @@ def audit_document_tags(
             "Decide once. Do not deliberate."
         )
 
-        skeleton = _extract_document_skeleton(body, gist)
+        skeleton = read_document_for_classification(body, gist, title)
         user_prompt = (
             f"Document: {title}\n"
             f"Path: {path}\n\n"

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 14:19:40
+date modified: 2026-09-20 14:25:53
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,33 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.176] - 2026-09-20 — *Read the Document — Chunked Classification Instead of Guessing*
+
+The classifier judged every document from a skeleton of headings plus the opening lines. That was
+built as a substitute for a chunked read that was proposed at the time and never implemented — and
+the substitution is what set off the failure chain: skeleton plus the tag list overran the time
+budget, and the fix for *that* was a fast path that degraded reasoning on exactly the documents
+needing the most care.
+
+### Added
+- **`read_document_for_classification()`** sizes its approach to the document:
+  - **Under 6,000 characters — sent whole.** Roughly **73% of the vault** fits here, and was
+    previously reduced to a skeleton for no reason.
+  - **Longer — read in chunks**, each chunk asked only what subjects it covers, and the merged list
+    presented alongside the structural skeleton.
+  - **Very long — chunks sampled evenly to a ceiling of twelve**, so a 360KB note costs twelve
+    bounded calls rather than ninety.
+- Chunking reuses `web_reader.chunk_text()`, which already respects paragraph boundaries, rather
+  than adding a second implementation.
+
+### Preserved by design
+- **Every call sees a bounded slice**, which is what keeps this away from the timeout the previous
+  design hit. The fix for a timeout is smaller inputs, never a weaker classifier.
+- **The subject-extraction pass is deliberately narrow** — it sees a chunk and the title, never the
+  vocabulary or the existing tags, so it cannot be drawn into deciding the document's tags from a
+  fragment of it.
+- **A failed chunk read degrades to the skeleton** rather than losing the document.
 
 ## [000.006.175] - 2026-09-20 — *Classifier Rewrite — Post-Coordinate, and Silence No Longer Deletes*
 

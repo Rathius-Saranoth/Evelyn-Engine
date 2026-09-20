@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 14:19:40
+# date modified: 2026-09-20 14:25:54
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.175"
-__version_info__ = (0, 6, 175)
-__version_name__ = "Classifier Rewrite — Post-Coordinate, and Silence No Longer Deletes"
+__version__ = "000.006.176"
+__version_info__ = (0, 6, 176)
+__version_name__ = "Read the Document — Chunked Classification Instead of Guessing"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
