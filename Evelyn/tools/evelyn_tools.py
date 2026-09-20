@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-17 18:13:55
+# date modified: 2026-09-20 10:21:14
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -3018,9 +3018,10 @@ MODEL_TOOL_DEFINITIONS = [
             "description": (
                 "Compose and record a personal daily reflection journal entry directly into the Obsidian vault from your persona's perspective. "
                 "Reflects on the day's events, shared interactions, and quiet observations. "
-                "Trigger Directive: Execute this tool directly during evening wind-downs, when wrapping up the day, or when requested in chat. "
-                "Do not wait or hesitate for background daemons or overnight processes—this tool is your primary real-time action to record the day's memory. "
-                "STRICT RULE: Do not use this tool for user-authored dream logs, notes, or reference docs."
+                "Use when asked for an entry, and also without being asked when the day is closing: "
+                "they say goodnight, mention heading to bed, or signal they are wrapping up for the night. "
+                "Recording the day is this tool's job rather than a background process, so a closing cue is enough on its own. "
+                "Not for user-authored dream logs, notes, or reference docs — write_dream_entry covers dreams."
             ),
             "parameters": {
                 "type": "object",
@@ -3070,7 +3071,8 @@ MODEL_TOOL_DEFINITIONS = [
             "description": (
                 f"Compose and save a structured Dream Entry note for {cfg.USER_NAME} in the Obsidian Vault Dream archive. "
                 f"Preserves {cfg.USER_NAME}'s raw, untouched dream narrative under 'Dream Description:' with a descriptive title, initial feelings/thoughts, tags, and optional analysis. "
-                f"If a dream note already exists for the given date, appends the new dream section to preserve multiple dreams on the same calendar day."
+                f"If a dream note already exists for the given date, appends the new dream section to preserve multiple dreams on the same calendar day. "
+                "Use when asked to log a dream, and also without being asked when they simply recount one in conversation."
             ),
             "parameters": {
                 "type": "object",
@@ -3443,7 +3445,9 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "create_task",
             "description": (
                 f"Create a new task on {cfg.USER_NAME}'s Google Tasks list. "
-                "Use when requested to add a to-do, task, or reminder item."
+                "Use when asked to add a to-do, task, or reminder. "
+                "Also use when they mention something they need to remember — an errand, an appointment, a recurring habit — "
+                "even phrased as a passing remark rather than an instruction."
             ),
             "parameters": {
                 "type": "object",
@@ -3557,7 +3561,10 @@ MODEL_TOOL_DEFINITIONS = [
                 f"Retrieve {cfg.USER_NAME}'s health, fitness, sleep, vitals, readiness, heart rate, or medical records from Oura Ring and Google Health Connect. "
                 "Supports both whole-day summaries and high-resolution intraday queries (e.g. heart rate over the last 2 hours, recent workouts, or intraday step bursts). "
                 f"Use when {cfg.USER_NAME} asks about heart rate ('last 2 hours', 'current bpm', 'during workout'), sleep quality, sleep stages (deep/REM/light), readiness score, "
-                "recovery, daytime stress, resting heart rate, HRV, daily steps, calories burned, distance, or clinical lab results."
+                "recovery, daytime stress, resting heart rate, HRV, daily steps, calories burned, distance, or clinical lab results. "
+                "Also use without being asked when they report physical exertion, soreness, fatigue, low energy, poor sleep, or finishing a demanding task — "
+                "check the relevant signals before replying so the response is grounded in what was actually recorded. "
+                "Present what the data shows plainly and leave pacing decisions to them; do not prescribe rest or restrictions."
             ),
             "parameters": {
                 "type": "object",
@@ -3598,7 +3605,9 @@ MODEL_TOOL_DEFINITIONS = [
             "description": (
                 f"Retrieve {cfg.USER_NAME}'s recorded exercise and workout sessions (walks, runs, strength training, yardwork, housework, gym sessions, cycling). "
                 "Merges live Oura Ring activity sessions with Health Connect records. "
-                "Use when asked about physical activities, recent walks, workout duration, calories burned, or exercise history."
+                "Use when asked about physical activities, recent walks, workout duration, calories burned, or exercise history. "
+                "Also use without being asked when they mention completing a physical task — yard work, a walk, housework, a gym session — "
+                "so the reply reflects what was actually recorded rather than a guess."
             ),
             "parameters": {
                 "type": "object",
@@ -3797,7 +3806,7 @@ MODEL_TOOL_DEFINITIONS = [
                 "Search external Reference Library documentation, including owner's manuals, hardware specs (e.g. water heater, HVAC, appliances), "
                 "music guides (e.g. Learning Cello), AI/ML textbooks, and non-fiction reference literature (e.g. Nonviolent Communication, The 5 Love Languages, Emotional Intelligence). "
                 "Use when asked about equipment operation, troubleshooting, appliance specs, specific textbook concepts, or reference book contents. "
-                "STRICT RULE: Do not use this tool for user personal memories, daily journal reflections, or chat history."
+                "Not for user personal memories, daily journal reflections, or chat history."
             ),
             "parameters": {
                 "type": "object",

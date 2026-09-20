@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 08:32:00
+date modified: 2026-09-20 10:21:14
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,76 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.160] - 2026-09-20 — *Behaviour Benchmark — Underscores No Longer Hide Identities*
+
+The privacy gate added in `000.006.157` reported clean while protected names sat in tracked
+files. Its word-boundary used `\w`, which counts `_` as a word character, so any name embedded
+in a snake_case or kebab-case identifier was invisible to it — precisely where names occur in
+code and in test fixtures. Fixing the boundary surfaced 21 violations across 7 files.
+
+Separately, the golden query suite only measured retrieval. A companion suite now measures
+model behaviour, so a model swap can be judged on restraint rather than on benchmark scores.
+
+### Added
+- **`scripts/benchmark_behavior.py`** and **`reference/behavior_benchmark_cases.json`** — a
+  15-case behaviour suite across nine categories: `restraint`, `proactivity`, `control`,
+  `tool_honesty`, `over_protection`, `persona_drift`, `sycophancy`, `pushback`, and
+  `tool_awareness`. Mirrors `benchmark_rag.py`'s CLI (`--verbose`, `--json`) and adds
+  `--model` / `--compare` for A/B runs.
+- **`tool_honesty` scoring** compares what a reply claims against the calls actually made.
+  A case may supply its own `tool_response`, so a write can be made to fail and the reply
+  checked for a success claim it did not earn. Both directions count: asserting an action
+  that never landed, and denying one that did.
+- **Per-case `system` override** so `persona_drift` can install a distinctive configured
+  voice and check whether user frustration collapses it into generic contrition.
+- **Line-level `privacy-ok: <reason>` pragma** in the privacy gate. The reason is mandatory,
+  so an exemption cannot be added silently.
+
+### Fixed
+- **Privacy gate word boundary** (`scripts/check_privacy_boundary.py`) now uses alphanumeric
+  boundaries instead of `\w`, so `_` and `-` separate tokens. `Rickyshaw`-style collisions are
+  still correctly ignored.
+- **Protected names removed from tracked files** — a surname in two test fixtures, a profile
+  test's sample-body variable and one string literal, and four identifiers plus two descriptive
+  notes in the golden query set. Historical changelog references to a personalised profile
+  filename were neutralised.
+
+### Changed
+- **Model-compensation language removed from tool descriptions.** `write_journal_entry` carried
+  "Trigger Directive: Execute this tool directly... Do not wait or hesitate", and two tools shouted
+  "STRICT RULE". That urgency was written to push a model that under-fires; it is model-specific and
+  distorts any model evaluated against it. Scope boundaries were kept, stated plainly.
+- **Reactive-only phrasing replaced with real trigger conditions.** `get_health_metrics`,
+  `get_recent_workouts`, `create_task` and `write_dream_entry` all said "use when asked", which is a
+  reactive contract the model was honouring correctly. Each now also names the implicit cues that
+  should trigger it, drawn from the live `procedures` rows that already describe them (1067, 1107,
+  1063, 657). `get_health_metrics` additionally carries procedure 1067's directive to present data
+  plainly and leave pacing to the user, rather than prescribing rest.
+
+- **Golden query expectations tightened to the `Cat##-U` / `Cat##-A` taxonomy.** 15 entries
+  carried bare `Cat##` codes predating the subject-code convention. Because matching is a
+  substring test, a bare code matched both subjects at once and could not tell a user fact from
+  an assistant fact. Two genuinely relational cases keep both subjects deliberately.
+
+### Design notes
+- **Tool calls in the behaviour suite are intercepted, never executed.** Each is answered with a
+  synthetic success, so no vault path, database, or external service is touched by a run.
+- **Acting unbidden is scored as a feature, not a fault.** Proactive tool use is a design goal
+  of the engine, so `proactivity` asserts that an implicit cue — an evening wind-down, a passing
+  mention of a depleted item — *should* produce a write. Only a question about mechanism is a
+  genuine no-act. Write volume is therefore not a defect metric; the suite counts misreports
+  instead.
+- **A tool description is the trigger specification.** `get_health_metrics` is a core tool, offered
+  every turn, so no amount of retrieval tuning affects it — its description alone decides when it
+  fires. Measured: with the old "use when asked" wording neither gemma4:12b nor granite4.2:8b called
+  it after a reported physical task; with the rewritten wording both do.
+- **Superseded note — tool descriptions previously carried eagerness directives** ("Execute this tool directly...",
+  "Do not wait or hesitate"). They compensate for a model that under-fires, and amplify one
+  that does not. Any model swap should be re-measured with the descriptions held constant.
+- **Two violations could not be edited and carry the pragma instead.** A name is frozen inside
+  an applied migration's SQL as a data-matching predicate; under the immutability rule
+  (AGENTS.md §5) rewriting it would change replay semantics on a fresh database.
 
 ## [000.006.159] - 2026-09-20 — *Stub Filing — Entity Notes Routed Under `Stubs/<Domain>/`*
 

@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 08:32:00
+# date modified: 2026-09-20 10:03:00
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.159"
-__version_info__ = (0, 6, 159)
-__version_name__ = "Stub Filing — Entity Notes Routed Under Stubs/<Domain>/"
+__version__ = "000.006.160"
+__version_info__ = (0, 6, 160)
+__version_name__ = "Behaviour Benchmark — Underscores No Longer Hide Identities"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
