@@ -759,3 +759,45 @@ class TestApplicationProfile:
         from Evelyn.tools import tag_librarian
         monkeypatch.setattr(tag_librarian, "_canonical_query_ollama", lambda **k: "poem")
         assert tag_librarian.determine_document_class("x", "T") == ""
+
+
+class TestDecomposition:
+    """§3.3: hierarchical paths become atoms; the query recombines them."""
+
+    def test_path_becomes_its_parts(self):
+        from Evelyn.tools.tag_synonym import decompose_to_atoms
+        assert decompose_to_atoms("work/routine/morning") == ["work", "routine", "morning"]
+
+    def test_facet_prefix_keeps_exactly_one_level(self):
+        """The prefix names which axis a term is on — flat atoms cannot say that."""
+        from Evelyn.tools.tag_synonym import decompose_to_atoms
+        assert decompose_to_atoms("type/journal-entry") == ["type/journal-entry"]
+        assert decompose_to_atoms("motif/combat") == ["motif/combat"]
+
+    def test_facet_deeper_than_one_level_loses_its_middle(self):
+        """setting/biome/tropical categorises within an axis — that is the hierarchy removed."""
+        from Evelyn.tools.tag_synonym import decompose_to_atoms
+        assert decompose_to_atoms("setting/biome/tropical") == ["setting/tropical"]
+
+    def test_date_anchors_are_untouched(self):
+        from Evelyn.tools.tag_synonym import decompose_to_atoms
+        assert decompose_to_atoms("CY-2026/01/01") == ["CY-2026/01/01"]
+
+    def test_administrative_namespaces_are_untouched(self):
+        from Evelyn.tools.tag_synonym import decompose_to_atoms
+        assert decompose_to_atoms("obsidian-graph/contact") == ["obsidian-graph/contact"]
+
+    def test_a_flat_term_is_already_an_atom(self):
+        from Evelyn.tools.tag_synonym import decompose_to_atoms
+        assert decompose_to_atoms("3d-printing") == ["3d-printing"]
+
+    def test_csv_decomposition_dedupes_convergent_atoms(self):
+        """health/sleep and sleep/tracking share 'sleep'; it appears once."""
+        from Evelyn.tools.tag_synonym import decompose_tag_csv
+        out, changed = decompose_tag_csv("health/sleep, sleep/tracking")
+        assert changed is True
+        assert out == "health, sleep, tracking"
+
+    def test_unchanged_input_reports_no_change(self):
+        from Evelyn.tools.tag_synonym import decompose_tag_csv
+        assert decompose_tag_csv("music, cello") == ("music, cello", False)

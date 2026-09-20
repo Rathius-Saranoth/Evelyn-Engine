@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 15:20:27
+date modified: 2026-09-20 15:41:07
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,37 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.182] - 2026-09-20 — *Decomposition — One Concept, One Tag*
+
+Step 8. Every hierarchical path becomes the atoms it was composed from: `work/routine/morning`
+is three concepts glued together by an indexer guessing which combination a future query would
+want, and the guesses multiplied — `journaling` sat under **31 different parents**, one concept
+restated 31 times.
+
+### Added
+- **`decompose_to_atoms()`** and **`decompose_tag_csv()`**. Mechanical, with no judgement: the
+  split is by rule. Protected date anchors and administrative namespaces are untouched, and a facet
+  prefix keeps its single level because it names *which axis* a term belongs to — something flat
+  atoms cannot express. A facet deeper than that loses its middle, since `setting/biome/tropical`
+  is categorising within an axis, which is exactly the hierarchy being removed.
+
+### Migrations
+- **`000.006.181` (vault)** / **`000.006.182` (memory)** — 11,876 terms become **8,252 atoms**.
+  Not an alias mapping: an alias records that one term *became* another, which is not what happens
+  when a term becomes three, so the registry is rebuilt rather than remapped.
+
+### Why this was the blocker
+The classifier could not reconcile anything. Blind extraction produced the phrase `sleep tracking`
+consistently across documents, but the registry held `health/sleep/tracking`, `health/sleep/issues`
+and `sleep/apnea-diagnosis` — and no bare `sleep` for a phrase to match against. Every subject came
+back as a proposal and nothing could ever be applied. After decomposition `sleep` exists with **426
+uses**, `routine` with 1,012, `health` with 1,485.
+
+### Known
+Decomposition alone leaves 68% of atoms used exactly once — it removes the duplication, not the
+tail. The admission floor (step 9) is what produces a usable vocabulary: measured at roughly **963
+atoms covering 98% of notes**.
 
 ## [000.006.180] - 2026-09-20 — *Application Profile — Cataloguing Before Subject Analysis*
 

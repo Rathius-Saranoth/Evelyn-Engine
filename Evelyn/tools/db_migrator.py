@@ -4128,6 +4128,133 @@ def migrate_000_006_174_retire_phrase_tags_memory(
                 len(alias_map), total)
 
 
+# --- §9 step 8: decomposition ---------------------------------------------------
+
+def migrate_000_006_181_decompose_to_atoms_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.181: Split hierarchical paths into atoms across the vault (§3.3).
+
+    Pre-coordination composes concepts when a note is filed, which forces the indexer to
+    guess which combinations a query will later want. The guesses multiplied here:
+    `journaling` sat under 31 different parents, one concept restated 31 times, and 76% of
+    the vocabulary was used exactly once.
+
+    Mechanical, with no judgement: `a/b/c` becomes `a` + `b` + `c` by rule. Protected date
+    anchors and administrative namespaces are untouched, and a facet prefix keeps its single
+    level because it names which axis a term belongs to — something flat atoms cannot say.
+
+    This is 1-to-many, so it cannot use the alias table: an alias records that one term
+    *became* another, which is not what happens when a term becomes three.
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_synonym import decompose_tag_csv, decompose_to_atoms
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.181")
+    cursor = conn.cursor()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = decompose_tag_csv(raw_tags)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 181] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    # Rebuild the registry from the decomposed terms, summing usage onto each atom.
+    masters = cursor.execute(
+        "SELECT tag, category, description, usage_count FROM master_tag_taxonomy"
+    ).fetchall()
+    merged: dict[str, dict[str, Any]] = {}
+    for tag, category, description, usage in masters:
+        for atom in decompose_to_atoms(tag):
+            entry = merged.setdefault(atom, {"category": "", "description": "", "usage_count": 0})
+            entry["usage_count"] += usage or 0
+            if description and len(description) > len(entry["description"]):
+                entry["description"] = description
+            if category and not entry["category"]:
+                entry["category"] = category
+
+    cursor.execute("DELETE FROM master_tag_taxonomy")
+    now = time.time()
+    for tag, meta in merged.items():
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (tag, meta["category"] or "general", meta["description"], meta["usage_count"], now, now),
+        )
+
+    # Recount against the decomposed on-disk state.
+    observed: dict[str, int] = {}
+    for (doc_tags,) in cursor.execute(
+        "SELECT tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        for tag in (t.strip() for t in doc_tags.split(",") if t.strip()):
+            observed[tag] = observed.get(tag, 0) + 1
+    for tag, count in observed.items():
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = ?, updated_at = ?""",
+            (tag, tag.split("/")[0] if "/" in tag else "general", count, now, now, count, now),
+        )
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "decomposition_manifest_000.006.181.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 181] Decomposed %d registry terms into %d atoms; rewrote %d notes.",
+        len(masters), len(merged), rewritten,
+    )
+
+
+def migrate_000_006_182_decompose_to_atoms_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.182: Decompose memory tags into atoms (§3.3)."""
+    from Evelyn.tools.tag_synonym import decompose_tag_csv
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = decompose_tag_csv(raw)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 182] %s: %d rows decomposed.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 182] Decomposed tags across %d memory rows.", total)
+
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4480,6 +4607,19 @@ MIGRATIONS: list[Migration] = [
         version="000.006.174",
         name="retire_phrase_tags_memory",
         up_fn=migrate_000_006_174_retire_phrase_tags_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.181",
+        name="decompose_to_atoms_vault",
+        up_fn=migrate_000_006_181_decompose_to_atoms_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.182",
+        name="decompose_to_atoms_memory",
+        up_fn=migrate_000_006_182_decompose_to_atoms_memory,
     ),
 ]
 

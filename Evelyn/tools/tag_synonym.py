@@ -29,7 +29,8 @@ Exports:
     root_inflection_merges() — Merge roots that differ only by inflection (§6.3.2: singular wins).
     literary_warrant()      — How often each root occurs as a phrase in the vault's own text.
     weak_root_resolution()  — Re-nest or dismantle sparse roots, judged by warrant not population.
-    adopt_flat_compounds()  — Nest flat compounds whose head is an established level (§6.3.1).
+    decompose_to_atoms()    — Split a hierarchical term into post-coordinate atoms (§3.3).
+    decompose_tag_csv()     — Apply decomposition across a comma-separated tag string.
     one_off_phrase_tags()   — Flat multi-word descriptors used once or twice (§6.3.4).
     singularize()           — Crude English singularization of a skeleton.
     build_corpus()          — Combined term->usage counts across vault and memory.
@@ -483,3 +484,56 @@ def one_off_phrase_tags(
         and tag.count("-") >= min_words - 1
         and uses <= max_uses
     )
+
+# Facet prefixes keep exactly one level: the prefix names which axis a term belongs to,
+# which flat atoms cannot express. Everything else decomposes (§3.3).
+FACET_PREFIXES = ("type/", "motif/", "setting/", "event/")
+
+
+def decompose_to_atoms(tag: str) -> list[str]:
+    """Split a hierarchical term into the atoms a post-coordinate vocabulary holds.
+
+    `work/routine/morning` is three concepts glued together by an indexer guessing which
+    combination a future query would want. Guesses multiply — `journaling` appeared under 31
+    parents here — so the concepts are separated and the query recombines them (§0.0).
+
+    Three things are left alone: protected date anchors, administrative namespaces, and the
+    single level a facet prefix carries. A facet term deeper than that loses its middle,
+    because `setting/biome/tropical` is categorising *within* an axis, which is the
+    hierarchy this removes.
+
+    Args:
+        tag: A term, possibly hierarchical.
+
+    Returns:
+        list[str]: The atoms it becomes. Never empty for a non-empty input.
+    """
+    if not tag or tag.startswith("CY-") or is_excluded_tag(tag):
+        return [tag] if tag else []
+
+    for prefix in FACET_PREFIXES:
+        if tag.startswith(prefix):
+            leaf = tag.split("/")[-1]
+            return [f"{prefix}{leaf}"] if leaf else [tag]
+
+    return [part for part in tag.split("/") if part] or [tag]
+
+
+def decompose_tag_csv(raw: str | None) -> tuple[str, bool]:
+    """Rewrite a comma-separated tag string into atoms, de-duplicating.
+
+    Args:
+        raw: Comma-separated tags.
+
+    Returns:
+        tuple[str, bool]: (rewritten CSV, whether it changed).
+    """
+    if not raw:
+        return "", False
+    current = [t.strip() for t in raw.split(",") if t.strip()]
+    out: list[str] = []
+    for tag in current:
+        for atom in decompose_to_atoms(tag):
+            if atom and atom not in out:
+                out.append(atom)
+    return ", ".join(out), out != current
