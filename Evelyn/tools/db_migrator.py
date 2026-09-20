@@ -3996,6 +3996,138 @@ def migrate_000_006_171_second_pass_merges_memory(
     logger.info("[MIGRATION 171] Applied %d decisions across %d memory rows.", len(alias_map), total)
 
 
+# --- §9 step 6d: retire one-off phrase tags ------------------------------------
+
+def migrate_000_006_173_retire_phrase_tags_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.173: Retire flat multi-word descriptors used once or twice.
+
+    `cat-care-supplies` and `heartwarming-animal-encounters` are sentence fragments that
+    happen to be hyphenated: nobody searches them, nothing else shares them, and each costs
+    a vocabulary entry for a single document.
+
+    Verbose *and* unshared together — either alone would be wrong. Length alone condemns
+    legitimate compound terms; low use alone condemns correct structure that is merely young
+    (§6.3.3). Nested terms are excluded whatever their length, because a slash means
+    something placed the term in the tree and that structure is the expensive part.
+
+    Recorded as aliases to the empty string, so writers stop emitting them rather than
+    re-minting them on the next extraction (§6.2).
+    """
+    import json
+
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+    from Evelyn.tools.tag_synonym import build_corpus, one_off_phrase_tags
+
+    doomed = one_off_phrase_tags(build_corpus())
+    if not doomed:
+        logger.info("[MIGRATION 173] No one-off phrase tags found.")
+        return
+    alias_map = dict.fromkeys(doomed, "")
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.173")
+    cursor = conn.cursor()
+
+    now = time.time()
+    for variant in doomed:
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, '', 'phrase-retired', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = '', tier = 'phrase-retired'""",
+            (variant, now),
+        )
+    taxonomy_db.invalidate_alias_cache()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = emptied = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = _drop_removed_from_tag_csv(raw_tags, alias_map)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        if not after:
+            emptied += 1  # acceptable: the librarian visits untagged documents first
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 173] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    retired = 0
+    for variant in doomed:
+        if cursor.execute(
+            "SELECT 1 FROM master_tag_taxonomy WHERE tag = ?", (variant,)
+        ).fetchone():
+            cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (variant,))
+            delete_tag_from_chroma(variant)
+            retired += 1
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "phrase_retirement_manifest_000.006.173.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "retired": doomed, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 173] Retired %d phrase tags; %d notes rewritten, %d registry terms removed, "
+        "%d notes now untagged.", len(doomed), rewritten, retired, emptied,
+    )
+
+
+def migrate_000_006_174_retire_phrase_tags_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.174: Apply the phrase retirements to memory tags."""
+    vault_path = db_paths.get("vault", "")
+    if not vault_path or not os.path.exists(vault_path):
+        raise MigrationExecutionError("Vault database unavailable; cannot read alias map.")
+    vcon = sqlite3.connect(vault_path, timeout=30.0)
+    try:
+        alias_map = dict(
+            vcon.execute(
+                "SELECT alias, canonical FROM master_tag_aliases WHERE tier = 'phrase-retired'"
+            )
+        )
+    finally:
+        vcon.close()
+    if not alias_map:
+        logger.info("[MIGRATION 174] No phrase retirements recorded.")
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _drop_removed_from_tag_csv(raw, alias_map)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 174] %s: %d rows rewritten.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 174] Applied %d retirements across %d memory rows.",
+                len(alias_map), total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4336,6 +4468,18 @@ MIGRATIONS: list[Migration] = [
         version="000.006.171",
         name="second_pass_merges_memory",
         up_fn=migrate_000_006_171_second_pass_merges_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.173",
+        name="retire_phrase_tags_vault",
+        up_fn=migrate_000_006_173_retire_phrase_tags_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.174",
+        name="retire_phrase_tags_memory",
+        up_fn=migrate_000_006_174_retire_phrase_tags_memory,
     ),
 ]
 

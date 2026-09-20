@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 12:55:47
+date modified: 2026-09-20 13:04:09
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,35 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.174] - 2026-09-20 — *Phrase Retirement — Verbose and Unshared, Together*
+
+Step 6d. Retires 2,806 flat multi-word descriptors used once or twice — `cat-care-supplies`,
+`stolen-car-dream`, `heartwarming-animal-encounters`. Sentence fragments that happen to be
+hyphenated: nobody searches them, nothing else shares them, and each costs a vocabulary entry for a
+single document. 3,013 tag-uses of 39,737.
+
+### Added
+- **`one_off_phrase_tags()`** requires **both** conditions, because either alone is wrong. Length
+  alone would condemn legitimate compound terms like `work-life-balance`; low use alone would
+  condemn correct structure that is merely young, which is the mistake §6.3.3 exists to prevent.
+  It is the combination — verbose *and* unshared — that marks a label generated for one document
+  rather than a category.
+- **Nested terms are excluded whatever their length.** A slash means something placed the term in
+  the tree, and that structure is the expensive part to rebuild.
+
+### Migrations
+- **`000.006.173` (vault)** / **`000.006.174` (memory)** — retire the identified terms as aliases to
+  the empty string, so writers stop emitting them rather than re-minting them next extraction.
+
+### Preserved by design
+- **Notes left untagged are an accepted outcome**, not a failure: the librarian visits untagged
+  documents first, so an emptied note is queued for reclassification rather than lost. It also keeps
+  its folder, links, and embedding.
+- **The decision was made from a matrix, not a list.** At the individual-term level "used ten times
+  or fewer" covers 14,363 of 14,682 terms — 98% of the corpus, since 11,630 are used exactly once.
+  Crossing usage against shape turned an unreviewable list into five cells, of which one was
+  unambiguous.
 
 ## [000.006.172] - 2026-09-20 — *Transitive Aliases — One Hop Was Never Enough*
 

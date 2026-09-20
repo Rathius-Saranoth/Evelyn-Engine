@@ -30,6 +30,7 @@ Exports:
     literary_warrant()      — How often each root occurs as a phrase in the vault's own text.
     weak_root_resolution()  — Re-nest or dismantle sparse roots, judged by warrant not population.
     adopt_flat_compounds()  — Nest flat compounds whose head is an established level (§6.3.1).
+    one_off_phrase_tags()   — Flat multi-word descriptors used once or twice (§6.3.4).
     singularize()           — Crude English singularization of a skeleton.
     build_corpus()          — Combined term->usage counts across vault and memory.
     lexical_equivalences()  — Tiered T1A/T1B/T2 groups, computed without embeddings.
@@ -447,3 +448,38 @@ def adopt_flat_compounds(counts: collections.Counter, strong_children: int = 5) 
         if head in strong:
             adopted[tag] = f"{head}/{tail}"
     return adopted
+
+
+def one_off_phrase_tags(
+    counts: collections.Counter, min_words: int = 3, max_uses: int = 2
+) -> list[str]:
+    """Find flat multi-word descriptors that occur once or twice.
+
+    A tag is a retrieval handle. `cat-care-supplies` or `heartwarming-animal-encounters`
+    is a sentence fragment that happens to be hyphenated — nobody searches it, nothing
+    else shares it, and it contributes a vocabulary entry for a single document.
+
+    Two conditions together, because either alone is wrong. Length alone would condemn
+    legitimate compound terms; low use alone would condemn correct structure that is merely
+    young (§6.3.3). It is the **combination** — verbose *and* unshared — that marks a label
+    generated for one document rather than a category.
+
+    Nested terms are excluded regardless of length: a slash means something placed it in the
+    tree, and that structure is the expensive part to rebuild.
+
+    Args:
+        counts: Corpus term -> usage count.
+        min_words: Hyphen-separated words required to count as verbose.
+        max_uses: Highest usage count still considered unshared.
+
+    Returns:
+        list[str]: Terms to retire, sorted.
+    """
+    return sorted(
+        tag for tag, uses in counts.items()
+        if "/" not in tag
+        and not tag.startswith("CY-")
+        and not is_excluded_tag(tag)
+        and tag.count("-") >= min_words - 1
+        and uses <= max_uses
+    )

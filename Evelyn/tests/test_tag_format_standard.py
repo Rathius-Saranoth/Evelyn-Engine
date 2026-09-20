@@ -487,3 +487,36 @@ class TestTransitiveCanonicalization:
         from Evelyn.tools import taxonomy_db
         monkeypatch.setattr(taxonomy_db, "_ALIAS_CACHE", {"a": "mid", "b": "mid", "mid": "final"})
         assert taxonomy_db.canonicalize_tags(["a", "b"]) == ["final"]
+
+
+class TestOneOffPhraseRetirement:
+    """§6.3.4: verbose AND unshared together — either condition alone is wrong."""
+
+    def _c(self, d):
+        import collections
+        return collections.Counter(d)
+
+    def test_verbose_and_unshared_is_retired(self):
+        from Evelyn.tools.tag_synonym import one_off_phrase_tags
+        assert one_off_phrase_tags(self._c({"heartwarming-animal-encounters": 1})) == [
+            "heartwarming-animal-encounters"
+        ]
+
+    def test_verbose_but_well_used_survives(self):
+        """Length alone would condemn legitimate compound terms."""
+        from Evelyn.tools.tag_synonym import one_off_phrase_tags
+        assert one_off_phrase_tags(self._c({"work-life-balance": 40})) == []
+
+    def test_unshared_but_short_survives(self):
+        """Low use alone would condemn structure that is merely young (§6.3.3)."""
+        from Evelyn.tools.tag_synonym import one_off_phrase_tags
+        assert one_off_phrase_tags(self._c({"astronomy": 1, "sunday-vlog": 1})) == []
+
+    def test_nested_terms_are_never_retired_however_verbose(self):
+        """A slash means something placed it in the tree; that structure is the expensive part."""
+        from Evelyn.tools.tag_synonym import one_off_phrase_tags
+        assert one_off_phrase_tags(self._c({"home/chore/laundry-and-groceries": 1})) == []
+
+    def test_protected_namespaces_are_untouched(self):
+        from Evelyn.tools.tag_synonym import one_off_phrase_tags
+        assert one_off_phrase_tags(self._c({"CY-2026/09/20": 1, "kanban-in-progress-now": 1})) == []
