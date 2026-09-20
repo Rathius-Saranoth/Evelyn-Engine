@@ -632,12 +632,17 @@ def query_ollama(prompt: str, system_prompt: str = "") -> str:
     Returns:
         str: Raw response text from model.
     """
+    # think=False deliberately. Classification here is rule-following extraction — the
+    # reasoning lives in the prompt — and with thinking enabled this model spends the whole
+    # token budget deliberating and returns EMPTY content: measured at 2048/2048 tokens
+    # consumed, 40s, nothing emitted. That is not a quality-versus-speed trade (§7.1 rule 5
+    # forbids those); it is the difference between an answer and no answer.
     return _canonical_query_ollama(
         prompt=prompt,
         system=system_prompt if system_prompt else None,
-        options={"temperature": 0.1, "num_predict": 2048},
-        timeout=60,
-        think=True,
+        options={"temperature": 0.1, "num_predict": 1024},
+        timeout=90,
+        think=False,
     )
 
 

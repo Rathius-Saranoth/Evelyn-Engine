@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 14:25:53
+date modified: 2026-09-20 14:51:15
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,38 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.177] - 2026-09-20 — *Thinking Mode Was Eating the Answer*
+
+The rewritten classifier returned nothing at all — six documents, six deferrals. Not malformed
+output: **empty**. Measured at the API: with thinking enabled the model consumed its entire
+2,048-token budget deliberating and emitted no content in 40 seconds. With thinking disabled it
+returned correct JSON in **1 second**.
+
+### Fixed
+- **Classification runs with `think=False`.** Tag assignment is rule-following extraction whose
+  reasoning belongs in the prompt, not in chain-of-thought. This is not the latency trade §7.1 rule
+  5 forbids — it is the difference between an answer and no answer.
+- **§7.1 rule 5 now says so explicitly**, because as written it could be read as requiring
+  chain-of-thought. The violation it was authored about was different in kind: degrading the
+  classifier *conditionally*, on documents with many tags, after those documents had already proven
+  hardest to classify.
+
+### Verified against the original archetypes
+The document that started this — collapsed from 36 tags to 3 in September — now keeps **32 of 33**,
+adds the missing `type/overview` facet, and drops one tag that described the filename rather than
+the content. Previously untagged notes classify from nothing into plausible atomic tags.
+
+### Known, not fixed
+- **The classifier still emits nested subject tags** the prompt forbids, and produced eight
+  different terms for *sleep* across five documents without once producing the bare atom. The
+  likely cause is in-context imitation: the prompt shows dozens of pre-coordinate tags as current
+  and candidate values, then asks in prose for atoms. Examples outweigh instructions.
+- The fix is §6.1 authority control — constrain output to vocabulary that exists and queue the rest
+  — which makes format compliance mechanical rather than a matter of the model complying. It is
+  written into the standard and not yet implemented.
+
+`TAG_LIBRARIAN_ENABLED` remains `False`.
 
 ## [000.006.176] - 2026-09-20 — *Read the Document — Chunked Classification Instead of Guessing*
 

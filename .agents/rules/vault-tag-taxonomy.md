@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 13:49:56
+date modified: 2026-09-20 14:41:44
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -507,6 +507,16 @@ Runs on idle against the live vault. Conservative by mandate:
 3. **Suggestion limit applies to additions, not to totals.** A pass proposes **5–10 new terms** maximum. There is **no cap on how many tags a document may carry** — a 26-section reference document legitimately carries more tags than a 40-line snippet.
 4. **Existing tags participate in candidate retrieval.** A note's current tags are not excluded from the Tag RAG candidate pool. The model must be able to see that a term it already has *is* the canonical master term.
 5. **Classification quality is never traded for latency.** Timeouts are solved with scope, batching, or scheduling — never by degrading the classifier's reasoning or its view of the document. A document that cannot be classified within budget is **deferred, not partially processed**.
+
+   > [!NOTE] Choosing an inference mode is not a latency trade
+   > This rule forbids weakening a classifier that works in order to make it faster. It does not
+   > require chain-of-thought where chain-of-thought does not produce an answer. Measured on this
+   > engine: with thinking enabled, the classifier consumed its entire 2,048-token budget
+   > deliberating and returned **empty content** in 40 seconds; with it disabled, it returned correct
+   > JSON in 1 second. Tag assignment is rule-following extraction whose reasoning lives in the
+   > prompt, so the mode that emits an answer is the correct one, not the cheap one. The violation
+   > this rule was written about was different: degrading the classifier *conditionally*, on
+   > documents with many tags, after those documents had already proven hardest to classify.
 6. **Fail closed.** Any pass that does not produce a valid, complete decision writes nothing. A partial or unparsed result is a no-op, never a partial rewrite.
 7. **Structural input.** The classifier receives the document's skeleton — heading outline, stored gist, opening prose — not a raw character slice that truncates inside a table of contents.
 8. **No authority over the administrative axis** (§3.2).
