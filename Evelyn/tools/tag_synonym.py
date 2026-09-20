@@ -29,6 +29,7 @@ Exports:
     root_inflection_merges() — Merge roots that differ only by inflection (§6.3.2: singular wins).
     literary_warrant()      — How often each root occurs as a phrase in the vault's own text.
     weak_root_resolution()  — Re-nest or dismantle sparse roots, judged by warrant not population.
+    adopt_flat_compounds()  — Nest flat compounds whose head is an established level (§6.3.1).
     singularize()           — Crude English singularization of a skeleton.
     build_corpus()          — Combined term->usage counts across vault and memory.
     lexical_equivalences()  — Tiered T1A/T1B/T2 groups, computed without embeddings.
@@ -412,3 +413,37 @@ def weak_root_resolution(
         rewritten[tag] = tag.replace("/", "-") if tag.count("/") == 1 else rest
 
     return rewritten
+
+
+def adopt_flat_compounds(counts: collections.Counter, strong_children: int = 5) -> dict[str, str]:
+    """Nest flat compounds whose leading word is already an established level.
+
+    This is the sibling test (§6.3.1) applied to terms that have no nested twin to compare
+    against. `productivity-tips` is flat only because nothing ever nested it; `productivity`
+    demonstrably holds terms, so the hyphen was a missed slash all along.
+
+    The same evidential bar applies as everywhere else — the head must be a *real* level,
+    proven by what already lives under it. A compound whose head names nothing is left
+    alone rather than nested speculatively.
+
+    Converges in one pass on this corpus: adopting a term makes its parent larger, but not
+    in a way that promotes new heads, so a second pass finds nothing.
+
+    Args:
+        counts: Corpus term -> usage count.
+        strong_children: Terms required under a head for it to count as a real level.
+
+    Returns:
+        dict[str, str]: flat term -> nested term.
+    """
+    census = root_census(counts)
+    strong = {r for r, stats in census.items() if stats["terms"] >= strong_children}
+
+    adopted: dict[str, str] = {}
+    for tag in counts:
+        if "/" in tag or "-" not in tag or tag.startswith("CY-"):
+            continue
+        head, tail = tag.split("-", 1)
+        if head in strong:
+            adopted[tag] = f"{head}/{tail}"
+    return adopted

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 11:54:37
+date modified: 2026-09-20 11:59:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,31 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.169] - 2026-09-20 — *Flat Adoption — Missed Slashes Become Nestings*
+
+Step 6b of the taxonomy migration. The sibling test (§6.3.1) applied to compounds that have no
+nested twin to compare against: `productivity-tips` was flat only because nothing ever nested it,
+while `productivity` demonstrably holds terms — so the hyphen was a missed slash all along.
+
+### Added
+- **`adopt_flat_compounds()`** nests a flat compound when its leading word is an established level.
+  The bar is the same evidential one used everywhere else: the head must be proven a real level by
+  what already lives under it. A compound whose head names nothing is left alone rather than nested
+  speculatively.
+
+### Migrations
+- **`000.006.168` (vault)** / **`000.006.169` (memory)** — 1,382 adoptions. Flat terms drop from
+  8,297 to 6,915, and only 3 merge into a term that already existed.
+
+### Preserved by design
+- **Only the first hyphen becomes a slash.** `ai-prompt-engineering` nests as
+  `ai/prompt-engineering`, not `ai/prompt/engineering` — the evidence supports `ai` as a level and
+  says nothing about `prompt`.
+- **Converges in one pass.** Adoption enlarges a parent without promoting new heads, so a second
+  pass finds nothing; the migration is bounded rather than iterative.
+- **6,915 flat terms remain and are untouched.** Their heads name nothing in the tree, so nesting
+  them would be guesswork. They need classification from document content, not lexical inference.
 
 ## [000.006.167] - 2026-09-20 — *Literary Warrant — Sparse Roots Judged by the Prose, Not the Tags*
 

@@ -3689,6 +3689,133 @@ def migrate_000_006_167_root_consolidation_memory(
                 len(rewrite), total)
 
 
+# --- §9 step 6b: flat tail adoption -------------------------------------------
+
+def migrate_000_006_168_adopt_flat_compounds_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.168: Nest flat compounds under established levels (§9 step 6b).
+
+    The sibling test (§6.3.1) applied to terms with no nested twin. `productivity-tips` is
+    flat only because nothing nested it; `productivity` demonstrably holds terms, so the
+    hyphen was always a missed slash. Heads that name nothing are left alone — the bar is
+    evidence, not plausibility.
+    """
+    import json
+
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+    from Evelyn.tools.tag_synonym import adopt_flat_compounds, build_corpus
+
+    rewrite = adopt_flat_compounds(build_corpus())
+    if not rewrite:
+        logger.info("[MIGRATION 168] Nothing to adopt.")
+        return
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.168")
+    cursor = conn.cursor()
+
+    now = time.time()
+    for variant, canonical in rewrite.items():
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'adopted', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical,
+                                                tier = excluded.tier""",
+            (variant, canonical, now),
+        )
+    taxonomy_db.invalidate_alias_cache()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = _apply_alias_map_to_tag_csv(raw_tags, rewrite)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 168] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    retired = 0
+    for variant, canonical in rewrite.items():
+        row = cursor.execute(
+            "SELECT usage_count FROM master_tag_taxonomy WHERE tag = ?", (variant,)
+        ).fetchone()
+        if not row:
+            continue
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                                              updated_at = excluded.updated_at""",
+            (canonical, canonical.split("/")[0], row[0] or 0, now, now),
+        )
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (variant,))
+        delete_tag_from_chroma(variant)
+        retired += 1
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "flat_adoption_manifest_000.006.168.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "rewrite": rewrite, "documents": manifest}, fh, indent=2)
+    logger.info("[MIGRATION 168] Adopted %d terms; %d notes, %d registry terms retired.",
+                len(rewrite), rewritten, retired)
+
+
+def migrate_000_006_169_adopt_flat_compounds_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.169: Apply the recorded adoptions to memory tags."""
+    vault_path = db_paths.get("vault", "")
+    if not vault_path or not os.path.exists(vault_path):
+        raise MigrationExecutionError("Vault database unavailable; cannot read alias map.")
+    vcon = sqlite3.connect(vault_path, timeout=30.0)
+    try:
+        rewrite = dict(
+            vcon.execute("SELECT alias, canonical FROM master_tag_aliases WHERE tier = 'adopted'")
+        )
+    finally:
+        vcon.close()
+    if not rewrite:
+        logger.info("[MIGRATION 169] No adoptions recorded; nothing to apply.")
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _apply_alias_map_to_tag_csv(raw, rewrite)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 169] %s: %d rows rewritten.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 169] Applied %d adoptions across %d memory rows.", len(rewrite), total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4005,6 +4132,18 @@ MIGRATIONS: list[Migration] = [
         version="000.006.167",
         name="root_consolidation_memory",
         up_fn=migrate_000_006_167_root_consolidation_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.168",
+        name="adopt_flat_compounds_vault",
+        up_fn=migrate_000_006_168_adopt_flat_compounds_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.169",
+        name="adopt_flat_compounds_memory",
+        up_fn=migrate_000_006_169_adopt_flat_compounds_memory,
     ),
 ]
 

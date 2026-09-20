@@ -388,3 +388,40 @@ class TestRootConsolidation:
         # After merging, goals-setting folds into goal-setting, which then re-nests under
         # the established 'goal' root rather than being judged sparse in isolation.
         assert all(v.startswith("goal/") for v in weak_root_resolution(merged).values())
+
+
+class TestFlatAdoption:
+    """§9 step 6b: the sibling test applied to compounds with no nested twin."""
+
+    def _c(self, d):
+        import collections
+        return collections.Counter(d)
+
+    def test_compound_nests_under_an_established_head(self):
+        from Evelyn.tools.tag_synonym import adopt_flat_compounds
+        counts = self._c({
+            "productivity-tips": 26,
+            **{f"productivity/{k}": 2 for k in ("focus", "habits", "tools", "time", "energy")},
+        })
+        assert adopt_flat_compounds(counts) == {"productivity-tips": "productivity/tips"}
+
+    def test_head_that_names_nothing_is_left_alone(self):
+        """The bar is evidence, not plausibility — no speculative nesting."""
+        from Evelyn.tools.tag_synonym import adopt_flat_compounds
+        assert adopt_flat_compounds(self._c({"llmops-basics": 3, "tech/ai": 9})) == {}
+
+    def test_single_words_cannot_adopt(self):
+        from Evelyn.tools.tag_synonym import adopt_flat_compounds
+        counts = self._c({"hardware": 419, **{f"hardware/{k}": 2 for k in "abcde"}})
+        assert adopt_flat_compounds(counts) == {}
+
+    def test_already_nested_terms_are_untouched(self):
+        from Evelyn.tools.tag_synonym import adopt_flat_compounds
+        counts = self._c({"tech/ai-models": 3, **{f"tech/{k}": 2 for k in "abcde"}})
+        assert adopt_flat_compounds(counts) == {}
+
+    def test_only_the_first_hyphen_becomes_a_slash(self):
+        """ai-prompt-engineering nests as ai/prompt-engineering, not ai/prompt/engineering."""
+        from Evelyn.tools.tag_synonym import adopt_flat_compounds
+        counts = self._c({"ai-prompt-engineering": 4, **{f"ai/{k}": 2 for k in "abcde"}})
+        assert adopt_flat_compounds(counts) == {"ai-prompt-engineering": "ai/prompt-engineering"}

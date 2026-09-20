@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 11:54:37
+# date modified: 2026-09-20 11:59:27
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.167"
-__version_info__ = (0, 6, 167)
-__version_name__ = "Literary Warrant — Sparse Roots Judged by the Prose, Not the Tags"
+__version__ = "000.006.169"
+__version_info__ = (0, 6, 169)
+__version_name__ = "Flat Adoption — Missed Slashes Become Nestings"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
