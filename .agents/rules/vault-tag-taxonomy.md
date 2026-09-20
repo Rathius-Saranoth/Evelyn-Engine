@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 12:00:27
+date modified: 2026-09-20 12:07:07
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -398,8 +398,30 @@ problem:
 ### 6.4 Association (`RT`) — the cross-domain layer
 ISO 25964 `RT` maps concepts that are related but neither is broader than the other: `motif/cosmic-horror` RT `fantasy/eldritch`. This is the layer that answers *"what else in the vault connects to this?"* across domains that share no parent — the question motif exists to make askable, answered at the vocabulary level rather than per-document.
 
-**Population — curated, from banked candidates, across both stores.**
-`RT` relations are never inferred and activated automatically. They are approved by hand through the §6.1 proposal queue, with one efficiency: the candidates are a **byproduct of synonym clustering** (§9 step 4). Term pairs that come back semantically close but *fail* the synonym test are exactly the associative candidates — the distances are already computed, so banking them costs nothing and turns curation into review of a pre-populated list rather than authorship from a blank page.
+**Population — curated, and not from where this section first said.**
+`RT` relations are never inferred and activated automatically; they are approved by hand.
+
+> [!WARNING] The "bank them during clustering" plan did not survive contact with the data
+> This section previously claimed associative candidates were a free byproduct of synonym
+> clustering: pairs that come back close but fail the merge test. Two things were wrong.
+>
+> First, **the banking was never implemented** — step 5 recorded only `UF` aliases, so there was no
+> pre-populated list to curate.
+>
+> Second, and more important, **the near-miss band is not associative material.** Measured on this
+> corpus at 0.88–0.92: 36% are same-root siblings, 13% are parent/child pairs the slash already
+> encodes, and most of the remainder are merges the threshold simply missed —
+> `home/maintenance` ~ `household/maintenance`, `3d-printing` ~ `additive-manufacturing`. A band
+> that "fails the merge test" mostly contains merges whose threshold was too tight, not concepts
+> that are related but distinct.
+>
+> Genuine `RT` material — the `motif/cosmic-horror` ~ `fantasy/eldritch` shape — is sparse here, and
+> is better curated deliberately once the vocabulary settles than harvested from a leftover band.
+
+> [!CAUTION] An `RT` must never link a term to its own ancestor or descendant
+> The hierarchy already states that relationship. Recording it again is redundant, and *merging*
+> such a pair destroys a level outright — collapsing `relationship/dynamics/support` into
+> `relationship/dynamics` erases a distinction the tree was built to hold.
 
 **Runtime — weighted expansion.**
 A query on a term also returns documents related through `RT`, **ranked below direct matches**:

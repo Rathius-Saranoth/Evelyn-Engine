@@ -126,6 +126,10 @@ def main() -> int:
     ap.add_argument("--out", default="scratch/tag_merge_review.md", help="Output path")
     ap.add_argument("--min-canonical-uses", type=int, default=2,
                     help="A term must have at least this many uses to be a preferred term")
+    ap.add_argument("--min-uses", type=int, default=1,
+                    help="Ignore terms used fewer than this many times. The single-use tail is "
+                         "better served by content classification than by string similarity, and "
+                         "including it buries the decisions that matter.")
     ap.add_argument("--cache", default="scratch/.tag_embeddings.npz",
                     help="Embedding cache path")
     ap.add_argument("--refresh-embeddings", action="store_true",
@@ -142,7 +146,10 @@ def main() -> int:
     # invites two different answers to the same question.
     deferred_members = {m for group in lexical["deferred"] for m in group}
     terms = sorted(
-        (t for t in counts if t not in aliases and t not in deferred_members),
+        (
+            t for t in counts
+            if t not in aliases and t not in deferred_members and counts[t] >= args.min_uses
+        ),
         key=lambda t: (-counts[t], t),
     )
     emb = _embed_corpus(terms, args.cache, refresh=args.refresh_embeddings)
@@ -160,7 +167,13 @@ def main() -> int:
             j = int(j)
             if j == i or assigned[j] or counts[terms[j]] > counts[term]:
                 continue
-            members.append(terms[j])
+            other = terms[j]
+            # Never propose merging a term with its own ancestor or descendant. The slash
+            # already states that relationship, and collapsing it destroys a level the tree
+            # was built to hold (§6.4).
+            if other.startswith(term + "/") or term.startswith(other + "/"):
+                continue
+            members.append(other)
             assigned[j] = True
         if members:
             assigned[i] = True
@@ -224,7 +237,7 @@ def main() -> int:
         "- **`[merge]`** — variants to retire into a preferred term. Pre-ticked; untick or",
         "  delete any you disagree with.",
         "",
-        f"- Similarity threshold: `{args.threshold}`",
+        f"- Similarity threshold: `{args.threshold}`  |  minimum uses: `{args.min_uses}`",
         f"- Families: **{len(ordered)}**",
         f"- Structural decisions: **{n_struct}**  |  Proposed merges: **{total_merges}**",
         "",
