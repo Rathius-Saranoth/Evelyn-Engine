@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 14:41:44
+date modified: 2026-09-20 15:37:01
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -266,6 +266,19 @@ The pass determines the document's **class first**; the class then decides which
 | `recipe`, `notes` | **required** | ⛔ forbidden | ⛔ forbidden | ⛔ forbidden | optional |
 
 **"Forbidden" is enforced, not advisory.** A motif tag proposed on a reference document is rejected before it reaches disk.
+
+> [!NOTE] Dreams classify as `journal-entry`, and that is correct
+> A dream entry and a journal entry are the same kind of record — an account of experience — and one
+> of them merely happened during sleep. Motif and setting sit as *optional* on `journal-entry` for
+> exactly that reason: an entry about errands needs neither, an entry about a dream usually wants
+> both, and the difference is the content rather than the class.
+>
+> The vault once called these "dream logs" to stop journal tooling from firing on them. That was a
+> workaround for tool routing, not a cataloguing judgement, and it should not be read as evidence
+> that the two are different classes. A later pass that "fixes" dreams back into their own class
+> would be restoring a symptom.
+
+The administrative axis (§3.2) is **outside this table entirely** — it applies to any class and is never gated.
 
 The administrative axis (§3.2) is **outside this table entirely** — it applies to any class and is never gated.
 
