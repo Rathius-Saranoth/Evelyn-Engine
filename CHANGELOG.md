@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 12:53:05
+date modified: 2026-09-20 12:55:47
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.172] - 2026-09-20 — *Transitive Aliases — One Hop Was Never Enough*
+
+Verifying the second merge pass found 609 aliases whose target was **itself retired**, and 8 pairs
+of terms each claiming to retire into the other.
+
+### Fixed
+- **`canonicalize_tags()` resolved only one hop.** Aliases accumulate across migration passes, so a
+  term retired in step 5 can point at a term step 6a later retired — `sleep-tracking` →
+  `sleep/tracking` → `health/sleep/tracking`. One hop left the dead middle term in place, and every
+  writer kept emitting it. Resolution is now transitive and cycle-guarded.
+- **Eight alias cycles, from two passes disagreeing on direction.** Step 5 merged by usage and chose
+  the plural (`relationship/family` → `relationships/family`); step 6a merged roots under §6.3.2 and
+  chose the singular. Each term then claimed the other as its canonical. §6.3.2 is the standard, so
+  the singular is correct and the stale entries were dropped.
+
+### Preserved by design
+- **A cycle stops at the current form rather than raising.** A vocabulary with a contradictory
+  alias pair should degrade to "leave this term alone", not fail a write path that every tag in the
+  engine passes through.
+- Empty tag sets are an acceptable outcome of removal. A memory fact keeps its subject, category,
+  content and embedding; a vault note keeps its folder and links. The librarian visits untagged
+  documents first, so an emptied note is queued rather than lost.
 
 ## [000.006.171] - 2026-09-20 — *Second Merge Pass — Removal as a Recorded Decision*
 

@@ -459,3 +459,31 @@ class TestReviewParsing:
         r = self._parse(tmp_path, body)
         assert "doomed" not in r["merges"]
         assert "doomed" in r["removals"]
+
+
+class TestTransitiveCanonicalization:
+    """§6.2: aliases chain across migration passes, so one hop is not enough."""
+
+    def test_resolves_a_chain_to_its_end(self, monkeypatch):
+        from Evelyn.tools import taxonomy_db
+        monkeypatch.setattr(taxonomy_db, "_ALIAS_CACHE", {
+            "sleep-tracking": "sleep/tracking",
+            "sleep/tracking": "health/sleep/tracking",
+        })
+        assert taxonomy_db.canonicalize_tags(["sleep-tracking"]) == ["health/sleep/tracking"]
+
+    def test_chain_ending_in_removal_drops_the_tag(self, monkeypatch):
+        from Evelyn.tools import taxonomy_db
+        monkeypatch.setattr(taxonomy_db, "_ALIAS_CACHE", {"a": "b", "b": ""})
+        assert taxonomy_db.canonicalize_tags(["a", "keep"]) == ["keep"]
+
+    def test_cycle_does_not_hang(self, monkeypatch):
+        """Two passes disagreeing on direction must not loop forever."""
+        from Evelyn.tools import taxonomy_db
+        monkeypatch.setattr(taxonomy_db, "_ALIAS_CACHE", {"x": "y", "y": "x"})
+        assert taxonomy_db.canonicalize_tags(["x"]) in (["y"], ["x"])
+
+    def test_chains_converging_are_deduped(self, monkeypatch):
+        from Evelyn.tools import taxonomy_db
+        monkeypatch.setattr(taxonomy_db, "_ALIAS_CACHE", {"a": "mid", "b": "mid", "mid": "final"})
+        assert taxonomy_db.canonicalize_tags(["a", "b"]) == ["final"]

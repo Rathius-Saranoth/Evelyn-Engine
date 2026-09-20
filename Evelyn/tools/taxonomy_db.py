@@ -134,6 +134,10 @@ def canonicalize_tags(tags: list[str]) -> list[str]:
     write only renames existing data — the next extraction re-mints the retired variant
     and the vocabulary drifts back (taxonomy §6.2).
 
+    Resolution is transitive and cycle-guarded. Aliases accumulate across migration passes,
+    so a term retired in one pass can point at a term a later pass also retired; a single
+    hop would leave that dead target in place.
+
     Args:
         tags: Tag strings, already normalized.
 
@@ -149,7 +153,18 @@ def canonicalize_tags(tags: list[str]) -> list[str]:
 
     out: list[str] = []
     for tag in tags:
-        mapped = _ALIAS_CACHE.get(tag, tag)
+        # Resolve transitively. Successive migration passes chain: a step-5 merge can point
+        # at a term a later root pass then retired, so one hop leaves a dead target behind.
+        mapped, seen = tag, {tag}
+        while mapped in _ALIAS_CACHE:
+            nxt = _ALIAS_CACHE[mapped]
+            if not nxt:
+                mapped = ""  # removed outright
+                break
+            if nxt in seen:
+                break  # cycle: two passes disagreed on direction; stop at the current form
+            seen.add(nxt)
+            mapped = nxt
         if mapped and mapped not in out:
             out.append(mapped)
     return out
