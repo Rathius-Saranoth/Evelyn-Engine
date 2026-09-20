@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-19 11:10:15
+date modified: 2026-09-19 21:05:42
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,194 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.155] - 2026-09-19 — *Equivalence Collapse — UF Aliases and the Star-Shaped Merge*
+
+Step 5 of the taxonomy migration (`vault-tag-taxonomy.md` §9), lexical half. Implements the `UF`
+("Used For") relation of ISO 25964: many colloquial variants map onto one preferred term.
+
+### Added
+- **`Evelyn/tools/tag_synonym.py`** — equivalence detection over the combined vault+memory corpus
+  (16,862 terms). Mapping is **star-shaped, never transitive**. Single-link clustering was tried
+  first and measured: at a 0.88 similarity cut it chained 4,069 unrelated terms — `tech/ai`,
+  `hardware`, `relationship/dynamics`, `routine` — into one "cluster" through intermediates. `UF` is
+  inherently one-canonical-many-variants, so the star form is both correct and immune to chaining.
+- **`master_tag_aliases`** table plus `canonicalize_tags()` on the registry. A collapse that is
+  executed but not recorded is undone by the next import.
+
+### Changed
+- **Both write paths now canonicalize through recorded aliases** — the vault librarian's final tag
+  set and the memory extractor's output. Recording an alias without consulting it on write only
+  renames existing data; the retired variant is re-minted on the next extraction and the vocabulary
+  drifts back. The deterministic hygiene gate caught this as unwired code before it shipped.
+
+### Migrations
+- **`000.006.153`** — `master_tag_aliases` schema.
+- **`000.006.154` (vault)** / **`000.006.155` (memory)** — apply the recorded equivalences. The
+  memory step reads the alias map rather than recomputing it: the vault step has already altered the
+  corpus, so a fresh computation would derive a different mapping. The alias table is the record of
+  what was actually decided.
+
+### Preserved by design
+- **Only judgement-free tiers were auto-applied**, and the boundary moved during analysis. Terms
+  identical once separators are ignored were initially treated as mechanical; measurement showed
+  that where the two forms differ in hierarchy depth the choice is structural, not cosmetic. Ranking
+  by usage alone flattened hierarchies (`work/stress` → `work-stress`); ranking by depth alone let a
+  1-use variant rename a 94-use term (`health/physical-condition` → `health/physical/condition`).
+  Auto-apply is therefore restricted to cases where both signals agree; the 125 groups where they
+  conflict are deferred to review.
+- **`record_alias()` was written and then removed rather than whitelisted.** It could not be called
+  from inside the vault migration — that migration holds a write transaction on the same file, so a
+  second connection would block — and nothing else needed it yet. It returns when its caller does.
+
+## [000.006.152] - 2026-09-19 — *Entity Extraction — Tags That Restate the Link Graph*
+
+Step 4 of the taxonomy migration (`vault-tag-taxonomy.md` §9). §2 holds that named individuals are
+links, not tags — the entity's own note is the authority record. This step removes tags that were
+already saying what the link graph says.
+
+### Added
+- **`strip_subject_duplicate_tags()`** in `tag_librarian.py` — canonical rule shared by the memory
+  extractor and migration 151, rather than implemented twice. The test is **relational, not a name
+  list**: a tag is dropped only when it matches *that record's own* subject. A fact about one party
+  tagged with another party's name is a cross-reference the subject field cannot express, and is
+  preserved — 17 such rows survived precisely because of this.
+
+### Changed
+- **`fact_extractor.py` now enforces the rule at write time.** Tags came from free-form LLM output,
+  so subject-duplicating tags were still being produced — 6% of recent entries versus 35% of older
+  ones. Deleting the existing ones without closing the writer would simply let them accumulate again.
+  Enforced deterministically rather than by instructing the model, per AGENTS.md §11.
+
+### Migrations
+- **`000.006.151` (memory)** — drops tags restating their own row's subject: 1,252 rows, no row left
+  untagged.
+- **`000.006.152` (vault)** — removes entity tags whose every carrier already sits in the entity's
+  folder or references it by name. 70 tags / 1,736 note-tag pairs qualified; all 245 notes tagged
+  with one reference book, for instance, were already in its folder *and* linked its index, stating
+  the same membership three ways.
+
+### Preserved by design
+- **The redundancy threshold is 100%, and that is what makes the rule safe.** Anything less means
+  the tag carries a connection the link graph does not. It also cleanly separates genuine entities
+  from concept words that merely share a name with a note: real entities measured 100% already-linked,
+  while `creativity`, `artificial-intelligence`, `core-identity` and `obsidian-vault` measured ~0%
+  and were left as tags. A note *about* creativity does not make it an entity.
+- **The rule is recomputed at migration time, never listed.** Several qualifying entities are
+  personal contacts whose names must not enter a tracked file (AGENTS.md §4), and recomputation keeps
+  it a generic pattern sweep (§5).
+- **The 8 `location/<place>` terms are untouched.** Each is used on a single note and has no
+  corresponding note, so converting them would create ghost links and stub proposals for no
+  retrieval benefit.
+
+## [000.006.150] - 2026-09-19 — *Registry Unification — Taxonomy Ownership Extracted, Vector Vocabulary Rebuilt*
+
+Step 3 of the taxonomy migration (`vault-tag-taxonomy.md` §9). The vault and memory are one
+knowledge structure governed by one controlled vocabulary (§0), but the registry's API lived inside
+`vault_db.py` — so the memory subsystem had to reach into the vault's store to read the vocabulary
+it shares.
+
+### Added
+- **`Evelyn/tools/taxonomy_db.py`** owns the Master Tag Taxonomy registry API
+  (`get_master_tags`, `upsert_master_tag`, `delete_master_tag`). Connection handling is reused from
+  `vault_db` rather than duplicated, and the table stays in the vault store — relocating it would
+  add a fourth database to serve what is a naming concern, not a functional one.
+- **§6.5 Registry consistency** records a property that was previously tribal knowledge: the vector
+  read path every consumer queries is updated through a staging queue, so registration is not
+  immediately readable. Measured at ~5.5 terms/sec — rebuilding the collection took ~16 minutes.
+  Any pass that registers terms and then reads them back must wait for the drain, or it will
+  retrieve the pre-registration vocabulary and mint duplicates of what it just approved.
+
+### Changed
+- **`fact_extractor.py` no longer imports `vault_db` at all.** Extracting the registry API removed
+  the memory subsystem's only dependency on the vault store — the coupling this step existed to fix,
+  confirmed by the linter flagging the import as unused.
+- **`evelyn_tag_taxonomy` rebuilt from the post-sweep registry.** It held 5,228 pre-migration terms
+  — still containing the old casing variants and the retired `topic/` and `relationship/`
+  namespaces — so both librarians were proposing against a vocabulary that predated steps 1 and 2.
+
+### Preserved by design
+- **The registry stays curated.** Memory's 11,670 ungoverned terms were *not* imported. Being
+  visible to clustering and being registered are different things: step 5 reads both stores directly,
+  so nothing is hidden from it, but only terms surviving curation enter the registry at step 6.
+  Importing raw extraction output would make the registry a record of every string ever emitted,
+  contradicting §6.1.
+- 613 terms are excluded from the vector index by design — date anchors plus the administrative
+  namespaces, which are not semantic vocabulary.
+
+## [000.006.149] - 2026-09-19 — *Namespace Retirement — Bare-Rooted Domains and the Administrative Firewall*
+
+Step 2 of the taxonomy migration (`vault-tag-taxonomy.md` §9). Deterministic namespace moves only —
+no classification, no LLM.
+
+### Changed
+- **`topic/` wrapper dropped.** Domains are bare-rooted (§3.3): a document about hardware is
+  `hardware`, not `topic/hardware`. Three of the five wrapped terms merge into bare terms that
+  already existed, which is the wrapper coming off rather than a vocabulary change.
+- **`contact/*` collapsed to `obsidian-graph/contact`.** The 15 role subdomains (which included
+  near-duplicates like dad/father and mom/mother) carried nothing the graph flag does not. Per §3.2
+  this is administrative metadata, not a subject facet, and is now walled off from the classifier.
+- **`location/biome/*` moved to `setting/biome/*`** (§3.6). A biome is a kind of space; the
+  `location/` root was conflating that with named geography.
+- **`relationship/*` retired — vault only.** 36 scattered terms, artifacts of flat `#relationship-x`
+  tagging that never became a real domain.
+
+### Preserved by design
+- **Named places under `location/` are untouched.** They are entities and belong to step 3's link
+  extraction (§2), not to a namespace move.
+- **`relationship/*` is NOT retired in memory.** It is a live namespace there: 903 fact rows carry
+  it and 666 have no other tag, so retiring it without replacement would strip those facts of their
+  only retrieval handle. Memory retirement is gated on re-tagging and is registered as §9 step 9.
+  Until that runs, the two stores intentionally differ on this one namespace.
+- **Migration 148 was not refactored** despite overlapping loop structure. It is applied, and
+  applied migrations are immutable (AGENTS.md §5); 149 reuses only helpers that predate it.
+
+## [000.006.148] - 2026-09-19 — *Tag Format Unification — Faceted Classification Standard, Step 1*
+
+The tag librarian was disabled at `000.006.139` because its classifier was collapsing multi-topic
+documents — a 36-tag reference note came back with 3 tags. Rather than tune the prompt again, the
+intent layer was written down first as a governing standard, and this release executes its first
+migration step.
+
+### Added
+- **`.agents/rules/vault-tag-taxonomy.md`** — the Faceted Classification standard governing all tag
+  curation: six facet axes (domain, type, motif, setting, event, time) plus a walled-off
+  administrative axis, class-gated facet profiles, vocabulary control under authority control, and
+  two distinct operating modes for autonomous vs. supervised passes. Assembled from Ranganathan's
+  PMEST, FAST, Iconclass, the DCMI Type Vocabulary, NISO metadata classes, ISO 25964, EDTF, Getty's
+  authority-file model, and SKOS.
+- **`canonicalize_date_tag()`** resolves date anchors under EDTF (ISO 8601-2:2019), which
+  distinguishes reduced precision (`CY-2026/05` — anchored to a month) from unspecified digits
+  (`CY-XXXX/11/16` — a known day in an unknown year). Unexpanded template literals left behind by
+  earlier tooling resolve to the latter.
+
+### Changed
+- **`normalize_tag_format()`** now implements one rule with no exceptions: lowercase always, hyphens
+  join words, slashes join levels. The entity/concept branch is **removed** — it decided "entity" by
+  testing for any uppercase character, which is what allowed a single concept to fork into separate
+  master tags differing only in case. With no branch, there is no way to fork. The CamelCase splitter
+  also handles acronym runs and leading digits correctly.
+- **`TAG_LIBRARIAN_EXCLUSIONS`** accepts EDTF date forms and the `obsidian-graph/` administrative
+  namespace. **`TAG_LIBRARIAN_FORMAT_RULES`** rewritten; it previously documented the removed
+  entity-underscore rule.
+
+### Migrations
+- **`000.006.147` (memory)** — sweeps `context_entries` and `procedures` tags to the new format.
+  Sequenced first deliberately: memory is a single-file restore, so it validates the rewritten
+  normalizer against real rows before any irreplaceable document is touched.
+- **`000.006.148` (vault)** — snapshots every markdown note to a gzipped archive, rewrites note
+  frontmatter while recording a per-file reversal manifest, merges the taxonomy's collision classes
+  (summing usage counts), then reconciles the taxonomy against the swept on-disk state so later
+  clustering reads a complete vocabulary.
+
+### Preserved by design
+- **Migration `000.004.002` pinned to a frozen normalizer.** It called the live
+  `normalize_tag_format()`, so rewriting that function would have silently changed what an
+  already-applied migration does when replayed against a fresh database. A frozen copy of the
+  original implementation now backs it, preserving the immutability guarantee in AGENTS.md §5.
+- Date anchors remain the sole exemption from the format rule, and the administrative namespaces
+  (`status/`, `kanban`, `obsidian-graph/`) stay invisible to the semantic classifier.
+- `TAG_LIBRARIAN_ENABLED` remains `False`. This release changes format only; no classification runs.
 
 ## [000.006.146] - 2026-09-19 — *Redundant Alias Condensing — Self-Referential Wikilinks Collapsed*
 

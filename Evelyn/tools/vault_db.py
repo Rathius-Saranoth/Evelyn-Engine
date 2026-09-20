@@ -70,6 +70,15 @@ def init_db() -> None:
             updated_at REAL
         );
 
+        CREATE TABLE IF NOT EXISTS master_tag_aliases (
+            alias       TEXT PRIMARY KEY,
+            canonical   TEXT NOT NULL,
+            tier        TEXT,
+            created_at  REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tag_aliases_canonical ON master_tag_aliases(canonical);
+
         CREATE TABLE IF NOT EXISTS librarian_activity_log (
             id                      INTEGER PRIMARY KEY AUTOINCREMENT,
             path                    TEXT NOT NULL,
@@ -278,57 +287,6 @@ def search_documents(query: str, limit: int = 5) -> list[dict[str, Any]]:
 # =============================================================================
 # Tag Librarian Database Operations
 # =============================================================================
-
-def get_master_tags() -> list[dict[str, Any]]:
-    """Return all active master tags with their categories, descriptions, and usage counts.
-
-    Prioritizes high-frequency tags first (usage_count DESC).
-
-    Returns:
-        List[Dict[str, Any]]: A list of master tag dictionaries.
-    """
-    init_db()
-    con = get_db()
-    rows = con.execute("SELECT * FROM master_tag_taxonomy ORDER BY usage_count DESC, category ASC, tag ASC").fetchall()
-    con.close()
-    return [dict(r) for r in rows]
-
-
-def upsert_master_tag(tag: str, category: str = "", description: str = "", usage_count: int = 0) -> None:
-    """Insert or update a master tag entry in the taxonomy table.
-
-    Args:
-        tag: The tag string (e.g. 'tech/python').
-        category: Top-level category name (e.g. 'tech').
-        description: Short 1-sentence scope statement.
-        usage_count: Current count of notes using this tag.
-    """
-    init_db()
-    con = get_db()
-    now = time.time()
-    con.execute("""
-        INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(tag) DO UPDATE SET
-            category = excluded.category,
-            description = CASE WHEN excluded.description != '' THEN excluded.description ELSE master_tag_taxonomy.description END,
-            usage_count = excluded.usage_count,
-            updated_at = excluded.updated_at
-    """, (tag, category, description, usage_count, now, now))
-    con.commit()
-    con.close()
-
-def delete_master_tag(tag: str) -> None:
-    """Delete a tag from the master taxonomy table.
-
-    Args:
-        tag: The tag string to remove.
-    """
-    init_db()
-    con = get_db()
-    con.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (tag,))
-    con.commit()
-    con.close()
 
 def fetch_next_document_for_tag_audit() -> dict[str, Any] | None:
     """Fetch the next vault document eligible for tag auditing.

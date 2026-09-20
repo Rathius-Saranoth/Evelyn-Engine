@@ -39,8 +39,12 @@ import httpx
 import yaml
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import backlog_drainer, chroma_rag, vault_db
-from Evelyn.tools.tag_librarian import is_excluded_tag, normalize_tag_format
+from Evelyn.tools import backlog_drainer, chroma_rag, taxonomy_db
+from Evelyn.tools.tag_librarian import (
+    is_excluded_tag,
+    normalize_tag_format,
+    strip_subject_duplicate_tags,
+)
 
 # ---------------------------------------------------------------------------
 # Module-level regex constants
@@ -641,7 +645,7 @@ def retrieve_candidate_taxonomy_and_clusters(
     # Fallback to SQLite master tags if Chroma tag collection is empty
     if not candidates_tag_map:
         try:
-            fallback_tags = vault_db.get_master_tags()
+            fallback_tags = taxonomy_db.get_master_tags()
             for m in fallback_tags[:top_k_tags]:
                 t = m.get("tag", "")
                 if t and not is_excluded_tag(t):
@@ -853,7 +857,11 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         subj = str(item.get("subject", "")).strip()
         cat = str(item.get("category", "")).strip()
         raw_tags = str(item.get("tags", "")).strip()
-        tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
+        # The subject column already records who the fact concerns; a tag repeating it is
+        # duplicate state. Enforced deterministically rather than asked of the model.
+        tags = ", ".join(taxonomy_db.canonicalize_tags(strip_subject_duplicate_tags(
+            [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()], subj
+        )))
 
         summ = str(item.get("summary", "")).strip()
         # Sanitize before any further processing — drop if injection or

@@ -8,7 +8,9 @@ tag_librarian.py — Incremental Obsidian Tag Maintenance & Taxonomy Management.
 
 Exports:
     is_excluded_tag()                     — Checks if a tag matches protected exclusion rules (e.g. CY-YYYY/MM/DD).
-    normalize_tag_format()                — Standardizes multi-word tags (hyphens), entities (underscores), and paths.
+    canonicalize_date_tag()               — Resolves EDTF date anchors (reduced precision / unspecified digits).
+    normalize_tag_format()                — Standardizes tags to lowercase-hyphen-slash form (taxonomy §5).
+    strip_subject_duplicate_tags()        — Drops tags that merely restate a record's own subject.
     audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
     retrieve_candidate_tags_for_document() — Semantic vector retrieval of candidate master tags with distance scoring.
     sync_master_tags_to_vector_db()       — Syncs all SQLite master tags into Chroma vector store for Tag RAG.
@@ -35,7 +37,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import evelyn_config as cfg
-from Evelyn.tools import backlog_drainer, chroma_rag, vault_db
+from Evelyn.tools import backlog_drainer, chroma_rag, taxonomy_db, vault_db
 
 logger = logging.getLogger("evelyn.tag_librarian")
 from Evelyn.tools.frontmatter_utils import (
@@ -88,58 +90,129 @@ def is_excluded_document(path: str) -> bool:
     return False
 
 
-def normalize_tag_format(tag: str, is_entity: bool | None = None) -> str:
-    """Normalize a tag string according to project formatting standards.
+# EDTF date-anchor recognition (taxonomy §3.8). Deliberately also matches legacy
+# spellings (Cy_Yyyy/11/16, cy-2025) so every variant converges on one canonical form.
+_DATE_TAG_RE = re.compile(
+    r"^cy[-_]?([0-9x]{4}|yyyy)(?:[/_-]([0-9x]{2}|mm))?(?:[/_-]([0-9x]{2}|dd))?$",
+    re.IGNORECASE,
+)
+_DATE_PLACEHOLDERS = {"YYYY": "XXXX", "MM": "XX", "DD": "XX"}
 
-    Rules:
-    - Protected tags (e.g. CY-YYYY/MM/DD) are preserved.
-    - Proper Nouns / Entities (Person, Place, Thing, Title - detected by Capitalized/CamelCase words
-      or explicit is_entity flag) use TitleCase with underscores (e.g. 'Dungeon_Crawler_Carl', 'Jane_Doe').
-    - General concepts (lowercase) use hyphens for multi-word phrases (e.g. 'home-improvement', 'system-update').
-    - Hierarchy slashes (e.g. '3D-Printing/Slicing', 'Tech/Python/FastAPI') are preserved.
+
+def canonicalize_date_tag(tag: str) -> str | None:
+    """Resolve a tag to its canonical EDTF date-anchor form.
+
+    Follows EDTF (ISO 8601-2:2019): reduced precision and unspecified digits are
+    distinct. 'CY-2026/05' means May 2026 (no day was intended); 'CY-2026/05/XX'
+    would mean a specific unknown day in May 2026. Unexpanded template literals
+    (YYYY/MM/DD) are treated as unspecified digits and become X.
 
     Args:
-        tag: Raw tag string (e.g. 'home_improvement' or 'DungeonCrawlerCarl').
-        is_entity: Optional explicit boolean override for entity classification.
+        tag: Raw tag string, with or without a leading '#'.
 
     Returns:
-        str: Normalized tag string.
+        str | None: Canonical 'CY-...' form, or None if the tag is not a date anchor.
+    """
+    m = _DATE_TAG_RE.match(tag.strip().lstrip("#").strip())
+    if not m:
+        return None
+
+    parts: list[str] = []
+    for group in m.groups():
+        if group is None:
+            break  # Reduced precision: stop at the first absent component.
+        token = group.upper()
+        parts.append(_DATE_PLACEHOLDERS.get(token, token))
+
+    return "CY-" + "/".join(parts) if parts else None
+
+
+def normalize_tag_format(tag: str) -> str:
+    """Normalize a tag to the canonical vault format.
+
+    Implements .agents/rules/vault-tag-taxonomy.md §5: lowercase always, hyphens
+    join words, slashes join levels. There is deliberately no entity/concept
+    branch — proper nouns follow the same rule as concepts, which is what removes
+    any way for one term to fork into 'ai' and 'Ai'.
+
+    Date anchors (§3.8) are the sole exemption and are routed to
+    canonicalize_date_tag(). Administrative namespaces listed in
+    TAG_LIBRARIAN_EXCLUSIONS are returned untouched.
+
+    Args:
+        tag: Raw tag string (e.g. '#Tech/Ai', 'DungeonCrawlerCarl', 'Cy_Yyyy/11/16').
+
+    Returns:
+        str: Normalized tag string, or '' if nothing survives normalization.
     """
     clean = tag.strip().lstrip("#").strip()
-    if not clean or is_excluded_tag(clean):
+    if not clean:
+        return ""
+
+    # 1. Date anchors bypass §5 entirely.
+    date_form = canonicalize_date_tag(clean)
+    if date_form:
+        return date_form
+    if is_excluded_tag(clean):
         return clean
 
-    # Strip redundant legacy noise prefixes (kw/, ctx/) to prevent bloated kw/ folders
-    if clean.lower().startswith("kw/"):
+    # 2. Strip legacy noise prefixes (kw/, ctx/).
+    lowered = clean.lower()
+    if lowered.startswith("kw/"):
         clean = clean[3:].strip()
-    elif clean.lower().startswith("ctx/"):
+    elif lowered.startswith("ctx/"):
         clean = clean[4:].strip()
 
     if not clean or is_excluded_tag(clean):
         return clean
 
-    parts = clean.split("/")
-    norm_parts = []
-
-    for part in parts:
+    # 3. Apply §5 to each hierarchy level.
+    norm_parts: list[str] = []
+    for part in clean.split("/"):
         p = part.strip()
         if not p:
             continue
-
-        # Determine if part is an entity (Proper Noun: Person, Place, Thing, Title)
-        part_is_entity = is_entity if is_entity is not None else any(c.isupper() for c in p)
-
-        if part_is_entity:
-            # Handle CamelCase insertion before splitting on spaces/hyphens/underscores
-            s1 = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', p)
-            words = [w.capitalize() for w in re.split(r"[\s_-]+", s1) if w]
-            norm_parts.append("_".join(words))
-        else:
-            # Standard multi-word concept -> lowercase hyphens
-            words = [w.lower() for w in re.split(r"[\s_-]+", p) if w]
+        # Split CamelCase first. Two rules, in order: an acronym run followed by a
+        # word ('UVMapping' -> 'UV Mapping'), then a lowercase/uppercase boundary
+        # ('DungeonCrawler' -> 'Dungeon Crawler'). Digits are deliberately NOT a
+        # boundary, so '3DPrinting' yields '3d-printing' rather than '3-d-printing'.
+        p = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", p)
+        p = re.sub(r"([a-z])([A-Z])", r"\1 \2", p)
+        words: list[str] = []
+        for raw_word in re.split(r"[\s_-]+", p):
+            # Drop characters outside the permitted set; unicode letters survive.
+            word = "".join(ch for ch in raw_word if ch.isalnum()).lower()
+            if word:
+                words.append(word)
+        if words:
             norm_parts.append("-".join(words))
 
     return "/".join(norm_parts)
+
+
+def strip_subject_duplicate_tags(tags: list[str], subject: str) -> list[str]:
+    """Drop tags that merely restate the record's own subject.
+
+    The subject field is the single source of truth for who or what a record concerns.
+    A tag repeating it stores the same fact twice — and because a column holds one value
+    while a free-text tag does not, that duplication is how one identity fragments into
+    several spellings in the vocabulary.
+
+    The test is relational, not a name list: a tag is dropped only when it matches *this*
+    record's subject. A record about one party tagged with another party's name is a real
+    cross-reference the subject field cannot express, and survives.
+
+    Args:
+        tags: Tag strings, raw or normalized.
+        subject: The record's subject value.
+
+    Returns:
+        list[str]: Tags with subject-duplicates removed, order preserved.
+    """
+    subject_form = normalize_tag_format(subject or "")
+    if not subject_form:
+        return list(tags)
+    return [t for t in tags if normalize_tag_format(t) != subject_form]
 
 
 def _extract_document_skeleton(body: str, gist: str = "") -> str:
@@ -308,7 +381,7 @@ def sync_master_tags_to_vector_db() -> int:
     Returns:
         int: Total number of tags enqueued into Chroma staging queue.
     """
-    master_tags = vault_db.get_master_tags()
+    master_tags = taxonomy_db.get_master_tags()
     if not master_tags:
         return 0
 
@@ -412,7 +485,7 @@ def retrieve_candidate_tags_for_document(
 
     # If Chroma tag collection is empty or query had no results, fallback to SQLite master tags
     if not candidates_map:
-        fallback_tags = vault_db.get_master_tags()
+        fallback_tags = taxonomy_db.get_master_tags()
         for m in fallback_tags[:top_k]:
             t = m["tag"]
             if not is_excluded_tag(t):
@@ -667,13 +740,18 @@ def audit_document_tags(
                     else:
                         continue
                     if ntag and not is_excluded_tag(ntag):
-                        vault_db.upsert_master_tag(ntag, category=cat, description=desc, usage_count=1)
+                        taxonomy_db.upsert_master_tag(ntag, category=cat, description=desc, usage_count=1)
                         index_master_tag_in_chroma(ntag, category=cat, description=desc, usage_count=1)
         except Exception as llm_err:  # noqa: BLE001
             print(f"[TAG LIBRARIAN] LLM semantic tagging failed for {path}: {llm_err}")
 
         if not details["llm_evaluated"]:
             print(f"[TAG LIBRARIAN] Warning: LLM semantic tagging did not yield a valid JSON decision for {path}")
+
+    # Recorded UF equivalences are applied last, so a retired variant reaching this point
+    # from any source resolves to its preferred term instead of being re-minted (§6.2).
+    final_tags_list = taxonomy_db.canonicalize_tags(final_tags_list)
+    details["final_tags"] = final_tags_list
 
     modified = (set(final_tags_list) != set(current_tags))
     new_content = content
@@ -896,7 +974,7 @@ def seed_master_taxonomy_from_vault() -> int:
     for tag, count in tag_counts.items():
         category = tag.split("/")[0] if "/" in tag else "general"
         desc = f"Obsidian notes tagged under {tag}"
-        vault_db.upsert_master_tag(tag, category=category, description=desc, usage_count=count)
+        taxonomy_db.upsert_master_tag(tag, category=category, description=desc, usage_count=count)
 
     # Sync all seeded tags into Chroma vector store
     sync_master_tags_to_vector_db()
@@ -943,7 +1021,7 @@ def maintain_master_taxonomy() -> dict[str, Any]:
             "removed_master_tags": 0,
         }
 
-    master_tags = vault_db.get_master_tags()
+    master_tags = taxonomy_db.get_master_tags()
     if not master_tags:
         return {
             "status": "success",
@@ -979,11 +1057,11 @@ def maintain_master_taxonomy() -> dict[str, Any]:
         }
 
     for t in tags_to_delete:
-        vault_db.delete_master_tag(t)
+        taxonomy_db.delete_master_tag(t)
         delete_tag_from_chroma(t)
 
     for t, cat, desc, count in tags_to_update:
-        vault_db.upsert_master_tag(t, category=cat, description=desc, usage_count=count)
+        taxonomy_db.upsert_master_tag(t, category=cat, description=desc, usage_count=count)
         index_master_tag_in_chroma(t, category=cat, description=desc, usage_count=count)
 
     return {

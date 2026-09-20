@@ -180,19 +180,20 @@ Vector retrieval with embedding rerankers and Chroma stores.
 
         self.assertEqual(result["status"], "success")
         self.assertTrue(result["modified"])
-        self.assertEqual(result["final_tags"], ["Ai/Llm/Inference", "Ai/Rag/Evaluation"])
+        # §5: lowercase always, hyphens join words, slashes join levels.
+        self.assertEqual(result["final_tags"], ["ai/llm/inference", "ai/rag/evaluation"])
 
         # Verify disk file updated
         with open(doc_abs, encoding="utf-8") as f:
             updated_content = f.read()
-        self.assertIn("tags: [Ai/Llm/Inference, Ai/Rag/Evaluation]", updated_content)
+        self.assertIn("tags: [ai/llm/inference, ai/rag/evaluation]", updated_content)
 
         # Verify vault_db updated
         doc_in_db = vault_db.get_document(doc_rel)
         self.assertIsNotNone(doc_in_db)
         assert doc_in_db is not None
         self.assertGreater(doc_in_db["last_semantic_tag_audit"], 0)
-        self.assertIn("Ai/Llm/Inference", doc_in_db["tags"])
+        self.assertIn("ai/llm/inference", doc_in_db["tags"])
 
     @patch("Evelyn.tools.tag_librarian.audit_single_document_semantic")
     @patch("Evelyn.tools.vault_db.fetch_next_documents_for_semantic_tag_audit")

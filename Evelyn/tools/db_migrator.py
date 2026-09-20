@@ -322,9 +322,50 @@ ALTER TABLE messages ADD COLUMN trace_json TEXT;
 """
 
 # Master Migration Registry
+def _frozen_normalize_tag_format_000_004_002(tag: str) -> str:
+    """Frozen copy of tag_librarian.normalize_tag_format as it stood at 000.004.002.
+
+    Migration 000.004.002 originally called the live normalizer. That function was
+    later rewritten to the lowercase-hyphen standard (vault-tag-taxonomy.md §5),
+    which would have silently changed what this already-applied migration does when
+    replayed against a fresh database. Pinning the original behaviour here preserves
+    the immutability guarantee in AGENTS.md §5 — the migration still produces exactly
+    what it produced when it was committed. Do not "fix" this to match current rules.
+
+    Args:
+        tag: Raw tag string.
+
+    Returns:
+        str: Tag normalized under the pre-§5 entity/concept rules.
+    """
+    clean = tag.strip().lstrip("#").strip()
+    if not clean:
+        return clean
+    if clean.lower().startswith("kw/"):
+        clean = clean[3:].strip()
+    elif clean.lower().startswith("ctx/"):
+        clean = clean[4:].strip()
+    if not clean:
+        return clean
+
+    norm_parts = []
+    for part in clean.split("/"):
+        p = part.strip()
+        if not p:
+            continue
+        if any(c.isupper() for c in p):
+            s1 = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", p)
+            words = [w.capitalize() for w in re.split(r"[\s_-]+", s1) if w]
+            norm_parts.append("_".join(words))
+        else:
+            words = [w.lower() for w in re.split(r"[\s_-]+", p) if w]
+            norm_parts.append("-".join(words))
+    return "/".join(norm_parts)
+
+
 def strip_legacy_kw_tags_from_memory(conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object) -> None:
     """Migration 000.004.002: Sanitize legacy kw/ and ctx/ noise prefixes from context_entries and proposals."""
-    from Evelyn.tools.tag_librarian import normalize_tag_format
+    normalize_tag_format = _frozen_normalize_tag_format_000_004_002
 
     def clean_tag_list(raw_tags: str | None) -> str:
         if not raw_tags:
@@ -2568,6 +2609,726 @@ def migrate_000_006_136_semantic_tag_column(
     logger.info("Migration 000.006.136: Added last_semantic_tag_audit column and index to vault_documents.")
 
 
+# ============================================================================
+# Tag Format Unification (vault-tag-taxonomy.md §5 / §9 step 1)
+# ============================================================================
+
+def _sweep_tag_csv(raw: str | None) -> tuple[str, bool]:
+    """Normalize a comma-separated tag string, de-duplicating collisions.
+
+    Args:
+        raw: Comma-separated tag string, possibly None or empty.
+
+    Returns:
+        tuple[str, bool]: (normalized CSV, whether it differs from the input).
+    """
+    from Evelyn.tools.tag_librarian import normalize_tag_format
+
+    if not raw:
+        return "", False
+    current = [t.strip() for t in raw.split(",") if t.strip()]
+    swept: list[str] = []
+    for tag in current:
+        norm = normalize_tag_format(tag)
+        if norm and norm not in swept:
+            swept.append(norm)
+    return ", ".join(swept), swept != current
+
+
+def migrate_000_006_147_tag_format_unification_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.147: Apply the §5 tag format to memory fact and procedure tags.
+
+    Runs before the vault sweep deliberately: the memory database is a single-file
+    restore, so it validates the rewritten normalizer against ~12.5k real rows
+    before any irreplaceable vault document is touched.
+    """
+    cursor = conn.cursor()
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            logger.warning("[MIGRATION 147] Table %s absent; skipping.", table)
+            continue
+
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _sweep_tag_csv(raw)
+            if changed:
+                cursor.execute(
+                    f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id)
+                )
+                updated += 1
+        logger.info("[MIGRATION 147] %s: normalized %d/%d tagged rows.", table, updated, len(rows))
+
+
+def _snapshot_vault_markdown(vault_root: str, version: str) -> str:
+    """Archive every markdown file in the vault before the on-disk tag sweep.
+
+    Only .md files are captured — attachments dominate the vault's size and are
+    untouched by the sweep, so including them would cost time without adding safety.
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        version: Migration version, used in the archive filename.
+
+    Returns:
+        str: Absolute path to the created archive.
+
+    Raises:
+        MigrationExecutionError: If the vault root is missing or no notes were archived.
+    """
+    import tarfile
+
+    if not os.path.isdir(vault_root):
+        raise MigrationExecutionError(f"Vault root not found, refusing to sweep: {vault_root}")
+
+    ensure_backup_dir()
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    archive_path = os.path.join(BACKUP_DIR, f"vault_markdown_pre_{version}_{timestamp}.tar.gz")
+
+    count = 0
+    with tarfile.open(archive_path, "w:gz") as tar:
+        for root, _dirs, files in os.walk(vault_root):
+            for fname in files:
+                if not fname.lower().endswith(".md"):
+                    continue
+                full = os.path.join(root, fname)
+                tar.add(full, arcname=os.path.relpath(full, vault_root))
+                count += 1
+
+    if count == 0:
+        raise MigrationExecutionError(f"Vault snapshot captured 0 notes from {vault_root}; aborting.")
+
+    logger.info("[MIGRATION 148] Snapshotted %d notes -> %s", count, archive_path)
+    return archive_path
+
+
+def migrate_000_006_148_tag_format_unification_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.148: Apply the §5 tag format across the vault taxonomy, index, and notes.
+
+    Four phases, fail-closed in order:
+      1. Snapshot every markdown note (independent recovery path).
+      2. Rewrite note frontmatter on disk, recording a per-file reversal manifest.
+      3. Normalize master_tag_taxonomy, merging usage counts across collision classes.
+      4. Reconcile the taxonomy against the swept on-disk state so later clustering
+         reads a complete vocabulary (§6.1).
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import normalize_tag_format
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.148")
+
+    cursor = conn.cursor()
+
+    # --- Phase 2: on-disk frontmatter + vault_documents.tags -----------------
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rows = cursor.execute("SELECT path, tags FROM vault_documents").fetchall()
+    rewritten = 0
+
+    for rel_path, raw_tags in rows:
+        abs_path = rel_path if os.path.isabs(rel_path) else os.path.join(vault_root, rel_path)
+        if not os.path.exists(abs_path):
+            continue
+        try:
+            with open(abs_path, encoding="utf-8") as fh:
+                content = fh.read()
+        except OSError as exc:
+            logger.warning("[MIGRATION 148] Unreadable, skipped: %s (%s)", rel_path, exc)
+            continue
+
+        before, _body = _parse_note_tags(content)
+        if not before:
+            continue
+        after: list[str] = []
+        for tag in before:
+            norm = normalize_tag_format(tag)
+            if norm and norm not in after:
+                after.append(norm)
+
+        if after != before:
+            try:
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+            except OSError as exc:
+                logger.warning("[MIGRATION 148] Write failed, skipped: %s (%s)", rel_path, exc)
+                continue
+            manifest[rel_path] = {"before": before, "after": after}
+            rewritten += 1
+
+        swept_csv = ", ".join(after)
+        if swept_csv != (raw_tags or ""):
+            cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept_csv, rel_path))
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "tag_sweep_manifest_000.006.148.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "documents": manifest}, fh, indent=2)
+    logger.info("[MIGRATION 148] Rewrote %d notes; manifest -> %s", rewritten, manifest_path)
+
+    # --- Phase 3: master_tag_taxonomy, merging collision classes -------------
+    masters = cursor.execute(
+        "SELECT tag, category, description, usage_count FROM master_tag_taxonomy"
+    ).fetchall()
+    merged: dict[str, dict[str, Any]] = {}
+    for tag, category, description, usage in masters:
+        norm = normalize_tag_format(tag)
+        if not norm:
+            continue
+        entry = merged.setdefault(
+            norm, {"category": "", "description": "", "usage_count": 0}
+        )
+        entry["usage_count"] += usage or 0
+        # Keep the richest metadata across the merged terms.
+        if category and not entry["category"]:
+            entry["category"] = normalize_tag_format(category) or category
+        if description and len(description) > len(entry["description"]):
+            entry["description"] = description
+
+    cursor.execute("DELETE FROM master_tag_taxonomy")
+    now = time.time()
+    for tag, meta in merged.items():
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (tag, meta["category"] or (tag.split("/")[0] if "/" in tag else "general"),
+             meta["description"], meta["usage_count"], now, now),
+        )
+    logger.info("[MIGRATION 148] Taxonomy: %d terms -> %d after merge.", len(masters), len(merged))
+
+    # --- Phase 4: reconcile taxonomy against swept on-disk reality -----------
+    observed: dict[str, int] = {}
+    for (doc_tags,) in cursor.execute(
+        "SELECT tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        for tag in (t.strip() for t in doc_tags.split(",") if t.strip()):
+            observed[tag] = observed.get(tag, 0) + 1
+
+    added = 0
+    for tag, count in observed.items():
+        if tag in merged:
+            cursor.execute(
+                "UPDATE master_tag_taxonomy SET usage_count = ?, updated_at = ? WHERE tag = ?",
+                (count, now, tag),
+            )
+        else:
+            cursor.execute(
+                """INSERT OR IGNORE INTO master_tag_taxonomy
+                   (tag, category, description, usage_count, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (tag, tag.split("/")[0] if "/" in tag else "general",
+                 f"Obsidian notes tagged under {tag}", count, now, now),
+            )
+            added += 1
+    logger.info("[MIGRATION 148] Reconciled: %d terms added from disk.", added)
+
+
+def _parse_note_tags(content: str) -> tuple[list[str], str]:
+    """Extract frontmatter tags from note content without importing the librarian.
+
+    Args:
+        content: Raw markdown note text.
+
+    Returns:
+        tuple[list[str], str]: (tag list, body text).
+    """
+    from Evelyn.tools.frontmatter_utils import parse_frontmatter
+
+    meta, body = parse_frontmatter(content)
+    raw = meta.get("tags", [])
+    if isinstance(raw, str):
+        tags = [t.strip().strip("'\"#") for t in raw.split(",")]
+    elif isinstance(raw, (list, set, tuple)):
+        tags = [str(t).strip().strip("'\"#") for t in raw]
+    else:
+        tags = []
+    return [t for t in tags if t], body
+
+
+# --- §9 step 2: vault namespace retirement -----------------------------------
+# Deterministic namespace moves. Named places under location/ are entities and are
+# deliberately NOT touched here — they belong to step 3 (entity extraction).
+_STEP2_RETIRED_PREFIXES = ("relationship/",)
+_STEP2_CONTACT_PREFIX = "contact/"
+_STEP2_GRAPH_CONTACT = "obsidian-graph/contact"
+_STEP2_BIOME_FROM = "location/biome/"
+_STEP2_BIOME_TO = "setting/biome/"
+_STEP2_WRAPPER_PREFIX = "topic/"
+
+
+def _step2_transform_tag(tag: str) -> str | None:
+    """Map one tag through the step-2 namespace rules.
+
+    Args:
+        tag: A single normalized tag.
+
+    Returns:
+        str | None: The replacement tag, or None if the tag is retired outright.
+    """
+    if tag.startswith(_STEP2_RETIRED_PREFIXES):
+        return None
+    if tag.startswith(_STEP2_CONTACT_PREFIX):
+        return _STEP2_GRAPH_CONTACT  # Roles collapse; the flag is what carries meaning.
+    if tag.startswith(_STEP2_BIOME_FROM):
+        return _STEP2_BIOME_TO + tag[len(_STEP2_BIOME_FROM):]
+    if tag.startswith(_STEP2_WRAPPER_PREFIX):
+        return tag[len(_STEP2_WRAPPER_PREFIX):] or None  # Domains are bare-rooted (§3.3).
+    return tag
+
+
+def _step2_transform_tags(tags: list[str]) -> list[str]:
+    """Apply the step-2 rules to a tag list, preserving order and de-duplicating."""
+    out: list[str] = []
+    for tag in tags:
+        mapped = _step2_transform_tag(tag)
+        if mapped and mapped not in out:
+            out.append(mapped)
+    return out
+
+
+def migrate_000_006_149_namespace_retirement_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.149: Retire and relocate vault tag namespaces (§9 step 2).
+
+    Vault scope only. 'relationship/*' is retired here but deliberately left intact in
+    the memory database, where it is a live namespace carrying 903 rows — 666 of which
+    have no other tag. Memory retirement is gated on re-tagging those rows and is
+    registered as §9 step 8.
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.149")
+    cursor = conn.cursor()
+
+    # --- Notes on disk + vault_documents.tags --------------------------------
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for rel_path, raw_tags in cursor.execute("SELECT path, tags FROM vault_documents").fetchall():
+        abs_path = rel_path if os.path.isabs(rel_path) else os.path.join(vault_root, rel_path)
+        if not os.path.exists(abs_path):
+            continue
+        try:
+            with open(abs_path, encoding="utf-8") as fh:
+                content = fh.read()
+        except OSError as exc:
+            logger.warning("[MIGRATION 149] Unreadable, skipped: %s (%s)", rel_path, exc)
+            continue
+
+        before, _body = _parse_note_tags(content)
+        if not before:
+            continue
+        after = _step2_transform_tags(before)
+
+        if after != before:
+            try:
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+            except OSError as exc:
+                logger.warning("[MIGRATION 149] Write failed, skipped: %s (%s)", rel_path, exc)
+                continue
+            manifest[rel_path] = {"before": before, "after": after}
+            rewritten += 1
+
+        swept_csv = ", ".join(after)
+        if swept_csv != (raw_tags or ""):
+            cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept_csv, rel_path))
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "namespace_retirement_manifest_000.006.149.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "documents": manifest}, fh, indent=2)
+    logger.info("[MIGRATION 149] Rewrote %d notes; manifest -> %s", rewritten, manifest_path)
+
+    # --- master_tag_taxonomy, merging terms that collide after the move ------
+    masters = cursor.execute(
+        "SELECT tag, category, description, usage_count FROM master_tag_taxonomy"
+    ).fetchall()
+    merged: dict[str, dict[str, Any]] = {}
+    retired = 0
+    for tag, category, description, usage in masters:
+        mapped = _step2_transform_tag(tag)
+        if not mapped:
+            retired += 1
+            continue
+        entry = merged.setdefault(mapped, {"category": "", "description": "", "usage_count": 0})
+        entry["usage_count"] += usage or 0
+        if category and not entry["category"]:
+            entry["category"] = category
+        if description and len(description) > len(entry["description"]):
+            entry["description"] = description
+
+    cursor.execute("DELETE FROM master_tag_taxonomy")
+    now = time.time()
+    for tag, meta in merged.items():
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (tag, meta["category"] or (tag.split("/")[0] if "/" in tag else "general"),
+             meta["description"], meta["usage_count"], now, now),
+        )
+
+    # --- Recount usage against the transformed on-disk state -----------------
+    observed: dict[str, int] = {}
+    for (doc_tags,) in cursor.execute(
+        "SELECT tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        for tag in (t.strip() for t in doc_tags.split(",") if t.strip()):
+            observed[tag] = observed.get(tag, 0) + 1
+    for tag, count in observed.items():
+        cursor.execute(
+            "UPDATE master_tag_taxonomy SET usage_count = ?, updated_at = ? WHERE tag = ?",
+            (count, now, tag),
+        )
+
+    logger.info(
+        "[MIGRATION 149] Taxonomy: %d terms -> %d (%d retired outright).",
+        len(masters), len(merged), retired,
+    )
+
+
+# --- §9 step 4: entity extraction ---------------------------------------------
+
+def migrate_000_006_151_drop_subject_duplicate_tags(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.151: Drop memory tags that merely restate their own row's subject.
+
+    The `subject` column is the single source of truth for who a fact concerns. A tag
+    repeating it stores the same fact twice, which is how one identity ended up in the
+    vocabulary in several spellings — a column holds one value, a free-text tag does not.
+
+    The rule is deliberately relational, not a name list: a tag is dropped only when it
+    equals *that row's own* subject. A fact about one party tagged with another party's
+    name is a genuine cross-reference the subject column cannot express, and is preserved.
+    """
+    from Evelyn.tools.tag_librarian import strip_subject_duplicate_tags
+
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        "SELECT rowid, subject, tags FROM context_entries "
+        "WHERE tags IS NOT NULL AND tags != '' AND subject IS NOT NULL"
+    ).fetchall()
+
+    updated = 0
+    for row_id, subject, raw_tags in rows:
+        current = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        kept = strip_subject_duplicate_tags(current, subject)
+        if len(kept) != len(current):
+            cursor.execute(
+                "UPDATE context_entries SET tags = ? WHERE rowid = ?", (", ".join(kept), row_id)
+            )
+            updated += 1
+    logger.info("[MIGRATION 151] Dropped subject-duplicate tags on %d rows.", updated)
+
+
+def _authority_record_index(cursor: sqlite3.Cursor) -> dict[str, tuple[str, str]]:
+    """Map normalized title/alias forms to the note that acts as their authority record.
+
+    Args:
+        cursor: Open cursor on the vault database.
+
+    Returns:
+        dict[str, tuple[str, str]]: normalized form -> (note path, original display text).
+    """
+    from Evelyn.tools.tag_librarian import normalize_tag_format
+
+    forms: dict[str, tuple[str, str]] = {}
+    for path, title, aliases in cursor.execute(
+        "SELECT path, title, aliases FROM vault_documents"
+    ).fetchall():
+        for raw in [title, *(aliases or "").split(",")]:
+            if not raw or not raw.strip():
+                continue
+            form = normalize_tag_format(raw.strip())
+            if form and form not in forms:
+                forms[form] = (path, raw.strip())
+    return forms
+
+
+def migrate_000_006_152_drop_redundant_entity_tags(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.152: Remove entity tags already carried by the link graph (§2).
+
+    A named work or person is a link, not a tag — the entity's own note is the authority
+    record. Where a tag names such an entity AND every note carrying it already sits in
+    that entity's folder or references it by name, the tag stores nothing the link graph
+    does not already hold.
+
+    The redundancy test is recomputed here rather than applied from a list, for two
+    reasons: it keeps the migration a generic pattern sweep, and several qualifying
+    entities are personal contacts whose names must not be committed to a tracked file
+    (AGENTS.md §4). A tag is removed ONLY at 100% coverage — anything less means the tag
+    is carrying a connection the link graph does not, and it is left alone. That threshold
+    is what separates genuine entities from concept words that merely share a name with a
+    note, which measure near 0%.
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.152")
+    cursor = conn.cursor()
+
+    forms = _authority_record_index(cursor)
+    doc_tags = {
+        path: [t.strip() for t in (tags or "").split(",") if t.strip()]
+        for path, tags in cursor.execute(
+            "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+        ).fetchall()
+    }
+
+    # Identify tags whose every carrier already references the authority record.
+    redundant: dict[str, str] = {}
+    for tag, (auth_path, auth_title) in forms.items():
+        carriers = [p for p, tags in doc_tags.items() if tag in tags]
+        if not carriers:
+            continue
+        auth_folder = os.path.dirname(auth_path)
+        auth_stem = os.path.splitext(os.path.basename(auth_path))[0]
+        covered = 0
+        for path in carriers:
+            if auth_folder and path.startswith(auth_folder + "/"):
+                covered += 1
+                continue
+            abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+            try:
+                with open(abs_path, encoding="utf-8", errors="replace") as fh:
+                    body = fh.read()
+            except OSError:
+                continue
+            if auth_title in body or auth_stem in body:
+                covered += 1
+        if covered == len(carriers):
+            redundant[tag] = auth_path
+
+    logger.info("[MIGRATION 152] %d entity tags are fully carried by the link graph.", len(redundant))
+
+    # Strip them from notes on disk and from the index.
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, tags in doc_tags.items():
+        kept = [t for t in tags if t not in redundant]
+        if kept == tags:
+            continue
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if not os.path.exists(abs_path):
+            continue
+        try:
+            with open(abs_path, encoding="utf-8") as fh:
+                content = fh.read()
+            write_file_with_frontmatter(
+                abs_path, update_frontmatter_field(content, "tags", kept), preserve_mtime=True
+            )
+        except OSError as exc:
+            logger.warning("[MIGRATION 152] Write failed, skipped: %s (%s)", path, exc)
+            continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (", ".join(kept), path))
+        manifest[path] = {"before": tags, "after": kept}
+        rewritten += 1
+
+    for tag in redundant:
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (tag,))
+        delete_tag_from_chroma(tag)
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "entity_tag_manifest_000.006.152.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "documents": manifest}, fh, indent=2)
+    logger.info("[MIGRATION 152] Rewrote %d notes; manifest -> %s", rewritten, manifest_path)
+
+
+# --- §9 step 5: equivalence collapse ------------------------------------------
+
+MIGRATE_000_006_153_TAG_ALIASES_SQL = """
+CREATE TABLE IF NOT EXISTS master_tag_aliases (
+    alias       TEXT PRIMARY KEY,
+    canonical   TEXT NOT NULL,
+    tier        TEXT,
+    created_at  REAL
+);
+CREATE INDEX IF NOT EXISTS idx_tag_aliases_canonical ON master_tag_aliases(canonical);
+"""
+
+
+def _apply_alias_map_to_tag_csv(raw: str | None, alias_map: dict[str, str]) -> tuple[str, bool]:
+    """Rewrite a comma-separated tag string through an alias map, de-duplicating.
+
+    Args:
+        raw: Comma-separated tags.
+        alias_map: variant -> canonical.
+
+    Returns:
+        tuple[str, bool]: (rewritten CSV, whether it changed).
+    """
+    if not raw:
+        return "", False
+    current = [t.strip() for t in raw.split(",") if t.strip()]
+    out: list[str] = []
+    for tag in current:
+        mapped = alias_map.get(tag, tag)
+        if mapped and mapped not in out:
+            out.append(mapped)
+    return ", ".join(out), out != current
+
+
+def migrate_000_006_154_collapse_lexical_synonyms_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.154: Collapse lexically-equivalent terms in the vault (§6.2).
+
+    Applies only the tiers that need no editorial judgement: terms identical once
+    separators are ignored at equal hierarchy depth, terms whose deeper form is also the
+    more used, and singular/plural pairs at equal depth. Groups where a rare deep variant
+    competes with a dominant flat one are **deferred to review** — auto-resolving those
+    would let a 1-use term rename a 94-use term.
+
+    Every collapse is recorded in `master_tag_aliases`. A deleted synonym with no alias
+    record is re-minted by the next import; the alias is what makes the collapse stick.
+    """
+    import json
+
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+    from Evelyn.tools.tag_synonym import build_corpus, lexical_equivalences
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.154")
+    cursor = conn.cursor()
+
+    counts = build_corpus()
+    result = lexical_equivalences(counts)
+    alias_map = {variant: canonical for canonical, variant in result["auto"]}
+    logger.info(
+        "[MIGRATION 154] %d equivalences to apply, %d groups deferred to review.",
+        len(alias_map), len(result["deferred"]),
+    )
+
+    now = time.time()
+    for variant, canonical in alias_map.items():
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'lexical', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical""",
+            (variant, canonical, now),
+        )
+    # The in-process alias cache predates these rows; drop it so consumers see them.
+    taxonomy_db.invalidate_alias_cache()
+
+    # Notes on disk + the vault index.
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = _apply_alias_map_to_tag_csv(raw_tags, alias_map)
+        if not changed:
+            continue
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 154] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    # Registry: fold retired variants into their canonical, summing usage.
+    retired = 0
+    for variant, canonical in alias_map.items():
+        row = cursor.execute(
+            "SELECT usage_count FROM master_tag_taxonomy WHERE tag = ?", (variant,)
+        ).fetchone()
+        if not row:
+            continue
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                                              updated_at = excluded.updated_at""",
+            (canonical, canonical.split("/")[0] if "/" in canonical else "general",
+             row[0] or 0, now, now),
+        )
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (variant,))
+        delete_tag_from_chroma(variant)
+        retired += 1
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "synonym_collapse_manifest_000.006.154.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "alias_map": alias_map, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 154] Rewrote %d notes, retired %d registry terms; manifest -> %s",
+        rewritten, retired, manifest_path,
+    )
+
+
+def migrate_000_006_155_collapse_lexical_synonyms_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.155: Apply the recorded equivalences to memory tags.
+
+    Reads the alias map from `master_tag_aliases` rather than recomputing it. The vault
+    migration has already changed the corpus, so a fresh computation here would derive a
+    different mapping — the alias table is the record of what was actually decided.
+    """
+    vault_path = db_paths.get("vault", "")
+    if not vault_path or not os.path.exists(vault_path):
+        raise MigrationExecutionError("Vault database unavailable; cannot read alias map.")
+
+    vcon = sqlite3.connect(vault_path, timeout=30.0)
+    try:
+        alias_map = dict(vcon.execute("SELECT alias, canonical FROM master_tag_aliases"))
+    finally:
+        vcon.close()
+    if not alias_map:
+        logger.info("[MIGRATION 155] No aliases recorded; nothing to apply.")
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _apply_alias_map_to_tag_csv(raw, alias_map)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 155] %s: %d rows rewritten.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 155] Applied %d aliases across %d memory rows.", len(alias_map), total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -2811,6 +3572,55 @@ MIGRATIONS: list[Migration] = [
         version="000.006.140",
         name="messages_structured_reasoning_trace_column",
         up_sql=MIGRATE_000_006_140_MESSAGE_TRACE_SQL,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.147",
+        name="tag_format_unification_memory",
+        up_fn=migrate_000_006_147_tag_format_unification_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.148",
+        name="tag_format_unification_vault",
+        up_fn=migrate_000_006_148_tag_format_unification_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.149",
+        name="namespace_retirement_vault",
+        up_fn=migrate_000_006_149_namespace_retirement_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.151",
+        name="drop_subject_duplicate_tags",
+        up_fn=migrate_000_006_151_drop_subject_duplicate_tags,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.152",
+        name="drop_redundant_entity_tags",
+        up_fn=migrate_000_006_152_drop_redundant_entity_tags,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.153",
+        name="master_tag_aliases_table",
+        up_sql=MIGRATE_000_006_153_TAG_ALIASES_SQL,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.154",
+        name="collapse_lexical_synonyms_vault",
+        up_fn=migrate_000_006_154_collapse_lexical_synonyms_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.155",
+        name="collapse_lexical_synonyms_memory",
+        up_fn=migrate_000_006_155_collapse_lexical_synonyms_memory,
     ),
 ]
 

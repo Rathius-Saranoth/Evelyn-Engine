@@ -1039,16 +1039,25 @@ TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
 # Protected tag regexes (never modified, removed, or normalized)
 # CY-YYYY/MM/DD is strictly protected.
 TAG_LIBRARIAN_EXCLUSIONS = [
-    r"^CY-\d{4}/\d{2}/\d{2}$",  # Calendar year/month/day tags (e.g. CY-2026/08/02)
-    r"^status/",  # System status tags
-    r"^kanban",  # Kanban board tags
+    # EDTF (ISO 8601-2:2019) date anchors. Supports reduced precision (CY-2026,
+    # CY-2026/05) and unspecified digits marked with uppercase X (CY-XXXX/11/16).
+    # See .agents/rules/vault-tag-taxonomy.md §3.8.
+    r"^CY-[0-9X]{4}(/[0-9X]{2}){0,2}$",
+    r"^status/",  # System status tags (administrative axis)
+    r"^kanban",  # Kanban board tags (administrative axis)
+    r"^obsidian-graph/",  # Graph/view control flags (administrative axis)
 ]
 
-# Tag formatting standards
+# Tag formatting standards — .agents/rules/vault-tag-taxonomy.md §5.
+# One rule, no exceptions: lowercase always, hyphens join words, slashes join
+# levels. There is deliberately no entity/concept branch; proper nouns follow the
+# same rule as concepts, which is what eliminates the ai/Ai collision class.
 TAG_LIBRARIAN_FORMAT_RULES = {
-    "default_multi_word": "hyphen",  # "acceptable-use", "habit-tracking"
-    "entity_multi_word": "underscore",  # "John_Smith", "Evelyn_Engine"
-    "lowercase_subpaths": True,  # "tech/python/fastapi"
+    "case": "lower",  # "tech/gis", never "Tech/GIS"
+    "word_separator": "hyphen",  # "uv-mapping", "habit-tracking"
+    "level_separator": "slash",  # "3d-modeling/uv-mapping"
+    "max_depth": 3,  # advisory: enforced by authority control, not by the normalizer
+    "date_anchor_exempt": True,  # CY- tags bypass all of the above (§3.8)
 }
 
 # Chroma Vector Tag Taxonomy Settings (Tag RAG)
