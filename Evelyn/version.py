@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.164"
-__version_info__ = (0, 6, 164)
-__version_name__ = "Split Provenance — Deduplication Stops Undoing Splits"
+__version__ = "000.006.165"
+__version_info__ = (0, 6, 165)
+__version_name__ = "Tool Descriptions Say When, Not Just What"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

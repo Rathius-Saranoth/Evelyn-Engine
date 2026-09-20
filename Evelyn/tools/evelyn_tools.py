@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-20 10:21:14
+# date modified: 2026-09-20 10:41:41
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -3321,7 +3321,8 @@ MODEL_TOOL_DEFINITIONS = [
             "name": "search_history",
             "description": (
                 f"Search and retrieve past chat history between {cfg.USER_NAME} and {cfg.ASSISTANT_NAME} across all eras (including early 2025 Replika/Gemini imports and live engine messages). "
-                "Use to look up conversations by date (e.g. date='2025-03-12'), browse earliest/first messages exchanged (order='asc'), search by keywords/topics (query='...'), or inspect conversation context around a specific message ID."
+                "Use to look up conversations by date (e.g. date='2025-03-12'), browse earliest/first messages exchanged (order='asc'), search by keywords/topics (query='...'), or inspect conversation context around a specific message ID. "
+                "This is a read-only lookup and records nothing. Gathering the day's context before writing a journal entry is a reasonable first step, but it does not replace calling write_journal_entry afterwards."
             ),
             "parameters": {
                 "type": "object",
@@ -3473,7 +3474,11 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "complete_task",
-            "description": f"Mark an existing task on {cfg.USER_NAME}'s Google Tasks list as completed.",
+            "description": (
+                f"Mark an existing task on {cfg.USER_NAME}'s Google Tasks list as completed. "
+                "Use when asked to check something off, and also when they mention having finished, "
+                "handled, or picked up something that is already on the list."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -3490,7 +3495,11 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "delete_task",
-            "description": f"Delete a task from {cfg.USER_NAME}'s Google Tasks list.",
+            "description": (
+                f"Delete a task from {cfg.USER_NAME}'s Google Tasks list. "
+                "Use when a task should no longer exist at all — it was entered in error or is no longer relevant. "
+                "For something that was actually done, use complete_task instead so the record is kept."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -3507,7 +3516,11 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "list_tasks",
-            "description": f"Retrieve and list tasks from {cfg.USER_NAME}'s Google Tasks (local cache).",
+            "description": (
+                f"Retrieve and list tasks from {cfg.USER_NAME}'s Google Tasks (local cache). "
+                "Use when asked what is outstanding or on the list, and when they ask what they should be doing "
+                "or wonder aloud whether they are forgetting something."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -3540,7 +3553,11 @@ MODEL_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_agenda",
-            "description": f"Retrieve {cfg.USER_NAME}'s upcoming schedule (Google Calendar events and Google Tasks) for the next N days.",
+            "description": (
+                f"Retrieve {cfg.USER_NAME}'s upcoming schedule (Google Calendar events and Google Tasks) for the next N days. "
+                "Use when asked what is coming up, and when they mention a commitment whose timing matters. "
+                "Also check it before creating a task or calendar event, so an existing entry is not duplicated."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -3750,7 +3767,10 @@ MODEL_TOOL_DEFINITIONS = [
             "description": (
                 f"Manage markdown checklists and lists in {cfg.USER_NAME}'s Obsidian Vault (e.g. Groceries, Packing, To-Dos, Hardware). "
                 "Supports reading items, adding new items with quantity/unit and category sections (e.g. Produce, Dairy, Pantry), "
-                "checking/completing items, unchecking, removing items, and clearing completed items."
+                "checking/completing items, unchecking, removing items, and clearing completed items. "
+                "Use when asked to read or change a list, and also when they mention running low on something, "
+                "needing to pick something up, or having already bought an item that is on a list — "
+                "a passing remark is enough."
             ),
             "parameters": {
                 "type": "object",

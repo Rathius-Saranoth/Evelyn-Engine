@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 10:40:30
+date modified: 2026-09-20 10:41:41
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,38 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.165] - 2026-09-20 — *Tool Descriptions Say When, Not Just What*
+
+A tool description is a trigger specification, not a summary. Ten of them described what the
+tool does and then said "use when asked", which is a reactive contract the model was honouring
+correctly — the assistant was not failing to be proactive, it was being told not to be.
+
+### Changed
+- **Trigger conditions added to ten descriptions**, each drawn from the live `procedures` row
+  that already described the same cue: `get_health_metrics` (1067), `get_recent_workouts`
+  (1107), `create_task` and `get_agenda` (1063), `write_dream_entry` (657),
+  `write_journal_entry` (1034), `manage_vault_list` (1104), plus `complete_task`, `delete_task`
+  and `list_tasks`. `get_health_metrics` also carries 1067's directive to present data plainly
+  and leave pacing to the user rather than prescribing rest.
+- **`search_history` now states that it records nothing.** It described only how to query, so
+  it was being substituted for the recording action on an end-of-day cue and the turn stopped
+  there. It now says gathering context first is reasonable but does not replace calling
+  `write_journal_entry`.
+- **`delete_task` distinguished from `complete_task`**, so a finished item keeps its record
+  instead of being erased.
+
+### Design notes
+- **Every tool in `CORE_TOOL_NAMES` now carries trigger guidance** (four did not). Core tools
+  are offered every turn, so retrieval tuning cannot affect them — the description alone decides
+  whether they fire.
+- **Four tools were deliberately left without trigger prose** — `delete_calendar_event`,
+  `sync_google_calendar`, `sync_google_tasks`, `read_document_scratchpad`. They are plumbing and
+  mechanism steps invoked as consequences of other tools, and trigger text there would cost
+  context for nothing.
+- **The payload got cheaper.** The full 31-tool definition set measures 6,080 prompt tokens,
+  down from 6,167, because removing the compensation padding more than paid for the added
+  trigger conditions.
 
 ## [000.006.164] - 2026-09-20 — *Split Provenance — Deduplication Stops Undoing Splits*
 
