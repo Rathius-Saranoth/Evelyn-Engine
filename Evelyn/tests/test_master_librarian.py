@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-19 11:10:15
+# date modified: 2026-09-20 07:19:46
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -681,6 +681,62 @@ Additional bench tests confirmed 4x speedup over baseline models.
             link_librarian.tokenize_wikilink("Note#^block123|display text"),
             ("Note", "#^block123", "display text"),
         )
+
+    def test_rejects_template_placeholders_and_archived_targets(self):
+        """Verify unfilled scaffolding and retired documents are not proposed as entities.
+
+        Both shapes were rejected by hand from a live 100-proposal batch: a session-log
+        template leaves "[[<Thing> Name]]" behind under a scaffold heading, and links to
+        deliberately retired documents should not be resurrected as fresh stubs.
+        """
+        for bad in [
+            "NPC Name", "Location Name", "Item Name", "Character Name",
+            "Legacy Protocol - Archive Ledger v1 (archived)",
+            "Interim Standard (deprecated)",
+        ]:
+            valid, _ = link_librarian.is_valid_entity_target(bad)
+            self.assertFalse(valid, f"failed to reject: {bad}")
+
+        # Shapes approved in the same batch — these must survive. An entity name may
+        # legitimately contain a possessive or a disambiguation parenthetical.
+        for good in [
+            "The Serpent's Fang", "Warden's Crest", "Grand Library",
+            "Iceland", "Northern Ridge", "Marcus Aldren", "Oberon (warframe)",
+            "Winter Market", "Wand Of Secrets",
+        ]:
+            valid, clean = link_librarian.is_valid_entity_target(good)
+            self.assertTrue(valid, f"wrongly rejected: {good}")
+            self.assertEqual(clean, good)
+
+    def test_stub_dedupe_key_collapses_observed_duplicate_shapes(self):
+        """Verify case-only and leading-article variants share a dedupe key.
+
+        Both shapes escaped the exact-match check and created redundant notes; the
+        case-only pair also conflicts on a case-insensitive sync peer.
+        """
+        key = link_librarian.stub_dedupe_key
+        self.assertEqual(key("Guild Coat Of Arms"), key("Guild Coat of Arms"))
+        self.assertEqual(key("Grand Library"), key("The Grand Library"))
+        # Genuinely different entities must not collide
+        self.assertNotEqual(key("The Vault Of Mostly Things"), key("Deck Of Mostly Things"))
+        self.assertNotEqual(key("Throne Card"), key("Euryale Card"))
+
+    def test_possessive_of_existing_note_is_not_a_ghost(self):
+        """Verify a possessive referring to an existing note does not become a stub."""
+        with tempfile.TemporaryDirectory() as vault:
+            with open(os.path.join(vault, "Acme.md"), "w", encoding="utf-8") as handle:
+                handle.write("---\ntitle: Acme\n---\n# Acme\n")
+
+            def resolver(target, vault_root=None):
+                return (True, "Acme") if target.lower() == "acme" else (False, target)
+
+            with patch.object(link_librarian, "resolve_canonical_link_target", side_effect=resolver):
+                self.assertTrue(link_librarian.resolves_as_possessive("Acme's", vault_root=vault))
+                # A name that merely contains a possessive is untouched
+                for keep in ["The Serpent's Fang", "Warden's Crest", "Baker's Dozen"]:
+                    self.assertFalse(
+                        link_librarian.resolves_as_possessive(keep, vault_root=vault), keep
+                    )
 
     def test_condense_redundant_aliases(self):
         """Verify [[X|X]] collapses to [[X]] while meaningful aliases survive."""

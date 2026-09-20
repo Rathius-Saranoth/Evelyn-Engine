@@ -192,8 +192,9 @@ class TestLexicalEquivalence:
     """§6.2: UF equivalence detection, tiered by required judgement."""
 
     def _eq(self, counts):
-        from Evelyn.tools.tag_synonym import lexical_equivalences
         import collections
+
+        from Evelyn.tools.tag_synonym import lexical_equivalences
         return lexical_equivalences(collections.Counter(counts))
 
     def test_separator_variants_collapse_to_most_used(self):

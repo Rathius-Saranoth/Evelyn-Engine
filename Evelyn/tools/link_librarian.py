@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-19 11:10:15
+# date modified: 2026-09-20 07:19:46
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -77,6 +77,15 @@ EXCLUDED_TARGET_STEMS = {
 # source code fragments (pandas/NumPy double-subscripts, JS template literals, HTML).
 # Verified against every wikilink target in the vault: zero legitimate hits.
 CODE_FRAGMENT_CHARS = frozenset('"*<>{}=;`')
+
+# Unfilled template scaffolding, e.g. "- **NPCs Met:** [[NPC Name]]" in session log
+# templates. Only NPC/Location/Item Name occur in the vault and no note ends in " Name",
+# so the suffix rule also covers future placeholders like [[Character Name]].
+PLACEHOLDER_TARGET_RE = re.compile(r"^(?:\w[\w'-]*\s+)?name$")
+
+# Retired documents carry an explicit status marker. Matched as a whole word so
+# ordinary disambiguation such as "Oberon (warframe)" is unaffected.
+ARCHIVED_TARGET_RE = re.compile(r"\((?:archived|deprecated|obsolete|retired)\)")
 
 # A "[[" preceded by an identifier character, ")" or "]" is a code subscript
 # (e.g. iris.data[["petal length (cm)"]]), not a wikilink. Markdown italics use
@@ -524,7 +533,65 @@ def is_valid_entity_target(target: str) -> tuple[bool, str]:
     if CODE_FRAGMENT_CHARS & set(clean):
         return False, ""
 
+    # Reject unfilled template scaffolding: "[[NPC Name]]" under "**NPCs Met:**" is a
+    # format placeholder, not an entity. No note in the vault ends in " Name".
+    if PLACEHOLDER_TARGET_RE.match(lower_clean):
+        return False, ""
+
+    # Reject links to retired documents; the note was archived deliberately, so
+    # synthesizing a fresh stub for it resurrects what was meant to go away.
+    if ARCHIVED_TARGET_RE.search(lower_clean):
+        return False, ""
+
     return True, clean
+
+
+def stub_dedupe_key(target: str) -> str:
+    """Build a comparison key that collapses the duplicate shapes seen in practice.
+
+    A single librarian sweep proposes every ghost target before any stub note exists,
+    so intra-batch variants cannot be caught by an existence check. Two shapes slipped
+    through and created redundant notes: a case-only difference
+    ("Sekulich Coat Of Arms" / "Sekulich Coat of Arms"), which on a case-insensitive
+    sync peer becomes a file conflict, and a leading article
+    ("Queen's Palace" / "The Queen's Palace").
+
+    Args:
+        target: Cleaned link target.
+
+    Returns:
+        str: Normalized key for duplicate comparison.
+    """
+    key = " ".join(target.lower().split())
+    key = re.sub(r"^(?:the|a|an)\s+", "", key)
+    return key.strip()
+
+
+def resolves_as_possessive(target: str, vault_root: str | None = None) -> bool:
+    """Check whether target is the possessive form of a note that already exists.
+
+    "[[JT's]]" refers to the existing [[JT Delgado]], so it is not a missing entity.
+    The check is deliberately narrow: it fires only when the target itself ends in an
+    apostrophe-s AND the base resolves. Entity names that merely contain a possessive
+    ("The Dragon's Fangs", "Euraylia's Heart", "Brindle's Staff") do not end that way
+    and are untouched — all three were approved as legitimate stubs.
+
+    Args:
+        target: Cleaned link target.
+        vault_root: Optional vault root directory.
+
+    Returns:
+        bool: True when this is a possessive reference to an existing note.
+    """
+    stripped = target.rstrip()
+    for suffix in ("'s", "\u2019s"):
+        if stripped.lower().endswith(suffix):
+            base = stripped[: -len(suffix)].strip()
+            if len(base) < 2:
+                return False
+            resolved, _ = resolve_canonical_link_target(base, vault_root=vault_root)
+            return bool(resolved) or target_note_exists(base, vault_root=vault_root)
+    return False
 
 
 def target_note_exists(
@@ -1294,6 +1361,8 @@ def audit_document_links(
             if not is_valid or "/" in target_clean:
                 continue
             # Vault-wide resolution check: verify sibling dir, vault root, DB, and canonical resolution
+            if resolves_as_possessive(target_clean, vault_root=root):
+                continue
             res_can, _ = resolve_canonical_link_target(target_clean, vault_root=root)
             if not res_can and not target_note_exists(target_clean, source_path=path, vault_root=root):
                 ghost_count += 1
@@ -1373,6 +1442,9 @@ def create_ghost_link_stub(
     root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
 
     # Vault-wide existence check
+    if resolves_as_possessive(clean_target, vault_root=root):
+        return {"status": "skipped", "reason": "possessive_of_existing_note", "target": clean_target}
+
     res_can, canonical_name = resolve_canonical_link_target(clean_target, vault_root=root)
     if res_can or target_note_exists(clean_target, source_path=source_path, vault_root=root):
         return {"status": "already_exists", "target": canonical_name or clean_target}
@@ -1445,7 +1517,11 @@ def create_ghost_link_stub(
         from Evelyn.tools import memory_db
 
         existing_proposals = memory_db.get_pending_proposals(type="ghost_link_stub")
-        existing = next((p for p in existing_proposals if p.get("topic") == clean_target), None)
+        target_key = stub_dedupe_key(clean_target)
+        existing = next(
+            (p for p in existing_proposals if stub_dedupe_key(str(p.get("topic") or "")) == target_key),
+            None,
+        )
         if existing:
             proposal_id = existing["id"]
         else:

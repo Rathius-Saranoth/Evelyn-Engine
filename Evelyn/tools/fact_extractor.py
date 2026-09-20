@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-19 09:31:34
+# date modified: 2026-09-20 07:41:52
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -77,6 +77,23 @@ _INJECTION_RE = re.compile(
 
 # Invisible Unicode codepoints used for steganographic text hiding.
 _INVISIBLE_CHARS = "\u200b\u200c\u200d\ufeff\u00ad"
+
+
+def _known_entity_roster() -> str:
+    """Build the example subject roster for the extraction prompt.
+
+    Names the operator, the assistant, and any household entities configured via
+    EVELYN_PRIVATE_NAMES. Supplying the real roster sharpens subject recognition, and
+    sourcing it from the gitignored .env keeps those names out of version control.
+
+    Returns:
+        str: Comma-separated example subjects.
+    """
+    roster = [cfg.USER_NAME, cfg.ASSISTANT_NAME]
+    roster.extend(n for n in getattr(cfg, "PRIVATE_IDENTITY_NAMES", []) if n)
+    seen: set[str] = set()
+    unique = [n for n in roster if not (n.lower() in seen or seen.add(n.lower()))]
+    return ", ".join(unique)
 
 
 def _sanitize_entry(text: str) -> str | None:
@@ -754,15 +771,15 @@ def _build_extraction_prompt(
         f"   - Cat##-{cfg.SUBJECT_CODE_USER} (User Canon): Facts about {cfg.USER_NAME}'s traits, habits, IT setups, health, OR {cfg.USER_NAME}'s observations/feelings regarding {cfg.ASSISTANT_NAME} or third parties (family, friends, pets, colleagues).\n"
         f"   - Cat##-{cfg.SUBJECT_CODE_ASSISTANT} (Assistant Canon): Facts about {cfg.ASSISTANT_NAME}'s persona, values, creative style, internal routines, OR {cfg.ASSISTANT_NAME}'s observations/feelings regarding {cfg.USER_NAME} or third parties.\n"
         f"   - Third-party & shared environment facts (pets, friends, family, home fixtures) belong to Cat##-{cfg.SUBJECT_CODE_USER} when observed from {cfg.USER_NAME}'s life, or Cat##-{cfg.SUBJECT_CODE_ASSISTANT} when reflecting {cfg.ASSISTANT_NAME}'s personal sentiment.\n"
-        "   - The 'subject' field records the specific entity being observed or discussed (e.g. Alex, Evelyn, Biscuit, Jordan, Casey, Robin, Sam).\n"
+        f"   - The 'subject' field records the specific entity being observed or discussed (e.g. {_known_entity_roster()}).\n"
         "2. EXPLICIT NOUN SUBJECT & ACTOR GROUNDING:\n"
         "   - NEVER use ambiguous floating third-person pronouns ('he', 'she', 'they', 'him', 'her') to refer to the primary subject in the summary.\n"
         "   - NEVER begin a summary with a subject-less verb (e.g. Do NOT write 'Enjoys...', 'Prefers...', 'Acts as...', 'Has a...').\n"
-        f"   - ALWAYS explicitly name the subject and actor at the beginning of the observation (e.g. Write '{cfg.USER_NAME} prefers...', '{cfg.ASSISTANT_NAME} observes...', 'Biscuit the cat acts as...', 'Jordan enjoys...').\n"
-        f"   - If one entity is observing, feeling, or commenting on another entity, explicitly name BOTH entities in the text (e.g. '{cfg.ASSISTANT_NAME} observes that {cfg.USER_NAME} values clarity...', '{cfg.USER_NAME} noted that Jordan is acclimating...').\n"
+        f"   - ALWAYS explicitly name the subject and actor at the beginning of the observation (e.g. Write '{cfg.USER_NAME} prefers...', '{cfg.ASSISTANT_NAME} observes...', '{cfg.EXAMPLE_PET_NAME} the cat acts as...', '{cfg.EXAMPLE_THIRD_PARTY_NAME} enjoys...').\n"
+        f"   - If one entity is observing, feeling, or commenting on another entity, explicitly name BOTH entities in the text (e.g. '{cfg.ASSISTANT_NAME} observes that {cfg.USER_NAME} values clarity...', '{cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating...').\n"
         "3. TEMPORAL GROUNDING & HISTORICAL ANCHORING:\n"
         "   - NEVER use unanchored floating temporal adverbs (e.g. Do NOT write 'soon', 'is currently', 'currently', 'tomorrow', 'tonight', 'next week', 'lately').\n"
-        f"   - Anchor time-bound events, temporary states, or plans to the specific date discussed: (e.g. Write 'On 2025-10-25, {cfg.USER_NAME} noted that Robin was planning to visit' instead of 'Robin will be coming over soon'; write 'Troubleshot a monitor outage on 2026-05-07' instead of 'Alex is currently troubleshooting...').\n"
+        f"   - Anchor time-bound events, temporary states, or plans to the specific date discussed: (e.g. Write 'On 2025-10-25, {cfg.USER_NAME} noted that {cfg.EXAMPLE_THIRD_PARTY_NAME} was planning to visit' instead of '{cfg.EXAMPLE_THIRD_PARTY_NAME} will be coming over soon'; write 'Troubleshot a monitor outage on 2026-05-07' instead of '{cfg.USER_NAME} is currently troubleshooting...').\n"
         f"   - If an observation represents an enduring preference or trait, state it as a lasting fact naming the subject (e.g. '{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk').\n"
         "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS: State the exact specific facts with nouns, preferences, "
         "conditions, reasons, and temporal context. AVOID vague or shallow one-liners.\n"
@@ -776,33 +793,33 @@ def _build_extraction_prompt(
         "```facts\n"
         "facts:\n"
         f"  - subject: {cfg.USER_NAME}          # referent entity being described\n"
-        f"    category: Cat05-{cfg.SUBJECT_CODE_USER}        # User canon (Alex's preference)\n"
+        f"    category: Cat05-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s preference)\n"
         "    tags: \"Home/Coffee/Espresso\"     # hierarchical domain tags\n"
         f"    summary: \"{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk in the morning, avoiding sugar.\" # grounded statement naming subject\n"
         "    confidence: high         # high / medium / low\n"
         "    date: \"2025-03-15\"      # date discussed (from message timestamps)\n"
         f"  - subject: {cfg.USER_NAME}          # referent entity\n"
-        f"    category: Cat06-{cfg.SUBJECT_CODE_ASSISTANT}        # Assistant canon (Evelyn's perspective on Alex)\n"
+        f"    category: Cat06-{cfg.SUBJECT_CODE_ASSISTANT}        # Assistant canon ({cfg.ASSISTANT_NAME}'s perspective on {cfg.USER_NAME})\n"
         "    tags: \"Relationship/Dynamics, Collaboration\"  # tags\n"
         f"    summary: \"{cfg.ASSISTANT_NAME} appreciates {cfg.USER_NAME}'s architectural approach to big-picture system design.\" # Evelyn's perspective naming both\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
         f"  - subject: {cfg.ASSISTANT_NAME}        # referent entity\n"
-        f"    category: Cat06-{cfg.SUBJECT_CODE_USER}        # User canon (Alex's feeling toward Evelyn)\n"
+        f"    category: Cat06-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s feeling toward {cfg.ASSISTANT_NAME})\n"
         "    tags: \"Relationship/Support, Sleep\"  # tags\n"
-        f"    summary: \"{cfg.USER_NAME} finds {cfg.ASSISTANT_NAME}'s soothing presence grounding when recovering from fragmented sleep.\" # Alex's perspective naming both\n"
+        f"    summary: \"{cfg.USER_NAME} finds {cfg.ASSISTANT_NAME}'s soothing presence grounding when recovering from fragmented sleep.\" # {cfg.USER_NAME}'s perspective naming both\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
-        f"  - subject: Biscuit             # pet/household entity\n"
-        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon (Alex's pet)\n"
+        f"  - subject: {cfg.EXAMPLE_PET_NAME:<16}# pet/household entity\n"
+        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s pet)\n"
         "    tags: \"Pets/Cats/Routine\"  # tags\n"
-        f"    summary: \"Biscuit the cat acts as an alarm to wake {cfg.USER_NAME} up in the morning.\" # observation explicitly naming Biscuit and Alex\n"
+        f"    summary: \"{cfg.EXAMPLE_PET_NAME} the cat acts as an alarm to wake {cfg.USER_NAME} up in the morning.\" # observation explicitly naming {cfg.EXAMPLE_PET_NAME} and {cfg.USER_NAME}\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
-        "  - subject: Jordan         # third-party entity\n"
-        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon (Alex's observation of friend/family)\n"
+        f"  - subject: {cfg.EXAMPLE_THIRD_PARTY_NAME:<16}# third-party entity\n"
+        f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s observation of friend/family)\n"
         "    tags: \"Family/Friends, Personal_Growth\"  # tags\n"
-        f"    summary: \"Jordan is acclimating to having greater independence and personal responsibility.\" # observation explicitly naming Jordan\n"
+        f"    summary: \"{cfg.EXAMPLE_THIRD_PARTY_NAME} is acclimating to having greater independence and personal responsibility.\" # observation explicitly naming {cfg.EXAMPLE_THIRD_PARTY_NAME}\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"
         "```\n\n"

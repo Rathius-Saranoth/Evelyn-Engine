@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-19 21:05:42
+date modified: 2026-09-20 07:41:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,84 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.157] - 2026-09-20 — *Privacy Boundary — Identities Out of Version Control, Enforced by Gate*
+
+AGENTS.md §4 forbids committing real identities, but nothing enforced it, and it had been
+broken repeatedly across many sessions. The leak path was never a copied file — tracked source
+and the personal vault live in separate trees, so nothing can drift between them. It was prose:
+changelog entries, comments and prompt examples quoting whatever concrete case the author had
+in front of them. A rule that depends on remembering, while writing, does not hold.
+
+### Added
+- **`scripts/check_privacy_boundary.py`**, wired in as a fourth stage of
+  `scripts/check_code_hygiene.py`. It scans every tracked file for protected terms sourced from
+  the gitignored `.env`, so the repository never contains the values it is scanned for. Two
+  tiers: real identities are **blocking**; machine-specific absolute paths are **advisory**,
+  because AGENTS.md deliberately specifies absolute interpreter and database paths in its own
+  operational instructions — a gate that failed on those would be unpassable and get disabled.
+  `--strict-paths` promotes them.
+- **Env-backed identity configuration.** `ASSISTANT_NAME`, `USER_NAME`, `USER_LEGACY_ALIASES`
+  and the new `PRIVATE_IDENTITY_NAMES` now read from `.env`, with generic defaults so a fresh
+  clone runs without naming anyone. Documented in `.env.example`.
+- **`EXAMPLE_PET_NAME` / `EXAMPLE_THIRD_PARTY_NAME`** plus `_known_entity_roster()` in the fact
+  extractor. Few-shot prompt examples previously hardcoded a household roster of real people.
+  They are now supplied at runtime from `.env`, preserving subject-recognition quality while
+  keeping the names out of the repository.
+
+### Changed
+- **184 identity references removed from 40 tracked files** — engine prompts, test fixtures,
+  benchmark queries, UI strings and documentation — replaced with configuration lookups where
+  the value means "the operator", and with neutral fixtures where it was only sample data.
+- **Vault-specific sections removed from this changelog.** A project changelog records changes
+  to the engine, not curation performed on a user's personal notes; those sections also carried
+  note titles and folder names that had no business in version control.
+
+### Notes
+- Four test failures predate this work and are unrelated to it: three tag-taxonomy assertions
+  and two path-resolution assertions left by the in-progress faceted classification migration.
+  Verified by running the same suites against HEAD before any change here.
+
+## [000.006.156] - 2026-09-20 — *Stub Precision — Placeholder Rejection, Duplicate Collapse & Title Preservation*
+
+The first unattended ghost link stub batch produced roughly 100 proposals. Most were
+legitimate; the rejected ones fell into four mechanical classes, each now handled. Reviewing
+the resulting notes surfaced two further defects in the approval path.
+
+### Added
+- **Template placeholder rejection.** Session-log scaffolding leaves `[[<Thing> Name]]` behind
+  under an unfilled heading. No note in the vault ends in " Name", so the suffix rule is safe
+  and also covers placeholders that do not exist yet.
+- **Retired document rejection.** Targets carrying an explicit `(archived)`, `(deprecated)`,
+  `(obsolete)` or `(retired)` marker no longer generate stubs — the note was retired on purpose.
+  Matched as a parenthetical whole word, so ordinary disambiguation like `Oberon (warframe)` is
+  unaffected.
+- **`resolves_as_possessive()`.** A target ending in apostrophe-s whose base resolves to an
+  existing note is a possessive reference, not a missing entity. Deliberately narrow: names that
+  merely *contain* a possessive (`The Serpent's Fang`, `Warden's Crest`) do not end that way and
+  were all approved as legitimate stubs.
+- **`stub_dedupe_key()`.** A single sweep proposes every target before any stub exists, so
+  intra-batch duplicates cannot be caught by an existence check. The key collapses case-only
+  differences (`... Coat Of Arms` / `... Coat of Arms`) and leading articles
+  (`Grand Library` / `The Grand Library`), both of which created redundant notes.
+
+### Fixed
+- **Case-colliding stub filenames.** The approval path wrote its target name verbatim, so a
+  case-only variant became a second file. Linux keeps both; a case-insensitive sync peer sees
+  one file under two names and raises a sync conflict. The writer now reuses an existing note
+  that differs only by case.
+- **Frontmatter titles no longer clobbered.** `scripts/update_frontmatter.py` overwrote any
+  existing `title` with the file's basename *including* its extension. That is the intended
+  convention for repository files, but vault note titles carry no extension, so every note
+  passed through the script had its title replaced with `<Name>.md`. An existing non-empty
+  title is now preserved; a missing one still falls back to the filename.
+- **Dev UI: XML payload collapsed.** The structured payload dominated each stub card. It now
+  sits behind a closed disclosure, still editable before approval — the textarea stays in the
+  DOM, so the approve request is unchanged.
+
+### Not mechanically detectable
+- One rejection turned on domain judgement (a tool's internal component name that is not a
+  vault-worthy entity). No rule is proposed for it; that class stays a human decision.
 
 ## [000.006.155] - 2026-09-19 — *Equivalence Collapse — UF Aliases and the Star-Shaped Merge*
 
@@ -221,12 +299,6 @@ both sides of an aliased link to the same configured name.
 - **Subpath and block targets** (`[[Note#Section|Note]]`) — the display genuinely differs from
   the full target, so the alias is load-bearing.
 
-### Vault Data Repair
-- **401 aliases condensed across 160 notes** via `scripts/personal/condense_redundant_aliases.py`,
-  which delegates to the canonical engine function rather than carrying its own regex. Verified
-  idempotent: a second pass reports zero, with all 52 case-only aliases intact and no escaped
-  table pipes affected.
-
 ## [000.006.145] - 2026-09-19 — *Excerpt Alias Integrity — Wikilink Pipes Preserved in Harvested Context*
 
 Found while reviewing the first live ghost link stub proposal. `extract_link_context` stripped
@@ -243,11 +315,6 @@ ghost links it exists to reduce.
 - **Alias pipes survive excerpt extraction.** Pipes inside `[[...]]` are protected before the
   table-pipe sweep and restored afterwards, so aliased links keep their form while bare pipes
   from table rows are still flattened. Covered by a regression test asserting both halves.
-
-### Verified
-- The vault itself was never damaged: a full scan found zero occurrences of the malformed forms,
-  confirming wikilink canonicalization had written correct aliased links all along. The
-  corruption existed only in harvested excerpts and the proposals built from them.
 
 ## [000.006.144] - 2026-09-19 — *Stub Synthesis Recovery — Reasoning Disabled & Configurable Timeout*
 
@@ -291,18 +358,6 @@ behaviour, not legacy damage, and had already corrupted 11 notes.
   fire from the engine — by then the damaged span is a placeholder and the qualifier is no
   longer adjacent to it. The call now sits beside the existing pre-mask fracture repair.
 
-### Vault Data Repair
-- **19 spans across 11 notes** rejoined or de-doubled, all re-verified against the source PDFs.
-- **`132 - Creating a Windowed Dataset.md`** had an inline span straddling a page-break artifact
-  (opened on one line, closed four lines later), which desynchronised backtick pairing for the
-  rest of the passage and caused earlier span-based passes to skip or double-wrap it. The passage
-  was reconstructed from the book and now matches it exactly with balanced fences.
-- **Two spans the generic rule could not cover**, both restored from source: a second occurrence
-  in `041 - Downloading and Running an LLM.md` missed because the file was completed under the
-  earlier nested-only rule, and a 3-D tensor in `048 - Creating Contextualized Word Embeddings
-  with Language Models.md` whose `...` truncation fails the numeric predicate and whose book form
-  is `[[ [...] ]]`, needing two brackets per side rather than one.
-
 ## [000.006.142] - 2026-09-19 — *Numeric Literal Fencing — Nested Array Wrapping & Honest Synthesis Reporting*
 
 Follow-up to the ghost link stub investigation. Closes the gap that let un-fenced numeric
@@ -331,19 +386,6 @@ and stops the review UI from crediting the LLM for abstracts it did not write.
 - **Legacy remediation script migrated to the canonical wrapper.** `remediate_spurious_and_entities.py`
   carried its own three regexes for the same job, in violation of the DRY protocol. It now calls
   `wrap_spurious_code_arrays` behind `protect_code_blocks` and rewrites only the note body.
-
-### Vault Data Repair
-- **73 mangled numeric literals restored across 36 Reference Library notes.** An untracked ad-hoc
-  run had matched literals with a non-greedy `\[\[(.*?)\]\]` pattern and substituted the *inner*
-  group, replacing each literal's own outer `[` and `]` with a backtick —
-  `torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])` became
-  ``torch.tensor(`[[1, 2], [3, 4]`, `[5, 6], [7, 8]]`)``. Every affected span was verified against
-  the source PDFs in the vault's `Attachments/Source Material` folder before any write: 61 by
-  automatic digit-signature match on original bracket depth, the remaining 12 by targeted lookup.
-  All 73 were `[[...]]` in the source, so a uniform one-bracket restoration reproduces the books
-  exactly. Repaired by `scripts/personal/repair_mangled_array_literals.py`, which is dry-run by
-  default and records completed notes, since a restored split literal is structurally
-  indistinguishable from its own damaged form and would otherwise be eaten by a second pass.
 
 ## [000.006.141] - 2026-09-19 — *Ghost Link Stub Integrity — Code Subscript Rejection & Mention Rendering*
 

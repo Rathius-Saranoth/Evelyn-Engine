@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # update_frontmatter.py
 # date created: 2026-05-17 13:57:07
-# date modified: 2026-09-13 10:34:39
+# date modified: 2026-09-20 07:19:46
 # tags: #frontmatter, #metadata, #headers, #update, #utility
 
 import datetime
@@ -103,11 +103,11 @@ def update_file_frontmatter(filepath: str) -> bool:
                                     formatted.append(f"#{t}")
                             out_lines.append(f"# tags: {', '.join(formatted)}")
                         else:
-                            out_lines.append("# tags: ")
+                            out_lines.append("# tags:")
                     else:
                         out_lines.append(existing_tags_line)
                 else:
-                    out_lines.append("# tags: ")
+                    out_lines.append("# tags:")
 
                 while i + 1 < len(lines) and lines[i+1].startswith('#') and (
                     'date created:' in lines[i+1] or 'date modified:' in lines[i+1] or 'tags:' in lines[i+1]
@@ -122,7 +122,7 @@ def update_file_frontmatter(filepath: str) -> bool:
                 f"# {filename}",
                 f"# date created: {date_created}",
                 f"# date modified: {date_modified}",
-                "# tags: ",
+                "# tags:",
                 ""
             ]
             out_lines = [lines[0], *header, *lines[1:]] if lines and lines[0].startswith('#!') else header + lines
@@ -171,7 +171,14 @@ def update_file_frontmatter(filepath: str) -> bool:
                     fm_keys_found.add(key)
 
                     if key == 'title':
-                        out_lines.append(f"title: {filename}")
+                        # Preserve a title the author or generator already set. Overwriting
+                        # it with the filename clobbers vault note titles, which carry no
+                        # extension ("Croatia"), with the file's basename ("Croatia.md").
+                        # A missing title still falls back to the filename further below.
+                        existing_title = match.group(2).strip()
+                        out_lines.append(
+                            f"title: {existing_title}" if existing_title else f"title: {filename}"
+                        )
                         i += 1
                     elif key == 'date modified':
                         out_lines.append(f"date modified: {date_modified}")

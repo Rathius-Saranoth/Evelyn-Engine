@@ -774,7 +774,7 @@ def extract_link_context(body: str, target: str, window_chars: int = 180) -> str
     raw_slice = body[start:end]
     # Strip markdown table syntax or frontmatter boundaries if slice caught them.
     # Alias pipes inside wikilinks must survive: a blanket replace turns
-    # [[Alex|Alex]] into [[Alex Alex]], and this excerpt is written verbatim
+    # [[Target|Alias]] into [[Target Alias]], and this excerpt is written verbatim
     # into the Context & Mentions section of any stub note approved from it, so a
     # bare replace manufactures the very ghost links the librarian exists to remove.
     raw_slice = raw_slice.replace("---", " ")

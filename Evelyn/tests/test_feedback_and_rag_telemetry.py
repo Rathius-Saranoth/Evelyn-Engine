@@ -284,7 +284,7 @@ def test_vault_note_endpoints(client):
 
 def test_pinned_alias_word_boundary_matching():
     """Verify that pinned alias matching uses word boundaries and avoids substring false positives."""
-    aliases = ["sam", "fox"]
+    aliases = ["sam", "biscuit"]
 
     # "same" should NOT match "sam"
     q_negative = "it was a stressful day at the same time though"
@@ -298,7 +298,7 @@ def test_pinned_alias_word_boundary_matching():
     q_positive_2 = "We are heading over to Sam's house later."
     assert any(bool(re.search(rf"\b{re.escape(a)}\b", q_positive_2.lower())) for a in aliases)
 
-    # "foxes" vs "fox"
-    q_fox_standalone = "Just the two of us and Biscuit."
-    assert any(bool(re.search(rf"\b{re.escape(a)}\b", q_fox_standalone.lower())) for a in aliases)
+    # A standalone pinned alias SHOULD match
+    q_alias_standalone = "Just the two of us and Biscuit."
+    assert any(bool(re.search(rf"\b{re.escape(a)}\b", q_alias_standalone.lower())) for a in aliases)
 

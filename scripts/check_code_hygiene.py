@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# check_code_hygiene.py
+# date created: 2026-09-20 07:40:23
+# date modified: 2026-09-20 07:41:52
+# tags:
+
 # scripts/check_code_hygiene.py
 # date created: 2026-09-06 18:45:00
 #
@@ -9,6 +14,7 @@ Executes a three-stage mechanical gate:
 1. Ruff Linter & Syntax Analysis (flake8, bugbear, async safety, modern syntax)
 2. AST Config-Wiring Pytest (asserts all evelyn_config.py constants have active consumers)
 3. Vulture Dead-Code Inspection (detects uncalled functions, unused classes/variables)
+4. Privacy Boundary Scan (real identities must never reach version control)
 
 Exit Codes:
   0: All hygiene and wiring gates PASSED.
@@ -98,6 +104,16 @@ def main() -> int:
         help="Skip Vulture dead-code stage.",
     )
     parser.add_argument(
+        "--skip-privacy",
+        action="store_true",
+        help="Skip the privacy boundary scan.",
+    )
+    parser.add_argument(
+        "--strict-paths",
+        action="store_true",
+        help="Also fail the privacy stage on machine-specific absolute paths.",
+    )
+    parser.add_argument(
         "--skip-config-test",
         action="store_true",
         help="Skip AST config-wiring pytest stage.",
@@ -136,6 +152,14 @@ def main() -> int:
         vulture_cmd = [vulture_bin, f"--min-confidence={args.min_confidence}"]
         passed = run_stage("3. Vulture Compiler-Level Dead-Code Detection", vulture_cmd)
         stages_passed.append(("Vulture Dead-Code Inspection", passed))
+
+    # 4. Privacy Boundary Stage
+    if not args.skip_privacy:
+        privacy_cmd = [sys.executable, str(WORKSPACE_ROOT / "scripts" / "check_privacy_boundary.py")]
+        if args.strict_paths:
+            privacy_cmd.append("--strict-paths")
+        passed = run_stage("4. Privacy Boundary (AGENTS.md §4)", privacy_cmd)
+        stages_passed.append(("Privacy Boundary Scan", passed))
 
     # Summary
     print(f"\n{Colors.BOLD}{Colors.HEADER}================ SUMMARY ================{Colors.ENDC}")

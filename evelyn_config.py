@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-19 10:55:07
+# date modified: 2026-09-20 07:41:52
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -64,8 +64,13 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 # in prompts, memory taxonomy, UI labels, and persona file lookups.
 # Change these to personalize your instance.
 
-ASSISTANT_NAME = "Evelyn"  # The AI companion's name
-USER_NAME = "Alex"  # The human operator's name
+# Real identities are supplied by the gitignored .env so they never enter version
+# control. The defaults below are deliberately generic: a fresh clone runs, and the
+# repository never contains the operator's actual name.
+#   EVELYN_ASSISTANT_NAME, EVELYN_USER_NAME, EVELYN_USER_LEGACY_ALIASES,
+#   EVELYN_PRIVATE_NAMES  (see .env.example)
+ASSISTANT_NAME = os.getenv("EVELYN_ASSISTANT_NAME", "Evelyn")  # The AI companion's name
+USER_NAME = os.getenv("EVELYN_USER_NAME", "User")  # The human operator's name
 
 # Subject codes used in memory taxonomy (Cat01-U, Cat01-A, etc.)
 # These are abstract identifiers — they map to USER_NAME / ASSISTANT_NAME
@@ -74,7 +79,22 @@ SUBJECT_CODE_USER = "U"  # Migrated from "R" (User)
 SUBJECT_CODE_ASSISTANT = "A"  # Migrated from "E" (Assistant)
 
 # Legacy or alternate user names/aliases to harmonize during database migrations
-USER_LEGACY_ALIASES: list[str] = ["Alex", "Alexander"]
+USER_LEGACY_ALIASES: list[str] = [
+    a.strip() for a in os.getenv("EVELYN_USER_LEGACY_ALIASES", "").split(",") if a.strip()
+]
+
+# Additional real-world names (family, friends, contacts) that must never appear in
+# tracked files. Consumed by scripts/check_privacy_boundary.py, which fails the hygiene
+# gate if any of them reach version control.
+PRIVATE_IDENTITY_NAMES: list[str] = [
+    n.strip() for n in os.getenv("EVELYN_PRIVATE_NAMES", "").split(",") if n.strip()
+]
+
+# Concrete entity names used in few-shot prompt examples. Supplying the household's
+# real names sharpens subject recognition during extraction; the shipped defaults are
+# placeholders so the repository never names anyone.
+EXAMPLE_PET_NAME = os.getenv("EVELYN_EXAMPLE_PET", "Biscuit")
+EXAMPLE_THIRD_PARTY_NAME = os.getenv("EVELYN_EXAMPLE_THIRD_PARTY", "Alex")
 
 # Persona document basenames — Core Directives + Canonical Persona Triad
 PERSONA_FILE_CORE_DIRECTIVES = "Core_Directives.md"
@@ -149,7 +169,7 @@ NUM_PREDICT = 8192
 # history.  15 turns × 2 = 30 messages.  All messages remain in the DB and
 # are still returned by the /history UI endpoint — this only caps what Ollama
 # sees.  A "thread break" marker further narrows this to the current thread.
-# Sized to 30 (15 turns) for Gemma 4 12B on Alex-PC 16K context (Old value: 40)
+# Sized to 30 (15 turns) for Gemma 4 12B on a 16K context workstation (Old value: 40)
 MAX_HISTORY_MESSAGES = 30
 
 # Maximum agentic tool-dispatch rounds per turn.
@@ -414,7 +434,7 @@ OURA_TOKEN_PATH = os.path.join(DATA_DIR, "oura_token.json")
 
 # SQLite PRAGMAs — tuned per hardware tier.
 # Power Tier  (64GB+ RAM, server):  mmap=2GB,  cache=64MB
-# Standard    (16-32GB RAM, desktop): mmap=512MB, cache=32MB  ← Active (Alex-PC WSL2)
+# Standard    (16-32GB RAM, desktop): mmap=512MB, cache=32MB  ← Active (workstation WSL2)
 # Light Tier  (8-16GB RAM, laptop):  mmap=256MB, cache=16MB
 SQLITE_PRAGMAS = [
     "PRAGMA journal_mode=WAL;",  # Enable WAL for concurrent non-blocking reads/writes
@@ -457,7 +477,7 @@ for i, label in enumerate(_CATEGORY_LABELS, start=1):
 # =============================================================================
 CHROMA_MEMORY_COLLECTION = "evelyn_memory"  # Full-text vault notes & memory chunks
 CHROMA_REFERENCE_COLLECTION = "evelyn_reference"  # Reference Library books, guides & manuals
-# Sized to 6 for Gemma 4 12B's 16K context on Alex-PC (Old value: 8)
+# Sized to 6 for Gemma 4 12B's 16K context on a desktop workstation (Old value: 8)
 RAG_TOP_K = 6  # Number of chunks to retrieve per query
 
 # Cosine distance threshold for RAG injection (0.0 = identical, 1.0 = unrelated).

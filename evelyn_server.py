@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-19 10:23:53
+# date modified: 2026-09-20 07:19:46
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6459,6 +6459,19 @@ async def action_proposal(
 
                 vault_root = getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault")
                 dest_path = os.path.join(vault_root, target_filename)
+
+                # Reuse an existing note that differs only by case. Linux keeps both
+                # "Sekulich Coat Of Arms.md" and "Sekulich Coat of Arms.md", but a
+                # case-insensitive sync peer sees one file with two names and conflicts.
+                try:
+                    lowered = target_filename.lower()
+                    for entry in os.listdir(vault_root):
+                        if entry.lower() == lowered and entry != target_filename:
+                            target_filename = entry
+                            dest_path = os.path.join(vault_root, entry)
+                            break
+                except OSError:
+                    pass
 
                 tmp_path = f"{dest_path}.tmp_{os.getpid()}"
                 try:

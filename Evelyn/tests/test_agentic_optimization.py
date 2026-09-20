@@ -136,17 +136,17 @@ def test_contiguous_chunk_fusion():
     """Verify that adjacent chunks from the same document are fused without ellipsis or duplicate overlap."""
     chunks = [
         {
-            "content": "The quick brown fox jumps over the lazy dog. It was a sunny morning in the woods.",
-            "metadata": {"chunk": 0, "source": "Notes/fox.md"},
+            "content": "The quick brown hare leaps over the lazy dog. It was a sunny morning in the woods.",
+            "metadata": {"chunk": 0, "source": "Notes/hare.md"},
         },
         {
             "content": "sunny morning in the woods. All the animals were gathered near the stream.",
-            "metadata": {"chunk": 1, "source": "Notes/fox.md"},
+            "metadata": {"chunk": 1, "source": "Notes/hare.md"},
         },
     ]
     fused = chroma_rag._fuse_document_chunks(chunks)
     assert "\n...\n" not in fused
-    assert "The quick brown fox jumps over the lazy dog." in fused
+    assert "The quick brown hare leaps over the lazy dog." in fused
     assert "All the animals were gathered near the stream." in fused
     # Verify overlap text is not duplicated twice
     assert fused.count("sunny morning in the woods.") == 1
