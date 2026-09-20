@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 17:00:10
+date modified: 2026-09-20 17:29:17
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.185] - 2026-09-20 — *Orphan Vectors — Degrade, Do Not Abort*
+
+### Fixed
+- **A single metadata-less row no longer destroys an entire RAG query.** `query_collection()`
+  called `meta.get()` unguarded, and `AttributeError` was absent from its except clause — so one
+  bad row raised past the handler whose comment states that a failed query "should never be
+  silent". The caller lost its whole context rather than one chunk. A vector can outlive its
+  metadata record: deleting by `where` clause removes the row while the HNSW index still answers
+  with the id. Such an orphan now degrades to an unlabelled chunk.
+
+### Operational note
+Deleting from a Chroma collection **by `where` clause leaves orphaned vectors**. They are invisible
+to `get()`, which reads metadata rows, but `query()` still returns them — so they keep competing in
+every search, anonymously and unrankable. Verify a purge with `query()` probes, never `get()`.
+Deleting the same ids afterwards can fail HNSW compaction and leave the collection unqueryable.
+To retire terms in bulk, drop the collection and re-seed from `master_tag_taxonomy`, which is the
+source of truth; the index is derived and costs only its drain time.
 
 ## [000.006.184] - 2026-09-20 — *Flat Compounds — Warrant Decides*
 

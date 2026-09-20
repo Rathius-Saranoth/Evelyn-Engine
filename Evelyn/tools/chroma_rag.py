@@ -1010,6 +1010,11 @@ def query_collection(query: str, collection_name: str, n_results: int | None = N
             results["metadatas"][0],
             results["distances"][0], strict=False,
         ):
+            # A vector can outlive its metadata record — a bulk delete by `where` clause
+            # removes the row while the HNSW index still answers with the id. One such
+            # orphan must degrade to an unlabelled chunk, not abort the whole query and
+            # cost the caller its entire RAG context.
+            meta = meta or {}
             chunks.append({
                 "content":  doc,
                 "source":   meta.get("source", ""),
@@ -1017,7 +1022,7 @@ def query_collection(query: str, collection_name: str, n_results: int | None = N
                 "metadata": meta,
             })
         return chunks
-    except (RuntimeError, ValueError, KeyError, OSError) as e:
+    except (AttributeError, RuntimeError, ValueError, KeyError, OSError) as e:
         # Always log query failures (not debug-gated) — a failed query means
         # total RAG context loss for this turn, which should never be silent.
         print(f"[chroma_rag] QUERY FAILED ({collection_name}): {e}", flush=True)
