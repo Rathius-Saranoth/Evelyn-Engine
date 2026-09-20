@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 07:41:52
+date modified: 2026-09-20 08:05:35
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.158] - 2026-09-20 — *Article-Agnostic Link Resolution — "The X" and "X" Are One Entity*
+
+Writers are inconsistent about a leading article, often within a single vault and sometimes
+within a single note. The resolver treated `[[The X]]` and `[[X]]` as unrelated targets, so
+whichever form lacked a note became a ghost link and earned its own stub proposal. That is how
+two notes for the same location came to exist, and a case-only sibling of the same problem
+produced a filename that conflicts on case-insensitive sync peers.
+
+`stub_dedupe_key()` already collapsed articles, but only when comparing *proposals* to each
+other. The gap was in resolution itself.
+
+### Added
+- **Stage 5 of `resolve_canonical_link_target()`: leading article normalization.** `[[The X]]`
+  resolves to note `X`, and `[[X]]` resolves to note `The X`. It reuses the stem list already
+  fetched for stage 4, so it costs no additional query.
+
+### Safety
+- Resolution requires **exactly one** match, consistent with the alias and disambiguation
+  stages. If both `X` and `The X` exist as real notes they remain distinct entities: an exact
+  match still wins outright, and a third article form against two equally valid candidates
+  bails rather than silently picking one.
+- Measured against the vault before implementing: three article-variant ghost links existed,
+  in both directions, and **zero** cases where both forms existed as separate notes.
 
 ## [000.006.157] - 2026-09-20 — *Privacy Boundary — Identities Out of Version Control, Enforced by Gate*
 

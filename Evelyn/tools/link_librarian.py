@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-20 07:19:46
+# date modified: 2026-09-20 08:05:35
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -682,6 +682,21 @@ def tokenize_wikilink(inner: str) -> tuple[str, str, str]:
     return stem.strip(), subpath, display.strip()
 
 
+LEADING_ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+")
+
+
+def _strip_leading_article(normalized: str) -> str:
+    """Drop a leading English article from an already-lowercased, space-normalized stem.
+
+    Args:
+        normalized: Lowercased stem with whitespace collapsed.
+
+    Returns:
+        str: The stem without its leading article, or the stem unchanged.
+    """
+    return LEADING_ARTICLE_RE.sub("", normalized).strip()
+
+
 def resolve_canonical_link_target(
     target_stem: str,
     vault_root: str | None = None,
@@ -694,7 +709,11 @@ def resolve_canonical_link_target(
       3. Unambiguous Disambiguation Stem: Exactly ONE document matches 'target (*)' -> (True, matched_stem)
          (If > 1 matches, bails out and returns (False, target) to prevent namespace collisions)
       4. Hyphen/Underscore Normalization: Matches a note with hyphens/underscores substituted -> (True, matched_stem)
-      5. Fallback: No resolution -> (False, target)
+      5. Leading Article Normalization: "[[The X]]" resolves to note "X" and "[[X]]" to note
+         "The X". Writers are inconsistent about the article, and treating the two as
+         separate entities produced duplicate stub notes. Requires exactly ONE match, so
+         if both "X" and "The X" exist as real notes they stay distinct.
+      6. Fallback: No resolution -> (False, target)
 
     Args:
         target_stem: Clean stem name of the note.
@@ -797,6 +816,27 @@ def resolve_canonical_link_target(
 
         if len(norm_matches) == 1:
             return True, norm_matches[0]
+
+        # 5. Leading Article Normalization (reuses all_rows; no extra query)
+        article_stem = _strip_leading_article(normalized_stem)
+        if article_stem:
+            article_matches = []
+            for (a_path,) in all_rows:
+                a_stem = Path(a_path).stem
+                a_norm = re.sub(r"[-_\s]+", " ", a_stem.lower()).strip()
+                if a_norm == normalized_stem:
+                    continue
+                if _strip_leading_article(a_norm) == article_stem and a_stem not in article_matches:
+                    article_matches.append(a_stem)
+
+            if len(article_matches) == 1:
+                return True, article_matches[0]
+            if len(article_matches) > 1:
+                logger.warning(
+                    f"resolve_canonical_link_target: article-variant collision for "
+                    f"'{clean_stem}': {article_matches}. Bailing out."
+                )
+                return False, clean_stem
 
     except (sqlite3.Error, OSError) as e:
         logger.debug(f"resolve_canonical_link_target DB lookup fallback: {e}")

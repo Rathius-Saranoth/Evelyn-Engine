@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-20 07:19:46
+# date modified: 2026-09-20 08:05:35
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -737,6 +737,69 @@ Additional bench tests confirmed 4x speedup over baseline models.
                     self.assertFalse(
                         link_librarian.resolves_as_possessive(keep, vault_root=vault), keep
                     )
+
+    def test_resolve_leading_article_variants(self):
+        """Verify [[The X]] and [[X]] resolve to each other when only one note exists.
+
+        Writers are inconsistent about the leading article, and treating the forms as
+        separate entities produced duplicate stub notes and a case of two real files.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "vault.db")
+            con = sqlite3.connect(db_path)
+            con.execute(
+                "CREATE TABLE vault_documents (path TEXT PRIMARY KEY, title TEXT, aliases TEXT)"
+            )
+            con.executemany(
+                "INSERT INTO vault_documents (path, title, aliases) VALUES (?, ?, ?)",
+                [
+                    ("Notes/Grand Library.md", "Grand Library", ""),
+                    ("Notes/The Black King.md", "The Black King", ""),
+                    # Both forms exist as real, distinct notes
+                    ("Notes/Vault.md", "Vault", ""),
+                    ("Notes/The Vault.md", "The Vault", ""),
+                ],
+            )
+            con.commit()
+            con.close()
+
+            with patch("Evelyn.tools.vault_db.get_db", side_effect=lambda: sqlite3.connect(db_path)):
+                # Article present in the link, absent from the note
+                resolved, canon = link_librarian.resolve_canonical_link_target(
+                    "The Grand Library", vault_root=tmp_dir
+                )
+                self.assertTrue(resolved)
+                self.assertEqual(canon, "Grand Library")
+
+                # Article absent from the link, present on the note
+                resolved, canon = link_librarian.resolve_canonical_link_target(
+                    "Black King", vault_root=tmp_dir
+                )
+                self.assertTrue(resolved)
+                self.assertEqual(canon, "The Black King")
+
+                # Exact match must still win over any article rewriting
+                resolved, canon = link_librarian.resolve_canonical_link_target(
+                    "The Black King", vault_root=tmp_dir
+                )
+                self.assertTrue(resolved)
+                self.assertEqual(canon, "The Black King")
+
+                # Both forms exist as real notes: an exact match must still win outright
+                for exact in ("Vault", "The Vault"):
+                    resolved, canon = link_librarian.resolve_canonical_link_target(
+                        exact, vault_root=tmp_dir
+                    )
+                    self.assertTrue(resolved)
+                    self.assertEqual(canon, exact, "exact match must not be overridden")
+
+                # A different article against two equally valid candidates is ambiguous
+                # and must bail rather than silently pick one.
+                resolved, canon = link_librarian.resolve_canonical_link_target(
+                    "A Vault", vault_root=tmp_dir
+                )
+                self.assertFalse(resolved, "ambiguous article variants must not be conflated")
+                self.assertEqual(canon, "A Vault")
 
     def test_condense_redundant_aliases(self):
         """Verify [[X|X]] collapses to [[X]] while meaningful aliases survive."""

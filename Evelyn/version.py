@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 07:41:52
+# date modified: 2026-09-20 08:05:35
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.157"
-__version_info__ = (0, 6, 157)
-__version_name__ = "Privacy Boundary — Identities Out of Version Control, Enforced by Gate"
+__version__ = "000.006.158"
+__version_info__ = (0, 6, 158)
+__version_name__ = "Article-Agnostic Link Resolution — The X and X Are One Entity"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
