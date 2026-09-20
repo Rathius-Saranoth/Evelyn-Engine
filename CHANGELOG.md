@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 10:25:24
+date modified: 2026-09-20 10:27:50
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,28 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.163] - 2026-09-20 — *Alias Enforcement — Every Tag Writer Consults the Registry*
+
+Applying the reviewed merges surfaced two memory rows still carrying retired variants — rows from
+August that an earlier migration had already swept. They had been **resurrected**, and the cause was
+a hole in the alias layer rather than a fault in the migration.
+
+### Fixed
+- **Three tag writers did not canonicalize through the alias registry.** `fact_deduplicator`,
+  `fact_splitter`, and the procedures path in `fact_extractor` all normalized format but never
+  consulted recorded `UF` equivalences. The deduplicator is the one that actually bites: merging two
+  entries recombines tags **from the source rows**, so a retired variant on an old entry is written
+  straight back onto the survivor — undoing a completed migration hours after it ran.
+- This is the same defect as `000.006.155`, where recording aliases without consulting them on write
+  was caught by the hygiene gate. That fix wired one writer; there were four. Recording an
+  equivalence is inert unless **every** path that writes a tag resolves through it.
+- The two affected rows were curated through `canonicalize_tags()` itself rather than by hand, so
+  the repair exercised the same path the fix installs.
+
+### Preserved by design
+- Curating two rows is local data curation, not a migration (AGENTS.md §5) — no schema or systemic
+  structure changed, and the durable fix is the wiring.
 
 ## [000.006.162] - 2026-09-20 — *The Sibling Test — Reviewed Merges and Nesting Resolved by Evidence*
 

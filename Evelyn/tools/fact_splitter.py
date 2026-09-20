@@ -25,7 +25,7 @@ from typing import Any
 import yaml
 
 import evelyn_config as cfg
-from Evelyn.tools import memory_db
+from Evelyn.tools import memory_db, taxonomy_db
 from Evelyn.tools.tag_librarian import normalize_tag_format
 
 logger = logging.getLogger("evelyn.fact_splitter")
@@ -120,7 +120,9 @@ async def generate_split_proposal(
         c_cat = str(item.get("category", cat)).strip()
         c_subj = str(item.get("subject", subj)).strip()
         raw_t = str(item.get("tags", "")).strip()
-        norm_t = ", ".join([normalize_tag_format(t) for t in raw_t.split(",") if t.strip()])
+        norm_t = ", ".join(taxonomy_db.canonicalize_tags(
+            [normalize_tag_format(t) for t in raw_t.split(",") if t.strip()]
+        ))
         valid_entries.append({
             "category": c_cat,
             "subject": c_subj,

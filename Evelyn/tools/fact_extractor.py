@@ -1035,7 +1035,9 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
         verification = item.get("verification")
         suggested_tools = item.get("suggested_tools")
         raw_tags = str(item.get("tags", "")).strip()
-        tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
+        tags = ", ".join(taxonomy_db.canonicalize_tags(
+            [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()]
+        ))
 
         # Sanitize trigger and steps against injection
         trigger = _sanitize_entry(trigger)

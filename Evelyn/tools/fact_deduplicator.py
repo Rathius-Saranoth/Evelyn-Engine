@@ -28,7 +28,7 @@ from typing import Any
 import yaml
 
 import evelyn_config as cfg
-from Evelyn.tools import chroma_rag, memory_db
+from Evelyn.tools import chroma_rag, memory_db, taxonomy_db
 from Evelyn.tools.fact_extractor import load_cat00_index
 from Evelyn.tools.tag_librarian import normalize_tag_format
 
@@ -319,7 +319,9 @@ def parse_proposal_yaml(raw: str, category: str, records: list[dict] | None = No
 
     target_cat = str(data.get("target_category", category)).strip()
     raw_tags = str(data.get("merged_tags", "")).strip()
-    norm_tags = ", ".join([normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()])
+    norm_tags = ", ".join(taxonomy_db.canonicalize_tags(
+        [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()]
+    ))
 
     return {
         "verdict": verdict,
