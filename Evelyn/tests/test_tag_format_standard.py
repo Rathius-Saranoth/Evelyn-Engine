@@ -425,3 +425,37 @@ class TestFlatAdoption:
         from Evelyn.tools.tag_synonym import adopt_flat_compounds
         counts = self._c({"ai-prompt-engineering": 4, **{f"ai/{k}": 2 for k in "abcde"}})
         assert adopt_flat_compounds(counts) == {"ai-prompt-engineering": "ai/prompt-engineering"}
+
+
+class TestReviewParsing:
+    """§9 step 6c: the reviewed document is the instruction, parsed literally."""
+
+    def _parse(self, tmp_path, body):
+        import sys
+        sys.path.insert(0, "scripts")
+        from parse_tag_merge_review import parse_review
+        f = tmp_path / "review.md"
+        f.write_text(body, encoding="utf-8")
+        return parse_review(str(f))
+
+    def test_ticked_line_in_a_merge_block_is_applied(self, tmp_path):
+        r = self._parse(tmp_path, "### [merge] `routine` (10)\n- [x] `daily-routine` (4)  ->  `routine`\n")
+        assert r["merges"] == {"daily-routine": "routine"}
+
+    def test_unticked_line_is_a_rejection(self, tmp_path):
+        r = self._parse(tmp_path, "### [merge] `routine` (10)\n- [ ] `daily-routine` (4)  ->  `routine`\n")
+        assert r["merges"] == {} and r["rejected"] == ["daily-routine"]
+
+    def test_remove_block_takes_the_canonical_too(self, tmp_path):
+        """The whole group leaves — the canonical is not a survivor to merge into."""
+        r = self._parse(tmp_path, "### [remove] `caring-for-partner` (14)\n- [x] `caring-for-someone` (5)  ->  `caring-for-partner`\n")
+        assert r["merges"] == {}
+        assert sorted(r["removals"]) == ["caring-for-partner", "caring-for-someone"]
+
+    def test_removal_wins_over_a_merge_elsewhere(self, tmp_path):
+        """A term marked for removal must not survive as some other block's target."""
+        body = ("### [merge] `x` (9)\n- [x] `doomed` (3)  ->  `x`\n"
+                "### [remove] `doomed` (3)\n")
+        r = self._parse(tmp_path, body)
+        assert "doomed" not in r["merges"]
+        assert "doomed" in r["removals"]

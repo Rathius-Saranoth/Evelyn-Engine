@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 11:59:27
+date modified: 2026-09-20 12:53:05
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,40 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.171] - 2026-09-20 — *Second Merge Pass — Removal as a Recorded Decision*
+
+Step 6c. The first merge pass ran at a 0.92 similarity cut which proved too tight, leaving
+`home/maintenance` and `household/maintenance` as separate terms. This applies the reviewed 0.88
+pass over the now-consolidated vocabulary.
+
+### Added
+- **`scripts/parse_tag_merge_review.py`** reads the edited review document and takes it literally:
+  a ticked line applies, an unticked line is a rejection, and a `[remove]` block retires the whole
+  group — canonical included, since there is no survivor to merge into.
+- **Removal is recorded, not performed.** A removed term becomes an alias to the empty string; the
+  canonicalization path already drops empty targets, so every writer stops emitting it. Deleting the
+  term outright would leave nothing to stop the next extraction re-minting it, which is the same
+  failure §6.2 exists to prevent for merges.
+
+### Changed
+- **The review generator refuses to propose merging a term with its own ancestor.** The hierarchy
+  already states that relationship, and collapsing it destroys a level —
+  `relationship/dynamics/support` into `relationship/dynamics` erases a distinction the tree was
+  built to hold.
+- **A `--min-uses` floor.** Running 0.88 across the whole corpus produced 2,065 merges, overwhelmingly
+  single-use tail terms that content classification will serve better than string similarity.
+
+### Migrations
+- **`000.006.170` (vault)** / **`000.006.171` (memory)** — 304 merges and 27 removals from review.
+
+### Preserved by design
+- **A note that would lose every tag is skipped and reported**, not emptied. Losing all tags is a
+  signal that the decisions were wrong for that note, not a successful cleanup.
+- **The 66 groups totalling ten uses or fewer were left untouched.** They were considered for bulk
+  removal and deliberately deferred: the groupings were too broad, and many of their members will
+  fold into branches merged higher up in this same pass. Re-evaluating after the corpus settles will
+  show a different set than judging them beforehand would have.
 
 ## [000.006.169] - 2026-09-20 — *Flat Adoption — Missed Slashes Become Nestings*
 

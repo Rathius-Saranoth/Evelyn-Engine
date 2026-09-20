@@ -3816,6 +3816,186 @@ def migrate_000_006_169_adopt_flat_compounds_memory(
     logger.info("[MIGRATION 169] Applied %d adoptions across %d memory rows.", len(rewrite), total)
 
 
+# --- §9 step 6c: reviewed second-pass merges and removals ----------------------
+
+REVIEWED_PASS2_PATH = os.path.join(cfg.BASE_DIR, "scratch", "tag_merge_decisions_pass2.json")
+
+
+def _load_pass2_alias_map() -> dict[str, str]:
+    """Load the second-pass decisions. An empty canonical means the term is removed."""
+    import json
+
+    if not os.path.exists(REVIEWED_PASS2_PATH):
+        logger.warning(
+            "[MIGRATION] No second-pass decisions at %s — skipping. Regenerate with "
+            "scripts/parse_tag_merge_review.py", REVIEWED_PASS2_PATH,
+        )
+        return {}
+    with open(REVIEWED_PASS2_PATH, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    return {k: v for k, v in (payload.get("alias_map") or {}).items() if k and k != v}
+
+
+def _drop_removed_from_tag_csv(raw: str | None, alias_map: dict[str, str]) -> tuple[str, bool]:
+    """Rewrite a tag CSV, dropping terms whose alias target is empty.
+
+    Args:
+        raw: Comma-separated tags.
+        alias_map: variant -> canonical, where '' means remove entirely.
+
+    Returns:
+        tuple[str, bool]: (rewritten CSV, whether it changed).
+    """
+    if not raw:
+        return "", False
+    current = [t.strip() for t in raw.split(",") if t.strip()]
+    out: list[str] = []
+    for tag in current:
+        mapped = alias_map.get(tag, tag)
+        if mapped and mapped not in out:
+            out.append(mapped)
+    return ", ".join(out), out != current
+
+
+def migrate_000_006_170_second_pass_merges_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.170: Apply the reviewed second-pass merges and removals (§9 step 6c).
+
+    The first merge pass ran at a 0.92 similarity cut, which proved too tight — it left
+    `home/maintenance` and `household/maintenance` as separate terms. This applies the
+    reviewed 0.88 pass over the now-consolidated vocabulary.
+
+    Removals are recorded as aliases to the empty string, not deleted outright. The
+    canonicalization path drops empty targets, so every writer stops emitting the term;
+    deleting it silently would leave nothing to stop the next extraction re-minting it.
+    """
+    import json
+
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+
+    alias_map = _load_pass2_alias_map()
+    if not alias_map:
+        return
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.170")
+    cursor = conn.cursor()
+
+    now = time.time()
+    for variant, canonical in alias_map.items():
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical,
+                                                tier = excluded.tier""",
+            (variant, canonical, "removed" if not canonical else "pass2", now),
+        )
+    taxonomy_db.invalidate_alias_cache()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    emptied = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = _drop_removed_from_tag_csv(raw_tags, alias_map)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        if not after:
+            # A note losing every tag is a signal, not a success. Leave it and report.
+            emptied += 1
+            logger.warning("[MIGRATION 170] Would empty all tags, skipped: %s", path)
+            continue
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 170] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    retired = 0
+    for variant, canonical in alias_map.items():
+        row = cursor.execute(
+            "SELECT usage_count FROM master_tag_taxonomy WHERE tag = ?", (variant,)
+        ).fetchone()
+        if not row:
+            continue
+        if canonical:
+            cursor.execute(
+                """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+                   VALUES (?, ?, '', ?, ?, ?)
+                   ON CONFLICT(tag) DO UPDATE SET usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                                                  updated_at = excluded.updated_at""",
+                (canonical, canonical.split("/")[0] if "/" in canonical else "general",
+                 row[0] or 0, now, now),
+            )
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (variant,))
+        delete_tag_from_chroma(variant)
+        retired += 1
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "pass2_merge_manifest_000.006.170.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "alias_map": alias_map, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 170] %d decisions; %d notes rewritten, %d registry terms retired, "
+        "%d notes left alone to avoid emptying them.",
+        len(alias_map), rewritten, retired, emptied,
+    )
+
+
+def migrate_000_006_171_second_pass_merges_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.171: Apply the reviewed second-pass decisions to memory tags."""
+    vault_path = db_paths.get("vault", "")
+    if not vault_path or not os.path.exists(vault_path):
+        raise MigrationExecutionError("Vault database unavailable; cannot read alias map.")
+    vcon = sqlite3.connect(vault_path, timeout=30.0)
+    try:
+        alias_map = dict(
+            vcon.execute(
+                "SELECT alias, canonical FROM master_tag_aliases WHERE tier IN ('pass2', 'removed')"
+            )
+        )
+    finally:
+        vcon.close()
+    if not alias_map:
+        logger.info("[MIGRATION 171] No second-pass aliases recorded; nothing to apply.")
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _drop_removed_from_tag_csv(raw, alias_map)
+            if changed and swept:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 171] %s: %d rows rewritten.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 171] Applied %d decisions across %d memory rows.", len(alias_map), total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4144,6 +4324,18 @@ MIGRATIONS: list[Migration] = [
         version="000.006.169",
         name="adopt_flat_compounds_memory",
         up_fn=migrate_000_006_169_adopt_flat_compounds_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.170",
+        name="second_pass_merges_vault",
+        up_fn=migrate_000_006_170_second_pass_merges_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.171",
+        name="second_pass_merges_memory",
+        up_fn=migrate_000_006_171_second_pass_merges_memory,
     ),
 ]
 
