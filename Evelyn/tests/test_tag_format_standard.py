@@ -520,3 +520,63 @@ class TestOneOffPhraseRetirement:
     def test_protected_namespaces_are_untouched(self):
         from Evelyn.tools.tag_synonym import one_off_phrase_tags
         assert one_off_phrase_tags(self._c({"CY-2026/09/20": 1, "kanban-in-progress-now": 1})) == []
+
+
+class TestClassifierInvariants:
+    """§7.1: the rules the original classifier violated, pinned as tests."""
+
+    def _run(self, monkeypatch, content, response, current=("alpha", "beta", "gamma")):
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(tag_librarian, "query_ollama", lambda *a, **k: response)
+        monkeypatch.setattr(
+            tag_librarian, "retrieve_candidate_tags_for_document",
+            lambda **k: ([{"tag": "alpha"}], 0.3, "coverage: HIGH"),
+        )
+        monkeypatch.setattr(tag_librarian.vault_db, "get_document", lambda p: {"gist": ""})
+        monkeypatch.setattr(tag_librarian.taxonomy_db, "canonicalize_tags", lambda t: list(t))
+        return tag_librarian.audit_document_tags(content, path="n.md", enable_llm=True)
+
+    def _note(self, tags):
+        return "---\ntags: [" + ", ".join(tags) + "]\n---\n\n# Note\n\nSome prose here.\n"
+
+    def test_silence_does_not_delete(self, monkeypatch):
+        """A tag the model never mentions must survive — the original rebuilt from the echo."""
+        _m, _c, details = self._run(
+            monkeypatch, self._note(["alpha", "beta", "gamma"]),
+            '{"tags_to_add": ["delta"], "tags_to_remove": []}',
+        )
+        assert set(details["final_tags"]) == {"alpha", "beta", "gamma", "delta"}
+
+    def test_only_explicitly_named_tags_are_removed(self, monkeypatch):
+        _m, _c, details = self._run(
+            monkeypatch, self._note(["alpha", "beta", "gamma"]),
+            '{"tags_to_add": [], "tags_to_remove": ["beta"]}',
+        )
+        assert set(details["final_tags"]) == {"alpha", "gamma"}
+
+    def test_unparseable_response_defers_unchanged(self, monkeypatch):
+        """§7.1 rule 6: fail closed. A partial result is never a partial rewrite."""
+        modified, _c, details = self._run(
+            monkeypatch, self._note(["alpha", "beta"]), "I think maybe alpha is good?",
+        )
+        assert modified is False
+        assert details["llm_evaluated"] is False
+
+    def test_every_current_tag_reaches_the_prompt(self, monkeypatch):
+        """§7.1 rule 2: no truncation. The model cannot judge what it was not shown."""
+        from Evelyn.tools import tag_librarian
+        seen = {}
+        def capture(user_prompt, system_prompt):
+            seen["user"] = user_prompt
+            return '{"tags_to_add": [], "tags_to_remove": []}'
+        monkeypatch.setattr(tag_librarian, "query_ollama", capture)
+        monkeypatch.setattr(
+            tag_librarian, "retrieve_candidate_tags_for_document",
+            lambda **k: ([], 0.9, "coverage: LOW"),
+        )
+        monkeypatch.setattr(tag_librarian.vault_db, "get_document", lambda p: {"gist": ""})
+        monkeypatch.setattr(tag_librarian.taxonomy_db, "canonicalize_tags", lambda t: list(t))
+        many = [f"tag-{i}" for i in range(30)]
+        tag_librarian.audit_document_tags(self._note(many), path="n.md", enable_llm=True)
+        for tag in many:
+            assert tag in seen["user"], f"{tag} was hidden from the model"

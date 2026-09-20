@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 13:04:09
+date modified: 2026-09-20 14:19:40
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,42 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.175] - 2026-09-20 — *Classifier Rewrite — Post-Coordinate, and Silence No Longer Deletes*
+
+The tag librarian has been disabled since `000.006.139` for collapsing multi-topic documents. The
+five causes were diagnosed that same day and written into §7.1 as invariants — **and then never
+fixed.** The classifier sat untouched with the original logic while the standard was built around
+it. This is that repair, against the now post-coordinate standard.
+
+### Fixed — the five §7.1 violations
+- **Truncation.** The prompt showed the model five of a document's tags and then acted on its
+  verdict about all of them. A 36-tag note had 31 hidden. Every current tag now reaches the prompt.
+- **Silence deleted.** The tag set was rebuilt from what the model echoed back, so any tag it did
+  not repeat vanished. The set now starts from what the document has; only terms named explicitly
+  in `tags_to_remove` are dropped.
+- **Existing tags were hidden from the candidate pool**, so the model could not see that a term it
+  already carried was the canonical one, and invented near-synonyms instead.
+- **Novelty guidance was computed and discarded.** The coverage signal that decides whether to
+  reuse or mint reached a variable named `_novelty_guidance` and went nowhere.
+- **The latency fast-path degraded reasoning** above fifteen tags — trading correctness for speed
+  on exactly the documents that needed the most care. Removed: a document that cannot be classified
+  within budget is deferred, not partially processed.
+
+### Changed
+- **The prompt is post-coordinate.** It taught nested `Domain/Subdomain` and Title-Case, which §3.3
+  and §5 no longer permit. It now asks for atomic lowercase tags and reserves the single slash for
+  facet prefixes.
+- **Output is canonicalized** through recorded equivalences, so a retired variant the model echoes
+  back cannot re-enter the vocabulary.
+- **The classifier no longer mints master tags.** Under §6.1 it proposes; registration is authority
+  control's job, not the document pass's.
+
+### Preserved by design
+- `TAG_LIBRARIAN_ENABLED` stays `False`. The rewrite is untested against real documents, and the
+  previous version's failure was discovered by running it on a live vault.
+- The four invariants are pinned as tests, including one that feeds thirty tags and asserts every
+  one reaches the prompt.
 
 ## [000.006.174] - 2026-09-20 — *Phrase Retirement — Verbose and Unshared, Together*
 

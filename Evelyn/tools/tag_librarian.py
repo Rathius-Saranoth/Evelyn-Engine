@@ -468,7 +468,9 @@ def retrieve_candidate_tags_for_document(
             for r in results:
                 meta = r.get("metadata") or {}
                 tag = meta.get("tag")
-                if not tag or is_excluded_tag(tag) or tag in current_tags:
+                # Current tags are NOT excluded: the model must be able to see that a term
+                # it already carries IS the canonical one (§7.1 rule 4).
+                if not tag or is_excluded_tag(tag):
                     continue
                 dist = float(r.get("distance", 1.0))
 
@@ -503,21 +505,21 @@ def retrieve_candidate_tags_for_document(
 
     if min_dist < 0.40:
         novelty_guidance = (
-            f"TAXONOMY MATCH CONFIDENCE: HIGH (Nearest match distance: {min_dist:.2f}).\n"
-            "Strong domain alignment exists in the Master Taxonomy. Strictly adhere to existing parent hierarchies "
-            "or add specific child tags if the document covers a narrower specialization."
+            f"Vocabulary coverage: HIGH (nearest term {min_dist:.2f}).\n"
+            "This subject is already well represented. Reuse the terms listed above rather than "
+            "minting near-synonyms of them."
         )
     elif min_dist < novelty_threshold:
         novelty_guidance = (
-            f"TAXONOMY MATCH CONFIDENCE: MODERATE (Nearest match distance: {min_dist:.2f}).\n"
-            "Related parent domains found, but this note may represent a distinct sub-domain or angle. "
-            "You may extend existing parent branches (e.g. '3D-Printing/...', 'AI/LLM/...') or introduce a clean nested category."
+            f"Vocabulary coverage: MODERATE (nearest term {min_dist:.2f}).\n"
+            "Related terms exist but may not cover this subject exactly. Reuse where a listed term "
+            "fits; add a new atomic term only for a subject none of them names."
         )
     else:
         novelty_guidance = (
-            f"TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN (Nearest match distance: {min_dist:.2f}).\n"
-            "This document introduces concepts not well-covered by existing taxonomy. "
-            "You are EXPLICITLY ENCOURAGED to mint new domain-level tag hierarchies (e.g. #Domain/Subtopic or #Domain/Subdomain/Topic)."
+            f"Vocabulary coverage: LOW (nearest term {min_dist:.2f}).\n"
+            "This document covers subjects the vocabulary does not yet name. Adding new atomic "
+            "terms is expected here."
         )
 
     return sorted_candidates, min_dist, novelty_guidance
@@ -603,7 +605,6 @@ def audit_document_tags(
         "previous_tags": current_tags,
         "final_tags": final_tags_list,
         "llm_evaluated": False,
-        "new_masters": [],
     }
 
     # 2. Semantic LLM Tag RAG (if enabled and applicable)
@@ -612,7 +613,7 @@ def audit_document_tags(
         doc_info = vault_db.get_document(path) if path else None
         gist = doc_info.get("gist", "") if doc_info else ""
 
-        candidate_tags, min_dist, _novelty_guidance = retrieve_candidate_tags_for_document(
+        candidate_tags, min_dist, novelty_guidance = retrieve_candidate_tags_for_document(
             title=title,
             gist=gist,
             body_sample=body[:1500],
@@ -621,132 +622,95 @@ def audit_document_tags(
         details["min_taxonomy_distance"] = min_dist
 
         candidate_list_text = (
-            "\n".join([
-                f"- #{c.get('tag', '')} ({c.get('category', 'general')})"
-                for c in candidate_tags
-                if c.get("tag")
-            ])
+            "\n".join(f"- {c['tag']}" for c in candidate_tags if c.get("tag"))
             if candidate_tags
-            else "No existing master tags matched."
+            else "No existing vocabulary matched."
         )
 
-        # Summarize auditable tags if extensive to prevent model deliberation loops
-        if len(auditable_tags) > 6:
-            tag_summary = f"{len(auditable_tags)} legacy tags (including: {', '.join(auditable_tags[:5])} ...)"
-        else:
-            tag_summary = ", ".join(auditable_tags) if auditable_tags else "none"
+        # Every current tag is shown. Summarising them and then acting on the verdict is an
+        # unsound audit: the model cannot judge what it was never given (§7.1 rule 2).
+        tag_list_text = "\n".join(f"- {t}" for t in auditable_tags) if auditable_tags else "(none)"
 
         system_prompt = (
-            "You are a professional library cataloger maintaining a Faceted Classification system for a personal knowledge vault.\n"
-            "Your role mirrors a research librarian filing books: you classify documents by SUBJECT MATTER, not by the author's role or employer.\n\n"
-            "CLASSIFICATION RULES:\n"
-            "1. DOMAIN TAGS: Assign tags for each genuine subject the document covers.\n"
-            "   - Use nested Domain/Subdomain only when specialization warrants it (e.g. #Tech/GIS, #Craft/Tailoring, #Music/Cello, #Science/Geology).\n"
-            "   - A document on GIS gets #Tech/GIS — not #Work or #Job. A document on genealogy gets #Genealogy — not #Hobby.\n"
-            "   - Multi-topic documents MUST receive a tag for EACH meaningful subject area. Do not collapse them into one tag.\n"
-            "2. TYPE/FORM FACETS: Assign exactly one orthogonal facet for the document's form or nature:\n"
-            "   - #type/overview, #type/manual, #type/guide, #type/journal-entry, #type/reference, #type/list, #type/recipe, #type/notes, #type/log\n"
-            "   - This facet is SEPARATE from domain tags — never mix form with subject.\n"
-            "3. EXISTING TAGS: Evaluate each current tag for correctness and format.\n"
-            "   - Tags already in Domain/Subdomain or Domain/Subdomain/Leaf format are ALREADY WELL-CATALOGED structured facets — treat them as correct and preserve them unless they are factually wrong about the document's content.\n"
-            "   - Only flat or un-nested tags (e.g. 'gis-technician', 'dream-journal') need reformatting into a proper hierarchy.\n"
-            "   - Remove only tags that are genuinely wrong, exact redundant duplicates, or meaningless noise.\n"
-            "4. QUANTITY GUIDE: Simple notes: 2-4 tags total. Multi-topic reference documents: as many domain tags as genuinely needed. Never pad; never truncate coverage.\n"
-            "5. FORMAT: All tags use Title-Case with hyphens for multi-word terms. Subdomains separated by /. No spaces.\n\n"
-            "Output valid JSON only with fields: tags_to_keep, tags_to_add, tags_to_remove, new_master_tags.\n"
-            "CRITICAL: Decide once, output JSON immediately. Do NOT loop or debate."
+            "You are a cataloger maintaining a POST-COORDINATE tag vocabulary for a personal "
+            "knowledge vault. Concepts are kept SEPARATE and combined by the search query.\n\n"
+            "FORMAT - absolute:\n"
+            "1. Tags are atomic and lowercase. One concept per tag. Hyphens join words INSIDE "
+            "one concept ('3d-printing', 'uv-mapping').\n"
+            "2. NEVER use a slash to nest subjects. 'work/routine/morning' is wrong; emit "
+            "'work', 'routine', 'morning' as three separate tags.\n"
+            "3. A slash appears ONLY as a facet prefix, exactly once, and only for these:\n"
+            "   type/  motif/  setting/  event/\n\n"
+            "WHAT TO EMIT:\n"
+            "- SUBJECT tags: one atomic tag per genuine subject. A multi-topic document gets "
+            "one per topic - never collapse them.\n"
+            "- Exactly one type/ facet: type/overview type/reference type/guide type/manual "
+            "type/journal-entry type/dream type/creative type/media type/recipe type/list "
+            "type/log type/notes type/report type/moc\n"
+            "- motif/ and setting/ ONLY for dream, creative and media documents. Never on "
+            "reference material.\n"
+            "- Named people, places, books and products are NOT tags. Omit them.\n\n"
+            "JUDGING EXISTING TAGS:\n"
+            "- Keep every existing tag that is accurate. Listing a tag under tags_to_remove is "
+            "the ONLY way to remove it.\n"
+            "- Remove a tag only if it is factually wrong about this document, an exact "
+            "duplicate, or a multi-word phrase describing this one document rather than a "
+            "reusable concept.\n"
+            "- Prefer a candidate from the existing vocabulary over inventing a near-synonym.\n\n"
+            'Output ONLY valid JSON: {"tags_to_add": [], "tags_to_remove": []}\n'
+            "Decide once. Do not deliberate."
         )
 
+        skeleton = _extract_document_skeleton(body, gist)
         user_prompt = (
-            f"Document Title: {title}\n"
-            f"Document Path: {path}\n"
-            f"Current Tags: {tag_summary}\n\n"
-            f"--- CANDIDATE MASTER TAGS (from vault taxonomy) ---\n"
-            f"{candidate_list_text}\n\n"
-            f"--- DOCUMENT SKELETON (headings + gist + opening) ---\n"
-            f"'''\n{_extract_document_skeleton(body, gist)}\n'''\n\n"
-            "Classify this document using Faceted Classification.\n"
-            "1. Assess each current tag: keep if accurate and well-formatted, reformat if needed, remove if wrong or redundant.\n"
-            "2. Add domain tags for any subject areas not yet covered.\n"
-            "3. Add exactly one #type/ facet for the document's form.\n"
-            "4. Do not collapse a multi-topic document into fewer than its genuine subject areas.\n"
-            "Output JSON immediately."
+            f"Document: {title}\n"
+            f"Path: {path}\n\n"
+            f"--- ALL CURRENT TAGS ({len(auditable_tags)}) ---\n{tag_list_text}\n\n"
+            f"--- EXISTING VOCABULARY, nearest first ---\n{candidate_list_text}\n\n"
+            f"--- VOCABULARY COVERAGE ---\n{novelty_guidance}\n\n"
+            f"--- DOCUMENT ---\n{skeleton}\n\n"
+            "Emit atomic lowercase tags. Add what is missing; remove only what is wrong.\n"
+            "Output JSON now."
         )
 
-        # Fix 1: High-tag-count bypass — docs with >15 legacy tags need mechanical
-        # reformatting, not deep reasoning. Routing think=True on 15+ tags causes the
-        # model to deliberate over each one individually, reliably hitting the timeout.
-        # Route directly to think=False for these; the result is faster and equally good.
-        use_fast_path = len(auditable_tags) > 15
-        if use_fast_path:
-            logger.info("High tag count (%d tags) for %s — routing directly to fast-path inference.", len(auditable_tags), path)
-
+        # One attempt, at full reasoning. There is deliberately no fast path: degrading the
+        # classifier to beat a timeout trades correctness for latency, which is what produced
+        # the collapse this rewrite exists to prevent. A document that cannot be classified
+        # within budget is DEFERRED, not partially processed (§7.1 rule 5).
         try:
-            if use_fast_path:
-                response_text = _canonical_query_ollama(
-                    prompt=user_prompt,
-                    system=system_prompt,
-                    options={"temperature": 0.1, "num_predict": 1536},
-                    timeout=60,
-                    think=False,
-                )
-            else:
-                response_text = query_ollama(user_prompt, system_prompt)
+            response_text = query_ollama(user_prompt, system_prompt)
             json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
             if not json_match:
-                logger.info("Reasoning token limit reached or no JSON for %s; retrying with direct inference fallback.", path)
-                response_text = _canonical_query_ollama(
-                    prompt=user_prompt,
-                    system=system_prompt,
-                    options={"temperature": 0.1, "num_predict": 1536},
-                    timeout=60,
-                    think=False,
+                logger.warning(
+                    "[TAG LIBRARIAN] No parseable decision for %s; deferring unchanged.", path
                 )
-                json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+                return False, content, details
 
-            if json_match:
-                parsed = json.loads(json_match.group(0))
-                tags_to_keep = [normalize_tag_format(t) for t in parsed.get("tags_to_keep", []) if t]
-                tags_to_add = [normalize_tag_format(t) for t in parsed.get("tags_to_add", []) if t]
-                tags_to_remove = [normalize_tag_format(t) for t in parsed.get("tags_to_remove", []) if t]
-                new_masters = parsed.get("new_master_tags", [])
+            parsed = json.loads(json_match.group(0))
+            to_add = [normalize_tag_format(t) for t in parsed.get("tags_to_add", []) if t]
+            to_remove = {normalize_tag_format(t) for t in parsed.get("tags_to_remove", []) if t}
 
-                working_set = set(protected_tags)
-                for t in tags_to_keep:
-                    if t:
-                        working_set.add(t)
-                for t in tags_to_add:
-                    if t:
-                        working_set.add(t)
-                for t in tags_to_remove:
-                    if t in working_set and not is_excluded_tag(t):
-                        working_set.remove(t)
+            # Start from what the document already has. A tag the model did not mention
+            # survives: silence is not a removal instruction (§7.1 rule 1). Only terms named
+            # explicitly in tags_to_remove are dropped, and protected tags never are.
+            working: list[str] = list(protected_tags)
+            for tag in auditable_tags:
+                if tag not in to_remove and tag not in working:
+                    working.append(tag)
+            for tag in to_add:
+                if tag and tag not in to_remove and tag not in working:
+                    working.append(tag)
 
-                final_tags_list = sorted(working_set)
-                details["final_tags"] = final_tags_list
-                details["llm_evaluated"] = True
-                details["new_masters"] = new_masters
-
-                # Upsert newly minted master tags
-                for m in new_masters:
-                    if isinstance(m, dict):
-                        ntag = normalize_tag_format(m.get("tag", ""))
-                        cat = m.get("category", ntag.split("/")[0] if "/" in ntag else "general")
-                        desc = m.get("description", f"Obsidian notes tagged under {ntag}")
-                    elif isinstance(m, str):
-                        ntag = normalize_tag_format(m)
-                        cat = ntag.split("/")[0] if "/" in ntag else "general"
-                        desc = f"Obsidian notes tagged under {ntag}"
-                    else:
-                        continue
-                    if ntag and not is_excluded_tag(ntag):
-                        taxonomy_db.upsert_master_tag(ntag, category=cat, description=desc, usage_count=1)
-                        index_master_tag_in_chroma(ntag, category=cat, description=desc, usage_count=1)
+            # Resolve through recorded equivalences so a retired variant the model echoed
+            # back does not re-enter the vocabulary (§6.2).
+            final_tags_list = sorted(taxonomy_db.canonicalize_tags(working))
+            details["final_tags"] = final_tags_list
+            details["llm_evaluated"] = True
+            details["tags_added"] = [t for t in to_add if t in final_tags_list]
+            details["tags_removed"] = sorted(to_remove & set(auditable_tags))
         except Exception as llm_err:  # noqa: BLE001
-            print(f"[TAG LIBRARIAN] LLM semantic tagging failed for {path}: {llm_err}")
-
-        if not details["llm_evaluated"]:
-            print(f"[TAG LIBRARIAN] Warning: LLM semantic tagging did not yield a valid JSON decision for {path}")
+            logger.warning("[TAG LIBRARIAN] Classification failed for %s: %s", path, llm_err)
+            return False, content, details
 
     # Recorded UF equivalences are applied last, so a retired variant reaching this point
     # from any source resolves to its preferred term instead of being re-minted (§6.2).
@@ -848,7 +812,6 @@ def audit_single_document_semantic(
         "previous_tags": details.get("previous_tags", []),
         "final_tags": details.get("final_tags", []),
         "min_taxonomy_distance": details.get("min_taxonomy_distance", 1.0),
-        "new_masters": details.get("new_masters", []),
     }
 
 
