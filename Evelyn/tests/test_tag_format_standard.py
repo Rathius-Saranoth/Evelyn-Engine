@@ -534,6 +534,9 @@ class TestClassifierInvariants:
             tag_librarian, "classify_document_subjects",
             lambda **k: (list(applied), list(proposals)),
         )
+        # Isolate pass 2: no class determination, no staleness check.
+        monkeypatch.setattr(tag_librarian, "determine_document_class", lambda *a, **k: "")
+        monkeypatch.setattr(tag_librarian, "verify_tags_still_apply", lambda *a, **k: [])
         monkeypatch.setattr(tag_librarian.vault_db, "get_document", lambda p: {"gist": ""})
         monkeypatch.setattr(tag_librarian.taxonomy_db, "canonicalize_tags", lambda t: list(t))
         return tag_librarian.audit_document_tags(content, path="n.md", enable_llm=True)
@@ -706,3 +709,53 @@ class TestStalenessRemoval:
         tl = self._mock(monkeypatch, '{"stale": ["a","b"]}')
         tags = [chr(97 + i) for i in range(10)]
         assert sorted(tl.verify_tags_still_apply("x", "T", tags)) == ["a", "b"]
+
+
+class TestApplicationProfile:
+    """§4: the class decides which facets are required, permitted or forbidden."""
+
+    def test_type_facet_is_added_for_the_class(self):
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        add, drop, _gaps = apply_application_profile("reference", ["music"])
+        assert add == ["type/reference"] and drop == []
+
+    def test_a_second_type_facet_is_removed(self):
+        """One form per document; a second is wrong about what the document is."""
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        add, drop, _g = apply_application_profile("reference", ["type/journal-entry", "music"])
+        assert "type/reference" in add and drop == ["type/journal-entry"]
+
+    def test_forbidden_facet_is_enforced_not_requested(self):
+        """A motif on reference material is rejected mechanically, never argued with."""
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        _a, drop, _g = apply_application_profile("reference", ["motif/combat", "music"])
+        assert drop == ["motif/combat"]
+
+    def test_required_facet_absent_is_reported_not_invented(self):
+        """A dream needs a motif, but guessing which one is subject analysis, not cataloguing."""
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        add, _d, gaps = apply_application_profile("dream", ["CY-2026/01/01", "setting/tropical"])
+        assert "motif" in gaps
+        assert not any(t.startswith("motif/") for t in add)
+
+    def test_satisfied_requirements_are_not_reported_as_gaps(self):
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        _a, _d, gaps = apply_application_profile(
+            "dream", ["CY-2026/01/01", "motif/combat", "setting/tropical"]
+        )
+        assert gaps == []
+
+    def test_unknown_class_changes_nothing(self):
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        assert apply_application_profile("", ["music"]) == ([], [], [])
+
+    def test_protected_tags_survive_a_forbidden_rule(self):
+        """'time forbidden' must never strip a protected date anchor (§3.8)."""
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        _a, drop, _g = apply_application_profile("reference", ["CY-2026/01/01", "music"])
+        assert "CY-2026/01/01" not in drop
+
+    def test_class_answer_outside_the_list_is_rejected(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(tag_librarian, "_canonical_query_ollama", lambda **k: "poem")
+        assert tag_librarian.determine_document_class("x", "T") == ""

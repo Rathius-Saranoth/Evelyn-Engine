@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 15:13:46
+date modified: 2026-09-20 15:20:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,34 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.180] - 2026-09-20 — *Application Profile — Cataloguing Before Subject Analysis*
+
+§4 has described which facets each class of document requires, permits and forbids since it was
+written, and nothing ever consulted it. The classifier never determined a class, so "forbidden is
+enforced, not advisory" was aspirational. This makes it real, and completes the three-pass pipeline.
+
+### Added
+- **`determine_document_class()`** identifies a document's *form* from a closed list — the narrowest
+  question in the pipeline and the only part of the profile a model decides.
+- **`apply_application_profile()`** does the rest by table lookup: adds the `type/` facet, strips a
+  second one, removes facets the class forbids, and **reports** required facets that are missing
+  rather than inventing them. A dream without a motif needs one, but guessing which motif is subject
+  analysis, not cataloguing.
+- The pipeline is now three passes with distinct questions: *what kind of thing is this* (§4),
+  *what is it about* (§6.1), *what is it no longer about* (staleness).
+
+### Fixed
+- **The staleness pass was reading a truncated document.** It received the first 6,000 characters
+  and judged every tag against them, so on a 23,000-character overview it condemned ten legitimate
+  sections — `floodplain`, `census-data`, `emergency-management` — as stale. It now reads the whole
+  document by the same route classification uses. §7.1 rule 2 is about the document as much as the
+  tag list, and applying it to only one of them reproduced the original collapse in miniature.
+
+### Verified end to end
+The 36-tag document that began this work now goes **33 tags to 34** — everything kept, `type/manual`
+added, nothing removed. Classes were identified correctly across a manual, a journal entry and a
+reference note, and proposals were coherent (`parcel-documentation`, `finger-placement`).
 
 ## [000.006.179] - 2026-09-20 — *Staleness as a Positive Assertion*
 

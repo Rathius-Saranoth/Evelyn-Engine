@@ -125,10 +125,14 @@ class TestSemanticTaggingSubsystem(unittest.TestCase):
         self.assertEqual(doc_after["tags"], "new/domain, new/sub")
 
     @patch("Evelyn.tools.tag_librarian.chroma_rag.ingest_markdown_file")
+    @patch("Evelyn.tools.tag_librarian.verify_tags_still_apply", return_value=[])
+    @patch("Evelyn.tools.tag_librarian.determine_document_class", return_value="")
     @patch("Evelyn.tools.tag_librarian.classify_document_subjects")
     def test_audit_single_document_semantic_flow(
         self,
         mock_classify,
+        mock_class,
+        mock_stale,
         mock_chroma_ingest,
     ):
         """Verify the single-document audit applies reconciled subjects and keeps the rest."""

@@ -12,6 +12,8 @@ Exports:
     read_document_for_classification()    — Full text when it fits; chunked subject extraction when it does not.
     classify_document_subjects()          — Blind extraction, then deterministic reconciliation (§6.1).
     verify_tags_still_apply()             — Positive-assertion staleness check, with a removal ceiling.
+    determine_document_class()            — Identify a document's form from the closed class list (§4).
+    apply_application_profile()           — Enforce a class's required/forbidden facets (§4).
     normalize_tag_format()                — Standardizes tags to lowercase-hyphen-slash form (taxonomy §5).
     strip_subject_duplicate_tags()        — Drops tags that merely restate a record's own subject.
     audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
@@ -527,8 +529,13 @@ def verify_tags_still_apply(body: str, title: str, tags: list[str]) -> list[str]
         'Output ONLY JSON: {"stale": []}'
     )
     listing = "\n".join(f"- {t}" for t in auditable)
+    # The whole document, by the same route classification uses. Judging 33 tags against the
+    # first quarter of a long note marks everything covered later as stale — measured on a
+    # 23,000-character overview, a truncated view condemned ten legitimate sections. §7.1
+    # rule 2 is about the document as much as the tag list.
+    view = read_document_for_classification(body, "", title)
     user = (
-        f"Document: {title}\n\n--- DOCUMENT ---\n{body[:FULL_TEXT_LIMIT]}\n\n"
+        f"Document: {title}\n\n--- DOCUMENT ---\n{view}\n\n"
         f"--- TAGS ({len(auditable)}) ---\n{listing}\n\nOutput JSON now."
     )
 
@@ -557,6 +564,115 @@ def verify_tags_still_apply(body: str, title: str, tags: list[str]) -> list[str]
         )
         return []
     return stale
+
+
+# The application profile (§4) in the DCMI sense: which facets a class of document requires,
+# permits, or forbids. The class is the only part a model decides; everything downstream is a
+# table lookup, so "forbidden" is enforced rather than requested.
+REQUIRED, OPTIONAL, FORBIDDEN = "required", "optional", "forbidden"
+
+FACET_PROFILE: dict[str, dict[str, str]] = {
+    "reference":     {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "guide":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "manual":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "overview":      {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "moc":           {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "list":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "log":           {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": OPTIONAL,  "time": REQUIRED},
+    "report":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": OPTIONAL,  "time": REQUIRED},
+    "journal-entry": {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": REQUIRED},
+    "dream":         {"motif": REQUIRED,  "setting": REQUIRED,  "event": OPTIONAL,  "time": REQUIRED},
+    "creative":      {"motif": REQUIRED,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
+    "media":         {"motif": REQUIRED,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
+    "recipe":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "notes":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+}
+DOCUMENT_CLASSES = sorted(FACET_PROFILE)
+
+
+def determine_document_class(body: str, title: str, path: str = "") -> str:
+    """Identify which class of document this is, from a closed list (§4).
+
+    The narrowest question in the pipeline and the only part of the profile a model decides:
+    everything the class implies is then a table lookup. Asked separately from subject
+    extraction because form and subject are orthogonal — conflating them is what produced
+    tags describing a note's shape as though they were topics.
+
+    Args:
+        body: Document body.
+        title: Document title.
+        path: Vault-relative path; folders are often the strongest signal of form.
+
+    Returns:
+        str: A class from DOCUMENT_CLASSES, or '' if it could not be determined.
+    """
+    options = "  ".join(DOCUMENT_CLASSES)
+    system = (
+        "Classify the FORM of this document — what kind of thing it is, not what it is about.\n"
+        f"Choose exactly one of: {options}\n"
+        "Output ONLY that single word. No punctuation, no explanation."
+    )
+    user = f"Path: {path}\nTitle: {title}\n\n{body[:2000]}\n\nOne word:"
+
+    try:
+        raw = _canonical_query_ollama(
+            prompt=user, system=system,
+            options={"temperature": 0.0, "num_predict": 24}, timeout=45, think=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[TAG LIBRARIAN] Class determination failed for %s: %s", title, exc)
+        return ""
+
+    answer = normalize_tag_format(raw.strip().split()[0] if raw.strip() else "")
+    return answer if answer in FACET_PROFILE else ""
+
+
+def apply_application_profile(
+    doc_class: str, tags: list[str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Enforce a class's facet profile against a document's tags (§4).
+
+    Returns what the profile requires be added, what it forbids and must go, and which
+    required facets the document still lacks. The last of those is a gap to report rather
+    than something to invent: a `dream` with no motif needs one, but guessing which motif
+    is subject analysis, not cataloguing.
+
+    Args:
+        doc_class: A class from DOCUMENT_CLASSES.
+        tags: The document's current tags.
+
+    Returns:
+        tuple[list[str], list[str], list[str]]: (to add, to remove, unmet requirements).
+    """
+    profile = FACET_PROFILE.get(doc_class)
+    if not profile:
+        return [], [], []
+
+    add: list[str] = []
+    remove: list[str] = []
+    gaps: list[str] = []
+
+    type_tag = f"type/{doc_class}"
+    if type_tag not in tags:
+        add.append(type_tag)
+    # One type facet only — any other is wrong about the document's form.
+    remove.extend(t for t in tags if t.startswith("type/") and t != type_tag)
+
+    for facet, rule in profile.items():
+        if facet == "time":
+            present = any(t.startswith("CY-") for t in tags)
+        else:
+            present = any(t.startswith(f"{facet}/") for t in tags)
+
+        if rule == FORBIDDEN and present:
+            remove.extend(
+                t for t in tags
+                if (t.startswith("CY-") if facet == "time" else t.startswith(f"{facet}/"))
+            )
+        elif rule == REQUIRED and not present:
+            gaps.append(facet)
+
+    return add, [t for t in remove if not is_excluded_tag(t)], gaps
 
 
 def parse_frontmatter_tags(content: str) -> tuple[list[str], str]:
@@ -797,6 +913,26 @@ def audit_document_tags(
         doc_info = vault_db.get_document(path) if path else None
         gist = doc_info.get("gist", "") if doc_info else ""
 
+        # PASS 1 — application profile (§4). The class is the only judgement; everything it
+        # implies is a table lookup, so "forbidden" is enforced rather than requested. These
+        # removals are rule violations, not opinions, and so are not subject to the
+        # staleness ceiling below.
+        doc_class = determine_document_class(body, title, path)
+        if doc_class:
+            add, drop, gaps = apply_application_profile(doc_class, final_tags_list)
+            if drop:
+                final_tags_list = [t for t in final_tags_list if t not in set(drop)]
+            final_tags_list.extend(t for t in add if t not in final_tags_list)
+            details["document_class"] = doc_class
+            details["profile_violations"] = drop
+            details["profile_gaps"] = gaps
+            if gaps:
+                logger.info(
+                    "[TAG LIBRARIAN] %s is a %s but has no %s — required by §4.",
+                    path, doc_class, ", ".join(gaps),
+                )
+
+        # PASS 2 — subject indexing.
         applied, proposals = classify_document_subjects(
             body=body, gist=gist, title=title, existing=final_tags_list
         )
@@ -809,8 +945,8 @@ def audit_document_tags(
             if tag and tag not in final_tags_list:
                 final_tags_list.append(tag)
 
-        # Removal is a separate question with its own pass, because it cannot be inferred
-        # from what a document is about. Protected tags are never candidates.
+        # PASS 3 — staleness. A separate question, because it cannot be inferred from what
+        # a document is about. Protected tags are never candidates.
         stale = verify_tags_still_apply(body, title, final_tags_list)
         if stale:
             final_tags_list = [t for t in final_tags_list if t not in set(stale)]
@@ -922,7 +1058,9 @@ def audit_single_document_semantic(
         "modified": changed,
         "previous_tags": details.get("previous_tags", []),
         "final_tags": details.get("final_tags", []),
-        "min_taxonomy_distance": details.get("min_taxonomy_distance", 1.0),
+        "document_class": details.get("document_class", ""),
+        "profile_gaps": details.get("profile_gaps", []),
+        "proposals": details.get("proposals", []),
     }
 
 
