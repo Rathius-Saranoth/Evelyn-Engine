@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 10:22:46
+# date modified: 2026-09-20 10:25:24
 # tags: #versioning, #release
 
 """
@@ -15,8 +15,8 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.161"
-__version_info__ = (0, 6, 161)
+__version__ = "000.006.162"
+__version_info__ = (0, 6, 162)
 __version_name__ = "The Sibling Test — Reviewed Merges and Nesting Resolved by Evidence"
 VERSION_NAME = __version_name__
 

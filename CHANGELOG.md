@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 10:24:04
+date modified: 2026-09-20 10:25:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -13,7 +13,7 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
-## [000.006.161] - 2026-09-20 — *The Sibling Test — Reviewed Merges and Nesting Resolved by Evidence*
+## [000.006.162] - 2026-09-20 — *The Sibling Test — Reviewed Merges and Nesting Resolved by Evidence*
 
 Completes step 5 of the taxonomy migration (`vault-tag-taxonomy.md` §9). The reviewed merges are
 applied, and the flat-vs-nested question that recurred 126 times now has a measurable answer instead
