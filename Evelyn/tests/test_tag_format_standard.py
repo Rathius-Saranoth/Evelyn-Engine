@@ -297,3 +297,94 @@ class TestSiblingTest:
         assert self._resolve([["lifestyle/fashion", "life/style/fashion"]], counts) == [
             ("lifestyle/fashion", "life/style/fashion")
         ]
+
+
+class TestRootConsolidation:
+    """§9 step 6a: consolidate roots that step 5's whole-term matching could not reach."""
+
+    def _c(self, d):
+        import collections
+        return collections.Counter(d)
+
+    def test_inflected_roots_fold_to_singular(self):
+        """§6.3.2: singular wins, even when the plural root is larger."""
+        from Evelyn.tools.tag_synonym import root_inflection_merges
+        counts = self._c({"goal/career": 1, "goals/fitness": 9, "goals/health": 8})
+        assert root_inflection_merges(counts) == {"goals": "goal"}
+
+    def test_roots_with_no_inflection_twin_are_left_alone(self):
+        from Evelyn.tools.tag_synonym import root_inflection_merges
+        assert root_inflection_merges(self._c({"tech/ai": 5, "health/sleep": 3})) == {}
+
+    def test_near_synonyms_are_not_treated_as_inflections(self):
+        """tech/technology is a semantic judgement, not a mechanical one."""
+        from Evelyn.tools.tag_synonym import root_inflection_merges
+        assert root_inflection_merges(self._c({"tech/ai": 5, "technology/ai": 2})) == {}
+
+    def test_sparse_root_with_warrant_is_preserved(self):
+        """A root tagged once but written 800 times is an unfinished category, not a dead one."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({"architecture/patterns": 1, "tech/ai": 5, "tech/gis": 4})
+        assert weak_root_resolution(counts, warrant={"architecture": 1697}) == {}
+
+    def test_sparse_root_without_warrant_is_dismantled(self):
+        """Nobody writes 'social-relations', so nobody would search it."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({"social-relations/family": 1, "tech/ai": 5, "tech/gis": 4})
+        assert weak_root_resolution(counts, warrant={"social-relations": 0}) == {
+            "social-relations/family": "social-relations-family"
+        }
+
+    def test_missing_warrant_defaults_to_keeping(self):
+        """Dismantling without evidence is the failure mode, so absence means preserve."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({"mystery/thing": 1, "tech/ai": 5, "tech/gis": 4})
+        assert weak_root_resolution(counts, warrant={}) == {}
+
+    def test_entity_never_becomes_a_domain_however_common(self):
+        """§2: a name written 1,481 times is still an individual, not a category."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({"someone/preferences": 1, "tech/ai": 5, "tech/gis": 4})
+        assert weak_root_resolution(counts, warrant={"someone": -1}) == {
+            "someone/preferences": "someone-preferences"
+        }
+
+    def test_compound_with_established_head_is_renested(self):
+        """ai-behavior is a missed nesting when 'ai' is demonstrably a real level."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({
+            "ai-behavior/dialogue": 1,
+            **{f"ai/{k}": 2 for k in ("rag", "tools", "ethics", "models", "agents")},
+        })
+        assert weak_root_resolution(counts) == {"ai-behavior/dialogue": "ai/behavior/dialogue"}
+
+    def test_conjunction_needs_no_special_case(self):
+        """'X and Y' is two categories a generator could not choose between — and warrant
+        catches it without a rule of its own, because nobody writes the phrase."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({"protocol-and-routine/daily": 1, "tech/ai": 5, "tech/gis": 4})
+        assert weak_root_resolution(counts, warrant={"protocol-and-routine": 0}) == {
+            "protocol-and-routine/daily": "protocol-and-routine-daily"
+        }
+
+    def test_compound_without_a_strong_parent_is_left_alone(self):
+        """Guessing is worse than waiting for a later pass with more evidence."""
+        from Evelyn.tools.tag_synonym import weak_root_resolution
+        counts = self._c({"3d-modeling/topology": 1, "tech/ai": 5, "tech/gis": 4})
+        assert weak_root_resolution(counts) == {}
+
+    def test_ordering_matters_merge_before_flatten(self):
+        """A root weak alone may clear the bar once its variants fold in."""
+        import collections
+
+        from Evelyn.tools.tag_synonym import root_inflection_merges, weak_root_resolution
+        counts = self._c({"goal-setting/career": 1, "goals-setting/fitness": 2,
+                          "goal/a": 1, "goal/b": 1, "goal/c": 1, "goal/d": 1, "goal/e": 1})
+        merges = root_inflection_merges(counts)
+        merged = collections.Counter()
+        for tag, n in counts.items():
+            root, rest = tag.split("/", 1)
+            merged[f"{merges.get(root, root)}/{rest}"] += n
+        # After merging, goals-setting folds into goal-setting, which then re-nests under
+        # the established 'goal' root rather than being judged sparse in isolation.
+        assert all(v.startswith("goal/") for v in weak_root_resolution(merged).values())

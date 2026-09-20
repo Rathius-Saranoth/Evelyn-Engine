@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 10:55:51
+date modified: 2026-09-20 11:53:01
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -53,7 +53,7 @@ The schema is assembled from established knowledge-organization standards rather
 | **Iconclass** (RKD) | Precedent for **motif as a first-class, open classification** of "subjects, themes and motifs" — ~28,000 definitions across 10 divisions, including *5 Abstract Ideas and Concepts* |
 | **DCMI Type Vocabulary** | The canonical, closed list of resource types — supplies the media sub-typing layer |
 | **NISO metadata classes** (descriptive / structural / administrative) | The separation that keeps graph-control tags out of the subject catalog |
-| **ISO 25964-1** (with ANSI/NISO Z39.19) | The thesaurus relationship model — `USE`/`UF`, `BT`/`NT`, `RT` — and a formal data model for it |
+| **ISO 25964-1** (with ANSI/NISO Z39.19) | The thesaurus relationship model — `USE`/`UF`, `BT`/`NT`, `RT` — a formal data model for it, and the number-form rule (§6.3.2) |
 | **Getty AAT / TGN / ULAN** | The authority-file-per-entity-type pattern: concepts, places, and persons get *separate* registries |
 | **SKOS / OWL** | Concept vs. Individual — the tags-vs-links boundary (§2) |
 | **CIDOC-CRM** | Typed semantic relationships for the link layer, where a plain link is too vague |
@@ -292,6 +292,19 @@ A subdomain is created only when the volume justifies it. A branch carrying a si
 - Below threshold, the document takes the parent term.
 - **Motif is exempt** (§3.5). The threshold governs when a branch *splits*, not whether a theme is worth naming.
 
+> [!WARNING] The threshold governs branching, never whether a category may exist
+> Child count measures how much of a category has been **classified so far** — not whether the
+> category is legitimate. `routine` holding one term is still plainly a domain: the vault contains
+> many routines that nothing has tagged yet. Dismantling sparse namespaces destroys exactly the
+> categories that are about to fill, and it does so silently, because the evidence that they were
+> real is the material that has not been classified.
+>
+> A sparse root is therefore only altered when its **shape** marks it as an artifact rather than a
+> category — a compound whose head is an established root (`ai-behavior` where `ai` holds 128 terms)
+> is a missed nesting, and a conjunction (`preference-and-interest`) is two categories a generator
+> could not choose between. A recognisable single word keeps its namespace no matter how little sits
+> under it.
+
 ### 6.3.1 The sibling test — when a compound should become a level
 `personal-growth` or `personal/growth`? `me-cfs` or `me/cfs`? The question recurs constantly
 and reads as a matter of taste, but it has a measurable answer.
@@ -312,6 +325,75 @@ first word means anything on its own **in that position**. Sibling count is the 
 
 Measured across this vault's 122 flat-vs-nested pairs, the test resolved 117 to nested and 5 to
 compound — and the five it spared were precisely the terms of art.
+
+### 6.3.2 Number form — singular, by invoked exception
+ANSI/NISO Z39.19-2005 §6.5 splits nouns by countability: **count nouns** (those answering "How
+many?") *"should normally be expressed as plurals"*, while **mass nouns** ("How much?") take the
+singular. By the default rule, `dreams`, `projects` and `goals` would all be plural.
+
+**This vault uses the singular throughout**, invoking the exception the standard provides at
+§6.5.1.1: *"If in the domain of the controlled vocabulary there is literary or user warrant for the
+expression of count nouns in the singular, establishment of terms in that form is acceptable."* The
+standard's own examples are body parts in biomedicine and objects in a museum catalog.
+
+The warrant here is demonstrated, not assumed: across 161 singular/plural pairs in this corpus, the
+singular was the established form in 124. A personal knowledge vault behaves like a museum catalog —
+each note is a unique item, and `dream` marks *"this note concerns a dream"* rather than counting
+dreams.
+
+> [!IMPORTANT] This is a deliberate deviation, recorded as one
+> Choosing singular is standards-compliant **because the exception is invoked knowingly**, not
+> because usage happened to fall that way. A vocabulary that quietly diverges from the standard it
+> cites is worse than one that never cited it. Any future pass that "corrects" terms to plural for
+> conformance is undoing a decision, not fixing a defect.
+
+### 6.3.3 Literary warrant — a category is earned in the prose, not in the tags
+When deciding whether a sparse namespace is real, **count how often its word appears in the vault's
+own writing**, not how many terms have been filed under it.
+
+This is *literary warrant* in the sense Z39.19 §6.5.1.1 uses the phrase: a term belongs in a
+controlled vocabulary because the domain's literature uses it. Tag population measures something
+different — how much classification has happened so far — and using it as the test inverts the
+problem:
+
+| Root | Terms tagged under it | Times written in the vault | Verdict |
+|---|---|---|---|
+| `architecture` | 1 | 1,697 | keep — a category nobody has finished filing |
+| `database` | 1 | 860 | keep |
+| `analysis` | 1 | 841 | keep |
+| `social-relations` | 1 | 0 | dismantle — a generated label |
+| `pet-name` | 1 | 0 | dismantle |
+| `food-prep` | 1 | 0 | dismantle |
+
+> [!IMPORTANT] Population is evidence of past work, not of legitimacy
+> A root tagged once and written 800 times is the *strongest* case for keeping a namespace, not the
+> weakest — the gap between the two numbers is unclassified material, which is the condition this
+> whole migration exists to fix. Judging by population deletes precisely the categories about to
+> fill, and does it silently, because the evidence they were real is the material nobody tagged yet.
+
+**Measurement rules that matter:**
+- **Compounds are matched as phrases.** Searching for `mental-state` as a hyphenated token finds
+  nothing, since prose writes "mental state". Treating that zero as evidence would condemn every
+  multi-word root by construction.
+- **Entities score −1 regardless of frequency.** The operator's name appears 1,481 times and is
+  still not a domain (§2).
+- **Unknown roots are kept.** Absent evidence, the safe default is to preserve; dismantling without
+  warrant data is the failure mode this section exists to prevent.
+- **Dismantling never yields a long flat compound.** Two-segment terms collapse; deeper ones drop
+  the junk root and keep their structure. A 50-character flat tag is one nobody would ever search.
+
+> [!NOTE] Warrant measures the word, not the topic
+> This test is lexical. A theme genuinely present in the vault can score zero because it is written
+> in other words — `astronomy` appears nowhere, yet notes about stars and space plainly exist, and
+> two voices writing the same corpus (one plain, one ornate) widen that gap further. Warrant 0 means
+> *this string is absent*, never *this subject is absent*.
+>
+> That is an accepted trade for the first consolidation pass, whose job is to get the registry to a
+> defensible starting point rather than a perfect one. Terms removed here are recoverable: later
+> classification passes work from document content, so a real theme re-earns its tag on evidence
+> rather than on a label nobody wrote. A semantic warrant — embedding the root against note content
+> instead of string-matching it — is the obvious refinement when precision starts to matter more
+> than cleanup.
 
 ### 6.4 Association (`RT`) — the cross-domain layer
 ISO 25964 `RT` maps concepts that are related but neither is broader than the other: `motif/cosmic-horror` RT `fantasy/eldritch`. This is the layer that answers *"what else in the vault connects to this?"* across domains that share no parent — the question motif exists to make askable, answered at the vocabulary level rather than per-document.

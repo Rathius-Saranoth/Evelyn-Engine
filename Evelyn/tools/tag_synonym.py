@@ -25,6 +25,10 @@ Exports:
     skeleton()              — Separator-free lowercase form of a tag.
     namespace_children()    — How many terms live under each path prefix in the corpus.
     resolve_structural_nesting() — Settle flat-vs-nested pairs via the sibling test (§6.3.1).
+    root_census()           — Terms and uses sitting under each top-level root.
+    root_inflection_merges() — Merge roots that differ only by inflection (§6.3.2: singular wins).
+    literary_warrant()      — How often each root occurs as a phrase in the vault's own text.
+    weak_root_resolution()  — Re-nest or dismantle sparse roots, judged by warrant not population.
     singularize()           — Crude English singularization of a skeleton.
     build_corpus()          — Combined term->usage counts across vault and memory.
     lexical_equivalences()  — Tiered T1A/T1B/T2 groups, computed without embeddings.
@@ -232,3 +236,179 @@ def resolve_structural_nesting(
         pairs.extend((canonical, m) for m in members if m != canonical)
 
     return pairs
+
+
+def root_census(counts: collections.Counter) -> dict[str, dict[str, int]]:
+    """Count the terms and uses sitting under each top-level root.
+
+    Args:
+        counts: Corpus term -> usage count.
+
+    Returns:
+        dict[str, dict[str, int]]: root -> {'terms': n, 'uses': n}.
+    """
+    census: dict[str, dict[str, int]] = {}
+    for tag, uses in counts.items():
+        if "/" not in tag or tag.startswith("CY-"):
+            continue
+        root = tag.split("/", 1)[0]
+        entry = census.setdefault(root, {"terms": 0, "uses": 0})
+        entry["terms"] += 1
+        entry["uses"] += uses
+    return census
+
+
+def root_inflection_merges(counts: collections.Counter) -> dict[str, str]:
+    """Merge roots that are inflections of one word.
+
+    Step 5 merged whole terms, so it could not see this: `preference/food` and
+    `preferences/drink` share no lexical pair, yet the roots are one concept. Consolidating
+    at the root level rewrites every term beneath it.
+
+    The singular form wins, per §6.3.2 — which sometimes means the smaller root absorbs the
+    larger one. That is the convention working, not a bug: correctness of form outranks
+    incumbency.
+
+    Args:
+        counts: Corpus term -> usage count.
+
+    Returns:
+        dict[str, str]: variant root -> canonical root.
+    """
+    census = root_census(counts)
+    families: dict[str, list[str]] = collections.defaultdict(list)
+    for root in census:
+        families[singularize(skeleton(root))].append(root)
+
+    merges: dict[str, str] = {}
+    for members in families.values():
+        if len(members) < 2:
+            continue
+        # Shortest skeleton is the singular; break ties on established size.
+        canonical = min(members, key=lambda r: (len(skeleton(r)), -census[r]["terms"]))
+        for variant in members:
+            if variant != canonical:
+                merges[variant] = canonical
+    return merges
+
+
+def literary_warrant(roots: list[str], vault_root: str, entities: set[str] | None = None) -> dict[str, int]:
+    """Count how often each root occurs as a phrase in the vault's own prose.
+
+    This is *literary warrant* in the sense ANSI/NISO Z39.19 §6.5.1.1 uses it: a term earns
+    its place in a controlled vocabulary by appearing in the literature of the domain, not
+    by how much has already been filed under it. A root tagged once but written 800 times
+    is an obvious category whose material simply has not been classified yet — and
+    dismantling it would delete exactly the categories that are about to fill.
+
+    Compounds are matched as phrases. Searching for `mental-state` as a hyphenated token
+    finds nothing, because prose says "mental state"; treating that zero as evidence would
+    condemn every multi-word root by construction.
+
+    Args:
+        roots: Root names to score.
+        vault_root: Absolute path to the vault.
+        entities: Names that are individuals, not categories (§2). Scored -1 so they can
+            never qualify as domains however often they appear.
+
+    Returns:
+        dict[str, int]: root -> occurrence count, or -1 for entities.
+    """
+    import os
+    import re
+
+    entities = {e.lower() for e in (entities or set()) if e}
+    chunks: list[str] = []
+    for current, _dirs, files in os.walk(vault_root):
+        for name in files:
+            if not name.lower().endswith(".md"):
+                continue
+            try:
+                with open(os.path.join(current, name), encoding="utf-8", errors="replace") as fh:
+                    raw = fh.read()
+            except OSError:
+                continue
+            chunks.append(re.sub(r"^---.*?\n---", "", raw, flags=re.DOTALL).lower())
+
+    text = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s-]", " ", " ".join(chunks)))
+
+    scores: dict[str, int] = {}
+    for root in roots:
+        if root in entities:
+            scores[root] = -1
+            continue
+        words = root.split("-")
+        pattern = r"\b" + r"[\s-]+".join(re.escape(w) for w in words) + r"s?\b"
+        scores[root] = len(re.findall(pattern, text))
+    return scores
+
+
+def weak_root_resolution(
+    counts: collections.Counter,
+    min_children: int = 2,
+    strong_children: int = 5,
+    warrant: dict[str, int] | None = None,
+    min_warrant: int = 3,
+    head_aliases: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Resolve sparse roots, judged by literary warrant rather than by population.
+
+    Child count measures how much of a category has been *classified so far*. Judging a
+    namespace by it destroys the categories that are about to fill up, and does so silently,
+    because the evidence they were real is the material nobody has tagged.
+
+    Order of judgement for a sparse root:
+
+    1. **Compound whose head is an established root** — a missed nesting, not a sparse
+       category: `ai-behavior` becomes `ai/behavior` where `ai` already holds 128 terms.
+    2. **Warrant at or above the floor** — the word is written throughout the vault, so the
+       namespace stands however little sits under it. `architecture`, tagged once, appears
+       1,697 times.
+    3. **Below the floor** — nobody writes it, so nobody would search it. Dismantled.
+       `pet-name`, `social-relations` and `food-prep` occur zero times in the prose.
+
+    Dismantling never produces a long flat compound: only two-segment terms collapse, and
+    deeper ones drop the junk root and keep their real structure.
+
+    Args:
+        counts: Corpus term -> usage count, already inflection-merged.
+        min_children: Below this many children a root is considered sparse.
+        strong_children: Children required for a root to count as an established parent.
+        warrant: root -> occurrence count from literary_warrant(). Absent, every sparse
+            root is kept, since dismantling without evidence is the failure mode.
+        min_warrant: Occurrences required for a sparse root to keep its namespace.
+        head_aliases: Inflection merges from root_inflection_merges(), so a compound head
+            is tested in its canonical form. Without it `relationships-dynamics` fails the
+            head check — `relationships` merged into `relationship` — and gets dismantled
+            into a flat tag despite having a perfectly good parent.
+
+    Returns:
+        dict[str, str]: old term -> new term.
+    """
+    census = root_census(counts)
+    sparse = {r for r, stats in census.items() if stats["terms"] < min_children}
+    strong = {r for r, stats in census.items() if stats["terms"] >= strong_children}
+    warrant = warrant or {}
+
+    rewritten: dict[str, str] = {}
+    for tag in counts:
+        if "/" not in tag or tag.startswith("CY-"):
+            continue
+        root, rest = tag.split("/", 1)
+        if root not in sparse:
+            continue
+
+        if "-" in root:
+            head, tail = root.split("-", 1)
+            head = (head_aliases or {}).get(head, head)
+            if head in strong:
+                rewritten[tag] = f"{head}/{tail}/{rest}"
+                continue
+
+        score = warrant.get(root, min_warrant)  # unknown roots are kept, not destroyed
+        if score >= min_warrant:
+            continue
+
+        rewritten[tag] = tag.replace("/", "-") if tag.count("/") == 1 else rest
+
+    return rewritten

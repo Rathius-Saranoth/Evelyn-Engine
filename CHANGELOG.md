@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 10:41:41
+date modified: 2026-09-20 11:49:03
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,59 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.167] - 2026-09-20 — *Root Consolidation — 493 Namespaces Down to 253*
+
+Step 6a of the taxonomy migration (`vault-tag-taxonomy.md` §9). Step 5 merged whole terms, which
+could not reach this: `preference/food` and `preferences/drink` share no lexical pair, yet their
+roots are one concept. Consolidating at the root rewrites everything beneath it.
+
+### Added
+- **§6.3.2 Number form** — ANSI/NISO Z39.19-2005 §6.5 puts count nouns in the plural and mass nouns
+  in the singular, so `dreams` and `goals` would default to plural. This vault uses the **singular
+  throughout**, invoking the exception the standard provides at §6.5.1.1 for domains with user
+  warrant — its examples are body parts in biomedicine and objects in a museum catalog. The warrant
+  is demonstrated rather than assumed: across 161 singular/plural pairs the singular was already the
+  established form in 124. Recorded as a knowing deviation, so a later pass does not "correct" it.
+- **`root_inflection_merges()`** folds inflected roots to the singular, which sometimes means a
+  smaller root absorbs a larger one — form outranks incumbency.
+- **§6.3.3 Literary warrant** — a sparse namespace is judged by how often its word appears in the
+  vault's **prose**, not by how many terms sit under it. That is the sense Z39.19 §6.5.1.1 uses:
+  a term belongs to a vocabulary because the domain's literature uses it. `architecture` is tagged
+  once and written 1,697 times; `social-relations` is tagged once and written zero times. Population
+  would treat those identically.
+- **`literary_warrant()`** builds the index, matching compounds as phrases — searching
+  `mental-state` as a token finds nothing because prose writes "mental state", and treating that
+  zero as evidence would condemn every multi-word root by construction. Entities score −1 however
+  often they appear (§2), and unknown roots are kept, since dismantling without evidence is the
+  failure mode.
+- **`weak_root_resolution()`** applies it: compounds whose head is an established root are re-nested
+  as the missed nesting they are (`ai-behavior` → `ai/behavior`, 76), roots with warrant keep their
+  namespace, and only the 21 with none are dismantled.
+- **Compound heads resolve through the inflection merges first.** `relationships-dynamics` fails a
+  naive head check — `relationships` has already folded into `relationship` — and would be
+  dismantled into a flat tag despite having a perfectly good parent. Five roots were rescued this
+  way.
+
+### Verified
+- The warrant index was checked against raw `grep` over the vault: `architecture` 1,803 occurrences
+  across 622 files, `database` 888 across 319. Every dismantled root scored **zero occurrences in
+  any file** — `astronomy` and `collectibles` included, which look like plausible categories but
+  appear nowhere in anything actually written. They were generated labels, not vocabulary.
+
+### Migrations
+- **`000.006.166` (vault)** / **`000.006.167` (memory)** — 533 term rewrites: 436 root merges, 76
+  re-nestings, 21 dismantles. Roots drop from **493 to 361**.
+
+### Preserved by design
+- **Ordering is load-bearing.** Inflection merges run before weak-root detection: a root below
+  threshold on its own may clear it once its variants fold in, and flattening first would dismantle
+  a namespace about to become real. Pinned by a test.
+- **Sparse roots are not dismantled by default**, and §6.3 now carries that as a warning. An earlier
+  draft of this pass flattened every root with fewer than two children, which would have destroyed
+  102 legitimate categories — `admin`, `chemistry`, `coffee`, `employment`, `astronomy` — on the
+  evidence that they were under-populated, when under-population is precisely the problem the
+  taxonomy exists to fix.
 
 ## [000.006.165] - 2026-09-20 — *Tool Descriptions Say When, Not Just What*
 

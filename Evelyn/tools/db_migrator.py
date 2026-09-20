@@ -3500,6 +3500,195 @@ def migrate_000_006_162_apply_reviewed_merges_memory(
                 len(alias_map), total)
 
 
+# --- §9 step 6a: root consolidation -------------------------------------------
+
+def build_root_consolidation_map() -> dict[str, str]:
+    """Build the term rewrite map for root consolidation (§9 step 6).
+
+    Two deterministic passes, and the order is load-bearing: inflection merges run first,
+    because a root that looks weak on its own may clear the threshold once its variants are
+    folded in. Flattening first would dismantle a namespace that was about to become real.
+
+    Returns:
+        dict[str, str]: old term -> new term.
+    """
+    import collections
+
+    from Evelyn.tools.tag_synonym import (
+        build_corpus,
+        literary_warrant,
+        root_census,
+        root_inflection_merges,
+        weak_root_resolution,
+    )
+
+    counts = build_corpus()
+    root_merges = root_inflection_merges(counts)
+
+    rewrite: dict[str, str] = {}
+    merged_counts: collections.Counter = collections.Counter()
+    for tag, uses in counts.items():
+        new = tag
+        if "/" in tag and not tag.startswith("CY-"):
+            root, rest = tag.split("/", 1)
+            if root in root_merges:
+                new = f"{root_merges[root]}/{rest}"
+        if new != tag:
+            rewrite[tag] = new
+        merged_counts[new] += uses
+
+    # Literary warrant (§6.3.3): a root tagged once but written 800 times is a category
+    # whose material is simply unclassified. Population alone would delete it.
+    sparse_roots = [r for r, stats in root_census(merged_counts).items() if stats["terms"] < 2]
+    warrant = literary_warrant(
+        sparse_roots,
+        getattr(cfg, "VAULT_BASE_DIR", ""),
+        entities={getattr(cfg, "USER_NAME", ""), getattr(cfg, "ASSISTANT_NAME", "")},
+    )
+
+    for tag, flat in weak_root_resolution(
+        merged_counts, warrant=warrant, head_aliases=root_merges
+    ).items():
+        # Chain through the inflection rewrite so the original term maps to its final form.
+        origin = next((o for o, n in rewrite.items() if n == tag), tag)
+        rewrite[origin] = flat
+
+    return {old: new for old, new in rewrite.items() if old != new}
+
+
+def migrate_000_006_166_root_consolidation_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.166: Consolidate tag roots across the vault (§9 step 6a).
+
+    Step 5 merged whole terms, which could not reach this: `preference/food` and
+    `preferences/drink` share no lexical pair, yet their roots are one concept. Root-level
+    consolidation rewrites everything beneath them.
+
+    Roots that are inflections of one word fold to the singular (§6.3.2), which sometimes
+    means a smaller root absorbs a larger one. Roots left with fewer than two children are
+    then flattened back to compound terms, since a namespace with one occupant is a
+    compound wearing a slash.
+    """
+    import json
+
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+
+    rewrite = build_root_consolidation_map()
+    if not rewrite:
+        logger.info("[MIGRATION 166] Nothing to consolidate.")
+        return
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.166")
+    cursor = conn.cursor()
+
+    now = time.time()
+    for variant, canonical in rewrite.items():
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'root', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical,
+                                                tier = excluded.tier""",
+            (variant, canonical, now),
+        )
+    taxonomy_db.invalidate_alias_cache()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = _apply_alias_map_to_tag_csv(raw_tags, rewrite)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 166] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    retired = 0
+    for variant, canonical in rewrite.items():
+        row = cursor.execute(
+            "SELECT usage_count FROM master_tag_taxonomy WHERE tag = ?", (variant,)
+        ).fetchone()
+        if not row:
+            continue
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                                              updated_at = excluded.updated_at""",
+            (canonical, canonical.split("/")[0] if "/" in canonical else "general",
+             row[0] or 0, now, now),
+        )
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (variant,))
+        delete_tag_from_chroma(variant)
+        retired += 1
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "root_consolidation_manifest_000.006.166.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "rewrite": rewrite, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 166] %d rewrites; %d notes, %d registry terms retired.",
+        len(rewrite), rewritten, retired,
+    )
+
+
+def migrate_000_006_167_root_consolidation_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.167: Apply the recorded root consolidation to memory tags."""
+    vault_path = db_paths.get("vault", "")
+    if not vault_path or not os.path.exists(vault_path):
+        raise MigrationExecutionError("Vault database unavailable; cannot read alias map.")
+
+    vcon = sqlite3.connect(vault_path, timeout=30.0)
+    try:
+        rewrite = dict(
+            vcon.execute("SELECT alias, canonical FROM master_tag_aliases WHERE tier = 'root'")
+        )
+    finally:
+        vcon.close()
+    if not rewrite:
+        logger.info("[MIGRATION 167] No root aliases recorded; nothing to apply.")
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _apply_alias_map_to_tag_csv(raw, rewrite)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 167] %s: %d rows rewritten.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 167] Applied %d root rewrites across %d memory rows.",
+                len(rewrite), total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -3804,6 +3993,18 @@ MIGRATIONS: list[Migration] = [
         version="000.006.162",
         name="apply_reviewed_merges_memory",
         up_fn=migrate_000_006_162_apply_reviewed_merges_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.166",
+        name="root_consolidation_vault",
+        up_fn=migrate_000_006_166_root_consolidation_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.167",
+        name="root_consolidation_memory",
+        up_fn=migrate_000_006_167_root_consolidation_memory,
     ),
 ]
 
