@@ -103,3 +103,8 @@ _.run_semantic_tag_audit
 _.run_semantic_tag_audit_async
 _.fetch_next_document_for_tag_audit
 _.update_document_tag_audit
+
+# Called by scripts/generate_tag_merge_review.py (standalone, outside Vulture scan paths).
+# AGENTS.md §11 category 1 — external script consumer, not unwired application logic.
+_.resolve_structural_nesting
+_.namespace_children

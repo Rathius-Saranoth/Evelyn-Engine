@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-19 21:20:53
+date modified: 2026-09-20 10:13:46
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -292,6 +292,27 @@ A subdomain is created only when the volume justifies it. A branch carrying a si
 - Below threshold, the document takes the parent term.
 - **Motif is exempt** (§3.5). The threshold governs when a branch *splits*, not whether a theme is worth naming.
 
+### 6.3.1 The sibling test — when a compound should become a level
+`personal-growth` or `personal/growth`? `me-cfs` or `me/cfs`? The question recurs constantly
+and reads as a matter of taste, but it has a measurable answer.
+
+> **A hierarchy level must have siblings.** If the leading token of a compound already acts as a
+> namespace elsewhere — other terms live under it — then it is a real level and the term nests.
+> If nothing else lives under it, the compound is a single term of art and stays flat.
+
+| Term | Level tested | Children it has | Verdict |
+|---|---|---|---|
+| `work-stress` | `work` | 409 | nest → `work/stress` |
+| `system-design` | `system` | 285 | nest → `system/design` |
+| `me-cfs` | `me` | 1 | keep `me-cfs` — ME/CFS is one disease name |
+| `health/self-care-routine` | `health/self` | 0 | keep `self-care` — a lexicalized compound |
+
+This is why the choice *feels* intuitive but resists explanation: the real question is whether the
+first word means anything on its own **in that position**. Sibling count is the observable proxy.
+
+Measured across this vault's 122 flat-vs-nested pairs, the test resolved 117 to nested and 5 to
+compound — and the five it spared were precisely the terms of art.
+
 ### 6.4 Association (`RT`) — the cross-domain layer
 ISO 25964 `RT` maps concepts that are related but neither is broader than the other: `motif/cosmic-horror` RT `fantasy/eldritch`. This is the layer that answers *"what else in the vault connects to this?"* across domains that share no parent — the question motif exists to make askable, answered at the vocabulary level rather than per-document.
 
@@ -382,23 +403,39 @@ Measured against the live vault on 2026-09-19. These are the gaps this standard 
 
 ## 🚧 8.5 WORK IN PROGRESS — Resume Here
 
-> [!WARNING] The migration is paused mid-sequence as of 2026-09-19
-> Steps 1–4 are complete. **Step 5 is half-done**: its 316 judgement-free equivalences are applied,
-> but its ~1,586 reviewed merges are not. The vocabulary is therefore consistent but not yet
-> curated, and steps 6–9 have not started.
+> [!WARNING] Step 5 is complete in code but **not yet applied** — blocked on a version clash
+> Steps 1–4 are applied. Step 5's judgement-free half is applied (`000.006.153–155`). Its reviewed
+> half is **written, tested and gate-passing but unapplied**: migrations `000.006.161` / `000.006.162`
+> are registered and waiting.
 
-**To resume:**
-1. The review document is at `scratch/tag_merge_review.md` (gitignored — working material, not
-   committed). It holds 125 structural decisions and 899 semantic groups awaiting human judgement.
-   Regenerate it with `PYTHONPATH=. python scripts/generate_tag_merge_review.py` if it is lost.
-2. Apply the reviewed decisions as the next migration, recording each as a `UF` alias (§6.2).
-3. Then continue with step 6.
+**Why it is blocked:** a concurrent session holds `Evelyn/version.py` at `000.006.160` with
+uncommitted work. Migrations only apply up to `__version__`, so `161/162` cannot run until that
+release lands. `version.py` was deliberately left untouched rather than overwriting another
+session's in-flight work.
+
+**To resume, once `000.006.160` is committed:**
+1. Bump `Evelyn/version.py` to `000.006.161` (the CHANGELOG entry already claims that number).
+2. `PYTHONPATH=. python scripts/migrate_db.py --execute` — applies 1,618 reviewed `UF` equivalences
+   across both stores.
+3. Verify no retired variant survives in either store, then continue with step 6.
+
+**The decision artifacts live in `scratch/` and are gitignored** — they are curated facts about this
+corpus containing personal vocabulary, so they must not enter version control (AGENTS.md §4):
+- `tag_merge_decisions.json` — the 1,618-entry alias map the migration consumes. Absent, the
+  migration no-ops loudly rather than half-applying.
+- `tag_merge_review.md` — the human-readable review document.
+- `.tag_embeddings.npz` — embedding cache; regeneration drops from ~15 min to ~35 s.
+
+> [!NOTE] The corpus drifts while this waits
+> Overnight extraction adds terms (16,295 → 16,398 in one night). The recorded decisions stay valid
+> — they are keyed to specific terms — but will not cover anything minted since. Regenerate with
+> `scripts/generate_tag_merge_review.py --export-decisions scratch/tag_merge_decisions.json` if the
+> delay is long.
 
 > [!CAUTION] Do not run a taxonomy rebalance before step 6
-> `maintain_master_taxonomy()` deletes every term with zero *vault* usage. That is currently **681
-> terms (11.8%)** — vocabulary that steps 5–6 still need, much of it now carried by memory rather
-> than by notes. The safety circuit breaker only trips above 15%, so it would proceed silently.
-> Nothing triggers it automatically; it requires passing `rebalance_taxonomy=true` deliberately.
+> `maintain_master_taxonomy()` deletes every term with zero *vault* usage — vocabulary that steps
+> 5–6 still need, much of it now carried by memory rather than by notes. The 15% circuit breaker
+> does not catch it. Nothing triggers it automatically; it requires `rebalance_taxonomy=true`.
 
 ---
 

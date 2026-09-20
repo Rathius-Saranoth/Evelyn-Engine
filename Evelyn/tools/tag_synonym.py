@@ -1,6 +1,6 @@
 # tag_synonym.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-19 21:05:42
+# date modified: 2026-09-20 10:03:00
 # tags: #taxonomy, #synonyms, #vocabulary, #uf, #clustering
 
 """tag_synonym.py — Equivalence detection for the controlled vocabulary (taxonomy §6.2).
@@ -23,6 +23,8 @@ Tiers, by how much judgement each requires:
 
 Exports:
     skeleton()              — Separator-free lowercase form of a tag.
+    namespace_children()    — How many terms live under each path prefix in the corpus.
+    resolve_structural_nesting() — Settle flat-vs-nested pairs via the sibling test (§6.3.1).
     singularize()           — Crude English singularization of a skeleton.
     build_corpus()          — Combined term->usage counts across vault and memory.
     lexical_equivalences()  — Tiered T1A/T1B/T2 groups, computed without embeddings.
@@ -168,3 +170,65 @@ def lexical_equivalences(counts: collections.Counter) -> dict[str, Any]:
         auto.extend((canon, t) for t in members if t != canon)
 
     return {"auto": auto, "deferred": deferred}
+
+
+def namespace_children(counts: collections.Counter) -> collections.Counter:
+    """Count how many corpus terms live beneath each path prefix.
+
+    Args:
+        counts: Corpus terms.
+
+    Returns:
+        collections.Counter: path prefix -> number of terms nested under it.
+    """
+    parents: collections.Counter = collections.Counter()
+    for tag in counts:
+        parts = tag.split("/")
+        for i in range(1, len(parts)):
+            parents["/".join(parts[:i])] += 1
+    return parents
+
+
+def resolve_structural_nesting(
+    deferred: list[list[str]], counts: collections.Counter, min_siblings: int = 2
+) -> list[tuple[str, str]]:
+    """Settle flat-vs-nested pairs using the sibling test (taxonomy §6.3.1).
+
+    A hierarchy level must have siblings. If the leading token of a compound already acts
+    as a namespace elsewhere, the term nests; if nothing lives under it, the compound is a
+    single term of art and stays flat. This is what distinguishes `work-stress` (nest —
+    'work' has hundreds of children) from `me-cfs` (keep — 'me' is not a category, and
+    ME/CFS is one disease name).
+
+    Args:
+        deferred: Groups of competing forms, from lexical_equivalences()['deferred'].
+        counts: Corpus term counts, for the sibling census.
+        min_siblings: Terms required under a prefix for it to count as a real level.
+
+    Returns:
+        list[tuple[str, str]]: (canonical, variant) pairs.
+    """
+    parents = namespace_children(counts)
+    pairs: list[tuple[str, str]] = []
+
+    for members in deferred:
+        flat = min(members, key=lambda t: t.count("/"))
+        nested = max(members, key=lambda t: t.count("/"))
+        fparts, nparts = flat.split("/"), nested.split("/")
+
+        # Find where the two forms diverge — the hyphen under question is rarely in the
+        # leaf. 'home-maintenance/chores' vs 'home/maintenance/chores' asks about
+        # 'home-maintenance', and testing only the leaf answers the wrong question.
+        idx = next((i for i, (a, b) in enumerate(zip(fparts, nparts, strict=False)) if a != b), None)
+        if idx is None or "-" not in fparts[idx]:
+            canonical = max(members, key=lambda t: counts[t])
+        else:
+            # Test the level the NESTED form actually proposes, not the flat form's first
+            # hyphen. 'health/self-care/routine' proposes 'health/self-care' as the level —
+            # splitting the flat form on its first hyphen would test 'health/self', which
+            # neither form is claiming exists.
+            level = "/".join([*fparts[:idx], nparts[idx]])
+            canonical = nested if parents.get(level, 0) >= min_siblings else flat
+        pairs.extend((canonical, m) for m in members if m != canonical)
+
+    return pairs

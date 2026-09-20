@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-19 09:31:34
+# date modified: 2026-09-20 08:34:57
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -332,20 +332,28 @@ def _frozen_normalize_tag_format_000_004_002(tag: str) -> str:
     the immutability guarantee in AGENTS.md §5 — the migration still produces exactly
     what it produced when it was committed. Do not "fix" this to match current rules.
 
+    The two is_excluded_tag() guards are load-bearing and were missing from the first
+    version of this copy: without them a protected date anchor such as CY-2025/03/12 is
+    mangled into Cy_2025/03/12 by the entity casing rules. The original delegated to the
+    live exclusion config, so this does too — that dependency is part of the behaviour
+    being preserved, not a deviation from it.
+
     Args:
         tag: Raw tag string.
 
     Returns:
         str: Tag normalized under the pre-§5 entity/concept rules.
     """
+    from Evelyn.tools.tag_librarian import is_excluded_tag
+
     clean = tag.strip().lstrip("#").strip()
-    if not clean:
+    if not clean or is_excluded_tag(clean):
         return clean
     if clean.lower().startswith("kw/"):
         clean = clean[3:].strip()
     elif clean.lower().startswith("ctx/"):
         clean = clean[4:].strip()
-    if not clean:
+    if not clean or is_excluded_tag(clean):
         return clean
 
     norm_parts = []
@@ -3329,6 +3337,169 @@ def migrate_000_006_155_collapse_lexical_synonyms_memory(
     logger.info("[MIGRATION 155] Applied %d aliases across %d memory rows.", len(alias_map), total)
 
 
+# --- §9 step 5 (reviewed half): apply curated equivalences -----------------------
+
+REVIEWED_DECISIONS_PATH = os.path.join(cfg.BASE_DIR, "scratch", "tag_merge_decisions.json")
+
+
+def _load_reviewed_alias_map() -> dict[str, str]:
+    """Load the reviewed merge decisions produced by the review tooling.
+
+    These are curated decisions about this specific corpus, not a generic rule, so they
+    live in a local artifact rather than in the repository — the vocabulary contains
+    personal terms that must not reach a tracked file (AGENTS.md §4). A missing file means
+    the curation has not been performed in this environment; the migration then no-ops
+    loudly rather than silently half-applying.
+
+    Returns:
+        dict[str, str]: variant -> canonical.
+    """
+    import json
+
+    if not os.path.exists(REVIEWED_DECISIONS_PATH):
+        logger.warning(
+            "[MIGRATION] No reviewed decisions at %s — skipping curated merges. "
+            "Regenerate with scripts/generate_tag_merge_review.py --export-decisions",
+            REVIEWED_DECISIONS_PATH,
+        )
+        return {}
+    with open(REVIEWED_DECISIONS_PATH, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    return {k: v for k, v in (payload.get("alias_map") or {}).items() if k and v and k != v}
+
+
+def migrate_000_006_161_apply_reviewed_merges_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.161: Apply the reviewed UF merges across the vault (§9 step 5).
+
+    Two kinds of decision arrive together. Flat-vs-nested pairs were settled by the sibling
+    test (§6.3.1) — a hierarchy level must have siblings, so `work-stress` nests under a
+    parent with 409 children while `me-cfs` stays compound because `me` is not a category.
+    Semantic merges were reviewed by hand. Both are recorded as `UF` aliases.
+    """
+    import json
+
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import delete_tag_from_chroma
+
+    alias_map = _load_reviewed_alias_map()
+    if not alias_map:
+        return
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.161")
+    cursor = conn.cursor()
+
+    now = time.time()
+    for variant, canonical in alias_map.items():
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'reviewed', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical,
+                                                tier = excluded.tier""",
+            (variant, canonical, now),
+        )
+    taxonomy_db.invalidate_alias_cache()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = _apply_alias_map_to_tag_csv(raw_tags, alias_map)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 161] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    retired = 0
+    for variant, canonical in alias_map.items():
+        row = cursor.execute(
+            "SELECT usage_count FROM master_tag_taxonomy WHERE tag = ?", (variant,)
+        ).fetchone()
+        if not row:
+            continue
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                                              updated_at = excluded.updated_at""",
+            (canonical, canonical.split("/")[0] if "/" in canonical else "general",
+             row[0] or 0, now, now),
+        )
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (variant,))
+        delete_tag_from_chroma(variant)
+        retired += 1
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "reviewed_merge_manifest_000.006.161.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "alias_map": alias_map, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 161] %d aliases; rewrote %d notes, retired %d registry terms.",
+        len(alias_map), rewritten, retired,
+    )
+
+
+def migrate_000_006_162_apply_reviewed_merges_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.162: Apply the recorded equivalences to memory tags.
+
+    Reads the alias table rather than the decisions file: the vault migration has already
+    altered the corpus, and the table is the record of what was actually applied.
+    """
+    vault_path = db_paths.get("vault", "")
+    if not vault_path or not os.path.exists(vault_path):
+        raise MigrationExecutionError("Vault database unavailable; cannot read alias map.")
+
+    vcon = sqlite3.connect(vault_path, timeout=30.0)
+    try:
+        alias_map = dict(
+            vcon.execute("SELECT alias, canonical FROM master_tag_aliases WHERE tier = 'reviewed'")
+        )
+    finally:
+        vcon.close()
+    if not alias_map:
+        logger.info("[MIGRATION 162] No reviewed aliases recorded; nothing to apply.")
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = _apply_alias_map_to_tag_csv(raw, alias_map)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 162] %s: %d rows rewritten.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 162] Applied %d reviewed aliases across %d memory rows.",
+                len(alias_map), total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -3621,6 +3792,18 @@ MIGRATIONS: list[Migration] = [
         version="000.006.155",
         name="collapse_lexical_synonyms_memory",
         up_fn=migrate_000_006_155_collapse_lexical_synonyms_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.161",
+        name="apply_reviewed_merges_vault",
+        up_fn=migrate_000_006_161_apply_reviewed_merges_vault,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.162",
+        name="apply_reviewed_merges_memory",
+        up_fn=migrate_000_006_162_apply_reviewed_merges_memory,
     ),
 ]
 

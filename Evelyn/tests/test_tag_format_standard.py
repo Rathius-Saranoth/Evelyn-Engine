@@ -102,6 +102,12 @@ class TestFrozenMigrationNormalizer:
         """If these ever agree, the freeze has been broken."""
         assert _frozen_normalize_tag_format_000_004_002("Tech/Ai") != normalize_tag_format("Tech/Ai")
 
+    def test_protected_date_anchors_survive_the_frozen_path(self):
+        """Regression: the first version of this copy omitted its exclusion guards,
+        so entity casing mangled CY-2025/03/12 into Cy_2025/03/12 on replay."""
+        assert _frozen_normalize_tag_format_000_004_002("CY-2025/03/12") == "CY-2025/03/12"
+        assert _frozen_normalize_tag_format_000_004_002("status/Active") == "status/Active"
+
 
 class TestNamespaceRetirement:
     """§9 step 2: deterministic namespace moves (vault scope only)."""
@@ -246,3 +252,48 @@ class TestAliasCanonicalization:
         from Evelyn.tools import taxonomy_db
         monkeypatch.setattr(taxonomy_db, "_ALIAS_CACHE", {})
         assert taxonomy_db.canonicalize_tags(["anything"]) == ["anything"]
+
+
+class TestSiblingTest:
+    """§6.3.1: a hierarchy level must have siblings."""
+
+    def _resolve(self, deferred, counts):
+        import collections
+
+        from Evelyn.tools.tag_synonym import resolve_structural_nesting
+        return resolve_structural_nesting(deferred, collections.Counter(counts))
+
+    def test_nests_when_the_level_is_real(self):
+        """'work' has many children, so work-stress becomes work/stress."""
+        counts = {"work-stress": 15, "work/stress": 9, "work/a": 1, "work/b": 1, "work/c": 1}
+        assert self._resolve([["work-stress", "work/stress"]], counts) == [
+            ("work/stress", "work-stress")
+        ]
+
+    def test_keeps_compound_when_the_level_has_no_siblings(self):
+        """'me' is not a category — ME/CFS is one disease name."""
+        counts = {"me-cfs": 4, "me/cfs": 1}
+        assert self._resolve([["me-cfs", "me/cfs"]], counts) == [("me-cfs", "me/cfs")]
+
+    def test_tests_the_divergence_point_not_the_leaf(self):
+        """home-maintenance/chores asks about 'home', not about 'chores'."""
+        counts = {"home-maintenance/chores": 3, "home/maintenance/chores": 1,
+                  "home/a": 1, "home/b": 1, "home/c": 1}
+        assert self._resolve([["home-maintenance/chores", "home/maintenance/chores"]], counts) == [
+            ("home/maintenance/chores", "home-maintenance/chores")
+        ]
+
+    def test_tests_the_level_the_nested_form_proposes(self):
+        """health/self-care/routine proposes 'health/self-care', not 'health/self'."""
+        counts = {"health/self-care-routine": 2, "health/self-care/routine": 1,
+                  "health/self-care/a": 1, "health/self-care/b": 1}
+        assert self._resolve(
+            [["health/self-care-routine", "health/self-care/routine"]], counts
+        ) == [("health/self-care/routine", "health/self-care-routine")]
+
+    def test_falls_back_to_usage_when_there_is_no_compound(self):
+        """'lifestyle' has no hyphen to split, so it is one word, not a hierarchy."""
+        counts = {"lifestyle/fashion": 9, "life/style/fashion": 1, "life/a": 1, "life/b": 1}
+        assert self._resolve([["lifestyle/fashion", "life/style/fashion"]], counts) == [
+            ("lifestyle/fashion", "life/style/fashion")
+        ]

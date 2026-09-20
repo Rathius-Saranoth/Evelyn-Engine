@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 10:21:14
+date modified: 2026-09-20 10:24:04
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,57 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.161] - 2026-09-20 — *The Sibling Test — Reviewed Merges and Nesting Resolved by Evidence*
+
+Completes step 5 of the taxonomy migration (`vault-tag-taxonomy.md` §9). The reviewed merges are
+applied, and the flat-vs-nested question that recurred 126 times now has a measurable answer instead
+of a per-case judgement call.
+
+### Added
+- **§6.3.1 The sibling test** — *a hierarchy level must have siblings*. If the token a nested form
+  proposes as a level already has terms living under it, the term nests; if nothing lives under it,
+  the compound is a single term of art and stays flat. This is why the choice felt intuitive but
+  resisted explanation: the real question is whether the first word means anything on its own **in
+  that position**, and sibling count is the observable proxy.
+- **`resolve_structural_nesting()`** implements it. Across 126 pairs it resolved 123 to nested and
+  3 to compound — and the three it spared were exactly the terms of art, including a disease name
+  whose nested form would have been meaningless.
+- **`--export-decisions`** on the review generator, plus an embedding cache. Re-ordering the review
+  document dropped from ~15 minutes to ~35 seconds, which is what made iterating on its layout
+  practical at all.
+
+### Changed
+- **The review document is grouped by term family**, not by usage impact, with structural and
+  semantic decisions interleaved. The previous layout split by decision type first, so a family
+  could be scattered across two sections hundreds of lines apart — which produced inconsistent
+  answers, because a decision made in isolation looked different once its siblings appeared.
+- **Recurring flat-vs-nested shapes are surfaced as policy blocks**, 17 of them covering 76 of the
+  125 structural decisions.
+
+### Migrations
+- **`000.006.156` (vault)** / **`000.006.157` (memory)** — apply 1,618 reviewed `UF` equivalences.
+
+### Fixed
+- **The frozen normalizer backing migration `000.004.002` was not faithful.** Its two
+  `is_excluded_tag()` guards were omitted when it was extracted, so a protected date anchor such as
+  `CY-2025/03/12` was mangled to `Cy_2025/03/12` by the entity casing rules on replay. The guards
+  are restored and a regression test pins the behaviour. The omission survived the previous release
+  because that release's targeted test batch did not include `test_db_migrator.py`.
+
+### Preserved by design
+- **The decisions live in a local artifact, not the repository.** They are curated facts about this
+  specific corpus and the vocabulary contains personal terms, so committing them would cross the
+  privacy boundary (AGENTS.md §4). A missing file makes the migration no-op loudly rather than
+  half-apply.
+- **The sibling test reads the divergence point, not the leaf.** An earlier implementation tested
+  only the final segment, which answered the wrong question whenever the hyphen under review sat
+  earlier in the path — `home-maintenance/chores` asks about `home`, not about `chores`. It also
+  tests the level the *nested* form proposes rather than splitting the flat form on its first
+  hyphen, since `health/self-care/routine` claims `health/self-care` as a level, not `health/self`.
+- **`resolve_structural_nesting` and `namespace_children` are whitelisted as external script
+  consumers** (AGENTS.md §11 category 1), not to mask dead code — their production caller is a
+  standalone script outside Vulture's scan paths.
 
 ## [000.006.160] - 2026-09-20 — *Behaviour Benchmark — Underscores No Longer Hide Identities*
 
