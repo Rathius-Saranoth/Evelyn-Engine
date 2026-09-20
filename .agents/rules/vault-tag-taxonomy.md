@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 12:07:07
+date modified: 2026-09-20 13:49:56
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -28,6 +28,27 @@ This follows directly from the standards in §0.1: Getty's authority files, SKOS
 FAST all define a vocabulary independently of the resources that use it. Two vocabularies for one
 mind is the mechanism by which drift occurs, not a neutral implementation detail.
 
+### 0.0 The vocabulary is post-coordinate
+Concepts are kept **separate at indexing time and combined at query time**. A note about morning
+routines at work carries `work`, `routine` and `morning`, not `work/routine/morning`.
+
+The alternative — pre-coordination, composing concepts into one heading when the note is filed — is
+what this vault did, and its failure mode is combinatorial rather than careless. The indexer must
+guess which combinations a future query will want, and guesses multiply: `journaling` appeared under
+**31 different parents**, one concept restated 31 times. 76% of the vocabulary was used exactly once.
+
+> [!IMPORTANT] This is a known trade, not a novel design
+> Pre-coordination buys context, browsability and precision; post-coordination buys flexibility and
+> puts query-building in the searcher's hands. The Library of Congress is moving LCSH — the most
+> heavily maintained pre-coordinate vocabulary in existence — toward post-coordination for exactly
+> the reasons visible here. Choosing it is not an admission that the vault was organised badly; it
+> is declining a model whose cost scales with the size of the collection.
+
+**What pre-coordination still does better, and where it survives here:** disambiguation. A
+pre-composed string distinguishes `python` the language from `python` the animal. This corpus was
+measured for genuine homonyms and has effectively none, so the facet prefix (§5) is the only
+composition retained — it names *which axis* a term belongs to, which flat atoms cannot express.
+
 ### 0.1 Where divergence IS justified
 Only three, each because the axis is structurally inapplicable rather than merely unused:
 
@@ -49,6 +70,7 @@ The schema is assembled from established knowledge-organization standards rather
 | Standard | Borrowed for |
 |---|---|
 | **Ranganathan — Colon Classification / PMEST** | The founding principle: orthogonal facets, not a single hierarchy |
+| **Pre- vs post-coordinate indexing** (LoC; ISO 25964) | Why concepts are kept separate and combined at query time (§0.0) |
 | **FAST** (OCLC + Library of Congress) | The pragmatic facet roster — Topic, Place, Time, **Event**, Person, Corporate Body, Title, Form/Genre — and the proof that a faceted vocabulary can be machine-applied at scale. The Event facet is adopted directly (§3.7) |
 | **Iconclass** (RKD) | Precedent for **motif as a first-class, open classification** of "subjects, themes and motifs" — ~28,000 definitions across 10 divisions, including *5 Abstract Ideas and Concepts* |
 | **DCMI Type Vocabulary** | The canonical, closed list of resource types — supplies the media sub-typing layer |
@@ -115,7 +137,7 @@ Facets are **orthogonal**. A note sits at their intersection; it never has to ch
 
 | Axis | Namespace | Cardinality | Governs |
 |---|---|---|---|
-| **Domain** | *bare-rooted* (`tech/gis`) | 1 or more | Subject matter — what the document is *about* |
+| **Domain** | *atomic, no prefix* (`gis`) | 1 or more | Subject matter — what the document is *about* |
 | **Type** | `type/` | exactly 1 | Form / class of the document itself |
 | **Motif** | `motif/` | 0 or more | Recurring theme, symbol, or felt quality |
 | **Setting** | `setting/` | 0 or more | Conceptual space the content occupies |
@@ -141,11 +163,28 @@ Two further operational namespaces already exist and are protected under the sam
 > [!WARNING] This axis is a firewall
 > Mixing operational flags into the descriptive vocabulary is what made `contact/*` look like a subject facet with a role hierarchy. It is not one. Keeping the namespaces separate prevents the classifier from ever reasoning about them.
 
-### 3.3 Domain — the subject axis
-- **Bare-rooted.** No wrapper prefix. A document about GIS is `tech/gis`, never `topic/gis` and never `work/gis`.
-- **Employment is its own domain, not a wrapper.** A document about professional duties gets `work/duties`. A GIS document produced at a job is still `tech/gis` — the librarian shelves the book by its subject, not by its author's employer. Both may apply simultaneously; that is the point of facets.
-- **Multi-topic documents receive one domain tag per genuine subject area.** Collapsing a broad reference document into fewer tags than it has subjects is data loss, not tidying.
-- Maximum depth **3** (`domain/subdomain/leaf`).
+### 3.3 Domain — the subject axis, atomic
+**One concept, one tag, no hierarchy.** A note about morning routines at work carries `work`,
+`routine` and `morning` — three coordinates the query recombines — not one pre-composed
+`work/routine/morning`.
+
+This is **post-coordination**: concepts are kept separate at indexing time and combined at search
+time. The alternative, pre-coordination, composes them into a single heading when the note is
+filed, and it is what produced this vault's condition. Pre-composition forces the indexer to guess
+which combinations a future query will want, and the combinations multiply: `journaling` appeared
+under **31 different parents** here, one concept restated 31 times.
+
+- **Multi-topic notes get one atom per subject**, as before. Collapsing them is still data loss.
+- **Employment is a coordinate, not a wrapper.** A GIS document produced at work carries `gis`
+  *and* `work`, and either alone retrieves it. There is no `work/gis` to argue about.
+- **Decline coordinates that do not matter.** If whether a routine is work or personal is
+  immaterial to the note, simply do not assert `work`. That is a content judgement about
+  relevance, not a structural choice between branches.
+
+> [!NOTE] What is lost, and where it goes
+> Hierarchy was quietly doing relational work: `health/sleep` implied that sleep relates to health.
+> Atomised, nothing states that. The associative layer (§6.4) becomes the only place that relation
+> can live, which raises its importance from optional to load-bearing.
 
 ### 3.4 Type — the form axis
 Exactly one per document. It is **separate from subject** and never mixed into the domain tree. This axis also determines the document's **class**, which gates the conditional facets (§4).
@@ -172,13 +211,16 @@ The retrieval key for experiential and creative material. Its purpose is the que
 - **Open vocabulary.** Motif grows through the §6.1 proposal queue like any other axis. This follows Iconclass, which expanded to ~28,000 iconographic definitions precisely because a closed motif list cannot anticipate what recurs in a body of work.
 - **A single occurrence is sufficient.** Motif is explicitly **exempt from the §6.3 subsumption threshold**. A dream may be the only one of its kind ever recorded and still deserve its motif — rarity is not irrelevance, and the whole point of the axis is to make such a note findable later. The §6.1 proposal queue is the quality control; a volume threshold would suppress exactly the material the axis exists to capture.
 - What disqualifies a motif is being *incidental*, not being rare: a detail the document merely mentions is not a motif. A motif is an element the document is thematically *about*.
-- Depth **2** maximum (`motif/combat`, `motif/loss/grief`).
+- Facet prefix plus a single atom: `motif/combat`, `motif/grief`. A motif that wants sub-division
+  (`motif/loss/grief`) is two motifs; assert both.
 
 ### 3.6 Setting — the conceptual-space axis *(conditional)*
-Holds **kinds of space**, never named places.
+Holds **kinds of space**, never named places, as a facet prefix plus a single atom.
 
-- `setting/biome/tropical`, `setting/biome/supermarket`, `setting/urban`, `setting/wilderness` — legitimate: these are classes.
-- `setting/place/usa/kansas` — **not legitimate**. Kansas is a named individual and becomes `[[Kansas]]` per §2.
+- `setting/tropical`, `setting/supermarket`, `setting/urban`, `setting/wilderness` — legitimate.
+- `setting/biome/tropical` — **not** legitimate. `biome` is a category *within* the axis, which is
+  the hierarchy §3.3 removes. The facet prefix is one level and no more.
+- A named place is an individual and becomes a link (§2).
 - Applies to the same classes as motif.
 
 ### 3.7 Event — the occurrence axis *(conditional)*
@@ -188,7 +230,7 @@ Adopted from FAST's Event facet, adapted to the §2 boundary. It supplies life-c
 - A **named** event is an individual and becomes a link — `[[Grandmother's Funeral 2019]]`, not `event/grandmothers-funeral-2019`.
 - **Orthogonal to Time**: `event/` answers *what kind of occurrence*; `CY-` answers *when*. Both may apply.
 - **Not a subject tag.** A document *about* funeral customs as a topic takes a domain tag (`culture/death-rites`); the event facet means the document is *anchored to* an occurrence of that kind.
-- Depth **2** maximum.
+- Facet prefix plus a single atom, as with every other axis (§5).
 
 ### 3.8 Time — the chronological anchor
 **Protected**: never lowercased, never removed, never proposed for removal by any pass. It is the sole exemption from §5.
@@ -231,24 +273,28 @@ The administrative axis (§3.2) is **outside this table entirely** — it applie
 
 ## ✍️ 5. Format Standard
 
-One rule, no exceptions:
+Two rules, no exceptions:
 
-> **Lowercase always. Hyphens join words. Slashes join levels.**
+> **Lowercase always. Hyphens join words within one concept.**
+> **A slash appears only as a facet prefix, and only once.**
 
 ```text
-tech/gis                     gov/ng911
-motif/combat                 setting/biome/tropical
-type/journal-entry           type/media/moving-image
-3d-modeling/uv-mapping       obsidian-graph/contact
+gis                 work                 morning
+routine             3d-printing          uv-mapping
+type/journal-entry  motif/combat         setting/tropical
+event/surgery       obsidian-graph/contact
 ```
 
-- **No casing branch exists.** Proper nouns follow the same rule as concepts — and per §2 most of them should be links anyway. The absence of a branch is the feature: there is no decision to get wrong, and therefore no way to fork `ai` from `Ai`.
-- Acronyms are lowercased (`gis`, `ng911`, `uv-mapping`). Display casing is Obsidian's concern, not the catalog's.
-- No spaces, no underscores, no trailing/leading slashes.
-- Maximum depth **3** levels on any axis.
-- `CY-YYYY/MM/DD` is exempt from all of the above.
-
----
+- **No hierarchy.** `work/routine/morning` is three concepts glued together; write `work`,
+  `routine`, `morning`. Depth is not capped because depth does not exist.
+- **The one permitted slash names an axis**, not a parent: `motif/`, `type/`, `setting/`, `event/`,
+  `obsidian-graph/`. It says *which kind of coordinate this is*, which is what makes the facets
+  distinguishable when everything else is flat.
+- **Hyphens stay inside a single concept.** `3d-printing` and `uv-mapping` are one idea each, not
+  two coordinates — the test is whether the halves are independently meaningful *about this note*.
+  `work-routine` fails it (two coordinates); `uv-mapping` passes (one technique).
+- **No casing branch exists.** Proper nouns follow the same rule, and per §2 most should be links.
+- Acronyms are lowercased (`gis`, `ng911`). `CY-YYYY/MM/DD` is exempt from all of the above (§3.8).
 
 ## 🔐 6. Vocabulary Control
 
@@ -285,46 +331,24 @@ sewing-measurements-list     ─┘
 
 A deleted synonym with no `UF` record will be re-minted by the next import. The alias is what makes the collapse permanent, and it doubles as a retrieval expansion for RAG.
 
-### 6.3 Subsumption (`BT`/`NT`) — when a subdomain may branch
-A subdomain is created only when the volume justifies it. A branch carrying a single document is noise.
+### 6.3 Admission — when an atom earns a place
+Post-coordination removes the question this section used to answer. There are no branches, so
+nothing decides when one may split. What remains is admission: is this atom worth having at all?
 
-- Threshold: **≥5 documents** sharing a prospective narrower term before it branches from its parent.
-- Below threshold, the document takes the parent term.
-- **Motif is exempt** (§3.5). The threshold governs when a branch *splits*, not whether a theme is worth naming.
+- **Usage floor.** An atom used once or twice is a label for a single document, not vocabulary.
+  Measured on this corpus, a floor of five leaves **963 atoms covering 98% of notes**, against
+  8,231 atoms with no floor covering 99% — the tail carries almost no retrieval weight.
+- **Literary warrant** (§6.3.3) decides the marginal cases: an atom written throughout the vault is
+  a category whose material is unclassified, not a dead term.
+- **Motif is exempt** (§3.5). Rarity is not irrelevance for the axis that exists to surface the
+  singular.
 
-> [!WARNING] The threshold governs branching, never whether a category may exist
-> Child count measures how much of a category has been **classified so far** — not whether the
-> category is legitimate. `routine` holding one term is still plainly a domain: the vault contains
-> many routines that nothing has tagged yet. Dismantling sparse namespaces destroys exactly the
-> categories that are about to fill, and it does so silently, because the evidence that they were
-> real is the material that has not been classified.
->
-> A sparse root is therefore only altered when its **shape** marks it as an artifact rather than a
-> category — a compound whose head is an established root (`ai-behavior` where `ai` holds 128 terms)
-> is a missed nesting, and a conjunction (`preference-and-interest`) is two categories a generator
-> could not choose between. A recognisable single word keeps its namespace no matter how little sits
-> under it.
-
-### 6.3.1 The sibling test — when a compound should become a level
-`personal-growth` or `personal/growth`? `me-cfs` or `me/cfs`? The question recurs constantly
-and reads as a matter of taste, but it has a measurable answer.
-
-> **A hierarchy level must have siblings.** If the leading token of a compound already acts as a
-> namespace elsewhere — other terms live under it — then it is a real level and the term nests.
-> If nothing else lives under it, the compound is a single term of art and stays flat.
-
-| Term | Level tested | Children it has | Verdict |
-|---|---|---|---|
-| `work-stress` | `work` | 409 | nest → `work/stress` |
-| `system-design` | `system` | 285 | nest → `system/design` |
-| `me-cfs` | `me` | 1 | keep `me-cfs` — ME/CFS is one disease name |
-| `health/self-care-routine` | `health/self` | 0 | keep `self-care` — a lexicalized compound |
-
-This is why the choice *feels* intuitive but resists explanation: the real question is whether the
-first word means anything on its own **in that position**. Sibling count is the observable proxy.
-
-Measured across this vault's 122 flat-vs-nested pairs, the test resolved 117 to nested and 5 to
-compound — and the five it spared were precisely the terms of art.
+> [!NOTE] Superseded: the sibling test
+> Earlier revisions carried a rule for deciding whether a compound should become a hierarchy level
+> — `work-stress` against `work/stress` — settled by whether the leading token had siblings. It was
+> correct for the model it served and is now meaningless: under post-coordination `work-stress`
+> is simply `work` and `stress`. It is recorded here only so it is not re-derived; the question it
+> answered no longer exists.
 
 ### 6.3.2 Number form — singular, by invoked exception
 ANSI/NISO Z39.19-2005 §6.5 splits nouns by countability: **count nouns** (those answering "How
@@ -396,7 +420,19 @@ problem:
 > than cleanup.
 
 ### 6.4 Association (`RT`) — the cross-domain layer
-ISO 25964 `RT` maps concepts that are related but neither is broader than the other: `motif/cosmic-horror` RT `fantasy/eldritch`. This is the layer that answers *"what else in the vault connects to this?"* across domains that share no parent — the question motif exists to make askable, answered at the vocabulary level rather than per-document.
+ISO 25964 `RT` maps concepts that are related but neither is broader than the other:
+`motif/cosmic-horror` RT `fantasy/eldritch`. This is the layer that answers *"what else in the vault
+connects to this?"*
+
+> [!IMPORTANT] Post-coordination makes this load-bearing, not optional
+> Hierarchy was quietly carrying relational information. `health/sleep` stated that sleep belongs
+> with health; `tech/gis` stated that GIS is a kind of technology. Atomised into `health` + `sleep`
+> and `tech` + `gis`, **nothing states those relations any more** — the vocabulary knows the terms
+> co-occur on documents, which is not the same as knowing they are related.
+>
+> `RT` is now the only place that knowledge can live. An earlier revision deferred this layer as
+> speculative; under post-coordination it is the structural cost of flattening, and deferring it
+> means accepting that the vocabulary holds no relations at all.
 
 **Population — curated, and not from where this section first said.**
 `RT` relations are never inferred and activated automatically; they are approved by hand.
@@ -418,10 +454,11 @@ ISO 25964 `RT` maps concepts that are related but neither is broader than the ot
 > Genuine `RT` material — the `motif/cosmic-horror` ~ `fantasy/eldritch` shape — is sparse here, and
 > is better curated deliberately once the vocabulary settles than harvested from a leftover band.
 
-> [!CAUTION] An `RT` must never link a term to its own ancestor or descendant
-> The hierarchy already states that relationship. Recording it again is redundant, and *merging*
-> such a pair destroys a level outright — collapsing `relationship/dynamics/support` into
-> `relationship/dynamics` erases a distinction the tree was built to hold.
+> [!NOTE] Superseded: the ancestor guard
+> An earlier revision forbade `RT` between a term and its own ancestor, because the hierarchy
+> already stated that relation and merging such a pair destroyed a level. With no hierarchy the
+> guard has nothing to protect — and the relations it used to forbid recording are now exactly the
+> ones worth recording, since nothing else states them.
 
 **Runtime — weighted expansion.**
 A query on a term also returns documents related through `RT`, **ranked below direct matches**:
@@ -507,84 +544,82 @@ Measured against the live vault on 2026-09-19. These are the gaps this standard 
 
 ## 🚧 8.5 WORK IN PROGRESS — Resume Here
 
-> [!NOTE] Steps 1–6 complete and applied as of 2026-09-20 (`000.006.169`)
-> Vocabulary is normalized, namespace-clean, entity-free, collapsed onto preferred terms, roots
-> consolidated, and every flat compound with an established head is nested. **Step 7 — the
-> associative layer — is next.**
+> [!IMPORTANT] The model changed on 2026-09-20. Read §0.0 before anything else.
+> Steps 1–7 are applied. The vocabulary is normalized, deduplicated and pruned — but it is still
+> **pre-coordinate**, full of hierarchical paths the new model says should be atoms. **Step 8,
+> decomposition, has not run.** Until it does, the standard and the data disagree.
 
-**State:** 15,013 terms across **361 roots**, 144 holding five or more terms. 3,849 `UF`
-equivalences recorded (316 lexical, 1,618 reviewed, 533 root, 1,382 adopted). Zero stale variants in
-either store.
+**State:** 11,876 terms, 361 roots, 6,978 aliases recorded. Zero stale variants in either store.
 
-**The unfinished part of step 6: 6,915 flat terms remain.** Every lexical avenue is exhausted —
-their heads name nothing in the tree, so nesting them would be guesswork rather than inference.
-They need classification from **document content**, which is step 8's job, not a rule applied to the
-strings themselves. Do not invent a lexical rule for them; that is how the sparse-root mistake
-happened.
+**Why the model changed:** hierarchical tags are pre-coordination — composing concepts at indexing
+time and guessing which combinations a query will want. The guesses multiplied: `journaling` under
+31 parents, 76% of the vocabulary used exactly once. §0.0 has the reasoning and the trade.
 
-**Known open item:** depth violations. `projects/coding/python-projects/tools/comfy-ui-projects/organization/obsidian`
-is seven levels deep against §5's maximum of three. No step currently addresses this.
+**What decomposition will do, measured before committing:**
+| | Now | After |
+|---|---|---|
+| Distinct tags | 11,876 | 8,231 |
+| Tags per note (mean) | 4.1 | 5.8 |
+| Single-use share | 76% | 68% |
+
+**Decomposition alone is not the win.** It removes the duplication but leaves the tail; a usage
+floor is what produces a usable vocabulary — **963 atoms cover 98% of notes**. Step 8 and step 9
+belong together.
+
+**Do not re-derive the removed rules.** The sibling test and the subsumption threshold were correct
+for the pre-coordinate model and are recorded as superseded in §6.3 precisely so nobody rebuilds
+them. If a rule seems needed for deciding compound-versus-level, the model has drifted back.
 
 **Invariant that must not be broken:** every path writing a tag resolves through
 `taxonomy_db.canonicalize_tags()` — `tag_librarian`, `fact_extractor` (facts and procedures),
-`fact_deduplicator`, `fact_splitter`. The deduplicator is the dangerous one: merging recombines tags
-from the **source** rows, so a retired variant returns and undoes a finished migration hours later.
+`fact_deduplicator`, `fact_splitter`. Resolution is transitive; aliases chain across passes.
 
-**Artifacts in gitignored `scratch/`** (curated corpus facts containing personal vocabulary, AGENTS.md §4):
-`tag_merge_decisions.json`, `tag_merge_review.md`, `.tag_embeddings.npz`.
+**Artifacts in gitignored `scratch/`:** `tag_merge_review*.md`, `tag_merge_decisions*.json`,
+`structure_review.md`, `.tag_embeddings.npz`. The structure review is **obsolete** — its 160 subtree
+questions dissolve under decomposition.
 
-> [!CAUTION] Do not run a taxonomy rebalance before the tree is built
-> `maintain_master_taxonomy()` deletes every term with zero *vault* usage — much of the vocabulary
-> now lives in memory rather than notes. The 15% circuit breaker does not catch it. It requires
-> `rebalance_taxonomy=true` and nothing triggers it automatically.
+> [!CAUTION] Do not run a taxonomy rebalance before the vocabulary settles
+> `maintain_master_taxonomy()` deletes every term with zero *vault* usage; much of the vocabulary
+> now lives in memory. The 15% circuit breaker does not catch it.
 
 ---
 
 ## 🧭 9. Migration Sequence
 
 Two ordering constraints are load-bearing:
-- **Format normalization runs first**, because synonym detection is unreliable while one term exists in several spellings and casings.
-- **The registry is unified before any clustering**, because clustering each store against a partial vocabulary produces mappings that are wrong the moment the stores are joined.
+- **Format normalization runs first**, because synonym detection is unreliable while one term exists
+  in several spellings and casings.
+- **The registry is unified before any clustering**, because clustering each store against a partial
+  vocabulary produces mappings that are wrong the moment the stores are joined.
 
 Steps operate on **both substrates as one corpus** unless marked otherwise (§0).
 
 | # | Step | Mode | Scope | State |
 |---|---|---|---|---|
-| 1 | **Format sweep** — apply §5; merge casing collision classes; recompute usage | deterministic | both | ✅ `000.006.147` / `000.006.148` |
-| 2 | **Namespace retirement — vault** — drop the `topic/` wrapper (§3.3); retire `relationship/*`; collapse `contact/*` roles to `obsidian-graph/contact`; move `location/biome/*` to `setting/biome/*` | deterministic | vault | ✅ `000.006.149` |
-| 3 | **Registry unification** — extract the taxonomy API into `taxonomy_db.py` so ownership is explicit and no subsystem reaches into another's store; rebuild the shared `evelyn_tag_taxonomy` vector collection from the post-sweep registry | deterministic | both | ✅ `000.006.150` |
-| 4 | **Entity extraction** (§2) — remove tags the link graph already carries, at a 100% redundancy threshold; drop tags restating their record's own subject and close the writer that produced them | deterministic | both | ✅ `000.006.151` / `000.006.152` |
-| 5 | **Synonym collapse** (§6.2) — cluster the combined corpus once; propose `UF` mappings; review; apply | supervised | both | ✅ `000.006.153–155`, `161–163` |
-| 6 | **Domain tree construction** (§6.3) — consolidate roots by literary warrant (§6.3.3), then nest flat compounds with an established head. 6,915 flat terms remain for step 8 | supervised | both | ✅ `000.006.166–169` |
-| 7 | **Associative curation** (§6.4) — review banked `RT` candidates now that the terms they relate are stable. Leave expansion disabled until the weight is calibrated | curated | both | pending |
-| 8 | **Classification backfill** — enable the steady-state pass (§7.1) to assign `type/`, `motif/`, `setting/`, `event/` | autonomous | vault (`type/` is vault-only per §0.1) | pending |
-| 9 | **`relationship/*` retirement — memory** — gated on step 8 | deterministic | memory | pending |
+| 1 | **Format sweep** — apply §5 casing; merge collision classes | deterministic | both | ✅ `000.006.147` / `148` |
+| 2 | **Namespace retirement — vault** | deterministic | vault | ✅ `000.006.149` |
+| 3 | **Registry unification** — one owner, one vector vocabulary | deterministic | both | ✅ `000.006.150` |
+| 4 | **Entity extraction** (§2) — tags the link graph already carries | deterministic | both | ✅ `000.006.151` / `152` |
+| 5 | **Equivalence collapse** (§6.2) — `UF` merges, two passes | supervised | both | ✅ `000.006.153–155`, `161–163`, `170–172` |
+| 6 | **Root consolidation and flat adoption** | supervised | both | ✅ `000.006.166–169` |
+| 7 | **Phrase retirement** — verbose and unshared together | deterministic | both | ✅ `000.006.173` / `174` |
+| 8 | **Decomposition** — split every hierarchical path into atoms (§3.3). Mechanical: no judgement, since `a/b/c` becomes `a` + `b` + `c` by rule | deterministic | both | pending |
+| 9 | **Admission floor** (§6.3) — retire atoms below the usage floor, with literary warrant deciding the margin | supervised | both | pending |
+| 10 | **Associative curation** (§6.4) — build `RT`, now load-bearing rather than optional | curated | both | pending |
+| 11 | **Classification backfill** — enable the steady-state pass to assign `type/`, `motif/`, `setting/`, `event/` | autonomous | vault | pending |
+| 12 | **`relationship/*` retirement — memory** — gated on step 11 | deterministic | memory | pending |
+| 13 | **Tool-layer format alignment** — `MODEL_TOOL_DEFINITIONS` teaches what the prompts teach | deferred | both | pending |
 
-> [!WARNING] Step 9 closes a deliberate, temporary asymmetry
-> `relationship/*` was retired from the vault at step 2 but remains live in memory, where 903 fact
-> rows carry it and 666 have no other tag. Retiring it there without replacement would strip those
-> facts of their only retrieval handle, so it waits until steps 5–8 have given those rows
-> replacement domain terms. Until step 9 runs, the two stores differ on this one namespace and any
-> cross-store reasoning must account for it.
+> [!NOTE] Steps 8 and 9 replace what was planned as a domain tree
+> The original plan built a `domain/subdomain` hierarchy and pruned it with a branching threshold.
+> That plan assumed pre-coordination. Decomposition does the opposite — it removes the tree — and
+> the threshold becomes a flat usage floor. Steps 1–7 remain valid regardless: normalizing, merging
+> synonyms and retiring junk are the same work under either model, which is why the change costs no
+> rework.
 
-Why steps 5 and 6 run over the combined corpus rather than per store: memory carries roughly twice
-as many distinct terms as the vault. Clustering the vault alone would build a domain tree shaped by
-the smaller half of the vocabulary, then force the larger half into it afterwards. One pass, one
-review, one result.
-
-> [!IMPORTANT] Visible to clustering ≠ registered
-> Step 5 reads **both stores directly**, so no term is invisible to it. But the registry only ever
-> receives terms that survive curation (step 6). Importing raw extraction output into
-> `master_tag_taxonomy` to "cover the corpus" would make the registry a record of every string ever
-> emitted — the opposite of a controlled vocabulary, and a direct contradiction of §6.1.
-
-| 10 | **Tool-layer format alignment** — once the vocabulary is settled, `MODEL_TOOL_DEFINITIONS` teaches the same format the prompts do, so every surface that emits a tag agrees | deferred | both | pending |
-
-> [!NOTE] Why step 10 waits
-> Putting format rules into the tool layer is a deliberate addition, not a correction. Steps 6–9
-> keep changing what "correct" looks like, so encoding the current shape into tool descriptions now
-> would bake in a form that is still moving. The prompts are the right single home until the domain
-> tree settles; then the two are aligned rather than competing.
+> [!WARNING] Step 12 closes a deliberate, temporary asymmetry
+> `relationship/*` was retired from the vault at step 2 but remains live in memory, where the rows
+> carrying it have no other tag. It waits until classification has given them replacements.
 
 Each step is a registered migration and is measured against §8 before the next begins.
 
