@@ -64,7 +64,7 @@ TASK:
 4. THE EVENT EXCEPTION: If the entries represent discrete events, moods, or occurrences tied to different dates (State-Data vs Time-Series Data), they are a historical log. You MUST choose 'keep_both'.
 5. If verdict is 'keep_both', set merged_summary to an empty string.
 6. DATA PRESERVATION RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining them causes a loss of specific detail, you must choose 'keep_both'.
-7. MULTI-TIER DOMAIN TAXONOMY RULE: Format `merged_tags` using hierarchical domain trees (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`, `Health/Sleep/Routine`) and TitleCase with underscores for named entities (`John_Smith`).
+7. MULTI-TIER DOMAIN TAXONOMY RULE: Format `merged_tags` as lowercase hierarchical domain trees, hyphens joining words and slashes joining levels (e.g. `tech/python/fastapi`, `home/coffee/espresso`, `health/sleep/routine`). Never use TitleCase or underscores. Named individuals are not tags at all.
 8. EXPLICIT NOUN SUBJECT MANDATE: The `merged_summary` MUST explicitly state the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn observes...', 'Biscuit the cat acts as...', 'Jordan is acclimating...'). NEVER begin the summary with a subject-less verb (e.g. 'Enjoys...', 'Prefers...', 'Acts as...') and NEVER use ambiguous floating pronouns ('He', 'She', 'They') as the primary subject referent. If one entity is observing or commenting on another, explicitly name BOTH entities in the text (e.g. 'Evelyn observes that Alex values clarity...').
 {cat_ref}
 
@@ -185,6 +185,34 @@ def fast_deduplicate_exact_matches(con: sqlite3.Connection | None = None) -> int
 # Section 2: Vector-First Semantic Candidate Discovery
 # ============================================================================
 
+def is_split_relative(entry_a: dict[str, Any], entry_b: dict[str, Any]) -> bool:
+    """Check whether two entries were deliberately separated by a split.
+
+    A split is an explicit judgement that two facts are distinct. The splitter records
+    that judgement as `split_from_id`, but the deduplicator never read it — so siblings
+    came back as two suspiciously similar facts and were merged again, undoing the split.
+    Re-splitting then re-merges, and the pair oscillates.
+
+    Covers all three shapes: siblings of one parent, and either entry being the other's
+    parent.
+
+    Args:
+        entry_a: A context entry row.
+        entry_b: Another context entry row.
+
+    Returns:
+        bool: True if a split separated them and they must not be merged.
+    """
+    a_id, b_id = entry_a.get("id"), entry_b.get("id")
+    a_parent, b_parent = entry_a.get("split_from_id"), entry_b.get("split_from_id")
+
+    if a_parent is not None and a_parent == b_parent:
+        return True
+    if a_parent is not None and a_parent == b_id:
+        return True
+    return bool(b_parent is not None and b_parent == a_id)
+
+
 def find_deduplication_candidates(
     batch_limit: int = 5,
     distance_threshold: float = 0.40,
@@ -271,6 +299,13 @@ def find_deduplication_candidates(
 
             # Must share the same primary subject
             if entry.get("subject") != anchor.get("subject"):
+                continue
+
+            # Never re-merge what a split deliberately separated.
+            if is_split_relative(anchor, entry):
+                logger.debug(
+                    "[DEDUPLICATOR] Skipping #%s vs #%s — separated by a split.", anchor_id, nid
+                )
                 continue
 
             # Check lexical Jaccard as confirmation if distance is on the border

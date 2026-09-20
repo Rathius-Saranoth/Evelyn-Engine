@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 10:27:50
+# date modified: 2026-09-20 10:40:30
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.163"
-__version_info__ = (0, 6, 163)
-__version_name__ = "Alias Enforcement — Every Tag Writer Consults the Registry"
+__version__ = "000.006.164"
+__version_info__ = (0, 6, 164)
+__version_name__ = "Split Provenance — Deduplication Stops Undoing Splits"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

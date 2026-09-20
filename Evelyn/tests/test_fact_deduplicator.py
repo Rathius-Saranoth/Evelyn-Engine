@@ -112,3 +112,28 @@ def test_find_deduplication_candidates_nearest_neighbors(mock_memory_db):
     updated_e2 = memory_db.get_entry(e2)
     assert updated_e1 is not None and updated_e1["last_audited_at"] is not None
     assert updated_e2 is not None and updated_e2["last_audited_at"] is not None
+
+
+class TestSplitProvenanceGuard:
+    """A split is an explicit judgement that two facts are distinct; dedup must honour it."""
+
+    def _f(self, a, b):
+        from Evelyn.tools.fact_deduplicator import is_split_relative
+        return is_split_relative(a, b)
+
+    def test_siblings_of_one_split_are_protected(self):
+        assert self._f({"id": 2, "split_from_id": 1}, {"id": 3, "split_from_id": 1}) is True
+
+    def test_child_and_its_parent_are_protected_either_way(self):
+        assert self._f({"id": 2, "split_from_id": 1}, {"id": 1, "split_from_id": None}) is True
+        assert self._f({"id": 1, "split_from_id": None}, {"id": 2, "split_from_id": 1}) is True
+
+    def test_unrelated_entries_remain_mergeable(self):
+        assert self._f({"id": 5, "split_from_id": None}, {"id": 6, "split_from_id": None}) is False
+
+    def test_children_of_different_splits_remain_mergeable(self):
+        assert self._f({"id": 2, "split_from_id": 1}, {"id": 4, "split_from_id": 3}) is False
+
+    def test_null_parents_do_not_match_each_other(self):
+        """Two NULL split_from_id values must not be treated as a shared parent."""
+        assert self._f({"id": 7, "split_from_id": None}, {"id": 8, "split_from_id": None}) is False

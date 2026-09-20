@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 10:27:50
+date modified: 2026-09-20 10:40:30
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.164] - 2026-09-20 — *Split Provenance — Deduplication Stops Undoing Splits*
+
+A fact split by hand was silently recombined by the next consolidation pass, then had to be split
+again. Not a coincidence of near-identical wording — a structural oversight.
+
+### Fixed
+- **The deduplicator never read `split_from_id`.** The splitter records parent provenance precisely
+  so a decomposition can be recognised later, but nothing consumed it. To the deduplicator, siblings
+  of a split are simply two very similar facts about one subject, which is exactly its merge
+  criterion — so it merged them, and the pair oscillated between split and merged indefinitely.
+- `is_split_relative()` now blocks merges across all three shapes: siblings of one parent, and
+  either entry being the other's parent. A split is an explicit judgement that two facts are
+  distinct, and it outranks a similarity score.
+- Measured before the fix: 89 split children across 35 parents, 2 already split-then-merged, and
+  **34 sibling groups still co-existing** as standing merge candidates.
+
+### Changed
+- **The merge prompt's tag instructions contradicted §5.** It taught `Tech/Python/FastAPI` casing and
+  `John_Smith` underscores for named entities — the pre-standard format, and the entity-as-tag habit
+  §2 removed. Rewritten to lowercase hierarchical form.
+
+### Preserved by design
+- Exact-match deduplication needed no guard: it keys on normalised observation text, and split
+  siblings differ in text by construction, so they cannot collide there. Only the semantic path
+  could reach them.
 
 ## [000.006.163] - 2026-09-20 — *Alias Enforcement — Every Tag Writer Consults the Registry*
 
