@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 11:54:37
+date modified: 2026-09-20 12:00:27
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -485,18 +485,20 @@ Measured against the live vault on 2026-09-19. These are the gaps this standard 
 
 ## 🚧 8.5 WORK IN PROGRESS — Resume Here
 
-> [!NOTE] Steps 1–6a complete and applied as of 2026-09-20 (`000.006.167`)
-> Vocabulary is normalized, namespace-clean, entity-free, collapsed onto preferred terms, and its
-> roots consolidated. **Step 6b — adopting the flat tail — is next.**
+> [!NOTE] Steps 1–6 complete and applied as of 2026-09-20 (`000.006.169`)
+> Vocabulary is normalized, namespace-clean, entity-free, collapsed onto preferred terms, roots
+> consolidated, and every flat compound with an established head is nested. **Step 7 — the
+> associative layer — is next.**
 
-**State:** 15,016 terms across **361 roots** (from 493), 144 of them holding five or more terms.
-2,467 `UF` equivalences recorded (316 lexical, 1,618 reviewed, 533 root). Zero stale variants in
+**State:** 15,013 terms across **361 roots**, 144 holding five or more terms. 3,849 `UF`
+equivalences recorded (316 lexical, 1,618 reviewed, 533 root, 1,382 adopted). Zero stale variants in
 either store.
 
-**What step 6b still has to do:** roughly 8,200 flat terms have no home. The sibling test (§6.3.1)
-applied to flat compounds is the tool — `tech-progress` diverges at the hyphen, `tech` is a real
-level, so it nests. Then the §6.3 threshold can finally do something, because terms will be in a
-tree for it to prune.
+**The unfinished part of step 6: 6,915 flat terms remain.** Every lexical avenue is exhausted —
+their heads name nothing in the tree, so nesting them would be guesswork rather than inference.
+They need classification from **document content**, which is step 8's job, not a rule applied to the
+strings themselves. Do not invent a lexical rule for them; that is how the sparse-root mistake
+happened.
 
 **Known open item:** depth violations. `projects/coding/python-projects/tools/comfy-ui-projects/organization/obsidian`
 is seven levels deep against §5's maximum of three. No step currently addresses this.
@@ -531,7 +533,7 @@ Steps operate on **both substrates as one corpus** unless marked otherwise (§0)
 | 3 | **Registry unification** — extract the taxonomy API into `taxonomy_db.py` so ownership is explicit and no subsystem reaches into another's store; rebuild the shared `evelyn_tag_taxonomy` vector collection from the post-sweep registry | deterministic | both | ✅ `000.006.150` |
 | 4 | **Entity extraction** (§2) — remove tags the link graph already carries, at a 100% redundancy threshold; drop tags restating their record's own subject and close the writer that produced them | deterministic | both | ✅ `000.006.151` / `000.006.152` |
 | 5 | **Synonym collapse** (§6.2) — cluster the combined corpus once; propose `UF` mappings; review; apply | supervised | both | ✅ `000.006.153–155`, `161–163` |
-| 6 | **Domain tree construction** (§6.3) — promote surviving terms into `domain/subdomain` at the ≥5 threshold, and **register them**. This is where memory-originated terms enter the registry: as curated survivors, not as raw extraction output | supervised | both | pending |
+| 6 | **Domain tree construction** (§6.3) — consolidate roots by literary warrant (§6.3.3), then nest flat compounds with an established head. 6,915 flat terms remain for step 8 | supervised | both | ✅ `000.006.166–169` |
 | 7 | **Associative curation** (§6.4) — review banked `RT` candidates now that the terms they relate are stable. Leave expansion disabled until the weight is calibrated | curated | both | pending |
 | 8 | **Classification backfill** — enable the steady-state pass (§7.1) to assign `type/`, `motif/`, `setting/`, `event/` | autonomous | vault (`type/` is vault-only per §0.1) | pending |
 | 9 | **`relationship/*` retirement — memory** — gated on step 8 | deterministic | memory | pending |
