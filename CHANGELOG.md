@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 15:41:07
+date modified: 2026-09-20 17:00:10
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,46 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.184] - 2026-09-20 — *Flat Compounds — Warrant Decides*
+
+Step 8, second half. Decomposition stopped at the slash, because §5 gives the hyphen a real job:
+joining the words *inside* one term. Measuring the result showed the job was being abused — the
+registry held **2,209 hyphenated compounds against 752 atoms**, three to one, and **1,403 of them
+appear nowhere in the vault's own prose**.
+
+### Added
+- **`flat_compound_decomposition()`** — decides each compound by literary warrant (Z39.19 §6.5.1.1).
+  A compound the vault writes as a phrase is a bound term and survives whole; one nobody has ever
+  written was assembled at filing time and decomposes. The bar is the lowest one that works — *ever
+  written, even once* — because a higher floor is easy to justify in aggregate and takes real
+  categories with it. Thinning weak terms is the admission floor's job, and it applies to atoms
+  after this runs rather than to compounds before it.
+- **`apply_decomposition_to_csv()`** — applies a plan across a tag string, de-duplicating.
+- **`FUNCTION_WORDS`** — glue dropped during decomposition. `about-superpowers` is about
+  superpowers, not about `about`.
+- **`scripts/generate_hyphen_decomposition.py`** — freezes the plan the migration applies. Derived
+  from a corpus scan rather than curated, but still read from disk: a migration must apply the plan
+  that was reviewed, and prose changes underneath a live scan.
+
+### Fixed
+- **Decomposition no longer follows pre-coordinate alias targets.** Aliases recorded before
+  decomposition still point at compound and nested terms — `frustration` → `feeling-frustrated`,
+  `workflow` → `work/workflow`, the latter a target the previous step had already dissolved.
+  Following one would rebuild the compound that decomposition had just taken apart.
+
+### Migrations
+- **`000.006.183` (vault)** / **`000.006.184` (memory)** — 1,403 compounds decompose; compounds fall
+  **2,209 → 806**, atoms rise **752 → 1,769**. 121 aliases are retired with their targets: an alias
+  is a one-to-one record, and a term that becomes three leaves nothing single to point at.
+
+### Why this was still the blocker
+After the first half, the classifier still reconciled **1 subject in 24** — every extracted phrase
+fell through to a proposal. The cause was not a missing atom but a crowded index: a pre-coordinate
+compound outranked the bare atom in every nearest-neighbour lookup. `sleep tracking` found
+`tracking-worries` at 0.357 before `sleep` at 0.373; `cello technique` found `learning-cello`;
+`gis technician tasks` found `mapping-technician`. The right answer was present and ranked second,
+behind a term that existed only because someone once filed a note under it.
 
 ## [000.006.182] - 2026-09-20 — *Decomposition — One Concept, One Tag*
 

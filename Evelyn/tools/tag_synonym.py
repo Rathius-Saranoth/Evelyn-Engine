@@ -31,6 +31,8 @@ Exports:
     weak_root_resolution()  — Re-nest or dismantle sparse roots, judged by warrant not population.
     decompose_to_atoms()    — Split a hierarchical term into post-coordinate atoms (§3.3).
     decompose_tag_csv()     — Apply decomposition across a comma-separated tag string.
+    flat_compound_decomposition() — Split unwarranted hyphenated compounds into atoms (§3.3).
+    apply_decomposition_to_csv() — Apply a decomposition plan across a tag string.
     one_off_phrase_tags()   — Flat multi-word descriptors used once or twice (§6.3.4).
     singularize()           — Crude English singularization of a skeleton.
     build_corpus()          — Combined term->usage counts across vault and memory.
@@ -42,6 +44,7 @@ See also: .agents/rules/vault-tag-taxonomy.md §6.2
 import collections
 import re
 import sqlite3
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import evelyn_config as cfg
@@ -534,6 +537,98 @@ def decompose_tag_csv(raw: str | None) -> tuple[str, bool]:
     out: list[str] = []
     for tag in current:
         for atom in decompose_to_atoms(tag):
+            if atom and atom not in out:
+                out.append(atom)
+    return ", ".join(out), out != current
+
+
+# Words that carry no subject on their own. A compound decomposes into concepts, and a
+# preposition or article is not one: `about-superpowers` is about superpowers, not about
+# `about`. Kept deliberately small — this removes glue, not vocabulary.
+FUNCTION_WORDS = frozenset({
+    "a", "about", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "i",
+    "if", "in", "is", "it", "its", "my", "of", "on", "or", "so", "that", "the", "this",
+    "to", "was", "were", "with",
+})
+
+
+def flat_compound_decomposition(
+    terms: Iterable[str], vault_root: str, canonicalize: Callable[[str], str] | None = None
+) -> dict[str, list[str]]:
+    """Decompose hyphenated compounds the vault never actually writes as a phrase.
+
+    Decomposition to atoms (§3.3) split `a/b/c` and stopped at the slash, because §5 gives
+    the hyphen a legitimate job: joining the words *inside* one term. But the same
+    pre-coordination that filled the vault with slashes also filled it with hyphens.
+    Measured here, hyphenated compounds outnumbered atoms three to one, and 1,403 of them
+    appear nowhere in the vault's prose — `tracking-worries`, `insomnia-struggles`,
+    `cozy-gaming-night`. They are the indexer's guesses wearing a different separator.
+
+    Literary warrant separates the two cases, exactly as Z39.19 §6.5.1.1 intends and as
+    `literary_warrant()` already measures elsewhere: a compound the vault writes as a phrase
+    is a bound term and survives whole (`machine-learning`, 1,796 occurrences;
+    `chain-of-thought`, 240). A compound nobody has ever written is a label someone
+    assembled at filing time, and it decomposes.
+
+    The bar is deliberately the lowest one that works — *ever written, even once*. A higher
+    floor would be easy to justify in aggregate and would take real categories with it; the
+    admission floor (§6.3) is the mechanism for thinning weak terms, and it applies to atoms
+    after this runs rather than to compounds before it.
+
+    Args:
+        terms: Candidate terms; anything nested, protected, or excluded is skipped.
+        vault_root: Absolute path to the vault, scanned for phrase occurrences.
+        canonicalize: Optional resolver applied to each produced atom, so decomposition
+            lands on established preferred terms instead of minting inflected twins
+            (`dreams` -> `dream`). A resolution that is itself compound or nested is
+            discarded: aliases recorded before decomposition still point at pre-coordinate
+            targets, and following one would rebuild the compound this function just took
+            apart.
+
+    Returns:
+        dict[str, list[str]]: compound -> atoms, for compounds that decompose. Terms that
+        survive whole are absent, as are compounds that would yield nothing but glue.
+    """
+    candidates = [
+        t for t in terms
+        if t and "/" not in t and "-" in t and not t.startswith("CY-") and not is_excluded_tag(t)
+    ]
+    warrant = literary_warrant(candidates, vault_root)
+
+    plan: dict[str, list[str]] = {}
+    for term in candidates:
+        if warrant.get(term, 0) > 0:
+            continue  # written as a phrase: a bound term, kept whole
+        atoms: list[str] = []
+        for part in term.split("-"):
+            if not part or part in FUNCTION_WORDS or part.isdigit() or len(part) == 1:
+                continue
+            resolved = canonicalize(part) if canonicalize else part
+            if not resolved or ("-" in resolved or "/" in resolved):
+                resolved = part  # alias target is pre-coordinate; keep the atom
+            if resolved not in atoms:
+                atoms.append(resolved)
+        if atoms:
+            plan[term] = atoms
+    return plan
+
+
+def apply_decomposition_to_csv(raw: str | None, plan: dict[str, list[str]]) -> tuple[str, bool]:
+    """Rewrite a comma-separated tag string through a decomposition plan.
+
+    Args:
+        raw: Comma-separated tags.
+        plan: compound -> atoms, from `flat_compound_decomposition()`.
+
+    Returns:
+        tuple[str, bool]: (rewritten CSV, whether it changed).
+    """
+    if not raw:
+        return "", False
+    current = [t.strip() for t in raw.split(",") if t.strip()]
+    out: list[str] = []
+    for tag in current:
+        for atom in plan.get(tag, [tag]):
             if atom and atom not in out:
                 out.append(atom)
     return ", ".join(out), out != current

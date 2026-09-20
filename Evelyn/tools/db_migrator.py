@@ -4255,6 +4255,175 @@ def migrate_000_006_182_decompose_to_atoms_memory(
 
 
 
+HYPHEN_PLAN_PATH = os.path.join(cfg.BASE_DIR, "scratch", "hyphen_decomposition_plan.json")
+
+
+def _load_hyphen_plan() -> tuple[dict[str, list[str]], list[str]]:
+    """Load the frozen flat-compound decomposition plan.
+
+    The plan is derived from a corpus scan rather than hand-curated, but it is still read
+    from disk instead of recomputed: a migration must apply the plan that was reviewed, and
+    the vault's prose changes underneath a live scan. A missing file no-ops loudly rather
+    than half-applying.
+
+    Returns:
+        tuple[dict[str, list[str]], list[str]]: (compound -> atoms, aliases to retire).
+    """
+    import json
+
+    if not os.path.exists(HYPHEN_PLAN_PATH):
+        logger.warning(
+            "[MIGRATION] No decomposition plan at %s — skipping. Regenerate with "
+            "scripts/generate_hyphen_decomposition.py", HYPHEN_PLAN_PATH,
+        )
+        return {}, []
+    with open(HYPHEN_PLAN_PATH, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    plan = {k: v for k, v in (payload.get("plan") or {}).items() if k and v}
+    return plan, list(payload.get("orphaned_aliases") or [])
+
+
+def migrate_000_006_183_decompose_flat_compounds_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.183: Decompose unwarranted hyphenated compounds (§3.3, §6.3.3).
+
+    Decomposition to atoms stopped at the slash, because §5 gives the hyphen a real job:
+    joining words inside one term. Measuring the result showed the job was being abused —
+    hyphenated compounds outnumbered atoms three to one, and 1,403 of them appear nowhere
+    in the vault's own prose. The classifier made the cost concrete: every extracted subject
+    fell through to a proposal, because a pre-coordinate compound outranked the bare atom in
+    every nearest-neighbour lookup. `sleep tracking` found `tracking-worries` before `sleep`.
+
+    Literary warrant decides which is which (Z39.19 §6.5.1.1). A compound the vault writes
+    as a phrase is a bound term and survives whole — `machine-learning` is written 1,796
+    times, `chain-of-thought` 240. A compound nobody has ever written was assembled at
+    filing time, and it decomposes.
+
+    Like its predecessor this is one-to-many, so it cannot use the alias table. Aliases
+    pointing at a decomposed target are retired for the same reason: there is no single term
+    left to point at.
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_synonym import apply_decomposition_to_csv
+
+    plan, orphaned = _load_hyphen_plan()
+    if not plan:
+        return
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.183")
+    cursor = conn.cursor()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        swept, changed = apply_decomposition_to_csv(raw_tags, plan)
+        if not changed:
+            continue
+        after = [t.strip() for t in swept.split(",") if t.strip()]
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", after), preserve_mtime=True
+                )
+                manifest[path] = {"before": [t.strip() for t in raw_tags.split(",")], "after": after}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 183] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (swept, path))
+
+    # Fold each decomposed term's registry entry onto the atoms it became.
+    for term, atoms in plan.items():
+        row = cursor.execute(
+            "SELECT category, description, usage_count FROM master_tag_taxonomy WHERE tag = ?",
+            (term,),
+        ).fetchone()
+        if not row:
+            continue
+        category, description, usage = row
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (term,))
+        now = time.time()
+        for atom in atoms:
+            cursor.execute(
+                """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(tag) DO UPDATE SET usage_count = usage_count + ?, updated_at = ?""",
+                (atom, category or "general", description or "", usage or 0, now, now, usage or 0, now),
+            )
+
+    retired = 0
+    for alias in orphaned:
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (alias,))
+        retired += cursor.rowcount
+
+    # Recount against the decomposed on-disk state, so usage reflects documents not arithmetic.
+    observed: dict[str, int] = {}
+    for (doc_tags,) in cursor.execute(
+        "SELECT tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        for tag in (t.strip() for t in doc_tags.split(",") if t.strip()):
+            observed[tag] = observed.get(tag, 0) + 1
+    now = time.time()
+    for tag, count in observed.items():
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = ?, updated_at = ?""",
+            (tag, tag.split("/")[0] if "/" in tag else "general", count, now, now, count, now),
+        )
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "decomposition_manifest_000.006.183.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 183] Decomposed %d compounds; rewrote %d notes; retired %d orphaned aliases.",
+        len(plan), rewritten, retired,
+    )
+
+
+def migrate_000_006_184_decompose_flat_compounds_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.184: Decompose unwarranted hyphenated compounds in memory (§3.3).
+
+    The vault and memory share one vocabulary (§0), so they decompose together or they drift.
+    """
+    from Evelyn.tools.tag_synonym import apply_decomposition_to_csv
+
+    plan, _ = _load_hyphen_plan()
+    if not plan:
+        return
+
+    cursor = conn.cursor()
+    total = 0
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            swept, changed = apply_decomposition_to_csv(raw, plan)
+            if changed:
+                cursor.execute(f"UPDATE {table} SET tags = ? WHERE rowid = ?", (swept, row_id))
+                updated += 1
+        logger.info("[MIGRATION 184] %s: %d rows decomposed.", table, updated)
+        total += updated
+    logger.info("[MIGRATION 184] Decomposed tags across %d memory rows.", total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4620,6 +4789,19 @@ MIGRATIONS: list[Migration] = [
         version="000.006.182",
         name="decompose_to_atoms_memory",
         up_fn=migrate_000_006_182_decompose_to_atoms_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.183",
+        name="decompose_flat_compounds_vault",
+        up_fn=migrate_000_006_183_decompose_flat_compounds_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.184",
+        name="decompose_flat_compounds_memory",
+        up_fn=migrate_000_006_184_decompose_flat_compounds_memory,
     ),
 ]
 

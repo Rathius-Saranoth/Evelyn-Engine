@@ -108,3 +108,7 @@ _.update_document_tag_audit
 # AGENTS.md §11 category 1 — external script consumer, not unwired application logic.
 _.resolve_structural_nesting
 _.namespace_children
+
+# Called by scripts/generate_hyphen_decomposition.py, which freezes the decomposition plan
+# the migration then applies. AGENTS.md §11 category 1 — external script consumer.
+_.flat_compound_decomposition

@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 15:37:01
+date modified: 2026-09-20 17:00:10
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -568,26 +568,34 @@ Measured against the live vault on 2026-09-19. These are the gaps this standard 
 ## 🚧 8.5 WORK IN PROGRESS — Resume Here
 
 > [!IMPORTANT] The model changed on 2026-09-20. Read §0.0 before anything else.
-> Steps 1–7 are applied. The vocabulary is normalized, deduplicated and pruned — but it is still
-> **pre-coordinate**, full of hierarchical paths the new model says should be atoms. **Step 8,
-> decomposition, has not run.** Until it does, the standard and the data disagree.
+> Steps 1–8 are applied, in both halves: hierarchical paths decomposed at `000.006.181`/`182`,
+> unwarranted hyphenated compounds at `000.006.183`/`184`. **Step 9, the admission floor, has not
+> run.** The vocabulary is post-coordinate but still carries its long tail.
 
-**State:** 11,876 terms, 361 roots, 6,978 aliases recorded. Zero stale variants in either store.
+**State:** 3,206 registry terms — 1,769 atoms, 806 warranted bound terms, 631 facet-prefixed.
+6,857 aliases. Zero stale variants, zero aliases pointing at decomposed terms.
 
 **Why the model changed:** hierarchical tags are pre-coordination — composing concepts at indexing
 time and guessing which combinations a query will want. The guesses multiplied: `journaling` under
 31 parents, 76% of the vocabulary used exactly once. §0.0 has the reasoning and the trade.
 
-**What decomposition will do, measured before committing:**
-| | Now | After |
-|---|---|---|
-| Distinct tags | 11,876 | 8,231 |
-| Tags per note (mean) | 4.1 | 5.8 |
-| Single-use share | 76% | 68% |
+**Decomposition had two halves, and the second was not optional.** Splitting on the slash left the
+hyphen alone, which §5 permits — but 1,403 hyphenated compounds were pre-coordination wearing a
+different separator, and they *outranked the atoms in vector search* because a multi-word term
+embeds closer to a multi-word query. Measured: the classifier reconciled **1 subject in 24** with
+them present. `sleep tracking` matched `tracking-worries` (0.357) before `sleep` (0.373).
+
+**Literary warrant is what separates the cases** (§6.3.3), at the lowest bar that works: *ever
+written as a phrase, even once*. `machine-learning` appears 1,796 times in the vault's prose and
+survives whole; `tracking-worries` appears never and decomposes. A higher floor is easy to justify
+in aggregate and takes real categories with it — that is step 9's job, applied to atoms afterwards.
 
 **Decomposition alone is not the win.** It removes the duplication but leaves the tail; a usage
-floor is what produces a usable vocabulary — **963 atoms cover 98% of notes**. Step 8 and step 9
-belong together.
+floor is what produces a usable vocabulary — **963 atoms cover 98% of notes**. Step 9 is next.
+
+**Open, and deliberately not decided by rule:** 806 compounds survive on warrant, but 581 of them
+were written only 1–9 times. That is weak evidence either way, and it is the shape of the mistake
+§6.3.3 exists to prevent. Re-measure their atom usage *after* step 9 before touching them.
 
 **Do not re-derive the removed rules.** The sibling test and the subsumption threshold were correct
 for the pre-coordinate model and are recorded as superseded in §6.3 precisely so nobody rebuilds

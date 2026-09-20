@@ -801,3 +801,87 @@ class TestDecomposition:
     def test_unchanged_input_reports_no_change(self):
         from Evelyn.tools.tag_synonym import decompose_tag_csv
         assert decompose_tag_csv("music, cello") == ("music, cello", False)
+
+
+class TestFlatCompoundDecomposition:
+    """§6.3.3: literary warrant decides whether a hyphenated compound is a bound term."""
+
+    @staticmethod
+    def _vault(tmp_path, prose: str):
+        (tmp_path / "note.md").write_text(prose, encoding="utf-8")
+        return str(tmp_path)
+
+    def test_written_phrase_survives_whole(self, tmp_path):
+        """A compound the corpus actually writes is a bound term (machine-learning)."""
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Notes on machine learning and more machine learning.")
+        plan = flat_compound_decomposition(["machine-learning"], root)
+        assert "machine-learning" not in plan
+
+    def test_hyphenated_form_in_prose_also_counts(self, tmp_path):
+        """literary_warrant matches across either separator, so both spellings warrant."""
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "A note about machine-learning.")
+        assert flat_compound_decomposition(["machine-learning"], root) == {}
+
+    def test_unwritten_compound_decomposes(self, tmp_path):
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Nothing relevant here.")
+        plan = flat_compound_decomposition(["cozy-gaming-night"], root)
+        assert plan == {"cozy-gaming-night": ["cozy", "gaming", "night"]}
+
+    def test_function_words_are_dropped(self, tmp_path):
+        """`about-superpowers` is about superpowers, not about `about`."""
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Nothing relevant here.")
+        assert flat_compound_decomposition(["about-superpowers"], root) == {
+            "about-superpowers": ["superpowers"]
+        }
+
+    def test_nested_and_protected_terms_are_not_candidates(self, tmp_path):
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Nothing relevant here.")
+        plan = flat_compound_decomposition(
+            ["type/journal-entry", "CY-2026/01/01", "obsidian-graph/no-graph"], root
+        )
+        assert plan == {}
+
+    def test_canonicalize_lands_atoms_on_preferred_forms(self, tmp_path):
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Nothing relevant here.")
+        plan = flat_compound_decomposition(
+            ["scary-dreams"], root, canonicalize=lambda a: {"dreams": "dream"}.get(a, a)
+        )
+        assert plan == {"scary-dreams": ["scary", "dream"]}
+
+    def test_precoordinate_alias_target_is_refused(self, tmp_path):
+        """Following `frustration -> feeling-frustrated` would rebuild what this took apart."""
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Nothing relevant here.")
+        plan = flat_compound_decomposition(
+            ["overcoming-frustration"], root,
+            canonicalize=lambda a: {"frustration": "feeling-frustrated"}.get(a, a),
+        )
+        assert plan == {"overcoming-frustration": ["overcoming", "frustration"]}
+
+    def test_nested_alias_target_is_refused(self, tmp_path):
+        from Evelyn.tools.tag_synonym import flat_compound_decomposition
+        root = self._vault(tmp_path, "Nothing relevant here.")
+        plan = flat_compound_decomposition(
+            ["obsidian-workflow"], root,
+            canonicalize=lambda a: {"workflow": "work/workflow"}.get(a, a),
+        )
+        assert plan == {"obsidian-workflow": ["obsidian", "workflow"]}
+
+    def test_csv_rewrite_applies_plan_and_dedupes(self):
+        from Evelyn.tools.tag_synonym import apply_decomposition_to_csv
+        plan = {"scary-dream": ["scary", "dream"], "lucid-dream": ["lucid", "dream"]}
+        out, changed = apply_decomposition_to_csv("scary-dream, lucid-dream", plan)
+        assert changed is True
+        assert out == "scary, dream, lucid"
+
+    def test_csv_rewrite_leaves_unplanned_terms_alone(self):
+        from Evelyn.tools.tag_synonym import apply_decomposition_to_csv
+        assert apply_decomposition_to_csv("machine-learning, cello", {}) == (
+            "machine-learning, cello", False
+        )
