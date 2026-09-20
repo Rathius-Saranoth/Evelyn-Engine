@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 10:28:59
+date modified: 2026-09-20 10:55:51
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -467,6 +467,14 @@ review, one result.
 > receives terms that survive curation (step 6). Importing raw extraction output into
 > `master_tag_taxonomy` to "cover the corpus" would make the registry a record of every string ever
 > emitted — the opposite of a controlled vocabulary, and a direct contradiction of §6.1.
+
+| 10 | **Tool-layer format alignment** — once the vocabulary is settled, `MODEL_TOOL_DEFINITIONS` teaches the same format the prompts do, so every surface that emits a tag agrees | deferred | both | pending |
+
+> [!NOTE] Why step 10 waits
+> Putting format rules into the tool layer is a deliberate addition, not a correction. Steps 6–9
+> keep changing what "correct" looks like, so encoding the current shape into tool descriptions now
+> would bake in a form that is still moving. The prompts are the right single home until the domain
+> tree settles; then the two are aligned rather than competing.
 
 Each step is a registered migration and is measured against §8 before the next begins.
 
