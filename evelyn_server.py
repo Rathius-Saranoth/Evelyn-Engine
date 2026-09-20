@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-20 07:19:46
+# date modified: 2026-09-20 08:32:00
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6453,22 +6453,32 @@ async def action_proposal(
                     )
                     markdown_content = link_librarian.render_stub_markdown(fallback_payload)
 
-                target_filename = os.path.basename(clean_target)
-                if not target_filename.endswith(".md"):
-                    target_filename += ".md"
+                stem = os.path.basename(clean_target)
+                if stem.endswith(".md"):
+                    stem = stem[:-3]
 
                 vault_root = getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault")
+                # File under Stubs/<domain>/ so approved stubs no longer land in the
+                # vault root, which they otherwise dominate. The domain comes from the
+                # payload when the proposal recorded one, else from its references.
+                domain = (payload.domain if payload else "") or ""
+                if not domain and payload and payload.references:
+                    domain = link_librarian.infer_stub_domain(payload.references)
+                target_filename = link_librarian.stub_relpath(stem, domain)
                 dest_path = os.path.join(vault_root, target_filename)
+                dest_dir = os.path.dirname(dest_path)
+                os.makedirs(dest_dir, exist_ok=True)
 
                 # Reuse an existing note that differs only by case. Linux keeps both
-                # "Sekulich Coat Of Arms.md" and "Sekulich Coat of Arms.md", but a
-                # case-insensitive sync peer sees one file with two names and conflicts.
+                # "Coat Of Arms.md" and "Coat of Arms.md", but a case-insensitive sync
+                # peer sees one file under two names and raises a conflict.
                 try:
-                    lowered = target_filename.lower()
-                    for entry in os.listdir(vault_root):
-                        if entry.lower() == lowered and entry != target_filename:
-                            target_filename = entry
-                            dest_path = os.path.join(vault_root, entry)
+                    base = os.path.basename(target_filename)
+                    lowered = base.lower()
+                    for entry in os.listdir(dest_dir):
+                        if entry.lower() == lowered and entry != base:
+                            target_filename = os.path.join(os.path.dirname(target_filename), entry).replace("\\", "/")
+                            dest_path = os.path.join(dest_dir, entry)
                             break
                 except OSError:
                     pass

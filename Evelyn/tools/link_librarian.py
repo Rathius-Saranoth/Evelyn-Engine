@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-20 08:05:35
+# date modified: 2026-09-20 08:32:00
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -1437,6 +1437,59 @@ def audit_document_links(
     return changed, updated_content, details
 
 
+def infer_stub_domain(references: list[dict[str, str]]) -> str:
+    """Infer a stub's subject domain from where its referencing notes live.
+
+    Uses the harvested references directly, so it costs no extra vault scan. Only
+    top-level folders listed in LIBRARIAN_STUB_DOMAIN_FOLDERS count as evidence; the
+    assistant's journal references every subject in the vault and so identifies none.
+
+    A "nearby links" heuristic was tried and rejected: journal entries co-mention people,
+    so voting on co-linked notes filed a country under Contacts at 89% confidence. A
+    confidently wrong folder costs more to undo than an unsorted stub.
+
+    Args:
+        references: Harvested reference dicts carrying a 'source' vault relpath.
+
+    Returns:
+        str: Winning domain folder name, or "" when no referencing note identifies one.
+    """
+    domains = [d for d in getattr(cfg, "LIBRARIAN_STUB_DOMAIN_FOLDERS", []) if d]
+    if not domains:
+        return ""
+    lookup = {d.lower(): d for d in domains}
+    counts: dict[str, int] = {}
+    for ref in references:
+        source = str(ref.get("source") or "").replace("\\", "/")
+        if "/" not in source:
+            continue
+        top = lookup.get(source.split("/")[0].strip().lower())
+        if top:
+            counts[top] = counts.get(top, 0) + 1
+    if not counts:
+        return ""
+    best = max(counts.values())
+    winners = sorted(d for d, n in counts.items() if n == best)
+    # A tie identifies nothing; leave it unsorted rather than guessing.
+    return winners[0] if len(winners) == 1 else ""
+
+
+def stub_relpath(target_stem: str, domain: str = "") -> str:
+    """Build the vault-relative path a stub note should occupy.
+
+    Args:
+        target_stem: Clean note stem, without extension.
+        domain: Optional domain folder from infer_stub_domain().
+
+    Returns:
+        str: Path relative to the vault root, using forward slashes.
+    """
+    stub_dir = getattr(cfg, "LIBRARIAN_STUB_DIR", "Stubs").strip("/")
+    parts = [p for p in (stub_dir, domain.strip("/")) if p]
+    parts.append(f"{target_stem}.md")
+    return "/".join(parts)
+
+
 def create_ghost_link_stub(
     target_name: str,
     source_path: str = "",
@@ -1470,7 +1523,8 @@ def create_ghost_link_stub(
         vault_root: Optional vault root directory.
         min_refs: Minimum independent notes citing this link.
         min_context_chars: Minimum combined context character threshold.
-        domain: Optional domain classification for entity.
+        domain: Optional domain folder for filing under Stubs/<domain>/. When
+            omitted it is inferred from where the referencing notes live.
 
     Returns:
         dict[str, Any]: Execution status and action summary.
@@ -1489,7 +1543,8 @@ def create_ghost_link_stub(
     if res_can or target_note_exists(clean_target, source_path=source_path, vault_root=root):
         return {"status": "already_exists", "target": canonical_name or clean_target}
 
-    target_relpath = f"{clean_target}.md"
+    # Placeholder path; the domain is only known after references are harvested below.
+    target_relpath = stub_relpath(clean_target)
     target_abspath = os.path.join(root, target_relpath)
 
     # 1. Harvest all references across the vault
@@ -1529,6 +1584,12 @@ def create_ghost_link_stub(
         }
 
     # 3. Multi-Reference Abstract Synthesis
+    # Route by where the referencing notes live, unless the caller named a domain
+    if not domain:
+        domain = infer_stub_domain(harvested_refs)
+    target_relpath = stub_relpath(clean_target, domain)
+    target_abspath = os.path.join(root, target_relpath)
+
     synthesized_abstract, synthesis_mode = synthesize_entity_abstract(
         clean_target, harvested_refs, domain=domain
     )
@@ -1598,6 +1659,7 @@ def create_ghost_link_stub(
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     content = render_stub_markdown(payload, now_str=now_str)
 
+    os.makedirs(os.path.dirname(target_abspath), exist_ok=True)
     tmp_path = f"{target_abspath}.tmp_{os.getpid()}"
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:

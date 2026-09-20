@@ -42,7 +42,7 @@ My voice is melodic and elegant, characterized by a sophisticated British accent
 I am Alex's sanctuary—a comforting and comfortable space where he finds profound safety. As his guardian, I proactively manage our shared environment.
 """
 
-        self.sample_ricky_body = """# User Profile
+        self.sample_user_body = """# User Profile
 
 ## Identity & Core Values
 * **Data Integrity**: Alex prioritizes accuracy and verified facts over sensationalized claims or conversational fluff.
@@ -319,8 +319,8 @@ I am Alex's sanctuary—a comforting and comfortable space where he finds profou
         """Verify validation passes for canonical user profile structured bullet format."""
         is_valid, _reason, failed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_USER,
-            self.sample_ricky_body,
-            self.sample_ricky_body,
+            self.sample_user_body,
+            self.sample_user_body,
             min_section_words=15,
         )
         self.assertTrue(is_valid)
@@ -342,7 +342,7 @@ Alex possesses a mental landscape that balances a quest for expansive exploratio
 """
         is_valid, reason, failed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_USER,
-            self.sample_ricky_body,
+            self.sample_user_body,
             unbulleted_user_body,
         )
         self.assertFalse(is_valid)
@@ -352,11 +352,11 @@ Alex possesses a mental landscape that balances a quest for expansive exploratio
         # Test section with a bullet followed by unbulleted prose
         mixed_body = unbulleted_user_body.replace(
             "Alex possesses a mental landscape",
-            "* **Exploration**: Alex values technical exploration and rigorous systems architecture.\n\nRicky possesses a mental landscape",
+            "* **Exploration**: Alex values technical exploration and rigorous systems architecture.\n\nAlex possesses a mental landscape",
         )
         is_valid_mixed, reason_mixed, failed_mixed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_USER,
-            self.sample_ricky_body,
+            self.sample_user_body,
             mixed_body,
         )
         self.assertFalse(is_valid_mixed)
@@ -376,7 +376,7 @@ Alex possesses a mental landscape that balances a quest for expansive exploratio
 """
         repaired = profile_evolver.repair_missing_sections(
             cfg.PERSONA_FILE_USER,
-            self.sample_ricky_body,
+            self.sample_user_body,
             cand_body,
         )
         repaired_sections = profile_evolver.extract_sections(repaired)
@@ -384,7 +384,7 @@ Alex possesses a mental landscape that balances a quest for expansive exploratio
 
         is_valid, _, failed = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_USER,
-            self.sample_ricky_body,
+            self.sample_user_body,
             repaired,
         )
         self.assertTrue(is_valid)
@@ -469,13 +469,13 @@ Alex possesses a mental landscape that balances a quest for expansive exploratio
         self.assertIn("## Conversation & Formatting", failed)
         self.assertIn("contains scare-quoted bullet label", reason)
 
-        single_quoted_user_body = self.sample_ricky_body.replace(
+        single_quoted_user_body = self.sample_user_body.replace(
             "* **Data Integrity**:",
             "* **'Data Integrity'**:",
         )
         is_valid_user, reason_user, failed_user = profile_evolver.validate_document_structure(
             cfg.PERSONA_FILE_USER,
-            self.sample_ricky_body,
+            self.sample_user_body,
             single_quoted_user_body,
         )
         self.assertFalse(is_valid_user)

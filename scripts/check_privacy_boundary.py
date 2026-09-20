@@ -51,6 +51,11 @@ SCAN_SUFFIXES = (
     ".toml", ".txt", ".sh", ".ps1", ".http", ".service",
 )
 
+# Line-level opt-out: "privacy-ok: <reason>". The reason is mandatory so an
+# exemption can never be added silently. Reserved for lines that genuinely
+# cannot be edited — frozen migration literals and false-positive collisions.
+PRAGMA_RE = re.compile(r"privacy-ok:\s*\S+")
+
 
 def protected_terms() -> list[tuple[str, str]]:
     """Collect (label, term) pairs to scan for, sourced from the gitignored .env.
@@ -115,8 +120,16 @@ def scan() -> list[tuple[str, int, str, str, str]]:
     if not terms:
         return []
 
+    # Boundaries are alphanumeric-only on purpose. Using \w here would treat "_"
+    # as part of the surrounding word, so a name embedded in a snake_case or
+    # kebab-case identifier ("conversational_ricky", "exact-name-ricky") slipped
+    # through silently — which is precisely where names hide in code and in
+    # golden test fixtures. Only letters/digits adjacent to the term suppress a
+    # match, so "Rickyshaw" is still correctly ignored.
     patterns = [
-        (label, term, re.compile(rf"(?<![\w-]){re.escape(term)}(?![\w-])", re.IGNORECASE))
+        (label, term, re.compile(
+            rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", re.IGNORECASE
+        ))
         for label, term in terms
     ]
     violations: list[tuple[str, int, str, str, str]] = []
@@ -131,6 +144,12 @@ def scan() -> list[tuple[str, int, str, str, str]]:
         except OSError:
             continue
         for idx, line in enumerate(lines, start=1):
+            if PRAGMA_RE.search(line):
+                # Line-level opt-out for the two cases an edit cannot resolve:
+                # literals frozen inside an applied migration (AGENTS.md §5
+                # immutability), and genuine false positives where a protected
+                # term collides with an ordinary word. Requires a reason.
+                continue
             for label, term, pattern in patterns:
                 if pattern.search(line):
                     violations.append((rel, idx, label, term, line.rstrip()[:120]))

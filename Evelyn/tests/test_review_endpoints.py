@@ -1,6 +1,6 @@
 # test_review_endpoints.py
 # date created: 2026-09-03 19:47:07
-# date modified: 2026-09-06 08:32:06
+# date modified: 2026-09-20 08:32:00
 # tags:
 
 """
@@ -223,9 +223,10 @@ def test_ghost_link_stub_proposal_lifecycle():
         con.close()
         assert row is not None and row["status"] == "applied"
 
-        # 5. Verify stub note was created in hermetic vault sandbox
-        created_file = os.path.join(temp_vault_dir.name, "Test Ghost Tool.md")
+        # 5. Verify stub note was filed under Stubs/<domain>/, not the vault root
+        created_file = os.path.join(temp_vault_dir.name, "Stubs", "hardware", "Test Ghost Tool.md")
         assert os.path.exists(created_file)
+        assert not os.path.exists(os.path.join(temp_vault_dir.name, "Test Ghost Tool.md"))
         note_text = Path(created_file).read_text(encoding="utf-8")
 
         assert "---" in note_text
@@ -236,7 +237,7 @@ def test_ghost_link_stub_proposal_lifecycle():
         assert "## 🔗 References" in note_text
 
         # 6. Verify vault_db document record
-        doc = vault_db.get_document("Test Ghost Tool.md")
+        doc = vault_db.get_document("Stubs/hardware/Test Ghost Tool.md")
         assert doc is not None
         assert doc["title"] == "Test Ghost Tool"
         assert "stub" in (doc["tags"] or "")
@@ -298,6 +299,9 @@ def test_ghost_link_stub_proposal_deny():
 
         # Verify no file created
         assert not os.path.exists(os.path.join(temp_vault_dir.name, "Spurious Target.md"))
+        assert not os.path.exists(
+            os.path.join(temp_vault_dir.name, "Stubs", "Spurious Target.md")
+        )
 
     finally:
         if orig_vault_dir is not None:
@@ -387,8 +391,9 @@ def test_ghost_link_stub_multi_reference_approval():
         assert res_approve.json() == {"status": "ok"}
 
         # 4. Verify note creation and markdown structure
-        created_file = os.path.join(temp_vault_dir.name, "Caladorn.md")
+        created_file = os.path.join(temp_vault_dir.name, "Stubs", "lore", "Caladorn.md")
         assert os.path.exists(created_file)
+        assert not os.path.exists(os.path.join(temp_vault_dir.name, "Caladorn.md"))
         note_text = Path(created_file).read_text(encoding="utf-8")
 
         assert "title: Caladorn" in note_text
@@ -402,7 +407,7 @@ def test_ghost_link_stub_multi_reference_approval():
         assert "- [[Queen_Elora]]" in note_text
 
         # 5. Verify vault_db document record
-        doc = vault_db.get_document("Caladorn.md")
+        doc = vault_db.get_document("Stubs/lore/Caladorn.md")
         assert doc is not None
         assert doc["title"] == "Caladorn"
         assert "stub" in (doc["tags"] or "")

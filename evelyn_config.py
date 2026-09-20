@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-20 07:41:52
+# date modified: 2026-09-20 08:32:00
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1100,6 +1100,29 @@ LIBRARIAN_GHOST_STUB_MIN_SNIPPET_CHARS = 60  # Minimum single-excerpt context th
 LIBRARIAN_STUB_LLM_SYNTHESIS = True  # Enable local Ollama synthesis for multi-reference stub abstracts
 LIBRARIAN_STUB_MAX_HARVEST_REFS = 12  # Maximum referencing notes to harvest per entity stub
 LIBRARIAN_STUB_SYNTHESIS_TIMEOUT = 45  # Socket timeout for stub abstract synthesis (think=False keeps real calls near 2s)
+
+# Entity stubs are written under this folder rather than the vault root, which they
+# otherwise dominate. Relative to VAULT_BASE_DIR.
+LIBRARIAN_STUB_DIR = "Stubs"
+
+# Top-level vault folders that identify a subject domain. A stub is filed under
+# Stubs/<folder>/ when its referencing notes predominantly live in one of them, so the
+# sub-path mirrors where the note belongs once it outgrows stub status.
+#
+# The assistant's journal is deliberately excluded: it references every subject in the
+# vault, so it identifies nothing. Stubs sourced only from it stay directly in Stubs/
+# for manual filing — an unsorted stub is far cheaper to fix than a confidently
+# misfiled one.
+LIBRARIAN_STUB_DOMAIN_FOLDERS: list[str] = [
+    "Dungeons & Dragons",
+    "Genealogy",
+    "Reference Library",
+    "Dream Journal",
+    "Contacts",
+    "Projects",
+    "Notes",
+    "Lists",
+]
 MASTER_LIBRARIAN_AUTO_STUBS = False  # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",

@@ -2411,7 +2411,7 @@ def migrate_000_006_089_canonical_persona_triad_document_names(
         SET document_name = 'User_Profile.md'
         WHERE document_name LIKE '%_Profile.md'
            OR document_name LIKE '%_Narrative_Profile.md'
-           OR document_name = 'Ricky_Narrative_Profile.md';
+           OR document_name = 'Ricky_Narrative_Profile.md';  -- privacy-ok: frozen literal in an applied migration (AGENTS.md §5 immutability); editing it would change replay semantics
     """)
     ede_user_count = cursor.rowcount
 
@@ -2430,7 +2430,7 @@ def migrate_000_006_089_canonical_persona_triad_document_names(
         SET suggested_category = 'User_Profile.md'
         WHERE suggested_category LIKE '%_Profile.md'
            OR suggested_category LIKE '%_Narrative_Profile.md'
-           OR suggested_category = 'Ricky_Narrative_Profile.md';
+           OR suggested_category = 'Ricky_Narrative_Profile.md';  -- privacy-ok: frozen literal in an applied migration (AGENTS.md §5 immutability); editing it would change replay semantics
     """)
     prop_user_count = cursor.rowcount
 

@@ -177,7 +177,7 @@ class TestDatabaseMigrator:
             # Insert test records
             conn.execute(
                 "INSERT INTO context_entries VALUES (1, ?, 'obs 1')",
-                ("CY-2025/03/12, kw/new-beginnings, kw/Ricky_Sekulich, ctx/personal-growth",)
+                ("CY-2025/03/12, kw/new-beginnings, kw/Test_Operator, ctx/personal-growth",)
             )
             conn.execute(
                 "INSERT INTO context_entries VALUES (2, ?, 'obs 2')",
@@ -199,7 +199,7 @@ class TestDatabaseMigrator:
 
         with sqlite3.connect(temp_db) as conn:
             ce_rows = conn.execute("SELECT id, tags FROM context_entries ORDER BY id").fetchall()
-            assert ce_rows[0] == (1, "CY-2025/03/12, new-beginnings, Ricky_Sekulich, personal-growth")
+            assert ce_rows[0] == (1, "CY-2025/03/12, new-beginnings, Test_Operator, personal-growth")
             assert ce_rows[1] == (2, "plain-tag")
             assert ce_rows[2] == (3, None)
 

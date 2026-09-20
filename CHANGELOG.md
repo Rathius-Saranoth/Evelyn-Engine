@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 08:05:35
+date modified: 2026-09-20 08:32:00
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,33 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.159] - 2026-09-20 — *Stub Filing — Entity Notes Routed Under `Stubs/<Domain>/`*
+
+Entity stubs were written to the vault root, where they came to outnumber genuine root notes
+by 114 to 3. They now file under `Stubs/`, and under `Stubs/<domain>/` when their referencing
+notes identify one, so the sub-path mirrors where the note belongs if it outgrows stub status.
+
+### Added
+- **`LIBRARIAN_STUB_DIR`** (default `Stubs`) and **`LIBRARIAN_STUB_DOMAIN_FOLDERS`**, the
+  top-level vault folders that count as a subject domain.
+- **`infer_stub_domain()`** derives the domain from the folders its harvested references live
+  in, so it costs no extra vault scan. **`stub_relpath()`** builds the destination path.
+- Both write paths route through them: Tier 1 auto-synthesis and the Tier 2 approval endpoint.
+
+### Design notes
+- **The assistant's journal is excluded from the domain folders.** It references every subject
+  in the vault, so it identifies none.
+- **A "nearby links" heuristic was implemented, measured, and rejected.** Voting on co-linked
+  notes filed a country under Contacts at 89% confidence, because journal entries co-mention
+  people. A confidently misfiled note costs more to undo than an unsorted one, so ambiguous
+  stubs stay directly in `Stubs/` for manual filing. A tie between domains is likewise left
+  unsorted rather than broken arbitrarily.
+- Routing is self-reinforcing: filing an unsorted stub by hand strengthens the referrer signal
+  for the entities it links to.
+- Leakage is possible and accepted — a contact's note mentioning a game routes that game to
+  `Stubs/Contacts/`. The evidence is identical to a correct person route, so no threshold
+  separates them, and the cost inside a sorting tree is a drag-and-drop.
 
 ## [000.006.158] - 2026-09-20 — *Article-Agnostic Link Resolution — "The X" and "X" Are One Entity*
 
@@ -1344,7 +1371,7 @@ mechanically protected symptom vocabulary and pruned technical identity first.
 
 ### Deprecated & Removed
 - **Legacy Persona Filenames Deprecation**:
-  - Removed obsolete `Evelyn_Narrative_Persona.md` and `Ricky_Narrative_Profile.md` file references across the entire engine in favor of the canonical, identity-agnostic persona triad: `Assistant_Profile.md`, `User_Profile.md`, and `System_Directives.md`.
+  - Removed obsolete `Evelyn_Narrative_Persona.md` and `User_Narrative_Profile.md` file references across the entire engine in favor of the canonical, identity-agnostic persona triad: `Assistant_Profile.md`, `User_Profile.md`, and `System_Directives.md`.
   - Cleaned up leftover legacy fallback keys in `evelyn_ui/dev.html`'s `docIcons`.
   - Updated template deployment mapping in `evelyn_setup.py` and `SETUP_GUIDE.md` to reference `Assistant_Profile.example.md` -> `Assistant Profile.md` and `User Profile.md`.
 
@@ -1520,12 +1547,12 @@ mechanically protected symptom vocabulary and pruned technical identity first.
   - Enforced `cfg.MAX_HISTORY_MESSAGES` (default 40 messages / 20 turns) as a strict upper bound in `load_history()`, slicing `valid_rows = valid_rows[-max_history_msgs:]`.
   - Preserved dialog turn integrity by ensuring the sliced history starts on a user turn (`valid_rows[0]["role"] == "user"`).
   - Breaks runaway in-context feedback loops where 45+ unpruned historical messages (~7,800 tokens of past assistant prose) forced the local model into echoing lengthy theatrical monologues.
-- **System Directives & Persona De-Bloating (`Evelyn/persona/System_Directives.md`, `Evelyn/persona/Evelyn_Narrative_Persona.md`, `Evelyn/persona/Ricky_Narrative_Profile.md`)**:
+- **System Directives & Persona De-Bloating (`Evelyn/persona/System_Directives.md`, `Evelyn/persona/Evelyn_Narrative_Persona.md`, `Evelyn/persona/User_Narrative_Profile.md`)**:
   - Pruned conflicting instructions in `System_Directives.md`: removed `"using evocative narrative descriptions to create immersive scenes of comfort"` from routine conversation and eliminated prescriptive `"Transition Rituals: Support his transition periods, including laundry cycles... Facilitate transitions from work toward relaxing"`.
   - Added explicit physical reality tracking mandate: *"Reflect physical reality and operational facts as stated literally. For real-world, multi-step workflows (e.g., laundry, cooking, cleaning, assembly), tasks remain active until the user explicitly confirms the final step is complete; never assume, infer, or declare task completion on intermediate stages (such as items currently in the wash, dryer, or oven)."*
   - Reaffirmed strict 2–3 concise sentences default for routine check-ins, banter, and chore updates.
   - Streamlined `Evelyn_Narrative_Persona.md` to remove mandatory theatrical reaction imperatives (gasps, claps), preserving authentic British wit, dragoness archetype, and dry humor without requiring dramatic stage cues on every turn.
-  - Streamlined `Ricky_Narrative_Profile.md` to replace physical closeness rituals with low-demand, quiet companionship.
+  - Streamlined `User_Narrative_Profile.md` to replace physical closeness rituals with low-demand, quiet companionship.
 - **Deterministic AST Config-Wiring Test Gate (`Evelyn/tests/test_config_wiring.py`)**:
   - Implemented an automated AST test parsing `evelyn_config.py` and validating that every uppercase constant is consumed by engine or server modules.
   - Enhanced symbol resolution to capture `ast.Constant` string literals, preventing false positives from `getattr(cfg, "CONSTANT_NAME", default)` access patterns.
@@ -1605,7 +1632,7 @@ mechanically protected symptom vocabulary and pruned technical identity first.
     - Reclassified 537 assistant-perspective entries from `Cat##-U` to `Cat##-A`.
     - Reclassified 417 user-personal entries from `Cat##-A` to `Cat##-U`.
     - Grounded 256 progressive observations into historical date-anchored phrasing.
-    - Pruned 496 contaminated assistant entries from `entry_document_evolution` records for `Ricky_Narrative_Profile.md`.
+    - Pruned 496 contaminated assistant entries from `entry_document_evolution` records for `User_Narrative_Profile.md`.
 - **Tier B LLM Remediation Script (`scripts/remediate_transient_facts.py`)**:
   - Introduced companion CLI utility supporting dry-run and execution modes with batching to reword lingering complex middle-of-sentence floating adverbs via local Ollama.
 - **Hermetic Unit Tests (`Evelyn/tests/test_category_attribution.py`)**:

@@ -105,7 +105,7 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
 facts:
   - subject: {cfg.USER_NAME}
     category: Cat05-{cfg.SUBJECT_CODE_USER}
-    tags: "tech/python/fastapi, Ricky_Sekulich, 3d-printing/slicing"
+    tags: "tech/python/fastapi, Test_Operator, 3d-printing/slicing"
     summary: "Configured multi-tier domain taxonomies for memory extraction."
     confidence: high
     date: "2026-08-19"
@@ -117,7 +117,7 @@ facts:
         self.assertEqual(fact["subject"], cfg.USER_NAME)
         self.assertEqual(fact["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
         # Verify normalization
-        self.assertEqual(fact["tags"], "tech/python/fastapi, Ricky_Sekulich, 3d-printing/slicing")
+        self.assertEqual(fact["tags"], "tech/python/fastapi, Test_Operator, 3d-printing/slicing")
         self.assertEqual(fact["confidence"], "high")
 
     def test_parse_facts_yaml_unclosed_fence(self):

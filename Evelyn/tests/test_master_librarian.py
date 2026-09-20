@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-20 08:05:35
+# date modified: 2026-09-20 08:32:00
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -265,8 +265,10 @@ array([[1.5, 2.5]])
                 )
             self.assertEqual(res_tier1["status"], "created_stub")
             self.assertIn("xml_payload", res_tier1)
-            stub_file = os.path.join(tmp_vault, "KnownEntity.md")
+            # Referenced from Notes/, so it files under Stubs/Notes/ rather than the root
+            stub_file = os.path.join(tmp_vault, "Stubs", "Notes", "KnownEntity.md")
             self.assertTrue(os.path.exists(stub_file))
+            self.assertFalse(os.path.exists(os.path.join(tmp_vault, "KnownEntity.md")))
             with open(stub_file, encoding="utf-8") as f:
                 stub_content = f.read()
             self.assertIn("[!ABSTRACT]", stub_content)
@@ -800,6 +802,67 @@ Additional bench tests confirmed 4x speedup over baseline models.
                 )
                 self.assertFalse(resolved, "ambiguous article variants must not be conflated")
                 self.assertEqual(canon, "A Vault")
+
+    def test_infer_stub_domain_and_path(self):
+        """Verify stubs route by referencing folder, and stay unsorted when ambiguous."""
+        with patch.object(cfg, "LIBRARIAN_STUB_DOMAIN_FOLDERS",
+                          ["Dungeons & Dragons", "Contacts", "Notes"]), \
+             patch.object(cfg, "LIBRARIAN_STUB_DIR", "Stubs"):
+
+            # Clear majority from a domain folder
+            refs = [{"source": "Dungeons & Dragons/Sessions/S1.md"},
+                    {"source": "Dungeons & Dragons/Sessions/S2.md"},
+                    {"source": "Journal/Entries/2025-01-01.md"}]
+            self.assertEqual(link_librarian.infer_stub_domain(refs), "Dungeons & Dragons")
+
+            # Journal-only sources identify nothing: the journal references everything
+            self.assertEqual(
+                link_librarian.infer_stub_domain([{"source": "Journal/Entries/a.md"}]), ""
+            )
+
+            # A tie identifies nothing and must not be guessed
+            tie = [{"source": "Notes/a.md"}, {"source": "Contacts/b.md"}]
+            self.assertEqual(link_librarian.infer_stub_domain(tie), "")
+
+            # Root-level references carry no folder signal
+            self.assertEqual(link_librarian.infer_stub_domain([{"source": "Loose.md"}]), "")
+            self.assertEqual(link_librarian.infer_stub_domain([]), "")
+
+            # Paths mirror where the note belongs once it outgrows stub status
+            self.assertEqual(
+                link_librarian.stub_relpath("Kurtulmak", "Dungeons & Dragons"),
+                "Stubs/Dungeons & Dragons/Kurtulmak.md",
+            )
+            self.assertEqual(link_librarian.stub_relpath("Croatia"), "Stubs/Croatia.md")
+
+    def test_tier1_stub_written_under_domain_folder(self):
+        """Verify an auto-created stub lands in Stubs/<domain>/, not the vault root."""
+        with tempfile.TemporaryDirectory() as vault:
+            sessions = os.path.join(vault, "Dungeons & Dragons", "Sessions")
+            os.makedirs(sessions, exist_ok=True)
+            for name, body in [
+                ("S1.md", "---\ntitle: S1\n---\nThe party met [[Kurtulmak]] beneath the ridge "
+                          "and bargained for passage through the warren.\n"),
+                ("S2.md", "---\ntitle: S2\n---\nLater the shrine to [[Kurtulmak]] was found "
+                          "defaced, its offerings scattered across the stone floor.\n"),
+            ]:
+                with open(os.path.join(sessions, name), "w", encoding="utf-8") as handle:
+                    handle.write(body)
+
+            with patch.object(cfg, "MASTER_LIBRARIAN_AUTO_STUBS", True), \
+                 patch.object(cfg, "LIBRARIAN_STUB_LLM_SYNTHESIS", False), \
+                 patch.object(cfg, "LIBRARIAN_STUB_DOMAIN_FOLDERS", ["Dungeons & Dragons"]), \
+                 patch.object(cfg, "LIBRARIAN_STUB_DIR", "Stubs"):
+                res = link_librarian.create_ghost_link_stub(
+                    "Kurtulmak", vault_root=vault,
+                    min_refs=2, min_context_chars=60, min_snippet_chars=30,
+                )
+
+            self.assertEqual(res["status"], "created_stub")
+            expected = os.path.join(vault, "Stubs", "Dungeons & Dragons", "Kurtulmak.md")
+            self.assertTrue(os.path.exists(expected), "stub not filed under its domain")
+            self.assertFalse(os.path.exists(os.path.join(vault, "Kurtulmak.md")),
+                             "stub must not land in the vault root")
 
     def test_condense_redundant_aliases(self):
         """Verify [[X|X]] collapses to [[X]] while meaningful aliases survive."""

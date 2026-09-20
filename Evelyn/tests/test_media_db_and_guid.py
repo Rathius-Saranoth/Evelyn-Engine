@@ -128,7 +128,7 @@ class TestMediaDbAndGuid(unittest.TestCase):
             data=dummy_data,
             mime_type="image/png",
             source_msg_id=400,
-            original_name="test_fox.png",
+            original_name="test_sample.png",
         )
         guid = asset["id"]
 
