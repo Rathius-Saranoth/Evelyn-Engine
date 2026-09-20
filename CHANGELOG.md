@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 17:29:17
+date modified: 2026-09-20 18:12:01
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.187] - 2026-09-20 — *Tabula Rasa — Regenerate, Do Not Repair*
+
+Every tag is gone. The registry, the aliases, and all 65,173 assignments across both stores.
+
+The assignments were never worth repairing. Essentially none of them were made by hand — they
+were the output of the tagging pipeline, and that pipeline was the thing under repair. So each
+corrective pass took the previous pass's mistakes as its input and defined correctness relative
+to a corpus that was itself wrong. Eight migrations of that produced a vocabulary that was
+cleaner in every measurable way and still could not classify a document.
+
+What survives is the part that was actually curated: the standard in
+`.agents/rules/vault-tag-taxonomy.md`. The vocabulary gets regenerated against it rather than
+migrated toward it — a clean derivation instead of another correction layered on an uncorrected
+base.
+
+### Migrations
+- **`000.006.186` (vault)** — 26,112 tags cleared from 4,167 notes; 3,206 registry terms and
+  6,857 aliases dropped; every document's audit timestamp reset so the vault re-enters the queue.
+- **`000.006.187` (memory)** — 39,061 tags cleared across 12,893 rows.
+
+**Nothing is exempt, including administrative tags.** Preserving a category by rule is how the
+previous state kept partially surviving its own corrections, and a partial wipe leaves open the
+question of whether any given tag is old or new. Date anchors, `status/`, `kanban` and
+`obsidian-graph/` are recorded per document in
+`data/backups/tag_reset_manifest_000.006.186.json` so they can be reinstated as a deliberate act
+rather than persisting by default. The full prior state is in the pre-migration database
+snapshots and a vault markdown tarball.
+
+### Found while verifying
+- **The vault indexer harvests inline `#hashtags` from note bodies indiscriminately.** `#63` from
+  a formula, `#ciso` from a policy document, `#variable_conflict` from a code block. Body
+  hashtags are a legitimate Obsidian feature and some are genuine, so this is a filtering
+  problem, not a feature to remove — but it is an uncontrolled path into the vocabulary that
+  bypasses the registry entirely, and it repopulated cleared rows within seconds of the wipe.
+- **Templates carry tags by design** (`Templates/Contact Template.md` → `contact`,
+  `CY-YYYY/MM/DD`, `location`). Excluded directories were left untouched, so any note created
+  from a template arrives pre-tagged outside the controlled vocabulary.
 
 ## [000.006.185] - 2026-09-20 — *Orphan Vectors — Degrade, Do Not Abort*
 

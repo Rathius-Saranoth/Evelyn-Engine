@@ -4424,6 +4424,131 @@ def migrate_000_006_184_decompose_flat_compounds_memory(
     logger.info("[MIGRATION 184] Decomposed tags across %d memory rows.", total)
 
 
+def migrate_000_006_186_reset_subject_tags_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.186: Clear every tag from the vault and empty the registry.
+
+    The assignments were not worth repairing. Essentially all of them were produced by the
+    tagging pipeline rather than by hand, and that pipeline was the thing under repair —
+    pre-coordinate compounds, terms filed under 31 different parents, aliases pointing at
+    forms a later pass had dissolved. Each fix inherited the previous pass's mistakes as its
+    input, so correctness kept being defined relative to a corpus that was itself wrong.
+
+    What survives is the part that was actually curated: the standard in
+    `.agents/rules/vault-tag-taxonomy.md`. The vocabulary is regenerated against it rather
+    than migrated toward it, which is the difference between a clean derivation and another
+    correction layered on an uncorrected base.
+
+    **Nothing is exempt, including administrative tags.** Preserving a category by rule is
+    how the previous state kept partially surviving its own corrections, and a partial wipe
+    leaves open the question of whether a given tag is old or new. Date anchors, `status/`,
+    `kanban` and `obsidian-graph/` are recorded per document in the manifest so they can be
+    reinstated as a deliberate act rather than persisting by default.
+
+    Every document's audit timestamp is reset so the whole vault re-enters the queue.
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+    from Evelyn.tools.tag_librarian import is_excluded_tag
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.186")
+    cursor = conn.cursor()
+
+    manifest: dict[str, dict[str, list[str]]] = {}
+    rewritten = 0
+    cleared = 0
+    administrative = 0
+    for path, raw_tags in cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall():
+        current = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        if not current:
+            continue
+        system = [t for t in current if is_excluded_tag(t)]
+        cleared += len(current)
+        administrative += len(system)
+        abs_path = path if os.path.isabs(path) else os.path.join(vault_root, path)
+        if os.path.exists(abs_path):
+            try:
+                with open(abs_path, encoding="utf-8") as fh:
+                    content = fh.read()
+                write_file_with_frontmatter(
+                    abs_path, update_frontmatter_field(content, "tags", []), preserve_mtime=True
+                )
+                manifest[path] = {"all": current, "system": system}
+                rewritten += 1
+            except OSError as exc:
+                logger.warning("[MIGRATION 186] Write failed, skipped: %s (%s)", path, exc)
+                continue
+        cursor.execute("UPDATE vault_documents SET tags = '' WHERE path = ?", (path,))
+
+    terms = cursor.execute("SELECT COUNT(*) FROM master_tag_taxonomy").fetchone()[0]
+    aliases = cursor.execute("SELECT COUNT(*) FROM master_tag_aliases").fetchone()[0]
+    cursor.execute("DELETE FROM master_tag_taxonomy")
+    cursor.execute("DELETE FROM master_tag_aliases")
+
+    # Re-queue the whole vault: every note now needs classification from scratch.
+    cursor.execute("UPDATE vault_documents SET last_semantic_tag_audit = 0")
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "tag_reset_manifest_000.006.186.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "documents": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 186] Cleared %d tags from %d notes (%d administrative, recorded in %s); "
+        "dropped %d terms and %d aliases.",
+        cleared, rewritten, administrative, manifest_path, terms, aliases,
+    )
+
+
+def migrate_000_006_187_reset_subject_tags_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.187: Clear subject tags from memory (§0: one structure, one vocabulary).
+
+    Memory carried the same generated vocabulary as the vault and inherits the same verdict,
+    including the total scope — a vocabulary rebuilt on one substrate and not the other is how
+    they drifted apart in the first place. Administrative tags are recorded to a manifest
+    before removal so reinstating them stays a deliberate act.
+    """
+    import json
+
+    from Evelyn.tools.tag_librarian import is_excluded_tag
+
+    cursor = conn.cursor()
+    total = 0
+    recorded: dict[str, dict[str, list[str]]] = {}
+    for table in ("context_entries", "procedures"):
+        try:
+            rows = cursor.execute(
+                f"SELECT rowid, tags FROM {table} WHERE tags IS NOT NULL AND tags != ''"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        updated = 0
+        for row_id, raw in rows:
+            current = [t.strip() for t in raw.split(",") if t.strip()]
+            if not current:
+                continue
+            system = [t for t in current if is_excluded_tag(t)]
+            if system:
+                recorded.setdefault(table, {})[str(row_id)] = system
+            cursor.execute(f"UPDATE {table} SET tags = '' WHERE rowid = ?", (row_id,))
+            updated += 1
+        logger.info("[MIGRATION 187] %s: %d rows cleared.", table, updated)
+        total += updated
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "tag_reset_manifest_000.006.187_memory.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(recorded, fh, indent=2)
+    logger.info("[MIGRATION 187] Cleared tags across %d memory rows; administrative tags in %s.",
+                total, manifest_path)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4802,6 +4927,19 @@ MIGRATIONS: list[Migration] = [
         version="000.006.184",
         name="decompose_flat_compounds_memory",
         up_fn=migrate_000_006_184_decompose_flat_compounds_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.186",
+        name="reset_subject_tags_vault",
+        up_fn=migrate_000_006_186_reset_subject_tags_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.187",
+        name="reset_subject_tags_memory",
+        up_fn=migrate_000_006_187_reset_subject_tags_memory,
     ),
 ]
 
