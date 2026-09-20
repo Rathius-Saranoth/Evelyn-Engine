@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 11:53:01
+date modified: 2026-09-20 11:54:37
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -485,30 +485,34 @@ Measured against the live vault on 2026-09-19. These are the gaps this standard 
 
 ## 🚧 8.5 WORK IN PROGRESS — Resume Here
 
-> [!NOTE] Steps 1–5 are complete and applied as of 2026-09-20 (`000.006.163`)
-> The vocabulary is now normalized, namespace-clean, entity-free, and collapsed onto preferred
-> terms. **Step 6 — domain tree construction — is next and has not started.**
+> [!NOTE] Steps 1–6a complete and applied as of 2026-09-20 (`000.006.167`)
+> Vocabulary is normalized, namespace-clean, entity-free, collapsed onto preferred terms, and its
+> roots consolidated. **Step 6b — adopting the flat tail — is next.**
 
-**State:** 1,934 `UF` equivalences recorded (316 lexical, 1,618 reviewed). Zero retired variants
-remain in either store.
+**State:** 15,016 terms across **361 roots** (from 493), 144 of them holding five or more terms.
+2,467 `UF` equivalences recorded (316 lexical, 1,618 reviewed, 533 root). Zero stale variants in
+either store.
 
-**Before resuming, know that the alias layer only holds if every writer consults it.** Four paths
-write tags — `tag_librarian`, `fact_extractor` (facts and procedures), `fact_deduplicator`, and
-`fact_splitter`. All four now canonicalize. The deduplicator was the dangerous omission: merging two
-entries recombines tags from the **source** rows, so a retired variant on an old entry is written
-back onto the survivor, undoing a finished migration hours later. Any new tag-writing path must
-resolve through `taxonomy_db.canonicalize_tags()` or the vocabulary silently drifts back.
+**What step 6b still has to do:** roughly 8,200 flat terms have no home. The sibling test (§6.3.1)
+applied to flat compounds is the tool — `tech-progress` diverges at the hyphen, `tech` is a real
+level, so it nests. Then the §6.3 threshold can finally do something, because terms will be in a
+tree for it to prune.
 
-**Artifacts in gitignored `scratch/`** — curated facts about this corpus containing personal
-vocabulary, so they must not enter version control (AGENTS.md §4):
-- `tag_merge_decisions.json` — the applied alias map.
-- `tag_merge_review.md` — the review document, grouped by family.
-- `.tag_embeddings.npz` — embedding cache; regeneration ~35 s instead of ~15 min.
+**Known open item:** depth violations. `projects/coding/python-projects/tools/comfy-ui-projects/organization/obsidian`
+is seven levels deep against §5's maximum of three. No step currently addresses this.
 
-> [!CAUTION] Do not run a taxonomy rebalance before step 6
-> `maintain_master_taxonomy()` deletes every term with zero *vault* usage — vocabulary steps 6–9
-> still need, much of it now carried by memory rather than notes. The 15% circuit breaker does not
-> catch it. Nothing triggers it automatically; it requires `rebalance_taxonomy=true`.
+**Invariant that must not be broken:** every path writing a tag resolves through
+`taxonomy_db.canonicalize_tags()` — `tag_librarian`, `fact_extractor` (facts and procedures),
+`fact_deduplicator`, `fact_splitter`. The deduplicator is the dangerous one: merging recombines tags
+from the **source** rows, so a retired variant returns and undoes a finished migration hours later.
+
+**Artifacts in gitignored `scratch/`** (curated corpus facts containing personal vocabulary, AGENTS.md §4):
+`tag_merge_decisions.json`, `tag_merge_review.md`, `.tag_embeddings.npz`.
+
+> [!CAUTION] Do not run a taxonomy rebalance before the tree is built
+> `maintain_master_taxonomy()` deletes every term with zero *vault* usage — much of the vocabulary
+> now lives in memory rather than notes. The 15% circuit breaker does not catch it. It requires
+> `rebalance_taxonomy=true` and nothing triggers it automatically.
 
 ---
 

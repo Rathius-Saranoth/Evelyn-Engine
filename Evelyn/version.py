@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-20 11:20:21
+# date modified: 2026-09-20 11:54:37
 # tags: #versioning, #release
 
 """
@@ -17,7 +17,7 @@ import re
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
 __version__ = "000.006.167"
 __version_info__ = (0, 6, 167)
-__version_name__ = "Root Consolidation — 493 Namespaces Down to 253"
+__version_name__ = "Literary Warrant — Sparse Roots Judged by the Prose, Not the Tags"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

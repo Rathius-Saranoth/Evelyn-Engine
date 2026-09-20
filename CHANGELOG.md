@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 11:49:03
+date modified: 2026-09-20 11:54:37
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -13,7 +13,7 @@ All notable changes to the Evelyn Engine are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
 
-## [000.006.167] - 2026-09-20 — *Root Consolidation — 493 Namespaces Down to 253*
+## [000.006.167] - 2026-09-20 — *Literary Warrant — Sparse Roots Judged by the Prose, Not the Tags*
 
 Step 6a of the taxonomy migration (`vault-tag-taxonomy.md` §9). Step 5 merged whole terms, which
 could not reach this: `preference/food` and `preferences/drink` share no lexical pair, yet their
