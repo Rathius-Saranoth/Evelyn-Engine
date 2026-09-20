@@ -1087,7 +1087,15 @@ TAG_LIBRARIAN_TOP_K_TAGS = 10  # Max semantically matched master tags to retriev
 # Cosine distance below which an extracted subject phrase IS an existing vocabulary term.
 # Tight on purpose: measured at 0.55 this matched a metabolism paper to "sleep/tracking-worries".
 # A phrase beyond it is a proposal, not a match (.agents/rules/vault-tag-taxonomy.md §6.1).
-TAG_SUBJECT_MATCH_DISTANCE = 0.35
+# Reconciliation acceptance bands — .agents/rules/vault-tag-taxonomy.md §6.1.
+# A phrase nearer than ACCEPT is the term; beyond REJECT it is a new concept and becomes a
+# proposal; between them it is ambiguous and is decided rather than thresholded. MARGIN_GUARD
+# blocks auto-acceptance when the top two candidates are indistinguishable. FUZZY_CUTOFF is
+# the whole-string similarity at which a near-exact surface form is taken without vectors.
+TAG_SUBJECT_ACCEPT_DISTANCE = 0.10
+TAG_SUBJECT_REJECT_DISTANCE = 0.30
+TAG_SUBJECT_MARGIN_GUARD = 0.02
+TAG_SUBJECT_FUZZY_CUTOFF = 92
 
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)

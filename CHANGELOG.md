@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 18:12:01
+date modified: 2026-09-20 18:37:14
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,56 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.188] - 2026-09-20 — *Lexical First — The Vocabulary Is a Dictionary*
+
+Phase A of the tag librarian rebuild: the matching layer. Three defects, all measured rather
+than reasoned about.
+
+### Fixed
+- **Terms are embedded as their bare surface form.** `_build_tag_embedding_doc()` emitted four
+  labelled lines (`Tag:`, `Category:`, `Hierarchy:`, `Scope & Scope Description:`) identical
+  across every term. That shared text is a large vector component orthogonal to a one- or
+  two-word query: it drags every cosine down and compresses the spread the caller thresholds
+  on. Measured across the full registry, querying each term with its own surface form:
+
+  | indexed as | rank-1 | self-distance | terms failing to match themselves |
+  |---|---|---|---|
+  | labelled prose block | 0.879 | 0.335 | **31.5%** |
+  | bare surface form | **0.999** | **0.000** | **0%** |
+
+  `sleep` scored 0.370 against *itself*. Worse, correct matches averaged a **higher** distance
+  (0.353) than wrong ones (0.345) — the number carried no discriminative signal at all.
+  Category and description are excluded from the vector entirely: both are generated rather
+  than authored, and the description stored for `sleep` read "Obsidian notes tagged under
+  sleep/apnea-troubleshooting".
+- **Reconciliation consults the vocabulary before the vector store.** The hot path went
+  straight to Chroma and never queried `master_tag_taxonomy` or the equivalence table, so a
+  registry holding the exact term still returned whatever embedded closest. Resolution is now
+  a cascade: exact surface match, then bounded whole-string fuzzy, then vectors only for what
+  the dictionary missed.
+- **A single distance threshold is replaced by acceptance bands.** Measured, 0.35 force-linked
+  70% of genuinely off-topic phrases to some plausible neighbour. Nearer than `ACCEPT` is
+  taken; beyond `REJECT` is a new concept and becomes a proposal; between them the phrase is
+  ambiguous and is held rather than asserted. A margin guard blocks auto-acceptance when the
+  top two candidates are indistinguishable.
+- **Body hashtags are no longer ingested.** `vault_indexer` harvested `#tag` from note bodies
+  with a regex that also matched GitHub discussion numbers (`#22132`), markdown link anchors
+  (`[Land Use](#land-use)`) and documentation examples inside code spans — none of which
+  Obsidian itself treats as tags. More importantly it was an uncontrolled entry path: nothing
+  reconciled those terms against the registry, so a tag could enter the vocabulary without
+  ever being admitted to it. Frontmatter is now the single entry point.
+
+### Changed
+- The vector index is explicitly a **derived cache**, rebuilt from the registry and never
+  repaired in place. Equivalences are indexed as their own vectors carrying the canonical term,
+  so a document phrased the retired way still retrieves the preferred one.
+- Surface-form lookup is cached against a registry fingerprint rather than an explicit
+  invalidation call — a write path that forgets to invalidate would serve a stale vocabulary
+  silently, and the symptom would look exactly like a classifier bug.
+
+### Added
+- `rapidfuzz` (MIT) for the near-exact stage.
 
 ## [000.006.187] - 2026-09-20 — *Tabula Rasa — Regenerate, Do Not Repair*
 

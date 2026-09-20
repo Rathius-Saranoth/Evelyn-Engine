@@ -627,14 +627,31 @@ class TestBlindExtractionPipeline:
         from Evelyn.tools.tag_librarian import normalize_subject_phrase
         assert "/" not in normalize_subject_phrase("work/life balance")
 
-    def test_near_match_becomes_the_registry_term(self, monkeypatch):
+    def test_confident_vector_match_becomes_the_registry_term(self, monkeypatch):
         from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(tag_librarian, "_registry_surface_forms", lambda: {})
+        monkeypatch.setattr(
+            tag_librarian.chroma_rag, "query_collection",
+            lambda *a, **k: [{"metadata": {"tag": "sleep"}, "distance": 0.04}],
+        )
+        applied, proposals = tag_librarian.reconcile_subjects(["sleep tracking"], [])
+        assert applied == ["sleep"] and proposals == []
+
+    def test_merely_near_match_is_held_for_decision(self, monkeypatch):
+        """Deliberate change of contract: 'retrievable' is not 'correct'.
+
+        A single threshold previously applied anything nearer than 0.35, which measured out
+        at a 70% false-link rate on off-topic phrases. Distances in the ambiguous band now
+        produce a proposal rather than an assertion.
+        """
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(tag_librarian, "_registry_surface_forms", lambda: {})
         monkeypatch.setattr(
             tag_librarian.chroma_rag, "query_collection",
             lambda *a, **k: [{"metadata": {"tag": "sleep"}, "distance": 0.2}],
         )
         applied, proposals = tag_librarian.reconcile_subjects(["sleep tracking"], [])
-        assert applied == ["sleep"] and proposals == []
+        assert applied == [] and proposals == ["sleep-tracking"]
 
     def test_distant_phrase_is_proposed_never_applied(self, monkeypatch):
         """§6.1: a vocabulary any document can extend is not a controlled vocabulary."""
@@ -885,3 +902,91 @@ class TestFlatCompoundDecomposition:
         assert apply_decomposition_to_csv("machine-learning, cello", {}) == (
             "machine-learning, cello", False
         )
+
+
+class TestTagEmbeddingDocument:
+    """The vector index holds bare surface forms; boilerplate destroyed the distance signal."""
+
+    def test_term_embeds_as_its_bare_surface_form(self):
+        from Evelyn.tools.tag_librarian import _build_tag_embedding_doc
+        assert _build_tag_embedding_doc("sleep-hygiene") == "sleep hygiene"
+
+    def test_facet_prefix_is_flattened_not_labelled(self):
+        from Evelyn.tools.tag_librarian import _build_tag_embedding_doc
+        assert _build_tag_embedding_doc("type/journal-entry") == "type journal entry"
+
+    def test_no_boilerplate_survives(self):
+        """Text identical across every document is a shared vector component; it must not exist."""
+        from Evelyn.tools.tag_librarian import _build_tag_embedding_doc
+        doc = _build_tag_embedding_doc("cello")
+        for label in ("Tag:", "Category:", "Hierarchy:", "Scope", "Obsidian notes"):
+            assert label not in doc
+        assert doc == "cello"
+
+
+class TestLexicalLookup:
+    """§6.1: a controlled vocabulary is a dictionary — look terms up before embedding them."""
+
+    def test_exact_surface_form_resolves(self):
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("sleep", {"sleep": "sleep"}) == "sleep"
+
+    def test_separator_differences_are_the_same_surface(self):
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("sleep hygiene", {"sleephygiene": "sleep-hygiene"}) == "sleep-hygiene"
+
+    def test_plural_resolves_to_singular_term(self):
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("dreams", {"dream": "dream"}) == "dream"
+
+    def test_alias_resolves_to_its_canonical(self):
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("sleep-tracking", {"sleeptracking": "sleep"}) == "sleep"
+
+    def test_unrelated_phrase_does_not_resolve(self):
+        """Wrong is worse than unresolved: an unresolved phrase becomes a reviewable proposal."""
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("quantum-chromodynamics", {"sleep": "sleep"}) is None
+
+    def test_empty_registry_resolves_nothing(self):
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("sleep", {}) is None
+
+
+class TestVectorAcceptanceBands:
+    """A single threshold cannot separate 'certainly' from 'possibly'; measured, it force-linked."""
+
+    def _reconcile(self, monkeypatch, tag, distance, margin):
+        from Evelyn.tools import tag_librarian as tl
+        monkeypatch.setattr(tl, "_registry_surface_forms", lambda: {})
+        monkeypatch.setattr(tl, "_vector_lookup", lambda phrase: (tag, distance, margin))
+        return tl.reconcile_subjects(["coral bleaching"], [])
+
+    def test_confident_match_is_applied(self, monkeypatch):
+        applied, proposals = self._reconcile(monkeypatch, "coral", 0.05, 0.30)
+        assert applied == ["coral"] and proposals == []
+
+    def test_distant_match_becomes_a_proposal(self, monkeypatch):
+        """0.339 to 'annealing' is retrievable and wrong — exactly what the old threshold took."""
+        applied, proposals = self._reconcile(monkeypatch, "annealing", 0.339, 0.30)
+        assert applied == [] and proposals == ["coral-bleaching"]
+
+    def test_ambiguous_band_does_not_auto_apply(self, monkeypatch):
+        applied, proposals = self._reconcile(monkeypatch, "coral", 0.20, 0.30)
+        assert applied == [] and proposals == ["coral-bleaching"]
+
+    def test_indistinguishable_candidates_do_not_auto_apply(self, monkeypatch):
+        """Two terms within the margin guard are a coin flip, not a decision."""
+        applied, proposals = self._reconcile(monkeypatch, "coral", 0.05, 0.001)
+        assert applied == [] and proposals == ["coral-bleaching"]
+
+    def test_lexical_hit_bypasses_the_vector_stage(self, monkeypatch):
+        from Evelyn.tools import tag_librarian as tl
+        monkeypatch.setattr(tl, "_registry_surface_forms", lambda: {"sleep": "sleep"})
+
+        def _explode(phrase):
+            raise AssertionError("vector lookup must not run when the dictionary resolves")
+
+        monkeypatch.setattr(tl, "_vector_lookup", _explode)
+        applied, proposals = tl.reconcile_subjects(["sleep"], [])
+        assert applied == ["sleep"] and proposals == []

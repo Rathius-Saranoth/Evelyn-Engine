@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.187"
-__version_info__ = (0, 6, 187)
-__version_name__ = "Tabula Rasa — Regenerate, Do Not Repair"
+__version__ = "000.006.188"
+__version_info__ = (0, 6, 188)
+__version_name__ = "Lexical First — The Vocabulary Is a Dictionary"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

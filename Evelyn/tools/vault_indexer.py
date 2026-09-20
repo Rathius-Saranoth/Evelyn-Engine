@@ -92,9 +92,14 @@ def extract_metadata(file_path, timeout=300):
         else os.path.splitext(os.path.basename(file_path))[0]
     )
 
-    # 3. Inline Tags #tag
-    inline_tags = re.findall(r"(?:^|\s)#([a-zA-Z0-9_/-]+)(?=\s|$)", content)
-    all_tags = sorted(set(fm_tags + inline_tags))
+    # 3. Tags — frontmatter only.
+    # Body hashtags are deliberately NOT harvested. They are an uncontrolled entry path into
+    # the vocabulary: nothing reconciles them against the registry, so a term could enter the
+    # taxonomy without ever being admitted to it. The scan was also indiscriminate, matching
+    # GitHub discussion numbers (`#22132`), markdown link anchors (`[Land Use](#land-use)`)
+    # and documentation examples inside code spans — none of which Obsidian itself treats as
+    # tags. Frontmatter is the single entry point; see .agents/rules/vault-tag-taxonomy.md.
+    all_tags = sorted(set(fm_tags))
 
     # 5. Gist / Summary (Sanitized)
     text_body = re.sub(r"^---\n(.*?)\n---", "", content, flags=re.DOTALL)

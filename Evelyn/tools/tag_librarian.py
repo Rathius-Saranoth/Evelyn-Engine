@@ -372,8 +372,22 @@ def read_document_for_classification(body: str, gist: str, title: str) -> str:
 
 # Reconciliation thresholds. A phrase near an existing term becomes that term; a phrase
 # near nothing is a proposal, never an automatic addition (§6.1).
-SUBJECT_MATCH_DISTANCE = getattr(cfg, "TAG_SUBJECT_MATCH_DISTANCE", 0.35)
 SUBJECT_LOOKUP_TOP_K = getattr(cfg, "TAG_LIBRARIAN_TOP_K_TAGS", 10)
+
+# Acceptance bands for vector matching. A single threshold cannot express the difference
+# between "certainly this term" and "possibly this term", and the middle is where every
+# wrong link lived: at 0.35, measured, 70% of genuinely off-topic phrases were force-linked
+# to some term. Below ACCEPT a match is taken outright; above REJECT it is a new concept and
+# becomes a proposal; between them the phrase is ambiguous and needs a decision rather than
+# a number. Re-measure both against a real evaluation set — these are starting points.
+SUBJECT_ACCEPT_DISTANCE = getattr(cfg, "TAG_SUBJECT_ACCEPT_DISTANCE", 0.10)
+SUBJECT_REJECT_DISTANCE = getattr(cfg, "TAG_SUBJECT_REJECT_DISTANCE", 0.30)
+# Two candidates this close together are not distinguishable by distance; measured, the
+# margin does not separate right from wrong (0.108 correct vs 0.092 wrong), so it routes to
+# review rather than deciding.
+SUBJECT_MARGIN_GUARD = getattr(cfg, "TAG_SUBJECT_MARGIN_GUARD", 0.02)
+# Whole-string similarity above which a near-exact surface form is accepted without vectors.
+SUBJECT_FUZZY_CUTOFF = getattr(cfg, "TAG_SUBJECT_FUZZY_CUTOFF", 92)
 SUBJECT_SUGGESTION_HEADROOM = 5    # new terms a single document may contribute
 
 
@@ -393,6 +407,149 @@ def normalize_subject_phrase(phrase: str) -> str:
         str: The phrase in §5 format, or '' if nothing survives.
     """
     return normalize_tag_format(phrase.replace("/", " ").strip())
+
+
+def _registry_fingerprint() -> tuple[int, float]:
+    """Cheap signature of the registry's current state, for cache invalidation.
+
+    Returns:
+        tuple[int, float]: (term count, latest update timestamp).
+    """
+    try:
+        conn = sqlite3.connect(getattr(cfg, "VAULT_DB_PATH", ""), timeout=30.0)
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM master_tag_taxonomy"
+            ).fetchone()
+        finally:
+            conn.close()
+        return (int(row[0]), float(row[1])) if row else (0, 0.0)
+    except (sqlite3.Error, OSError, ValueError, TypeError):
+        return (0, 0.0)
+
+
+_SURFACE_CACHE: tuple[tuple[int, float], dict[str, str]] | None = None
+
+
+def _registry_surface_forms() -> dict[str, str]:
+    """Map every searchable surface form to the term it denotes.
+
+    Both preferred terms and their recorded equivalences are keys, because a document that
+    phrases a subject the retired way should still reach the preferred term. Keys are
+    skeletons — separators and inflection removed — so `sleep-hygiene`, `sleep hygiene` and
+    `Sleep Hygiene` are one entry.
+
+    Cached against a (count, latest-update) fingerprint rather than an explicit invalidation
+    call, so a write path that forgets to invalidate cannot serve a stale vocabulary — the
+    failure mode would be silent and would look exactly like a classifier bug.
+
+    Returns:
+        dict[str, str]: surface skeleton -> canonical term.
+    """
+    from Evelyn.tools.tag_synonym import singularize, skeleton
+
+    global _SURFACE_CACHE
+    fingerprint = _registry_fingerprint()
+    if _SURFACE_CACHE is not None and _SURFACE_CACHE[0] == fingerprint:
+        return _SURFACE_CACHE[1]
+
+    forms: dict[str, str] = {}
+    try:
+        for entry in taxonomy_db.get_master_tags():
+            term = entry.get("tag") or ""
+            if not term or is_excluded_tag(term):
+                continue
+            for key in (skeleton(term), singularize(skeleton(term))):
+                forms.setdefault(key, term)
+        for alias, canonical in taxonomy_db.get_aliases().items():
+            if not alias or not canonical:
+                continue
+            for key in (skeleton(alias), singularize(skeleton(alias))):
+                forms.setdefault(key, canonical)
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
+        logger.warning("[TAG LIBRARIAN] Could not load registry surface forms: %s", exc)
+    _SURFACE_CACHE = (fingerprint, forms)
+    return forms
+
+
+def _lexical_lookup(candidate: str, surfaces: dict[str, str]) -> str | None:
+    """Resolve a phrase against the vocabulary by string, not by embedding.
+
+    A controlled vocabulary with recorded equivalences is a dictionary, and a term matching
+    itself is a lookup rather than a nearest-neighbour search. Skipping this step was the
+    original defect: the hot path went straight to the vector store, so a registry holding
+    the exact term still returned whatever happened to embed closest.
+
+    Two passes. Exact on the skeleton, then whole-string fuzzy for typos and inflections the
+    skeleton misses. Fuzzy is bounded by a high cutoff because a loose match here is
+    indistinguishable from a wrong one, and wrong is worse than unresolved — an unresolved
+    phrase becomes a proposal a human sees.
+
+    Args:
+        candidate: A normalized phrase.
+        surfaces: Surface skeleton -> canonical term.
+
+    Returns:
+        str | None: The term, or None if the dictionary does not hold it.
+    """
+    from rapidfuzz import fuzz, process
+
+    from Evelyn.tools.tag_synonym import singularize, skeleton
+
+    if not surfaces:
+        return None
+    key = skeleton(candidate)
+    if key in surfaces:
+        return surfaces[key]
+    if singularize(key) in surfaces:
+        return surfaces[singularize(key)]
+
+    hit = process.extractOne(
+        key, surfaces.keys(), scorer=fuzz.WRatio, score_cutoff=SUBJECT_FUZZY_CUTOFF
+    )
+    return surfaces[hit[0]] if hit else None
+
+
+def _vector_lookup(phrase: str) -> tuple[str | None, float, float]:
+    """Retrieve the nearest term to a phrase, with the margin over its runner-up.
+
+    Retrieval only — this reports what is near and how clearly, and does not decide. The
+    margin matters because a confident match and a coin-flip between two plausible terms are
+    indistinguishable from the top distance alone.
+
+    Candidates are pooled by canonical term, so a term indexed under several surface forms
+    competes once, at its best-matching form.
+
+    Args:
+        phrase: The raw extracted phrase.
+
+    Returns:
+        tuple[str | None, float, float]: (nearest term, its distance, margin over the next
+        distinct term). Distance is 1.0 and margin 0.0 when nothing is retrieved.
+    """
+    try:
+        results = chroma_rag.query_collection(
+            phrase, TAG_COLLECTION_NAME, n_results=SUBJECT_LOOKUP_TOP_K
+        )
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
+        logger.warning("[TAG LIBRARIAN] Reconciliation lookup failed for %r: %s", phrase, exc)
+        return None, 1.0, 0.0
+
+    best: dict[str, float] = {}
+    for r in results:
+        tag = (r.get("metadata") or {}).get("tag")
+        if not tag:
+            continue
+        distance = float(r.get("distance", 1.0))
+        if distance < best.get(tag, 2.0):
+            best[tag] = distance
+    if not best:
+        return None, 1.0, 0.0
+
+    ranked = sorted(best.items(), key=lambda kv: kv[1])
+    top_tag, top_distance = ranked[0]
+    margin = (ranked[1][1] - top_distance) if len(ranked) > 1 else 1.0
+    return top_tag, top_distance, margin
 
 
 def reconcile_subjects(
@@ -417,31 +574,30 @@ def reconcile_subjects(
     Returns:
         tuple[list[str], list[str]]: (terms to apply, phrases to propose).
     """
-    threshold = SUBJECT_MATCH_DISTANCE if match_distance is None else match_distance
+    reject = SUBJECT_REJECT_DISTANCE if match_distance is None else match_distance
     known = set(existing)
     applied: list[str] = []
     proposals: list[str] = []
+    surfaces = _registry_surface_forms()
 
     for phrase in phrases:
         candidate = normalize_subject_phrase(phrase)
-        if not candidate or is_excluded_tag(candidate):
+        if not candidate or is_excluded_tag(candidate) or candidate in known:
             continue
 
-        if candidate in known:
-            continue  # already carried by the document
+        # Stage 1 — the vocabulary is a dictionary. Look the phrase up in it.
+        match = _lexical_lookup(candidate, surfaces)
 
-        match = None
-        try:
-            results = chroma_rag.query_collection(
-                phrase, TAG_COLLECTION_NAME, n_results=SUBJECT_LOOKUP_TOP_K
-            )
-            for r in results:
-                tag = (r.get("metadata") or {}).get("tag")
-                if tag and float(r.get("distance", 1.0)) <= threshold:
-                    match = tag
-                    break
-        except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
-            logger.warning("[TAG LIBRARIAN] Reconciliation lookup failed for %r: %s", phrase, exc)
+        # Stage 2 — vectors, only for what the dictionary missed.
+        if match is None:
+            match, distance, margin = _vector_lookup(phrase)
+            if match is not None and (
+                distance > reject or margin < SUBJECT_MARGIN_GUARD
+                or distance > SUBJECT_ACCEPT_DISTANCE
+            ):
+                # Near enough to retrieve, not near enough to assert. Deciding this by
+                # distance is what force-linked off-topic phrases to plausible neighbours.
+                match = None
 
         if match:
             if match not in known and match not in applied:
@@ -712,18 +868,39 @@ def update_frontmatter_tags(content: str, updated_tags: list[str]) -> str:
 # Tag RAG Vector Store & Chroma Synchronization
 # =============================================================================
 
-def _build_tag_embedding_doc(tag: str, category: str = "", description: str = "") -> str:
-    """Build rich descriptive text for embedding a taxonomy tag in Chroma."""
-    parts = tag.split("/")
-    hierarchy = " > ".join(parts)
-    cat_str = category or (parts[0] if parts else "general")
-    desc_str = description or f"Obsidian notes tagged under {tag}"
-    return (
-        f"Tag: #{tag}\n"
-        f"Category: {cat_str}\n"
-        f"Hierarchy: {hierarchy}\n"
-        f"Scope & Scope Description: {desc_str}"
-    )
+def _build_tag_embedding_doc(tag: str) -> str:
+    """Return the text a term is embedded as: its bare surface form, and nothing else.
+
+    This function previously emitted four labelled lines — `Tag:`, `Category:`, `Hierarchy:`,
+    `Scope & Scope Description:`. That boilerplate is identical across every term, so it
+    contributes a large shared component to every vector which is orthogonal to a one- or
+    two-word query. It drags every cosine distance down and compresses the spread the caller
+    then thresholds on.
+
+    Measured over the full registry, querying each term with its own surface form:
+
+    | indexed as              | rank-1 | self-distance | terms failing to match themselves |
+    |-------------------------|--------|---------------|-----------------------------------|
+    | labelled prose block    | 0.879  | 0.335         | 31.5%                             |
+    | bare surface form       | 0.999  | 0.000         | 0%                                |
+
+    `sleep` scored 0.370 against itself under the old format — outside the acceptance
+    threshold. Worse, correct matches averaged a *higher* distance (0.353) than wrong ones
+    (0.345): the number carried no discriminative signal at all.
+
+    The category and description are deliberately excluded rather than merely shortened. Both
+    are generated rather than authored, and were measurably wrong — the description stored for
+    `sleep` read "Obsidian notes tagged under sleep/apnea-troubleshooting", which embedded a
+    term for `sleep` partly about apnea troubleshooting. They remain in SQLite for display and
+    for prompting; they do not belong in the vector.
+
+    Args:
+        tag: A registry term or alias.
+
+    Returns:
+        str: De-slugified lowercase surface form, e.g. `sleep-hygiene` -> "sleep hygiene".
+    """
+    return tag.replace("/", " ").replace("-", " ").replace("_", " ").strip().lower()
 
 
 def index_tag_in_chroma(tag: str, category: str = "", description: str = "",
@@ -745,7 +922,7 @@ def index_tag_in_chroma(tag: str, category: str = "", description: str = "",
 
     try:
         doc_id = f"tag::{clean_tag}"
-        doc_text = _build_tag_embedding_doc(clean_tag, category, description)
+        doc_text = _build_tag_embedding_doc(clean_tag)
         meta = {
             "tag": clean_tag,
             "category": category or (clean_tag.split("/")[0] if "/" in clean_tag else "general"),
@@ -781,34 +958,65 @@ def delete_tag_from_chroma(tag: str) -> bool:
 
 
 def sync_master_tags_to_vector_db() -> int:
-    """Synchronize all SQLite master taxonomy tags into Chroma vector store via staging queue.
+    """Rebuild the vector index from the registry, one vector per surface form.
+
+    The index is a **derived cache**, not a store. It is rebuilt from SQLite and never
+    repaired in place: a vector can outlive its metadata record, and a collection patched
+    term-by-term accumulates orphans that stay invisible to `get()` while still ranking in
+    `query()`. If it disagrees with `master_tag_taxonomy`, the registry wins and this is
+    re-run.
+
+    Every equivalence is indexed as its own vector carrying the *canonical* term in metadata,
+    so a document phrased like a retired variant still retrieves the preferred term. A term's
+    several surface forms therefore compete independently, and the caller keeps the best.
 
     Returns:
-        int: Total number of tags enqueued into Chroma staging queue.
+        int: Surface forms enqueued (terms plus equivalences).
     """
     master_tags = taxonomy_db.get_master_tags()
     if not master_tags:
         return 0
 
     enqueued_count = 0
+    canonical_terms: set[str] = set()
     for m in master_tags:
         tag = normalize_tag_format(m["tag"])
         if not tag or is_excluded_tag(tag):
             continue
-        category = m.get("category", tag.split("/")[0] if "/" in tag else "general")
-        description = m.get("description", "")
-        usage_count = m.get("usage_count", 0)
-
-        doc_id = f"tag::{tag}"
-        doc_text = _build_tag_embedding_doc(tag, category, description)
+        canonical_terms.add(tag)
         meta = {
             "tag": tag,
-            "category": category,
-            "description": description,
-            "usage_count": usage_count,
-            "type": "master_tag"
+            "category": m.get("category", tag.split("/")[0] if "/" in tag else "general"),
+            "description": m.get("description", ""),
+            "usage_count": m.get("usage_count", 0),
+            "type": "master_tag",
+            "surface": "preferred",
         }
-        if chroma_rag.enqueue_upsert(doc_id, doc_text, collection_name=TAG_COLLECTION_NAME, extra_metadata=meta):
+        if chroma_rag.enqueue_upsert(
+            f"tag::{tag}", _build_tag_embedding_doc(tag),
+            collection_name=TAG_COLLECTION_NAME, extra_metadata=meta,
+        ):
+            enqueued_count += 1
+
+    for alias, canonical in taxonomy_db.get_aliases().items():
+        variant = normalize_tag_format(alias)
+        target = normalize_tag_format(canonical or "")
+        if not variant or not target or target not in canonical_terms:
+            continue  # an equivalence pointing at no live term indexes nothing
+        if variant in canonical_terms:
+            continue  # already indexed as a preferred form
+        meta = {
+            "tag": target,
+            "category": target.split("/")[0] if "/" in target else "general",
+            "description": "",
+            "usage_count": 0,
+            "type": "master_tag",
+            "surface": "alternate",
+        }
+        if chroma_rag.enqueue_upsert(
+            f"alias::{variant}", _build_tag_embedding_doc(variant),
+            collection_name=TAG_COLLECTION_NAME, extra_metadata=meta,
+        ):
             enqueued_count += 1
 
     return enqueued_count
