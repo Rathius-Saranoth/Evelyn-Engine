@@ -10,10 +10,10 @@ Exports:
     is_excluded_tag()                     — Checks if a tag matches protected exclusion rules (e.g. CY-YYYY/MM/DD).
     canonicalize_date_tag()               — Resolves EDTF date anchors (reduced precision / unspecified digits).
     read_document_for_classification()    — Full text when it fits; chunked subject extraction when it does not.
+    classify_document_subjects()          — Blind extraction, then deterministic reconciliation (§6.1).
     normalize_tag_format()                — Standardizes tags to lowercase-hyphen-slash form (taxonomy §5).
     strip_subject_duplicate_tags()        — Drops tags that merely restate a record's own subject.
     audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
-    retrieve_candidate_tags_for_document() — Semantic vector retrieval of candidate master tags with distance scoring.
     sync_master_tags_to_vector_db()       — Syncs all SQLite master tags into Chroma vector store for Tag RAG.
     index_master_tag_in_chroma()          — Upserts an individual master tag into Chroma vector store.
     delete_tag_from_chroma()              — Removes a tag from Chroma vector store.
@@ -367,6 +367,127 @@ def read_document_for_classification(body: str, gist: str, title: str) -> str:
     return "\n\n".join(parts)
 
 
+# Reconciliation thresholds. A phrase near an existing term becomes that term; a phrase
+# near nothing is a proposal, never an automatic addition (§6.1).
+SUBJECT_MATCH_DISTANCE = getattr(cfg, "TAG_SUBJECT_MATCH_DISTANCE", 0.35)
+SUBJECT_LOOKUP_TOP_K = getattr(cfg, "TAG_LIBRARIAN_TOP_K_TAGS", 10)
+SUBJECT_SUGGESTION_HEADROOM = 5    # new terms a single document may contribute
+
+
+def normalize_subject_phrase(phrase: str) -> str:
+    """Format a natural-language subject phrase as a tag, without decomposing it.
+
+    Deliberately does NOT split multi-word phrases into atoms. "obstructive sleep apnea" is
+    one diagnosis, not three coordinates, and lexical splitting destroys exactly the terms
+    of art worth keeping (§5's test: are the halves independently meaningful?). Whether a
+    phrase collapses onto existing atoms is reconciliation's decision, made against the
+    registry, not a guess made from the string.
+
+    Args:
+        phrase: A subject phrase as written by the extraction pass.
+
+    Returns:
+        str: The phrase in §5 format, or '' if nothing survives.
+    """
+    return normalize_tag_format(phrase.replace("/", " ").strip())
+
+
+def reconcile_subjects(
+    phrases: list[str], existing: list[str], match_distance: float | None = None
+) -> tuple[list[str], list[str]]:
+    """Map extracted phrases onto the registry, or hold them back as proposals.
+
+    The extraction pass never sees the vocabulary, so its output is free of the
+    pre-coordinate shapes it would otherwise imitate — but it is also unaligned. This is
+    where alignment happens, and it happens by measurement rather than by asking a model to
+    comply with a format.
+
+    A phrase close to a registered term *becomes* that term. A phrase close to nothing is a
+    proposal for review, never an automatic addition: a vocabulary any document can extend
+    is not a controlled vocabulary (§6.1).
+
+    Args:
+        phrases: Subject phrases from the extraction pass.
+        existing: Tags already on the document; matches against these are not re-added.
+        match_distance: Cosine distance below which a phrase is considered an existing term.
+
+    Returns:
+        tuple[list[str], list[str]]: (terms to apply, phrases to propose).
+    """
+    threshold = SUBJECT_MATCH_DISTANCE if match_distance is None else match_distance
+    known = set(existing)
+    applied: list[str] = []
+    proposals: list[str] = []
+
+    for phrase in phrases:
+        candidate = normalize_subject_phrase(phrase)
+        if not candidate or is_excluded_tag(candidate):
+            continue
+
+        if candidate in known:
+            continue  # already carried by the document
+
+        match = None
+        try:
+            results = chroma_rag.query_collection(
+                phrase, TAG_COLLECTION_NAME, n_results=SUBJECT_LOOKUP_TOP_K
+            )
+            for r in results:
+                tag = (r.get("metadata") or {}).get("tag")
+                if tag and float(r.get("distance", 1.0)) <= threshold:
+                    match = tag
+                    break
+        except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
+            logger.warning("[TAG LIBRARIAN] Reconciliation lookup failed for %r: %s", phrase, exc)
+
+        if match:
+            if match not in known and match not in applied:
+                applied.append(match)
+        elif candidate not in proposals:
+            proposals.append(candidate)
+
+    return applied, proposals
+
+
+def classify_document_subjects(
+    body: str, gist: str, title: str, existing: list[str], headroom: int | None = None
+) -> tuple[list[str], list[str]]:
+    """Derive a document's subjects, then align them to the vocabulary.
+
+    Two stages, and the separation is the point. The model is asked only what the document
+    is *about* — it never sees the existing tags or the registry, so it cannot imitate their
+    shapes. Measured on this vault, the same model shown existing tags produced eight
+    different terms for sleep across five documents and never the bare atom; shown only the
+    documents, it produced the identical phrase three times.
+
+    Alignment is then deterministic. Format is enforced rather than requested, and new terms
+    are held back for approval rather than minted.
+
+    Note that this pass can only ADD. Asking a document what it is about yields no signal
+    about what it is *not* about, so removal is not inferable here and stays a supervised
+    operation — which removes the failure mode that disabled this librarian by construction.
+
+    Args:
+        body: Document body.
+        gist: Stored summary, may be empty.
+        title: Document title.
+        existing: Tags already on the document.
+        headroom: New terms this document may contribute beyond what it already has.
+
+    Returns:
+        tuple[list[str], list[str]]: (terms to apply, proposals for review).
+    """
+    cap = SUBJECT_SUGGESTION_HEADROOM if headroom is None else headroom
+    view = read_document_for_classification(body, gist, title)
+
+    phrases = _extract_chunk_subjects(view, title)
+    if not phrases:
+        return [], []
+
+    applied, proposals = reconcile_subjects(phrases, existing)
+    return applied[: len(existing) + cap], proposals[:cap]
+
+
 def parse_frontmatter_tags(content: str) -> tuple[list[str], str]:
     """Extract frontmatter tags and return (tags_list, body_content).
 
@@ -506,122 +627,6 @@ def sync_master_tags_to_vector_db() -> int:
     return enqueued_count
 
 
-def retrieve_candidate_tags_for_document(
-    title: str,
-    gist: str,
-    body_sample: str,
-    current_tags: list[str],
-    top_k: int | None = None
-) -> tuple[list[dict[str, Any]], float, str]:
-    """Retrieve semantically relevant candidate master tags for a document using Tag RAG.
-
-    Uses a composite query approach (title + gist, sample body, and current tags)
-    and computes cosine distance to evaluate taxonomy alignment and novelty.
-
-    Args:
-        title: Document title.
-        gist: Document summary or gist.
-        body_sample: Initial text chunk of note body.
-        current_tags: Existing tags on the note.
-        top_k: Maximum candidate tags to retrieve.
-
-    Returns:
-        Tuple[List[Dict[str, Any]], float, str]:
-            - List of candidate tag dictionaries (tag, category, description, distance, usage_count).
-            - Minimum cosine distance found.
-            - Novelty guidance directive for the LLM.
-    """
-    if top_k is None:
-        top_k = getattr(cfg, "TAG_LIBRARIAN_TOP_K_TAGS", 35)
-
-    queries = []
-    # 1. Semantic metadata query (title + summary)
-    meta_query = f"{title}. {gist}".strip()
-    if meta_query:
-        queries.append(meta_query)
-
-    # 2. Body sample query
-    sample_clean = body_sample[:600].strip()
-    if sample_clean:
-        queries.append(sample_clean)
-
-    # 3. Taxonomic query from current tags
-    if current_tags:
-        clean_tags_query = " ".join([
-            t.replace("/", " ").replace("-", " ").replace("_", " ")
-            for t in current_tags if not is_excluded_tag(t)
-        ]).strip()
-        if clean_tags_query:
-            queries.append(clean_tags_query)
-
-    if not queries:
-        return [], 1.0, "NO_QUERY_AVAILABLE"
-
-    candidates_map: dict[str, dict[str, Any]] = {}
-
-    for q in queries:
-        try:
-            results = chroma_rag.query_collection(q, TAG_COLLECTION_NAME, n_results=top_k)
-            for r in results:
-                meta = r.get("metadata") or {}
-                tag = meta.get("tag")
-                # Current tags are NOT excluded: the model must be able to see that a term
-                # it already carries IS the canonical one (§7.1 rule 4).
-                if not tag or is_excluded_tag(tag):
-                    continue
-                dist = float(r.get("distance", 1.0))
-
-                if tag not in candidates_map or dist < candidates_map[tag]["distance"]:
-                    candidates_map[tag] = {
-                        "tag": tag,
-                        "category": meta.get("category", "general"),
-                        "description": meta.get("description", ""),
-                        "usage_count": meta.get("usage_count", 0),
-                        "distance": dist
-                    }
-        except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
-            print(f"[TAG LIBRARIAN] Tag RAG query failed for '{q[:30]}...': {e}")
-
-    # If Chroma tag collection is empty or query had no results, fallback to SQLite master tags
-    if not candidates_map:
-        fallback_tags = taxonomy_db.get_master_tags()
-        for m in fallback_tags[:top_k]:
-            t = m["tag"]
-            if not is_excluded_tag(t):
-                candidates_map[t] = {
-                    "tag": t,
-                    "category": m.get("category", "general"),
-                    "description": m.get("description", ""),
-                    "usage_count": m.get("usage_count", 0),
-                    "distance": 0.50
-                }
-
-    sorted_candidates = sorted(candidates_map.values(), key=lambda x: x["distance"])[:top_k]
-    min_dist = sorted_candidates[0]["distance"] if sorted_candidates else 1.0
-    novelty_threshold = getattr(cfg, "TAG_NOVELTY_DISTANCE_THRESHOLD", 0.55)
-
-    if min_dist < 0.40:
-        novelty_guidance = (
-            f"Vocabulary coverage: HIGH (nearest term {min_dist:.2f}).\n"
-            "This subject is already well represented. Reuse the terms listed above rather than "
-            "minting near-synonyms of them."
-        )
-    elif min_dist < novelty_threshold:
-        novelty_guidance = (
-            f"Vocabulary coverage: MODERATE (nearest term {min_dist:.2f}).\n"
-            "Related terms exist but may not cover this subject exactly. Reuse where a listed term "
-            "fits; add a new atomic term only for a subject none of them names."
-        )
-    else:
-        novelty_guidance = (
-            f"Vocabulary coverage: LOW (nearest term {min_dist:.2f}).\n"
-            "This document covers subjects the vocabulary does not yet name. Adding new atomic "
-            "terms is expected here."
-        )
-
-    return sorted_candidates, min_dist, novelty_guidance
-
-
 def query_ollama(prompt: str, system_prompt: str = "") -> str:
     """Query local Ollama instance synchronously for LLM reasoning.
 
@@ -709,115 +714,41 @@ def audit_document_tags(
         "llm_evaluated": False,
     }
 
-    # 2. Semantic LLM Tag RAG (if enabled and applicable)
+    # 2. Subject classification (if enabled)
+    #
+    # The model is asked only what the document is about — never shown the existing tags or
+    # the registry, because shown those it imitates their shapes. Measured on this vault: the
+    # same model shown existing tags produced eight different terms for "sleep" across five
+    # documents and never the bare atom; shown only the documents, it produced the identical
+    # phrase three times. Alignment happens afterwards, by measurement (§6.1).
     if enable_llm:
         title = os.path.basename(path).replace(".md", "") if path else "Untitled"
         doc_info = vault_db.get_document(path) if path else None
         gist = doc_info.get("gist", "") if doc_info else ""
 
-        candidate_tags, min_dist, novelty_guidance = retrieve_candidate_tags_for_document(
-            title=title,
-            gist=gist,
-            body_sample=body[:1500],
-            current_tags=auditable_tags,
-        )
-        details["min_taxonomy_distance"] = min_dist
-
-        candidate_list_text = (
-            "\n".join(f"- {c['tag']}" for c in candidate_tags if c.get("tag"))
-            if candidate_tags
-            else "No existing vocabulary matched."
+        applied, proposals = classify_document_subjects(
+            body=body, gist=gist, title=title, existing=final_tags_list
         )
 
-        # Every current tag is shown. Summarising them and then acting on the verdict is an
-        # unsound audit: the model cannot judge what it was never given (§7.1 rule 2).
-        tag_list_text = "\n".join(f"- {t}" for t in auditable_tags) if auditable_tags else "(none)"
+        # This pass can only ADD. Asking a document what it is about yields no signal about
+        # what it is not about, so removal is not inferable here and stays supervised — which
+        # retires the failure mode that disabled this librarian, by construction rather than
+        # by rule.
+        for tag in applied:
+            if tag and tag not in final_tags_list:
+                final_tags_list.append(tag)
 
-        system_prompt = (
-            "You are a cataloger maintaining a POST-COORDINATE tag vocabulary for a personal "
-            "knowledge vault. Concepts are kept SEPARATE and combined by the search query.\n\n"
-            "FORMAT - absolute:\n"
-            "1. Tags are atomic and lowercase. One concept per tag. Hyphens join words INSIDE "
-            "one concept ('3d-printing', 'uv-mapping').\n"
-            "2. NEVER use a slash to nest subjects. 'work/routine/morning' is wrong; emit "
-            "'work', 'routine', 'morning' as three separate tags.\n"
-            "3. A slash appears ONLY as a facet prefix, exactly once, and only for these:\n"
-            "   type/  motif/  setting/  event/\n\n"
-            "WHAT TO EMIT:\n"
-            "- SUBJECT tags: one atomic tag per genuine subject. A multi-topic document gets "
-            "one per topic - never collapse them.\n"
-            "- Exactly one type/ facet: type/overview type/reference type/guide type/manual "
-            "type/journal-entry type/dream type/creative type/media type/recipe type/list "
-            "type/log type/notes type/report type/moc\n"
-            "- motif/ and setting/ ONLY for dream, creative and media documents. Never on "
-            "reference material.\n"
-            "- Named people, places, books and products are NOT tags. Omit them.\n\n"
-            "JUDGING EXISTING TAGS:\n"
-            "- Keep every existing tag that is accurate. Listing a tag under tags_to_remove is "
-            "the ONLY way to remove it.\n"
-            "- Remove a tag only if it is factually wrong about this document, an exact "
-            "duplicate, or a multi-word phrase describing this one document rather than a "
-            "reusable concept.\n"
-            "- Prefer a candidate from the existing vocabulary over inventing a near-synonym.\n\n"
-            'Output ONLY valid JSON: {"tags_to_add": [], "tags_to_remove": []}\n'
-            "Decide once. Do not deliberate."
-        )
+        final_tags_list = sorted(taxonomy_db.canonicalize_tags(final_tags_list))
+        details["final_tags"] = final_tags_list
+        details["llm_evaluated"] = True
+        details["tags_added"] = applied
+        details["proposals"] = proposals
+        if proposals:
+            logger.info(
+                "[TAG LIBRARIAN] %s: %d term(s) proposed for review: %s",
+                path, len(proposals), ", ".join(proposals),
+            )
 
-        skeleton = read_document_for_classification(body, gist, title)
-        user_prompt = (
-            f"Document: {title}\n"
-            f"Path: {path}\n\n"
-            f"--- ALL CURRENT TAGS ({len(auditable_tags)}) ---\n{tag_list_text}\n\n"
-            f"--- EXISTING VOCABULARY, nearest first ---\n{candidate_list_text}\n\n"
-            f"--- VOCABULARY COVERAGE ---\n{novelty_guidance}\n\n"
-            f"--- DOCUMENT ---\n{skeleton}\n\n"
-            "Emit atomic lowercase tags. Add what is missing; remove only what is wrong.\n"
-            "Output JSON now."
-        )
-
-        # One attempt, at full reasoning. There is deliberately no fast path: degrading the
-        # classifier to beat a timeout trades correctness for latency, which is what produced
-        # the collapse this rewrite exists to prevent. A document that cannot be classified
-        # within budget is DEFERRED, not partially processed (§7.1 rule 5).
-        try:
-            response_text = query_ollama(user_prompt, system_prompt)
-            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-            if not json_match:
-                logger.warning(
-                    "[TAG LIBRARIAN] No parseable decision for %s; deferring unchanged.", path
-                )
-                return False, content, details
-
-            parsed = json.loads(json_match.group(0))
-            to_add = [normalize_tag_format(t) for t in parsed.get("tags_to_add", []) if t]
-            to_remove = {normalize_tag_format(t) for t in parsed.get("tags_to_remove", []) if t}
-
-            # Start from what the document already has. A tag the model did not mention
-            # survives: silence is not a removal instruction (§7.1 rule 1). Only terms named
-            # explicitly in tags_to_remove are dropped, and protected tags never are.
-            working: list[str] = list(protected_tags)
-            for tag in auditable_tags:
-                if tag not in to_remove and tag not in working:
-                    working.append(tag)
-            for tag in to_add:
-                if tag and tag not in to_remove and tag not in working:
-                    working.append(tag)
-
-            # Resolve through recorded equivalences so a retired variant the model echoed
-            # back does not re-enter the vocabulary (§6.2).
-            final_tags_list = sorted(taxonomy_db.canonicalize_tags(working))
-            details["final_tags"] = final_tags_list
-            details["llm_evaluated"] = True
-            details["tags_added"] = [t for t in to_add if t in final_tags_list]
-            details["tags_removed"] = sorted(to_remove & set(auditable_tags))
-        except Exception as llm_err:  # noqa: BLE001
-            logger.warning("[TAG LIBRARIAN] Classification failed for %s: %s", path, llm_err)
-            return False, content, details
-
-    # Recorded UF equivalences are applied last, so a retired variant reaching this point
-    # from any source resolves to its preferred term instead of being re-minted (§6.2).
-    final_tags_list = taxonomy_db.canonicalize_tags(final_tags_list)
-    details["final_tags"] = final_tags_list
 
     modified = (set(final_tags_list) != set(current_tags))
     new_content = content

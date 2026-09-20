@@ -1084,7 +1084,10 @@ TAG_LIBRARIAN_FORMAT_RULES = {
 CHROMA_TAG_COLLECTION = "evelyn_tag_taxonomy"
 CHROMA_MEDIA_COLLECTION = "evelyn_media"
 TAG_LIBRARIAN_TOP_K_TAGS = 10  # Max semantically matched master tags to retrieve
-TAG_NOVELTY_DISTANCE_THRESHOLD = 0.55  # Cosine distance above which a note domain is deemed novel
+# Cosine distance below which an extracted subject phrase IS an existing vocabulary term.
+# Tight on purpose: measured at 0.55 this matched a metabolism paper to "sleep/tracking-worries".
+# A phrase beyond it is a proposal, not a match (.agents/rules/vault-tag-taxonomy.md §6.1).
+TAG_SUBJECT_MATCH_DISTANCE = 0.35
 
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)

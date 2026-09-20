@@ -125,29 +125,15 @@ class TestSemanticTaggingSubsystem(unittest.TestCase):
         self.assertEqual(doc_after["tags"], "new/domain, new/sub")
 
     @patch("Evelyn.tools.tag_librarian.chroma_rag.ingest_markdown_file")
-    @patch("Evelyn.tools.tag_librarian.query_ollama")
-    @patch("Evelyn.tools.tag_librarian.retrieve_candidate_tags_for_document")
+    @patch("Evelyn.tools.tag_librarian.classify_document_subjects")
     def test_audit_single_document_semantic_flow(
         self,
-        mock_candidates,
-        mock_query_ollama,
+        mock_classify,
         mock_chroma_ingest,
     ):
-        """Verify full single-document semantic audit flow with Tag RAG and LLM mock."""
-        mock_candidates.return_value = (
-            [
-                {"tag": "AI/LLM/Inference", "category": "AI", "description": "LLM inference techniques", "distance": 0.12},
-                {"tag": "AI/RAG/Evaluation", "category": "AI", "description": "RAG evaluation frameworks", "distance": 0.25},
-            ],
-            0.12,
-            "TAXONOMY MATCH CONFIDENCE: HIGH",
-        )
-        mock_query_ollama.return_value = """{
-            "tags_to_keep": [],
-            "tags_to_add": ["AI/LLM/Inference", "AI/RAG/Evaluation"],
-            "tags_to_remove": ["ai", "rag"],
-            "new_master_tags": []
-        }"""
+        """Verify the single-document audit applies reconciled subjects and keeps the rest."""
+        # Blind extraction reconciled two registry terms; nothing is removable by this pass.
+        mock_classify.return_value = (["inference", "evaluation"], ["neural-search"])
 
         # Create physical test document in temp vault
         doc_rel = "Notes/Neural_Search.md"
@@ -180,20 +166,20 @@ Vector retrieval with embedding rerankers and Chroma stores.
 
         self.assertEqual(result["status"], "success")
         self.assertTrue(result["modified"])
-        # §5: lowercase always, hyphens join words, slashes join levels.
-        self.assertEqual(result["final_tags"], ["ai/llm/inference", "ai/rag/evaluation"])
+        # Existing tags survive; reconciled subjects are added alongside them.
+        self.assertEqual(result["final_tags"], ["ai", "evaluation", "inference", "rag"])
 
         # Verify disk file updated
         with open(doc_abs, encoding="utf-8") as f:
             updated_content = f.read()
-        self.assertIn("tags: [ai/llm/inference, ai/rag/evaluation]", updated_content)
+        self.assertIn("tags: [ai, evaluation, inference, rag]", updated_content)
 
         # Verify vault_db updated
         doc_in_db = vault_db.get_document(doc_rel)
         self.assertIsNotNone(doc_in_db)
         assert doc_in_db is not None
         self.assertGreater(doc_in_db["last_semantic_tag_audit"], 0)
-        self.assertIn("ai/llm/inference", doc_in_db["tags"])
+        self.assertIn("inference", doc_in_db["tags"])
 
     @patch("Evelyn.tools.tag_librarian.audit_single_document_semantic")
     @patch("Evelyn.tools.vault_db.fetch_next_documents_for_semantic_tag_audit")

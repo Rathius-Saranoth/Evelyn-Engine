@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 14:51:15
+date modified: 2026-09-20 15:09:17
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,46 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.178] - 2026-09-20 — *Blind Extraction — Ask What It Is About, Reconcile Afterwards*
+
+Shown a document's existing tags, the classifier imitated their shape. It produced **eight different
+terms for "sleep" across five documents** and never once the bare atom, while the prompt's
+instruction to emit atoms went ignored — examples outweigh instructions. Shown only the documents,
+the same model produced the identical phrase `sleep tracking` in three of them, with no nesting
+anywhere.
+
+### Added
+- **`classify_document_subjects()`** splits the task in two. The model is asked only what the
+  document is *about*, and never sees the existing tags or the registry, so it has nothing to
+  imitate. Alignment happens afterwards, deterministically.
+- **`reconcile_subjects()`** maps phrases onto the registry by measured distance: close enough and
+  the phrase *becomes* the registered term; otherwise it is a proposal for review, never an
+  automatic addition (§6.1). Format compliance stops depending on the model complying.
+- **`normalize_subject_phrase()`** formats without decomposing. `"obstructive sleep apnea"` is one
+  diagnosis, and splitting it lexically would destroy exactly the terms of art worth keeping — the
+  §5 test asks whether the halves are independently meaningful, and here they are not.
+
+### Changed
+- **The classifier can no longer remove a tag.** Asking what a document is about yields no signal
+  about what it is *not* about, so removal is not inferable and stays a supervised operation. The
+  failure that disabled this librarian in September is now impossible by construction rather than
+  forbidden by rule.
+
+### Removed
+- `retrieve_candidate_tags_for_document()` — superseded. The blind pass has no use for candidates,
+  since showing them is what caused the imitation.
+
+### Preserved by design
+- **`TAG_NOVELTY_DISTANCE_THRESHOLD` was retired rather than reused.** Deleting the function above
+  orphaned it, and the wiring gate correctly flagged it. The first fix pointed the reconciler at it
+  — wrong, because it answered a different question (is a whole document covered?) at a looser 0.55,
+  which matched a metabolism paper to `sleep/tracking-worries`. Reusing a constant to satisfy a gate
+  is the masking §11 forbids. `TAG_SUBJECT_MATCH_DISTANCE` replaces it at 0.35.
+
+`TAG_LIBRARIAN_ENABLED` remains `False`. The match rate is low because the registry holds
+`health/sleep/tracking` and no bare `sleep` atom for a phrase to match — which step 8 fixes, and
+until then this cannot be fairly evaluated.
 
 ## [000.006.177] - 2026-09-20 — *Thinking Mode Was Eating the Answer*
 

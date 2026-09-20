@@ -523,63 +523,48 @@ class TestOneOffPhraseRetirement:
 
 
 class TestClassifierInvariants:
-    """§7.1: the rules the original classifier violated, pinned as tests."""
+    """§7.1: the rules the original classifier violated, now enforced structurally."""
 
-    def _run(self, monkeypatch, content, response, current=("alpha", "beta", "gamma")):
+    def _note(self, tags):
+        return "---\ntags: [" + ", ".join(tags) + "]\n---\n\n# Note\n\nSome prose here.\n"
+
+    def _run(self, monkeypatch, content, applied, proposals=()):
         from Evelyn.tools import tag_librarian
-        monkeypatch.setattr(tag_librarian, "query_ollama", lambda *a, **k: response)
         monkeypatch.setattr(
-            tag_librarian, "retrieve_candidate_tags_for_document",
-            lambda **k: ([{"tag": "alpha"}], 0.3, "coverage: HIGH"),
+            tag_librarian, "classify_document_subjects",
+            lambda **k: (list(applied), list(proposals)),
         )
         monkeypatch.setattr(tag_librarian.vault_db, "get_document", lambda p: {"gist": ""})
         monkeypatch.setattr(tag_librarian.taxonomy_db, "canonicalize_tags", lambda t: list(t))
         return tag_librarian.audit_document_tags(content, path="n.md", enable_llm=True)
 
-    def _note(self, tags):
-        return "---\ntags: [" + ", ".join(tags) + "]\n---\n\n# Note\n\nSome prose here.\n"
-
-    def test_silence_does_not_delete(self, monkeypatch):
-        """A tag the model never mentions must survive — the original rebuilt from the echo."""
+    def test_existing_tags_always_survive(self, monkeypatch):
+        """Removal is not inferable from 'what is this about', so it cannot happen here."""
         _m, _c, details = self._run(
-            monkeypatch, self._note(["alpha", "beta", "gamma"]),
-            '{"tags_to_add": ["delta"], "tags_to_remove": []}',
+            monkeypatch, self._note(["alpha", "beta", "gamma"]), applied=["delta"],
         )
         assert set(details["final_tags"]) == {"alpha", "beta", "gamma", "delta"}
 
-    def test_only_explicitly_named_tags_are_removed(self, monkeypatch):
+    def test_classifier_cannot_remove_even_a_wrong_tag(self, monkeypatch):
+        """The destruction failure mode is retired by construction, not by rule."""
         _m, _c, details = self._run(
-            monkeypatch, self._note(["alpha", "beta", "gamma"]),
-            '{"tags_to_add": [], "tags_to_remove": ["beta"]}',
+            monkeypatch, self._note(["alpha", "beta"]), applied=[],
         )
-        assert set(details["final_tags"]) == {"alpha", "gamma"}
+        assert set(details["final_tags"]) == {"alpha", "beta"}
 
-    def test_unparseable_response_defers_unchanged(self, monkeypatch):
-        """§7.1 rule 6: fail closed. A partial result is never a partial rewrite."""
-        modified, _c, details = self._run(
-            monkeypatch, self._note(["alpha", "beta"]), "I think maybe alpha is good?",
+    def test_proposals_are_reported_not_applied(self, monkeypatch):
+        """§6.1: a term not in the registry is queued, never written to the document."""
+        _m, _c, details = self._run(
+            monkeypatch, self._note(["alpha"]), applied=[], proposals=["postprandial-somnolence"],
         )
-        assert modified is False
-        assert details["llm_evaluated"] is False
+        assert "postprandial-somnolence" not in details["final_tags"]
+        assert details["proposals"] == ["postprandial-somnolence"]
 
-    def test_every_current_tag_reaches_the_prompt(self, monkeypatch):
-        """§7.1 rule 2: no truncation. The model cannot judge what it was not shown."""
-        from Evelyn.tools import tag_librarian
-        seen = {}
-        def capture(user_prompt, system_prompt):
-            seen["user"] = user_prompt
-            return '{"tags_to_add": [], "tags_to_remove": []}'
-        monkeypatch.setattr(tag_librarian, "query_ollama", capture)
-        monkeypatch.setattr(
-            tag_librarian, "retrieve_candidate_tags_for_document",
-            lambda **k: ([], 0.9, "coverage: LOW"),
+    def test_protected_tags_are_never_touched(self, monkeypatch):
+        _m, _c, details = self._run(
+            monkeypatch, self._note(["CY-2026/09/20", "alpha"]), applied=["beta"],
         )
-        monkeypatch.setattr(tag_librarian.vault_db, "get_document", lambda p: {"gist": ""})
-        monkeypatch.setattr(tag_librarian.taxonomy_db, "canonicalize_tags", lambda t: list(t))
-        many = [f"tag-{i}" for i in range(30)]
-        tag_librarian.audit_document_tags(self._note(many), path="n.md", enable_llm=True)
-        for tag in many:
-            assert tag in seen["user"], f"{tag} was hidden from the model"
+        assert "CY-2026/09/20" in details["final_tags"]
 
 
 class TestDocumentReading:
@@ -624,3 +609,55 @@ class TestDocumentReading:
         body = "\n\n".join(f"## Heading {i}\n\n" + ("words " * 200) for i in range(5))
         out = tag_librarian.read_document_for_classification(body, "", "Doc")
         assert "Heading 0" in out
+
+
+class TestBlindExtractionPipeline:
+    """Blind extraction then deterministic reconciliation (§6.1)."""
+
+    def test_phrases_are_formatted_not_decomposed(self):
+        """'obstructive sleep apnea' is one diagnosis; splitting destroys the term of art."""
+        from Evelyn.tools.tag_librarian import normalize_subject_phrase
+        assert normalize_subject_phrase("Obstructive Sleep Apnea") == "obstructive-sleep-apnea"
+        assert normalize_subject_phrase("sleep tracking") == "sleep-tracking"
+
+    def test_slashes_in_a_phrase_do_not_become_hierarchy(self):
+        from Evelyn.tools.tag_librarian import normalize_subject_phrase
+        assert "/" not in normalize_subject_phrase("work/life balance")
+
+    def test_near_match_becomes_the_registry_term(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(
+            tag_librarian.chroma_rag, "query_collection",
+            lambda *a, **k: [{"metadata": {"tag": "sleep"}, "distance": 0.2}],
+        )
+        applied, proposals = tag_librarian.reconcile_subjects(["sleep tracking"], [])
+        assert applied == ["sleep"] and proposals == []
+
+    def test_distant_phrase_is_proposed_never_applied(self, monkeypatch):
+        """§6.1: a vocabulary any document can extend is not a controlled vocabulary."""
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(
+            tag_librarian.chroma_rag, "query_collection",
+            lambda *a, **k: [{"metadata": {"tag": "cooking"}, "distance": 0.9}],
+        )
+        applied, proposals = tag_librarian.reconcile_subjects(["postprandial somnolence"], [])
+        assert applied == []
+        assert proposals == ["postprandial-somnolence"]
+
+    def test_term_already_on_the_document_is_not_re_added(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+        monkeypatch.setattr(
+            tag_librarian.chroma_rag, "query_collection",
+            lambda *a, **k: [{"metadata": {"tag": "sleep"}, "distance": 0.1}],
+        )
+        applied, proposals = tag_librarian.reconcile_subjects(["sleep tracking"], ["sleep"])
+        assert applied == [] and proposals == []
+
+    def test_lookup_failure_proposes_rather_than_drops(self, monkeypatch):
+        """A registry outage must not silently discard what the document said."""
+        from Evelyn.tools import tag_librarian
+        def boom(*a, **k):
+            raise OSError("chroma down")
+        monkeypatch.setattr(tag_librarian.chroma_rag, "query_collection", boom)
+        _applied, proposals = tag_librarian.reconcile_subjects(["sleep tracking"], [])
+        assert proposals == ["sleep-tracking"]
