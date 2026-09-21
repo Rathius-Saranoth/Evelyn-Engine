@@ -66,9 +66,18 @@ def skeleton(tag: str) -> str:
 def singularize(word: str) -> str:
     """Crudely singularize an English skeleton form.
 
-    Deliberately conservative: it strips a trailing 's' only when not preceded by
-    s/x/z, and maps 'ies' to 'y'. Over-aggressive stemming would merge genuinely
-    distinct terms.
+    Deliberately conservative: it maps 'ies' to 'y', then strips a trailing 's' only when
+    not preceded by s/x/z. Over-aggressive stemming would merge genuinely distinct terms.
+
+    **Order matters, and asymmetry is the failure mode.** Stripping the trailing 's' first
+    destroyed the 'ies' pattern the next rule looks for, so `memories` became `memorie` while
+    `memory` stayed `memory` — different keys, so the plural could never resolve to its own
+    singular. Sibilant plurals had the same defect: `boxes` became `boxe` against `box`.
+
+    Linguistic accuracy is not the goal; *symmetry* is. `analysis` stems to `analysi`, which
+    is wrong as English and harmless here, because both sides of a comparison pass through
+    this same function. A rule only does damage when it maps two forms of one word to two
+    different keys.
 
     Args:
         word: A skeleton form.
@@ -76,7 +85,9 @@ def singularize(word: str) -> str:
     Returns:
         str: Singularized skeleton.
     """
-    return re.sub(r"ies$", "y", re.sub(r"(?<![sxz])s$", "", word))
+    word = re.sub(r"ies$", "y", word)
+    word = re.sub(r"(s|x|z|ch|sh)es$", r"\1", word)
+    return re.sub(r"(?<![sxz])s$", "", word)
 
 
 def build_corpus() -> collections.Counter:

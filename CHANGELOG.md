@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 20:35:27
+date modified: 2026-09-21 17:35:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.193] - 2026-09-21 — *Symmetry, Not Accuracy*
+
+### Fixed
+- **`singularize()` mapped plurals and their singulars to different keys.** The rule stripped a
+  trailing `s` *before* applying `ies -> y`, which destroyed the pattern the second rule looks
+  for: `memories` became `memorie` while `memory` stayed `memory`. Sibilant plurals had the same
+  defect — `boxes` against `box`, `glasses` against `glass`.
+
+  This is not cosmetic. `singularize()` backs `_lexical_lookup()`, the first stage of tag
+  reconciliation, so a document saying "memories" could never resolve to a registered `memory`
+  and would fall through to a proposal instead. It also backs the T2 tier of
+  `lexical_equivalences()`.
+
+  Linguistic accuracy is not the goal and never was: `analysis` still stems to `analysi`, which
+  is wrong as English and entirely harmless, because both sides of a comparison pass through the
+  same function. **A stemmer only does damage when it maps two forms of one word to two
+  different keys.** Ten symmetry cases are now asserted as tests.
+
+### Found while
+Reviewing the first batch's proposal list. The search for inflectional variants turned up only
+six across 944 terms — far fewer than the list appeared to contain, because sorting by frequency
+had clustered every one of them at the top. The defect surfaced only because the collapse pass
+found fewer pairs than a brute-force scan predicted.
 
 ## [000.006.192] - 2026-09-21 — *Closing the Seed Gaps*
 

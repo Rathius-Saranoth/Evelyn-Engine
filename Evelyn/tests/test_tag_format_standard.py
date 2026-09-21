@@ -1036,3 +1036,35 @@ class TestQueryDecomposition:
         monkeypatch.setattr(tl, "_vector_lookup", lambda p: (None, 1.0, 0.0))
         applied, proposals = tl.reconcile_subjects(["dream journaling"], ["dream"])
         assert applied == ["journaling"] and proposals == []
+
+
+class TestSingularizeSymmetry:
+    """A stemmer only does damage when it maps two forms of one word to different keys."""
+
+    @pytest.mark.parametrize(
+        ("plural", "singular"),
+        [
+            ("memories", "memory"), ("stories", "story"), ("categories", "category"),
+            ("boxes", "box"), ("glasses", "glass"), ("dishes", "dish"), ("watches", "watch"),
+            ("dreams", "dream"), ("relationships", "relationship"), ("friendships", "friendship"),
+        ],
+    )
+    def test_plural_and_singular_reach_the_same_key(self, plural, singular):
+        """`memories` stemmed to `memorie` while `memory` stayed put, so they never matched."""
+        from Evelyn.tools.tag_synonym import singularize
+        assert singularize(plural) == singularize(singular)
+
+    def test_already_singular_words_are_stable(self):
+        from Evelyn.tools.tag_synonym import singularize
+        for w in ("process", "class", "focus", "sleep", "health"):
+            assert singularize(w) == singularize(singularize(w))
+
+    def test_linguistic_accuracy_is_not_required_only_symmetry(self):
+        """`analysis` -> `analysi` is wrong English and harmless: both sides use this function."""
+        from Evelyn.tools.tag_synonym import singularize
+        assert singularize("analysis") == singularize("analysis")
+
+    def test_lexical_lookup_resolves_an_irregular_plural(self):
+        """The regression this guards: a document saying 'memories' must reach `memory`."""
+        from Evelyn.tools.tag_librarian import _lexical_lookup
+        assert _lexical_lookup("memories", {"memory": "memory"}) == "memory"
