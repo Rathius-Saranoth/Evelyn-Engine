@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 19:24:08
+date modified: 2026-09-20 19:43:42
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,42 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.191] - 2026-09-21 — *A Vocabulary Someone Chose*
+
+The first vocabulary in this vault that a person actually picked. Everything the registry held
+before was produced by the pipeline under repair, which is why it was cleared rather than
+corrected — each pass had been refining its predecessor's mistakes.
+
+### Added
+- **124 reviewed subject terms across 11 domains**, joining the 193 reference terms from the
+  book-level pass. Registry: **317 terms**.
+
+### How the seed was derived
+Blind extraction over a 235-note stratified sample — capped per area, because proportional
+sampling would have made it 67% book chapters — aggregated **by term rather than by document**,
+then cross-checked against literary warrant in the user's own prose and curated by hand.
+
+Frequency analysis alone could not do it and the record is worth keeping: raw term counts
+surfaced template scaffolding (`title`, `feelings`, `description` are the Dream Entry template's
+field names), and the mechanical filters kept admitting words that name nothing — `time` at 901
+mentions, `least` at 77. Curation was judgement, not a threshold.
+
+Two axes were used together throughout, because either alone destroys categories: **extraction
+support** (how many units named it) and **literary warrant** (how often it appears in prose).
+109 terms the sample saw once turned out to be written 50+ times — `architecture`, `family`,
+`anxiety`, `fatigue` — and a frequency-only cut would have deleted all of them.
+
+### Absent by construction
+- **Proper nouns.** 2,708 identified and excluded; §2 makes individuals `[[links]]`.
+- **`mood`.** 142 distinct values across 167 uses — free text, and a property rather than a
+  subject.
+- **Facet axes** (`type/`, `motif/`, `setting/`, `event/`), which the application profile
+  assigns during classification.
+
+### Note
+Usage counts start at zero. They are earned during classification rather than assumed, and the
+admission floor has nothing to measure until the corpus is indexed against this vocabulary.
 
 ## [000.006.190] - 2026-09-21 — *The Shelf Is the Classification*
 
