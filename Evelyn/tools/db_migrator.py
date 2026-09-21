@@ -4640,6 +4640,97 @@ def migrate_000_006_189_normalize_mood_property(
     )
 
 
+BOOK_TAG_PATH = os.path.join(cfg.BASE_DIR, "scratch", "book_tag_assignment.json")
+
+
+def migrate_000_006_190_tag_reference_library_by_book(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.190: Tag the Reference Library at book level, not chapter level.
+
+    The library is 2,838 of the vault's 4,219 notes, and its folder structure already
+    classifies it: `Reference Library/Hands-On Large Language Models/130 - Reranking.md`
+    states both the book and the chapter. Tagging all 212 of that book's chapters
+    `large-language-models` adds nothing — they are uniformly about it, and the path said so
+    first. Measured across the library, the distinctive vocabulary came back as `model`,
+    `data`, `training`, `prompt` for every one of the 2,838.
+
+    So subjects attach to each book's `_index` note and nowhere else. That matches how the
+    library is already treated elsewhere: it sits in `RAG_EXCLUDED_SUBDIRS` and is routed to
+    its own Chroma collection precisely so it cannot dominate retrieval.
+
+    Two guards, both from measurement rather than caution:
+
+    - **Sparse index notes are not trusted.** Extraction on a note with three or fewer
+      chapters hallucinated — a pocket watch manual came back "artificial intelligence,
+      machine learning, multiagent systems"; a television, "graph theory". Every failure sat
+      at or below that count and none above it, so those notes take a domain and a device
+      type read from the title, and nothing inferred.
+    - **The source path is a filing location, not a subject.** Two engineering-management
+      titles are stored under `AI/` and are not about it.
+
+    Assignments are frozen in `scratch/` rather than recomputed, for the same reason the
+    other curated decisions are: a migration applies what was reviewed.
+    """
+    import json
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+
+    if not os.path.exists(BOOK_TAG_PATH):
+        logger.warning(
+            "[MIGRATION 190] No book assignment at %s — skipping. Regenerate with the "
+            "book-level extraction pass.", BOOK_TAG_PATH,
+        )
+        return
+
+    with open(BOOK_TAG_PATH, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    assignments = payload.get("assignments") or {}
+    if not assignments:
+        return
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    _snapshot_vault_markdown(vault_root, "000.006.190")
+    cursor = conn.cursor()
+
+    written = 0
+    applied_terms: dict[str, int] = {}
+    for rel_path, entry in assignments.items():
+        tags = [t for t in (entry.get("tags") or []) if t]
+        if not tags:
+            continue
+        abs_path = os.path.join(vault_root, rel_path)
+        if not os.path.exists(abs_path):
+            logger.warning("[MIGRATION 190] Missing note, skipped: %s", rel_path)
+            continue
+        try:
+            with open(abs_path, encoding="utf-8") as fh:
+                content = fh.read()
+            write_file_with_frontmatter(
+                abs_path, update_frontmatter_field(content, "tags", tags), preserve_mtime=True
+            )
+        except OSError as exc:
+            logger.warning("[MIGRATION 190] Write failed, skipped: %s (%s)", rel_path, exc)
+            continue
+        cursor.execute("UPDATE vault_documents SET tags = ? WHERE path = ?", (", ".join(tags), rel_path))
+        written += 1
+        for t in tags:
+            applied_terms[t] = applied_terms.get(t, 0) + 1
+
+    now = time.time()
+    for term, count in applied_terms.items():
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, 'reference', '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = usage_count + ?, updated_at = ?""",
+            (term, count, now, now, count, now),
+        )
+    logger.info(
+        "[MIGRATION 190] Tagged %d book index notes; registered %d reference terms.",
+        written, len(applied_terms),
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5037,6 +5128,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.189",
         name="normalize_mood_property",
         up_fn=migrate_000_006_189_normalize_mood_property,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.190",
+        name="tag_reference_library_by_book",
+        up_fn=migrate_000_006_190_tag_reference_library_by_book,
+        post_sync_chroma=True,
     ),
 ]
 

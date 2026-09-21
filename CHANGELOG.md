@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 19:19:52
+date modified: 2026-09-20 19:24:08
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.190] - 2026-09-21 — *The Shelf Is the Classification*
+
+The Reference Library is 2,838 of the vault's 4,219 notes, and its folder structure already
+classifies it: `Reference Library/Hands-On Large Language Models/130 - Reranking.md` states both
+the book and the chapter. Tagging all 212 of that book's chapters `large-language-models` adds
+nothing — they are uniformly about it, and the path said so first. Measured, the library's
+distinctive vocabulary came back as `model`, `data`, `training`, `prompt` for all 2,838 notes.
+
+### Added
+- **Book-level subject tags on 44 index notes**, and nowhere else in the library. 202 reference
+  terms registered. This matches how the library is already treated: it sits in
+  `RAG_EXCLUDED_SUBDIRS` and is routed to its own Chroma collection so it cannot dominate
+  retrieval — the same reasoning applied to tagging.
+
+### Guards, both derived from measurement
+- **Sparse index notes are not trusted.** Extraction against a note with three or fewer chapters
+  hallucinated: a pocket watch manual returned "artificial intelligence, machine learning,
+  multiagent systems"; a television returned "graph theory". Every failure sat at or below three
+  chapters and none above it. Those notes take a domain plus a device type read from the title,
+  and nothing inferred — three whose titles identify no product (`Rolanstar BF011 F_Q`,
+  `General 1042-L`, `GeneralAire 1042-L`) carry only `hardware`.
+- **The source path is a filing location, not a subject.** Two engineering-management titles are
+  stored under `AI/` and are not about it.
+- **Manual section headings are not subjects.** `parts-and-assembly`, `site-preparation`,
+  `national-conventions` were dropped; what a document *is* belongs to the `type/` facet.
 
 ## [000.006.189] - 2026-09-21 — *Mood Is a Property, Not a Subject*
 
