@@ -1100,7 +1100,9 @@ TAG_SUBJECT_FUZZY_CUTOFF = 92
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)
 # =============================================================================
-MASTER_LIBRARIAN_ENABLED = True
+MASTER_LIBRARIAN_ENABLED = False  # Temporarily off: inherit_parent_tags would propagate
+# book-level index tags down onto every chapter, undoing the book-level boundary set in
+# 000.006.190. Re-enable once parent inheritance is made opt-in per folder.
 MASTER_LIBRARIAN_IDLE_THRESHOLD = 300  # 5 minutes idle (Reflex tier)
 MASTER_LIBRARIAN_BATCH_SIZE = 5  # Process 5 documents per idle burst
 LIBRARIAN_FOLDER_BATCH_CAP = 5  # Max docs processed per directory cluster per run
