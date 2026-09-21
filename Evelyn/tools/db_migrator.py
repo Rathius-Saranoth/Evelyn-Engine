@@ -4804,6 +4804,48 @@ def migrate_000_006_191_seed_personal_vocabulary(
     )
 
 
+def migrate_000_006_192_seed_vocabulary_gaps(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.192: Add four terms the seed curation dropped by mistake.
+
+    The seed was assembled by typing terms into domain groups by hand, which meant anything
+    not explicitly typed fell out regardless of its evidence. The classification dry run
+    surfaced the omissions: `journaling` had the highest extraction support of any candidate
+    (28 units) and was simply never written into a group.
+
+    Only the clean gaps are added. The same pass surfaced terms that are correctly absent —
+    `dungeons-dragons` and `gnolls` are proper nouns and belong in links (§2); `security` and
+    `llm-agents` duplicate `cybersecurity` and `ai-agents`; and `memory`, despite 676
+    occurrences, is polysemous across this corpus — human recall in the journals, hardware in
+    the reference material, and the engine's own subsystem. A term that denotes three things
+    retrieves none of them, so it stays a proposal until it is split deliberately.
+    """
+    terms = {
+        "journaling": "creative-media",
+        "decision-making": "relationships-self",
+        "dehydration": "health-body",
+        "geography": "professional-civic",
+    }
+    cursor = conn.cursor()
+    now = time.time()
+    added = 0
+    for tag, category in terms.items():
+        existing = cursor.execute(
+            "SELECT COUNT(*) FROM master_tag_taxonomy WHERE tag = ?", (tag,)
+        ).fetchone()[0]
+        if existing:
+            continue
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', 0, ?, ?)""",
+            (tag, category, now, now),
+        )
+        added += 1
+    total = cursor.execute("SELECT COUNT(*) FROM master_tag_taxonomy").fetchone()[0]
+    logger.info("[MIGRATION 192] Added %d seed gaps; registry now holds %d terms.", added, total)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5214,6 +5256,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.191",
         name="seed_personal_vocabulary",
         up_fn=migrate_000_006_191_seed_personal_vocabulary,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.192",
+        name="seed_vocabulary_gaps",
+        up_fn=migrate_000_006_192_seed_vocabulary_gaps,
         post_sync_chroma=True,
     ),
 ]

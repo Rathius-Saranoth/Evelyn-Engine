@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 19:43:42
+date modified: 2026-09-20 20:35:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.192] - 2026-09-21 — *Closing the Seed Gaps*
+
+### Fixed
+- **Query decomposition in reconciliation.** Step 8 decomposed the *registry* into atoms and
+  nothing ever decomposed the *query*, so `dream-journaling` was matched whole against a
+  vocabulary holding `dream` and `journaling` separately — landing 0.234 from `dreaming`, near
+  enough to retrieve and not near enough to assert. Measured over 118 documents, reconciliation
+  went **19% → 46%** with no increase in wrong tags.
+
+  The curated registry is what makes this safe: each part resolves against the approved
+  vocabulary and anything unregistered is discarded rather than proposed, so it can only ever
+  apply terms a human chose. `personal-relationships` yields `relationships` and drops
+  `personal`, which was rejected from the seed precisely because it names nothing.
+
+- **Four terms the seed curation dropped.** The seed was built by typing terms into domain
+  groups by hand, so anything not explicitly typed fell out regardless of its evidence.
+  `journaling` had the highest extraction support of any candidate (28 units) and was simply
+  never written into a group. Added with `decision-making`, `dehydration` and `geography`.
+
+### Deliberately not added
+The same pass surfaced eight more proposals that are correctly absent: `dungeons-dragons` and
+`gnolls` are proper nouns and belong in links (§2); `security` and `llm-agents` duplicate
+`cybersecurity` and `ai-agents`; and `memory`, despite **676 occurrences**, is polysemous across
+this corpus — human recall in the journals, hardware in the reference material, and the engine's
+own subsystem. A term denoting three things retrieves none of them.
+
+### Measured after the change
+```
+reconciled            291      (was 110)
+proposals             348      (was 477)
+  resolvable, missed    0      unchanged — the cascade never fails on a registered term
+  near, needs decision 218      the LLM stage is not built yet
+  genuinely new        130      correct refusals
+subject tags per doc  2.5      median 2, max 6, none above
+```
+Under-tagging is the accepted failure direction: the librarian re-audits on edit and on cooldown,
+so a missed term resurfaces, while a wrong one has to be found and removed by hand.
 
 ## [000.006.191] - 2026-09-21 — *A Vocabulary Someone Chose*
 

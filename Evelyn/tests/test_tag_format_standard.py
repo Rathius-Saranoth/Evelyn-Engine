@@ -990,3 +990,49 @@ class TestVectorAcceptanceBands:
         monkeypatch.setattr(tl, "_vector_lookup", _explode)
         applied, proposals = tl.reconcile_subjects(["sleep"], [])
         assert applied == ["sleep"] and proposals == []
+
+
+class TestQueryDecomposition:
+    """§0.0: post-coordination applies to the query, not only to the registry."""
+
+    def _reconcile(self, monkeypatch, phrase, surfaces):
+        from Evelyn.tools import tag_librarian as tl
+        monkeypatch.setattr(tl, "_registry_surface_forms", lambda: surfaces)
+        monkeypatch.setattr(tl, "_vector_lookup", lambda p: (None, 1.0, 0.0))
+        return tl.reconcile_subjects([phrase], [])
+
+    def test_compound_resolves_to_its_registered_atoms(self, monkeypatch):
+        """`dream-journaling` was held as a proposal while both its atoms were registered."""
+        applied, proposals = self._reconcile(
+            monkeypatch, "dream journaling", {"dream": "dream", "journaling": "journaling"}
+        )
+        assert applied == ["dream", "journaling"] and proposals == []
+
+    def test_unregistered_parts_are_discarded_not_proposed(self, monkeypatch):
+        """The curated vocabulary is the filter: `personal` names nothing and was rejected."""
+        applied, proposals = self._reconcile(
+            monkeypatch, "personal relationships", {"relationships": "relationships"}
+        )
+        assert applied == ["relationships"] and proposals == []
+
+    def test_phrase_with_no_registered_part_is_still_proposed(self, monkeypatch):
+        applied, proposals = self._reconcile(
+            monkeypatch, "quantum chromodynamics", {"sleep": "sleep"}
+        )
+        assert applied == [] and proposals == ["quantum-chromodynamics"]
+
+    def test_whole_phrase_match_wins_over_decomposition(self, monkeypatch):
+        """A registered bound term stays whole — `machine-learning` is not machine + learning."""
+        applied, proposals = self._reconcile(
+            monkeypatch, "machine learning",
+            {"machinelearning": "machine-learning", "learning": "learning"},
+        )
+        assert applied == ["machine-learning"] and proposals == []
+
+    def test_atoms_already_on_the_document_are_not_re_added(self, monkeypatch):
+        from Evelyn.tools import tag_librarian as tl
+        monkeypatch.setattr(tl, "_registry_surface_forms",
+                            lambda: {"dream": "dream", "journaling": "journaling"})
+        monkeypatch.setattr(tl, "_vector_lookup", lambda p: (None, 1.0, 0.0))
+        applied, proposals = tl.reconcile_subjects(["dream journaling"], ["dream"])
+        assert applied == ["journaling"] and proposals == []

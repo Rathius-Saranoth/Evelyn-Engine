@@ -574,6 +574,8 @@ def reconcile_subjects(
     Returns:
         tuple[list[str], list[str]]: (terms to apply, phrases to propose).
     """
+    from Evelyn.tools.tag_synonym import FUNCTION_WORDS
+
     reject = SUBJECT_REJECT_DISTANCE if match_distance is None else match_distance
     known = set(existing)
     applied: list[str] = []
@@ -587,6 +589,28 @@ def reconcile_subjects(
 
         # Stage 1 — the vocabulary is a dictionary. Look the phrase up in it.
         match = _lexical_lookup(candidate, surfaces)
+
+        # Stage 1b — post-coordination applies to the query too. The registry holds atoms,
+        # but extraction emits phrases, so `dream-journaling` was being matched whole against
+        # a vocabulary that holds `dream` and `journaling` separately and merely looked
+        # *near* something. Splitting the phrase and resolving each part recovers both.
+        #
+        # This can only ever apply terms already in the registry: a part that resolves to
+        # nothing is dropped rather than proposed, so the curated vocabulary is itself the
+        # filter. `personal-reflection` contributes `reflection` and discards `personal`,
+        # which was rejected from the vocabulary precisely because it names nothing.
+        if match is None and "-" in candidate:
+            parts = [
+                resolved
+                for word in candidate.split("-")
+                if word and word not in FUNCTION_WORDS and len(word) > 2
+                and (resolved := _lexical_lookup(word, surfaces))
+            ]
+            if parts:
+                for term in parts:
+                    if term not in known and term not in applied:
+                        applied.append(term)
+                continue
 
         # Stage 2 — vectors, only for what the dictionary missed.
         if match is None:
