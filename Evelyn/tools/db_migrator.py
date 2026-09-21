@@ -4549,6 +4549,97 @@ def migrate_000_006_187_reset_subject_tags_memory(
                 total, manifest_path)
 
 
+def migrate_000_006_189_normalize_mood_property(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.189: Record journal mood as a frontmatter property.
+
+    Mood was written three ways — `**Mood:** Calm / Warm` in the body, `mood:` in
+    frontmatter, and a handful of `#mood/anxious` hashtags — so nothing could query it
+    consistently. It is a *property* of an entry rather than a subject of it, which is why it
+    does not belong in the tag vocabulary: 142 distinct values across 167 uses, phrased like
+    "glacial, fried, transparent". A controlled vocabulary would either mint 142 single-use
+    terms or flatten that into `tired`, and both outcomes are worse than the prose.
+
+    The body line is deliberately **left in place**. It is Evelyn's writing, part of the
+    entry's visible texture, and 77 notes already carried both forms without harm. This pass
+    only ensures the frontmatter property exists and holds the same value, so the field is
+    queryable everywhere it is present. Where frontmatter already has a value it wins, on the
+    grounds that it was the more deliberate of the two.
+
+    The `#mood/*` hashtags are a different case and are defused: body hashtags no longer enter
+    the vocabulary at all, so leaving them would preserve a form that now means nothing.
+    """
+    import json
+    import re
+
+    from Evelyn.tools.frontmatter_utils import update_frontmatter_field, write_file_with_frontmatter
+
+    vault_root = getattr(cfg, "VAULT_BASE_DIR", "")
+    if not vault_root or not os.path.isdir(vault_root):
+        logger.warning("[MIGRATION 189] Vault root unavailable — skipping.")
+        return
+
+    archive_path = _snapshot_vault_markdown(vault_root, "000.006.189")
+    body_field = re.compile(r"^[ \t]*(?:\*{1,2})?\s*Mood\s*(?:\*{1,2})?\s*[::]\s*(.+?)\s*$",
+                            re.IGNORECASE | re.MULTILINE)
+    fm_field = re.compile(r"^mood\s*:", re.IGNORECASE | re.MULTILINE)
+    mood_tag = re.compile(r"(?<![\w&#/])#mood/([A-Za-z0-9_-]+)")
+
+    populated = 0
+    defused = 0
+    manifest: dict[str, str] = {}
+    for current, _dirs, files in os.walk(vault_root):
+        for name in files:
+            if not name.lower().endswith(".md"):
+                continue
+            path = os.path.join(current, name)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    content = fh.read()
+            except OSError:
+                continue
+
+            head_match = re.match(r"\A---\r?\n(.*?)\r?\n---\r?\n", content, re.DOTALL)
+            head = head_match.group(1) if head_match else ""
+            body = content[head_match.end():] if head_match else content
+
+            value = ""
+            found = body_field.search(body)
+            if found:
+                value = found.group(1).strip().strip("*_ ").strip()
+            if not value:
+                tagged = mood_tag.search(body)
+                if tagged:
+                    value = tagged.group(1).replace("-", " ").strip()
+
+            changed = content
+            if mood_tag.search(body):
+                # Defuse the hashtag in place: the word stays, the uncontrolled tag does not.
+                new_body = mood_tag.sub(lambda m: m.group(1).replace("-", " "), body)
+                changed = (changed[:head_match.end()] + new_body) if head_match else new_body
+                defused += 1
+
+            if value and not fm_field.search(head):
+                changed = update_frontmatter_field(changed, "mood", value)
+                manifest[os.path.relpath(path, vault_root)] = value
+                populated += 1
+
+            if changed != content:
+                try:
+                    write_file_with_frontmatter(path, changed, preserve_mtime=True)
+                except OSError as exc:
+                    logger.warning("[MIGRATION 189] Write failed, skipped: %s (%s)", path, exc)
+
+    ensure_backup_dir()
+    manifest_path = os.path.join(BACKUP_DIR, "mood_property_manifest_000.006.189.json")
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump({"archive": archive_path, "populated": manifest}, fh, indent=2)
+    logger.info(
+        "[MIGRATION 189] Populated mood on %d notes; defused %d mood hashtags.", populated, defused
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -4940,6 +5031,12 @@ MIGRATIONS: list[Migration] = [
         version="000.006.187",
         name="reset_subject_tags_memory",
         up_fn=migrate_000_006_187_reset_subject_tags_memory,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.189",
+        name="normalize_mood_property",
+        up_fn=migrate_000_006_189_normalize_mood_property,
     ),
 ]
 

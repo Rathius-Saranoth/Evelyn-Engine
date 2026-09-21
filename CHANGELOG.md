@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-20 18:37:14
+date modified: 2026-09-20 19:19:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,41 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.189] - 2026-09-21 — *Mood Is a Property, Not a Subject*
+
+Mood was written three ways — `**Mood:** Calm / Warm` in the body, `mood:` in frontmatter, and
+a few `#mood/anxious` hashtags — so nothing could query it consistently.
+
+It does not belong in the tag vocabulary. Measured: **142 distinct values across 167 uses**,
+phrased like *"glacial, fried, transparent"* and *"heavy start, technical clarity, combat high"*.
+A controlled vocabulary would either mint 142 single-use terms — the long tail just deleted — or
+flatten that into `tired`. Both are worse than the prose. Mood is a *property* of an entry, not a
+subject of it, and properties are what frontmatter is for.
+
+### Changed
+- **`mood` is populated as a frontmatter property** wherever the body carried one: 162 → 246
+  notes. Where frontmatter already held a value it wins, being the more deliberate of the two.
+- **The body line is deliberately preserved.** It is part of the entry's written texture, and 77
+  notes already carried both forms without harm. This pass adds queryable metadata; it does not
+  edit prose.
+- **`#mood/*` hashtags are defused.** Body hashtags no longer enter the vocabulary at all, so
+  the form had stopped meaning anything.
+
+### Fixed after the fact
+Migration 189 scanned body text **without masking code spans**, so two protocol documents that
+contain `` `#mood/anxious` `` as a *documentation example* were given `mood: anxious`, and the
+example itself was mangled to `` `anxious` ``. Both files were restored byte-identical from the
+pre-migration snapshot.
+
+The canonical `string_utils.protect_code_blocks()` already existed and would have prevented it;
+an ad-hoc scanner was written instead, which is exactly the duplication AGENTS.md §8 forbids.
+This is the second time in one session that reading inside code spans produced a wrong result —
+the first was `vault_indexer` harvesting `#ciso` from line 123 of a policy document. **Any pass
+that scans note bodies for markup must mask code spans first.**
+
+Note that 189's function is immutable and still carries the defect; a replay against an unmodified
+vault would reintroduce it on those two notes.
 
 ## [000.006.188] - 2026-09-20 — *Lexical First — The Vocabulary Is a Dictionary*
 
