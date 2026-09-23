@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-23 17:30:15
+# date modified: 2026-09-23 18:05:38
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -62,8 +62,8 @@ except ImportError:
 def is_rag_excluded_source(source_path: Any, metadata: dict | None = None) -> bool:
     """Check whether a chunk must be withheld from RAG retrieval.
 
-    Three independent reasons: the document declares a `sensitivity:` level the user withholds
-    from retrieval, it is a Reference Library chapter, or it lives in an excluded subdirectory.
+    Two independent reasons: the document declares a `sensitivity:` level the user withholds
+    from retrieval, or it lives in an excluded subdirectory.
 
     The sensitivity check reads the chunk metadata rather than the file, so it also covers
     documents indexed before the property was honoured — which was all of them until
@@ -80,11 +80,11 @@ def is_rag_excluded_source(source_path: Any, metadata: dict | None = None) -> bo
         sensitivity = str(metadata.get("sensitivity", "") or "").strip().lower()
         if sensitivity in getattr(cfg, "SENSITIVITY_RAG_EXCLUDED", set()):
             return True
-        if metadata.get("type") == "reference-chapter":
-            return True
-        # The `reference-library` tag branch that stood here was dead: the tag was on 0 of the
-        # 2,838 library notes and 0 index rows, and it is not a registered term, so nothing
-        # could ever set it. The `type` check above is what actually covers those documents.
+        # The `type == "reference-chapter"` branch that stood here read the legacy `type:`
+        # ingestion property, retired in v000.006.213. Its 2,803 documents are still withheld:
+        # 2,790 live under `Reference Library`, which `RAG_EXCLUDED_SUBDIRS` covers by path,
+        # and the other 13 are marked `sensitivity: private`, caught above. Verified before
+        # removal — zero of them relied on this branch alone.
     if not source_path:
         return False
     src_str = str(source_path)

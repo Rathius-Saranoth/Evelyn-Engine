@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # pdf_staging_worker.py
 # date created: 2026-08-28 11:24:49
-# date modified: 2026-09-22 19:09:21
+# date modified: 2026-09-23 18:05:37
 # tags:
 
 """
@@ -131,10 +131,14 @@ def process_staging_item(pdf_file: Path, mode: str) -> dict:
             # 'Machine Learning' into 'machine/learning' and 'Owner's Manuals' into
             # "owner's/manuals", inventing an axis and leaking an apostrophe into YAML.
             # The one permitted slash names an axis (taxonomy §5).
-            tags_str = format_yaml_array([normalize_tag_format(domain_name), "source/pdf"])
+            # `type/media/text` is the form axis (§3.4), replacing the bespoke `type:`
+            # property. `source/pdf` was never a registered term and the `source` key below
+            # already records the attachment.
+            tags_str = format_yaml_array(
+                ["type/media/text", normalize_tag_format(domain_name)]
+            )
             content = f"""---
 title: "{title}"
-type: document/card
 source: "[[{rel_dest_pdf}]]"
 tags: {tags_str}
 created: {time.strftime('%Y-%m-%d')}

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 17:41:57
+date modified: 2026-09-23 18:05:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.213] - 2026-09-23 — *One Thing Named Type*
+
+Phase E3. Three unrelated things shared the name `type`; now one does.
+
+### Changed
+- **The legacy `type:` frontmatter property is retired**, across 2,880 notes. It was an
+  un-standardised ingestion field the PDF importers wrote, unrelated to the `type/` facet tag
+  that the taxonomy defines and the §4 class profiles gate on. Each note now carries the
+  equivalent facet tag instead:
+
+  | was | becomes | notes |
+  |---|---|---|
+  | `reference-chapter` | `type/reference` | 2,803 |
+  | `literature/card` | `type/moc` | 47, all `*_index.md` landing notes |
+  | `document/card` | `type/media/text` | 30, already carried it |
+
+  Verified afterwards: 0 notes retain the property, and no note carries more than one `type/`
+  tag, which §3.4 requires.
+
+- **The four writers that emitted it were fixed first**, so it cannot return. They were also
+  producing unregistered vocabulary: `reference-library`, `reference-index`,
+  `literature/reference`, `source/pdf`, and the book title as a tag — a named work is a link,
+  not a subject term (§2), and it was already recorded in `source`.
+
+- **The RAG guard no longer reads the property.** Its 2,803 documents remain withheld by two
+  other rules, verified before removal: 2,790 live under a subdirectory `RAG_EXCLUDED_SUBDIRS`
+  already excludes by path, and the other 13 are marked `sensitivity: private`. Zero relied on
+  the retired branch alone.
+
+### Notes
+- The migration's first pass silently skipped 2,790 of 2,880 notes: the pattern removing the
+  property required a trailing newline, which the frontmatter split had already consumed when
+  `type:` was the final key. The tag was added and the property left behind. The script's own
+  verification caught it, and the newline is now optional.
+- Chunk metadata in the reference collection still carries the retired `type` key. Nothing
+  reads it, and refreshing it would mean re-embedding 2,752 documents for a field no consumer
+  consults, so it is left to age out of its own accord.
 
 ## [000.006.212] - 2026-09-23 — *Refuse to Overwrite It Too*
 

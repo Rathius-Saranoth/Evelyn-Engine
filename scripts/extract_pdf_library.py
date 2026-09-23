@@ -1,6 +1,6 @@
 # extract_pdf_library.py
 # date created: 2026-04-17 21:17:42
-# date modified: 2026-09-08 18:50:50
+# date modified: 2026-09-23 18:05:37
 # tags: #pdf, #extraction, #library, #parsing, #sidecar, #normalization, #tools
 
 """
@@ -851,10 +851,12 @@ def format_chapter_filename(index: int, title: str, total_count: int = 100) -> s
 
 def format_chapter_markdown(chapter: Section, book_title: str) -> str:
     """Format a chapter as Obsidian-compatible markdown."""
+    # The form axis is the `type/` facet tag, not a bespoke `type:` property (§3.4). The book
+    # title used to be a tag too; a named work is a link, not a subject term (§2), and it is
+    # already recorded in `source`. `reference-library` was never a registered term.
     frontmatter = f"""---
-tags: [reference-library, {sanitize_tag(book_title)}]
+tags: [type/reference]
 source: "{book_title}"
-type: reference-chapter
 ---
 
 """
@@ -902,7 +904,7 @@ def generate_sidecar_card(
         str: Fully formatted Obsidian markdown sidecar note.
     """
     all_tags = set(tags or [])
-    all_tags.add("literature/reference")
+    all_tags.add("type/moc")
     tags_line = f"tags: {format_yaml_array(all_tags)}\n"
 
     alias_list = list(aliases or [])
@@ -916,8 +918,7 @@ def generate_sidecar_card(
 
     frontmatter = f"""---
 title: "{title}"
-{fm_sub_block}type: literature/card
-{fm_source_block}{fm_author_block}{tags_line}{fm_aliases_block}created: {time.strftime('%Y-%m-%d')}
+{fm_sub_block}{fm_source_block}{fm_author_block}{tags_line}{fm_aliases_block}created: {time.strftime('%Y-%m-%d')}
 status: unread
 ---
 
@@ -979,11 +980,9 @@ def generate_index_markdown(book_title: str, author: str,
                              chapters: list[Section],
                              gists: dict[str, str]) -> str:
     """Generate the _Index.md master TOC file (legacy compatibility)."""
-    tag = sanitize_tag(book_title)
     frontmatter = f"""---
-tags: [reference-library, reference-index, {tag}]
+tags: [type/moc]
 source: "{book_title}"
-type: reference-index
 ---
 
 """
