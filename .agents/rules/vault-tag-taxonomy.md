@@ -633,12 +633,16 @@ Steps operate on **both substrates as one corpus** unless marked otherwise (§0)
 | 5 | **Equivalence collapse** (§6.2) — `UF` merges, two passes | supervised | both | ✅ `000.006.153–155`, `161–163`, `170–172` |
 | 6 | **Root consolidation and flat adoption** | supervised | both | ✅ `000.006.166–169` |
 | 7 | **Phrase retirement** — verbose and unshared together | deterministic | both | ✅ `000.006.173` / `174` |
-| 8 | **Decomposition** — split every hierarchical path into atoms (§3.3). Mechanical: no judgement, since `a/b/c` becomes `a` + `b` + `c` by rule | deterministic | both | pending |
-| 9 | **Admission floor** (§6.3) — retire atoms below the usage floor, with literary warrant deciding the margin | supervised | both | pending |
+| 8 | **Decomposition** — split every hierarchical path into atoms (§3.3). Mechanical: no judgement, since `a/b/c` becomes `a` + `b` + `c` by rule | deterministic | both | ✅ vault Pass 2; memory `000.006.213` |
+| 9 | ~~**Admission floor**~~ — **superseded**. Usage was never a reason to retire a term: the registry is an authority file and the index is only what is tagged today, so letting the second govern the first means deleting a note deletes vocabulary. Replaced by `propose_tag_retirement()` after a grace period, a human decision | supervised | both | ✅ `000.006.202` |
 | 10 | **Associative curation** (§6.4) — build `RT`, now load-bearing rather than optional | curated | both | pending |
-| 11 | **Classification backfill** — enable the steady-state pass to assign `type/`, `motif/`, `setting/`, `event/` | autonomous | vault | pending |
-| 12 | **`relationship/*` retirement — memory** — gated on step 11 | deterministic | memory | pending |
-| 13 | **Tool-layer format alignment** — `MODEL_TOOL_DEFINITIONS` teaches what the prompts teach | deferred | both | pending |
+| 11 | **Classification backfill** — enable the steady-state pass to assign `type/`, `motif/`, `setting/`, `event/` | autonomous | vault | pending — gated on `MASTER_LIBRARIAN_ENABLED` |
+| 12 | **`relationship/*` retirement — memory** | deterministic | memory | ✅ `000.006.213` — 0 remaining |
+| 13 | **Tool-layer format alignment** — `MODEL_TOOL_DEFINITIONS` teaches what the prompts teach | deferred | both | ✅ `000.006.210`, enforced by `test_prompts_teach_the_standard.py` |
+
+**Measured 2026-09-23, both substrates:** 0 non-facet hierarchical tags and 0 unregistered terms
+in either the vault index or memory. The five surviving near-duplicate pairs were collapsed in
+`000.006.214` with `UF` aliases recorded, so only step 10 and the autonomous pass remain.
 
 > [!NOTE] Steps 8 and 9 replace what was planned as a domain tree
 > The original plan built a `domain/subdomain` hierarchy and pruned it with a branching threshold.

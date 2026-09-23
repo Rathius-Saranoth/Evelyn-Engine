@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-18 19:07:42
+# date modified: 2026-09-23 18:26:59
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -44,7 +44,7 @@ def audit_single_document(
     dry_run: bool = False,
     include_tags: bool = True,
     enable_llm_tags: bool = False,
-    inherit_parent_tags: bool = True,
+    inherit_parent_tags: bool = False,
     auto_create_ghost_stubs: bool | None = None,
 ) -> dict[str, Any]:
     """Audit and normalize a single vault document in a single read-transform-write pass.
@@ -65,7 +65,9 @@ def audit_single_document(
         dry_run: If True, simulates transformations without writing to disk or database.
         include_tags: Whether to include tag normalization pass.
         enable_llm_tags: Whether to invoke Ollama for semantic tagging.
-        inherit_parent_tags: Whether to inherit domain tags from parent _index.md.
+        inherit_parent_tags: Whether to inherit *subject* tags from the parent `_index.md`.
+            Off by default: inheritance writes a folder's tags onto every document
+            inside it, which is a judgement the folder cannot make for its contents.
         auto_create_ghost_stubs: Whether to synthesize Tier 1 ghost link stubs (defaults to config).
 
     Returns:
@@ -135,7 +137,16 @@ def audit_single_document(
                         p_meta, _ = tag_librarian.parse_frontmatter(pif.read())
                         raw_pt = p_meta.get("tags", [])
                         if isinstance(raw_pt, list):
-                            parent_tags = [str(t) for t in raw_pt if str(t).lower() not in ("moc", "index")]
+                            # Only subject terms are inheritable. A facet states something about
+                            # the document itself — its form, its motif, where it is set — and a
+                            # folder cannot know that about its contents. `type/` in particular
+                            # is one per document (§3.4), so inheriting the index note's
+                            # `type/moc` would give every chapter in the folder a second one.
+                            parent_tags = [
+                                str(t) for t in raw_pt
+                                if not str(t).startswith(("type/", "motif/", "setting/", "event/"))
+                                and str(t).lower() not in ("moc", "index")
+                            ]
                 except OSError:
                     pass
 

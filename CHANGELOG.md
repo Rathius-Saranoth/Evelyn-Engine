@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 18:05:38
+date modified: 2026-09-23 18:27:00
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,31 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.214] - 2026-09-23 — *One Concept, One Term*
+
+Phase F, less the final switch.
+
+### Changed
+- **Five near-duplicate pairs collapsed**, each one concept recorded twice: `family-history` →
+  `genealogy`, `artifacts` → `artifact`, `napping` → `nap`, `relationships` → `relationship`,
+  `symptoms` → `symptom`. The last is settled by §6.3.2 — number form is singular by rule —
+  where live usage was nearly even. Each retirement records a `UF` alias rather than erasing
+  (§6.2), so a document or query phrased the retired way still resolves. 8 vault notes and 2
+  memory entries retagged; verified 0 occurrences remain in files, index or memory.
+- **`usage_count` refreshed.** The column was stale — 475 of 676 terms read zero — because the
+  pass that maintains it runs under `TAG_LIBRARIAN_ENABLED`, which is off. A zero therefore
+  meant "not counted", not "unused", and choosing survivors from it would have retired the
+  wrong side of at least one pair. Now 630 nonzero; the 46 zeros are reserved terms inside the
+  90-day grace.
+- **Parent-tag inheritance is opt-in and facet-safe.** `audit_single_document` copied a
+  folder's `_index.md` tags onto every document inside it, defaulting to on. Since
+  v000.006.213 every index note carries `type/moc`, so inheritance would have given each
+  chapter a second form-axis tag where §3.4 allows exactly one — the old filter dropped the
+  literal `"moc"` but not `type/moc`. It now excludes every facet prefix: a facet states
+  something about the document itself, which a folder cannot know about its contents.
+- **§9 migration table corrected.** It listed steps 8, 12 and 13 as pending when all three are
+  done, and step 9 as pending when v000.006.202 superseded it outright.
 
 ## [000.006.213] - 2026-09-23 — *One Thing Named Type*
 
