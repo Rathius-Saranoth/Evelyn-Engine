@@ -1,6 +1,6 @@
 # test_sensitivity_guard.py
 # date created: 2026-09-23 18:00:00
-# date modified: 2026-09-23 17:30:16
+# date modified: 2026-09-23 17:40:39
 # tags: #test, #privacy, #rag, #sensitivity
 
 """The `sensitivity:` property governs retrieval and tool access (v000.006.211).
@@ -43,7 +43,7 @@ class TestRagExclusion:
 
     @pytest.mark.parametrize("level", ["private", "secret"])
     def test_retrieval_withholds_an_already_indexed_chunk(self, level):
-        assert is_rag_excluded_source("Ricky/Medical/x.md", {"sensitivity": level}) is True
+        assert is_rag_excluded_source("Personal/Medical/x.md", {"sensitivity": level}) is True
 
     def test_retrieval_allows_an_unmarked_chunk(self):
         assert is_rag_excluded_source("Notes/x.md", {"sensitivity": ""}) is False
@@ -100,3 +100,58 @@ class TestDeadReferenceBranchRemoved:
         """That branch was dead — the tag was on 0 of 2,838 library notes and is not a
         registered term, so nothing could ever set it."""
         assert is_rag_excluded_source("Notes/x.md", {"tags": "reference-library"}) is False
+
+
+class TestWriteAccess:
+    """A read guard alone would still let a tool destroy the content it refuses to show."""
+
+    @staticmethod
+    def _secret_note(tmp_path):
+        p = tmp_path / "creds.md"
+        p.write_text("---\ntitle: Creds\nsensitivity: secret\n---\n\nRECOVERY-CODE-1\n", encoding="utf-8")
+        return p
+
+    def test_overwriting_a_secret_note_is_refused(self, tmp_path, monkeypatch):
+        from Evelyn.tools import terminal_agent
+
+        p = self._secret_note(tmp_path)
+        monkeypatch.setattr(terminal_agent, "is_path_allowed", lambda _p: True)
+
+        res = terminal_agent.write_file(str(p), "clobbered")
+
+        assert "sensitivity: secret" in res and "cannot" in res
+        assert "RECOVERY-CODE-1" in p.read_text(), "the note must be untouched"
+
+    def test_appending_to_a_secret_note_is_refused(self, tmp_path, monkeypatch):
+        from Evelyn.tools import terminal_agent
+
+        p = self._secret_note(tmp_path)
+        monkeypatch.setattr(terminal_agent, "is_path_allowed", lambda _p: True)
+
+        res = terminal_agent.write_file(str(p), "extra", mode="append")
+
+        assert "cannot" in res
+        assert "extra" not in p.read_text()
+
+    def test_a_private_note_may_still_be_written(self, tmp_path, monkeypatch):
+        """`private` withholds from retrieval, not from deliberate action."""
+        from Evelyn.tools import terminal_agent
+
+        p = tmp_path / "medical.md"
+        p.write_text("---\ntitle: M\nsensitivity: private\n---\n\nbody\n", encoding="utf-8")
+        monkeypatch.setattr(terminal_agent, "is_path_allowed", lambda _p: True)
+
+        res = terminal_agent.write_file(str(p), "new body")
+
+        assert "sensitivity: secret" not in res
+
+    def test_reading_a_secret_note_is_refused(self, tmp_path, monkeypatch):
+        from Evelyn.tools import terminal_agent
+
+        p = self._secret_note(tmp_path)
+        monkeypatch.setattr(terminal_agent, "is_path_allowed", lambda _p: True)
+
+        res = terminal_agent.read_file(str(p))
+
+        assert "cannot" in res
+        assert "RECOVERY-CODE-1" not in res

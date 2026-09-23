@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-09-23 17:30:16
+# date modified: 2026-09-23 17:40:39
 # tags: #terminal, #tools, #agent, #safety
 
 """Terminal and file access agent tools for Evelyn.
@@ -919,6 +919,17 @@ def write_file(file_path: str, content: str, mode: str = "overwrite") -> str:
     # Path safety check
     if not is_path_allowed(abs_path):
         return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
+
+    # A `secret` note holds credentials or recovery codes. Overwriting one is unrecoverable,
+    # so the level denies writes as well as reads — the read guard alone would still have let
+    # a tool destroy the very content it refuses to show.
+    from Evelyn.tools.frontmatter_utils import is_tool_denied
+
+    if is_tool_denied(abs_path):
+        return (
+            f"Error: '{os.path.basename(abs_path)}' is marked `sensitivity: secret` and cannot "
+            "be modified through a tool."
+        )
 
     approval_id = f"write_{int(time.time())}_{uuid.uuid4().hex[:8]}"
     approvals = _load_approvals()

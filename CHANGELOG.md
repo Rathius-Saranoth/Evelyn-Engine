@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 17:30:16
+date modified: 2026-09-23 17:41:57
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,23 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.212] - 2026-09-23 — *Refuse to Overwrite It Too*
+
+### Fixed
+- **`sensitivity: secret` now denies writes as well as reads.** v000.006.211 guarded
+  `read_file` only, so a tool could still overwrite or append to the very note it refused to
+  show — and for a note holding recovery codes that is unrecoverable. `write_file` consults the
+  same canonical guard, in both overwrite and append mode. `private` is unaffected: it withholds
+  automatic retrieval, not deliberate action.
+- **A long-standing test failure in `test_terminal_agent.py`.** `test_read_file_allowed` mocked
+  `open` but not the existence check `read_file` gained afterwards, so it short-circuited to
+  "File not found" and had been failing since. It now stubs the existence check and the vault
+  name resolver, so it exercises the read path it names.
+- **Tests wrote to the production terminal-approvals store.** Staging a write appends to it,
+  and the path was not sandboxed, so a test exercising `write_file` left a real pending approval
+  in the user's queue. `conftest` now redirects it alongside the memory and chat databases
+  (AGENTS §2).
 
 ## [000.006.211] - 2026-09-23 — *Private Means Private*
 

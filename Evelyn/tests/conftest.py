@@ -1,6 +1,6 @@
 # conftest.py
 # date created: 2026-08-31 17:47:00
-# date modified: 2026-09-22 21:57:21
+# date modified: 2026-09-23 17:41:57
 # tags: #pytest, #fixtures, #testing, #sandbox
 
 """Pytest configuration and global test harness isolation.
@@ -25,7 +25,7 @@ from collections.abc import Generator
 import pytest
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import memory_db, vault_db
+from Evelyn.tools import memory_db, terminal_agent, vault_db
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -42,6 +42,8 @@ def isolate_test_vault_environment() -> Generator[str]:
     orig_vault_db_mod = getattr(vault_db, "DB_PATH", None)
     orig_memory_db = getattr(cfg, "MEMORY_DB_PATH", None)
     orig_chat_db = getattr(cfg, "CHAT_DB_PATH", None)
+    orig_approvals_cfg = getattr(cfg, "TERMINAL_APPROVALS_PATH", None)
+    orig_approvals_mod = getattr(terminal_agent, "APPROVALS_FILE", None)
 
     with tempfile.TemporaryDirectory(prefix="evelyn_test_vault_") as tmp_vault:
         # Construct isolated mock vault directory hierarchy
@@ -78,6 +80,13 @@ def isolate_test_vault_environment() -> Generator[str]:
         # onto the production database.
         memory_db.init_db()
 
+        # Staging a write appends to the terminal approvals store. That file was the
+        # production one, so a test exercising write_file left a real pending approval in
+        # the user's queue.
+        approvals = os.path.join(tmp_vault, "test_terminal_approvals.json")
+        cfg.TERMINAL_APPROVALS_PATH = approvals
+        terminal_agent.APPROVALS_FILE = approvals
+
         try:
             yield tmp_vault
         finally:
@@ -103,3 +112,7 @@ def isolate_test_vault_environment() -> Generator[str]:
                 cfg.MEMORY_DB_PATH = orig_memory_db
             if orig_chat_db is not None:
                 cfg.CHAT_DB_PATH = orig_chat_db
+            if orig_approvals_cfg is not None:
+                cfg.TERMINAL_APPROVALS_PATH = orig_approvals_cfg
+            if orig_approvals_mod is not None:
+                terminal_agent.APPROVALS_FILE = orig_approvals_mod

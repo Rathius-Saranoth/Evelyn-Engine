@@ -1,6 +1,6 @@
 # test_terminal_agent.py
 # date created: 2026-06-27 09:38:56
-# date modified: 2026-09-13 14:10:43
+# date modified: 2026-09-23 17:40:39
 # tags: #test, #verification, #terminal, #security
 
 """Unit tests for the Evelyn Terminal Agent safety, persistence, and execution logic.
@@ -156,8 +156,16 @@ class TestTerminalAgent(unittest.TestCase):
 
     @patch("builtins.open", new_callable=mock_open, read_data="line 1\nline 2")
     def test_read_file_allowed(self, mock_file):
-        """Verify reading file inside allowed paths works."""
-        with patch("terminal_agent.is_path_allowed", return_value=True):
+        """Verify reading file inside allowed paths works.
+
+        `open` is mocked but the file does not exist on disk, so the existence check that
+        read_file gained after this test was written short-circuited it to "File not found"
+        and the assertion had been failing ever since. Both the existence check and the
+        vault-name resolver are stubbed so the test exercises the read path it names.
+        """
+        with patch("terminal_agent.is_path_allowed", return_value=True), \
+             patch("terminal_agent.os.path.exists", return_value=True), \
+             patch("terminal_agent.find_matching_vault_files", return_value=(None, [])):
             res = terminal_agent.read_file("Notes/Features/idea.md")
             self.assertIn("line 1", res)
 
