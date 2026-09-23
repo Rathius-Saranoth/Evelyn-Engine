@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-22 20:21:51
+# date modified: 2026-09-22 21:41:20
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6018,12 +6018,80 @@ async def get_persona_file(filename: str, _: None = Depends(check_auth)):
     return {"filename": filename, "content": fpath.read_text(encoding="utf-8")}
 
 
+@app.get("/api/taxonomy/vocabulary")
+async def get_taxonomy_vocabulary(
+    term: str = "", limit: int = 8, _: None = Depends(check_auth)
+):
+    """Return the registry's categories, and registered terms near `term`.
+
+    Backs the tag-admission review card: a reviewer cannot judge whether a proposed term
+    earns a place without seeing what the vocabulary already holds, and cannot pick its
+    category without knowing which categories exist.
+
+    Matching is deliberately lexical rather than vector-based. The taxonomy embedding
+    returns 0.33-0.55 distances for correct and unrelated terms alike, so a nearest-
+    neighbour list there reads as authoritative while being noise; a shared word stem is
+    a weaker signal that is at least a true one.
+
+    Args:
+        term:  Optional proposed term to find near-matches for.
+        limit: Maximum number of near-matches to return.
+
+    Returns:
+        dict: ``categories`` (name + term count), ``similar`` matches, and ``total`` terms.
+    """
+    from Evelyn.tools import taxonomy_db
+
+    def _lookup():
+        rows = taxonomy_db.get_master_tags()
+        counts: dict[str, int] = {}
+        for r in rows:
+            counts[(r.get("category") or "").strip()] = counts.get((r.get("category") or "").strip(), 0) + 1
+        categories = sorted(
+            ({"name": k, "count": v} for k, v in counts.items() if k),
+            key=lambda c: c["name"],
+        )
+
+        similar: list[dict[str, Any]] = []
+        probe = (term or "").strip().lower()
+        if probe:
+            parts = {p for p in re.split(r"[/\-_]+", probe) if len(p) > 2}
+            scored = []
+            for r in rows:
+                tag = str(r.get("tag") or "")
+                low = tag.lower()
+                if low == probe:
+                    continue
+                tag_parts = {p for p in re.split(r"[/\-_]+", low) if len(p) > 2}
+                shared = len(parts & tag_parts)
+                # Prefix rather than substring: a bare substring test matched `cat` against
+                # `communi-cat-ion-style`. Comparing whole words catches the variants that
+                # actually matter (`declutter`/`decluttering`) without the coincidences.
+                prefix = any(
+                    len(a) >= 4 and len(b) >= 4 and (a.startswith(b) or b.startswith(a))
+                    for a in parts for b in tag_parts
+                )
+                if shared or prefix:
+                    # Rank the tightest match first: most words in common, then fewest
+                    # words the candidate adds. `communication` must outrank
+                    # `corporate-communication` when judging `communication-style`.
+                    rank = (shared, -len(tag_parts - parts), 1 if prefix else 0)
+                    scored.append((rank, {"tag": tag, "category": r.get("category") or ""}))
+            scored.sort(key=lambda kv: kv[0], reverse=True)
+            similar = [v for _, v in scored[: max(0, limit)]]
+
+        return {"categories": categories, "similar": similar, "total": len(rows)}
+
+    return await asyncio.to_thread(_lookup)
+
+
 class ProposalActionRequest(BaseModel):
     """Pydantic model representing optional parameters when acting on a proposal."""
 
     modified_text: str | None = None
     source_id: int | None = None
     target_id: int | None = None
+    category: str | None = None
 
 
 class GroundingAuditRequest(BaseModel):
@@ -6433,16 +6501,25 @@ async def action_proposal(
                     memory_db.update_entry(source_id, **update_kwargs)
                 memory_db.apply_proposal(id)
             elif prop["type"] == "tag_admission":
-                # `topic` carries the proposed term, `suggested_category` its facet.
-                # Approving registers it in the controlled vocabulary, unprotected: it
-                # entered by inference rather than from the reviewed vocabulary, so it
-                # stays subject to ordinary zero-usage pruning.
+                # `topic` carries the proposed term, `suggested_category` its facet when it
+                # has one. Approving registers it in the controlled vocabulary, unprotected:
+                # it entered by inference rather than from the reviewed vocabulary, so it
+                # remains eligible for retirement if it goes unused.
+                #
+                # `req` is None whenever the client posts no body, so every field is read
+                # through it defensively; the reviewer may correct the term and must be able
+                # to choose the category, which cannot be inferred from a flat term.
                 from Evelyn.tools import tag_librarian
 
-                term = (req.modified_text or prop.get("topic") or "").strip()
+                term = ((req.modified_text if req else None) or prop.get("topic") or "").strip()
+                # An explicitly empty category is the reviewer choosing "uncategorised",
+                # which is a decision, not an absent field — `or` would discard it and
+                # fall back to whatever the proposal was stored with.
+                chosen = req.category if req else None
+                category = (chosen if chosen is not None else (prop.get("suggested_category") or "")).strip()
                 if not term:
                     raise HTTPException(status_code=400, detail="Tag proposal carries no term")
-                if not tag_librarian.admit_proposed_term(term, prop.get("suggested_category") or ""):
+                if not tag_librarian.admit_proposed_term(term, category):
                     raise HTTPException(status_code=400, detail=f"Term '{term}' is not a valid tag")
                 memory_db.apply_proposal(id)
 
@@ -6537,7 +6614,7 @@ async def action_proposal(
                     gist=gist_text,
                     rag_priority="normal",
                     rag_pinned=False,
-                    tags="stub,concept",
+                    tags="type/stub",
                     aliases="",
                 )
                 vault_db.update_document_librarian_audit(target_filename, ghost_count=0, mtime=new_mtime)

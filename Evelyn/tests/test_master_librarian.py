@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-20 08:32:00
+# date modified: 2026-09-22 21:41:20
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -282,7 +282,7 @@ array([[1.5, 2.5]])
             source_path="Research/Hardware.md",
             context_excerpt="Testing the new [[QuantumProcessor]] in the lab.\nSecond line should be flattened.",
             domain="hardware",
-            tags=["stub", "concept", "hardware"],
+            tags=["type/stub"],
             min_refs=2,
             ref_count=3,
         )

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-22 20:21:51
+date modified: 2026-09-22 21:57:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,146 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.209] - 2026-09-22 — *Tests Own Nothing Real*
+
+The test harness sandboxed the vault database but never the memory database.
+
+### Fixed
+- **Tests wrote to the production memory store.** `conftest.py` isolated `VAULT_BASE_DIR`,
+  the write paths and `VAULT_DB_PATH`, but left `cfg.MEMORY_DB_PATH` pointing at the user's
+  data. Any code path a test exercised that reached memory wrote there — a YAML-parsing unit
+  test raised four `tag_admission` proposals into production, because the parser proposes
+  unregistered terms and its fixture tags are deliberately non-conformant. `MEMORY_DB_PATH` and
+  `CHAT_DB_PATH` now point into the per-test sandbox, and the memory schema is created there so
+  an incidental read gets a valid empty store instead of the "no such table" error that
+  previously pushed tests onto the real database (AGENTS.md §2).
+- **`test_context_split` asserted the retired tag format.** It expected
+  `Home/Coffee/Espresso` and had been failing since v000.006.204 changed the split prompt;
+  targeted batches had not covered the file. Fixtures and assertion now use flat registered
+  terms.
+
+### Changed
+- Purged the leaked proposals from the production store.
+
+## [000.006.208] - 2026-09-22 — *A Name a Filesystem Accepts*
+
+A wikilink target may legally hold characters a filename may not.
+
+### Fixed
+- **Ghost stubs created filenames Windows cannot represent.** `[[Nier: Automata]]` produced
+  `Nier: Automata.md`; Syncthing refused to sync it. `stub_relpath()` — the single chokepoint
+  all three creation paths share — now routes the stem through the canonical
+  `string_utils.sanitize_filename()` rather than interpolating the raw target (AGENTS §8).
+- **Sanitising alone would have orphaned the links.** Every existing `[[Nier: Automata]]` names
+  the note by its unsanitised form, so the stub now carries that original as an alias, and the
+  title keeps it verbatim. A target that needs no sanitising gains no redundant alias.
+- **The two affected notes were renamed** and given their aliases, with the vault index updated
+  to match.
+
+## [000.006.207] - 2026-09-22 — *Nothing But Its Type*
+
+Ghost stubs were tagged `stub, concept`. Neither term is registered, and the class profile
+forbids a domain tag on a stub outright.
+
+### Fixed
+- **Ghost stubs carried two unregistered terms.** The generator defaulted to
+  `["stub", "concept"]` in four places in `link_librarian` and once in `evelyn_server`. The
+  standard defines `type/stub` as *"an auto-generated ghost stub carrying nothing but its type
+  until a human fills it in"* (§3.4), and the §4 class profile marks domain, motif, setting and
+  event **forbidden** for the class — so `concept` was not merely retired, a stub may carry no
+  domain tag at all. All five sites now emit `type/stub`, matching the 124 stubs already in the
+  vault.
+- **163 queued stub proposals were rewritten** from `<tags>stub, concept</tags>` to
+  `<tags>type/stub</tags>`, so approving the backlog no longer injects unregistered vocabulary.
+- **`index_tag_in_chroma` wrote the `general` placeholder** into vector metadata via the same
+  fallback removed from the registry in v000.006.205, leaving the embedding and the row
+  disagreeing about an uncategorised term.
+
+### Changed
+- **`typography` and `decluttering` registered as protected curated terms**, approved in
+  review. `decluttering` restores a Pass 1 decision that was applied as a deletion rather than
+  a promotion to term.
+- **`observation` removed.** Admitted in review, then withdrawn: as a subject term it describes
+  the act of observing, which is true of a large share of the 480 live assistant-observation
+  entries, so it separates almost nothing. Registry row and vector both removed, and the stale
+  sync-queue job cleared.
+
+### Notes
+- Registry and vector store verified at exact parity afterwards: 673 terms, 673 embedded, no
+  orphans in either direction.
+
+## [000.006.206] - 2026-09-22 — *Uncategorised Is an Answer*
+
+Caught by admitting a real term through the card shipped an hour earlier: the reviewer chose
+"uncategorised" and the placeholder `general` was written anyway.
+
+### Fixed
+- **An explicitly empty category was treated as an absent one.** The approval handler read
+  `req.category or prop["suggested_category"] or ""`, so selecting "— uncategorised —" (which
+  sends `""`) fell through to whatever the proposal was stored with. For every proposal raised
+  before v000.006.205 that is the placeholder `general`, so the reviewer's choice was silently
+  overridden and `general` entered the registry as a 27th category with one member. The chosen
+  value is now distinguished from a missing field by identity, not truthiness.
+
+### Changed
+- **Backfilled the placeholder out of live data.** `general` cleared from the one registry row
+  that received it and from the pending `tag_admission` proposals still carrying it. Already-
+  resolved proposals keep theirs: they are a record of what was decided, not a queue to fix.
+
+### Notes
+- `scripts/update_frontmatter.py` was audited for the retired tag format. The markdown path is
+  clean — it never writes or rewrites a tag value, only adding `tags: []` when the key is
+  absent, so it cannot introduce a non-conformant term. The Python/PowerShell header path emits
+  the inline `#tag` style and preserves whatever forms already exist, including underscored
+  ones (`#idle_time`, `#end_to_end`). These are source-file header comments in a repository that
+  sits outside the vault root, nothing parses them into the vocabulary, and they reach neither
+  the registry nor the index — so they are inert rather than conformant, and were left alone.
+
+## [000.006.205] - 2026-09-22 — *Show the Term*
+
+The tag-admission review card rendered everything about a proposal except the term being
+decided on, and its Approve button returned 500.
+
+### Fixed
+- **Approving a tag proposal always failed.** The card built no request body, and FastAPI
+  passes `None` for an optional body model when none is sent, so the handler's
+  `req.modified_text` raised `AttributeError` before it reached the term. Every field is now
+  read defensively. Covered by a regression test that fails against the previous handler.
+- **The card showed the origin string instead of the term.** `tag_admission` and
+  `tag_retirement` fell through to the generic proposal card, which renders
+  `merged_observation` — for these, the writer's name (`extracted fact (Cat04-A)`) — while the
+  term itself sits in `topic` and was never displayed. Both types now have their own card
+  leading with the term.
+- **`general` was proposed as a category.** A flat term has no facet, and the old fallback
+  filled `suggested_category` with `general`, which is not one of the registry's categories —
+  approving would have written it into the vocabulary as though it meant something. A flat
+  term is now left uncategorised for the reviewer to decide.
+- **The registry row and its embedding could disagree.** `admit_proposed_term` derived a
+  category for the SQLite row but passed the caller's raw (possibly empty) value to the vector
+  index. Both now receive the resolved value.
+- **Stale docstrings** in `propose_tag_admission` and `admit_proposed_term` still described
+  zero-usage pruning, which v000.006.202 removed entirely; they described the retirement-proposal
+  path instead of a delete that no longer exists.
+
+### Added
+- **`GET /api/taxonomy/vocabulary`** — the registry's categories with term counts, plus
+  registered terms lexically near a proposed one. A reviewer cannot judge whether a term earns
+  a place without seeing what the vocabulary already holds. Matching is deliberately lexical:
+  the taxonomy embedding returns 0.33–0.55 distances for correct and unrelated terms alike, so
+  a nearest-neighbour list there reads as authoritative while being noise.
+- **Admission card**: editable term, a category selector populated from the registry, and the
+  similar-terms list, with the reminder that a near-duplicate splits a post-coordinate concept
+  in two.
+- **Retirement card**: an optional preferred term, which records an equivalence so documents
+  phrased the retired way still resolve (§6.2), rather than erasing the record.
+
+### Changed
+- **`AGENTS.md` §10** required starter procedures to define *"hierarchical domain tags"* — the
+  retired pre-coordinate format, still mandated in the rules file after the vocabulary moved.
+  It now requires controlled-vocabulary subject terms, with a new bullet stating the format,
+  pointing at the schema, and noting that memory facts may not carry `type/*`, `status/*` or
+  `obsidian-graph/*` (§0.1).
 
 ## [000.006.204] - 2026-09-22 — *Teach What You Enforce*
 

@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-17 18:49:24
+date modified: 2026-09-22 21:14:50
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -89,7 +89,8 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 
 ## 10. Model-Facing Tool Protocol & Starter Procedure Mandate
 - **Starter Procedure Requirement**: Whenever introducing or surfacing a new specific-purpose model-facing tool in `Evelyn/tools/evelyn_tools.py` (`MODEL_TOOL_DEFINITIONS`), agents and developers must simultaneously author and register a corresponding operational starter procedure in `procedures` via a versioned database migration in `Evelyn/tools/db_migrator.py`.
-- **Procedural Specification Standards**: Each starter procedure must define a comprehensive `trigger_pattern`, step-by-step execution directives (`steps`), common failure modes (`pitfalls`), success criteria (`verification`), hierarchical domain tags (`tags`), and explicitly assign the tool name(s) to `suggested_tools` to enable dynamic tool surfacing in RAG.
+- **Procedural Specification Standards**: Each starter procedure must define a comprehensive `trigger_pattern`, step-by-step execution directives (`steps`), common failure modes (`pitfalls`), success criteria (`verification`), controlled-vocabulary subject tags (`tags`), and explicitly assign the tool name(s) to `suggested_tools` to enable dynamic tool surfacing in RAG.
+- **Tag Format (Controlled Vocabulary)**: `tags` are flat, lowercase, hyphenated subject terms drawn from the registered vocabulary (`master_tag_taxonomy`), combined at retrieval time rather than composed into a path — `taxonomy, automation, parcel`, never `Tech/Python/FastAPI` or `John_Smith`. The schema, the facet prefixes that are the sole permitted exception, and the admission rules are defined in `.agents/rules/vault-tag-taxonomy.md`; memory facts additionally may not carry `type/*`, `status/*` or `obsidian-graph/*` (§0.1). Prefer an existing registered term over minting a new one; an unregistered term raises a `tag_admission` proposal for review rather than entering the vocabulary silently.
 - **Historical Grounding Discovery**: To craft natural, accurate trigger patterns and steps, agents must inspect historical conversation context (`data/evelyn_chat.db`) to identify real-world user prompts, conversational phrasing, and scenarios where the tool would or could have been engaged.
 - **General Purpose Exemptions**: Broad general-purpose utility primitives (e.g. `read_file`, `write_file`, `run_command`, `web_search`) are exempt from dedicated starter procedures unless specialized operational protocols are explicitly requested.
 

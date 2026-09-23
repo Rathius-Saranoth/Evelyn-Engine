@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-20 08:32:00
+# date modified: 2026-09-22 21:48:15
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -101,7 +101,10 @@ class StubPayload:
     source_path: str = ""
     context_excerpt: str = ""
     domain: str = ""
-    tags: list[str] = field(default_factory=lambda: ["stub", "concept"])
+    # A stub carries nothing but its type until a human fills it in (taxonomy §3.4).
+    # `stub` and `concept` were never registered terms, and the §4 class profile
+    # forbids a domain tag on this class outright.
+    tags: list[str] = field(default_factory=lambda: ["type/stub"])
     min_refs: int = 2
     ref_count: int = 0
     sources: list[str] = field(default_factory=list)
@@ -351,7 +354,7 @@ def parse_stub_xml(xml_str: str) -> StubPayload:
     source_path = root.findtext("source_path") or ""
     context = root.findtext("context") or ""
     domain = root.findtext("domain") or ""
-    tags_str = root.findtext("tags") or "stub, concept"
+    tags_str = root.findtext("tags") or "type/stub"
     tags = [t.strip() for t in tags_str.split(",") if t.strip()]
 
     sources = []
@@ -409,9 +412,16 @@ def render_stub_markdown(payload: StubPayload, now_str: str | None = None) -> st
 
     ts = now_str or time.strftime("%Y-%m-%d %H:%M:%S")
 
+    # When sanitising changed the stem, the original is the name every existing `[[wikilink]]`
+    # uses; carrying it as an alias is what keeps those links resolving to this note.
+    from Evelyn.tools.string_utils import sanitize_filename
+
+    safe_stem = sanitize_filename(payload.target_name, default="Untitled")
+    aliases = [payload.target_name] if safe_stem != payload.target_name else []
+
     fm_dict = {
         "title": payload.target_name,
-        "aliases": [],
+        "aliases": aliases,
         "tags": payload.tags,
         "date created": ts,
         "date modified": ts,
@@ -1484,9 +1494,14 @@ def stub_relpath(target_stem: str, domain: str = "") -> str:
     Returns:
         str: Path relative to the vault root, using forward slashes.
     """
+    from Evelyn.tools.string_utils import sanitize_filename
+
     stub_dir = getattr(cfg, "LIBRARIAN_STUB_DIR", "Stubs").strip("/")
     parts = [p for p in (stub_dir, domain.strip("/")) if p]
-    parts.append(f"{target_stem}.md")
+    # A wikilink target may legally contain characters a filename may not: `[[Nier: Automata]]`
+    # produced `Nier: Automata.md`, which Windows cannot represent and Syncthing refuses to
+    # sync. The note keeps its real name in `title` and an alias, so the link still resolves.
+    parts.append(f"{sanitize_filename(target_stem, default='Untitled')}.md")
     return "/".join(parts)
 
 
@@ -1602,7 +1617,7 @@ def create_ghost_link_stub(
         source_path=primary_source,
         context_excerpt=primary_context,
         domain=domain,
-        tags=["stub", "concept"],
+        tags=["type/stub"],
         min_refs=min_refs_val,
         ref_count=ref_count,
         sources=sources,
@@ -1681,7 +1696,7 @@ def create_ghost_link_stub(
         gist=gist_text,
         rag_priority="normal",
         rag_pinned=False,
-        tags="stub,concept",
+        tags="type/stub",
         aliases="",
     )
     vault_db.update_document_librarian_audit(target_relpath, ghost_count=0, mtime=new_mtime)

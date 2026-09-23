@@ -1,6 +1,6 @@
 # conftest.py
 # date created: 2026-08-31 17:47:00
-# date modified: 2026-09-03 21:46:26
+# date modified: 2026-09-22 21:57:21
 # tags: #pytest, #fixtures, #testing, #sandbox
 
 """Pytest configuration and global test harness isolation.
@@ -9,6 +9,13 @@ Provides an autouse fixture ensuring all pytest runs execute inside an ephemeral
 hermetic temporary sandbox directory. Automatically isolates ``cfg.VAULT_BASE_DIR``,
 ``cfg.JOURNAL_DIR``, ``cfg.LISTS_DIR``, ``cfg.PENDING_DIR``, and related write paths
 to prevent any test execution from touching the user's production Obsidian vault.
+
+Also isolates ``cfg.MEMORY_DB_PATH`` and ``cfg.CHAT_DB_PATH``. The vault database was
+sandboxed here from the start but the memory database was not, so any code path a test
+exercised that wrote to memory reached the real store: a YAML-parsing unit test raised four
+tag-admission proposals into production because the parser proposes unregistered terms
+(AGENTS.md §2). A test that needs these may still point them wherever it likes; the default
+is simply no longer the user's data.
 """
 
 import os
@@ -18,7 +25,7 @@ from collections.abc import Generator
 import pytest
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import vault_db
+from Evelyn.tools import memory_db, vault_db
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -33,6 +40,8 @@ def isolate_test_vault_environment() -> Generator[str]:
     orig_lists = getattr(cfg, "LISTS_DIR", None)
     orig_vault_db_cfg = getattr(cfg, "VAULT_DB_PATH", None)
     orig_vault_db_mod = getattr(vault_db, "DB_PATH", None)
+    orig_memory_db = getattr(cfg, "MEMORY_DB_PATH", None)
+    orig_chat_db = getattr(cfg, "CHAT_DB_PATH", None)
 
     with tempfile.TemporaryDirectory(prefix="evelyn_test_vault_") as tmp_vault:
         # Construct isolated mock vault directory hierarchy
@@ -62,6 +71,13 @@ def isolate_test_vault_environment() -> Generator[str]:
         vault_db.DB_PATH = test_vault_db
         vault_db.init_db()
 
+        cfg.MEMORY_DB_PATH = os.path.join(tmp_vault, "test_evelyn_memory.db")
+        cfg.CHAT_DB_PATH = os.path.join(tmp_vault, "test_evelyn_chat.db")
+        # Created empty, so a test that reaches memory incidentally gets a valid empty store
+        # rather than "no such table" — the failure mode that previously pushed such tests
+        # onto the production database.
+        memory_db.init_db()
+
         try:
             yield tmp_vault
         finally:
@@ -83,3 +99,7 @@ def isolate_test_vault_environment() -> Generator[str]:
                 cfg.VAULT_DB_PATH = orig_vault_db_cfg
             if orig_vault_db_mod is not None:
                 vault_db.DB_PATH = orig_vault_db_mod
+            if orig_memory_db is not None:
+                cfg.MEMORY_DB_PATH = orig_memory_db
+            if orig_chat_db is not None:
+                cfg.CHAT_DB_PATH = orig_chat_db

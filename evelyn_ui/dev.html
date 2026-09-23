@@ -1950,6 +1950,19 @@
             const editArea = document.getElementById(`prop-edit-${id}`);
             const textToSend = editArea ? editArea.value : item.merged_observation;
             body = JSON.stringify({ modified_text: textToSend });
+          } else if (item && item.type === 'tag_admission') {
+            // The term may have been corrected in place, and the category is a choice the
+            // reviewer makes here — it cannot be inferred from a flat term.
+            const termInput = document.getElementById(`tag-term-${id}`);
+            const catSelect = document.getElementById(`tag-cat-${id}`);
+            body = JSON.stringify({
+              modified_text: termInput ? termInput.value.trim() : (item.topic || ''),
+              category: catSelect ? catSelect.value : ''
+            });
+          } else if (item && item.type === 'tag_retirement') {
+            // An empty replacement is meaningful: retire with no pointer.
+            const repl = document.getElementById(`tag-replacement-${id}`);
+            body = JSON.stringify({ modified_text: repl ? repl.value.trim() : '' });
           } else {
             const editArea = document.getElementById(`prop-edit-${id}`);
             if (editArea) {
@@ -4743,6 +4756,77 @@
           `;
         }
 
+        if (item.type === 'tag_admission' || item.type === 'tag_retirement') {
+          // The generic card renders `merged_observation`, which for these proposals holds
+          // only the origin string ("extracted fact (Cat04-A)") — the term being decided on
+          // lives in `topic` and was never shown. These are vocabulary decisions, so the
+          // card leads with the term and supplies what the decision needs: for an
+          // admission, the categories that exist and the registered terms that resemble it;
+          // for a retirement, somewhere to name the preferred term that replaces it.
+          const isAdmission = item.type === 'tag_admission';
+          const term = item.topic || '';
+          const origin = item.merged_observation || '';
+          return `
+            <div class="card" data-tag-proposal="${item.id}" data-tag-term="${escapeAttr(term)}" data-tag-category="${escapeAttr(item.suggested_category || '')}" data-tag-kind="${isAdmission ? 'admission' : 'retirement'}">
+              <div class="card-header">
+                <span class="badge" style="background: ${isAdmission ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 146, 60, 0.15)'}; color: ${isAdmission ? '#34d399' : '#fb923c'}; border: 1px solid ${isAdmission ? 'rgba(52, 211, 153, 0.35)' : 'rgba(251, 146, 60, 0.35)'};">
+                  PROPOSAL: ${isAdmission ? 'ADMIT TERM' : 'RETIRE TERM'}
+                </span>
+                <span>ID: ${item.id}</span>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                    ${isAdmission ? 'Term to admit' : 'Term to retire'}
+                  </div>
+                  ${isAdmission ? `
+                    <input id="tag-term-${item.id}" type="text" value="${escapeAttr(term)}"
+                      style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; background: #07070a; border: 1px solid var(--border); color: #34d399; padding: 10px 12px; border-radius: 6px; outline: none;" />
+                    <div style="font-size: 11px; color: var(--text-dim);">Edit to correct the spelling or form before admitting.</div>
+                  ` : `
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: #fb923c; padding: 4px 0;">${escapeHtml(term)}</div>
+                  `}
+                </div>
+
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Why it is here</div>
+                  <div style="font-size: 14px; color: var(--text); line-height: 1.4;">${escapeHtml(item.reason || '')}</div>
+                  ${origin ? `<div style="font-size: 12px; color: var(--text-dim); margin-top: 6px;">Requested by: <code style="color: var(--accent);">${escapeHtml(origin)}</code></div>` : ''}
+                </div>
+
+                ${isAdmission ? `
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Category</div>
+                    <select id="tag-cat-${item.id}"
+                      style="width: 100%; font-family: inherit; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; outline: none;">
+                      <option value="">Loading categories...</option>
+                    </select>
+                    <div style="font-size: 11px; color: var(--text-dim);">A flat term carries no category of its own; this is your call.</div>
+                  </div>
+
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Already registered, and similar</div>
+                    <div id="tag-similar-${item.id}" style="font-size: 13px; color: var(--text-dim);">Checking the vocabulary...</div>
+                    <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">If one of these already covers it, <strong>Reject</strong> — the vocabulary is post-coordinate, so a near-duplicate splits the concept in two.</div>
+                  </div>
+                ` : `
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Preferred term (optional)</div>
+                    <input id="tag-replacement-${item.id}" type="text" placeholder="e.g. chore"
+                      style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; outline: none;" />
+                    <div style="font-size: 11px; color: var(--text-dim);">Naming one records an equivalence so documents phrased the retired way still resolve. Leaving it blank retires the term with no pointer.</div>
+                  </div>
+                `}
+              </div>
+              <div class="card-actions" style="display: flex; gap: 8px;">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">${isAdmission ? 'Admit' : 'Retire'}</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+              </div>
+            </div>
+          `;
+        }
+
         return `
           <div class="card">
             <div class="card-header">
@@ -5005,6 +5089,56 @@
       });
     }
 
+    // Cached across cards: the category list is identical for every admission proposal,
+    // so one fetch serves the whole queue.
+    let taxonomyCategoryCache = null;
+
+    async function hydrateTagProposalCards() {
+      const cards = document.querySelectorAll('[data-tag-proposal]');
+      if (!cards.length) return;
+
+      for (const card of cards) {
+        const id = card.getAttribute('data-tag-proposal');
+        if (card.getAttribute('data-tag-kind') !== 'admission') continue;
+        const term = card.getAttribute('data-tag-term') || '';
+        const preset = card.getAttribute('data-tag-category') || '';
+        const select = document.getElementById(`tag-cat-${id}`);
+        const similarBox = document.getElementById(`tag-similar-${id}`);
+
+        try {
+          const res = await fetch(
+            `${API_BASE}/api/taxonomy/vocabulary?term=${encodeURIComponent(term)}`,
+            { headers: headers() }
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          taxonomyCategoryCache = data.categories || taxonomyCategoryCache;
+
+          if (select) {
+            const opts = ['<option value="">— uncategorised —</option>']
+              .concat((data.categories || []).map(c =>
+                `<option value="${escapeAttr(c.name)}"${c.name === preset ? ' selected' : ''}>${escapeHtml(c.name)} (${c.count})</option>`
+              ));
+            select.innerHTML = opts.join('');
+          }
+
+          if (similarBox) {
+            const sim = data.similar || [];
+            similarBox.innerHTML = sim.length
+              ? sim.map(x =>
+                  `<span style="display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px; border-radius: 12px; background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text);">${escapeHtml(x.tag)}${x.category ? `<span style="color: var(--text-dim);"> · ${escapeHtml(x.category)}</span>` : ''}</span>`
+                ).join('')
+              : `<span style="color: var(--text-dim);">Nothing similar in the ${data.total} registered terms.</span>`;
+          }
+        } catch (err) {
+          if (select) select.innerHTML = '<option value="">— uncategorised —</option>';
+          if (similarBox) {
+            similarBox.innerHTML = `<span style="color: #ef4444;">Could not reach the vocabulary: ${escapeHtml(err.message || String(err))}</span>`;
+          }
+        }
+      }
+    }
+
     function render() {
       captureActiveEdits();
       const container = document.getElementById('container');
@@ -5058,6 +5192,9 @@
         }
 
         container.innerHTML = filterBarHtml + filteredItems.map(item => renderTriageItemCard(item)).join('');
+        // Tag proposals need the registry read before their category select and
+        // similar-terms list mean anything; the cards render first, then fill in.
+        hydrateTagProposalCards();
 
         // Initialize live diffs after DOM insertion — avoids embedding large renderDiff
         // output in the template string which corrupts multi-card HTML structure.

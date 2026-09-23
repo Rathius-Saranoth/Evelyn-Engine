@@ -1,6 +1,6 @@
 # test_review_endpoints.py
 # date created: 2026-09-03 19:47:07
-# date modified: 2026-09-20 08:32:00
+# date modified: 2026-09-22 21:27:46
 # tags:
 
 """
@@ -420,3 +420,141 @@ def test_ghost_link_stub_multi_reference_approval():
         vault_db.DB_PATH = orig_vault_db_path
         temp_vault_dir.cleanup()
 
+
+
+class TestTagProposalApproval:
+    """Approving a tag proposal from the review card (v000.006.205).
+
+    The card built no request body, and the handler read `req.modified_text` without
+    guarding for `req` being None — which FastAPI passes whenever a POST carries no body —
+    so every approval raised AttributeError and returned 500.
+    """
+
+    @staticmethod
+    def _headers():
+        return {"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {}
+
+    def _propose(self, term, category=""):
+        return memory_db.insert_proposal(
+            type="tag_admission",
+            source_ids=[],
+            topic=term,
+            suggested_category=category,
+            reason="Proposed by a unit test.",
+            merged_observation="unit test",
+            confidence="low",
+        )
+
+    def test_approving_with_no_request_body_does_not_error(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+
+        admitted = {}
+        monkeypatch.setattr(
+            tag_librarian, "admit_proposed_term",
+            lambda term, category="": admitted.update(term=term, category=category) or True,
+        )
+        pid = self._propose("zzz-endpoint-term", category="motif")
+
+        res = TestClient(app).post(
+            f"/api/review/proposals/{pid}/approve", headers=self._headers()
+        )
+
+        assert res.status_code == 200, res.text
+        assert admitted == {"term": "zzz-endpoint-term", "category": "motif"}
+
+    def test_the_reviewers_term_and_category_override_the_proposal(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+
+        admitted = {}
+        monkeypatch.setattr(
+            tag_librarian, "admit_proposed_term",
+            lambda term, category="": admitted.update(term=term, category=category) or True,
+        )
+        pid = self._propose("zzz-typo-trem")
+
+        res = TestClient(app).post(
+            f"/api/review/proposals/{pid}/approve",
+            headers=self._headers(),
+            json={"modified_text": "zzz-typo-term", "category": "domestic-life"},
+        )
+
+        assert res.status_code == 200, res.text
+        assert admitted == {"term": "zzz-typo-term", "category": "domestic-life"}
+
+    def test_retiring_with_no_request_body_does_not_error(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+
+        retired = {}
+        monkeypatch.setattr(
+            tag_librarian, "retire_term",
+            lambda term, replacement="": retired.update(term=term, replacement=replacement) or True,
+        )
+        pid = memory_db.insert_proposal(
+            type="tag_retirement", source_ids=[], topic="zzz-old-term",
+            suggested_category="", reason="Unused.", merged_observation="", confidence="low",
+        )
+
+        res = TestClient(app).post(
+            f"/api/review/proposals/{pid}/approve", headers=self._headers()
+        )
+
+        assert res.status_code == 200, res.text
+        assert retired == {"term": "zzz-old-term", "replacement": ""}
+
+
+class TestTaxonomyVocabularyEndpoint:
+    """The admission card cannot be reviewed without seeing the existing vocabulary."""
+
+    @staticmethod
+    def _headers():
+        return {"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {}
+
+    def test_it_returns_categories_and_lexical_near_matches(self, monkeypatch, tmp_path):
+        from Evelyn.tools import taxonomy_db, vault_db
+
+        monkeypatch.setattr(vault_db, "DB_PATH", str(tmp_path / "vault.db"))
+        vault_db.init_db()
+        taxonomy_db.upsert_master_tag("communication", category="relationships")
+        taxonomy_db.upsert_master_tag("coffee", category="domestic-life")
+
+        res = TestClient(app).get(
+            "/api/taxonomy/vocabulary?term=communication-style", headers=self._headers()
+        )
+
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert {c["name"] for c in body["categories"]} == {"relationships", "domestic-life"}
+        assert [s["tag"] for s in body["similar"]] == ["communication"]
+
+
+class TestReviewerChoosesUncategorised:
+    """An explicitly empty category is a decision, not a missing field (v000.006.206).
+
+    Proposals raised before v000.006.205 carry the placeholder `general`, which is not one
+    of the registry's categories. Selecting "uncategorised" sends `""`, and an `or` chain
+    treated that as absent and fell back to the stored placeholder — so the reviewer's
+    choice was silently overridden and `general` entered the vocabulary anyway.
+    """
+
+    def test_an_empty_category_is_not_overridden_by_the_stored_one(self, monkeypatch):
+        from Evelyn.tools import tag_librarian
+
+        admitted = {}
+        monkeypatch.setattr(
+            tag_librarian, "admit_proposed_term",
+            lambda term, category="": admitted.update(term=term, category=category) or True,
+        )
+        pid = memory_db.insert_proposal(
+            type="tag_admission", source_ids=[], topic="zzz-uncategorised",
+            suggested_category="general", reason="Legacy proposal.",
+            merged_observation="", confidence="low",
+        )
+
+        res = TestClient(app).post(
+            f"/api/review/proposals/{pid}/approve",
+            headers={"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {},
+            json={"modified_text": "zzz-uncategorised", "category": ""},
+        )
+
+        assert res.status_code == 200, res.text
+        assert admitted["category"] == ""

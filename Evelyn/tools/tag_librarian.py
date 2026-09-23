@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-22 20:15:53
+# date modified: 2026-09-22 21:41:20
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -969,7 +969,9 @@ def index_tag_in_chroma(tag: str, category: str = "", description: str = "",
         doc_text = _build_tag_embedding_doc(clean_tag)
         meta = {
             "tag": clean_tag,
-            "category": category or (clean_tag.split("/")[0] if "/" in clean_tag else "general"),
+            # No placeholder: an uncategorised term is uncategorised in the vector
+            # metadata too, or the embedding disagrees with the registry row.
+            "category": category or (clean_tag.split("/")[0] if "/" in clean_tag else ""),
             "description": description or "",
             "usage_count": usage_count,
             "type": "master_tag"
@@ -1467,8 +1469,9 @@ def propose_tag_admission(
     term goes to the same review queue that already carries merges and stubs (taxonomy §6).
 
     Proposing does **not** admit the term and does not decide whether the caller stores it.
-    Approval registers it, unprotected, so ordinary maintenance can still prune it later if
-    nothing uses it.
+    Approval registers it, unprotected: it entered by inference rather than from the reviewed
+    vocabulary, so it is eligible for a retirement proposal once it has gone unused past the
+    grace period, which a curated term never is.
 
     Already-pending terms are skipped, so a term requested by fifty facts yields one
     proposal, and the queue is capped so a misbehaving writer cannot bury the review UI.
@@ -1508,7 +1511,10 @@ def propose_tag_admission(
     for term in dict.fromkeys(unregistered):
         if term in already or len(proposed) >= room:
             continue
-        facet = term.split("/")[0] if "/" in term else "general"
+        # Only a facet-prefixed term states its own axis. A flat term's category is a
+        # curatorial judgement the reviewer makes, so it is left empty rather than filled
+        # with a placeholder that would enter the registry as if it meant something.
+        facet = term.split("/")[0] if "/" in term else ""
         try:
             memory_db.insert_proposal(
                 type=TAG_ADMISSION_PROPOSAL,
@@ -1536,12 +1542,14 @@ def admit_proposed_term(term: str, category: str = "") -> bool:
     """Register a term that a reviewer approved.
 
     Registered unprotected: the term entered by inference rather than from the reviewed
-    vocabulary, so it stays subject to ordinary zero-usage pruning. Only curated terms
-    carry ``protected`` (see migration 000.006.196).
+    vocabulary, so it remains eligible for a retirement proposal if it goes unused. Only
+    curated terms carry ``protected`` (see migration 000.006.196).
 
     Args:
         term: The approved term, in canonical §5 format.
-        category: Optional facet/category; derived from the term when omitted.
+        category: The reviewer's chosen category. A facet-prefixed term supplies its own
+            when this is omitted; a flat term is left uncategorised rather than being
+            given a placeholder, because no category can be inferred from the term alone.
 
     Returns:
         bool: True when the term is registered.
@@ -1549,12 +1557,13 @@ def admit_proposed_term(term: str, category: str = "") -> bool:
     clean = normalize_tag_format(term)
     if not clean:
         return False
+    resolved = category or (clean.split("/")[0] if "/" in clean else "")
     taxonomy_db.upsert_master_tag(
-        clean,
-        category=category or (clean.split("/")[0] if "/" in clean else "general"),
-        description="Admitted through review.",
+        clean, category=resolved, description="Admitted through review."
     )
-    index_master_tag_in_chroma(clean, category=category, description="Admitted through review.")
+    # The vector copy must carry the same category as the row, or the two disagree about
+    # what was admitted.
+    index_master_tag_in_chroma(clean, category=resolved, description="Admitted through review.")
     return True
 
 

@@ -1,6 +1,6 @@
 # test_context_split.py
 # date created: 2026-08-19
-# date modified: 2026-08-19 19:01:31
+# date modified: 2026-09-22 21:57:21
 # tags: #tests, #split, #context, #consolidation, #decomposition
 
 import sys
@@ -97,11 +97,11 @@ class TestContextSplit(unittest.TestCase):
 entries:
   - category: Cat05-U
     subject: Alex
-    tags: "Home/Coffee/Espresso"
+    tags: "coffee, routine"
     observation: "Prefers morning espresso."
   - category: Cat14-U
     subject: Alex
-    tags: "Tech/HomeLab/HomeAssistant"
+    tags: "homelab, smart-home-technology"
     observation: "Runs a HomeAssistant Zigbee server."
 ```
 """
@@ -114,7 +114,10 @@ entries:
             # Call preview route
             preview_result = asyncio_run(evelyn_server.preview_context_split(req, None))
             self.assertEqual(len(preview_result["splits"]), 2)
-            self.assertEqual(preview_result["splits"][0]["tags"], "Home/Coffee/Espresso")
+            # Flat controlled-vocabulary terms, not the pre-coordinate path the split prompt
+            # taught until v000.006.204. This assertion previously expected `Home/Coffee/Espresso`
+            # and had been failing since that release.
+            self.assertEqual(preview_result["splits"][0]["tags"], "coffee, routine")
 
     def test_generate_split_proposal_in_consolidator(self):
         """Verify consolidator generates a split proposal for bloated entries."""
@@ -122,7 +125,7 @@ entries:
             category="Cat05-U",
             subject="Alex",
             observation="Enjoys dark roast coffee every morning and builds mechanical keyboards with tactile switches and lubed stabilizers.",
-            tags="Home/Coffee, Tech/Keyboards",
+            tags="coffee, hardware",
             status="live"
         )
         self.created_entry_ids.append(test_source_id)

@@ -1,6 +1,6 @@
 # test_tag_admission_proposals.py
 # date created: 2026-09-22 20:20:00
-# date modified: 2026-09-22 19:31:21
+# date modified: 2026-09-22 21:48:15
 # tags: #test, #tags, #taxonomy, #proposals, #admission, #review
 
 """Cover for the tag-admission quarantine route (v000.006.201).
@@ -91,10 +91,43 @@ def test_facet_is_recorded_for_the_reviewer(stores):
     assert _pending()[0]["suggested_category"] == "motif"
 
 
+def test_a_flat_term_is_left_uncategorised_for_the_reviewer(stores):
+    """`general` is not one of the registry's categories, so proposing one would put a
+    meaningless value into the vocabulary the moment a reviewer clicked approve."""
+    stores.propose_tag_admission(["zzz-flat-term"])
+
+    assert _pending()[0]["suggested_category"] == ""
+
+
 class TestApproval:
     def test_admitting_registers_the_term(self, stores):
         assert stores.admit_proposed_term("zzz-approved-term") is True
         assert "zzz-approved-term" in {r["tag"] for r in taxonomy_db.get_master_tags()}
+
+    def test_a_flat_term_is_admitted_without_an_invented_category(self, stores):
+        stores.admit_proposed_term("zzz-no-category")
+
+        row = next(r for r in taxonomy_db.get_master_tags() if r["tag"] == "zzz-no-category")
+        assert (row["category"] or "") == ""
+
+    def test_the_reviewers_category_is_recorded(self, stores):
+        stores.admit_proposed_term("zzz-chosen-cat", category="domestic-life")
+
+        row = next(r for r in taxonomy_db.get_master_tags() if r["tag"] == "zzz-chosen-cat")
+        assert row["category"] == "domestic-life"
+
+    def test_the_vector_copy_carries_the_same_category_as_the_row(self, stores, monkeypatch):
+        """The row and its embedding must agree on what was admitted; they were written
+        from different values, so an inferred category reached one and not the other."""
+        seen = {}
+        monkeypatch.setattr(
+            tag_librarian, "index_master_tag_in_chroma",
+            lambda tag, category="", description="": seen.update(tag=tag, category=category),
+        )
+        stores.admit_proposed_term("motif/zzz-vector")
+
+        row = next(r for r in taxonomy_db.get_master_tags() if r["tag"] == "motif/zzz-vector")
+        assert seen["category"] == row["category"] == "motif"
 
     def test_admitted_terms_are_unprotected(self, stores):
         """A term that entered by inference stays prunable; only curated terms are protected."""
@@ -111,3 +144,60 @@ class TestApproval:
 
     def test_a_blank_term_is_refused(self, stores):
         assert stores.admit_proposed_term("   ") is False
+
+
+class TestStubTagsFollowTheStandard:
+    """A ghost stub carries its type and nothing else (v000.006.207).
+
+    The generator defaulted to `stub, concept`. Neither is a registered term, and the §4
+    class profile forbids a domain tag on the `stub` class outright — the registered form
+    is the type facet `type/stub`, which is what the 124 stubs already in the vault carry.
+    """
+
+    def test_the_payload_default_is_the_registered_type_facet(self):
+        from Evelyn.tools import link_librarian
+
+        assert link_librarian.StubPayload(target_name="Anything").tags == ["type/stub"]
+
+    def test_a_payload_with_no_tags_element_falls_back_to_the_type_facet(self):
+        from Evelyn.tools import link_librarian
+
+        parsed = link_librarian.parse_stub_xml(
+            '<entity_stub target="Anything"><abstract>x</abstract></entity_stub>'
+        )
+
+        assert parsed.tags == ["type/stub"]
+
+
+class TestStubFilenamesAreCrossPlatform:
+    """A wikilink target may hold characters a filename may not (v000.006.208).
+
+    `[[Nier: Automata]]` produced `Nier: Automata.md`, which Windows cannot represent, so
+    Syncthing refused to sync it. Sanitising the stem alone would orphan every existing
+    link to it, so the original name is carried as an alias.
+    """
+
+    def test_illegal_characters_are_stripped_from_the_path(self):
+        from Evelyn.tools import link_librarian
+
+        assert link_librarian.stub_relpath("Nier: Automata") == "Stubs/Nier Automata.md"
+        assert link_librarian.stub_relpath('A<B>C|D?') == "Stubs/A B C D.md"
+
+    def test_the_original_name_survives_as_title_and_alias(self):
+        from Evelyn.tools import link_librarian
+
+        md = link_librarian.render_stub_markdown(
+            link_librarian.StubPayload(target_name="Nier: Automata", synthesized_abstract="x")
+        )
+
+        assert 'title: "Nier: Automata"' in md
+        assert 'aliases: ["Nier: Automata"]' in md
+
+    def test_a_clean_name_gains_no_redundant_alias(self):
+        from Evelyn.tools import link_librarian
+
+        md = link_librarian.render_stub_markdown(
+            link_librarian.StubPayload(target_name="Valheim", synthesized_abstract="x")
+        )
+
+        assert "aliases: []" in md
