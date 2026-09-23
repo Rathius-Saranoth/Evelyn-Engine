@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-22 20:15:53
+date modified: 2026-09-22 20:21:51
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,38 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.204] - 2026-09-22 — *Teach What You Enforce*
+
+The engine normalises tags to the §5 standard on write, and then asks the model for the
+opposite shape. Extraction prompts were still teaching the pre-coordinate form.
+
+### Fixed
+- **The fact extractor instructed the model to break the standard.** Rule 5 read
+  *"MULTI-TIER DOMAIN TAXONOMY: Structure tags as hierarchical domain trees (`Tech/Python/FastAPI`,
+  `Home/Coffee/Espresso`) ... Use TitleCase with underscores for named entities (`John_Smith`,
+  `FastAPI`)"* — the entity/concept branch §5 abolished precisely because it lets one term fork
+  into `ai` and `Ai`. It now asks for flat controlled-vocabulary terms: lowercase, hyphens join
+  words, named entities under the same rule as any other term, and a preference for existing
+  terms over near-duplicates.
+- **Five few-shot examples reinforced it**, which is the strongest way to teach a model a
+  format. `Home/Coffee/Espresso` → `coffee, routine`, `Relationship/Dynamics, Collaboration` →
+  `relationship, software-architecture`, `Pets/Cats/Routine` → `cat, pet, routine`, and so on.
+  Every replacement term is verified present in the registry and already in canonical form, so
+  the examples cannot themselves propose unregistered vocabulary.
+- **The same shape appeared in three more prompts**: the split-preview rule and examples in
+  `evelyn_server`, the examples in `fact_splitter`, and the `merged_tags` example in
+  `fact_deduplicator` (`"Tech/Python/FastAPI, John_Smith"`).
+
+This closes the loop that would have made memory vocabulary reconciliation pointless: retagging
+existing facts while extraction keeps minting `Relationship/Dynamics` only re-creates the drift.
+It is the likeliest explanation for memory holding 268 hierarchical tags and 273 of 275 atoms
+unregistered.
+
+### Notes
+- Procedures, reference docs and XML injection templates carried no tag-format guidance. Two
+  memory facts describe past tagging deliberations (#9321, #9429) in the past tense; they are
+  historical record rather than instruction and were left as written.
 
 ## [000.006.203] - 2026-09-22 — *A Date Is Not a Subject*
 

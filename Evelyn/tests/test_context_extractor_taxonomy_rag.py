@@ -1,6 +1,6 @@
 # test_context_extractor_taxonomy_rag.py
 # date created: 2026-08-19
-# date modified: 2026-09-22 19:32:37
+# date modified: 2026-09-22 20:22:45
 # tags: #tests, #taxonomy, #rag, #extractor, #novelty
 
 import sys
@@ -96,7 +96,10 @@ class TestContextExtractorTaxonomyRAG(unittest.TestCase):
         self.assertIn("Enjoys morning pour-over coffee.", prompt)
         self.assertIn("CRITICAL SUBSTANCE & OBSERVATION RULES", prompt)
         self.assertIn("WRITE DEEP, SUBSTANTIVE OBSERVATIONS", prompt)
-        self.assertIn("MULTI-TIER DOMAIN TAXONOMY", prompt)
+        # Renamed in v000.006.204: the rule now teaches flat controlled-vocabulary terms
+        # instead of the TitleCase hierarchy that §5 abolished.
+        self.assertIn("CONTROLLED VOCABULARY TAGS", prompt)
+        self.assertNotIn("TitleCase with underscores", prompt)
 
     def test_parse_facts_yaml_with_hierarchical_tags(self):
         """Verify YAML facts block parsing normalizes multi-tier domain tags and TitleCase entities."""

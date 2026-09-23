@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-09-22 20:05:07
+# date modified: 2026-09-22 20:21:51
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -72,7 +72,7 @@ Output ONLY a YAML block:
 ```yaml
 verdict: supersede   # supersede / merge / keep_both
 merged_summary: "The consolidated fact as a rich, substantive, clear sentence explicitly naming the subject."
-merged_tags: "Tech/Python/FastAPI, John_Smith"        # comma-separated hierarchical domain tags
+merged_tags: "python, automation"        # flat controlled-vocabulary terms, lowercase-hyphen
 confidence: high     # high / medium / low
 reasoning: "Brief explanation of the verdict."
 ```\

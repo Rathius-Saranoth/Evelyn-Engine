@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-22 19:55:32
+# date modified: 2026-09-22 20:21:51
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6606,19 +6606,21 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         f"CATEGORY REFERENCE:\n{cat00}\n\n"
         "RULES:\n"
         "1. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "2. MULTI-TIER DOMAIN TAGS: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, "
-        "`Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n"
+        "2. CONTROLLED VOCABULARY TAGS: Assign flat subject terms for each split item (e.g. "
+        "`python, automation`, `coffee, routine`). They are combined at retrieval time, so a "
+        "hierarchy built into the tag only fragments it. Lowercase, hyphens join words, and "
+        "named entities follow the same rule — no TitleCase, no underscores.\n"
         f"3. Assign the most fitting Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} code for each split entry.\n\n"
         "Output ONLY a fenced YAML block:\n"
         "```yaml\n"
         "entries:\n"
         f"  - category: Cat05-{cfg.SUBJECT_CODE_USER}\n"
         f"    subject: {cfg.USER_NAME}\n"
-        '    tags: "Tech/Python/FastAPI"\n'
+        '    tags: "python, automation"\n'
         '    observation: "First clean, atomic fact with full specific detail."\n'
         f"  - category: Cat14-{cfg.SUBJECT_CODE_USER}\n"
         f"    subject: {cfg.USER_NAME}\n"
-        '    tags: "Home/Server/ZWave"\n'
+        '    tags: "homelab, automation"\n'
         '    observation: "Second clean, atomic fact with full specific detail."\n'
         "```"
     )

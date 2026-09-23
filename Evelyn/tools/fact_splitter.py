@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-22 19:31:21
+# date modified: 2026-09-22 20:21:51
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -71,11 +71,11 @@ async def generate_split_proposal(
         "entries:\n"
         f"  - category: Cat05-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
         f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
-        "    tags: \"Tech/Python/FastAPI\"\n"
+        "    tags: \"python, automation\"\n"
         f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} prefers developing Python backend services using FastAPI.\"\n"
         f"  - category: Cat14-{getattr(cfg, 'SUBJECT_CODE_USER', 'U')}\n"
         f"    subject: {getattr(cfg, 'USER_NAME', 'Alex')}\n"
-        "    tags: \"Home/Server/ZWave\"\n"
+        "    tags: \"homelab, automation\"\n"
         f"    observation: \"{getattr(cfg, 'USER_NAME', 'Alex')} manages home automation devices using ZWave on a local server.\"\n"
         "```"
     )
