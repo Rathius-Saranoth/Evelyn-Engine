@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-22 20:05:07
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -42,7 +42,7 @@ _PROPOSAL_SYSTEM_PROMPT = (
     "You are a Knowledge Engineer & Qualitative Analyst. "
     "Your primary job is to catch redundancies without destroying the granular details about the human experience. "
     "Reason through date ordering and semantic meaning before deciding. "
-    "Entries with no date (CY-YYYY/MM/DD) are to be treated as the oldest. "
+    "Entries with no date are to be treated as the oldest. "
     "Output only the YAML block."
 )
 

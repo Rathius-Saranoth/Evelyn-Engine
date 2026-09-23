@@ -1,6 +1,6 @@
 # taxonomy_db.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-22 19:09:21
+# date modified: 2026-09-22 19:55:32
 # tags: #taxonomy, #tags, #vocabulary, #authority-control, #sqlite
 
 """taxonomy_db.py — Master Tag Taxonomy registry (shared controlled vocabulary).
@@ -126,6 +126,36 @@ def invalidate_alias_cache() -> None:
     """Drop the cached alias map so the next lookup re-reads the registry."""
     global _ALIAS_CACHE
     _ALIAS_CACHE = None
+
+
+def record_alias(alias: str, canonical: str, tier: str = "reviewed") -> None:
+    """Record a `UF` equivalence so a retired term keeps pointing at its preferred form.
+
+    Retiring a term in a controlled vocabulary means deprecating it *with a pointer*, not
+    erasing it: a document or query still phrased the retired way must reach the preferred
+    term, and deleting the record throws away the knowledge that the variant existed
+    (taxonomy §6.2). Callers invalidate the cache themselves after a batch.
+
+    Args:
+        alias: The retired surface form.
+        canonical: The preferred term it should resolve to.
+        tier: Provenance of the decision ('reviewed', 'inferred').
+    """
+    if not alias or not canonical or alias == canonical:
+        return
+    init_db()
+    con = get_db()
+    try:
+        con.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, tier = excluded.tier""",
+            (alias, canonical, tier, time.time()),
+        )
+        con.commit()
+    finally:
+        con.close()
+    invalidate_alias_cache()
 
 
 def canonicalize_tags(tags: list[str]) -> list[str]:

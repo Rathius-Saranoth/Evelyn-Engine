@@ -64,9 +64,11 @@ def test_duplicates_within_one_call_collapse(stores):
     assert len(_pending()) == 1
 
 
-def test_date_anchors_are_never_proposed(stores):
-    """CY- anchors are exempt from the vocabulary (§3.8), not candidates for it."""
-    assert stores.propose_tag_admission(["CY-2026/09/22"]) == []
+def test_administrative_namespaces_are_never_proposed(stores):
+    """Administrative axes are exempt from the vocabulary (§3.8), not candidates for it.
+    Dates are not among them any more: the time axis is the `occurred` property, so a date
+    never reaches the tag pipeline at all."""
+    assert stores.propose_tag_admission(["status/active", "obsidian-graph/contact"]) == []
     assert _pending() == []
 
 

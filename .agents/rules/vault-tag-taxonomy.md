@@ -142,7 +142,7 @@ Facets are **orthogonal**. A note sits at their intersection; it never has to ch
 | **Motif** | `motif/` | 0 or more | Recurring theme, symbol, or felt quality |
 | **Setting** | `setting/` | 0 or more | Conceptual space the content occupies |
 | **Event** | `event/` | 0 or more | Kind of occurrence the document is anchored to |
-| **Time** | `CY-YYYY/MM/DD` | 0 or 1 | Chronological anchor (protected) |
+| **Time** | `occurred:` property | 0 or 1 | Chronological anchor — a **property**, not a tag (§3.8) |
 
 ### 3.2 Administrative axis — vault mechanics, not subject matter
 
@@ -228,7 +228,7 @@ Adopted from FAST's Event facet, adapted to the §2 boundary. It supplies life-c
 
 - Holds **kinds of occurrence**, not named events: `event/surgery`, `event/funeral`, `event/move`, `event/job-change`, `event/travel`.
 - A **named** event is an individual and becomes a link — `[[Grandmother's Funeral 2019]]`, not `event/grandmothers-funeral-2019`.
-- **Orthogonal to Time**: `event/` answers *what kind of occurrence*; `CY-` answers *when*. Both may apply.
+- **Orthogonal to Time**: `event/` answers *what kind of occurrence*; the `occurred` property answers *when*. Both may apply.
 - **Not a subject tag.** A document *about* funeral customs as a topic takes a domain tag (`culture/death-rites`); the event facet means the document is *anchored to* an occurrence of that kind.
 - Facet prefix plus a single atom, as with every other axis (§5).
 
@@ -239,14 +239,16 @@ Date tags follow **EDTF (ISO 8601-2:2019)** semantics, which distinguishes two t
 
 | Form | Meaning | Example |
 |---|---|---|
-| `CY-YYYY/MM/DD` | Full date | `CY-2026/09/19` |
-| `CY-YYYY/MM` | **Reduced precision** — anchored to the month; no day was ever intended | `CY-2026/05` |
-| `CY-YYYY` | Reduced precision — anchored to the year | `CY-2025` |
-| `X` in any position | **Unspecified digit** — a value exists but is unknown | `CY-XXXX/11/16` (November 16, year unknown) |
+| `YYYY-MM-DD` | Full date | `2026-09-19` |
+| `YYYY-MM` | **Reduced precision** — anchored to the month; no day was ever intended | `2026-05` |
+| `YYYY` | Reduced precision — anchored to the year | `2025` |
+| `X` in any position | **Unspecified digit** — a value exists but is unknown | `XXXX-11-16` (November 16, year unknown) |
 
-- **Reduced precision and unspecified digits are not interchangeable.** `CY-2026/05` asserts "May 2026"; `CY-2026/05/XX` asserts "a specific day in May 2026 that we do not know." Use the form that is actually true.
+- **Reduced precision and unspecified digits are not interchangeable.** `2026-05` asserts "May 2026"; `2026-05-XX` asserts "a specific day in May 2026 that we do not know." Use the form that is actually true.
 - `X` is uppercase per EDTF. Lowercase `u` was the superseded draft syntax and is not accepted.
-- Pattern: `^CY-[0-9X]{4}(/[0-9X]{2}){0,2}$`
+- Pattern: `^[0-9X]{4}(-[0-9X]{2}){0,2}$`, written to the `occurred:` frontmatter key.
+- **Why a property and not a tag.** The `CY-` prefix existed only because an Obsidian tag cannot begin with a digit. A date is an attribute of the note, not a subject it is about; it is the one facet whose primary access pattern is a *range* ("notes between March and June"), which a tag cannot answer without enumerating every day; and as a tag it forced every consumer in the engine to special-case it. A full date parses as a native YAML date, which is what makes those range queries work. An undated note simply omits the key.
+- A facet is a conceptual axis, not a storage format: post-coordination combines axes at query time, and a property participates in that better than a tag does.
 
 ---
 
@@ -304,7 +306,7 @@ event/surgery       obsidian-graph/contact
   two coordinates — the test is whether the halves are independently meaningful *about this note*.
   `work-routine` fails it (two coordinates); `uv-mapping` passes (one technique).
 - **No casing branch exists.** Proper nouns follow the same rule, and per §2 most should be links.
-- Acronyms are lowercased (`gis`, `ng911`). `CY-YYYY/MM/DD` is exempt from all of the above (§3.8).
+- Acronyms are lowercased (`gis`, `ng911`). Dates are not tags at all, so §5 never applies to them (§3.8).
 
 ## 🔐 6. Vocabulary Control
 

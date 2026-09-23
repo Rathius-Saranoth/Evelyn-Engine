@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-20 08:32:00
+# date modified: 2026-09-22 20:15:53
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1046,6 +1046,12 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 # =============================================================================
 TAG_LIBRARIAN_ENABLED = False  # Disabled — classification logic under revision
 
+# Days a registered term may go unused before maintenance proposes retiring it. A reserved
+# term legitimately has no uses yet — the DCMI media sub-types and the reserved `event/`
+# values were registered before any document needed them — so zero usage is never itself a
+# reason to remove a term. Maintenance proposes; a human decides.
+TAG_RETIREMENT_GRACE_DAYS = 90
+
 # Wave 4 idle trigger (20 minutes / 1200s). Staggered after deep research.
 TAG_LIBRARIAN_IDLE_THRESHOLD = 1200  # 20 minutes idle (Wave 4)
 TAG_LIBRARIAN_BATCH_SIZE = 2  # Process 2 documents per idle trigger
@@ -1057,12 +1063,10 @@ TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
 ]
 
 # Protected tag regexes (never modified, removed, or normalized)
-# CY-YYYY/MM/DD is strictly protected.
+# The time axis is no longer among them: dates live in the `occurred` property, not in
+# `tags` (v000.006.203). The CY- prefix only ever existed because an Obsidian tag cannot
+# begin with a digit, and every tag consumer had to special-case the result.
 TAG_LIBRARIAN_EXCLUSIONS = [
-    # EDTF (ISO 8601-2:2019) date anchors. Supports reduced precision (CY-2026,
-    # CY-2026/05) and unspecified digits marked with uppercase X (CY-XXXX/11/16).
-    # See .agents/rules/vault-tag-taxonomy.md §3.8.
-    r"^CY-[0-9X]{4}(/[0-9X]{2}){0,2}$",
     r"^status/",  # System status tags (administrative axis)
     r"^kanban",  # Kanban board tags (administrative axis)
     r"^obsidian-graph/",  # Graph/view control flags (administrative axis)
@@ -1077,7 +1081,8 @@ TAG_LIBRARIAN_FORMAT_RULES = {
     "word_separator": "hyphen",  # "uv-mapping", "habit-tracking"
     "level_separator": "slash",  # "3d-modeling/uv-mapping"
     "max_depth": 3,  # advisory: enforced by authority control, not by the normalizer
-    "date_anchor_exempt": True,  # CY- tags bypass all of the above (§3.8)
+    # No date exemption: the time axis is the `occurred` property, not a tag (§3.8), so
+    # these rules never meet a date in the first place.
 }
 
 # Chroma Vector Tag Taxonomy Settings (Tag RAG)

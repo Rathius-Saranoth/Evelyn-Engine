@@ -1,14 +1,14 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-22 19:31:21
+# date modified: 2026-09-22 20:15:53
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
 tag_librarian.py — Incremental Obsidian Tag Maintenance & Taxonomy Management.
 
 Exports:
-    is_excluded_tag()                     — Checks if a tag matches protected exclusion rules (e.g. CY-YYYY/MM/DD).
-    canonicalize_date_tag()               — Resolves EDTF date anchors (reduced precision / unspecified digits).
+    is_excluded_tag()                     — Checks if a tag matches protected exclusion rules (e.g. status/, obsidian-graph/).
+    canonicalize_occurred()               — Resolves a date to canonical EDTF for the `occurred` property.
     read_document_for_classification()    — Full text when it fits; chunked subject extraction when it does not.
     classify_document_subjects()          — Blind extraction, then deterministic reconciliation (§6.1).
     verify_tags_still_apply()             — Positive-assertion staleness check, with a removal ceiling.
@@ -33,6 +33,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from typing import Any
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,13 +61,13 @@ def is_excluded_tag(tag: str) -> bool:
     """Check if a tag matches any protected exclusion pattern.
 
     Args:
-        tag: Tag string to evaluate (e.g. 'CY-2026/08/02' or 'tech/python').
+        tag: Tag string to evaluate (e.g. 'status/active' or 'tech/python').
 
     Returns:
         bool: True if the tag is protected from modification/removal, False otherwise.
     """
     clean_tag = tag.strip().lstrip("#")
-    exclusions = getattr(cfg, "TAG_LIBRARIAN_EXCLUSIONS", [r"^CY-\d{4}/\d{2}/\d{2}$"])
+    exclusions = getattr(cfg, "TAG_LIBRARIAN_EXCLUSIONS", [r"^status/", r"^obsidian-graph/"])
 
     return any(re.search(pattern, clean_tag, re.IGNORECASE) for pattern in exclusions)
 
@@ -94,30 +95,39 @@ def is_excluded_document(path: str) -> bool:
     return False
 
 
-# EDTF date-anchor recognition (taxonomy §3.8). Deliberately also matches legacy
-# spellings (Cy_Yyyy/11/16, cy-2025) so every variant converges on one canonical form.
-_DATE_TAG_RE = re.compile(
-    r"^cy[-_]?([0-9x]{4}|yyyy)(?:[/_-]([0-9x]{2}|mm))?(?:[/_-]([0-9x]{2}|dd))?$",
-    re.IGNORECASE,
-)
 _DATE_PLACEHOLDERS = {"YYYY": "XXXX", "MM": "XX", "DD": "XX"}
 
 
-def canonicalize_date_tag(tag: str) -> str | None:
-    """Resolve a tag to its canonical EDTF date-anchor form.
+OCCURRED_PROPERTY = "occurred"
 
-    Follows EDTF (ISO 8601-2:2019): reduced precision and unspecified digits are
-    distinct. 'CY-2026/05' means May 2026 (no day was intended); 'CY-2026/05/XX'
-    would mean a specific unknown day in May 2026. Unexpanded template literals
-    (YYYY/MM/DD) are treated as unspecified digits and become X.
+# Accepts the retired tag spellings (cy-2025, Cy_Yyyy/11/16) alongside plain EDTF, so every
+# variant converges on one canonical property value.
+_OCCURRED_RE = re.compile(
+    r"^(?:cy[-_]?)?([0-9x]{4}|yyyy)(?:[/_-]([0-9x]{2}|mm))?(?:[/_-]([0-9x]{2}|dd))?$",
+    re.IGNORECASE,
+)
+
+
+def canonicalize_occurred(value: str) -> str | None:
+    """Resolve a date to its canonical EDTF form for the ``occurred`` property.
+
+    Follows EDTF (ISO 8601-2:2019): reduced precision and unspecified digits are distinct.
+    '2026-05' means May 2026 (no day was intended), while '2026-05-XX' means a specific but
+    unknown day in May 2026. Unexpanded template literals (YYYY/MM/DD) are read as
+    unspecified digits and become X.
+
+    Accepts the retired ``CY-YYYY/MM/DD`` tag form as input so existing data migrates
+    cleanly. That prefix only ever existed because an Obsidian tag cannot begin with a
+    digit; a property has no such restriction, so the canonical form drops it and uses
+    hyphens, which is what every date parser and Obsidian's own date type expect.
 
     Args:
-        tag: Raw tag string, with or without a leading '#'.
+        value: A date string, tag or property, with or without a leading '#'.
 
     Returns:
-        str | None: Canonical 'CY-...' form, or None if the tag is not a date anchor.
+        str | None: Canonical EDTF form, or None if the value is not a date.
     """
-    m = _DATE_TAG_RE.match(tag.strip().lstrip("#").strip())
+    m = _OCCURRED_RE.match(str(value).strip().lstrip("#").strip())
     if not m:
         return None
 
@@ -128,7 +138,7 @@ def canonicalize_date_tag(tag: str) -> str | None:
         token = group.upper()
         parts.append(_DATE_PLACEHOLDERS.get(token, token))
 
-    return "CY-" + "/".join(parts) if parts else None
+    return "-".join(parts) if parts else None
 
 
 def normalize_tag_format(tag: str) -> str:
@@ -139,12 +149,12 @@ def normalize_tag_format(tag: str) -> str:
     branch — proper nouns follow the same rule as concepts, which is what removes
     any way for one term to fork into 'ai' and 'Ai'.
 
-    Date anchors (§3.8) are the sole exemption and are routed to
-    canonicalize_date_tag(). Administrative namespaces listed in
-    TAG_LIBRARIAN_EXCLUSIONS are returned untouched.
+    Dates are not tags at all — the time axis is the `occurred` property (§3.8), so there
+    is no date branch here. Administrative namespaces listed in TAG_LIBRARIAN_EXCLUSIONS
+    are returned untouched.
 
     Args:
-        tag: Raw tag string (e.g. '#Tech/Ai', 'DungeonCrawlerCarl', 'Cy_Yyyy/11/16').
+        tag: Raw tag string (e.g. '#Tech/Ai', 'DungeonCrawlerCarl').
 
     Returns:
         str: Normalized tag string, or '' if nothing survives normalization.
@@ -153,10 +163,6 @@ def normalize_tag_format(tag: str) -> str:
     if not clean:
         return ""
 
-    # 1. Date anchors bypass §5 entirely.
-    date_form = canonicalize_date_tag(clean)
-    if date_form:
-        return date_form
     if is_excluded_tag(clean):
         return clean
 
@@ -815,7 +821,7 @@ def determine_document_class(body: str, title: str, path: str = "") -> str:
 
 
 def apply_application_profile(
-    doc_class: str, tags: list[str]
+    doc_class: str, tags: list[str], occurred: str | None = None
 ) -> tuple[list[str], list[str], list[str]]:
     """Enforce a class's facet profile against a document's tags (§4).
 
@@ -827,6 +833,8 @@ def apply_application_profile(
     Args:
         doc_class: A class from DOCUMENT_CLASSES.
         tags: The document's current tags.
+        occurred: The document's `occurred` property, if it has one. The time facet is
+            satisfied by this rather than by a tag.
 
     Returns:
         tuple[list[str], list[str], list[str]]: (to add, to remove, unmet requirements).
@@ -850,16 +858,17 @@ def apply_application_profile(
     )
 
     for facet, rule in profile.items():
-        if facet == "time":
-            present = any(t.startswith("CY-") for t in tags)
-        else:
-            present = any(t.startswith(f"{facet}/") for t in tags)
+        # The time axis lives in the `occurred` property, not in the tag list. It is the one
+        # facet whose primary access pattern is a range ("notes between March and June"),
+        # which a tag cannot answer without enumerating every day, and the only one every
+        # tag consumer had to special-case.
+        present = (
+            bool(occurred) if facet == "time"
+            else any(t.startswith(f"{facet}/") for t in tags)
+        )
 
         if rule == FORBIDDEN and present:
-            remove.extend(
-                t for t in tags
-                if (t.startswith("CY-") if facet == "time" else t.startswith(f"{facet}/"))
-            )
+            remove.extend(t for t in tags if t.startswith(f"{facet}/"))
         elif rule == REQUIRED and not present:
             gaps.append(facet)
 
@@ -1094,7 +1103,6 @@ def audit_document_tags(
     - Normalizes multi-word formatting (e.g. concept hyphens, entity TitleCase underscores).
     - Cleans noise prefixes ('kw/', 'ctx/').
     - Inherits parent collection tags if provided and missing.
-    - Preserves protected date tags (CY-YYYY/MM/DD).
 
     Semantic LLM Tagging (when enable_llm=True):
     - Retrieves candidate master tags via Tag RAG.
@@ -1162,7 +1170,12 @@ def audit_document_tags(
         # staleness ceiling below.
         doc_class = determine_document_class(body, title, path)
         if doc_class:
-            add, drop, gaps = apply_application_profile(doc_class, final_tags_list)
+            # Canonicalised on read, so a hand-typed '2026/05/18' or a legacy 'CY-2026/05'
+            # still satisfies the time facet rather than being silently ignored.
+            occurred = canonicalize_occurred(
+                str(parse_frontmatter(content)[0].get(OCCURRED_PROPERTY, "") or "")
+            ) or ""
+            add, drop, gaps = apply_application_profile(doc_class, final_tags_list, occurred=occurred)
             if drop:
                 final_tags_list = [t for t in final_tags_list if t not in set(drop)]
             final_tags_list.extend(t for t in add if t not in final_tags_list)
@@ -1545,6 +1558,107 @@ def admit_proposed_term(term: str, category: str = "") -> bool:
     return True
 
 
+TAG_RETIREMENT_PROPOSAL = "tag_retirement"
+
+
+def propose_tag_retirement(master_tags: list[dict[str, Any]], unused: list[str]) -> list[str]:
+    """Propose long-unused terms for retirement instead of deleting them.
+
+    Retirement is a human decision and, in a controlled vocabulary, normally means
+    deprecating a term *with a pointer* to its preferred form rather than erasing the
+    record (taxonomy §6.2) — the alias is what stops the variant being re-minted later.
+
+    A grace period applies, because a reserved term legitimately has no uses yet: the DCMI
+    media sub-types and the reserved `event/` values were registered before any document
+    needed them. Curated terms (``protected``) are never proposed at all; they arrived from
+    the reviewed vocabulary and their absence from the index says nothing about their worth.
+
+    Args:
+        master_tags: Registry rows, as returned by ``taxonomy_db.get_master_tags()``.
+        unused: Terms with zero current usage.
+
+    Returns:
+        list[str]: Terms newly proposed for retirement.
+    """
+    from Evelyn.tools import memory_db
+
+    grace_days = getattr(cfg, "TAG_RETIREMENT_GRACE_DAYS", 90)
+    cutoff = time.time() - (grace_days * 86400)
+    by_tag = {m["tag"]: m for m in master_tags}
+
+    candidates = []
+    for term in unused:
+        row = by_tag.get(term, {})
+        if row.get("protected"):
+            continue  # curated vocabulary: reserved on purpose, not stale
+        registered_at = row.get("created_at") or 0
+        if registered_at > cutoff:
+            continue  # still inside its grace period
+        candidates.append(term)
+
+    if not candidates:
+        return []
+
+    try:
+        pending = memory_db.get_pending_proposals(TAG_RETIREMENT_PROPOSAL)
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("[TAG LIBRARIAN] Could not read pending retirement proposals: %s", exc)
+        return []
+
+    already = {(p.get("topic") or "").strip() for p in pending}
+    proposed: list[str] = []
+    for term in candidates:
+        if term in already:
+            continue
+        try:
+            memory_db.insert_proposal(
+                type=TAG_RETIREMENT_PROPOSAL,
+                source_ids=[],
+                topic=term,
+                suggested_category=by_tag.get(term, {}).get("category", ""),
+                reason=(
+                    f"No document has used this term for at least {grace_days} days. "
+                    f"Approve to retire it; supply a preferred term to record an equivalence "
+                    f"instead of removing it outright."
+                ),
+                confidence="low",
+            )
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("[TAG LIBRARIAN] Could not propose retirement of '%s': %s", term, exc)
+            continue
+        proposed.append(term)
+
+    if proposed:
+        logger.info("[TAG LIBRARIAN] Proposed %d term(s) for retirement.", len(proposed))
+    return proposed
+
+
+def retire_term(term: str, replacement: str = "") -> bool:
+    """Retire an approved term, recording an equivalence when a replacement is given.
+
+    With a replacement the term becomes a `UF` pointer to it, so documents and queries
+    phrased the retired way still resolve — which is what makes the collapse permanent
+    rather than something the next extraction undoes. Without one the registry row is
+    removed; the proposal itself preserves the record that the term existed.
+
+    Args:
+        term: The term being retired, in canonical §5 format.
+        replacement: Optional preferred term to redirect to.
+
+    Returns:
+        bool: True when the registry was changed.
+    """
+    clean = normalize_tag_format(term)
+    if not clean:
+        return False
+    preferred = normalize_tag_format(replacement) if replacement else ""
+    if preferred and preferred != clean:
+        taxonomy_db.record_alias(clean, preferred, tier="reviewed")
+    taxonomy_db.delete_master_tag(clean)
+    delete_tag_from_chroma(clean)
+    return True
+
+
 def maintain_master_taxonomy() -> dict[str, Any]:
     """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
@@ -1592,50 +1706,28 @@ def maintain_master_taxonomy() -> dict[str, Any]:
             "removed_master_tags": 0,
         }
 
-    tags_to_delete: list[str] = []
+    unused: list[str] = []
     tags_to_update: list[tuple[str, str, str, int]] = []
-    protected_skipped = 0
 
     for m in master_tags:
         t = m["tag"]
         count = current_counts.get(t, 0)
         if count == 0:
-            # Zero usage is not evidence of staleness in a controlled vocabulary. Curated
-            # terms are registered deliberately and may be reserved long before a document
-            # uses one — the DCMI media sub-types and the reserved `event/` values are
-            # exactly that. Only terms that entered by inference are prunable on usage.
-            if m.get("protected"):
-                protected_skipped += 1
-                continue
-            tags_to_delete.append(t)
+            # Maintenance no longer deletes anything. A controlled vocabulary is an
+            # authority file — the set of terms judged legitimate — while usage counts
+            # describe the index, which is merely what happens to be tagged right now.
+            # Deleting an authority record because the index does not reference it lets
+            # content churn drive vocabulary churn: remove a note and its terms vanish, so
+            # restoring the note days later either re-mints them in some other surface form
+            # or forces them back through review. In post-coordinate classification a term
+            # with no current uses is a perfectly good axis value awaiting its first
+            # document. Long-unused terms are proposed for retirement instead, and the
+            # decision is a human one (see propose_tag_retirement).
+            unused.append(t)
         elif count != m.get("usage_count", 0):
             tags_to_update.append((t, m.get("category", "general"), m.get("description", ""), count))
 
-    if protected_skipped:
-        print(
-            f"[TAG LIBRARIAN] Retained {protected_skipped} curated term(s) with zero current usage "
-            f"(protected vocabulary)."
-        )
-
-    # Safety Circuit Breaker: Abort if proposed deletions exceed safe threshold
-    max_prune_ratio = getattr(cfg, "TAG_LIBRARIAN_MAX_PRUNE_RATIO", 0.15)
-    if len(master_tags) > 20 and len(tags_to_delete) > max(10, int(len(master_tags) * max_prune_ratio)):
-        print(
-            f"[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: "
-            f"Proposed deletion of {len(tags_to_delete)}/{len(master_tags)} tags exceeds safety threshold ({max_prune_ratio:.0%})."
-        )
-        return {
-            "status": "aborted",
-            "reason": "prune_threshold_exceeded",
-            "proposed_deletions": len(tags_to_delete),
-            "total_master_tags": len(master_tags),
-            "updated_master_tags": 0,
-            "removed_master_tags": 0,
-        }
-
-    for t in tags_to_delete:
-        taxonomy_db.delete_master_tag(t)
-        delete_tag_from_chroma(t)
+    retirement_candidates = propose_tag_retirement(master_tags, unused)
 
     for t, cat, desc, count in tags_to_update:
         taxonomy_db.upsert_master_tag(t, category=cat, description=desc, usage_count=count)
@@ -1644,8 +1736,9 @@ def maintain_master_taxonomy() -> dict[str, Any]:
     return {
         "status": "success",
         "updated_master_tags": len(tags_to_update),
-        "removed_master_tags": len(tags_to_delete),
-        "protected_retained": protected_skipped,
+        "removed_master_tags": 0,  # maintenance never deletes; see propose_tag_retirement
+        "unused_terms": len(unused),
+        "retirement_proposed": len(retirement_candidates),
     }
 
 

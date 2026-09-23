@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-22 19:31:21
+# date modified: 2026-09-22 19:55:32
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6443,6 +6443,20 @@ async def action_proposal(
                 if not term:
                     raise HTTPException(status_code=400, detail="Tag proposal carries no term")
                 if not tag_librarian.admit_proposed_term(term, prop.get("suggested_category") or ""):
+                    raise HTTPException(status_code=400, detail=f"Term '{term}' is not a valid tag")
+                memory_db.apply_proposal(id)
+
+            elif prop["type"] == "tag_retirement":
+                # `topic` carries the term. `modified_text` optionally carries a preferred
+                # term: supplying one records an equivalence so documents phrased the
+                # retired way still resolve, rather than erasing the record outright.
+                from Evelyn.tools import tag_librarian
+
+                term = (prop.get("topic") or "").strip()
+                replacement = (req.modified_text or "").strip() if req else ""
+                if not term:
+                    raise HTTPException(status_code=400, detail="Retirement proposal carries no term")
+                if not tag_librarian.retire_term(term, replacement):
                     raise HTTPException(status_code=400, detail=f"Term '{term}' is not a valid tag")
                 memory_db.apply_proposal(id)
 

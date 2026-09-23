@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-22 19:31:21
+date modified: 2026-09-22 20:15:53
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,110 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.203] - 2026-09-22 — *A Date Is Not a Subject*
+
+The time axis moves out of `tags` and into an `occurred` frontmatter property.
+
+### Changed
+- **Dates are a property, not a tag.** `CY-YYYY/MM/DD` existed in that shape only because an
+  Obsidian tag cannot begin with a digit. A date is an attribute of a note rather than a
+  subject the note is about; it is the one facet whose primary access pattern is a **range**
+  ("notes between March and June"), which a tag cannot answer without enumerating every day;
+  and as a tag it forced every consumer in the engine to special-case it. The canonical form
+  is now plain EDTF in `occurred:` — `2026-09-19`, `2026-05`, `XXXX-11-16` — and a full date
+  parses as a native YAML date, which is what makes those range queries work. An undated note
+  omits the key, which states "no date known" more clearly than a token meaning the same.
+- **`apply_application_profile()` takes the date.** It reads the `occurred` property for the
+  time facet instead of scanning tags, and still accepts a legacy `CY-` tag as present so a
+  not-yet-migrated note is not reported as missing its date. Time is `REQUIRED` for four
+  classes (`log`, `report`, `journal-entry`, `dream`) and `FORBIDDEN` for none.
+- **`canonicalize_occurred()` replaces `canonicalize_date_tag()`.** Same EDTF semantics —
+  reduced precision and unspecified digits stay distinct — and it accepts every retired tag
+  spelling (`CY-2026/09/19`, `Cy_Yyyy/11/16`, `cy-2025`) so existing data converges on one
+  canonical value. It still refuses ordinary vocabulary such as `cybersecurity`.
+- **Writers emit the property.** `dream_manager` and `journal_manager` write `occurred:`.
+  The Session Notes template no longer teaches the retired `#CY-YYYY/MM/DD` body hashtag.
+
+### Removed
+- **Every date special-case in the tag pipeline.** Six `startswith("CY-")` guards in
+  `tag_synonym`, the date-anchor bypass in `normalize_tag_format`, `canonicalize_date_tag()`
+  and its regex, the `^CY-...$` entry in `TAG_LIBRARIAN_EXCLUSIONS`, and the `CY-` reference
+  in the deduplicator prompt. A tag type that every consumer had to exempt was not really a
+  tag.
+
+### Fixed
+- **The frozen migration normaliser no longer reads mutable configuration.**
+  `_frozen_normalize_tag_format_000_004_002` delegated to `cfg.TAG_LIBRARIAN_EXCLUSIONS`,
+  reasoning that the original did too. That held only while the config was stable: removing
+  the `CY-` pattern from the live list would have made a replay of that already-applied
+  migration start mangling date anchors it had always preserved. The patterns are now pinned
+  in the frozen copy, which is what AGENTS.md §5 immutability actually requires.
+
+### Migration
+- **`scripts/migrate_date_tags_to_property.py`** rewrote **904** vault notes: 883 now carry an
+  `occurred` date, 23 undated notes simply lost the tag, and no note had a conflicting
+  existing value. Dry run by default.
+- **`scripts/sweep_legacy_date_lines.py`** removed the retired footer line
+  (`CY-2025/11/23 Journal/Evelyn`, `**Tags:** CY-2026/01/10`) from **285** journal and dream
+  bodies. A line is removed only when its date is already safely recorded — all 285 notes
+  already carried a matching `occurred`, verified with zero mismatches — and a line carrying
+  anything beyond the retired metadata is left alone, so prose is never swept. One `CY-`
+  reference remains in the vault, inside a fenced code block preserving an original note
+  verbatim; that is quoted content, not metadata.
+
+### Fixed — date formats that were still being taught
+- **A live memory fact taught the retired format.** Fact #9158 read "Evelyn's journaling
+  protocol requires specific tagging (#CY-YYYY/MM/DD)" and was being retrieved into context,
+  reinforcing a convention that no longer exists. Corrected to describe the `occurred`
+  property and re-embedded. (Curated directly per AGENTS.md §5 — a single fact edit is not
+  migration material.)
+- **`TAG_LIBRARIAN_FORMAT_RULES` advertised a `date_anchor_exempt` rule** that no longer has
+  anything to exempt.
+- **`is_excluded_tag()`'s fallback default still carried the `^CY-...$` pattern**, so a
+  missing config would have re-protected date tags.
+- Stale comments and docstrings in `dream_manager`, `tag_librarian` and
+  `generate_structure_review`; test fixtures in `verify_tools` and `test_tag_format_standard`
+  that used a date tag as a sample protected tag.
+- **The transitional `CY-` acceptance in `apply_application_profile` is gone** now that the
+  vault carries no date tags, so no date special-case remains in the tag pipeline at all.
+
+Model-facing tool definitions needed no change: they already specified `YYYY-MM-DD`, which is
+the canonical `occurred` form. No procedure, reference doc or XML injection template
+referenced the tag form.
+
+## [000.006.202] - 2026-09-22 — *Nothing Leaves the Catalogue*
+
+### Changed
+- **Taxonomy maintenance no longer deletes anything.** It deleted every term with zero usage,
+  which conflates two different things: a controlled vocabulary is an *authority file* — the
+  set of terms judged legitimate — while usage counts describe the *index*, which is merely
+  what happens to be tagged at this moment. Letting the second govern the first makes content
+  churn drive vocabulary churn: delete a note and its unique terms vanish from the vocabulary,
+  so restoring that note days later either re-mints them in some other surface form or forces
+  them back through review. In post-coordinate classification a term with no current uses is
+  a perfectly good axis value awaiting its first document.
+- **Long-unused terms are proposed for retirement instead.** `propose_tag_retirement()` raises
+  a `tag_retirement` proposal after a grace period (`TAG_RETIREMENT_GRACE_DAYS`, default 90),
+  because a reserved term legitimately has no uses yet. Curated (`protected`) terms are never
+  proposed at all. The decision becomes a human one.
+- **Retiring records an equivalence rather than erasing the record.** `retire_term()` accepts a
+  preferred term and writes a `UF` alias, so a document or query phrased the retired way still
+  resolves — which is what makes a collapse permanent instead of something the next extraction
+  undoes (§6.2). Without a replacement the registry row is simply removed. Approval is wired
+  into the review endpoint, which reads the optional replacement from the edit field.
+
+### Added
+- **`taxonomy_db.record_alias()`** — a public write path for equivalences. Until now only
+  migrations could record one, so retirement had no way to leave a pointer behind.
+
+### Removed
+- **The zero-usage prune and its circuit breaker.** The 15% `TAG_LIBRARIAN_MAX_PRUNE_RATIO`
+  breaker guarded an operation that no longer exists; the `protected` column it motivated
+  stays on as a provenance marker (curated vs. inferred) and now gates retirement proposals.
+- **`Evelyn/tests/test_taxonomy_prune_protection.py`** — superseded. It asserted that
+  unprotected zero-usage terms are pruned, which is the behaviour this release removes; the
+  protection contract it covered is now tested in `test_tag_retirement.py`.
 
 ## [000.006.201] - 2026-09-22 — *Ask the Librarian First*
 

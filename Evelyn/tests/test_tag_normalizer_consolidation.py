@@ -49,13 +49,13 @@ class TestCanonicalFormProperties:
         """'Owner's Manuals' leaked a quote into a YAML flow array."""
         assert "'" not in normalize_tag_format("Owner's Manuals")
 
-    def test_date_anchors_are_preserved(self):
-        """The old slug destroyed CY- anchors ('cy-20260922'); §3.8 exempts them."""
-        assert normalize_tag_format("CY-2026/09/22") == "CY-2026/09/22"
+    def test_administrative_namespaces_are_preserved(self):
+        """Administrative axes are exempt from §5 normalisation."""
+        assert normalize_tag_format("status/Active") == "status/Active"
 
     def test_normalisation_is_idempotent(self):
         """Re-normalising stored tags must be a no-op, or every write would churn."""
-        for tag in ["tech/software/git", "machine-learning", "CY-2026/09/22", "type/media/text"]:
+        for tag in ["tech/software/git", "machine-learning", "status/Active", "type/media/text"]:
             assert normalize_tag_format(normalize_tag_format(tag)) == normalize_tag_format(tag)
 
 

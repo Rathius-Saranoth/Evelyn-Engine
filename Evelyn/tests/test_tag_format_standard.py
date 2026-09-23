@@ -1,6 +1,6 @@
 # test_tag_format_standard.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-19 00:00:00
+# date modified: 2026-09-22 20:15:53
 # tags: #tests, #taxonomy, #tagging, #normalization, #edtf
 
 """Hermetic tests for the §5 tag format standard and §3.8 EDTF date anchors.
@@ -13,7 +13,7 @@ Covers .agents/rules/vault-tag-taxonomy.md:
 import pytest
 
 from Evelyn.tools.db_migrator import _frozen_normalize_tag_format_000_004_002
-from Evelyn.tools.tag_librarian import canonicalize_date_tag, normalize_tag_format
+from Evelyn.tools.tag_librarian import canonicalize_occurred, normalize_tag_format
 
 
 class TestFormatStandard:
@@ -60,31 +60,39 @@ class TestFormatStandard:
         assert normalize_tag_format(raw) == raw
 
 
-class TestEdtfDateAnchors:
-    """§3.8: reduced precision and unspecified digits are distinct."""
+class TestEdtfOccurredProperty:
+    """§3.8: the time axis is a property, and reduced precision differs from unspecified."""
 
     @pytest.mark.parametrize(("raw", "expected"), [
-        ("CY-2026/09/19", "CY-2026/09/19"),   # full date, already canonical
-        ("Cy_Yyyy/11/16", "CY-XXXX/11/16"),   # unspecified year
-        ("Cy_2026/05", "CY-2026/05"),         # reduced precision: month
-        ("cy-2025", "CY-2025"),               # reduced precision: year
+        ("2026-09-19", "2026-09-19"),       # already canonical
+        ("CY-2026/09/19", "2026-09-19"),    # retired tag form migrates cleanly
+        ("Cy_Yyyy/11/16", "XXXX-11-16"),    # unspecified year
+        ("Cy_2026/05", "2026-05"),          # reduced precision: month
+        ("cy-2025", "2025"),                # reduced precision: year
     ])
     def test_canonical_forms(self, raw, expected):
-        assert canonicalize_date_tag(raw) == expected
-        assert normalize_tag_format(raw) == expected
+        assert canonicalize_occurred(raw) == expected
 
     def test_reduced_precision_is_not_unspecified(self):
         """'May 2026' must not become 'an unknown day in May 2026'."""
-        assert canonicalize_date_tag("Cy_2026/05") == "CY-2026/05"
-        assert canonicalize_date_tag("Cy_2026/05") != "CY-2026/05/XX"
+        assert canonicalize_occurred("Cy_2026/05") == "2026-05"
+        assert canonicalize_occurred("Cy_2026/05") != "2026-05-XX"
+
+    def test_the_cy_prefix_is_gone_from_the_canonical_form(self):
+        """It existed only because a tag cannot start with a digit; a property can."""
+        assert not canonicalize_occurred("CY-2026/09/19").startswith("CY")
 
     @pytest.mark.parametrize("raw", [
         "cybersecurity", "cyberpower-cp1000pfclcd", "cytokine-dynamics", "cyber-warrior",
     ])
     def test_non_dates_are_not_captured(self, raw):
         """The cy- prefix must not swallow ordinary vocabulary."""
-        assert canonicalize_date_tag(raw) is None
+        assert canonicalize_occurred(raw) is None
         assert normalize_tag_format(raw) == raw
+
+    def test_a_date_is_no_longer_a_protected_tag(self):
+        """Dates are not tags at all now, so normalisation gives them no exemption."""
+        assert normalize_tag_format("CY-2026/09/19") == "cy-2026/09/19"
 
 
 class TestFrozenMigrationNormalizer:
@@ -519,7 +527,7 @@ class TestOneOffPhraseRetirement:
 
     def test_protected_namespaces_are_untouched(self):
         from Evelyn.tools.tag_synonym import one_off_phrase_tags
-        assert one_off_phrase_tags(self._c({"CY-2026/09/20": 1, "kanban-in-progress-now": 1})) == []
+        assert one_off_phrase_tags(self._c({"status/active": 1, "kanban-in-progress-now": 1})) == []
 
 
 class TestClassifierInvariants:
@@ -564,10 +572,12 @@ class TestClassifierInvariants:
         assert details["proposals"] == ["postprandial-somnolence"]
 
     def test_protected_tags_are_never_touched(self, monkeypatch):
+        """Administrative namespaces are exempt. Dates are not among them any more —
+        the time axis is the `occurred` property, not a tag (v000.006.203)."""
         _m, _c, details = self._run(
-            monkeypatch, self._note(["CY-2026/09/20", "alpha"]), applied=["beta"],
+            monkeypatch, self._note(["status/active", "alpha"]), applied=["beta"],
         )
-        assert "CY-2026/09/20" in details["final_tags"]
+        assert "status/active" in details["final_tags"]
 
 
 class TestDocumentReading:
@@ -707,8 +717,8 @@ class TestStalenessRemoval:
         assert tl.verify_tags_still_apply("x", "T", ["a", "b"]) == []
 
     def test_protected_tags_are_never_candidates(self, monkeypatch):
-        tl = self._mock(monkeypatch, '{"stale": ["CY-2026/09/20"]}')
-        assert tl.verify_tags_still_apply("x", "T", ["CY-2026/09/20", "a"]) == []
+        tl = self._mock(monkeypatch, '{"stale": ["status/active"]}')
+        assert tl.verify_tags_still_apply("x", "T", ["status/active", "a"]) == []
 
     def test_small_tag_sets_allow_a_couple_of_removals(self, monkeypatch):
         """A ratio is meaningless on a three-tag note where two are genuinely wrong."""
@@ -751,14 +761,16 @@ class TestApplicationProfile:
     def test_required_facet_absent_is_reported_not_invented(self):
         """A dream needs a motif, but guessing which one is subject analysis, not cataloguing."""
         from Evelyn.tools.tag_librarian import apply_application_profile
-        add, _d, gaps = apply_application_profile("dream", ["CY-2026/01/01", "setting/tropical"])
+        add, _d, gaps = apply_application_profile(
+            "dream", ["setting/tropical"], occurred="2026-01-01"
+        )
         assert "motif" in gaps
         assert not any(t.startswith("motif/") for t in add)
 
     def test_satisfied_requirements_are_not_reported_as_gaps(self):
         from Evelyn.tools.tag_librarian import apply_application_profile
         _a, _d, gaps = apply_application_profile(
-            "dream", ["CY-2026/01/01", "motif/combat", "setting/tropical"]
+            "dream", ["motif/combat", "setting/tropical"], occurred="2026-01-01"
         )
         assert gaps == []
 
@@ -769,8 +781,8 @@ class TestApplicationProfile:
     def test_protected_tags_survive_a_forbidden_rule(self):
         """'time forbidden' must never strip a protected date anchor (§3.8)."""
         from Evelyn.tools.tag_librarian import apply_application_profile
-        _a, drop, _g = apply_application_profile("reference", ["CY-2026/01/01", "music"])
-        assert "CY-2026/01/01" not in drop
+        _a, drop, _g = apply_application_profile("reference", ["music"], occurred="2026-01-01")
+        assert drop == []  # nothing forbidden for a dream; the date is a property now
 
     def test_class_answer_outside_the_list_is_rejected(self, monkeypatch):
         from Evelyn.tools import tag_librarian
@@ -795,10 +807,6 @@ class TestDecomposition:
         """setting/biome/tropical categorises within an axis — that is the hierarchy removed."""
         from Evelyn.tools.tag_synonym import decompose_to_atoms
         assert decompose_to_atoms("setting/biome/tropical") == ["setting/tropical"]
-
-    def test_date_anchors_are_untouched(self):
-        from Evelyn.tools.tag_synonym import decompose_to_atoms
-        assert decompose_to_atoms("CY-2026/01/01") == ["CY-2026/01/01"]
 
     def test_administrative_namespaces_are_untouched(self):
         from Evelyn.tools.tag_synonym import decompose_to_atoms
@@ -859,7 +867,7 @@ class TestFlatCompoundDecomposition:
         from Evelyn.tools.tag_synonym import flat_compound_decomposition
         root = self._vault(tmp_path, "Nothing relevant here.")
         plan = flat_compound_decomposition(
-            ["type/journal-entry", "CY-2026/01/01", "obsidian-graph/no-graph"], root
+            ["type/journal-entry", "status/active", "obsidian-graph/no-graph"], root
         )
         assert plan == {}
 

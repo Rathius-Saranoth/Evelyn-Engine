@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # generate_structure_review.py
 # date created: 2026-09-20 00:00:00
-# date modified: 2026-09-20 00:00:00
+# date modified: 2026-09-22 20:15:53
 # tags: #taxonomy, #review, #structure
 
 """Generate the structural review: near-synonym roots and duplicated subtrees (§9 step 6e).
@@ -69,7 +69,7 @@ def near_synonym_roots(counts, census, threshold: float, cache_path: str) -> lis
 
 def duplicated_subtrees(counts) -> list[tuple[str, str]]:
     """Find paths that exist at root level and again nested under another root."""
-    terms = [t for t in counts if not t.startswith("CY-")]
+    terms = list(counts)  # dates are a property, not a tag, so none appear here
     by_suffix: dict[str, list[str]] = collections.defaultdict(list)
     for term in terms:
         if "/" in term:

@@ -48,7 +48,11 @@ def test_create_dream_entry_new_note(temp_vault_dir):
 
     meta, body = parse_frontmatter(content)
     assert meta["title"] == "Dream Entry 2026-08-29"
-    assert "CY-2026/08/29" in meta["tags"]
+    # The date is the `occurred` property, not a tag (v000.006.203). A full date parses as
+    # a real YAML date, which is what makes range queries possible; reduced-precision values
+    # ("2026-05", "XXXX-11-16") remain strings, so consumers compare the rendered form.
+    assert str(meta["occurred"]) == "2026-08-29"
+    assert not any(str(t).upper().startswith("CY-") for t in meta["tags"])
     assert "flying" in meta["tags"]
     assert "dream" in meta["tags"]
     assert "## Dream Title: Floating Cities" in body

@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-22 07:29:57
+# date modified: 2026-09-22 20:05:07
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -332,11 +332,17 @@ def _frozen_normalize_tag_format_000_004_002(tag: str) -> str:
     the immutability guarantee in AGENTS.md §5 — the migration still produces exactly
     what it produced when it was committed. Do not "fix" this to match current rules.
 
-    The two is_excluded_tag() guards are load-bearing and were missing from the first
-    version of this copy: without them a protected date anchor such as CY-2025/03/12 is
-    mangled into Cy_2025/03/12 by the entity casing rules. The original delegated to the
-    live exclusion config, so this does too — that dependency is part of the behaviour
-    being preserved, not a deviation from it.
+    The two exclusion guards are load-bearing and were missing from the first version of
+    this copy: without them a protected date anchor such as CY-2025/03/12 is mangled into
+    Cy_2025/03/12 by the entity casing rules.
+
+    The patterns are pinned here rather than read from ``cfg.TAG_LIBRARIAN_EXCLUSIONS``.
+    This copy previously delegated to the live config on the reasoning that the original
+    did too — which held only while that config was stable. When v000.006.203 moved the
+    time axis out of `tags` and into the `occurred` property, the CY- pattern left the live
+    exclusion list, and a replay of this already-applied migration would have started
+    mangling date anchors it had always preserved. Reading mutable configuration is exactly
+    what an immutable migration cannot do (AGENTS.md §5), so the list is frozen as it stood.
 
     Args:
         tag: Raw tag string.
@@ -344,16 +350,25 @@ def _frozen_normalize_tag_format_000_004_002(tag: str) -> str:
     Returns:
         str: Tag normalized under the pre-§5 entity/concept rules.
     """
-    from Evelyn.tools.tag_librarian import is_excluded_tag
+    frozen_exclusions = (
+        r"^CY-[0-9X]{4}(/[0-9X]{2}){0,2}$",
+        r"^status/",
+        r"^kanban",
+        r"^obsidian-graph/",
+    )
+
+    def _frozen_is_excluded(candidate: str) -> bool:
+        stripped = candidate.strip().lstrip("#")
+        return any(re.search(pat, stripped, re.IGNORECASE) for pat in frozen_exclusions)
 
     clean = tag.strip().lstrip("#").strip()
-    if not clean or is_excluded_tag(clean):
+    if not clean or _frozen_is_excluded(clean):
         return clean
     if clean.lower().startswith("kw/"):
         clean = clean[3:].strip()
     elif clean.lower().startswith("ctx/"):
         clean = clean[4:].strip()
-    if not clean or is_excluded_tag(clean):
+    if not clean or _frozen_is_excluded(clean):
         return clean
 
     norm_parts = []

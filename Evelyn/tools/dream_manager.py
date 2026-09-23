@@ -1,6 +1,6 @@
 # dream_manager.py
 # date created: 2026-08-29 07:45:00
-# date modified: 2026-09-22 19:09:21
+# date modified: 2026-09-22 20:15:53
 # tags: #dreams, #management, #entries, #vault, #protocols
 
 """
@@ -26,7 +26,7 @@ from Evelyn.tools.frontmatter_utils import (
     render_frontmatter,
     write_file_with_frontmatter,
 )
-from Evelyn.tools.tag_librarian import normalize_tag_format
+from Evelyn.tools.tag_librarian import OCCURRED_PROPERTY, normalize_tag_format
 
 
 def _resolve_dream_dir() -> str:
@@ -108,7 +108,6 @@ def create_dream_entry(
     # Parse and clean tags
     # Tags reach the vault through the canonical normaliser (taxonomy §5); stripping '#'
     # alone let model-supplied casing and underscores enter the vocabulary unchecked.
-    # CY- date anchors are exempted inside normalize_tag_format.
     clean_tags: list[str] = []
     if tags:
         raw = tags.split(",") if isinstance(tags, str) else (
@@ -116,15 +115,15 @@ def create_dream_entry(
         )
         clean_tags = [n for n in (normalize_tag_format(str(t)) for t in raw) if n]
 
-    # Automatic base date tag
+    # The time axis is the `occurred` property, not a tag (taxonomy §3.8). A date is an
+    # attribute of the note rather than a subject it is about, and it is the one facet whose
+    # primary access pattern is a range, which a tag cannot answer.
     try:
         dt_parsed = datetime.datetime.strptime(target_date_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
-        cy_tag = f"CY-{dt_parsed.strftime('%Y/%m/%d')}"
+        occurred = dt_parsed.strftime("%Y-%m-%d")
     except ValueError:
-        cy_tag = f"CY-{now.strftime('%Y/%m/%d')}"
+        occurred = now.strftime("%Y-%m-%d")
 
-    if cy_tag not in clean_tags:
-        clean_tags.insert(0, cy_tag)
     if "dream" not in [t.lower() for t in clean_tags]:
         clean_tags.append("dream")
 
@@ -181,6 +180,7 @@ def create_dream_entry(
             "title": f"Dream Entry {target_date_str}",
             "aliases": [],
             "tags": clean_tags,
+            OCCURRED_PROPERTY: occurred,
             "icon": [],
             "date created": now_timestamp,
             "date modified": now_timestamp,

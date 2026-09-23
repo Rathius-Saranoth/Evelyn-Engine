@@ -1,6 +1,6 @@
 # verify_tools.py
 # date created: 2026-05-18
-# date modified: 2026-05-25 19:50:50
+# date modified: 2026-09-22 20:15:53
 # tags: #test, #verification, #tools, #testing, #assertion
 
 import sys
@@ -33,7 +33,8 @@ class TestEvelynTools(unittest.TestCase):
         handle.write.assert_called()
         written_content = handle.write.call_args[0][0]
         self.assertIn("mood: Happy", written_content)
-        self.assertIn("CY-", written_content)
+        # The entry date is the `occurred` property now, not a CY- tag (v000.006.203).
+        self.assertIn("occurred:", written_content)
 
     @patch("journal_manager._resolve_journal_filepath")
     @patch("builtins.open", new_callable=mock_open, read_data="## Vibe Check\nFeeling thoughtful")

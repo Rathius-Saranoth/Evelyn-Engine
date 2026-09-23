@@ -1,6 +1,6 @@
 # tag_synonym.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-20 10:03:00
+# date modified: 2026-09-22 20:05:07
 # tags: #taxonomy, #synonyms, #vocabulary, #uf, #clustering
 
 """tag_synonym.py — Equivalence detection for the controlled vocabulary (taxonomy §6.2).
@@ -266,7 +266,7 @@ def root_census(counts: collections.Counter) -> dict[str, dict[str, int]]:
     """
     census: dict[str, dict[str, int]] = {}
     for tag, uses in counts.items():
-        if "/" not in tag or tag.startswith("CY-"):
+        if "/" not in tag:
             continue
         root = tag.split("/", 1)[0]
         entry = census.setdefault(root, {"terms": 0, "uses": 0})
@@ -409,7 +409,7 @@ def weak_root_resolution(
 
     rewritten: dict[str, str] = {}
     for tag in counts:
-        if "/" not in tag or tag.startswith("CY-"):
+        if "/" not in tag:
             continue
         root, rest = tag.split("/", 1)
         if root not in sparse:
@@ -457,7 +457,7 @@ def adopt_flat_compounds(counts: collections.Counter, strong_children: int = 5) 
 
     adopted: dict[str, str] = {}
     for tag in counts:
-        if "/" in tag or "-" not in tag or tag.startswith("CY-"):
+        if "/" in tag or "-" not in tag:
             continue
         head, tail = tag.split("-", 1)
         if head in strong:
@@ -493,7 +493,6 @@ def one_off_phrase_tags(
     return sorted(
         tag for tag, uses in counts.items()
         if "/" not in tag
-        and not tag.startswith("CY-")
         and not is_excluded_tag(tag)
         and tag.count("-") >= min_words - 1
         and uses <= max_uses
@@ -522,7 +521,7 @@ def decompose_to_atoms(tag: str) -> list[str]:
     Returns:
         list[str]: The atoms it becomes. Never empty for a non-empty input.
     """
-    if not tag or tag.startswith("CY-") or is_excluded_tag(tag):
+    if not tag or is_excluded_tag(tag):
         return [tag] if tag else []
 
     for prefix in FACET_PREFIXES:
@@ -602,7 +601,7 @@ def flat_compound_decomposition(
     """
     candidates = [
         t for t in terms
-        if t and "/" not in t and "-" in t and not t.startswith("CY-") and not is_excluded_tag(t)
+        if t and "/" not in t and "-" in t and not is_excluded_tag(t)
     ]
     warrant = literary_warrant(candidates, vault_root)
 
