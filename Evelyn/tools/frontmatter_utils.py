@@ -1,6 +1,6 @@
 # frontmatter_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-08-28 12:25:00
+# date modified: 2026-09-23 17:30:15
 # tags: #frontmatter, #yaml, #markdown, #visual-pkm, #utils
 
 """
@@ -304,3 +304,46 @@ def write_file_with_frontmatter(
     except OSError as e:
         print(f"[FRONTMATTER_UTILS] Error writing {filepath}: {e}")
         return False
+
+
+def read_sensitivity(file_path: str) -> str:
+    """Return a note's declared ``sensitivity`` level, lowercased, or "" if it has none.
+
+    Args:
+        file_path: Path to a markdown file.
+
+    Returns:
+        str: The level (e.g. ``"private"``, ``"secret"``), or "" when absent or unreadable.
+    """
+    if not file_path or not str(file_path).lower().endswith((".md", ".markdown")):
+        return ""
+    try:
+        with open(file_path, encoding="utf-8") as fh:
+            # The frontmatter is at the top; reading a few KB avoids pulling a whole
+            # reference chapter into memory just to check one key.
+            head = fh.read(4096)
+    except (OSError, UnicodeDecodeError):
+        return ""
+    meta, _ = parse_frontmatter(head if head.count("---") >= 2 else head + "\n---\n")
+    value = meta.get("sensitivity", "") if meta else ""
+    return str(value).strip().lower() if value is not None else ""
+
+
+def is_tool_denied(file_path: str) -> bool:
+    """Whether a note's sensitivity level withholds it from tool access entirely.
+
+    `private` deliberately does **not** deny: it leaves automatic retrieval but stays
+    discoverable when the user asks for it. `secret` — credentials, recovery codes — is
+    withheld from both retrieval and tools, so this is the guard every file-reading tool
+    consults before returning content.
+
+    Args:
+        file_path: Path to the file a tool is about to read.
+
+    Returns:
+        bool: True when the tool must refuse.
+    """
+    import evelyn_config as cfg
+
+    denied = {s.lower() for s in getattr(cfg, "SENSITIVITY_TOOL_DENIED", set())}
+    return bool(denied) and read_sensitivity(file_path) in denied

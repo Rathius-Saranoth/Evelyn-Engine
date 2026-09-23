@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-20 10:41:41
+# date modified: 2026-09-23 17:30:16
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -353,6 +353,14 @@ def search_vault_notes(query: str = "", limit: int = 5, **kwargs) -> str:
     from Evelyn.tools import vault_db
 
     matches = vault_db.search_documents(query, limit=limit)
+
+    # A search hit names the note and quotes its gist, which is itself a disclosure, so a
+    # `secret` note is withheld here too — the level means no retrieval of any kind.
+    from Evelyn.tools.frontmatter_utils import is_tool_denied
+    from Evelyn.tools.path_utils import to_vault_abspath
+
+    matches = [m for m in matches if not is_tool_denied(to_vault_abspath(m.get("path", "")))]
+
     if not matches:
         return f"No vault notes found matching '{query}'."
 

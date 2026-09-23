@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 17:15:17
+date modified: 2026-09-23 17:30:16
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,43 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.211] - 2026-09-23 — *Private Means Private*
+
+Phase E. The `sensitivity:` frontmatter property was read nowhere, so 46 of the 49 notes marked
+private or secret were sitting in the RAG index.
+
+### Fixed
+- **Sensitive notes were retrievable.** Tax records, medical conditions, medication lists,
+  allergy results and child-support filings were all indexed and could be pulled into context.
+  Only the credentials note was excluded, and only because it separately carried
+  `rag_exclude: true` — exactly 5 notes vault-wide used that mechanism. No folder-level
+  protection covered the personal subtrees they live in either.
+- **The `reference-library` tag branch in `is_rag_excluded_source` was dead** — the tag was on
+  0 of the 2,838 library notes and 0 index rows, and is not a registered term, so nothing could
+  set it. The `type: reference-chapter` check is what actually covers those documents. Removed.
+
+### Added
+- **`sensitivity:` is now honoured, with the two levels scoped differently.** `private` is
+  withheld from RAG but stays readable through tools, because medical and financial context is
+  useful when the user asks for it and inappropriate injected unbidden. `secret` — credentials,
+  recovery codes — is withheld from retrieval *and* tools. Configured in
+  `SENSITIVITY_RAG_EXCLUDED` and `SENSITIVITY_TOOL_DENIED`.
+- **`frontmatter_utils.read_sensitivity()` / `is_tool_denied()`** — one canonical guard rather
+  than a check copied into each tool (AGENTS §8), consulted by `terminal_agent.read_file` and
+  `evelyn_tools.search_vault_notes`. A search hit names the note and quotes its gist, which is
+  itself a disclosure, so secret notes are filtered from results as well.
+- **The level is recorded on every chunk**, so the retrieval guard can withhold a document
+  indexed before the rule existed without re-reading it from disk.
+- **`scripts/purge_sensitive_from_rag.py`** — the incremental sync skips unchanged files
+  *before* reading their frontmatter, so making the property exclude a document would not have
+  removed one already indexed; those files never change on disk. This purges them explicitly
+  and records the exclusion in the sync state. All 46 removed and verified.
+
+### Notes
+- The purge script's own verification initially reported eight false failures: it re-read the
+  cached `PersistentClient` singleton and got a pre-delete snapshot. It now reopens the store
+  through a fresh client, because a privacy tool that cries wolf gets ignored.
 
 ## [000.006.210] - 2026-09-23 — *The Rule Beats the Example*
 

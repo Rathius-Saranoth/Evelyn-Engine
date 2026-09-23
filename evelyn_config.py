@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-22 20:15:53
+# date modified: 2026-09-23 17:30:15
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -506,6 +506,16 @@ RAG_IGNORE_PATTERNS = [
 
 # Frontmatter tags or keys that exclude a note from RAG vector indexing
 RAG_EXCLUDE_TAGS = {"rag-ignore", "rag-exclude", "no-rag", "rag-skip"}
+
+# `sensitivity:` frontmatter levels, and what each one withholds.
+#
+# The two are deliberately different scopes. Automatic retrieval and deliberate lookup are
+# different risks: medical and financial notes are useful when the user raises them and
+# inappropriate when pulled into context unbidden, so `private` leaves RAG but stays readable
+# by a tool when asked for. Credentials are never appropriate to surface, so `secret` is
+# withheld from both.
+SENSITIVITY_RAG_EXCLUDED = {"private", "secret"}
+SENSITIVITY_TOOL_DENIED = {"secret"}
 
 # Priority score multipliers: documents tagged rag_priority=high/low have their
 # cosine distance adjusted by these factors before threshold filtering.

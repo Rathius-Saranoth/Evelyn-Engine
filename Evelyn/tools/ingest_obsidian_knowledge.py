@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-23 17:30:15
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
@@ -123,9 +123,14 @@ def parse_rag_frontmatter(content: str) -> dict:
         content: The raw markdown content string.
 
     Returns:
-        dict: A dictionary containing 'rag_priority', 'rag_pinned', 'rag_exclude', and 'aliases'.
+        dict: A dictionary containing 'rag_priority', 'rag_pinned', 'rag_exclude',
+        'sensitivity', and 'aliases'. The dict is attached to every chunk as metadata, so
+        anything added here is queryable at retrieval time.
     """
-    defaults = {"rag_priority": "normal", "rag_pinned": False, "rag_exclude": False, "aliases": ""}
+    defaults = {
+        "rag_priority": "normal", "rag_pinned": False, "rag_exclude": False,
+        "sensitivity": "", "aliases": "",
+    }
     data, _ = parse_frontmatter(content)
     if not data:
         return defaults
@@ -152,11 +157,19 @@ def parse_rag_frontmatter(content: str) -> dict:
             defaults["rag_exclude"] = True
             break
 
-    # 3. Priority score
+    # 3. Sensitivity. Recorded on the chunk either way, so the retrieval guard can act on an
+    # already-indexed document without re-reading it from disk.
+    raw_sensitivity = data.get("sensitivity", "")
+    sensitivity = str(raw_sensitivity).strip().lower() if raw_sensitivity is not None else ""
+    defaults["sensitivity"] = sensitivity
+    if sensitivity in getattr(cfg, "SENSITIVITY_RAG_EXCLUDED", set()):
+        defaults["rag_exclude"] = True
+
+    # 4. Priority score
     if "rag_priority" in data and isinstance(data["rag_priority"], str):
         defaults["rag_priority"] = data["rag_priority"].strip().lower()
 
-    # 4. Pinned documents
+    # 5. Pinned documents
     if "rag_pinned" in data:
         val = data["rag_pinned"]
         if isinstance(val, bool):
@@ -164,7 +177,7 @@ def parse_rag_frontmatter(content: str) -> dict:
         elif isinstance(val, str):
             defaults["rag_pinned"] = val.strip().lower() in ("true", "yes", "1", "t", "y")
 
-    # 5. Aliases
+    # 6. Aliases
     aliases = data.get("aliases", [])
     if isinstance(aliases, str):
         defaults["aliases"] = aliases

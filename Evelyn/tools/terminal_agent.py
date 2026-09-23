@@ -1,6 +1,6 @@
 # terminal_agent.py
 # date created: 2026-06-27 09:37:19
-# date modified: 2026-09-13 15:41:23
+# date modified: 2026-09-23 17:30:16
 # tags: #terminal, #tools, #agent, #safety
 
 """Terminal and file access agent tools for Evelyn.
@@ -736,6 +736,17 @@ def read_file(
     # Path safety check
     if not is_path_allowed(abs_path):
         return f"Error: Path '{file_path}' is outside allowed paths or in a protected system directory."
+
+    # Sensitivity check. `secret` is withheld from tools as well as from retrieval — the level
+    # is for credentials and recovery codes, which are never appropriate to surface. `private`
+    # deliberately passes: it leaves automatic retrieval but stays readable when asked for.
+    from Evelyn.tools.frontmatter_utils import is_tool_denied
+
+    if is_tool_denied(abs_path):
+        return (
+            f"Error: '{os.path.basename(abs_path)}' is marked `sensitivity: secret` and cannot "
+            "be read through a tool."
+        )
 
     if not os.path.exists(abs_path):
         from Evelyn.tools import vault_db
