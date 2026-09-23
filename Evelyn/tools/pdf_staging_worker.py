@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # pdf_staging_worker.py
 # date created: 2026-08-28 11:24:49
-# date modified: 2026-09-05 19:46:52
+# date modified: 2026-09-22 19:09:21
 # tags:
 
 """
@@ -33,6 +33,7 @@ import extract_pdf_library
 import evelyn_config as cfg
 from Evelyn.tools import backlog_drainer, task_manager
 from Evelyn.tools.frontmatter_utils import format_yaml_array
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 VAULT_ROOT = Path(getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault"))
 STAGING_DIR = VAULT_ROOT / "Attachments" / "Staging"
@@ -126,7 +127,11 @@ def process_staging_item(pdf_file: Path, mode: str) -> dict:
             sidecar_dir.mkdir(parents=True, exist_ok=True)
             sidecar_file = sidecar_dir / f"{title}_index.md"
 
-            tags_str = format_yaml_array([domain_name.lower().replace(' ', '/'), "source/pdf"])
+            # A multi-word domain is a single term, not a hierarchy: the old form turned
+            # 'Machine Learning' into 'machine/learning' and 'Owner's Manuals' into
+            # "owner's/manuals", inventing an axis and leaking an apostrophe into YAML.
+            # The one permitted slash names an axis (taxonomy §5).
+            tags_str = format_yaml_array([normalize_tag_format(domain_name), "source/pdf"])
             content = f"""---
 title: "{title}"
 type: document/card

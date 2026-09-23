@@ -1,6 +1,6 @@
 # taxonomy_db.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-19 21:05:42
+# date modified: 2026-09-22 19:09:21
 # tags: #taxonomy, #tags, #vocabulary, #authority-control, #sqlite
 
 """taxonomy_db.py — Master Tag Taxonomy registry (shared controlled vocabulary).
@@ -30,6 +30,7 @@ Connection handling is reused from `vault_db` rather than duplicated.
 See also: .agents/rules/vault-tag-taxonomy.md §6 (Vocabulary Control)
 """
 
+import contextlib
 import sqlite3
 import time
 from typing import Any
@@ -130,6 +131,11 @@ def invalidate_alias_cache() -> None:
 def canonicalize_tags(tags: list[str]) -> list[str]:
     """Map tags through recorded `UF` equivalences to their preferred forms.
 
+    **This is not an admission gate.** A term with no recorded equivalence is returned
+    unchanged whether or not it is in the controlled vocabulary, so calling this does
+    nothing to keep unregistered terms out. Use :func:`partition_by_admission` to ask
+    whether a term is actually registered.
+
     This is what makes a collapse permanent. Recording an alias without consulting it on
     write only renames existing data — the next extraction re-mints the retired variant
     and the vocabulary drifts back (taxonomy §6.2).
@@ -168,3 +174,36 @@ def canonicalize_tags(tags: list[str]) -> list[str]:
         if mapped and mapped not in out:
             out.append(mapped)
     return out
+
+
+def partition_by_admission(tags: list[str]) -> tuple[list[str], list[str]]:
+    """Split tags into those the vocabulary admits and those it does not.
+
+    The admission decision the registry can actually make, kept deliberately separate from
+    :func:`canonicalize_tags`, which only rewrites aliases and passes unknown terms straight
+    through. Conflating the two is why several writers believed they were validating.
+
+    This reports; it does not decide what to do with a rejection. Callers either refuse the
+    term or route it to review (taxonomy §6).
+
+    Args:
+        tags: Tag strings, already normalized and alias-resolved.
+
+    Returns:
+        tuple[list[str], list[str]]: (admitted, unregistered), order preserved.
+    """
+    known = _registered_surface_forms()
+    admitted, unregistered = [], []
+    for tag in tags:
+        if not tag:
+            continue
+        (admitted if tag in known else unregistered).append(tag)
+    return admitted, unregistered
+
+
+def _registered_surface_forms() -> set[str]:
+    """Return every term plus every recorded equivalence, as one lookup set."""
+    forms = {row["tag"] for row in get_master_tags()}
+    with contextlib.suppress(sqlite3.Error):
+        forms.update(get_aliases().keys())
+    return forms

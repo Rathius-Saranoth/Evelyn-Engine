@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-22 19:22:45
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -36,7 +36,6 @@ import fcntl
 import json
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -897,57 +896,247 @@ def recover_stale_processing_items(stale_threshold_seconds: float = 300.0) -> in
         con.close()
 
 
-def check_chroma_health() -> dict:
-    """Run an active canary probe query against ChromaDB to verify index & segment integrity.
+# How each collection is regenerated once dropped, shared with
+# scripts/rebuild_chroma_collection.py. A collection absent from this map is never dropped
+# automatically: discarding what cannot be regenerated is data loss, not repair.
+REBUILD_STRATEGIES: dict[str, dict[str, Any]] = {
+    "evelyn_memory": {
+        "description": "Vault note chunks + live SQLite context entries",
+        "state_files": ["VAULT_SYNC_STATE"],
+        "entrypoint": ("Evelyn.tools.ingest_obsidian_knowledge", "sync_memory_collection"),
+    },
+    "evelyn_reference": {
+        "description": "Reference Library chapter chunks",
+        "state_files": ["REFERENCE_SYNC_STATE"],
+        "entrypoint": ("Evelyn.tools.ingest_obsidian_knowledge", "sync_reference_collection"),
+    },
+    "evelyn_tag_taxonomy": {
+        "description": "Controlled-vocabulary terms and their equivalences",
+        "state_files": [],
+        "entrypoint": ("Evelyn.tools.tag_librarian", "sync_master_tags_to_vector_db"),
+    },
+}
+
+_PROBE_TIMEOUT_SECONDS = 300
+
+
+def list_collection_names() -> list[str]:
+    """Return every collection name, read from SQLite rather than through the client.
+
+    Reading the catalogue must not require opening a segment, because opening a corrupt
+    segment is precisely what this module needs to survive.
 
     Returns:
-        dict: {"status": "healthy" | "corrupt", "error": str | None, "count": int}
+        list[str]: Collection names, alphabetically.
     """
+    catalogue = os.path.join(_CHROMA_DIR, "chroma.sqlite3")
+    if not os.path.exists(catalogue):
+        return []
+    con = sqlite3.connect(catalogue)
     try:
-        col = get_or_create_collection(cfg.CHROMA_MEMORY_COLLECTION)
-        doc_count = col.count()
-        # Probe query: test cosine similarity and HNSW segment reader
-        col.query(query_texts=["system health probe canary"], n_results=min(1, max(1, doc_count)))
-        return {"status": "healthy", "error": None, "count": doc_count}
-    except (RuntimeError, ValueError, KeyError, OSError) as e:
-        err_msg = str(e)
-        print(f"[chroma_rag] HEALTH PROBE FAILED: {err_msg}", flush=True)
-        return {"status": "corrupt", "error": err_msg, "count": 0}
+        return sorted(r[0] for r in con.execute("SELECT name FROM collections").fetchall())
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
 
 
-def repair_corrupted_chroma(background: bool = True) -> None:
-    """Purge corrupted vector database segments and launch an automated full-vault migration.
+def probe_collection_health(collection_name: str, timeout: int = _PROBE_TIMEOUT_SECONDS) -> tuple[bool, str]:
+    """Report whether a collection can be read, without risking the calling process.
+
+    A corrupt HNSW segment fails as **SIGSEGV**, not as an exception: the Rust bindings abort
+    the process. No ``try``/``except`` here could catch that, and an in-process check dies
+    together with the collection it is inspecting — which is how a single bad segment used to
+    take down engine startup. The probe therefore runs in a child process and is judged by
+    its exit code.
 
     Args:
-        background: If True, spawns sync_full_vault_to_chroma.py detached in background.
+        collection_name: Collection to open, count and query.
+        timeout: Seconds to allow the child before declaring it hung.
+
+    Returns:
+        tuple[bool, str]: (readable, detail). ``detail`` names the signal on a crash.
+    """
+    snippet = (
+        "from Evelyn.tools import chroma_rag\n"
+        f"c = chroma_rag.get_or_create_collection({collection_name!r})\n"
+        "n = c.count()\n"
+        "c.query(query_texts=['system health probe canary'], n_results=max(1, min(1, n)))\n"
+        "print('count=%d' % n)\n"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", snippet],
+            capture_output=True, text=True, timeout=timeout,
+            cwd=getattr(cfg, "BASE_DIR", "/home/rathius/evelyn"),
+            env={**os.environ, "PYTHONPATH": "."},
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return False, f"probe could not complete: {e}"
+
+    if proc.returncode == 0:
+        return True, (proc.stdout.strip().splitlines() or [""])[-1]
+    if proc.returncode < 0:
+        return False, f"killed by signal {-proc.returncode} (SIGSEGV = 11)"
+    if proc.returncode == 139:
+        return False, "segmentation fault (exit 139)"
+    detail = (proc.stderr.strip().splitlines() or ["unknown error"])[-1]
+    return False, f"exit {proc.returncode}: {detail[:200]}"
+
+
+def _probe_batch(names: list[str]) -> tuple[dict[str, str], str | None]:
+    """Probe several collections in one child process.
+
+    The embedding model costs seconds to load, so probing each collection in its own child
+    multiplied that by the number of collections on every boot. One child handles them all
+    and announces each name before opening it, so a crash still identifies exactly which
+    collection killed it: the last announced name with no matching result.
+
+    Args:
+        names: Collections to probe, in order.
+
+    Returns:
+        tuple[dict[str, str], str | None]: (per-collection ``count=N`` detail,
+        the collection that crashed the child, or None if all were probed).
+    """
+    snippet = (
+        "import sys\n"
+        "from Evelyn.tools import chroma_rag\n"
+        f"for name in {names!r}:\n"
+        "    print('OPEN\\t' + name, flush=True)\n"
+        "    c = chroma_rag.get_or_create_collection(name)\n"
+        "    n = c.count()\n"
+        "    c.query(query_texts=['system health probe canary'], n_results=max(1, min(1, n)))\n"
+        "    print('DONE\\t%s\\tcount=%d' % (name, n), flush=True)\n"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", snippet],
+            capture_output=True, text=True, timeout=_PROBE_TIMEOUT_SECONDS,
+            cwd=getattr(cfg, "BASE_DIR", "/home/rathius/evelyn"),
+            env={**os.environ, "PYTHONPATH": "."},
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return {}, names[0] if names else None
+
+    results: dict[str, str] = {}
+    opened: str | None = None
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if parts[0] == "OPEN" and len(parts) == 2:
+            opened = parts[1]
+        elif parts[0] == "DONE" and len(parts) == 3:
+            results[parts[1]] = parts[2]
+            opened = None
+
+    if proc.returncode == 0:
+        return results, None
+    # The child died. Whatever it had opened but not finished is the culprit.
+    return results, opened or (names[len(results)] if len(results) < len(names) else None)
+
+
+def check_chroma_health() -> dict:
+    """Probe every collection for index and segment integrity.
+
+    Probing happens in a child process, because a corrupt HNSW segment aborts with SIGSEGV
+    rather than raising: an in-process check dies together with the collection it is
+    inspecting, which is how one bad segment used to take down engine startup. Collections
+    are batched into a single child for speed, and a crash simply restarts the batch after
+    the offending collection, so one failure never hides the ones behind it.
+
+    Returns:
+        dict: ``status`` ('healthy' | 'corrupt'), ``error``, ``count`` (the memory
+        collection's document count, kept for existing callers), ``collections``
+        ({name: detail}) and ``unhealthy`` (list of names that failed).
+    """
+    names = list_collection_names()
+    if not names:
+        return {"status": "healthy", "error": None, "count": 0, "collections": {}, "unhealthy": []}
+
+    details: dict[str, str] = {}
+    unhealthy: list[str] = []
+    pending = list(names)
+    while pending:
+        results, crashed = _probe_batch(pending)
+        details.update(results)
+        if crashed is None:
+            break
+        details[crashed] = "unreadable — child process aborted (SIGSEGV)"
+        unhealthy.append(crashed)
+        print(f"[chroma_rag] HEALTH PROBE FAILED for '{crashed}': {details[crashed]}", flush=True)
+        pending = pending[pending.index(crashed) + 1:]
+
+    memory_count = 0
+    detail = details.get(cfg.CHROMA_MEMORY_COLLECTION, "")
+    if detail.startswith("count="):
+        with suppress(ValueError):
+            memory_count = int(detail.split("=", 1)[1])
+
+    if unhealthy:
+        return {
+            "status": "corrupt",
+            "error": "; ".join(f"{n}: {details[n]}" for n in unhealthy),
+            "count": memory_count,
+            "collections": details,
+            "unhealthy": unhealthy,
+        }
+    return {"status": "healthy", "error": None, "count": memory_count,
+            "collections": details, "unhealthy": []}
+
+
+def repair_corrupted_chroma(collections: list[str] | None = None, background: bool = True) -> list[str]:
+    """Rebuild only the collections that are actually broken.
+
+    This used to ``rmtree`` the entire vector store and re-sync everything on any probe
+    failure. With four collections that meant destroying three healthy ones — tens of
+    thousands of good vectors — to fix one bad segment, and it would have done so
+    unattended at boot. Repair is now per-collection and delegates to
+    ``scripts/rebuild_chroma_collection.py``, which archives the store first and regenerates
+    the named collection from its canonical source.
+
+    A collection with no entry in :data:`REBUILD_STRATEGIES` is reported and left alone,
+    because dropping what cannot be regenerated is data loss rather than repair.
+
+    Args:
+        collections: Names to rebuild. When None, every collection is probed and the
+            unreadable ones are selected.
+        background: If True, dispatch each rebuild detached and return immediately.
+
+    Returns:
+        list[str]: Collections a rebuild was dispatched for.
     """
     global _client
-    print(f"[chroma_rag] Initiating ChromaDB self-healing repair at: {_CHROMA_DIR}...", flush=True)
+
+    if collections is None:
+        collections = check_chroma_health().get("unhealthy", [])
+    if not collections:
+        print("[chroma_rag] Repair requested but no collection is unreadable; nothing to do.", flush=True)
+        return []
+
+    repairable = [c for c in collections if c in REBUILD_STRATEGIES]
+    for name in [c for c in collections if c not in REBUILD_STRATEGIES]:
+        print(
+            f"[chroma_rag] [WARNING] '{name}' is unreadable but has no rebuild strategy; "
+            f"leaving it untouched. Inspect it with scripts/rebuild_chroma_collection.py --list.",
+            flush=True,
+        )
+    if not repairable:
+        return []
+
     _client = None
-
-    if os.path.exists(_CHROMA_DIR):
-        try:
-            shutil.rmtree(_CHROMA_DIR, ignore_errors=True)
-        except OSError as e:
-            print(f"[chroma_rag] Warning: Could not purge {_CHROMA_DIR}: {e}", flush=True)
-
-    # Clear state files
-    for state_path in [
-        getattr(cfg, "VAULT_SYNC_STATE", r"/home/rathius/evelyn/data/vault_sync_state.json"),
-        getattr(cfg, "GIST_SYNC_STATE", r"/home/rathius/evelyn/data/gist_sync_state.json"),
-    ]:
-        if os.path.exists(state_path):
-            with suppress(Exception):
-                os.remove(state_path)
-
-    script_path = os.path.join(cfg.BASE_DIR if hasattr(cfg, "BASE_DIR") else "/home/rathius/evelyn", "scripts", "sync_full_vault_to_chroma.py")
-    py_bin = sys.executable
-    if background:
-        subprocess.Popen([py_bin, script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("[chroma_rag] Dispatched background sync_full_vault_to_chroma.py repair.", flush=True)
-    else:
-        subprocess.run([py_bin, script_path], check=False)
-        print("[chroma_rag] Synchronous sync_full_vault_to_chroma.py repair finished.", flush=True)
+    script_path = os.path.join(
+        getattr(cfg, "BASE_DIR", "/home/rathius/evelyn"), "scripts", "rebuild_chroma_collection.py"
+    )
+    dispatched = []
+    for name in repairable:
+        cmd = [sys.executable, script_path, "--collection", name, "--execute"]
+        print(f"[chroma_rag] Dispatching targeted rebuild of '{name}'...", flush=True)
+        if background:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.run(cmd, check=False)
+        dispatched.append(name)
+    return dispatched
 
 
 def ingest_markdown_file(file_path: str, content: str, collection_name: str,

@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-20 08:34:57
+# date modified: 2026-09-22 07:29:57
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -4846,6 +4846,216 @@ def migrate_000_006_192_seed_vocabulary_gaps(
     logger.info("[MIGRATION 192] Added %d seed gaps; registry now holds %d terms.", added, total)
 
 
+PASS1_VOCAB_PATH = os.path.join(cfg.BASE_DIR, "scratch", "pass1_vocabulary.md")
+
+
+def migrate_000_006_194_register_pass1_vocabulary(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.194: Register the full-read vocabulary and its aliases.
+
+    The seed (191) came from a 235-note sample. This vocabulary came from reading the whole
+    personal corpus and reasoning over it, then measuring every candidate's literary warrant
+    and handing the result to the user for line-by-line review. As with 191 the reviewed file
+    is the source of truth and lives outside the repository: the migration parses it rather
+    than carrying the terms, so the terms never enter version control.
+
+    What is read from the document:
+      * §3 group tables      -> subject terms; the group heading becomes the category
+      * §3 alias (UF) tables -> `master_tag_aliases`, tier ``reviewed``
+      * §4 type table        -> ``type/`` values
+      * §5-7 facet lists     -> ``motif/``, ``setting/``, ``event/`` seeds
+
+    An alias whose text is itself a registered term is *not* written: those are the library
+    long forms (``large-language-models`` beside ``llm``) whose collapse was deliberately
+    deferred until classification has produced usage counts to retag against. They are logged
+    so the deferred list is visible.
+    """
+    import re
+
+    from Evelyn.tools import taxonomy_db
+
+    if not os.path.exists(PASS1_VOCAB_PATH):
+        logger.warning(
+            "[MIGRATION 194] No reviewed vocabulary at %s — skipping. Review first.",
+            PASS1_VOCAB_PATH,
+        )
+        return
+
+    with open(PASS1_VOCAB_PATH, encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+
+    h2 = re.compile(r"^##\s+\S+\s+(\d+)\.")
+    h3 = re.compile(r"^###\s+(.*)$")
+    cell = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([^|]*)\|")
+    facet_token = re.compile(r"`((?:motif|setting|event)/[a-z0-9-]+)`")
+
+    terms: dict[str, str] = {}
+    aliases: dict[str, str] = {}
+    section = 0
+    category = "general"
+    in_alias_table = False
+    for line in lines:
+        m_h2 = h2.match(line)
+        if m_h2:
+            section = int(m_h2.group(1))
+            in_alias_table = False
+            continue
+        m_h3 = h3.match(line)
+        if m_h3:
+            title = m_h3.group(1)
+            in_alias_table = "UF" in title or "facet" in title
+            words = re.sub(r"[^A-Za-z& ]", " ", title).split()
+            category = "-".join(w.lower() for w in words if w != "&") or "general"
+            continue
+        if section == 3:
+            m_cell = cell.match(line)
+            if not m_cell:
+                continue
+            first = m_cell.group(1).strip()
+            second = m_cell.group(2).strip()
+            if in_alias_table:
+                m_canon = re.match(r"`([^`]+)`", second)
+                if m_canon:
+                    aliases[first] = m_canon.group(1).strip()
+            elif second in ("✅", "➕"):
+                terms[first] = category
+        elif section == 4:
+            # New type rows carry a marker after the cell (`type/profile` ➕), so match the
+            # token alone rather than the full cell.
+            m_type = re.match(r"^\|\s*`(type/[a-z0-9-]+)`", line)
+            if m_type:
+                terms[m_type.group(1)] = "type"
+        elif section in (5, 6, 7):
+            if line.lstrip().startswith("Retired"):
+                continue
+            for tok in facet_token.findall(line):
+                terms[tok] = tok.split("/", 1)[0]
+
+    cursor = conn.cursor()
+    now = time.time()
+    added = updated = 0
+    for term, cat in terms.items():
+        before = cursor.execute(
+            "SELECT COUNT(*) FROM master_tag_taxonomy WHERE tag = ?", (term,)
+        ).fetchone()[0]
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', 0, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET category = excluded.category, updated_at = ?""",
+            (term, cat, now, now, now),
+        )
+        if before:
+            updated += 1
+        else:
+            added += 1
+
+    registered = {
+        row[0] for row in cursor.execute("SELECT tag FROM master_tag_taxonomy").fetchall()
+    }
+    written = 0
+    deferred: list[str] = []
+    dangling: list[str] = []
+    for alias, canonical in aliases.items():
+        if alias in registered:
+            deferred.append(f"{alias}->{canonical}")
+            continue
+        if canonical not in registered:
+            dangling.append(f"{alias}->{canonical}")
+            continue
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'reviewed', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, tier = 'reviewed'""",
+            (alias, canonical, now),
+        )
+        written += 1
+    taxonomy_db.invalidate_alias_cache()
+
+    total = cursor.execute("SELECT COUNT(*) FROM master_tag_taxonomy").fetchone()[0]
+    logger.info(
+        "[MIGRATION 194] Terms: %d added, %d re-categorised; registry now holds %d. "
+        "Aliases: %d written, %d deferred (alias is a registered term: %s), %d dangling (%s).",
+        added, updated, total, written,
+        len(deferred), ", ".join(deferred) or "none",
+        len(dangling), ", ".join(dangling) or "none",
+    )
+
+
+
+# DCMI Type Vocabulary values that sub-type `type/media` (standard §"media sub-typing").
+MEDIA_SUBTYPES: tuple[str, ...] = (
+    "type/media/text",
+    "type/media/still-image",
+    "type/media/moving-image",
+    "type/media/sound",
+    "type/media/interactive",
+    "type/media/software",
+    "type/media/dataset",
+    "type/media/physical-object",
+)
+
+
+def migrate_000_006_195_register_media_subtypes(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.195: Register the eight DCMI sub-types of ``type/media``.
+
+    The standard makes sub-typing mandatory on ``type/media`` (a scanned tax return is
+    ``type/media/text``, a fan chart ``type/media/still-image``) but migration 194 read only
+    the top-level ``type/`` rows from the review document, so no sub-type was registered and
+    the Pass 2 applier rejected every one. The values are the closed DCMI list, not personal
+    vocabulary, so they are carried here rather than read from the gitignored document.
+
+    Idempotent: existing rows keep their usage counts.
+    """
+    cursor = conn.cursor()
+    now = time.time()
+    added = 0
+    for tag in MEDIA_SUBTYPES:
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, 'type', '', 0, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET category = excluded.category, updated_at = ?""",
+            (tag, now, now, now),
+        )
+        added += cursor.rowcount
+    conn.commit()
+    with contextlib.suppress(Exception):
+        from Evelyn.tools import taxonomy_db
+
+        taxonomy_db.invalidate_alias_cache()
+    logger.info("[MIGRATION 000.006.195] media sub-types registered/refreshed: %d", added)
+
+def migrate_000_006_196_protect_curated_taxonomy(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.196: Mark curated vocabulary terms as protected from pruning.
+
+    ``maintain_master_taxonomy()`` deletes every term with zero usage. That premise holds
+    for a folksonomy grown from documents, but this is a *controlled* vocabulary: reserved
+    terms are registered deliberately and exist before anything uses them. Under the old
+    rule the eight DCMI media sub-types registered one migration ago, and the reserved
+    ``event/`` values, were first in line for deletion.
+
+    Every term presently in the registry arrived from the reviewed vocabulary (migrations
+    194 and 195), so all are marked protected here. Terms that enter later by inference
+    carry ``protected = 0`` and stay prunable.
+
+    Idempotent: the column is added only when absent, and the flag is re-asserted for the
+    curated rows on every run.
+    """
+    cursor = conn.cursor()
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(master_tag_taxonomy)")}
+    if "protected" not in columns:
+        cursor.execute("ALTER TABLE master_tag_taxonomy ADD COLUMN protected INTEGER DEFAULT 0")
+
+    cursor.execute("UPDATE master_tag_taxonomy SET protected = 1")
+    protected_count = cursor.rowcount
+    conn.commit()
+    logger.info("[MIGRATION 000.006.196] curated taxonomy terms protected: %d", protected_count)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5265,6 +5475,29 @@ MIGRATIONS: list[Migration] = [
         up_fn=migrate_000_006_192_seed_vocabulary_gaps,
         post_sync_chroma=True,
     ),
+    Migration(
+        target_db="vault",
+        version="000.006.194",
+        name="register_pass1_vocabulary",
+        up_fn=migrate_000_006_194_register_pass1_vocabulary,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.195",
+        name="register_media_subtypes",
+        up_fn=migrate_000_006_195_register_media_subtypes,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.196",
+        name="protect_curated_taxonomy",
+        up_fn=migrate_000_006_196_protect_curated_taxonomy,
+        # The Chroma hook was a no-op until this release, so 350 of 671 registered terms
+        # — every faceted value among them — were never embedded. Re-run it here.
+        post_sync_chroma=True,
+    ),
 ]
 
 
@@ -5397,8 +5630,10 @@ def execute_post_hooks(migration: Migration) -> None:
     if migration.post_sync_chroma:
         print(f"[DB Migrator] Triggering post-migration Chroma sync hook for {migration.version}...")
         try:
-            print("[DB Migrator] Chroma sync hook completed.")
-        except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
+            from Evelyn.tools.tag_librarian import sync_master_tags_to_vector_db
+            enqueued = sync_master_tags_to_vector_db()
+            print(f"[DB Migrator] Chroma sync hook completed ({enqueued} surface forms enqueued).")
+        except (sqlite3.Error, OSError, RuntimeError, ValueError, ImportError) as e:
             print(f"[DB Migrator] [WARNING] Post-migration Chroma hook warning: {e}")
 
     if migration.reindex_vault:

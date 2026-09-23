@@ -112,3 +112,14 @@ _.namespace_children
 # Called by scripts/generate_hyphen_decomposition.py, which freezes the decomposition plan
 # the migration then applies. AGENTS.md §11 category 1 — external script consumer.
 _.flat_compound_decomposition
+
+# Read by scripts/sync_full_vault_to_chroma.py (standalone, outside Vulture scan paths).
+# Its in-engine consumer was repair_corrupted_chroma(), which stopped clearing sync state
+# when v000.006.198 replaced the whole-store purge with a targeted per-collection rebuild.
+# AGENTS.md §11 category 1 — external script consumer, not dead configuration.
+_.GIST_SYNC_STATE
+
+# Called by scripts/rebuild_chroma_collection.py (standalone, outside Vulture scan paths)
+# for its single-collection probe; check_chroma_health() uses the batched _probe_batch().
+# AGENTS.md §11 category 1 — external script consumer.
+_.probe_collection_health

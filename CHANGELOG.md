@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-21 17:35:52
+date modified: 2026-09-22 19:31:21
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,231 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.201] - 2026-09-22 — *Ask the Librarian First*
+
+### Added
+- **Tag admission proposals.** A term the controlled vocabulary does not hold now raises a
+  `tag_admission` proposal into the existing review queue instead of entering the vocabulary
+  unannounced. `propose_tag_admission()` records the term, the facet it appears to belong to,
+  and which subsystem asked for it; `admit_proposed_term()` registers an approved term, and
+  the review endpoint dispatches the new type.
+- **Approved terms are registered unprotected.** A term admitted through review entered by
+  inference rather than from the reviewed vocabulary, so it stays subject to ordinary
+  zero-usage pruning. Only curated terms carry `protected` (migration `000.006.196`).
+- **Proposal flooding is bounded.** One pending proposal per term however many writers request
+  it, duplicates collapse within a call, and the queue is capped so a misbehaving writer
+  cannot bury the review UI. Date anchors (§3.8) are exempt from the vocabulary and are never
+  proposed for it.
+
+### Changed
+- **Memory writers route through admission.** `context_manager`, `fact_extractor` (facts and
+  procedures) and `fact_splitter` now put their tags through the check before storing them.
+
+### Fixed
+- **A stale test assertion contradicted the format standard.**
+  `test_parse_facts_yaml_with_hierarchical_tags` expected `Test_Operator` to survive
+  unchanged, while `test_tag_format_standard.py::test_no_entity_branch_survives` requires
+  proper nouns to follow the same rule as concepts (`Jane_Doe` -> `jane-doe`). The extractor
+  was right and the assertion was wrong; it now expects `test-operator`.
+
+### Notes
+- **Proposing, not withholding — deliberately, for now.** An unregistered tag is still stored.
+  The memory store predates the controlled vocabulary: measured against the live registry,
+  only 2 of its 278 distinct tag atoms are registered, so withholding unregistered tags today
+  would strip 99% of tag occurrences (308 of 311) from every newly written fact. Proposing
+  records what wants admission without destroying the tagging; withholding becomes the correct
+  behaviour once the memory vocabulary is reconciled against the registry.
+
+## [000.006.200] - 2026-09-22 — *One Trip to the Stacks*
+
+### Changed
+- **The startup health probe batches into one child process.** `000.006.198` made the probe
+  crash-safe by running it in a child, but did so per collection — and the embedding model
+  load dominates that cost, so five collections meant five model loads and roughly 20s added
+  to every boot. A single child now probes them all, announcing each collection before it
+  opens it. Measured 19.9s -> 4.9s with identical per-collection reporting.
+- **A crash still identifies the exact culprit, and no longer hides what follows it.** The
+  announced-but-unfinished collection is the one that aborted the child; the batch then
+  resumes after it, so a second bad segment behind the first is still found rather than
+  masked by the first failure.
+
+## [000.006.199] - 2026-09-22 — *One Hand Writes*
+
+Six writers each decided independently what a tag should look like, so one input could enter
+the vault or the memory store in several incompatible forms and each form became a separate
+term. They now share one normaliser.
+
+### Fixed
+- **`research_engine` flattened tag hierarchies on the vault-write path.** Its local slug
+  stripped every non-word character, so `tech/python/fastapi` was written as
+  `techpythonfastapi`; it hyphenated only runs of whitespace, so `Test_Operator` persisted as
+  `test_operator` rather than `test-operator`; and it destroyed date anchors, turning
+  `CY-2026/09/22` into `cy-20260922`.
+- **`pdf_staging_worker` invented hierarchy from whitespace.** `domain_name.lower().replace(' ', '/')`
+  made `Machine Learning` into `machine/learning` and `Owner's Manuals` into `owner's/manuals`,
+  fabricating an axis where §5 permits a slash only to name one — and leaking an apostrophe
+  into a YAML flow array.
+- **`context_manager` applied no normalisation at all** on the memory-write path, so the store
+  could hold `Tech/AI` and `tech/ai` as two unrelated terms.
+- **`dream_manager`, `journal_manager` and `vault_list_manager`** stripped `#` or slugified with
+  underscores and wrote the result straight to frontmatter. `vault_list_manager` keeps the
+  underscore slug for template filenames, where it is correct, and uses the canonical form only
+  for the tag.
+
+### Changed
+- **Admission has a name of its own.** `taxonomy_db.canonicalize_tags()` only rewrites recorded
+  equivalences and returns unknown terms unchanged — it never was a gate, though its name
+  invited callers to treat it as one. Added `partition_by_admission()` and `is_registered_term()`,
+  which answer the question the registry can actually answer, and documented the distinction on
+  `canonicalize_tags()` itself.
+
+## [000.006.198] - 2026-09-22 — *Do Not Burn the Library*
+
+### Fixed
+- **Vector-store repair no longer destroys healthy collections.** `repair_corrupted_chroma()`
+  responded to any health-probe failure by `shutil.rmtree`-ing the entire Chroma directory and
+  re-syncing from scratch. With four populated collections that meant discarding tens of
+  thousands of good vectors to fix one bad segment — unattended, during startup. Repair is now
+  per-collection and delegates to `scripts/rebuild_chroma_collection.py`, which archives the
+  store first. A collection with no registered rebuild strategy is reported and left alone,
+  because dropping what cannot be regenerated is data loss, not repair.
+- **A corrupt segment no longer kills engine startup.** An unreadable HNSW segment fails as
+  `SIGSEGV` — the Rust bindings abort the process — so the in-process probe at startup died
+  along with the collection it was inspecting, and the repair path it guarded could never run.
+  `check_chroma_health()` now probes each collection in a child process and judges it by exit
+  code, so a bad segment produces a diagnosis and a targeted rebuild instead of a boot loop.
+
+### Changed
+- **`check_chroma_health()` covers every collection, not just the memory one.** It returns
+  per-collection detail and an `unhealthy` list; `count` still reports the memory collection
+  for existing callers.
+- **`REBUILD_STRATEGIES` is canonical in `chroma_rag`.** `scripts/rebuild_chroma_collection.py`
+  imports the registry and the probe rather than carrying its own copies, so the engine's
+  auto-repair and the operator tool cannot drift apart about what is rebuildable.
+
+## [000.006.197] - 2026-09-22 — *Mend One Shelf*
+
+### Added
+- **`scripts/rebuild_chroma_collection.py` — targeted single-collection repair.** The only
+  existing recovery path, `chroma_rag.repair_corrupted_chroma()`, deletes the entire vector
+  store and re-syncs everything. When one collection is unreadable and the others are
+  healthy that discards good vectors and re-embeds tens of thousands of documents to fix one
+  segment. This tool drops and regenerates one named collection from its canonical source,
+  leaving the rest alone.
+- **Crash-safe health probing.** A corrupt HNSW segment fails as `SIGSEGV`, not as an
+  exception: the Rust bindings abort the process, so no `try`/`except` can catch it and any
+  in-process health check dies with the collection it was inspecting. Every probe therefore
+  runs in a child process and is judged by exit code, which is what lets `--list` report on a
+  collection that crashes anything opening it.
+- **Orphaned segment reporting (`--orphans`).** Segment directories that no collection
+  references accumulate silently when a collection is recreated. The tool lists them with
+  sizes and reclaims them under `--execute`.
+
+### Notes
+- Every destructive path archives the whole Chroma directory first, and a collection with no
+  registered rebuild strategy is refused rather than dropped — dropping what cannot be
+  regenerated is data loss, not repair.
+- Nothing is modified without `--execute`; a readable collection additionally requires
+  `--force`.
+
+## [000.006.196] - 2026-09-22 — *Do Not Reshelve*
+
+Four unattended writers were each quietly damaging the catalog, and every one of them
+reported success while doing it. This release stops them. No behaviour is added; four
+silent failures become correct.
+
+### Fixed
+- **The post-migration Chroma hook did nothing.** `execute_post_hooks` contained a `try`
+  block whose entire body was a success `print()`. Twenty-two migrations declare
+  `post_sync_chroma=True`, and all twenty-two reported a completed sync having embedded
+  nothing. The result: 350 of 671 registered terms had no vector, including *every* faceted
+  value, so the vector arm of the subject-admission cascade could never match a `type/`,
+  `motif/`, `setting/` or `event/` term. The hook now calls
+  `tag_librarian.sync_master_tags_to_vector_db()` and reports the count it actually enqueued.
+- **Taxonomy maintenance would delete reserved vocabulary.** `maintain_master_taxonomy()`
+  prunes every term with zero usage — a sound rule for a folksonomy, wrong for a controlled
+  vocabulary, where terms are registered deliberately and may be reserved before first use.
+  Fifty-four curated terms then stood to be deleted, among them the eight DCMI `type/media`
+  sub-types registered one release earlier and the reserved `event/` values. At 8% of the
+  registry it sat under the 15% circuit breaker, so the pass would have proceeded. Curated
+  terms are now flagged `protected` and are retained regardless of usage; terms that enter
+  by inference remain prunable.
+- **Saving a note blanked its index metadata.** `update_vault_note` called
+  `vault_db.upsert_document()` with only path, title and mtime, and the `ON CONFLICT` clause
+  assigns unconditionally — so the parameter defaults overwrote `tags`, `aliases`, `gist` and
+  `rag_priority` with empty values on every API and UI save. `upsert_document()` now treats
+  an omitted field as "keep what is indexed" rather than "blank it", and the endpoint reads
+  tags and aliases back out of the frontmatter it just wrote.
+- **The vault watcher and the vault indexer disagreed on body hashtags.** The indexer
+  deliberately harvests frontmatter only — body hashtags are an uncontrolled entry path into
+  the vocabulary, and the scan also matched issue numbers, link anchors and code spans. The
+  watcher harvested them anyway, so a document's indexed tags depended on which process
+  wrote the row last. The watcher now follows the indexer's policy.
+
+### Added
+- **Migration `000.006.196` — `protected` column on `master_tag_taxonomy`.** Every term
+  currently registered arrived from the reviewed vocabulary (migrations `194` and `195`) and
+  is marked protected. The migration also carries `post_sync_chroma=True` to embed the
+  backlog the broken hook left behind.
+
+## [000.006.195] - 2026-09-22 — *Form Follows Card*
+
+### Added
+- **Migration `000.006.195` — register the eight DCMI sub-types of `type/media`.** The
+  standard requires sub-typing on `type/media` (`type/media/text` for a scanned tax return,
+  `type/media/still-image` for a fan chart) but `194` read only the top-level `type/` rows, so
+  the Pass 2 applier rejected every sub-type. The list is the closed DCMI vocabulary, not
+  personal terms, so it lives in the migration itself.
+
+### Changed
+- **A sub-type satisfies the type facet.** `apply_application_profile` now accepts
+  `type/<class>/<sub-type>` as the document's type tag instead of adding a redundant parent
+  and flagging the sub-type as a second type.
+- **`media` no longer requires a motif.** The class covers PDF wrapper cards (tax returns,
+  court orders, naturalization papers) as well as films and novels; only the latter carry a
+  motif, so `FACET_PROFILE` marks it optional instead of reporting thirty false gaps. The
+  standard's profile table is updated to match.
+- **Pass 2 applier strips retired body hashtags.** When a person card's `Birthday:`,
+  `Birthplace:` or `Death:` line moves to a frontmatter property, the inline `#CY-…` and
+  `#location/…` hashtags become plain text so they stop registering as tags; inline facet
+  hashtags in prose (`Theme Tags: #motif/…`) lose their `#` the same way, since the reviewed
+  facets now live in frontmatter.
+
+## [000.006.194] - 2026-09-21 — *Read, Then Named*
+
+### Added
+- **Migration `000.006.194` — register the full-read vocabulary.** The seed (`191`) was
+  derived from a 235-note sample. This vocabulary was produced by reading the entire personal
+  corpus (1,386 notes) and reasoning over it, measuring every candidate's literary warrant with
+  a phrase test that folds in the writer's own surface forms, and handing the result to the
+  user for line-by-line review. Subject terms, `type/` values, `motif/` / `setting/` /
+  `event/` seeds and the reviewed alias (UF) table are all read from the gitignored review
+  document, so — as with `191` — no term text enters version control.
+- **Alias deferral rule.** An alias whose text is itself a registered term is logged and
+  skipped rather than written. Those are the Reference Library's long forms standing beside
+  the personal short form; collapsing them means retagging library documents, which is
+  deferred until classification has produced usage counts to retag against.
+
+- **Two document classes: `profile` and `stub`.** `type/profile` is the entity card — a contact,
+  pet, persona, D&D character or place, a piece of software — the second-largest class in the
+  vault and one nothing in the canonical list named. `type/stub` marks an auto-generated ghost
+  stub that carries nothing but its type until a human fills it in. Both forbid motif, setting
+  and event in `FACET_PROFILE`; the standard's canonical list and profile table are updated.
+- **`scripts/personal/pass2_apply.py`** (gitignored) writes reviewed assignments into vault
+  frontmatter: every tag is validated against the registry and alias table, the class profile
+  is enforced, and each batch leaves a before/after change log under `scratch/pass2_changelog/`.
+
+### Changed
+- Terms confirmed by the read that were registered under the library's `reference` category
+  are re-categorised into their personal domain group.
+- **Dreams classify as `type/dream`.** The standard's note arguing for `journal-entry` is
+  replaced: the `dream` row exists because a dream record needs motif and setting.
+
+### Decided (recorded in the review document, not here)
+- Sensitivity handling is a frontmatter property, not a vocabulary term.
+- Dated logs keep the `CY-` time axis; only person-card dates become properties.
+- Dreams classify as `type/dream`; the standard's contrary note is to be amended.
 
 ## [000.006.193] - 2026-09-21 — *Symmetry, Not Accuracy*
 

@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-20 08:32:00
+# date modified: 2026-09-22 19:31:21
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2658,16 +2658,22 @@ async def lifespan(app: FastAPI):
         f"  {_GRN}Process Reaper:{_RST} Swept {len(reap_res['reaped_pids'])} orphaned processes, cleared {len(reap_res['cleaned_locks'])} stale locks."
     )
 
-    # 2. Chroma Vector DB Health Probe & Auto-Repair
+    # 2. Chroma Vector DB Health Probe & Targeted Auto-Repair
+    # Each collection is probed in a child process: a corrupt HNSW segment aborts with
+    # SIGSEGV, which an in-process probe cannot survive, and that used to kill startup here.
     health = chroma_rag.check_chroma_health()
     if health["status"] == "healthy":
-        print(f"  {_GRN}Chroma Vector DB:{_RST} Health probe passed ({health['count']} documents indexed).")
+        print(
+            f"  {_GRN}Chroma Vector DB:{_RST} Health probe passed "
+            f"({len(health['collections'])} collections, {health['count']} memory documents indexed)."
+        )
     else:
         print(
-            f"  {_RED}[WARNING] Chroma Vector DB corrupted:{_RST} {health['error']}. Initiating auto-repair...",
+            f"  {_RED}[WARNING] Chroma Vector DB unreadable:{_RST} {health['error']}. "
+            f"Rebuilding only the affected collection(s)...",
             flush=True,
         )
-        chroma_rag.repair_corrupted_chroma(background=True)
+        chroma_rag.repair_corrupted_chroma(collections=health["unhealthy"], background=True)
 
     _lifespan_tasks: list[asyncio.Task] = []
 
@@ -6426,6 +6432,20 @@ async def action_proposal(
                             update_kwargs["subject"] = new_subj
                     memory_db.update_entry(source_id, **update_kwargs)
                 memory_db.apply_proposal(id)
+            elif prop["type"] == "tag_admission":
+                # `topic` carries the proposed term, `suggested_category` its facet.
+                # Approving registers it in the controlled vocabulary, unprotected: it
+                # entered by inference rather than from the reviewed vocabulary, so it
+                # stays subject to ordinary zero-usage pruning.
+                from Evelyn.tools import tag_librarian
+
+                term = (req.modified_text or prop.get("topic") or "").strip()
+                if not term:
+                    raise HTTPException(status_code=400, detail="Tag proposal carries no term")
+                if not tag_librarian.admit_proposed_term(term, prop.get("suggested_category") or ""):
+                    raise HTTPException(status_code=400, detail=f"Term '{term}' is not a valid tag")
+                memory_db.apply_proposal(id)
+
             elif prop["type"] == "ghost_link_stub":
                 from Evelyn.tools import link_librarian, vault_db
 
@@ -7155,11 +7175,27 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
     try:
         await asyncio.to_thread(_server_sync_write, full_path, req.content)
         # Update SQLite vault database
-        from Evelyn.tools import chroma_rag, vault_db
+        from Evelyn.tools import chroma_rag, frontmatter_utils, tag_librarian, vault_db
 
         mtime = os.path.getmtime(full_path)
         title = os.path.splitext(os.path.basename(clean_path))[0]
-        vault_db.upsert_document(path=clean_path, title=title, mtime=mtime)
+        # Re-read tags/aliases from the frontmatter that was just saved. Omitting them
+        # would blank the indexed values; stale-but-present is not an option either,
+        # since the edit may well have been to the tags themselves. Gist and RAG
+        # priority are left unset so the indexer's computed values survive the save.
+        saved_meta, _saved_body = frontmatter_utils.parse_frontmatter(req.content)
+        saved_tags, _ = tag_librarian.parse_frontmatter_tags(req.content)
+        raw_aliases = saved_meta.get("aliases") or []
+        if isinstance(raw_aliases, str):
+            raw_aliases = [a.strip() for a in raw_aliases.split(",")]
+        saved_aliases = [str(a).strip().strip("'\"") for a in raw_aliases if str(a).strip().strip("'\"")]
+        vault_db.upsert_document(
+            path=clean_path,
+            title=title,
+            mtime=mtime,
+            tags=",".join(saved_tags),
+            aliases=",".join(saved_aliases),
+        )
         # Enqueue Chroma vector re-indexing
         chroma_rag.enqueue_upsert(
             source_path=clean_path,

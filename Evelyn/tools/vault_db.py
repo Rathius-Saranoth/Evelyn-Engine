@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-18 19:33:58
+# date modified: 2026-09-22 07:29:57
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -67,7 +67,8 @@ def init_db() -> None:
             description TEXT,
             usage_count INTEGER DEFAULT 0,
             created_at REAL,
-            updated_at REAL
+            updated_at REAL,
+            protected INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS master_tag_aliases (
@@ -113,27 +114,61 @@ def init_db() -> None:
     con.close()
 
 
+# Fields a caller may omit to mean "leave whatever is already indexed alone".
+# Passing a value still overwrites; only ``None`` preserves.
+_PRESERVABLE_DOC_FIELDS: dict[str, Any] = {
+    "gist": "", "rag_priority": "normal", "rag_pinned": False, "tags": "", "aliases": "",
+}
+
+
 def upsert_document(
-    path: str, title: str, mtime: float, gist: str = "",
-    gist_failed: bool = False, rag_priority: str = "normal", rag_pinned: bool = False,
-    tags: str = "", aliases: str = "", last_semantic_tag_audit: float | None = None
+    path: str, title: str, mtime: float, gist: str | None = None,
+    gist_failed: bool = False, rag_priority: str | None = None, rag_pinned: bool | None = None,
+    tags: str | None = None, aliases: str | None = None, last_semantic_tag_audit: float | None = None
 ) -> None:
     """Insert or update a document in the vault map.
+
+    Omitted metadata is **preserved, not blanked**. A caller that knows only the path
+    and mtime (an editor save, say) must not silently discard the tags, aliases, gist,
+    and RAG priority that the indexer computed — so those parameters default to ``None``
+    meaning "keep the indexed value", and only an explicit argument overwrites.
 
     Args:
         path: Relative or absolute path of the document.
         title: Title of the document.
         mtime: Modification time.
-        gist: The text preview snippet.
+        gist: The text preview snippet, or None to keep the indexed one.
         gist_failed: Unused legacy flag (defaults to False).
-        rag_priority: 'high', 'normal', or 'low'.
-        rag_pinned: Whether document is pinned in RAG context.
-        tags: Comma-separated tag string.
-        aliases: Comma-separated aliases string.
+        rag_priority: 'high', 'normal', or 'low', or None to keep the indexed one.
+        rag_pinned: Whether document is pinned in RAG context, or None to keep.
+        tags: Comma-separated tag string, or None to keep the indexed tags.
+        aliases: Comma-separated aliases string, or None to keep the indexed aliases.
         last_semantic_tag_audit: Optional epoch timestamp of last semantic tag audit.
     """
     path = path.replace('\\', '/')
     con = get_db()
+
+    supplied = {
+        "gist": gist, "rag_priority": rag_priority, "rag_pinned": rag_pinned,
+        "tags": tags, "aliases": aliases,
+    }
+    if any(v is None for v in supplied.values()):
+        existing = con.execute(
+            "SELECT gist, rag_priority, rag_pinned, tags, aliases FROM vault_documents WHERE path = ?",
+            (path,),
+        ).fetchone()
+        for field, value in supplied.items():
+            if value is not None:
+                continue
+            if existing is not None and existing[field] is not None:
+                supplied[field] = existing[field]
+            else:
+                supplied[field] = _PRESERVABLE_DOC_FIELDS[field]
+        gist = supplied["gist"]
+        rag_priority = supplied["rag_priority"]
+        rag_pinned = supplied["rag_pinned"]
+        tags = supplied["tags"]
+        aliases = supplied["aliases"]
     if last_semantic_tag_audit is not None:
         con.execute("""
             INSERT INTO vault_documents

@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-22 19:31:21
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -17,8 +17,10 @@ Key capabilities:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
@@ -26,7 +28,7 @@ import yaml
 
 import evelyn_config as cfg
 from Evelyn.tools import memory_db, taxonomy_db
-from Evelyn.tools.tag_librarian import normalize_tag_format
+from Evelyn.tools.tag_librarian import normalize_tag_format, propose_tag_admission
 
 logger = logging.getLogger("evelyn.fact_splitter")
 
@@ -120,9 +122,13 @@ async def generate_split_proposal(
         c_cat = str(item.get("category", cat)).strip()
         c_subj = str(item.get("subject", subj)).strip()
         raw_t = str(item.get("tags", "")).strip()
-        norm_t = ", ".join(taxonomy_db.canonicalize_tags(
+        split_tags = taxonomy_db.canonicalize_tags(
             [normalize_tag_format(t) for t in raw_t.split(",") if t.strip()]
-        ))
+        )
+        with contextlib.suppress(sqlite3.Error, OSError):
+            propose_tag_admission(split_tags, origin=f"split fact ({c_cat})",
+                                  reason="Tag proposed by a fact split but not in the controlled vocabulary.")
+        norm_t = ", ".join(split_tags)
         valid_entries.append({
             "category": c_cat,
             "subject": c_subj,

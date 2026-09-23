@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-20 17:00:10
+date modified: 2026-09-22 06:45:32
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -189,7 +189,7 @@ under **31 different parents** here, one concept restated 31 times.
 ### 3.4 Type — the form axis
 Exactly one per document. It is **separate from subject** and never mixed into the domain tree. This axis also determines the document's **class**, which gates the conditional facets (§4).
 
-Canonical values: `type/overview`, `type/reference`, `type/guide`, `type/manual`, `type/journal-entry`, `type/dream`, `type/creative`, `type/media`, `type/recipe`, `type/list`, `type/log`, `type/notes`, `type/report`, `type/moc`.
+Canonical values: `type/overview`, `type/reference`, `type/guide`, `type/manual`, `type/journal-entry`, `type/dream`, `type/creative`, `type/media`, `type/recipe`, `type/list`, `type/log`, `type/notes`, `type/report`, `type/moc`, `type/profile` (an entity card: a person, pet, persona, character, place or software — "what is it / how does it relate to me"), `type/stub` (an auto-generated ghost stub carrying nothing but its type until a human fills it in).
 
 **Media sub-typing** uses the DCMI Type Vocabulary as its closed second level:
 
@@ -262,21 +262,18 @@ The pass determines the document's **class first**; the class then decides which
 | `journal-entry` | **required** | optional | optional | optional | **required** |
 | `dream` | **required** | **required** | **required** | optional | **required** |
 | `creative` | **required** | **required** | optional | optional | optional |
-| `media` | **required** | **required** | optional | optional | optional |
+| `media` | **required** (sub-typed) | optional | optional | optional | optional |
 | `recipe`, `notes` | **required** | ⛔ forbidden | ⛔ forbidden | ⛔ forbidden | optional |
+| `profile`, `stub` | **required** (`stub`: none) | ⛔ forbidden | ⛔ forbidden | ⛔ forbidden | optional |
 
 **"Forbidden" is enforced, not advisory.** A motif tag proposed on a reference document is rejected before it reaches disk.
 
-> [!NOTE] Dreams classify as `journal-entry`, and that is correct
-> A dream entry and a journal entry are the same kind of record — an account of experience — and one
-> of them merely happened during sleep. Motif and setting sit as *optional* on `journal-entry` for
-> exactly that reason: an entry about errands needs neither, an entry about a dream usually wants
-> both, and the difference is the content rather than the class.
->
-> The vault once called these "dream logs" to stop journal tooling from firing on them. That was a
-> workaround for tool routing, not a cataloguing judgement, and it should not be read as evidence
-> that the two are different classes. A later pass that "fixes" dreams back into their own class
-> would be restoring a symptom.
+> [!NOTE] Dreams classify as `type/dream`
+> Earlier revisions of this note argued that a dream entry is a journal entry that happened during
+> sleep. The full-corpus review (2026-09-21) settled it the other way: the `dream` row exists in the
+> profile table precisely because a dream record *needs* motif and setting, where a journal entry only
+> permits them. Ninety-eight dream notes are classified `type/dream`; an entry that merely mentions a
+> dream stays `type/journal-entry` and may carry `dream` as a subject.
 
 The administrative axis (§3.2) is **outside this table entirely** — it applies to any class and is never gated.
 

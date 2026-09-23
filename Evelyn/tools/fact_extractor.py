@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-20 07:41:52
+# date modified: 2026-09-22 19:31:21
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -26,6 +26,7 @@ Architecture notes: reference/docstring_guide.md#fact_extractorpy--architecture-
 
 
 import asyncio
+import contextlib
 import datetime as dt
 import importlib
 import json
@@ -43,6 +44,7 @@ from Evelyn.tools import backlog_drainer, chroma_rag, taxonomy_db
 from Evelyn.tools.tag_librarian import (
     is_excluded_tag,
     normalize_tag_format,
+    propose_tag_admission,
     strip_subject_duplicate_tags,
 )
 
@@ -876,9 +878,16 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         raw_tags = str(item.get("tags", "")).strip()
         # The subject column already records who the fact concerns; a tag repeating it is
         # duplicate state. Enforced deterministically rather than asked of the model.
-        tags = ", ".join(taxonomy_db.canonicalize_tags(strip_subject_duplicate_tags(
+        tag_list = taxonomy_db.canonicalize_tags(strip_subject_duplicate_tags(
             [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()], subj
-        )))
+        ))
+        # Terms the vocabulary does not hold go to review rather than entering it silently.
+        # The tag is still kept; see propose_tag_admission for why proposing precedes
+        # withholding while the memory vocabulary is still being reconciled.
+        with contextlib.suppress(sqlite3.Error, OSError):
+            propose_tag_admission(tag_list, origin=f"extracted fact ({cat})",
+                                  reason="Tag proposed by fact extraction but not in the controlled vocabulary.")
+        tags = ", ".join(tag_list)
 
         summ = str(item.get("summary", "")).strip()
         # Sanitize before any further processing — drop if injection or
@@ -1035,9 +1044,13 @@ def _parse_procedures_yaml(raw: str) -> list[dict]:
         verification = item.get("verification")
         suggested_tools = item.get("suggested_tools")
         raw_tags = str(item.get("tags", "")).strip()
-        tags = ", ".join(taxonomy_db.canonicalize_tags(
+        tag_list = taxonomy_db.canonicalize_tags(
             [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()]
-        ))
+        )
+        with contextlib.suppress(sqlite3.Error, OSError):
+            propose_tag_admission(tag_list, origin="extracted procedure",
+                                  reason="Tag proposed by procedure extraction but not in the controlled vocabulary.")
+        tags = ", ".join(tag_list)
 
         # Sanitize trigger and steps against injection
         trigger = _sanitize_entry(trigger)

@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-18 21:33:51
+# date modified: 2026-09-22 19:31:21
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -763,9 +763,16 @@ FACET_PROFILE: dict[str, dict[str, str]] = {
     "journal-entry": {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": REQUIRED},
     "dream":         {"motif": REQUIRED,  "setting": REQUIRED,  "event": OPTIONAL,  "time": REQUIRED},
     "creative":      {"motif": REQUIRED,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
-    "media":         {"motif": REQUIRED,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
+    # A film or novel carries motif; a scanned tax return or court order is `media` too (a PDF
+    # wrapper card, DCMI sub-type Text) and carries none. So motif is permitted, not demanded.
+    "media":         {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
     "recipe":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
     "notes":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    # Entity cards ("what is it / how does it relate to me"): contacts, pets, personas, D&D
+    # characters and places, software. The second-largest class in the vault (Pass 1 review).
+    "profile":       {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    # Auto-generated ghost stubs: the type tag and nothing else until a human fills them in.
+    "stub":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
 }
 DOCUMENT_CLASSES = sorted(FACET_PROFILE)
 
@@ -833,10 +840,14 @@ def apply_application_profile(
     gaps: list[str] = []
 
     type_tag = f"type/{doc_class}"
-    if type_tag not in tags:
+    # A DCMI sub-type (`type/media/text`) is the class's type tag in a more specific form.
+    if not any(t == type_tag or t.startswith(type_tag + "/") for t in tags):
         add.append(type_tag)
     # One type facet only — any other is wrong about the document's form.
-    remove.extend(t for t in tags if t.startswith("type/") and t != type_tag)
+    remove.extend(
+        t for t in tags
+        if t.startswith("type/") and t != type_tag and not t.startswith(type_tag + "/")
+    )
 
     for facet, rule in profile.items():
         if facet == "time":
@@ -1426,6 +1437,114 @@ def seed_master_taxonomy_from_vault() -> int:
     return len(tag_counts)
 
 
+TAG_ADMISSION_PROPOSAL = "tag_admission"
+
+# A flood of identical proposals is not review material. One pending proposal per term is
+# enough to decide on it, however many documents or facts request it.
+TAG_ADMISSION_MAX_PENDING = 200
+
+
+def propose_tag_admission(
+    terms: list[str], origin: str = "", reason: str = ""
+) -> list[str]:
+    """Raise a review proposal for each term the controlled vocabulary does not hold.
+
+    This is the quarantine route for an unregistered term: rather than a writer silently
+    minting vocabulary, or the term being dropped with no record of what wanted it, the
+    term goes to the same review queue that already carries merges and stubs (taxonomy §6).
+
+    Proposing does **not** admit the term and does not decide whether the caller stores it.
+    Approval registers it, unprotected, so ordinary maintenance can still prune it later if
+    nothing uses it.
+
+    Already-pending terms are skipped, so a term requested by fifty facts yields one
+    proposal, and the queue is capped so a misbehaving writer cannot bury the review UI.
+
+    Args:
+        terms: Candidate terms, already in canonical §5 format.
+        origin: Where the term came from (a vault path, a fact id, a subsystem name).
+        reason: Why it was requested, shown to the reviewer.
+
+    Returns:
+        list[str]: Terms newly proposed by this call.
+    """
+    from Evelyn.tools import memory_db
+
+    _, unregistered = taxonomy_db.partition_by_admission(
+        [t for t in (normalize_tag_format(str(t)) for t in terms) if t and not is_excluded_tag(t)]
+    )
+    if not unregistered:
+        return []
+
+    try:
+        pending = memory_db.get_pending_proposals(TAG_ADMISSION_PROPOSAL)
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("[TAG LIBRARIAN] Could not read pending tag proposals: %s", exc)
+        return []
+
+    already = {(p.get("topic") or "").strip() for p in pending}
+    room = TAG_ADMISSION_MAX_PENDING - len(pending)
+    if room <= 0:
+        logger.warning(
+            "[TAG LIBRARIAN] %d tag admission proposals already pending; not adding more.",
+            len(pending),
+        )
+        return []
+
+    proposed: list[str] = []
+    for term in dict.fromkeys(unregistered):
+        if term in already or len(proposed) >= room:
+            continue
+        facet = term.split("/")[0] if "/" in term else "general"
+        try:
+            memory_db.insert_proposal(
+                type=TAG_ADMISSION_PROPOSAL,
+                source_ids=[],
+                topic=term,
+                suggested_category=facet,
+                reason=reason or f"Requested by {origin or 'an unnamed writer'}; not in the controlled vocabulary.",
+                merged_observation=origin,
+                confidence="low",
+            )
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("[TAG LIBRARIAN] Could not propose '%s': %s", term, exc)
+            continue
+        proposed.append(term)
+
+    if proposed:
+        logger.info(
+            "[TAG LIBRARIAN] Proposed %d term(s) for admission from %s: %s",
+            len(proposed), origin or "unknown origin", ", ".join(proposed),
+        )
+    return proposed
+
+
+def admit_proposed_term(term: str, category: str = "") -> bool:
+    """Register a term that a reviewer approved.
+
+    Registered unprotected: the term entered by inference rather than from the reviewed
+    vocabulary, so it stays subject to ordinary zero-usage pruning. Only curated terms
+    carry ``protected`` (see migration 000.006.196).
+
+    Args:
+        term: The approved term, in canonical §5 format.
+        category: Optional facet/category; derived from the term when omitted.
+
+    Returns:
+        bool: True when the term is registered.
+    """
+    clean = normalize_tag_format(term)
+    if not clean:
+        return False
+    taxonomy_db.upsert_master_tag(
+        clean,
+        category=category or (clean.split("/")[0] if "/" in clean else "general"),
+        description="Admitted through review.",
+    )
+    index_master_tag_in_chroma(clean, category=category, description="Admitted through review.")
+    return True
+
+
 def maintain_master_taxonomy() -> dict[str, Any]:
     """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
@@ -1475,14 +1594,28 @@ def maintain_master_taxonomy() -> dict[str, Any]:
 
     tags_to_delete: list[str] = []
     tags_to_update: list[tuple[str, str, str, int]] = []
+    protected_skipped = 0
 
     for m in master_tags:
         t = m["tag"]
         count = current_counts.get(t, 0)
         if count == 0:
+            # Zero usage is not evidence of staleness in a controlled vocabulary. Curated
+            # terms are registered deliberately and may be reserved long before a document
+            # uses one — the DCMI media sub-types and the reserved `event/` values are
+            # exactly that. Only terms that entered by inference are prunable on usage.
+            if m.get("protected"):
+                protected_skipped += 1
+                continue
             tags_to_delete.append(t)
         elif count != m.get("usage_count", 0):
             tags_to_update.append((t, m.get("category", "general"), m.get("description", ""), count))
+
+    if protected_skipped:
+        print(
+            f"[TAG LIBRARIAN] Retained {protected_skipped} curated term(s) with zero current usage "
+            f"(protected vocabulary)."
+        )
 
     # Safety Circuit Breaker: Abort if proposed deletions exceed safe threshold
     max_prune_ratio = getattr(cfg, "TAG_LIBRARIAN_MAX_PRUNE_RATIO", 0.15)
@@ -1512,6 +1645,7 @@ def maintain_master_taxonomy() -> dict[str, Any]:
         "status": "success",
         "updated_master_tags": len(tags_to_update),
         "removed_master_tags": len(tags_to_delete),
+        "protected_retained": protected_skipped,
     }
 
 

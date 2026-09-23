@@ -1,6 +1,6 @@
 # vault_list_manager.py
 # date created: 2026-08-23
-# date modified: 2026-08-28 12:28:30
+# date modified: 2026-09-22 19:09:21
 # tags: #obsidian, #vault, #lists, #groceries, #checklists, #tools
 
 """vault_list_manager.py — Local Obsidian Vault List and Checklist Manager.
@@ -19,6 +19,7 @@ from typing import Any
 import evelyn_config as cfg
 from Evelyn.tools.frontmatter_utils import format_yaml_array, parse_frontmatter
 from Evelyn.tools.string_utils import slugify
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 
 def get_lists_directory() -> str:
@@ -79,7 +80,9 @@ def ensure_list_exists(name: str) -> str:
         with open(generic_tmpl, encoding="utf-8") as f:
             template_content = f.read()
     else:
-        tags_str = format_yaml_array(["list", slug])
+        # `slug` stays the filename form (underscores); the tag takes the canonical
+        # vault form (taxonomy §5, hyphens) so list tags match the rest of the vocabulary.
+        tags_str = format_yaml_array(["list", normalize_tag_format(clean_name)])
         template_content = (
             "---\n"
             f"title: {clean_name}\n"
@@ -265,8 +268,7 @@ def write_list_file(filepath: str, parsed: dict[str, Any]) -> None:
                 frontmatter = frontmatter[:-3].rstrip() + f"\ndate modified: {now_str}\n---\n"
     else:
         title = parsed.get("title", "List")
-        slug = title.lower().replace(" ", "_")
-        tags_str = format_yaml_array(["list", slug])
+        tags_str = format_yaml_array(["list", normalize_tag_format(title)])
         frontmatter = (
             "---\n"
             f"title: {title}\n"

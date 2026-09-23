@@ -1,6 +1,6 @@
 # test_context_extractor_taxonomy_rag.py
 # date created: 2026-08-19
-# date modified: 2026-09-20 08:34:58
+# date modified: 2026-09-22 19:32:37
 # tags: #tests, #taxonomy, #rag, #extractor, #novelty
 
 import sys
@@ -116,8 +116,11 @@ facts:
         fact = parsed[0]
         self.assertEqual(fact["subject"], cfg.USER_NAME)
         self.assertEqual(fact["category"], f"Cat05-{cfg.SUBJECT_CODE_USER}")
-        # Verify normalization
-        self.assertEqual(fact["tags"], "tech/python/fastapi, Test_Operator, 3d-printing/slicing")
+        # Verify normalization. `Test_Operator` becomes `test-operator`: §5 gives proper
+        # nouns the same rule as concepts — no underscores, no TitleCase — which is what
+        # removes any way for one term to fork into two. This assertion previously expected
+        # the raw form and contradicted test_tag_format_standard.py::test_no_entity_branch_survives.
+        self.assertEqual(fact["tags"], "tech/python/fastapi, test-operator, 3d-printing/slicing")
         self.assertEqual(fact["confidence"], "high")
 
     def test_parse_facts_yaml_unclosed_fence(self):

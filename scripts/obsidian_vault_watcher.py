@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # obsidian_vault_watcher.py
 # date created: 2026-08-15 14:45:36
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-22 07:29:57
 # tags:
 
 # scripts/obsidian_vault_watcher.py
@@ -117,8 +117,13 @@ def quick_extract_metadata(file_path: str) -> dict | None:
             else os.path.splitext(os.path.basename(file_path))[0]
         )
 
-    inline_tags = re.findall(r"(?:^|\s)#([a-zA-Z0-9_/-]+)(?=\s|$)", body)
-    all_tags = sorted(set(fm_tags + inline_tags))
+    # Tags — frontmatter only, matching vault_indexer.extract_metadata().
+    # Body hashtags are deliberately NOT harvested. They are an uncontrolled entry path into
+    # the vocabulary: nothing reconciles them against the registry, so a term could enter the
+    # taxonomy without ever being admitted to it. This watcher previously disagreed with the
+    # indexer here, so whichever wrote a row last decided the document's tags.
+    # Frontmatter is the single entry point; see .agents/rules/vault-tag-taxonomy.md.
+    all_tags = sorted(set(fm_tags))
 
     # Fast text slice gist fallback using string_utils.clean_llm_gist
     text_body = re.sub(r"(?m)^#{1,6}\s+.*$", "", body)

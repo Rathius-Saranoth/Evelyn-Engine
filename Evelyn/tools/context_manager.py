@@ -1,6 +1,6 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-09-06 08:52:26
+# date modified: 2026-09-22 19:31:21
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
@@ -14,12 +14,14 @@ Provides two sets of functionality:
 ('extracted', 'pending_review', 'live', 'archived', 'deleted').
 """
 
+import contextlib
 import datetime
 import sqlite3
 
 import evelyn_config as cfg
-from Evelyn.tools import memory_db
+from Evelyn.tools import memory_db, tag_librarian
 from Evelyn.tools.fact_consolidator import validate_and_normalize_category
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 
 def append_context_log(
@@ -55,15 +57,35 @@ def append_context_log(
             else (cfg.USER_NAME if subject_code == cfg.SUBJECT_CODE_USER else "Unknown")
         )
 
-    # Clean and combine tags / secondary categories
-    combined_tags_list = []
+    # Clean and combine tags / secondary categories.
+    # Everything is put through the canonical normaliser (taxonomy §5) before storage.
+    # This path previously stored whatever string it was handed, so the memory store could
+    # accumulate 'Tech/AI' beside 'tech/ai' as two unrelated terms. Date anchors and the
+    # administrative namespaces are exempted inside normalize_tag_format itself.
+    raw_tag_parts: list[str] = []
     if tags:
-        combined_tags_list.extend([t.strip() for t in tags.split(",") if t.strip()])
+        raw_tag_parts.extend(tags.split(","))
     if secondary_cats:
-        if isinstance(secondary_cats, list):
-            combined_tags_list.extend([c.strip() for c in secondary_cats if c.strip()])
-        else:
-            combined_tags_list.extend([c.strip() for c in secondary_cats.split(",") if c.strip()])
+        raw_tag_parts.extend(
+            secondary_cats if isinstance(secondary_cats, list) else secondary_cats.split(",")
+        )
+    combined_tags_list = [
+        norm for norm in (normalize_tag_format(str(t)) for t in raw_tag_parts) if norm
+    ]
+
+    # Terms the controlled vocabulary does not hold go to the review queue rather than
+    # entering it silently. The tag is still stored: the memory store predates the
+    # controlled vocabulary and almost none of its terms are registered yet, so withholding
+    # unregistered tags today would strip nearly every fact. Proposing records what wants
+    # admission; withholding becomes appropriate once the memory vocabulary is reconciled.
+    if combined_tags_list:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            tag_librarian.propose_tag_admission(
+                combined_tags_list,
+                origin=f"memory fact ({norm_cat})",
+                reason="Tag attached to a memory fact but absent from the controlled vocabulary.",
+            )
+
     final_tags = ", ".join(dict.fromkeys(combined_tags_list)) if combined_tags_list else None
 
     try:

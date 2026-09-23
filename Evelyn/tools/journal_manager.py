@@ -1,6 +1,6 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-09-05 19:46:17
+# date modified: 2026-09-22 19:09:21
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
@@ -27,6 +27,7 @@ import sqlite3
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
 from Evelyn.tools.frontmatter_utils import render_frontmatter
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 JOURNAL_DIR = getattr(cfg, "JOURNAL_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), f"{getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}'s Journal"))
 PENDING_DIR = os.path.join(getattr(cfg, "PENDING_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), "Pending_Approvals")), "Journal")
@@ -151,8 +152,10 @@ def create_journal_entry(
     if tags is None:
         tags = []
 
-    # Strip any '#' from tags for valid YAML
-    clean_tags = [t.strip().lstrip("#") for t in tags]
+    # Normalise to the canonical vault form (taxonomy §5) rather than only stripping '#',
+    # which let model-supplied casing and underscores enter the vocabulary unchecked.
+    # CY- date anchors are exempted inside normalize_tag_format.
+    clean_tags = [n for n in (normalize_tag_format(str(t)) for t in tags) if n]
 
     base_tags = [f"CY-{target_date.strftime('%Y/%m/%d')}"]
     for t in base_tags:

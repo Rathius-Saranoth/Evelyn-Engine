@@ -1,6 +1,6 @@
 # dream_manager.py
 # date created: 2026-08-29 07:45:00
-# date modified: 2026-09-05 19:45:44
+# date modified: 2026-09-22 19:09:21
 # tags: #dreams, #management, #entries, #vault, #protocols
 
 """
@@ -26,6 +26,7 @@ from Evelyn.tools.frontmatter_utils import (
     render_frontmatter,
     write_file_with_frontmatter,
 )
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 
 def _resolve_dream_dir() -> str:
@@ -105,12 +106,15 @@ def create_dream_entry(
     analysis_clean = analysis.strip()
 
     # Parse and clean tags
+    # Tags reach the vault through the canonical normaliser (taxonomy §5); stripping '#'
+    # alone let model-supplied casing and underscores enter the vocabulary unchecked.
+    # CY- date anchors are exempted inside normalize_tag_format.
     clean_tags: list[str] = []
     if tags:
-        if isinstance(tags, str):
-            clean_tags = [t.strip().lstrip("#") for t in tags.split(",") if t.strip().lstrip("#")]
-        elif isinstance(tags, (list, tuple, set)):
-            clean_tags = [t.strip().lstrip("#") for t in tags if isinstance(t, str) and t.strip().lstrip("#")]
+        raw = tags.split(",") if isinstance(tags, str) else (
+            list(tags) if isinstance(tags, (list, tuple, set)) else []
+        )
+        clean_tags = [n for n in (normalize_tag_format(str(t)) for t in raw) if n]
 
     # Automatic base date tag
     try:

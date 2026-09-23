@@ -1,6 +1,6 @@
 # research_engine.py
 # date created: 2026-05-26
-# date modified: 2026-09-13 11:53:39
+# date modified: 2026-09-22 19:09:21
 # tags: #research, #orchestrator, #engine, #statemachine, #cli
 
 """research_engine.py — Core Orchestrator for Evelyn's Deep Research.
@@ -99,6 +99,7 @@ import research_prompts  # [[research_prompts.py]]
 import string_utils  # [[string_utils.py]]
 import vault_db  # [[vault_db.py]]
 import web_reader  # [[web_reader.py]]
+from tag_librarian import normalize_tag_format  # [[tag_librarian.py]]
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
 
@@ -2253,12 +2254,14 @@ async def step_synthesize(task_id: str, state: dict[str, Any]) -> None:
     elif final_report.startswith("```yaml"):
         clean_report_body = re.sub(r"^```yaml.*?```\s*\n", "", final_report, count=1, flags=re.DOTALL)
 
-    tags_list = []
-
-    # Clean and append topic tags from state
+    # Topic tags go through the canonical normaliser (taxonomy §5). The local slug this
+    # replaced stripped every non-word character, so a hierarchical tag lost its axis
+    # ('tech/python/fastapi' collapsed to 'techpythonfastapi'), and it hyphenated only
+    # runs of spaces, so 'Test_Operator' survived as 'test_operator' rather than
+    # 'test-operator'. Both forms then entered the vault as new vocabulary.
+    tags_list: list[str] = []
     for tag in state.get("topic_tags", []):
-        cleaned_tag = re.sub(r"[^\w\s-]", "", tag.lower())
-        cleaned_tag = re.sub(r"[-\s]+", "-", cleaned_tag).strip("-_")
+        cleaned_tag = normalize_tag_format(str(tag))
         if cleaned_tag and cleaned_tag not in tags_list:
             tags_list.append(cleaned_tag)
 
