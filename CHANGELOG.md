@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-22 21:57:21
+date modified: 2026-09-23 17:15:17
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,31 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.210] - 2026-09-23 — *The Rule Beats the Example*
+
+v000.006.204 rewrote the extraction prompts. Two of them were only half rewritten, and one
+night of idle processing undid most of the Phase D memory reconciliation.
+
+### Fixed
+- **`fact_splitter` rule 4 and `fact_deduplicator` rule 7 still taught the hierarchy.** In both
+  files the few-shot example had been changed to flat terms while the numbered rule above it
+  still read "MULTI-TIER DOMAIN TAXONOMY" — the splitter citing `Tech/Python/FastAPI`, the
+  deduplicator instructing "lowercase hierarchical domain trees ... slashes joining levels".
+  The prompt contradicted itself and the rule won. Both now state the §5 format, matching the
+  wording already in `fact_extractor`.
+- **Measured damage:** Phase D left the memory subsystem at 184 registered terms and zero
+  unregistered. One overnight run returned it to 289 distinct terms, **101 unregistered across
+  70 entries** — 43 from the merge path, 21 from the split path, 6 from extraction. The split
+  pipeline was minting fresh hierarchies from parents that had just been given flat tags.
+
+### Added
+- **`test_prompts_teach_the_standard.py`** — a deterministic check that no module building a
+  tag-producing prompt contains the retired vocabulary, in a rule or an example. A prose sweep
+  found one of the three instances and reported the job done; this replaces that judgement with
+  a grep the suite enforces. It is negation-aware, because a rule citing `Home/Coffee/Espresso`
+  in order to forbid it is correct prompt writing, and it is verified to fail when the old rule
+  is reintroduced.
 
 ## [000.006.209] - 2026-09-22 — *Tests Own Nothing Real*
 

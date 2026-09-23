@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-22 20:21:51
+# date modified: 2026-09-23 17:15:17
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -62,7 +62,10 @@ async def generate_split_proposal(
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
         "3. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "4. MULTI-TIER DOMAIN TAXONOMY: Assign clean domain hierarchy tags (e.g. `Tech/Python/FastAPI`, `Home/Coffee/Espresso`, `Lore/Dungeon_Crawler_Carl`) for each split item.\n"
+        "4. CONTROLLED VOCABULARY TAGS: Tags are flat subject terms combined at retrieval "
+        "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Lowercase "
+        "always; hyphens join words; named entities follow the same rule — no TitleCase, no "
+        "underscores. Prefer terms that already exist over inventing near-duplicates.\n"
         "5. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n\n"
         "Output ONLY a YAML block:\n"
         "```yaml\n"
