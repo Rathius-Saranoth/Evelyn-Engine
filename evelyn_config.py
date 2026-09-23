@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-23 17:30:15
+# date modified: 2026-09-23 18:55:38
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1054,7 +1054,10 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 # =============================================================================
 # Tag Librarian Configuration (Incremental Vault Tag Maintenance)
 # =============================================================================
-TAG_LIBRARIAN_ENABLED = False  # Disabled — classification logic under revision
+TAG_LIBRARIAN_ENABLED = True  # Re-enabled v000.006.215 after the vocabulary reconciliation:
+# both substrates measured at 0 unregistered terms and 0 non-facet hierarchies, the five
+# duplicate pairs collapsed, and every tag-producing prompt teaching the §5 format.
+# MASTER_LIBRARIAN_ENABLED stays off until a cycle of this pass has been reviewed.
 
 # Days a registered term may go unused before maintenance proposes retiring it. A reserved
 # term legitimately has no uses yet — the DCMI media sub-types and the reserved `event/`
@@ -1115,9 +1118,9 @@ TAG_SUBJECT_FUZZY_CUTOFF = 92
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)
 # =============================================================================
-MASTER_LIBRARIAN_ENABLED = False  # Temporarily off: inherit_parent_tags would propagate
-# book-level index tags down onto every chapter, undoing the book-level boundary set in
-# 000.006.190. Re-enable once parent inheritance is made opt-in per folder.
+MASTER_LIBRARIAN_ENABLED = False  # Still off by choice, not by blocker: inherit_parent_tags
+# became opt-in and facet-safe in v000.006.214, so the hazard it named is resolved. Awaiting
+# review of one TAG_LIBRARIAN_ENABLED cycle before this autonomous vault-rewriting pass runs.
 MASTER_LIBRARIAN_IDLE_THRESHOLD = 300  # 5 minutes idle (Reflex tier)
 MASTER_LIBRARIAN_BATCH_SIZE = 5  # Process 5 documents per idle burst
 LIBRARIAN_FOLDER_BATCH_CAP = 5  # Max docs processed per directory cluster per run

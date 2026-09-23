@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 18:27:00
+date modified: 2026-09-23 18:55:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,20 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.215] - 2026-09-23 — *The Librarian Returns*
+
+### Changed
+- **`TAG_LIBRARIAN_ENABLED` back on**, off since the classification logic went under revision.
+  What gated it is cleared: both substrates measure 0 unregistered terms and 0 non-facet
+  hierarchies, the five duplicate pairs are collapsed with `UF` aliases, every tag-producing
+  prompt teaches the §5 format with a test enforcing it, and unregistered terms now route to
+  review instead of entering the vocabulary silently. The pass runs after 20 minutes idle and
+  touches 2 documents per run.
+- **`MASTER_LIBRARIAN_ENABLED` stays off, now by choice rather than by blocker.** Its comment
+  named parent-tag inheritance as the reason; v000.006.214 made that opt-in and facet-safe, so
+  the hazard is resolved. It rewrites vault files unattended at 5 documents per burst, so it
+  waits until a cycle of the narrower pass has been reviewed.
 
 ## [000.006.214] - 2026-09-23 — *One Concept, One Term*
 
