@@ -1,6 +1,6 @@
 # taxonomy_db.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-23 19:50:26
 # tags: #taxonomy, #tags, #vocabulary, #authority-control, #sqlite
 
 """taxonomy_db.py — Master Tag Taxonomy registry (shared controlled vocabulary).
@@ -239,36 +239,50 @@ def _registered_surface_forms() -> set[str]:
     return forms
 
 
-def record_relation(term_a: str, term_b: str, weight: float = 0.4,
+def record_relation(term_a: str, term_b: str, kind: str = "related", weight: float = 0.4,
                     tier: str = "reviewed", note: str = "") -> None:
-    """Record an associative (`RT`) relation between two terms (taxonomy §6.4).
+    """Record a relation between two terms (taxonomy §6.4).
 
-    The relation is symmetric, so the pair is ordered before storage and `(a, b)` and
-    `(b, a)` are the same row. A term is never related to itself.
+    Two kinds live here. `related` is associative and symmetric, so the pair is sorted before
+    storage and `(a, b)` and `(b, a)` are one row. `narrower` is **directional** — `term_a` is a
+    kind of `term_b` — so its order is preserved exactly as given. Sorting a narrower pair would
+    silently reverse roughly half of them: `lucid-dreaming` is a kind of `dream`, and
+    alphabetically it comes second.
+
+    Equivalence does not belong here. Two interchangeable terms are an alias (§6.2), recorded
+    with `record_alias`.
 
     Args:
-        term_a: One term.
-        term_b: The other.
-        weight: Retrieval multiplier for expansion through this relation, below a direct
-            match. 0.4 is the standard's starting value and is tunable.
-        tier: How the relation was established — `reviewed` for a human decision,
-            `candidate` for something proposed but not yet approved.
-        note: Optional rationale, kept so a later reviewer can see why it was recorded.
+        term_a: One term; the narrower one when `kind` is `narrower`.
+        term_b: The other; the broader one when `kind` is `narrower`.
+        kind: `related` or `narrower`.
+        weight: Retrieval multiplier for expansion through this relation, below a direct match.
+        tier: `reviewed` for a human decision, `candidate` for something not yet approved.
+        note: Optional rationale, kept for a later reviewer.
     """
-    a, b = sorted((term_a.strip(), term_b.strip()))
+    a, b = term_a.strip(), term_b.strip()
     if not a or not b or a == b:
         return
+    if kind not in ("related", "narrower"):
+        raise ValueError(f"kind must be 'related' or 'narrower', got {kind!r}")
+    if kind == "related":
+        a, b = sorted((a, b))
+
     init_db()
     con = get_db()
     try:
+        # A pair already stored the other way round is the same pair; replace it rather than
+        # letting both directions coexist.
+        con.execute("DELETE FROM master_tag_related WHERE term_a = ? AND term_b = ?", (b, a))
         con.execute(
             """
-            INSERT INTO master_tag_related (term_a, term_b, weight, tier, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO master_tag_related (term_a, term_b, kind, weight, tier, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(term_a, term_b) DO UPDATE SET
-                weight = excluded.weight, tier = excluded.tier, note = excluded.note
+                kind = excluded.kind, weight = excluded.weight,
+                tier = excluded.tier, note = excluded.note
             """,
-            (a, b, weight, tier, note, time.time()),
+            (a, b, kind, weight, tier, note, time.time()),
         )
         con.commit()
     finally:
@@ -276,13 +290,16 @@ def record_relation(term_a: str, term_b: str, weight: float = 0.4,
 
 
 def get_related_terms(term: str) -> list[dict[str, Any]]:
-    """Return the terms associatively related to one term.
+    """Return the terms related to one term, with the direction spelled out.
+
+    `relation` reads from the queried term's point of view: `broader` means the other term is
+    what this one is a kind of, `narrower` the reverse, `related` that neither is.
 
     Args:
         term: The term to expand from.
 
     Returns:
-        list[dict]: Each with `tag`, `weight` and `tier`, heaviest first.
+        list[dict]: Each with `tag`, `relation`, `weight` and `tier`, heaviest first.
     """
     clean = (term or "").strip()
     if not clean:
@@ -292,13 +309,24 @@ def get_related_terms(term: str) -> list[dict[str, Any]]:
     try:
         rows = con.execute(
             """
-            SELECT term_b AS tag, weight, tier FROM master_tag_related WHERE term_a = ?
+            SELECT term_b AS tag, kind, weight, tier, 1 AS forward
+              FROM master_tag_related WHERE term_a = ?
             UNION ALL
-            SELECT term_a AS tag, weight, tier FROM master_tag_related WHERE term_b = ?
+            SELECT term_a AS tag, kind, weight, tier, 0 AS forward
+              FROM master_tag_related WHERE term_b = ?
             ORDER BY weight DESC, tag ASC
             """,
             (clean, clean),
         ).fetchall()
     finally:
         con.close()
-    return [dict(r) for r in rows]
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        forward = d.pop("forward")
+        kind = d.pop("kind")
+        # Stored as "term_a is a kind of term_b", so the label flips when read from term_b.
+        d["relation"] = kind if kind == "related" else ("broader" if forward else "narrower")
+        out.append(d)
+    return out

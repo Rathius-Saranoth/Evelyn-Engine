@@ -1,13 +1,17 @@
 # test_tag_relations.py
 # date created: 2026-09-23 19:20:00
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-23 19:50:26
 # tags: #test, #taxonomy, #relations, #vocabulary
 
-"""The associative (`RT`) layer (v000.006.216, taxonomy §6.4).
+"""The relations layer (v000.006.217, taxonomy §6.4).
 
-Flattening the hierarchy deleted relational information without replacing it: `health/sleep`
-stated that sleep belongs with health, and `health` + `sleep` states nothing. This table is
-where that knowledge now lives. Relations are symmetric, stored once, and approved by hand.
+Flattening deleted relational information without replacing it: `health/sleep` stated that sleep
+belongs with health, and `health` + `sleep` states nothing. This table holds two ISO relation
+types — `related` (associative, symmetric) and `narrower` (hierarchical, **directional**).
+
+The direction matters and was nearly lost: the first cut of this table carried
+`CHECK (term_a < term_b)` to dedupe symmetric pairs, which would have silently reversed every
+narrower pair whose broader term sorts first — `lucid-dreaming` is a kind of `dream`.
 """
 
 import pytest
@@ -24,12 +28,46 @@ def registry(monkeypatch, tmp_path):
     return taxonomy_db
 
 
+class TestDirection:
+    def test_a_narrower_relation_reads_correctly_from_both_sides(self, registry):
+        registry.record_relation("cat", "pet", kind="narrower")
+
+        assert registry.get_related_terms("cat")[0] | {"tag": "pet"} == {
+            **registry.get_related_terms("cat")[0], "tag": "pet"}
+        assert registry.get_related_terms("cat")[0]["relation"] == "broader"
+        assert registry.get_related_terms("pet")[0]["relation"] == "narrower"
+
+    def test_direction_survives_a_broader_term_that_sorts_first(self, registry):
+        """The case the original CHECK constraint would have reversed."""
+        registry.record_relation("lucid-dreaming", "dream", kind="narrower")
+
+        assert registry.get_related_terms("lucid-dreaming")[0]["relation"] == "broader"
+        assert registry.get_related_terms("dream")[0]["relation"] == "narrower"
+
+    def test_re_recording_the_other_direction_replaces_rather_than_adds(self, registry):
+        registry.record_relation("cat", "pet", kind="narrower")
+        registry.record_relation("pet", "cat", kind="narrower")
+
+        assert len(registry.get_related_terms("cat")) == 1
+        assert registry.get_related_terms("cat")[0]["relation"] == "narrower"
+
+    def test_an_unknown_kind_is_refused(self, registry):
+        with pytest.raises(ValueError):
+            registry.record_relation("cat", "pet", kind="synonym")
+
+
 class TestSymmetry:
     def test_a_relation_reads_from_either_side(self, registry):
         registry.record_relation("cat", "pet")
 
         assert [r["tag"] for r in registry.get_related_terms("cat")] == ["pet"]
         assert [r["tag"] for r in registry.get_related_terms("pet")] == ["cat"]
+
+    def test_an_associative_pair_is_labelled_related_from_both_sides(self, registry):
+        registry.record_relation("gothic", "victorian")
+
+        assert registry.get_related_terms("gothic")[0]["relation"] == "related"
+        assert registry.get_related_terms("victorian")[0]["relation"] == "related"
 
     def test_recording_the_reverse_does_not_duplicate(self, registry):
         registry.record_relation("cat", "pet")

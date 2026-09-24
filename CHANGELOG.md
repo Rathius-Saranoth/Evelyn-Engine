@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 19:20:38
+date modified: 2026-09-23 19:50:26
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,48 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.217] - 2026-09-23 — *Two Kinds of Connection*
+
+A foundation fix, not a workaround. §0.2 adopts the full ISO 25964 relation model — `UF`/`USE`,
+`BT`/`NT`, `RT` — and §6.2 specifies equivalence, but nothing ever specified hierarchy.
+
+### Changed
+- **§6.4 rewritten as the relations layer.** The post-coordinate revision lifted the rule
+  forbidding an `RT` between a term and its ancestor — correctly, since the flattened vocabulary
+  no longer stated those relations — but did not update the section's definition to match or
+  write the missing hierarchy rules. The result said in one paragraph that `RT` excludes broader
+  terms and in the next that broader terms are exactly what to record. It now holds both,
+  discriminated by `kind`: `related` (associative, symmetric) and `narrower` (`term_a` is a kind
+  of `term_b`).
+- **Hierarchy is a flat relation, not a tree**, recorded in §0.1 as a deliberate divergence from
+  ISO. A parent/child tree is the structure this vault removed — `journaling` hung under 31
+  parents, 76% of the vocabulary used once. The relations table keeps the information without
+  the mechanism: no single parent, no path, no inheritance, no depth.
+- **§6.3's admission form** promised a "Suggested parent — the `BT` it would hang from" with
+  nowhere to put the answer. It now names the broader term and points at §6.4.
+- **Equivalence is explicitly out of scope** for the relations layer. Two interchangeable terms
+  are an alias (§6.2), which is why `intimacy` ~ `romance` was wrong to propose as a relation.
+
+### Fixed
+- **Direction was about to be lost.** `master_tag_related` shipped one release ago with
+  `CHECK (term_a < term_b)`, to keep a symmetric pair from being stored twice. That constraint is
+  wrong for a hierarchical relation, which is directional: `lucid-dreaming` is a kind of `dream`
+  and sorts second, so alphabetical ordering silently reverses it. Migration `000.006.217`
+  rebuilds the table with `kind` and without that constraint; ordering is now the writer's
+  business, and re-recording a pair the other way replaces it rather than adding a second row.
+  Existing rows carry over as `related`, the safe reading.
+- **The six seed relations reclassified** now the distinction exists: `cat`, `storm` and
+  `lucid-dreaming` are `narrower`; `gothic`~`victorian`, `ancestry`~`genealogy` and
+  `music`~`playlist` are `related`.
+
+### Notes
+- The tag embedding was investigated and is **not** misconfigured. Queried as it is indexed —
+  with a bare term — it is well separated: `coffee` returns `caffeine` 0.19, `tea` 0.21,
+  `brewing` 0.23. The poor results reported earlier came from querying it with a full sentence
+  against an index of one-word terms, where the spread collapses to 0.04 across right and wrong
+  alike. Term-to-term queries are a better source of relation candidates than the co-occurrence
+  counts the curation script currently uses.
 
 ## [000.006.216] - 2026-09-23 — *What Else Connects To This*
 

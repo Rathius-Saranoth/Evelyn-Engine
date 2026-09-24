@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-22 06:45:32
+date modified: 2026-09-23 19:50:26
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -60,6 +60,13 @@ Only three, each because the axis is structurally inapplicable rather than merel
 
 Everything else — the domain, motif, setting, event and time axes, the format standard (§5), and the
 whole of vocabulary control (§6) — applies identically to both.
+
+**One divergence from the standards themselves**, distinct from the three above because it is not
+about vault-versus-memory:
+
+| Divergence | Why it is structural |
+|---|---|
+| **ISO 25964 `BT`/`NT` is stored as a flat relation, not a tree** | The model is adopted (§0.2) but its *mechanism* is not. A parent/child tree is what this vault removed: `journaling` hung under 31 parents and 76% of the vocabulary was used once. §6.4 keeps the information — "a cat is a kind of pet" — as a relation with `kind = narrower`, with no single parent, path, inheritance or depth. |
 
 ---
 
@@ -326,7 +333,7 @@ event/surgery       obsidian-graph/contact
 | Target axis | Which facet it would join — determines the rules that apply |
 | **Nearest existing terms** | Top 3–5 semantic neighbours **with distance scores**, from the Tag RAG index |
 | Source document(s) | What triggered it, so the judgement can be made in context |
-| Suggested parent | The `BT` it would hang from, if any |
+| Suggested broader term | The term this is a kind of, if any — recorded in §6.4 as `kind = narrower`, not as a parent in a tree |
 
 The nearest-neighbour field is the decisive one: it converts approval from a recall problem into a comparison. If the closest existing term is near, the answer is usually "use that instead" — which is a `UF` mapping (§6.2), not a new term. If everything is far, the term is genuinely novel. The distance machinery for this already exists in the Tag RAG retrieval path.
 
@@ -431,10 +438,37 @@ problem:
 > instead of string-matching it — is the obvious refinement when precision starts to matter more
 > than cleanup.
 
-### 6.4 Association (`RT`) — the cross-domain layer
-ISO 25964 `RT` maps concepts that are related but neither is broader than the other:
-`motif/cosmic-horror` RT `fantasy/eldritch`. This is the layer that answers *"what else in the vault
-connects to this?"*
+### 6.4 The relations layer — association (`RT`) and hierarchy (`BT`/`NT`)
+The layer that answers *"what else in the vault connects to this, and how?"*
+
+It holds **two** of the three ISO 25964 relation types, because flattening left one of them with
+nowhere else to live:
+
+| `kind` | ISO | Means | Example |
+|---|---|---|---|
+| `related` | `RT` | Related, neither broader | `steampunk` ~ `cyberpunk` |
+| `narrower` | `BT`/`NT` | The first **is a kind of** the second | `cat` → `pet` |
+
+Equivalence (`UF`/`USE`) is **not** here — synonyms collapse onto a canonical term and are
+recorded in the alias table (§6.2). A pair that turns out to be interchangeable is an alias, not a
+relation: `intimacy` and `romance` overlap in use, so they belong in §6.2, not here.
+
+> [!IMPORTANT] Why hierarchy lives in a flat relations table and not a tree
+> §0.2 adopts the full ISO model, `UF`/`USE`, `BT`/`NT`, `RT`. §6.2 specifies equivalence. For a
+> time nothing specified `BT`/`NT`: the post-coordinate revision lifted the rule forbidding `RT`
+> between a term and its ancestor — correctly, since the hierarchy no longer stated those
+> relations — but did not update this section's definition to match, nor write the missing
+> hierarchy rules. The result said in one paragraph that `RT` excludes broader terms and in the
+> next that broader terms are exactly what to record.
+>
+> Resolved by holding both here, discriminated by `kind`, rather than by building a parent/child
+> tree. **A tree is the structure this vault just removed** — `journaling` appeared under 31
+> parents, and 76% of the vocabulary was used once. A flat relations table keeps the
+> *information* ("a cat is a kind of pet") without the *mechanism* that failed: no single parent,
+> no path, no inheritance, no depth. Recording a relation never changes how a term is written or
+> where a document is filed.
+>
+> This is a deliberate divergence from ISO 25964, recorded in §0.1.
 
 > [!IMPORTANT] Post-coordination makes this load-bearing, not optional
 > Hierarchy was quietly carrying relational information. `health/sleep` stated that sleep belongs
@@ -470,7 +504,8 @@ connects to this?"*
 > An earlier revision forbade `RT` between a term and its own ancestor, because the hierarchy
 > already stated that relation and merging such a pair destroyed a level. With no hierarchy the
 > guard has nothing to protect — and the relations it used to forbid recording are now exactly the
-> ones worth recording, since nothing else states them.
+> ones worth recording, since nothing else states them. They are recorded as `kind = narrower`,
+> which is what keeps them distinguishable from genuine association.
 
 **Runtime — weighted expansion.**
 A query on a term also returns documents related through `RT`, **ranked below direct matches**:

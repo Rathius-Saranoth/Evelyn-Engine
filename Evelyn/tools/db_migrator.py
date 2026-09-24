@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-23 19:50:26
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5116,6 +5116,64 @@ def migrate_000_006_216_tag_relations(
     logger.info("[MIGRATION 000.006.216] master_tag_related ready")
 
 
+def migrate_000_006_217_relation_kind(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.217: Give relations a kind, and let a hierarchical one keep its direction.
+
+    ``master_tag_related`` arrived one release ago holding a single undifferentiated relation,
+    with ``CHECK (term_a < term_b)`` to keep a symmetric pair from being stored twice. §6.4 now
+    holds two kinds, and that constraint is wrong for one of them: *narrower* is directional —
+    ``lucid-dreaming`` is a kind of ``dream``, not the reverse — and alphabetical ordering
+    silently reverses half of them.
+
+    The table is rebuilt with a ``kind`` column and without that constraint. Ordering is now the
+    caller's business: symmetric ``related`` pairs are sorted before storage, while ``narrower``
+    rows keep ``term_a`` as the narrower term. Existing rows carry over as ``related``, which is
+    the safe reading — a relation recorded before the distinction existed cannot be assumed
+    hierarchical.
+
+    The previous migration is applied and immutable, so this corrects it in a new step (§5).
+    """
+    cursor = conn.cursor()
+    tables = {r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "master_tag_related" not in tables:
+        return
+
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(master_tag_related)")}
+    if "kind" in columns:
+        return
+
+    cursor.execute(
+        """
+        CREATE TABLE master_tag_related_new (
+            term_a     TEXT NOT NULL,
+            term_b     TEXT NOT NULL,
+            kind       TEXT NOT NULL DEFAULT 'related',
+            weight     REAL NOT NULL DEFAULT 0.4,
+            tier       TEXT NOT NULL DEFAULT 'reviewed',
+            note       TEXT,
+            created_at REAL,
+            PRIMARY KEY (term_a, term_b),
+            CHECK (kind IN ('related', 'narrower')),
+            CHECK (term_a <> term_b)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO master_tag_related_new (term_a, term_b, kind, weight, tier, note, created_at)
+        SELECT term_a, term_b, 'related', weight, tier, note, created_at FROM master_tag_related
+        """
+    )
+    carried = cursor.rowcount
+    cursor.execute("DROP TABLE master_tag_related")
+    cursor.execute("ALTER TABLE master_tag_related_new RENAME TO master_tag_related")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tag_related_b ON master_tag_related(term_b)")
+    conn.commit()
+    logger.info("[MIGRATION 000.006.217] relations rebuilt with kind; %d row(s) carried", carried)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5563,6 +5621,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.216",
         name="tag_relations",
         up_fn=migrate_000_006_216_tag_relations,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.217",
+        name="relation_kind",
+        up_fn=migrate_000_006_217_relation_kind,
         post_sync_chroma=False,
     ),
 ]

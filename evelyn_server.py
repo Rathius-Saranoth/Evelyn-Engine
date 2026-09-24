@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-23 19:50:26
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6080,9 +6080,9 @@ async def get_taxonomy_vocabulary(
             scored.sort(key=lambda kv: kv[0], reverse=True)
             similar = [v for _, v in scored[: max(0, limit)]]
 
-        # Terms associatively related to the probe (§6.4). Shown beside the lexical matches
-        # because "what else connects to this" is a different question from "what looks like
-        # this", and a reviewer judging a proposed term wants both.
+        # Terms related to the probe (§6.4), each labelled `broader`, `narrower` or `related`.
+        # Shown beside the lexical matches because "what else connects to this, and how" is a
+        # different question from "what looks like this", and a reviewer wants both.
         related: list[dict[str, Any]] = []
         if probe:
             related = taxonomy_db.get_related_terms(probe)

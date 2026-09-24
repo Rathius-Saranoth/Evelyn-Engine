@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # curate_tag_relations.py
 # date created: 2026-09-23 19:30:00
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-23 19:50:26
 # tags: #taxonomy, #relations, #curation, #vocabulary
 
 """Propose and record associative (`RT`) relations between vocabulary terms.
@@ -95,23 +95,29 @@ def report(min_docs: int, min_areas: int, min_lift: float, limit: int) -> None:
     print(f"{'lift':>6} {'docs':>5} {'areas':>6}  candidate")
     for lift, count, area_count, a, b in rows[:limit]:
         print(f"{lift:6.1f} {count:5} {area_count:6}  {a}:{b}")
-    print(f"\n{len(rows)} candidates. Record with --record 'a:b' 'c:d' after reviewing them.")
+    print(f"\n{len(rows)} candidates. Review each one, then:")
+    print("  --record 'a:b'                 for an associative pair (neither is broader)")
+    print("  --record 'a:b' --kind narrower  when a is a kind of b (order matters)")
+    print("  neither, if they are interchangeable — that is an alias (§6.2), not a relation")
 
 
-def record(pairs: list[str], weight: float, note: str) -> None:
+def record(pairs: list[str], kind: str, weight: float, note: str) -> None:
     for spec in pairs:
         if ":" not in spec:
             print(f"  [SKIP] '{spec}' is not in a:b form")
             continue
         a, b = (part.strip() for part in spec.split(":", 1))
-        taxonomy_db.record_relation(a, b, weight=weight, tier="reviewed", note=note)
-        print(f"  recorded {a} ~ {b} (weight {weight})")
+        taxonomy_db.record_relation(a, b, kind=kind, weight=weight, tier="reviewed", note=note)
+        arrow = "is a kind of" if kind == "narrower" else "~"
+        print(f"  recorded {a} {arrow} {b} (weight {weight})")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--report", action="store_true", help="List candidates.")
     ap.add_argument("--record", nargs="+", metavar="A:B", help="Record reviewed relations.")
+    ap.add_argument("--kind", choices=("related", "narrower"), default="related",
+                    help="'narrower' means A is a kind of B, and is directional.")
     ap.add_argument("--min-docs", type=int, default=5)
     ap.add_argument("--min-areas", type=int, default=3)
     ap.add_argument("--min-lift", type=float, default=3.0)
@@ -121,7 +127,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.record:
-        record(args.record, args.weight, args.note)
+        record(args.record, args.kind, args.weight, args.note)
         return 0
     report(args.min_docs, args.min_areas, args.min_lift, args.limit)
     return 0
