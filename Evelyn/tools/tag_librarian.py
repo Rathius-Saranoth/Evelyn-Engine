@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-24 17:05:19
+# date modified: 2026-09-24 18:14:27
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -21,7 +21,7 @@ Exports:
     index_master_tag_in_chroma()          — Upserts an individual master tag into Chroma vector store.
     delete_tag_from_chroma()              — Removes a tag from Chroma vector store.
     maintain_master_taxonomy()            — Cleans up stale/unused master tags and keeps tag counts balanced.
-    seed_master_taxonomy_from_vault()     — Seeds initial master tags from current vault index.
+    seed_master_taxonomy_from_vault()     — Bootstraps an empty registry from the vault index.
 
 Key config: evelyn_config.py (TAG_LIBRARIAN_EXCLUSIONS, TAG_LIBRARIAN_FORMAT_RULES, CHROMA_TAG_COLLECTION)
 See also: reference/engine_architecture.md
@@ -517,8 +517,13 @@ def _lexical_lookup(candidate: str, surfaces: dict[str, str]) -> str | None:
     return surfaces[hit[0]] if hit else None
 
 
-def _vector_lookup(phrase: str) -> tuple[str | None, float, float]:
-    """Retrieve the nearest term to a phrase, with the margin over its runner-up.
+def nearest_registered_term(phrase: str) -> tuple[str | None, float, float]:
+    """Retrieve the nearest registered term to a phrase, with the margin over its runner-up.
+
+    Public because it answers §6.1's "nearest existing terms" question for any caller holding
+    a candidate term — subject reconciliation here, and the review card, which shows a
+    reviewer what an unregistered tag is close to so approval is a comparison rather than a
+    feat of recall.
 
     Retrieval only — this reports what is near and how clearly, and does not decide. The
     margin matters because a confident match and a coin-flip between two plausible terms are
@@ -633,7 +638,7 @@ def reconcile_subjects(
 
         # Stage 2 — vectors, only for what the dictionary missed.
         if match is None:
-            match, distance, margin = _vector_lookup(phrase)
+            match, distance, margin = nearest_registered_term(phrase)
             if match is not None and (
                 distance > reject or margin < SUBJECT_MARGIN_GUARD
                 or distance > SUBJECT_ACCEPT_DISTANCE
@@ -1479,33 +1484,111 @@ async def run_semantic_tag_audit_async(
     )
 
 
-def seed_master_taxonomy_from_vault() -> int:
-    """Seed initial master tag taxonomy from all existing vault notes and sync to Chroma.
+def _tally_tags(records: list[dict[str, Any]], counts: dict[str, int]) -> None:
+    """Add each record's registered-format tags to a running census."""
+    for rec in records:
+        for raw in str(rec.get("tags") or "").split(","):
+            clean = normalize_tag_format(raw)
+            if clean and not is_excluded_tag(clean):
+                counts[clean] = counts.get(clean, 0) + 1
+
+
+def census_tag_usage() -> tuple[dict[str, int], dict[str, int]]:
+    """Count every use of every term across the whole corpus.
+
+    §0 of the standard treats the vault and memory as one corpus, so a term earns its
+    place in the vocabulary from either substrate. A census that reads vault notes alone
+    reports a term living entirely in memory facts as unused, and an unused term is
+    eventually proposed for retirement — which is how a working term gets retired for
+    being invisible to the count rather than for being unwanted.
+
+    Procedures are counted with memory facts: they are tagged from the same controlled
+    vocabulary (AGENTS §10) and stored in the same database.
 
     Returns:
-        int: Number of unique tags seeded into master_tag_taxonomy.
+        tuple[dict[str, int], dict[str, int]]: Uses per term, and the number of records
+        read from each substrate (``vault``, ``memory``, ``procedures``). Callers use the
+        second value to tell an honestly empty substrate from a failed read before acting
+        on a zero.
     """
+    from Evelyn.tools import memory_db
+
     docs = vault_db.get_all_documents()
+    entries = memory_db.get_all_entries(statuses=["live"])
+    procedures = memory_db.get_all_procedures(status="live")
+
+    counts: dict[str, int] = {}
+    for records in (docs, entries, procedures):
+        _tally_tags(records, counts)
+
+    sizes = {"vault": len(docs), "memory": len(entries), "procedures": len(procedures)}
+    return counts, sizes
+
+
+def seed_master_taxonomy_from_vault(allow_populated: bool = False) -> dict[str, Any]:
+    """Bootstrap an empty controlled vocabulary from the terms the vault already uses.
+
+    This is a **bootstrap**, not a refresh. It exists for one situation: the registry is empty
+    — a fresh install, or a restore after loss — and the vault is the only surviving record of
+    which terms were in use. Run against a curated registry it is not a seed at all, so two
+    guards stand in the way.
+
+    **It refuses a populated registry.** Once terms have been reviewed, an unregistered vault
+    term is an admission question, not a bulk insert: it belongs in a `tag_admission` proposal
+    where somebody decides whether it is a subject worth a term (§6). Bulk registration walks
+    around that review for every term at once. `allow_populated` overrides the refusal for a
+    deliberate restore.
+
+    **It never rewrites an existing row.** Earlier it upserted every vault term with
+    ``category="general"`` and ``description="Obsidian notes tagged under X"``, and
+    `upsert_master_tag` overwrote `category` unconditionally — so a single run would have
+    replaced all 675 curated categories with one shelf label and papered the scope notes with
+    boilerplate. It now registers only terms the registry lacks, and leaves their category and
+    description **empty** for a reviewer to fill rather than inventing a value that reads like
+    a decision somebody made. Usage counts on existing rows are maintenance's job
+    (`maintain_master_taxonomy`), not this function's.
+
+    Args:
+        allow_populated: Proceed even though the registry already holds terms. For a
+            deliberate restore; it still does not overwrite anything.
+
+    Returns:
+        dict[str, Any]: `status` (`seeded` or `refused`), `registered`, `already_registered`,
+        and `vault_terms`.
+    """
     tag_counts: dict[str, int] = {}
+    _tally_tags(vault_db.get_all_documents(), tag_counts)
 
-    for doc in docs:
-        raw_tags = doc.get("tags") or ""
-        if not raw_tags:
-            continue
-        for t in raw_tags.split(","):
-            clean = normalize_tag_format(t)
-            if clean and not is_excluded_tag(clean):
-                tag_counts[clean] = tag_counts.get(clean, 0) + 1
+    existing = {m["tag"] for m in taxonomy_db.get_master_tags()}
+    missing = {t: c for t, c in tag_counts.items() if t not in existing}
 
-    for tag, count in tag_counts.items():
-        category = tag.split("/")[0] if "/" in tag else "general"
-        desc = f"Obsidian notes tagged under {tag}"
-        taxonomy_db.upsert_master_tag(tag, category=category, description=desc, usage_count=count)
+    if existing and not allow_populated:
+        print(
+            f"[TAG LIBRARIAN] [REFUSED] The registry already holds {len(existing)} reviewed "
+            f"term(s); seeding is for an empty one. {len(missing)} vault term(s) are "
+            f"unregistered — raise them as tag_admission proposals rather than bulk-inserting, "
+            f"or pass allow_populated=True for a deliberate restore."
+        )
+        return {
+            "status": "refused",
+            "reason": "registry_populated",
+            "registered": 0,
+            "already_registered": len(existing),
+            "vault_terms": len(tag_counts),
+        }
 
-    # Sync all seeded tags into Chroma vector store
-    sync_master_tags_to_vector_db()
+    for tag, count in missing.items():
+        # No category, no description: an unreviewed term has neither, and boilerplate in
+        # those fields is indistinguishable from a curated answer once it is written.
+        taxonomy_db.upsert_master_tag(tag, usage_count=count)
+        index_master_tag_in_chroma(tag, usage_count=count)
 
-    return len(tag_counts)
+    return {
+        "status": "seeded",
+        "registered": len(missing),
+        "already_registered": len(existing),
+        "vault_terms": len(tag_counts),
+    }
 
 
 TAG_ADMISSION_PROPOSAL = "tag_admission"
@@ -1744,7 +1827,8 @@ def propose_tag_retirement(master_tags: list[dict[str, Any]], unused: list[str])
                 topic=term,
                 suggested_category=by_tag.get(term, {}).get("category", ""),
                 reason=(
-                    f"No document has used this term for at least {grace_days} days. "
+                    f"Nothing in the vault or memory has used this term for at least "
+                    f"{grace_days} days. "
                     f"Approve to retire it; supply a preferred term to record an equivalence "
                     f"instead of removing it outright."
                 ),
@@ -1768,6 +1852,12 @@ def retire_term(term: str, replacement: str = "") -> bool:
     rather than something the next extraction undoes. Without one the registry row is
     removed; the proposal itself preserves the record that the term existed.
 
+    The relations layer is settled in the same breath. Retirement used to remove the registry
+    row and leave `master_tag_related` alone, so a curated relation survived pointing at a term
+    the vocabulary no longer held — expansion would follow it to nothing. With a replacement the
+    relations move to it, since a rename does not change what a term is related to; without one
+    they go, because a relation with a missing endpoint is broken rather than merely weaker.
+
     Args:
         term: The term being retired, in canonical §5 format.
         replacement: Optional preferred term to redirect to.
@@ -1781,6 +1871,15 @@ def retire_term(term: str, replacement: str = "") -> bool:
     preferred = normalize_tag_format(replacement) if replacement else ""
     if preferred and preferred != clean:
         taxonomy_db.record_alias(clean, preferred, tier="reviewed")
+        moves = taxonomy_db.repoint_relations(clean, preferred)
+        if any(moves.values()):
+            logger.info(
+                "[TAG LIBRARIAN] Relations on '%s' re-pointed to '%s': %s", clean, preferred, moves
+            )
+    else:
+        gone = taxonomy_db.delete_relations(clean)
+        if gone:
+            logger.info("[TAG LIBRARIAN] Removed %d relation(s) on retired term '%s'.", gone, clean)
     taxonomy_db.delete_master_tag(clean)
     delete_tag_from_chroma(clean)
     return True
@@ -1789,14 +1888,27 @@ def retire_term(term: str, replacement: str = "") -> bool:
 def maintain_master_taxonomy() -> dict[str, Any]:
     """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
-    Updates tag usage counts across the vault and safely removes zero-usage tags.
-    Includes safety circuit breakers to prevent accidental taxonomy wipes.
+    Updates tag usage counts across the whole corpus — vault notes, memory facts and
+    procedures alike — and proposes long-unused terms for retirement. Includes safety
+    circuit breakers to prevent accidental taxonomy wipes.
 
     Returns:
         Dict[str, Any]: Summary of maintenance pass.
     """
-    docs = vault_db.get_all_documents()
-    if not docs:
+    # A partial census is worse than none: every term the unread substrate holds reports
+    # zero, and zero is what starts the retirement clock.
+    try:
+        current_counts, substrates = census_tag_usage()
+    except (sqlite3.Error, OSError) as exc:
+        print(f"[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: census read failed: {exc}")
+        return {
+            "status": "aborted",
+            "reason": "census_read_failed",
+            "updated_master_tags": 0,
+            "removed_master_tags": 0,
+        }
+
+    if not substrates["vault"]:
         print("[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: vault_documents table is empty.")
         return {
             "status": "aborted",
@@ -1805,19 +1917,8 @@ def maintain_master_taxonomy() -> dict[str, Any]:
             "removed_master_tags": 0,
         }
 
-    current_counts: dict[str, int] = {}
-
-    for doc in docs:
-        raw_tags = doc.get("tags") or ""
-        if not raw_tags:
-            continue
-        for t in raw_tags.split(","):
-            clean = normalize_tag_format(t)
-            if clean and not is_excluded_tag(clean):
-                current_counts[clean] = current_counts.get(clean, 0) + 1
-
     if not current_counts:
-        print("[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: 0 active tags found in vault documents.")
+        print("[TAG LIBRARIAN] [SAFETY CIRCUIT BREAKER] Aborting taxonomy maintenance: 0 active tags found across the corpus.")
         return {
             "status": "aborted",
             "reason": "zero_active_tags",
@@ -1866,6 +1967,7 @@ def maintain_master_taxonomy() -> dict[str, Any]:
         "removed_master_tags": 0,  # maintenance never deletes; see propose_tag_retirement
         "unused_terms": len(unused),
         "retirement_proposed": len(retirement_candidates),
+        "records_counted": substrates,
     }
 
 
@@ -1874,15 +1976,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Obsidian Tag Librarian CLI")
     parser.add_argument("--audit-one", action="store_true", help="Audit next eligible vault document")
     parser.add_argument("--audit-batch", type=int, default=0, help="Audit N eligible vault documents")
-    parser.add_argument("--seed-taxonomy", action="store_true", help="Seed master taxonomy from vault index")
+    parser.add_argument("--seed-taxonomy", action="store_true", help="Bootstrap an empty master taxonomy from the vault index")
+    parser.add_argument("--allow-populated", action="store_true",
+                        help="Let --seed-taxonomy run against a registry that already holds terms (restore only)")
     parser.add_argument("--maintain-taxonomy", action="store_true", help="Perform taxonomy maintenance pass")
     parser.add_argument("--sync-vector-tags", action="store_true", help="Sync SQLite master tags to Chroma vector store")
 
     args = parser.parse_args()
 
     if args.seed_taxonomy:
-        count = seed_master_taxonomy_from_vault()
-        print(f"[TAG LIBRARIAN] Seeded {count} tags into master_tag_taxonomy and Chroma vector store.")
+        res = seed_master_taxonomy_from_vault(allow_populated=args.allow_populated)
+        if res["status"] == "seeded":
+            print(f"[TAG LIBRARIAN] Registered {res['registered']} new term(s) into "
+                  f"master_tag_taxonomy and enqueued them for the tag vector store.")
     elif args.sync_vector_tags:
         count = sync_master_tags_to_vector_db()
         print(f"[TAG LIBRARIAN] Synced {count} master tags into Chroma collection '{TAG_COLLECTION_NAME}'.")

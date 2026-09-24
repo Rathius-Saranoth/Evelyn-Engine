@@ -1,6 +1,6 @@
 # taxonomy_db.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-23 19:50:26
+# date modified: 2026-09-24 17:52:21
 # tags: #taxonomy, #tags, #vocabulary, #authority-control, #sqlite
 
 """taxonomy_db.py — Master Tag Taxonomy registry (shared controlled vocabulary).
@@ -57,17 +57,24 @@ def get_master_tags() -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def upsert_master_tag(tag: str, category: str = "", description: str = "", usage_count: int = 0) -> None:
+def upsert_master_tag(tag: str, category: str = "", description: str = "",
+                      usage_count: int | None = None) -> None:
     """Register a term in the controlled vocabulary, or update an existing one.
 
-    An existing description is preserved when the incoming one is empty, so a
-    usage-count refresh never blanks curated scope text.
+    **An empty field means "leave it alone", not "blank it".** Most callers here know a term
+    and its usage count and nothing else — a census refresh, an admission — and passing the
+    default for `category` and `description` must not erase what a reviewer wrote. The
+    description was already guarded this way; `category` was not, and was overwritten
+    unconditionally, so any caller omitting it silently cleared a curated categorisation. To
+    change a field, pass the new value; there is deliberately no way to blank one from here.
 
     Args:
         tag: The term, already in §5 format (e.g. 'tech/python').
-        category: Top-level category (e.g. 'tech').
-        description: Short scope statement.
-        usage_count: Current number of resources using this term.
+        category: Top-level category (e.g. 'tech'). Empty preserves the stored one.
+        description: Short scope statement. Empty preserves the stored one.
+        usage_count: Current number of resources using this term. `None` preserves the stored
+            count — a caller registering a term does not know it, and zero is a real value a
+            reserved term legitimately holds, so it cannot double as "unknown".
     """
     init_db()
     con = get_db()
@@ -75,13 +82,14 @@ def upsert_master_tag(tag: str, category: str = "", description: str = "", usage
     try:
         con.execute("""
             INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (:tag, :category, :description, COALESCE(:usage_count, 0), :now, :now)
             ON CONFLICT(tag) DO UPDATE SET
-                category = excluded.category,
+                category = CASE WHEN excluded.category != '' THEN excluded.category ELSE master_tag_taxonomy.category END,
                 description = CASE WHEN excluded.description != '' THEN excluded.description ELSE master_tag_taxonomy.description END,
-                usage_count = excluded.usage_count,
+                usage_count = CASE WHEN :usage_count IS NULL THEN master_tag_taxonomy.usage_count ELSE excluded.usage_count END,
                 updated_at = excluded.updated_at
-        """, (tag, category, description, usage_count, now, now))
+        """, {"tag": tag, "category": category, "description": description,
+              "usage_count": usage_count, "now": now})
         con.commit()
     finally:
         con.close()
@@ -134,7 +142,7 @@ def record_alias(alias: str, canonical: str, tier: str = "reviewed") -> None:
     Retiring a term in a controlled vocabulary means deprecating it *with a pointer*, not
     erasing it: a document or query still phrased the retired way must reach the preferred
     term, and deleting the record throws away the knowledge that the variant existed
-    (taxonomy §6.2). Callers invalidate the cache themselves after a batch.
+    (taxonomy §6.2). The in-process alias cache is invalidated here, so callers need not.
 
     Args:
         alias: The retired surface form.
@@ -239,6 +247,29 @@ def _registered_surface_forms() -> set[str]:
     return forms
 
 
+# Relation provenance, strongest first. A hand-approved relation outranks an inferred one
+# whatever their weights say, because the weight is a retrieval dial and the tier is a judgement.
+_TIER_RANK = {"reviewed": 2, "inferred": 1, "candidate": 0}
+
+
+def _normalise_pair(term_a: str, term_b: str, kind: str) -> tuple[str, str] | None:
+    """Put a relation pair in storage order, or return None if it is not a relation.
+
+    `related` is symmetric, so its pair is sorted and stored once. `narrower` is directional —
+    `term_a` is a kind of `term_b` — and sorting it would silently reverse roughly half of all
+    such pairs.
+
+    Raises:
+        ValueError: If `kind` is neither `related` nor `narrower`.
+    """
+    a, b = (term_a or "").strip(), (term_b or "").strip()
+    if not a or not b or a == b:
+        return None
+    if kind not in ("related", "narrower"):
+        raise ValueError(f"kind must be 'related' or 'narrower', got {kind!r}")
+    return tuple(sorted((a, b))) if kind == "related" else (a, b)  # type: ignore[return-value]
+
+
 def record_relation(term_a: str, term_b: str, kind: str = "related", weight: float = 0.4,
                     tier: str = "reviewed", note: str = "") -> None:
     """Record a relation between two terms (taxonomy §6.4).
@@ -260,13 +291,10 @@ def record_relation(term_a: str, term_b: str, kind: str = "related", weight: flo
         tier: `reviewed` for a human decision, `candidate` for something not yet approved.
         note: Optional rationale, kept for a later reviewer.
     """
-    a, b = term_a.strip(), term_b.strip()
-    if not a or not b or a == b:
+    pair = _normalise_pair(term_a, term_b, kind)
+    if pair is None:
         return
-    if kind not in ("related", "narrower"):
-        raise ValueError(f"kind must be 'related' or 'narrower', got {kind!r}")
-    if kind == "related":
-        a, b = sorted((a, b))
+    a, b = pair
 
     init_db()
     con = get_db()
@@ -285,6 +313,119 @@ def record_relation(term_a: str, term_b: str, kind: str = "related", weight: flo
             (a, b, kind, weight, tier, note, time.time()),
         )
         con.commit()
+    finally:
+        con.close()
+
+
+def delete_relations(term: str) -> int:
+    """Remove every relation touching a term.
+
+    Used when a term is retired outright, with no preferred form to inherit its relations. A
+    relation whose endpoint no longer exists is not a weaker relation, it is a broken one:
+    expansion follows it to a term the registry cannot describe.
+
+    Args:
+        term: The term being removed.
+
+    Returns:
+        int: Relations deleted.
+    """
+    clean = (term or "").strip()
+    if not clean:
+        return 0
+    init_db()
+    con = get_db()
+    try:
+        cur = con.execute(
+            "DELETE FROM master_tag_related WHERE term_a = ? OR term_b = ?", (clean, clean)
+        )
+        con.commit()
+        return cur.rowcount
+    finally:
+        con.close()
+
+
+def repoint_relations(old_term: str, new_term: str) -> dict[str, int]:
+    """Move a retired term's relations onto the term it retires to.
+
+    Retirement with a replacement is a rename plus a pointer, not a deletion: if `napping`
+    retires to `nap`, then whatever `napping` was related to, `nap` is related to. Dropping
+    those rows instead would lose curated judgements for a bookkeeping reason.
+
+    Three cases need deciding rather than copying:
+
+    * The relation already pointed at the new term (`napping` is a kind of `nap`). The alias
+      now says the two are one term, and a term is not related to itself, so it is dropped.
+    * The new term already holds the same pair. The stronger claim stands — a `reviewed`
+      relation outranks an `inferred` one, and within a tier the heavier weight wins — because
+      re-pointing must not quietly downgrade a decision made about the surviving term.
+    * A symmetric pair can fall out of storage order once an endpoint is renamed, so every
+      moved row is re-normalised rather than written back as it was read.
+
+    Args:
+        old_term: The term being retired.
+        new_term: Its preferred form.
+
+    Returns:
+        dict[str, int]: Counts of relations `moved`, `merged` into an existing stronger row,
+        and `dropped` as self-relations.
+    """
+    old = (old_term or "").strip()
+    new = (new_term or "").strip()
+    if not old or not new or old == new:
+        return {"moved": 0, "merged": 0, "dropped": 0}
+
+    init_db()
+    con = get_db()
+    try:
+        rows = [
+            dict(r) for r in con.execute(
+                "SELECT * FROM master_tag_related WHERE term_a = ? OR term_b = ?", (old, old)
+            ).fetchall()
+        ]
+        if not rows:
+            return {"moved": 0, "merged": 0, "dropped": 0}
+        con.execute("DELETE FROM master_tag_related WHERE term_a = ? OR term_b = ?", (old, old))
+
+        moved = merged = dropped = 0
+        for row in rows:
+            pair = _normalise_pair(
+                new if row["term_a"] == old else row["term_a"],
+                new if row["term_b"] == old else row["term_b"],
+                row["kind"],
+            )
+            if pair is None:
+                dropped += 1
+                continue
+            a, b = pair
+            existing = con.execute(
+                "SELECT kind, weight, tier FROM master_tag_related "
+                "WHERE (term_a = ? AND term_b = ?) OR (term_a = ? AND term_b = ?)",
+                (a, b, b, a),
+            ).fetchone()
+            if existing is not None:
+                merged += 1
+                incoming_rank = (_TIER_RANK.get(row["tier"], 0), row["weight"])
+                held_rank = (_TIER_RANK.get(existing["tier"], 0), existing["weight"])
+                if incoming_rank <= held_rank:
+                    continue
+                con.execute(
+                    "DELETE FROM master_tag_related WHERE term_a = ? AND term_b = ?", (b, a)
+                )
+            else:
+                moved += 1
+            con.execute(
+                """
+                INSERT INTO master_tag_related (term_a, term_b, kind, weight, tier, note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(term_a, term_b) DO UPDATE SET
+                    kind = excluded.kind, weight = excluded.weight,
+                    tier = excluded.tier, note = excluded.note
+                """,
+                (a, b, row["kind"], row["weight"], row["tier"], row["note"], row["created_at"] or time.time()),
+            )
+        con.commit()
+        return {"moved": moved, "merged": merged, "dropped": dropped}
     finally:
         con.close()
 

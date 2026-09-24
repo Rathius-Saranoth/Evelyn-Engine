@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-24 17:14:04
+date modified: 2026-09-24 18:14:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,167 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.224] - 2026-09-24 — *Not a Vector Question*
+
+"Does this fact introduce a new term?" was being answered by cosine distance, at roughly the
+accuracy of a coin. It is a set lookup.
+
+### Fixed
+- **The review card names which tags are new, instead of scoring a distance.** It embedded the
+  whole observation, took the nearest term's distance, and cut it into `Aligned`/`Related`/`Novel`
+  at 0.40 and 0.55. Measured over 144 labelled facts, that distance separated "every tag already
+  registered" from "introduces a new term" by **0.005**; the best split anywhere on the range
+  scored 66.7% against a 62.5% majority baseline, and the whole p10–p90 of the distribution
+  (0.369–0.490) straddled both cut points, so nearly every card read `Aligned` or `Related`
+  whatever it contained. An extraction already carries its proposed tags, and membership of a
+  controlled vocabulary is a set — the card now reports exactly which proposed tags are
+  unregistered, each with its nearest registered term, which is the comparison §6.1 asks a
+  reviewer to make. Aliases resolve, so a fact phrased a retired way is not counted as new.
+- **The extraction prompt stopped teaching the hierarchy every other rule forbids.** Its novelty
+  directive branched on the same distance to pick between three instructions, and all three
+  described the retired model — the third *explicitly encouraged* minting new
+  `#Domain/Category/Subtopic` trees. It is now one directive, grounded in the only real
+  condition (whether any vocabulary was retrieved), telling the model to prefer a listed term
+  and that a new one goes to review. Candidates are listed bare rather than `#`-prefixed, which
+  is how the `tags` field stores them.
+- **Two tests were pinning the retired format in place.** `test_context_extractor_taxonomy_rag`
+  asserted the prompt contained "mint new domain-level tag hierarchies" and `#Home/Coffee/Espresso`,
+  so the sweep in v000.006.220 could not have succeeded there even if it had looked.
+- **Three more `Tech/Python/FastAPI` placeholders** sat in the review UI's own tag fields, shown
+  to the reviewer as the format to type.
+
+### Changed
+- `tag_librarian._vector_lookup` → **`nearest_registered_term()`**, now a public primitive: it
+  answers §6.1's "nearest existing terms" for any caller holding a candidate term.
+- `suggested_tags` excludes terms the fact already carries — the card asks what *else* the
+  vocabulary holds. The UI shows the new `unregistered_tags` beside them.
+- `evelyn_ui/dev.html` no longer re-derives the alignment label from thresholds of its own; the
+  server is the single source, and those thresholds no longer exist.
+- Removed `FACT_EXTRACTION_NOVELTY_THRESHOLD`; nothing should branch on that distance again.
+
+### Verification
+- `Evelyn/tests/test_review_card_novelty.py` — seven cases: aligned, novel, the most-novel term
+  driving the score, alias resolution, untagged, suggestion exclusion, and a failed lookup
+  declining to invent a verdict.
+- `Evelyn/tests/test_prompts_teach_the_standard.py` gains a **structural** check. The denylist
+  there missed this fourth offender on a plural ("hierarchies") and a different example format,
+  so the new test matches the *shape* — a capitalised or three-deep slashed path inside a string
+  about tags — and catches wordings nobody has invented yet. Confirmed to fail against the old
+  directive.
+
+### Measurement notes
+Three query shapes were compared against the tag index before changing anything. Compacting the
+observation to keywords — the fix this was expected to need — made suggestions **worse** (59.2%
+hit@4 against prose's 75.0%) without improving separation. A per-keyword minimum appeared to
+separate well until it was measured against labelled data, where it separated the wrong way: a
+minimum over more keywords is lower by construction, not by meaning. Prose remains the best
+shape for retrieving candidate terms and is unchanged, in the review card and in the extractor.
+
+## [000.006.223] - 2026-09-24 — *Seeding Is a Bootstrap*
+
+One CLI flag would have replaced every curated category with a single shelf label.
+
+### Fixed
+- **`seed_master_taxonomy_from_vault()` refuses a populated registry.** It upserted *every*
+  vault tag with `category = "general"` and `description = "Obsidian notes tagged under X"`, so
+  a single run would have overwritten all 675 curated categories and papered the scope notes
+  with boilerplate. Nothing schedules it and it had never run — verified: no row carried that
+  description — but it was one flag away and its name sounds harmless. Seeding is now what its
+  name implies: a bootstrap for an empty registry, for a fresh install or a restore where the
+  vault is the only surviving record of which terms were in use. Against a reviewed registry it
+  refuses and points at the admission route, because bulk registration waives the review §6.1
+  exists to require. `allow_populated=True` (CLI `--allow-populated`) overrides it for a
+  deliberate restore — and even then it registers only terms the registry lacks and rewrites
+  no existing row.
+- **A seeded term carries no invented category or description.** Both are left empty for a
+  reviewer. A derived shelf label and a boilerplate scope note are indistinguishable from
+  curated answers once written, and the emptiness is the signal that the term still needs one.
+- **`upsert_master_tag()`: an omitted field means "leave it alone", not "blank it".** The
+  description was already guarded this way; `category` was overwritten unconditionally, so any
+  caller omitting it silently cleared a curated categorisation. `usage_count` had the same
+  defect — re-admitting an existing term reset its count to zero — and now preserves on `None`,
+  since zero is a real value a reserved term holds and cannot double as "unknown".
+
+### Changed
+- `.agents/rules/vault-tag-taxonomy.md` §6.1 states that bulk registration is a bootstrap and
+  never a refresh, and that a registration writes only what it knows.
+- The seeder no longer triggers a full vector re-sync as a side effect; it indexes the terms it
+  registered. `--sync-vector-tags` remains for a deliberate full sync.
+
+### Verification
+- `Evelyn/tests/test_taxonomy_seed_guard.py` — seven cases across both guards. Six confirmed to
+  fail against the previous implementation; the seventh is a control proving a field is still
+  writable when a value is actually supplied.
+- Ran the seeder against the live registry: refused, no writes. It also reported 0 unregistered
+  vault terms, so the vault side is fully registered — unlike memory's 127 (open item A3).
+
+## [000.006.222] - 2026-09-24 — *Retire the Relations Too*
+
+Retiring a term removed its registry row and left its relations pointing at nothing.
+
+### Fixed
+- **`retire_term()` now settles the relations layer.** It recorded the alias, deleted the
+  registry row and the vector, and never touched `master_tag_related` — so a curated relation
+  survived pointing at a term the vocabulary no longer held, and expansion would follow it to a
+  term nothing could describe. Zero rows were dangling when this was found, which was luck: the
+  five terms collapsed that day happened to carry no relations.
+  - Retired **to a preferred form**, the relations move to it: a rename does not change what a
+    term is related to.
+  - Retired **outright**, they go with it. A relation with a missing endpoint is broken, not
+    merely weaker.
+
+### Added
+- `taxonomy_db.repoint_relations()` and `taxonomy_db.delete_relations()`. Re-pointing decides
+  three cases rather than copying rows: a relation between the retired term and its own preferred
+  form is dropped (the alias now says they are one term); a pair the surviving term already holds
+  keeps the stronger claim (`reviewed` outranks `inferred`, then heavier weight), so the move
+  cannot downgrade a decision made about the term that stays; and a symmetric pair is
+  re-normalised, since renaming an endpoint can knock it out of sorted storage order.
+- `_normalise_pair()` — one place deciding storage order for both writers, so `narrower` keeps
+  its direction. Sorting a directional pair would reverse roughly half of them.
+
+### Changed
+- `.agents/rules/vault-tag-taxonomy.md` §6.4 states what retirement does to relations.
+- `record_alias()`'s docstring no longer tells callers to invalidate the alias cache; it has
+  done that itself since it was written.
+
+### Verification
+- `Evelyn/tests/test_tag_retirement.py` — eight new cases: relations follow a replacement,
+  direction survives the move, self-relations drop, symmetric pairs re-sort, stronger and weaker
+  existing relations resolve correctly, outright retirement clears them, and unrelated rows are
+  untouched. Seven confirmed to fail against the old `retire_term`.
+- Audited the six live relations: every endpoint resolves to a registered term, so no repair
+  was needed.
+
+## [000.006.221] - 2026-09-24 — *One Corpus, One Count*
+
+The usage census read the vault only, so terms living in memory were counted as unused.
+
+### Fixed
+- **Tag usage is counted across the whole corpus.** `maintain_master_taxonomy()` built its
+  census from `vault_db.get_all_documents()` alone, but §0 of the tag standard governs vault
+  notes and memory facts as one corpus under one vocabulary. Seven registered terms used only
+  by memory facts therefore reported zero uses, and zero uses is what eventually proposes a
+  term for retirement — five of them were unprotected and on that clock. The new
+  `census_tag_usage()` counts vault documents, live memory facts and live procedures (tagged
+  from the same vocabulary under AGENTS §10), and returns the per-substrate record counts
+  alongside the tally.
+
+### Changed
+- **The circuit breaker distinguishes an empty substrate from an unread one.** Maintenance
+  aborts if the census read raises, and still aborts when the vault reads empty — a partial
+  census is worse than none, because every term the unread substrate holds reports zero and
+  zero starts the retirement clock. Memory alone does not satisfy the breaker.
+- **Retirement proposals say what was searched**: "nothing in the vault or memory has used
+  this term", rather than "no document".
+- Seeding and maintenance now share one tag-tallying helper instead of two copies of the loop.
+
+### Verification
+- `Evelyn/tests/test_tag_usage_census.py` — four cases covering each substrate, live-only
+  filtering, survival of a memory-only term through maintenance, and the empty-vault abort.
+  Confirmed to fail against the vault-only census.
+- A corrected pass over production updated 278 stale usage counts and proposed no retirements.
 
 ## [000.006.220] - 2026-09-24 — *Name the Thing, Not the Shelf*
 

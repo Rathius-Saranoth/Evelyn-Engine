@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-24 17:14:04
+# date modified: 2026-09-24 18:14:27
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -686,27 +686,34 @@ def retrieve_candidate_taxonomy_and_clusters(
     if sorted_facts:
         min_dist = min(min_dist, sorted_facts[0]["distance"])
 
-    novelty_threshold = getattr(cfg, "FACT_EXTRACTION_NOVELTY_THRESHOLD", 0.55)
-
-    if min_dist < 0.40:
+    # The directive no longer branches on `min_dist`. It used to pick between three
+    # instructions by cosine distance, and measurement (v000.006.224) put that distance at
+    # roughly chance: over 144 labelled facts the nearest-match distance separated "every tag
+    # already registered" from "introduces a new term" by 0.005, with the best possible split
+    # scoring 66.7% against a 62.5% majority baseline. Branching on it selected an instruction
+    # at random. All three instructions were also wrong under the current standard — they
+    # taught the slashed hierarchy §5 abolished, and the third actively encouraged minting new
+    # `#Domain/Category/Subtopic` trees, which is how the model kept being told to do the thing
+    # every other rule forbids.
+    #
+    # What is true in every case is one sentence, so it is stated once and grounded in the one
+    # condition that is real: whether any vocabulary was retrieved at all.
+    if sorted_tags:
         novelty_guidance = (
-            f"TAXONOMY MATCH CONFIDENCE: HIGH (Nearest match distance: {min_dist:.2f}).\n"
-            "Strong domain alignment exists in the Master Taxonomy. Strictly adhere to existing parent domain "
-            "hierarchies (e.g. #Domain/Subtopic) and matching Cat## codes."
-        )
-    elif min_dist < novelty_threshold:
-        novelty_guidance = (
-            f"TAXONOMY MATCH CONFIDENCE: MODERATE (Nearest match distance: {min_dist:.2f}).\n"
-            "Related parent domains found. You may extend existing parent branches (e.g. '3D-Printing/...', "
-            "'Tech/...', 'Health/...', 'Lore/...') or specialize child tags."
+            "TAG VOCABULARY: the terms listed above are the registered vocabulary nearest this "
+            "conversation. Prefer one of them over a word of your own — that is what makes two "
+            "facts about the same subject findable together. If nothing listed names the "
+            "subject, write the specific flat term that does; a new term goes to review before "
+            "it joins the vocabulary, so a precise new term is better than a vague listed one."
         )
     else:
         novelty_guidance = (
-            f"TAXONOMY MATCH CONFIDENCE: LOW / NOVEL DOMAIN (Nearest match distance: {min_dist:.2f}).\n"
-            "This conversation introduces topics not well-covered by existing taxonomy. "
-            "You are EXPLICITLY ENCOURAGED to mint new domain-level tag hierarchies (e.g. #Domain/Subtopic or #Domain/Category/Subtopic)."
+            "TAG VOCABULARY: no registered terms were retrieved for this conversation. Write "
+            "specific flat subject terms; each will go to review before joining the vocabulary."
         )
 
+    # Returned for diagnostics only. It is the distance to the nearest retrieved candidate,
+    # which is not a novelty signal — see the note above before giving it a decision to make.
     return sorted_tags, sorted_facts, min_dist, novelty_guidance
 
 
@@ -742,9 +749,11 @@ def _build_extraction_prompt(
         tag_lines = []
         for t in taxonomy_candidates[:20]:
             desc = f" — {t['description']}" if t.get("description") else ""
-            tag_lines.append(f"  - #{t['tag']}{desc}")
+            # Bare, as a memory fact stores them. A leading `#` is Obsidian note syntax and
+            # showing it here taught a surface form the `tags` field never uses.
+            tag_lines.append(f"  - {t['tag']}{desc}")
         taxonomy_block = (
-            "\n\nRELEVANT MASTER TAXONOMY DOMAINS & TAGS (Tag RAG):\n" + "\n".join(tag_lines)
+            "\n\nREGISTERED VOCABULARY NEAREST THIS CONVERSATION (Tag RAG):\n" + "\n".join(tag_lines)
         )
 
     memory_block = ""

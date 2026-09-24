@@ -25,7 +25,7 @@ class TestSubjectPassRejectsFacets:
     @pytest.fixture(autouse=True)
     def _no_vectors(self, monkeypatch):
         """Stage 2 is a vector lookup; this test is about stage 1's lexical resolution."""
-        monkeypatch.setattr(tag_librarian, "_vector_lookup", lambda _p: (None, 1.0, 0.0))
+        monkeypatch.setattr(tag_librarian, "nearest_registered_term", lambda _p: (None, 1.0, 0.0))
 
     @pytest.mark.parametrize(
         "facet", ["type/reference", "motif/storm", "setting/forest", "event/move"]

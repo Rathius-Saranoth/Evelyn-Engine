@@ -3171,7 +3171,7 @@
             <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
               <input type="text" id="split-cat-${idx}" value="${escapeHtml(d.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="updateSplitDraft(${idx})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               <input type="text" id="split-subj-${idx}" value="${escapeHtml(d.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="updateSplitDraft(${idx})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" oninput="updateSplitDraft(${idx})" style="flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+              <input type="text" id="split-tags-${idx}" value="${escapeHtml(d.tags || '')}" placeholder="Tags (e.g. coffee, routine)" oninput="updateSplitDraft(${idx})" style="flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
             </div>
             <textarea id="split-obs-${idx}" oninput="updateSplitDraft(${idx})" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(d.observation || '')}</textarea>
             ${suggTags}
@@ -4388,19 +4388,30 @@
 
     function renderTriageItemCard(item) {
       if (item.item_type === 'extraction') {
-        const alignLabel = item.alignment_label || (item.novelty_score < 0.40 ? 'Aligned' : (item.novelty_score < 0.55 ? 'Related' : 'Novel'));
+        // The server always sets this, including on error. A local re-derivation was a second
+        // copy of thresholds that have since been removed entirely.
+        const alignLabel = item.alignment_label || 'Untagged';
         let badgeStyle = 'background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);';
         if (alignLabel === 'Aligned') {
           badgeStyle = 'background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);';
-        } else if (alignLabel === 'Related') {
-          badgeStyle = 'background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);';
+        } else if (alignLabel === 'Untagged') {
+          badgeStyle = 'background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);';
         }
         const noveltyBadge = `<span class="badge" style="${badgeStyle}">${alignLabel} (${item.novelty_score !== undefined ? item.novelty_score : '1.00'})</span>`;
         
         const suggestionsHTML = (item.suggested_tags && item.suggested_tags.length > 0) ? `
           <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px;">
-            <span style="color: var(--text-dim);">Suggested Domain Tags:</span>
-            ${item.suggested_tags.map(t => `<button class="filter-pill" style="padding: 2px 8px; font-size: 11px;" onclick="appendExtractionTag(${item.id}, '${escapeHtml(t)}')">+ #${escapeHtml(t)}</button>`).join('')}
+            <span style="color: var(--text-dim);">Also in the vocabulary:</span>
+            ${item.suggested_tags.map(t => `<button class="filter-pill" style="padding: 2px 8px; font-size: 11px;" onclick="appendExtractionTag(${item.id}, '${escapeHtml(t)}')">+ ${escapeHtml(t)}</button>`).join('')}
+          </div>
+        ` : '';
+
+        // Which proposed tags the vocabulary does not hold, and what each is nearest to, so
+        // approving a new term is a comparison rather than an act of recall (§6.1).
+        const unregisteredHTML = (item.unregistered_tags && item.unregistered_tags.length > 0) ? `
+          <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px;">
+            <span style="color: var(--text-dim);">New to the vocabulary:</span>
+            ${item.unregistered_tags.map(u => `<span class="badge" style="font-size: 10px; background: rgba(168, 85, 247, 0.15); color: #c084fc;" title="Nearest registered term">${escapeHtml(u.tag)}${u.nearest ? ` &rarr; ${escapeHtml(u.nearest)} (${u.distance})` : ''}</span>`).join('')}
           </div>
         ` : '';
 
@@ -4418,9 +4429,10 @@
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                 <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI, General_Topic)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Tags (e.g. coffee, routine)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
               <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})" style="min-height: 70px; line-height: 1.4;">${escapeHtml(item.observation)}</textarea>
+              ${unregisteredHTML}
               ${suggestionsHTML}
             </div>
             <div class="card-actions">
@@ -4463,7 +4475,7 @@
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                       <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                       <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                      <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Domain Tags (e.g. Tech/Python/FastAPI)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Tags (e.g. coffee, routine)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                     </div>
                     <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">

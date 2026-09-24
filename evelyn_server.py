@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-24 17:14:04
+# date modified: 2026-09-24 18:14:27
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5813,42 +5813,89 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
 
 
 def _enrich_extraction_with_taxonomy(item: dict) -> dict:
-    """Enrich an extraction item with Vector RAG taxonomy suggestions and novelty score."""
+    """Tell the reviewer which of this fact's tags are new, and what else the vocabulary holds.
+
+    "Does this fact introduce a term the vocabulary does not have?" was answered by embedding
+    the whole observation, taking the nearest term's cosine distance, and cutting it into
+    `Aligned` / `Related` / `Novel` at 0.40 and 0.55. Measured over 144 labelled facts that
+    distance separated the two classes by **0.005** — the best split anywhere on the range
+    scored 66.7% against a 62.5% majority baseline, and the entire p10–p90 of the distribution
+    (0.369–0.490) straddled both cut points, so nearly every card read `Aligned` or `Related`
+    whatever it contained.
+
+    No query shape rescued it: compacting the observation to keywords made recall *worse*
+    (59% against 75% hit@4), and a per-keyword minimum separated the classes the wrong way,
+    because a minimum over more keywords is lower by construction rather than by meaning.
+
+    The question was never a vector question. An extraction already carries its proposed tags,
+    and whether a term is in the controlled vocabulary is a set lookup — exact, free, and
+    right every time. The vector keeps the job it is good at, the one §6.1 actually asks for:
+    given a term that is *not* registered, name the nearest registered one so the reviewer can
+    compare rather than recall.
+
+    Sets on the item:
+        `suggested_tags` — registered terms near the observation, minus ones it already carries.
+        `unregistered_tags` — each proposed tag the vocabulary lacks, with its nearest
+            registered term and that distance.
+        `alignment_label` — `Aligned`, `Novel`, or `Untagged`.
+        `novelty_score` — distance from the most novel proposed term to its nearest registered
+            neighbour; `0.0` when every tag is already registered.
+    """
     obs = item.get("observation", "")
     if not obs:
         return item
 
     try:
-        from Evelyn.tools import chroma_rag
-        from Evelyn.tools.tag_librarian import is_excluded_tag
+        from Evelyn.tools import chroma_rag, taxonomy_db
+        from Evelyn.tools.tag_librarian import (
+            is_excluded_tag,
+            nearest_registered_term,
+            normalize_tag_format,
+        )
+
+        proposed = [
+            t for t in (normalize_tag_format(x) for x in str(item.get("tags") or "").split(","))
+            if t and not is_excluded_tag(t)
+        ]
+        registered = {m["tag"] for m in taxonomy_db.get_master_tags()}
+        # An alias resolves to a registered term, so a fact phrased the retired way is not new.
+        known = set(registered) | set(taxonomy_db.get_aliases())
+
+        unregistered = []
+        for term in dict.fromkeys(t for t in proposed if t not in known):
+            nearest, distance, _margin = nearest_registered_term(term)
+            unregistered.append({
+                "tag": term,
+                "nearest": nearest or "",
+                "distance": round(distance, 2),
+            })
 
         tag_col = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
-        results = chroma_rag.query_collection(obs, tag_col, n_results=5)
-
-        suggested_tags = []
-        min_dist = 1.0
-
+        results = chroma_rag.query_collection(obs, tag_col, n_results=8)
+        already = set(proposed)
+        suggested_tags: list[str] = []
         for r in results:
-            meta = r.get("metadata") or {}
-            tag = meta.get("tag")
-            if tag and not is_excluded_tag(tag) and tag not in suggested_tags:
+            tag = (r.get("metadata") or {}).get("tag")
+            # A term the fact already carries is not a suggestion; the card asks what else.
+            if tag and not is_excluded_tag(tag) and tag not in already and tag not in suggested_tags:
                 suggested_tags.append(tag)
-            dist = float(r.get("distance", 1.0))
-            if dist < min_dist:
-                min_dist = dist
 
         item["suggested_tags"] = suggested_tags[:4]
-        item["novelty_score"] = round(min_dist, 2)
-        if min_dist < 0.40:
-            item["alignment_label"] = "Aligned"
-        elif min_dist < 0.55:
-            item["alignment_label"] = "Related"
-        else:
+        item["unregistered_tags"] = unregistered
+        if not proposed:
+            item["alignment_label"] = "Untagged"
+            item["novelty_score"] = 1.0
+        elif unregistered:
             item["alignment_label"] = "Novel"
+            item["novelty_score"] = max(u["distance"] for u in unregistered)
+        else:
+            item["alignment_label"] = "Aligned"
+            item["novelty_score"] = 0.0
     except sqlite3.Error, OSError, ValueError, KeyError, RuntimeError:
         item["suggested_tags"] = []
+        item["unregistered_tags"] = []
         item["novelty_score"] = 1.0
-        item["alignment_label"] = "Novel"
+        item["alignment_label"] = "Untagged"
 
     return item
 

@@ -967,7 +967,7 @@ class TestVectorAcceptanceBands:
     def _reconcile(self, monkeypatch, tag, distance, margin):
         from Evelyn.tools import tag_librarian as tl
         monkeypatch.setattr(tl, "_registry_surface_forms", lambda: {})
-        monkeypatch.setattr(tl, "_vector_lookup", lambda phrase: (tag, distance, margin))
+        monkeypatch.setattr(tl, "nearest_registered_term", lambda phrase: (tag, distance, margin))
         return tl.reconcile_subjects(["coral bleaching"], [])
 
     def test_confident_match_is_applied(self, monkeypatch):
@@ -995,7 +995,7 @@ class TestVectorAcceptanceBands:
         def _explode(phrase):
             raise AssertionError("vector lookup must not run when the dictionary resolves")
 
-        monkeypatch.setattr(tl, "_vector_lookup", _explode)
+        monkeypatch.setattr(tl, "nearest_registered_term", _explode)
         applied, proposals = tl.reconcile_subjects(["sleep"], [])
         assert applied == ["sleep"] and proposals == []
 
@@ -1006,7 +1006,7 @@ class TestQueryDecomposition:
     def _reconcile(self, monkeypatch, phrase, surfaces):
         from Evelyn.tools import tag_librarian as tl
         monkeypatch.setattr(tl, "_registry_surface_forms", lambda: surfaces)
-        monkeypatch.setattr(tl, "_vector_lookup", lambda p: (None, 1.0, 0.0))
+        monkeypatch.setattr(tl, "nearest_registered_term", lambda p: (None, 1.0, 0.0))
         return tl.reconcile_subjects([phrase], [])
 
     def test_compound_resolves_to_its_registered_atoms(self, monkeypatch):
@@ -1041,7 +1041,7 @@ class TestQueryDecomposition:
         from Evelyn.tools import tag_librarian as tl
         monkeypatch.setattr(tl, "_registry_surface_forms",
                             lambda: {"dream": "dream", "journaling": "journaling"})
-        monkeypatch.setattr(tl, "_vector_lookup", lambda p: (None, 1.0, 0.0))
+        monkeypatch.setattr(tl, "nearest_registered_term", lambda p: (None, 1.0, 0.0))
         applied, proposals = tl.reconcile_subjects(["dream journaling"], ["dream"])
         assert applied == ["journaling"] and proposals == []
 

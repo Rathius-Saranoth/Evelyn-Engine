@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-24 17:05:19
+# date modified: 2026-09-24 18:14:27
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -728,13 +728,14 @@ FACT_EXTRACTION_START_ID = 0
 FACT_EXTRACTION_MODEL_OVERRIDE = "default"
 
 # Vector RAG & Semantic Taxonomy Retrieval for Fact Extraction
-# Max candidate master taxonomy tags and domain branches to retrieve
+# Max registered vocabulary terms to retrieve as candidates for the extraction prompt
 FACT_EXTRACTION_TOP_K_TAXONOMY = 30
 # Max existing memory chunks / fact clusters to retrieve for context alignment
 FACT_EXTRACTION_TOP_K_FACTS = 6
-# Cosine distance threshold for novel domain detection (0.0 = identical, 1.0 = orthogonal)
-# Distances >= this threshold prompt the model to mint clean domain-level hierarchies.
-FACT_EXTRACTION_NOVELTY_THRESHOLD = 0.55
+# FACT_EXTRACTION_NOVELTY_THRESHOLD was removed in v000.006.224. It branched the extraction
+# prompt between three instructions by cosine distance, and that distance was measured at
+# roughly chance for the question it was asked. Whether a fact introduces a new term is
+# answered by looking the term up in the registry, not by a distance band.
 
 
 # =============================================================================

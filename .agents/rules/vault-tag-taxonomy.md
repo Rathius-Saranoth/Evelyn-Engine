@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-23 19:50:26
+date modified: 2026-09-24 17:52:21
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -324,6 +324,16 @@ event/surgery       obsidian-graph/contact
 - The per-document audit pass may **only apply tags that already exist** in the registry.
 - A term not in the taxonomy is emitted as a **proposal**, queued for human approval. It is never written to a note or to the taxonomy by the document pass.
 - This is the direct control on orphan growth: a vocabulary that any single document can extend is not a controlled vocabulary.
+- **Bulk registration is a bootstrap, never a refresh.** Seeding the registry from the terms a
+  substrate already uses is legitimate exactly once, while the registry is empty — a fresh
+  install, or a restore where the substrate is the only surviving record of what was in use.
+  Against a reviewed registry the same operation registers hundreds of terms without anyone
+  judging a single one, which is the control above, waived wholesale. Once terms exist, an
+  unregistered one is an admission question and takes the proposal route like any other.
+- **A registration writes only what it knows.** A term registered without a category or a
+  scope note leaves those fields empty rather than filling them with a derived or boilerplate
+  value: once written, an invented answer is indistinguishable from a reviewer's, and the
+  emptiness is the signal that the term still needs one.
 
 **Every proposal must carry its own evidence.** A bare term is not reviewable — approving it means guessing whether an equivalent already exists among thousands. A proposal record therefore includes:
 
@@ -520,6 +530,18 @@ QUERY: motif/cosmic-horror
 - A mediocre relation degrades ranking rather than poisoning results — the failure mode is gradual and observable, not silent.
 - The expansion weight is a **calibration value, not a constant**. `0.4` is a starting point to be tuned against live retrieval quality.
 - Expansion is **one hop only**. Relations do not chain transitively; `A` RT `B` RT `C` never surfaces `C` for a query on `A`.
+
+**Retirement — relations follow the pointer, or go with the term.**
+A relation is stated about a term, so removing the term settles its relations too. Leaving them
+in place gives expansion an endpoint the registry cannot describe.
+
+- **Retired to a preferred form (§6.2).** The relations move to it: a rename does not change what
+  a term is related to. A relation between the retired term and its own preferred form is
+  dropped — the alias now says they are one term. Where both terms already held the same pair,
+  the stronger claim stands: `reviewed` outranks `inferred`, and within a tier the heavier weight
+  wins, so re-pointing cannot quietly downgrade a decision made about the surviving term.
+- **Retired outright.** The relations go with it. A relation with a missing endpoint is broken,
+  not merely weaker.
 
 ### 6.5 Registry consistency — the read path lags the write path
 Registration writes to SQLite immediately, but the **vector read path that every consumer actually
