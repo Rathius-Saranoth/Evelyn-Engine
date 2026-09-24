@@ -119,6 +119,15 @@ _.flat_compound_decomposition
 # AGENTS.md §11 category 1 — external script consumer, not dead configuration.
 _.GIST_SYNC_STATE
 
+# Chroma writer lease entry points for maintenance scripts. acquire_offline_writer is called
+# by scripts/rebuild_chroma_collection.py and scripts/sync_full_vault_to_chroma.py;
+# release_chroma_writer by the former; acquire_chroma_write_lock by
+# scripts/migrate_reference_library_vectors.py. All outside Vulture scan paths.
+# AGENTS.md §11 category 1 — external script consumers.
+_.acquire_offline_writer
+_.release_chroma_writer
+_.acquire_chroma_write_lock
+
 # Called by scripts/rebuild_chroma_collection.py (standalone, outside Vulture scan paths)
 # for its single-collection probe; check_chroma_health() uses the batched _probe_batch().
 # AGENTS.md §11 category 1 — external script consumer.

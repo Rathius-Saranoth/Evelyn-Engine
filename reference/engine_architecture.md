@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-19 09:31:34
+date modified: 2026-09-23 21:46:27
 ---
 # Evelyn Engine Architecture Map
 
@@ -413,9 +413,9 @@ graph TD
 ```
 
 ### 7.1 Key Architectural Guarantees
-1. **Single-Process Custodial Ingestion**: All ChromaDB modifications route through the WAL-backed `chroma_sync_queue` table in `evelyn_memory.db` and are written exclusively by the FastAPI server's custodial drain worker (`_chroma_queue_drain_loop`), eliminating multi-process file locking collisions and vector index corruption.
+1. **Single-Process Custodial Ingestion (enforced)**: All ChromaDB changes go through the WAL-backed `chroma_sync_queue` table in `evelyn_memory.db`, and only the FastAPI server's custodial drain worker (`_chroma_queue_drain_loop`) writes them. The custodian claims a **writer lease** at startup (`chroma_rag.claim_chroma_writer`, an `flock` on `chroma_db/.chroma_write.lock` that records the holder) and holds it until the process exits. `drain_sync_queue` and every `direct_*` write require the lease, so any other process that tries to write gets `ChromaWriterBusy` before it touches a segment or claims a queue row. Maintenance scripts go through `chroma_rag.acquire_offline_writer`, which refuses while `evelyn.service` is up and reports why to the terminal and the journal. The one exception is the engine's own startup repair, which runs synchronously before the custodian claims the lease and only re-enqueues. Before v000.006.218 this guarantee was a convention, not enforced: a rebuild script drained beside the custodian and corrupted `evelyn_reference`.
 2. **Delta-Driven Indexing**: Background maintenance tasks (such as Master Librarian taxonomy maintenance) delta-index only newly created or modified entities rather than indiscriminately enqueuing the entire taxonomy.
-3. **Automated Queue Retention & Stale Recovery**: Completed records are pruned lazily during queue idle periods (`prune_completed_sync_queue`, keeping the latest 500 records), and stranded `processing` items from server restarts are automatically recovered to `pending` on startup (`recover_stale_processing_items`).
+3. **Automated Queue Retention & Stale Recovery**: Completed records are pruned lazily during queue idle periods (`prune_completed_sync_queue`, keeping the latest 500 records), and stranded `processing` items from server restarts are automatically recovered to `pending` on startup (`recover_stale_processing_items`). Once the custodian holds the lease, every `processing` row belongs to a writer that no longer exists, so all of them are recovered, regardless of age.
 
 ---
 

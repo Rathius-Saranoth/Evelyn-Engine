@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 19:50:26
+date modified: 2026-09-23 21:46:27
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,69 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.218] - 2026-09-23 — *One Writer*
+
+An incident fix. "Only the custodian writes to Chroma" was a documented guarantee that nothing
+enforced, and on 2026-09-23 it broke. `evelyn_reference`'s `link_lists.bin` grew to 891GB (1.75TB
+apparent) and filled the WSL disk. SSH and every service that needed to write then failed.
+
+### Root cause
+- **Two processes wrote one HNSW segment.** A forced `rebuild_chroma_collection.py` was started
+  in the background while the engine ran. It dropped the collection, re-enqueued 2,750 chapters,
+  and then **drained the queue itself** alongside the engine's custodian; its own plan text said
+  "the engine's Chroma custodian also drains it". Each process keeps a private in-memory copy of
+  the index and persists it on write, so the two overwrote each other. `length.bin` ended up full
+  of vector bytes: every entry read `0x3F800006`, a float near 1.0, where a link-list size of at
+  most about 200 bytes belongs. The next persist then wrote a ~1GB link list for each of 7,288
+  elements.
+- **The engine made the same mistake on its own.** Its startup auto-repair
+  (`repair_corrupted_chroma(background=True)`) launched the rebuild detached, then started the
+  custodian, which put a second writer on the store every time it repaired.
+- `acquire_chroma_write_lock()` existed but only `remap_document` took it. The drainer never did.
+  A per-write lock would not have been enough anyway, because processes that take turns still
+  persist diverging copies.
+
+### Added
+- **Writer lease** (`chroma_rag.claim_chroma_writer`). This is an `flock` on
+  `chroma_db/.chroma_write.lock`, held for the life of the owning process and recording its pid,
+  role and start time. The engine's custodian claims it at startup. `drain_sync_queue` and every
+  `direct_*` write require it, so any other writer gets `ChromaWriterBusy`, naming the holder,
+  before it touches a segment or claims a queue row. The kernel releases it on exit, so a crash
+  cannot leave it stuck.
+- **`chroma_rag.acquire_offline_writer`** for maintenance scripts. It refuses while
+  `evelyn.service` is active, activating or restarting, and refuses while any process holds the
+  lease. The refusal prints `[REFUSED]` with the fix to stderr, logs who tried what to the journal
+  (`journalctl -t <script>`), and exits `3`. The one exception is the engine's own startup repair,
+  identified by its parent being the unit's main pid.
+- `Evelyn/tests/test_chroma_writer_lease.py` (11 tests).
+
+### Changed
+- **Startup repair runs synchronously, before the custodian claims the lease.** When the engine
+  starts the rebuild, it only drops and re-enqueues; the custodian embeds.
+- **The custodian waits rather than fights.** If another process holds the lease at startup, it
+  logs that once and keeps writes queued until the lease is free. Once it holds the lease, it
+  recovers every `processing` row, regardless of age, since none of them can be live.
+- **`remap_document` returns False when another process writes.** This covers the vault watcher
+  running beside the engine. The caller then re-ingests through the queue, which costs an
+  embedding but never adds a second writer.
+- **`rebuild_chroma_collection.py --execute` and `--reclaim-orphans --execute`** now refuse to
+  run while the engine is up.
+- **`sync_full_vault_to_chroma.py`** is guarded the same way, and its docstring now says it
+  deletes *every* collection. It now clears every rebuild strategy's sync state and re-enqueues
+  every rebuildable collection. Previously it never cleared `REFERENCE_SYNC_STATE`, so
+  `evelyn_reference` stayed empty after a reset. It also keeps the lock file while purging, and
+  embeds the queue itself.
+
+### Documentation
+- `ROLLBACK.md`: the full re-sync is now marked destructive and limited to full reverts. A new
+  section, *Repairing a Single Chroma Collection*, covers stopping the engine, rebuilding and
+  restarting.
+- `AGENTS.md` §2: new *ChromaDB Single-Writer Rule*. Agents write by enqueueing, run direct
+  maintenance only with the engine stopped and in the foreground, and report a refusal rather
+  than working around it.
+- `reference/engine_architecture.md` §7.1: the single-custodian guarantee now describes how it
+  is enforced.
 
 ## [000.006.217] - 2026-09-23 — *Two Kinds of Connection*
 

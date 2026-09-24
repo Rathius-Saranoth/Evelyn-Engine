@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-23 19:50:26
+# date modified: 2026-09-23 21:46:27
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2286,7 +2286,7 @@ def clean_shutdown_all_tasks():
     )
     try:
         chroma_rag.flush_sync_queue(timeout=5.0)
-    except (sqlite3.Error, OSError, RuntimeError, ValueError) as e:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, chroma_rag.ChromaWriterBusy) as e:
         print(f"[SERVER SHUTDOWN] Final queue flush notice: {e}", flush=True)
     print("[SERVER SHUTDOWN] Clean shutdown complete. Exiting.", flush=True)
 
@@ -2673,15 +2673,41 @@ async def lifespan(app: FastAPI):
             f"Rebuilding only the affected collection(s)...",
             flush=True,
         )
-        chroma_rag.repair_corrupted_chroma(collections=health["unhealthy"], background=True)
+        # Synchronous, and before the custodian below claims the writer lease: the rebuild
+        # re-enqueues and exits, and the custodian embeds. Run detached, it drained the queue
+        # alongside the custodian — two writers on one HNSW segment.
+        await asyncio.to_thread(
+            chroma_rag.repair_corrupted_chroma, collections=health["unhealthy"], background=False
+        )
 
     _lifespan_tasks: list[asyncio.Task] = []
 
     # 3. Single Custodian Chroma Sync Queue Drain Loop
     async def _chroma_queue_drain_loop():
-        """Continuous background worker that drains the SQLite Chroma staging queue."""
-        # Recover any orphaned 'processing' records from prior crashes/restarts
-        await asyncio.to_thread(chroma_rag.recover_stale_processing_items)
+        """Continuous background worker that drains the SQLite Chroma staging queue.
+
+        The engine is the sole Chroma writer: the custodian holds the writer lease for the
+        life of the process, so a script that tries to write meanwhile is refused instead
+        of corrupting a segment. If another process holds it, writes stay queued until it
+        exits.
+        """
+        warned = False
+        while True:
+            try:
+                chroma_rag.claim_chroma_writer("evelyn engine custodian")
+                break
+            except chroma_rag.ChromaWriterBusy as e:
+                if not warned:
+                    print(f"  {_RED}[WARNING] Chroma Custodian waiting:{_RST} {e}. Writes stay queued.", flush=True)
+                    warned = True
+                try:
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    return
+        if warned:
+            print(f"  {_GRN}Chroma Custodian:{_RST} Writer lease acquired; draining.", flush=True)
+        # Holding the lease, every 'processing' row belongs to a writer that no longer exists.
+        await asyncio.to_thread(chroma_rag.recover_stale_processing_items, 0.0)
         _last_prune_ts = time.time()
         while True:
             try:

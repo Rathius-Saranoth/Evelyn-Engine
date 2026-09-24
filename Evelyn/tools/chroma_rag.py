@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-23 18:05:38
+# date modified: 2026-09-23 21:46:27
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -15,6 +15,10 @@ Exports:
                                 pinned doc injection; return formatted context block.
                                 Also fires memory_db.touch_entry_retrieved() for SQLite context
                                 entries served to the model (retrieval tracking).
+  claim_chroma_writer()      — Make this process the sole Chroma writer for its lifetime.
+                                The engine's custodian holds it; any other process that
+                                tries to write meanwhile gets ChromaWriterBusy. Everything
+                                else writes by enqueueing (enqueue_upsert / enqueue_delete).
 
 Collections:
   - evelyn_memory: Full markdown vault files and live SQLite context entries.
@@ -33,12 +37,15 @@ Priority/Pinning: rag_priority multiplier adjusts cosine distance before thresho
 
 import datetime
 import fcntl
+import getpass
 import json
 import os
 import re
 import sqlite3
 import subprocess
 import sys
+import syslog
+import threading
 import time
 from contextlib import contextmanager, suppress
 from typing import Any
@@ -95,7 +102,6 @@ def is_rag_excluded_source(source_path: Any, metadata: dict | None = None) -> bo
 
 
 _CHROMA_DIR = getattr(cfg, "CHROMA_DB_PATH", r"/home/rathius/evelyn/data/chroma_db")
-CHROMA_LOCK_FILE = os.path.join(_CHROMA_DIR, ".chroma_write.lock")
 _MEMORY_DB_PATH = getattr(cfg, "MEMORY_DB_PATH", r"/home/rathius/evelyn/data/evelyn_memory.db")
 
 
@@ -108,12 +114,165 @@ def _get_queue_db() -> sqlite3.Connection:
 
 
 
+# ---------------------------------------------------------------------------
+# Single-writer lease
+# ---------------------------------------------------------------------------
+# Every process that opens the store keeps its own in-memory copy of each HNSW index and
+# persists that copy on write. Two writing processes therefore overwrite each other's files
+# even when they take turns, so serialising individual writes is not enough: exactly one
+# process may write for as long as it lives. On 2026-09-23 a rebuild script drained the queue
+# alongside the engine's custodian and `evelyn_reference`'s link lists grew to 891GB.
+#
+# The lease is an flock on the lock file, held for the life of the owning process and
+# released by the kernel when it exits, so a crash can never leave it stuck.
+
+class ChromaWriterBusy(Exception):
+    """Another process owns ChromaDB writes, so this one must not write."""
+
+
+_writer_lease = None  # open handle whose flock makes this process the sole writer
+_WRITE_MUTEX = threading.RLock()  # serialises writer threads inside the owning process
+
+
+def _writer_lock_path() -> str:
+    """The lock file for the store currently configured (tests repoint CHROMA_DB_PATH)."""
+    return os.path.join(cfg.CHROMA_DB_PATH, ".chroma_write.lock")
+
+
+def owns_chroma_writer() -> bool:
+    """Whether this process holds the writer lease."""
+    return _writer_lease is not None
+
+
+def claim_chroma_writer(role: str) -> None:
+    """Make this process the sole ChromaDB writer for the rest of its life.
+
+    Idempotent within a process. The holder records its pid, role and start time in the
+    lock file so that a refused process can say who it was refused by.
+
+    Args:
+        role: Who is claiming, shown to anyone refused while this process holds it.
+
+    Raises:
+        ChromaWriterBusy: Another live process holds the lease.
+    """
+    global _writer_lease
+    if owns_chroma_writer():
+        return
+    path = _writer_lock_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fh = open(path, "a+")  # noqa: SIM115 — held open for the process lifetime by design
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.seek(0)
+        holder = fh.read().strip() or "an unidentified process"
+        fh.close()
+        raise ChromaWriterBusy(f"ChromaDB writes are owned by {holder}") from None
+    fh.seek(0)
+    fh.truncate()
+    fh.write(f"pid {os.getpid()} ({role}) since {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    fh.flush()
+    _writer_lease = fh
+
+
+def release_chroma_writer() -> None:
+    """Give up the lease before exit, for a process that hands writing on to another."""
+    global _writer_lease
+    if _writer_lease is None:
+        return
+    with suppress(OSError):
+        _writer_lease.seek(0)
+        _writer_lease.truncate()
+        fcntl.flock(_writer_lease.fileno(), fcntl.LOCK_UN)
+    _writer_lease.close()
+    _writer_lease = None
+
+
+ENGINE_UNIT = "evelyn.service"
+WRITER_REFUSED = 3  # exit status for a maintenance script refused because a writer is live
+
+
+def _engine_unit_state() -> tuple[str, int]:
+    """Return (ActiveState, MainPID) of the engine's unit, or ('unknown', 0) without systemd."""
+    try:
+        out = subprocess.run(
+            ["systemctl", "show", ENGINE_UNIT, "-p", "ActiveState", "-p", "MainPID"],
+            capture_output=True, text=True, timeout=10, check=False,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown", 0
+    props = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    try:
+        main_pid = int(props.get("MainPID", "0"))
+    except ValueError:
+        main_pid = 0
+    return props.get("ActiveState", "unknown"), main_pid
+
+
+def _refuse_offline_write(reason: str) -> int:
+    """Tell whoever ran a maintenance script why it stopped: on their terminal and in the journal."""
+    script = os.path.basename(sys.argv[0]) or "python"
+    print(
+        f"\n[REFUSED] {script}: {reason}\n"
+        "  Two processes writing one HNSW segment corrupt it. On 2026-09-23 a rebuild drained\n"
+        "  the queue beside the engine and evelyn_reference grew to 891GB, filling the disk.\n"
+        f"  Stop the engine first:   sudo systemctl stop {ENGINE_UNIT}\n"
+        f"  then re-run this, and:   sudo systemctl start {ENGINE_UNIT}",
+        file=sys.stderr, flush=True,
+    )
+    with suppress(OSError):
+        syslog.openlog(script)
+        syslog.syslog(
+            syslog.LOG_WARNING,
+            f"refused '{' '.join(sys.argv[1:])}' from pid {os.getpid()} "
+            f"(parent {os.getppid()}, user {getpass.getuser()}): {reason}",
+        )
+    return WRITER_REFUSED
+
+
+def acquire_offline_writer(label: str) -> tuple[int, bool]:
+    """Let a maintenance script become the only Chroma writer, or refuse it.
+
+    Refuses while the engine's unit is up — even between restarts, when nothing holds the
+    lease yet — and while any other process holds the lease. The one exception is a script
+    the engine itself started (its parent is the unit's main process): that is the startup
+    repair, run before the custodian claims the lease.
+
+    Args:
+        label: What the script is doing, recorded in the lease for anyone it refuses.
+
+    Returns:
+        tuple[int, bool]: (exit_code, engine_invoked). ``exit_code`` is 0 to proceed or
+        ``WRITER_REFUSED``; the refusal has already been reported.
+    """
+    state, main_pid = _engine_unit_state()
+    engine_invoked = main_pid != 0 and main_pid == os.getppid()
+    if state in ("active", "activating", "reloading") and not engine_invoked:
+        return _refuse_offline_write(f"{ENGINE_UNIT} is {state} (main pid {main_pid})."), False
+    try:
+        claim_chroma_writer(label)
+    except ChromaWriterBusy as e:
+        return _refuse_offline_write(f"{e}."), False
+    return 0, engine_invoked
+
+
+def _require_writer() -> None:
+    """Refuse a direct write unless this process owns, or can take, the lease.
+
+    A standalone script with the engine stopped takes the lease and proceeds; with the
+    engine running it is refused before it touches a segment.
+    """
+    if not owns_chroma_writer():
+        claim_chroma_writer(f"direct write from {os.path.basename(sys.argv[0]) or 'python'}")
+
+
 @contextmanager
 def acquire_chroma_write_lock(timeout: float = 60.0, non_blocking: bool = False):
     """Acquire an exclusive cross-process file lock for ChromaDB write operations.
 
-    Guarantees that only one process or thread can write to ChromaDB at any given time,
-    preventing Rust HNSW segment writer and compaction desynchronization.
+    Inside the process that holds the writer lease this only serialises its own threads;
+    elsewhere it waits for the lease to be free, and holds it only for the block.
 
     Args:
         timeout: Maximum seconds to wait for the lock when non_blocking is False.
@@ -122,8 +281,13 @@ def acquire_chroma_write_lock(timeout: float = 60.0, non_blocking: bool = False)
     Yields:
         None
     """
-    os.makedirs(os.path.dirname(CHROMA_LOCK_FILE), exist_ok=True)
-    with open(CHROMA_LOCK_FILE, "a+") as lock_file:
+    if owns_chroma_writer():
+        with _WRITE_MUTEX:
+            yield
+        return
+    lock_path = _writer_lock_path()
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    with open(lock_path, "a+") as lock_file:
         start = time.time()
         acquired = False
         try:
@@ -566,7 +730,11 @@ def direct_upsert(file_path: str, content: str, collection_name: str,
 
     Returns:
         bool: True on success, False on failure.
+
+    Raises:
+        ChromaWriterBusy: Another process owns writes; enqueue instead.
     """
+    _require_writer()
     try:
         col = get_or_create_collection(collection_name)
         _delete_chunks_by_source(col, file_path)
@@ -609,7 +777,11 @@ def direct_delete(file_path: str, collection_name: str) -> bool:
 
     Returns:
         bool: True on success, False on failure.
+
+    Raises:
+        ChromaWriterBusy: Another process owns writes; enqueue instead.
     """
+    _require_writer()
     try:
         col = get_or_create_collection(collection_name)
         _delete_chunks_by_source(col, file_path)
@@ -631,7 +803,11 @@ def direct_remap(old_source_path: str, new_source_path: str, collection_name: st
 
     Returns:
         bool: True if chunks were successfully remapped, False otherwise.
+
+    Raises:
+        ChromaWriterBusy: Another process owns writes; enqueue instead.
     """
+    _require_writer()
     try:
         col = get_or_create_collection(collection_name)
         results = col.get(where={"source": old_source_path}, include=["documents", "metadatas", "embeddings"])
@@ -669,8 +845,17 @@ def direct_remap(old_source_path: str, new_source_path: str, collection_name: st
 
 
 def remap_document(old_source_path: str, new_source_path: str, collection_name: str = "evelyn_memory") -> bool:
-    """Synchronously remap a document source path in Chroma without re-embedding."""
-    with acquire_chroma_write_lock():
+    """Synchronously remap a document source path in Chroma without re-embedding.
+
+    Returns False without writing when another process owns writes (the vault watcher runs
+    beside the engine): the caller then re-ingests through the queue, which costs an
+    embedding but never puts a second writer on the store.
+    """
+    try:
+        _require_writer()
+    except ChromaWriterBusy:
+        return False
+    with _WRITE_MUTEX:
         return direct_remap(old_source_path, new_source_path, collection_name)
 
 
@@ -689,7 +874,12 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "", deadline: fl
 
     Returns:
         int: Number of items successfully processed.
+
+    Raises:
+        ChromaWriterBusy: Another process owns writes. Raised before any row is claimed, so
+            a refused drainer never strands records in 'processing'.
     """
+    _require_writer()
     con = _get_queue_db()
     processed_count = 0
     try:
@@ -754,14 +944,15 @@ def drain_sync_queue(batch_size: int = 50, source_prefix: str = "", deadline: fl
                     extra_meta = None
 
             try:
-                if action == "upsert":
-                    direct_upsert(src, content, col_name, extra_meta)
-                elif action == "delete":
-                    direct_delete(src, col_name)
-                elif action == "remap":
-                    direct_remap(src, content, col_name)
-                else:
-                    raise ValueError(f"Unknown staging queue action: {action}")
+                with _WRITE_MUTEX:
+                    if action == "upsert":
+                        direct_upsert(src, content, col_name, extra_meta)
+                    elif action == "delete":
+                        direct_delete(src, col_name)
+                    elif action == "remap":
+                        direct_remap(src, content, col_name)
+                    else:
+                        raise ValueError(f"Unknown staging queue action: {action}")
 
                 # Success: mark done
                 cur.execute(
@@ -1114,6 +1305,11 @@ def repair_corrupted_chroma(collections: list[str] | None = None, background: bo
 
     A collection with no entry in :data:`REBUILD_STRATEGIES` is reported and left alone,
     because dropping what cannot be regenerated is data loss rather than repair.
+
+    The engine calls this at startup *before* its custodian claims the writer lease, with
+    ``background=False``: the rebuild runs as the engine's child, drops and re-enqueues the
+    collection, and leaves the embedding to the custodian. Dispatched once the engine holds
+    the lease, the script is refused rather than becoming a second writer.
 
     Args:
         collections: Names to rebuild. When None, every collection is probed and the

@@ -1,6 +1,6 @@
 # rebuild_chroma_collection.py
 # date created: 2026-09-22 17:45:00
-# date modified: 2026-09-22 19:22:45
+# date modified: 2026-09-23 21:46:27
 # tags: #chroma, #vector, #repair, #maintenance, #cli
 
 """rebuild_chroma_collection.py — Targeted repair for a single Chroma collection.
@@ -24,6 +24,13 @@ Usage:
     python scripts/rebuild_chroma_collection.py --reclaim-orphans --execute
 
 Nothing is modified unless ``--execute`` is passed.
+
+``--execute`` refuses to run while ``evelyn.service`` is up. Every process keeps its own copy
+of an HNSW index and persists it on write, so a rebuild beside the running engine is two
+writers on one segment — on 2026-09-23 that grew ``evelyn_reference`` to 891GB and filled the
+disk. Stop the engine, run this, start the engine. The one exception is the engine's own
+startup repair, which runs this as its child before its custodian starts: the rebuild then
+only re-enqueues, and the custodian does the embedding.
 """
 
 import argparse
@@ -197,8 +204,12 @@ def cmd_orphans(execute: bool) -> int:
     return 0
 
 
-def cmd_rebuild(name: str, execute: bool, force: bool) -> int:
-    """Drop one collection and regenerate it from its canonical source."""
+def cmd_rebuild(name: str, execute: bool, force: bool, engine_invoked: bool = False) -> int:
+    """Drop one collection and regenerate it from its canonical source.
+
+    ``engine_invoked`` stops after re-enqueueing: the engine's custodian embeds, and this
+    process must not drain beside it.
+    """
     strategy = REBUILD_STRATEGIES.get(name)
     if not strategy:
         print(f"[ABORT] No rebuild strategy for '{name}'.")
@@ -224,7 +235,7 @@ def cmd_rebuild(name: str, execute: bool, force: bool) -> int:
     for sp in state_paths:
         print(f"  3. Clear sync state {sp}")
     print(f"  4. Re-enqueue via {module_name}.{func_name}()")
-    print("  5. Drain the embedding queue (the engine's Chroma custodian also drains it)")
+    print("  5. Drain the embedding queue (this process only; the engine must be stopped)")
 
     if not execute:
         print("\nDry run. Re-run with --execute to apply.")
@@ -255,8 +266,12 @@ def cmd_rebuild(name: str, execute: bool, force: bool) -> int:
     __import__(module_name)
     getattr(sys.modules[module_name], func_name)()
 
+    if engine_invoked:
+        chroma_rag.release_chroma_writer()
+        print("\n  Queued. The engine's custodian embeds it once startup completes.", flush=True)
+        return 0
+
     print("\n  Draining embedding queue (this is the slow part) ...", flush=True)
-    from Evelyn.tools import chroma_rag
     total = 0
     while True:
         drained = chroma_rag.drain_sync_queue(50)
@@ -313,12 +328,21 @@ def main() -> int:
         print(f"[ABORT] No Chroma store at {CHROMA_SQLITE}")
         return 2
 
+    engine_invoked = False
+    if args.execute and (args.collection or args.reclaim_orphans):
+        code, engine_invoked = chroma_rag.acquire_offline_writer(
+            f"rebuild_chroma_collection.py {' '.join(sys.argv[1:])}"
+        )
+        if code:
+            return code
+
     if args.list:
         return cmd_list()
     if args.orphans or args.reclaim_orphans:
         return cmd_orphans(execute=args.execute and args.reclaim_orphans)
     if args.collection:
-        return cmd_rebuild(args.collection, execute=args.execute, force=args.force)
+        return cmd_rebuild(args.collection, execute=args.execute, force=args.force,
+                           engine_invoked=engine_invoked)
 
     parser.print_help()
     return 1

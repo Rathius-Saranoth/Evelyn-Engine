@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-22 21:14:50
+date modified: 2026-09-23 21:46:27
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -26,6 +26,10 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   ```
 - **REST Client Scratchpad & API Probing**: When inspecting, testing, or triggering engine endpoints (`/status`, `/api/identity`, `/api/heavy_tasks`, `/api/review/unified`, `/api/procedures`, `/history`, `/telemetry/*`), reference and use the canonical endpoint definitions in `reference/evelyn_api.http` (configured for `https://localhost:7860` with `X-API-Key: {{$dotenv EVELYN_API_KEY}}`). Never write unvalidated ad-hoc inline Python HTTP scripts or guess speculative endpoint paths.
 - **No Ad-Hoc Inline Scripts**: Do not write unvalidated inline `python3 -c "import sqlite3..."` shell commands to guess column names or print unbounded stdout dumps. Check table schemas via `describe_table` or `.schema` before querying.
+- **ChromaDB Single-Writer Rule**: While `evelyn.service` runs, the engine's custodian is the **only** process that writes to ChromaDB. It holds a writer lease for its whole life, and each process keeps a private in-memory copy of every HNSW index, so a second writer corrupts segments even when it takes turns. On 2026-09-23 a rebuild run beside the engine grew `evelyn_reference` to 891GB and filled the disk.
+  - **Write by enqueueing**: use `chroma_rag.enqueue_upsert` / `enqueue_delete` / `ingest_markdown_file` / `delete_document`. Never call `direct_*`, `drain_sync_queue`, `delete_collection`, or open your own `chromadb.PersistentClient` to write from a script or inline command.
+  - **Maintenance that must write directly** (`scripts/rebuild_chroma_collection.py --execute`, `scripts/sync_full_vault_to_chroma.py`): stop the engine first (`sudo systemctl stop evelyn`), run it in the foreground rather than with `nohup … &`, then start the engine again. These scripts refuse (`[REFUSED]`, exit 3) while the engine is up. Report a refusal to the user; never work around it.
+  - **Repair procedure**: see `ROLLBACK.md` → *Repairing a Single Chroma Collection*.
 - **Data Hygiene & Test Cleanup**: Dummy test records, mock entries, or test proposals created during verification must be purged immediately from production databases (`evelyn_chat.db`, `evelyn_memory.db`, `evelyn_vault.db`) once testing is complete.
 - **Hermetic Test Isolation & Sandbox Protocol**: All test executions (pytest, unit tests, mock verifications) must run inside hermetic sandboxes (`Evelyn/tests/conftest.py`, `tempfile.TemporaryDirectory()`, in-memory `:memory:` databases, or mock targets). Tests and verification scripts are strictly forbidden from writing files directly to or modifying production Obsidian vault paths (`~/obsidian_vault`), production databases (`data/evelyn_*.db`), or active ChromaDB collections.
 - **Databases Map**:
