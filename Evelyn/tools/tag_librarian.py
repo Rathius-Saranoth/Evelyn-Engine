@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-24 17:05:19
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -27,6 +27,7 @@ Key config: evelyn_config.py (TAG_LIBRARIAN_EXCLUSIONS, TAG_LIBRARIAN_FORMAT_RUL
 See also: reference/engine_architecture.md
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -588,6 +589,18 @@ def reconcile_subjects(
     proposals: list[str] = []
     surfaces = _registry_surface_forms()
 
+    def _is_subject(term: str) -> bool:
+        """A facet is not a subject, so this pass may never resolve to one.
+
+        The registry holds facet values as terms — `type/reference`, `motif/storm` — so a
+        phrase like "reference" looks them up successfully. Applying the result puts a second
+        form-axis tag on a document that §4 already gave one, undoing the profile pass that
+        ran immediately before. Two Reference Library chapters gained `type/guide` beside
+        `type/reference` this way. What facet a document carries is decided by its class
+        (§4), never by what it is about.
+        """
+        return not term.startswith(("type/", "motif/", "setting/", "event/"))
+
     for phrase in phrases:
         candidate = normalize_subject_phrase(phrase)
         if not candidate or is_excluded_tag(candidate) or candidate in known:
@@ -614,7 +627,7 @@ def reconcile_subjects(
             ]
             if parts:
                 for term in parts:
-                    if term not in known and term not in applied:
+                    if term not in known and term not in applied and _is_subject(term):
                         applied.append(term)
                 continue
 
@@ -630,7 +643,7 @@ def reconcile_subjects(
                 match = None
 
         if match:
-            if match not in known and match not in applied:
+            if match not in known and match not in applied and _is_subject(match):
                 applied.append(match)
         elif candidate not in proposals:
             proposals.append(candidate)
@@ -1210,6 +1223,24 @@ def audit_document_tags(
             final_tags_list = [t for t in final_tags_list if t not in set(stale)]
             details["tags_removed"] = stale
 
+        # Backstop for §3.4: exactly one form-axis tag, whatever the passes above did. The
+        # profile pass (1) already settles which one, so its answer wins and any other is
+        # dropped here. This is belt-and-braces — pass 2 can no longer emit a facet — but the
+        # rule is cheap to assert and was violated silently for a day without it.
+        type_tags = [t for t in final_tags_list if t.startswith("type/")]
+        if len(type_tags) > 1:
+            keep = f"type/{doc_class}" if doc_class else type_tags[0]
+            keep = next(
+                (t for t in type_tags if t == keep or t.startswith(keep + "/")), type_tags[0]
+            )
+            dropped = [t for t in type_tags if t != keep]
+            final_tags_list = [t for t in final_tags_list if t == keep or not t.startswith("type/")]
+            details["type_conflict_resolved"] = {"kept": keep, "dropped": dropped}
+            logger.warning(
+                "[TAG LIBRARIAN] %s carried %d type/ tags (%s); kept %s.",
+                path, len(type_tags), ", ".join(type_tags), keep,
+            )
+
         final_tags_list = sorted(taxonomy_db.canonicalize_tags(final_tags_list))
         details["final_tags"] = final_tags_list
         details["llm_evaluated"] = True
@@ -1309,6 +1340,31 @@ def audit_single_document_semantic(
     tags_str = ", ".join(details.get("final_tags", []))
     if not dry_run:
         vault_db.update_document_semantic_tag_audit(doc_path, tags=tags_str)
+
+    # Leave a trace when the pass rewrote a document. Only the master librarian wrote to
+    # librarian_activity_log, so this pass changed 115 files in one night and the log stayed
+    # empty — which read as "it did nothing" and hid a rule violation for a day. A pass that
+    # edits the vault unattended has to be reviewable afterwards.
+    if changed and not dry_run:
+        before = set(details.get("previous_tags", []))
+        after = set(details.get("final_tags", []))
+        actions = []
+        if after - before:
+            actions.append(f"added: {', '.join(sorted(after - before))}")
+        if before - after:
+            actions.append(f"removed: {', '.join(sorted(before - after))}")
+        if details.get("type_conflict_resolved"):
+            actions.append(f"type conflict: {details['type_conflict_resolved']}")
+        with contextlib.suppress(sqlite3.Error, OSError, ValueError):
+            vault_db.log_librarian_activity(
+                path=doc_path,
+                title=os.path.basename(doc_path).replace(".md", ""),
+                category=doc_path.split("/")[0] if "/" in doc_path else "",
+                actions=["semantic_tag_audit", *actions],
+                summary=f"Semantic tag audit of '{os.path.basename(doc_path)}': "
+                        f"{'; '.join(actions) if actions else 'no tag change'}",
+                excerpt=", ".join(sorted(after))[:300],
+            )
 
     return {
         "status": "success",

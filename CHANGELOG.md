@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 21:46:27
+date modified: 2026-09-24 17:05:19
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,37 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.219] - 2026-09-24 — *A Facet Is Not a Subject*
+
+The tag librarian was enabled on 2026-09-23 and rewrote 115 documents overnight. Two came out
+carrying two `type/` tags, which §3.4 forbids.
+
+### Fixed
+- **Subject indexing could resolve a phrase to a facet.** `audit_document_tags` runs the §4
+  profile pass first, and that pass is correct — it settles one `type/` tag and drops any other.
+  The subject pass then appended whatever it resolved, with no facet guard. Because the registry
+  holds facet values as terms, a phrase like "reference" looks up `type/reference` successfully,
+  so pass 2 silently undid pass 1. `reconcile_subjects` now refuses any `type/`, `motif/`,
+  `setting/` or `event/` term, in both its direct and hyphen-decomposed branches. What facet a
+  document carries is decided by its class, never by what it is about.
+- **A §3.4 backstop at the merge point.** Whatever the passes do, exactly one form-axis tag
+  survives; the profile pass decides which, and a conflict is logged rather than resolved
+  silently.
+- **The two affected Reference Library chapters repaired**, keeping `type/reference`.
+
+### Added
+- **The semantic pass now records what it rewrote.** `librarian_activity_log` was only ever
+  written by the master librarian, which is disabled, so this pass changed 115 files and left
+  the log empty — which reads as "it did nothing" and hid the rule violation for a day. It now
+  logs the tags added and removed, and any type conflict it resolved. A pass that edits the
+  vault unattended has to be reviewable afterwards.
+- `Evelyn/tests/test_subject_pass_facet_guard.py`, verified to fail against the previous code.
+
+### Notes
+- Reference Library documents are excluded from RAG *retrieval*, not from the index. They are
+  rows in `vault_documents` like any other note, so the librarian audits and rewrites them —
+  which is how these two were reached.
 
 ## [000.006.218] - 2026-09-23 — *One Writer*
 

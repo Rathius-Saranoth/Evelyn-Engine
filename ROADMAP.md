@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-20 18:32:22
+date modified: 2026-09-24 06:43:24
 ---
 # Evelyn Project Roadmap
 
@@ -83,7 +83,7 @@ This roadmap is the primary source of truth for project milestones and future di
 
 *Goal: Robust data architecture, single-writer resilience, task supervision, and multi-device synchronization.*
 
-- [x] **Chroma Single-Writer Architecture**: SQLite WAL-backed staging queue (`chroma_sync_queue`) with single persistent client custodial writes, poison-pill isolation, and auto-recovery.
+- [x] **Chroma Single-Writer Architecture**: SQLite WAL-backed staging queue (`chroma_sync_queue`) with single persistent client custodial writes, poison-pill isolation, and auto-recovery, enforced by a process-lifetime writer lease that refuses any second writer and blocks maintenance scripts while the engine runs.
 - [x] **Multi-Device Obsidian Sync**: Private peer-to-peer synchronization mesh via Syncthing over Tailscale with real-time file watcher service (`evelyn-vault-watcher.service`).
 - [x] **Centralized Task Manager & Watchdog**: Single task manager with PID locking, soft timeouts, background process supervision, and mutual exclusion across idle workers.
 - [x] **Cross-Session History Search**: SQLite FTS5 full-text indexing with query reformulation and date filtering across historical message archives.
@@ -109,6 +109,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Modular Frontend Architecture & Sidebar Tray Redesign (`evelyn_ui/`)**: Modernize UI with a collapsible left sidebar tray for unified page navigation across Chat, Dev/Triage, and Settings, decomposing monolithic 7,500-line `dev.html` and 4,000-line `index.html` into semantic markup, modular CSS, and structured ES JavaScript modules (`js/api.js`, `js/triage.js`, `js/chat.js`).
 - [ ] **Canonical Systemd Service Repository & Root Cleanliness (`systemd/`)**: Consolidate all systemd unit templates (`evelyn.service`, `evelyn-tts.service`, `evelyn-vault-watcher.service`, `syncthing.service`) into `systemd/` and relocate root TLS certificates into a dedicated `certs/` directory.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
+- [ ] **Pinned System Action Cards (Unified Triage Queue)**: System conditions that need the user to act surface as cards pinned above the regular review items, instead of lines in the server log. Each card says what broke, why it matters, and the exact fix, and clears itself once a later check passes. The first producer is Google OAuth failures (Calendar / Drive / Tasks `invalid_grant`, with the matching `setup_*.py` command). The same hook takes later producers such as low disk space, a failed Chroma health probe, or a maintenance script refused by the writer lease.
 - [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
 ---
