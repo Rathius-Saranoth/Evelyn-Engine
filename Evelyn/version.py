@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-24 17:05:19
+# date modified: 2026-09-24 17:14:04
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.219"
-__version_info__ = (0, 6, 219)
-__version_name__ = "A Facet Is Not a Subject"
+__version__ = "000.006.220"
+__version_info__ = (0, 6, 220)
+__version_name__ = "Name the Thing, Not the Shelf"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

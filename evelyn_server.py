@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-23 21:46:27
+# date modified: 2026-09-24 17:14:04
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6512,7 +6512,27 @@ async def action_proposal(
                     except yaml.YAMLError, ValueError, TypeError:
                         child_entries = []
                     if child_entries:
-                        memory_db.split_entry(source_id, child_entries)
+                        child_ids = memory_db.split_entry(source_id, child_entries)
+                        # Now the children exist, so an unregistered term can be proposed
+                        # against the rows that actually carry it and backfilled on approval.
+                        from Evelyn.tools.tag_librarian import propose_tag_admission
+
+                        for child, cid in zip(child_entries, child_ids or [], strict=False):
+                            tags = [
+                                t.strip()
+                                for t in str(child.get("tags") or "").split(",")
+                                if t.strip()
+                            ]
+                            if not tags:
+                                continue
+                            with contextlib.suppress(sqlite3.Error, OSError):
+                                propose_tag_admission(
+                                    tags,
+                                    origin=f"split fact ({child.get('category', '')})",
+                                    reason="Tag proposed by a fact split but not in the "
+                                           "controlled vocabulary.",
+                                    source_ids=[cid],
+                                )
                 memory_db.apply_proposal(id)
             elif prop["type"] in ("merge", "supersede"):
                 memory_db.apply_fact_merge(
@@ -6727,7 +6747,10 @@ async def preview_context_split(req: SplitPreviewRequest, _: None = Depends(chec
         "2. CONTROLLED VOCABULARY TAGS: Assign flat subject terms for each split item (e.g. "
         "`python, automation`, `coffee, routine`). They are combined at retrieval time, so a "
         "hierarchy built into the tag only fragments it. Lowercase, hyphens join words, and "
-        "named entities follow the same rule — no TitleCase, no underscores.\n"
+        "named entities follow the same rule — no TitleCase, no underscores. Name the "
+        "specific subject, never the container: `work`, `home`, `tools`, `pets`, `system` "
+        "and the like are folder headings a flat vocabulary removes and narrow nothing. "
+        "Write `firewall` not `work`, `cat` not `pets`.\n"
         f"3. Assign the most fitting Cat##-{{{cfg.SUBJECT_CODE_ASSISTANT},{cfg.SUBJECT_CODE_USER}}} code for each split entry.\n\n"
         "Output ONLY a fenced YAML block:\n"
         "```yaml\n"

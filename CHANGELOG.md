@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-24 17:05:19
+date modified: 2026-09-24 17:14:04
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.220] - 2026-09-24 — *Name the Thing, Not the Shelf*
+
+The admission queue was filling with container words, and none of its proposals could be
+backfilled on approval.
+
+### Changed
+- **Every tag-producing prompt now rejects umbrella terms.** They taught the flat *format* but
+  never "prefer the specific term over the container", so extraction kept proposing `work`,
+  `home`, `tools`, `pets`, `wellness`, `environment` — the folder headings a flat vocabulary
+  removes, which match so much that they narrow nothing. The rule now names them and gives the
+  substitution: `firewall` not `work`, `cat` not `pets`, `thermostat` not `home`. Applied in
+  `fact_extractor`, `fact_splitter`, `fact_deduplicator` and the split-preview prompt.
+- **Admission is proposed at insertion, not at parse time.** v000.006.216 added `source_ids` so
+  approval could backfill an admitted term onto the facts that wanted it, but only
+  `context_manager` was wired. `fact_extractor` proposed from inside its YAML parser, ~400 lines
+  before the row exists, and `fact_splitter` proposed for children that were not rows yet and
+  might never be — the split can be rejected. Every one of the 20 pending proposals therefore
+  had an empty trail and could not be backfilled. The extractor now proposes after
+  `insert_entry` with the row id, and the splitter's proposal moves to the apply path, which
+  uses the ids `split_entry` returns.
+- **Pending queue cleared** (20 proposals) so it refills with ones that carry a trail. The
+  terms dropped are recorded in `scratch/` rather than lost; resolved proposals are untouched,
+  being a record of what was decided.
 
 ## [000.006.219] - 2026-09-24 — *A Facet Is Not a Subject*
 

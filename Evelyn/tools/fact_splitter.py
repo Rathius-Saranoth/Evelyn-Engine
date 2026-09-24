@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-23 17:15:17
+# date modified: 2026-09-24 17:14:04
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -17,10 +17,8 @@ Key capabilities:
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
-import sqlite3
 from collections.abc import Callable
 from typing import Any
 
@@ -28,7 +26,7 @@ import yaml
 
 import evelyn_config as cfg
 from Evelyn.tools import memory_db, taxonomy_db
-from Evelyn.tools.tag_librarian import normalize_tag_format, propose_tag_admission
+from Evelyn.tools.tag_librarian import normalize_tag_format
 
 logger = logging.getLogger("evelyn.fact_splitter")
 
@@ -65,7 +63,8 @@ async def generate_split_proposal(
         "4. CONTROLLED VOCABULARY TAGS: Tags are flat subject terms combined at retrieval "
         "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Lowercase "
         "always; hyphens join words; named entities follow the same rule — no TitleCase, no "
-        "underscores. Prefer terms that already exist over inventing near-duplicates.\n"
+        "underscores. Prefer terms that already exist over inventing near-duplicates. "
+        "Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.\n"
         "5. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n\n"
         "Output ONLY a YAML block:\n"
         "```yaml\n"
@@ -128,9 +127,9 @@ async def generate_split_proposal(
         split_tags = taxonomy_db.canonicalize_tags(
             [normalize_tag_format(t) for t in raw_t.split(",") if t.strip()]
         )
-        with contextlib.suppress(sqlite3.Error, OSError):
-            propose_tag_admission(split_tags, origin=f"split fact ({c_cat})",
-                                  reason="Tag proposed by a fact split but not in the controlled vocabulary.")
+        # Admission is proposed when the split is applied, not here. These children are not
+        # rows yet and may never be — the split can be rejected — so proposing now records a
+        # term wanted by nothing, with no entry to backfill onto when it is approved.
         norm_t = ", ".join(split_tags)
         valid_entries.append({
             "category": c_cat,

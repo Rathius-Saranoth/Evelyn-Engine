@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-22 20:21:51
+# date modified: 2026-09-24 17:14:04
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -794,6 +794,7 @@ def _build_extraction_prompt(
         "as a tag.\n"
         "   - Prefer terms that already exist over inventing near-duplicates; a genuinely new "
         "term is fine, and goes to review before it joins the vocabulary.\n"
+        "   - Name the specific subject, never the container it sits in. `work`, `home`, `tools`, `life`, `system`, `pets`, `wellness`, `environment`, `technology` and the like are not tags here: they are the folder headings a flat vocabulary removes, and they match so much that they narrow nothing. Write `firewall` not `work`, `cat` not `pets`, `thermostat` not `home`. If the only word that fits is a container, the tag is not earning its place — leave it out.\n"
         "6. OBJECTIVITY: Write pure factual observations. Do NOT summarize or evaluate the event. "
         "Do NOT inject Category Reference titles into the observation text.\n\n"
         "Output ONLY a fenced YAML block in this exact format. "
@@ -887,12 +888,9 @@ def _parse_facts_yaml(raw: str, fallback_date: str) -> list[dict]:
         tag_list = taxonomy_db.canonicalize_tags(strip_subject_duplicate_tags(
             [normalize_tag_format(t) for t in raw_tags.split(",") if t.strip()], subj
         ))
-        # Terms the vocabulary does not hold go to review rather than entering it silently.
-        # The tag is still kept; see propose_tag_admission for why proposing precedes
-        # withholding while the memory vocabulary is still being reconciled.
-        with contextlib.suppress(sqlite3.Error, OSError):
-            propose_tag_admission(tag_list, origin=f"extracted fact ({cat})",
-                                  reason="Tag proposed by fact extraction but not in the controlled vocabulary.")
+        # Admission is proposed at insertion, not here. This function only parses, so there is
+        # no entry id yet, and a proposal without one cannot be backfilled onto the fact that
+        # asked for the term when it is approved (v000.006.216).
         tags = ", ".join(tag_list)
 
         summ = str(item.get("summary", "")).strip()
@@ -1326,7 +1324,7 @@ def write_extracted_facts(facts: list[dict]) -> int:
         final_status = "live" if confidence == "high" else "extracted"
 
         try:
-            memory_db.insert_entry(
+            row_id = memory_db.insert_entry(
                 category=category,
                 subject=subject,
                 observation=summary,
@@ -1337,6 +1335,17 @@ def write_extracted_facts(facts: list[dict]) -> int:
                 tags=fact.get("tags"),
             )
             written += 1
+            # Terms the vocabulary does not hold go to review rather than entering it
+            # silently, and the entry is recorded so approval can put the term back on it.
+            tag_list = [t.strip() for t in str(fact.get("tags") or "").split(",") if t.strip()]
+            if tag_list:
+                with contextlib.suppress(sqlite3.Error, OSError):
+                    propose_tag_admission(
+                        tag_list,
+                        origin=f"extracted fact ({category})",
+                        reason="Tag proposed by fact extraction but not in the controlled vocabulary.",
+                        source_ids=[row_id],
+                    )
         except (sqlite3.Error, OSError, ValueError) as e:
             print(f"[EXTRACTOR] Failed to insert fact: {e}", flush=True)
 
