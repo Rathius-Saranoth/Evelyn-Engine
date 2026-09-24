@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-22 21:41:20
+# date modified: 2026-09-23 19:20:38
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6080,7 +6080,19 @@ async def get_taxonomy_vocabulary(
             scored.sort(key=lambda kv: kv[0], reverse=True)
             similar = [v for _, v in scored[: max(0, limit)]]
 
-        return {"categories": categories, "similar": similar, "total": len(rows)}
+        # Terms associatively related to the probe (§6.4). Shown beside the lexical matches
+        # because "what else connects to this" is a different question from "what looks like
+        # this", and a reviewer judging a proposed term wants both.
+        related: list[dict[str, Any]] = []
+        if probe:
+            related = taxonomy_db.get_related_terms(probe)
+
+        return {
+            "categories": categories,
+            "similar": similar,
+            "related": related,
+            "total": len(rows),
+        }
 
     return await asyncio.to_thread(_lookup)
 
@@ -6521,6 +6533,9 @@ async def action_proposal(
                     raise HTTPException(status_code=400, detail="Tag proposal carries no term")
                 if not tag_librarian.admit_proposed_term(term, category):
                     raise HTTPException(status_code=400, detail=f"Term '{term}' is not a valid tag")
+                # Put the term back onto the facts that asked for it. A no-op while admission
+                # is propose-only, and the thing that makes withholding possible.
+                tag_librarian.backfill_admitted_term(term, prop.get("source_ids") or [])
                 memory_db.apply_proposal(id)
 
             elif prop["type"] == "tag_retirement":

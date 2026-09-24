@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-22 20:05:07
+# date modified: 2026-09-23 19:20:38
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5071,6 +5071,51 @@ def migrate_000_006_196_protect_curated_taxonomy(
     logger.info("[MIGRATION 000.006.196] curated taxonomy terms protected: %d", protected_count)
 
 
+def migrate_000_006_216_tag_relations(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.216: Add the associative (`RT`) layer to the vocabulary.
+
+    Flattening the hierarchy removed relational information without replacing it.
+    ``health/sleep`` stated that sleep belongs with health; ``tech/gis`` stated that GIS is a
+    kind of technology. Atomised into ``health`` + ``sleep``, nothing states that any more —
+    the vocabulary knows the terms co-occur on documents, which is not the same as knowing
+    they are related (taxonomy §6.4).
+
+    ``master_tag_related`` is where that knowledge lives. Relations are symmetric and stored
+    once, with the pair ordered so ``(a, b)`` and ``(b, a)`` cannot both be recorded. Every
+    row is approved by hand: the standard is explicit that relations are never inferred and
+    activated automatically, because the bands that look like associative material are mostly
+    missed merges and same-root siblings.
+
+    ``weight`` is the retrieval multiplier for expansion through the relation, below a direct
+    match. ``tier`` records how the relation was established, so an inferred candidate is
+    distinguishable from a curated one.
+
+    Idempotent: creates the table and its index only when absent.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS master_tag_related (
+            term_a     TEXT NOT NULL,
+            term_b     TEXT NOT NULL,
+            weight     REAL NOT NULL DEFAULT 0.4,
+            tier       TEXT NOT NULL DEFAULT 'reviewed',
+            note       TEXT,
+            created_at REAL,
+            PRIMARY KEY (term_a, term_b),
+            CHECK (term_a < term_b)
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tag_related_b ON master_tag_related(term_b)"
+    )
+    conn.commit()
+    logger.info("[MIGRATION 000.006.216] master_tag_related ready")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5512,6 +5557,13 @@ MIGRATIONS: list[Migration] = [
         # The Chroma hook was a no-op until this release, so 350 of 671 registered terms
         # — every faceted value among them — were never embedded. Re-run it here.
         post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.216",
+        name="tag_relations",
+        up_fn=migrate_000_006_216_tag_relations,
+        post_sync_chroma=False,
     ),
 ]
 

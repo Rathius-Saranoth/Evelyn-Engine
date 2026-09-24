@@ -201,3 +201,52 @@ class TestStubFilenamesAreCrossPlatform:
         )
 
         assert "aliases: []" in md
+
+
+class TestBackfillOnApproval:
+    """Approval must reach the facts that asked for the term (v000.006.216).
+
+    `admit_proposed_term` registered a term and stopped there, and proposals recorded no
+    `source_ids` at all — so there was no trail back to the facts. Harmless while the writer
+    stores the tag regardless; the moment unregistered tags are withheld instead, an approved
+    term would never reach the fact that wanted it.
+    """
+
+    def test_the_requesting_entries_are_recorded(self, stores):
+        stores.propose_tag_admission(["zzz-wanted"], origin="test", source_ids=[11, 22])
+
+        assert _pending()[0]["source_ids"] == [11, 22]
+
+    def test_a_second_requester_widens_the_existing_proposal(self, stores):
+        stores.propose_tag_admission(["zzz-wanted"], source_ids=[11])
+        stores.propose_tag_admission(["zzz-wanted"], source_ids=[22])
+
+        pend = _pending()
+        assert len(pend) == 1, "still one proposal per term"
+        assert pend[0]["source_ids"] == [11, 22]
+
+    def test_backfill_adds_the_term_to_live_entries(self, stores):
+        a = memory_db.insert_entry(category="Cat05-U", subject="S", observation="o", tags="coffee")
+        b = memory_db.insert_entry(category="Cat05-U", subject="S", observation="o", tags="")
+        for eid in (a, b):
+            memory_db.update_entry(eid, status="live")
+
+        assert stores.backfill_admitted_term("zzz-approved", [a, b]) == 2
+        assert "zzz-approved" in memory_db.get_entry(a)["tags"]
+        assert "coffee" in memory_db.get_entry(a)["tags"], "existing tags are preserved"
+
+    def test_backfill_does_not_duplicate_an_existing_tag(self, stores):
+        eid = memory_db.insert_entry(category="Cat05-U", subject="S", observation="o", tags="zzz-dup")
+        memory_db.update_entry(eid, status="live")
+
+        assert stores.backfill_admitted_term("zzz-dup", [eid]) == 0
+        assert memory_db.get_entry(eid)["tags"].count("zzz-dup") == 1
+
+    def test_backfill_skips_entries_that_are_no_longer_live(self, stores):
+        eid = memory_db.insert_entry(category="Cat05-U", subject="S", observation="o", tags="")
+        memory_db.update_entry(eid, status="merged")
+
+        assert stores.backfill_admitted_term("zzz-gone", [eid]) == 0
+
+    def test_backfill_tolerates_an_empty_trail(self, stores):
+        assert stores.backfill_admitted_term("zzz-none", []) == 0

@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-22 07:29:57
+# date modified: 2026-09-23 19:20:38
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -79,6 +79,21 @@ def init_db() -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_tag_aliases_canonical ON master_tag_aliases(canonical);
+
+        -- Associative (`RT`) relations: concepts related but neither broader (taxonomy §6.4).
+        -- Symmetric and stored once; the CHECK keeps (a, b) and (b, a) from both existing.
+        CREATE TABLE IF NOT EXISTS master_tag_related (
+            term_a     TEXT NOT NULL,
+            term_b     TEXT NOT NULL,
+            weight     REAL NOT NULL DEFAULT 0.4,
+            tier       TEXT NOT NULL DEFAULT 'reviewed',
+            note       TEXT,
+            created_at REAL,
+            PRIMARY KEY (term_a, term_b),
+            CHECK (term_a < term_b)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tag_related_b ON master_tag_related(term_b);
 
         CREATE TABLE IF NOT EXISTS librarian_activity_log (
             id                      INTEGER PRIMARY KEY AUTOINCREMENT,

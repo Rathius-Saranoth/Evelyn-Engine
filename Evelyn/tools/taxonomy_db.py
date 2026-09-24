@@ -1,6 +1,6 @@
 # taxonomy_db.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-22 19:55:32
+# date modified: 2026-09-23 19:20:38
 # tags: #taxonomy, #tags, #vocabulary, #authority-control, #sqlite
 
 """taxonomy_db.py — Master Tag Taxonomy registry (shared controlled vocabulary).
@@ -237,3 +237,68 @@ def _registered_surface_forms() -> set[str]:
     with contextlib.suppress(sqlite3.Error):
         forms.update(get_aliases().keys())
     return forms
+
+
+def record_relation(term_a: str, term_b: str, weight: float = 0.4,
+                    tier: str = "reviewed", note: str = "") -> None:
+    """Record an associative (`RT`) relation between two terms (taxonomy §6.4).
+
+    The relation is symmetric, so the pair is ordered before storage and `(a, b)` and
+    `(b, a)` are the same row. A term is never related to itself.
+
+    Args:
+        term_a: One term.
+        term_b: The other.
+        weight: Retrieval multiplier for expansion through this relation, below a direct
+            match. 0.4 is the standard's starting value and is tunable.
+        tier: How the relation was established — `reviewed` for a human decision,
+            `candidate` for something proposed but not yet approved.
+        note: Optional rationale, kept so a later reviewer can see why it was recorded.
+    """
+    a, b = sorted((term_a.strip(), term_b.strip()))
+    if not a or not b or a == b:
+        return
+    init_db()
+    con = get_db()
+    try:
+        con.execute(
+            """
+            INSERT INTO master_tag_related (term_a, term_b, weight, tier, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(term_a, term_b) DO UPDATE SET
+                weight = excluded.weight, tier = excluded.tier, note = excluded.note
+            """,
+            (a, b, weight, tier, note, time.time()),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def get_related_terms(term: str) -> list[dict[str, Any]]:
+    """Return the terms associatively related to one term.
+
+    Args:
+        term: The term to expand from.
+
+    Returns:
+        list[dict]: Each with `tag`, `weight` and `tier`, heaviest first.
+    """
+    clean = (term or "").strip()
+    if not clean:
+        return []
+    init_db()
+    con = get_db()
+    try:
+        rows = con.execute(
+            """
+            SELECT term_b AS tag, weight, tier FROM master_tag_related WHERE term_a = ?
+            UNION ALL
+            SELECT term_a AS tag, weight, tier FROM master_tag_related WHERE term_b = ?
+            ORDER BY weight DESC, tag ASC
+            """,
+            (clean, clean),
+        ).fetchall()
+    finally:
+        con.close()
+    return [dict(r) for r in rows]

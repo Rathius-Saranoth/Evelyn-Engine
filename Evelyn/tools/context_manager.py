@@ -1,6 +1,6 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-09-22 19:31:21
+# date modified: 2026-09-23 19:20:38
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
@@ -73,19 +73,6 @@ def append_context_log(
         norm for norm in (normalize_tag_format(str(t)) for t in raw_tag_parts) if norm
     ]
 
-    # Terms the controlled vocabulary does not hold go to the review queue rather than
-    # entering it silently. The tag is still stored: the memory store predates the
-    # controlled vocabulary and almost none of its terms are registered yet, so withholding
-    # unregistered tags today would strip nearly every fact. Proposing records what wants
-    # admission; withholding becomes appropriate once the memory vocabulary is reconciled.
-    if combined_tags_list:
-        with contextlib.suppress(sqlite3.Error, OSError):
-            tag_librarian.propose_tag_admission(
-                combined_tags_list,
-                origin=f"memory fact ({norm_cat})",
-                reason="Tag attached to a memory fact but absent from the controlled vocabulary.",
-            )
-
     final_tags = ", ".join(dict.fromkeys(combined_tags_list)) if combined_tags_list else None
 
     try:
@@ -101,6 +88,19 @@ def append_context_log(
         )
     except (sqlite3.Error, OSError, ValueError) as e:
         return f"Error writing context entry: {e}"
+
+    # Terms the controlled vocabulary does not hold go to the review queue rather than entering
+    # it silently. The tag is still stored: withholding only becomes safe once approval can put
+    # an admitted term back on the facts that wanted it, which is why the entry id is recorded.
+    # This runs after the insert for that reason — proposing first left `source_ids` empty.
+    if combined_tags_list:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            tag_librarian.propose_tag_admission(
+                combined_tags_list,
+                origin=f"memory fact ({norm_cat})",
+                reason="Tag attached to a memory fact but absent from the controlled vocabulary.",
+                source_ids=[row_id],
+            )
 
     return f"Created Context Entry (ID: {row_id}) pending review."
 

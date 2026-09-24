@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-22 21:41:20
+# date modified: 2026-09-23 19:20:38
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -1460,7 +1460,7 @@ TAG_ADMISSION_MAX_PENDING = 200
 
 
 def propose_tag_admission(
-    terms: list[str], origin: str = "", reason: str = ""
+    terms: list[str], origin: str = "", reason: str = "", source_ids: list[int] | None = None
 ) -> list[str]:
     """Raise a review proposal for each term the controlled vocabulary does not hold.
 
@@ -1480,6 +1480,9 @@ def propose_tag_admission(
         terms: Candidate terms, already in canonical §5 format.
         origin: Where the term came from (a vault path, a fact id, a subsystem name).
         reason: Why it was requested, shown to the reviewer.
+        source_ids: Memory entries that wanted the term. Recorded so approval can put the term
+            back onto them; without the trail an approved term has no way to reach the facts
+            that asked for it, which is what makes withholding unregistered tags possible.
 
     Returns:
         list[str]: Terms newly proposed by this call.
@@ -1498,7 +1501,22 @@ def propose_tag_admission(
         logger.warning("[TAG LIBRARIAN] Could not read pending tag proposals: %s", exc)
         return []
 
-    already = {(p.get("topic") or "").strip() for p in pending}
+    by_topic = {(p.get("topic") or "").strip(): p for p in pending}
+    already = set(by_topic)
+
+    # A term a second fact also wants must widen the existing proposal rather than be dropped,
+    # or approval backfills only whichever fact happened to ask first.
+    for term in dict.fromkeys(unregistered) if source_ids else ():
+        prop = by_topic.get(term)
+        if not prop:
+            continue
+        merged = list(dict.fromkeys([*(prop.get("source_ids") or []), *source_ids]))
+        if merged != (prop.get("source_ids") or []):
+            try:
+                memory_db.update_proposal(prop["id"], source_ids=merged)
+            except (sqlite3.Error, OSError) as exc:
+                logger.warning("[TAG LIBRARIAN] Could not widen proposal for '%s': %s", term, exc)
+
     room = TAG_ADMISSION_MAX_PENDING - len(pending)
     if room <= 0:
         logger.warning(
@@ -1518,7 +1536,7 @@ def propose_tag_admission(
         try:
             memory_db.insert_proposal(
                 type=TAG_ADMISSION_PROPOSAL,
-                source_ids=[],
+                source_ids=list(source_ids or []),
                 topic=term,
                 suggested_category=facet,
                 reason=reason or f"Requested by {origin or 'an unnamed writer'}; not in the controlled vocabulary.",
@@ -1565,6 +1583,50 @@ def admit_proposed_term(term: str, category: str = "") -> bool:
     # what was admitted.
     index_master_tag_in_chroma(clean, category=resolved, description="Admitted through review.")
     return True
+
+
+def backfill_admitted_term(term: str, source_ids: list[int]) -> int:
+    """Put a newly admitted term back onto the memory entries that asked for it.
+
+    Approval registers a term but does nothing to the facts that wanted it. While admission is
+    propose-only that is harmless, because the writer stores the tag regardless. The moment
+    unregistered tags are withheld instead, it stops being harmless: the tag never reaches the
+    fact, and without this the approval cannot put it there.
+
+    Args:
+        term: The admitted term, in canonical §5 format.
+        source_ids: Memory entry ids recorded on the proposal.
+
+    Returns:
+        int: How many entries gained the term.
+    """
+    from Evelyn.tools import memory_db
+
+    clean = normalize_tag_format(term)
+    if not clean or not source_ids:
+        return 0
+
+    updated = 0
+    for eid in source_ids:
+        try:
+            entry = memory_db.get_entry(eid)
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("[TAG LIBRARIAN] Backfill could not read entry %s: %s", eid, exc)
+            continue
+        if not entry or entry.get("status") != "live":
+            continue
+        current = [t.strip() for t in str(entry.get("tags") or "").split(",") if t.strip()]
+        if clean in current:
+            continue
+        try:
+            memory_db.update_entry(eid, tags=", ".join([*current, clean]))
+            updated += 1
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("[TAG LIBRARIAN] Backfill could not update entry %s: %s", eid, exc)
+
+    if updated:
+        logger.info("[TAG LIBRARIAN] Backfilled '%s' onto %d entr(ies).", clean, updated)
+    return updated
 
 
 TAG_RETIREMENT_PROPOSAL = "tag_retirement"

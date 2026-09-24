@@ -123,3 +123,9 @@ _.GIST_SYNC_STATE
 # for its single-collection probe; check_chroma_health() uses the batched _probe_batch().
 # AGENTS.md §11 category 1 — external script consumer.
 _.probe_collection_health
+
+# taxonomy_db.record_relation — AGENTS §11 category 1 (external consumer). The associative
+# layer is curated by hand, so its only caller is scripts/curate_tag_relations.py, and
+# scripts/ is outside vulture's scan paths. The read side, get_related_terms(), is wired into
+# /api/taxonomy/vocabulary and needs no entry here.
+_.record_relation

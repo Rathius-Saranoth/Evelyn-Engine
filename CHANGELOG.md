@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-23 18:55:38
+date modified: 2026-09-23 19:20:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,35 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.216] - 2026-09-23 — *What Else Connects To This*
+
+Two gaps left open earlier, both prerequisites rather than polish.
+
+### Added
+- **Approval now reaches the facts that asked for a term.** `admit_proposed_term` registered a
+  term and stopped; proposals recorded no `source_ids` at all, so there was no trail back.
+  Harmless while admission is propose-only — the writer stores the tag regardless — but it is
+  the reason unregistered tags cannot yet be *withheld*: the tag would never reach the fact and
+  approval could not put it there. Proposals now record the requesting entries, a second
+  requester widens an existing proposal rather than being dropped, and approval backfills.
+  `context_manager` proposes after the insert for this reason; proposing first left the trail
+  empty.
+- **The associative (`RT`) layer** (§6.4), migration `000.006.216`. Flattening the hierarchy
+  deleted relational information without replacing it: `health/sleep` stated that sleep belongs
+  with health, and `health` + `sleep` states nothing. `master_tag_related` is where that lives —
+  symmetric, stored once, with a retrieval weight and a tier separating a curated relation from
+  a proposed one. `/api/taxonomy/vocabulary` returns a term's relations beside its lexical
+  near-matches.
+- **`scripts/curate_tag_relations.py`** proposes candidates from co-occurrence and records only
+  what it is handed, because the standard forbids inferring relations and activating them
+  automatically. Two filters, both learned from the data: a pair must appear on several
+  documents *and* across independent parts of the corpus. Without the second, a single ten-tag
+  appliance manual yields forty-five "relations" that are one document's tag list — the same
+  failure the standard records for the near-miss similarity band.
+- **Six seed relations**, each one the hierarchy used to state and nothing now does:
+  `cat`~`pet`, `dream`~`lucid-dreaming`, `storm`~`weather`, `gothic`~`victorian`,
+  `ancestry`~`genealogy`, `music`~`playlist`. 44 further candidates await review.
 
 ## [000.006.215] - 2026-09-23 — *The Librarian Returns*
 
