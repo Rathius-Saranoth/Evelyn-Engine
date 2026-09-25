@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 17:33:15
+date modified: 2026-09-25 18:03:45
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,60 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.234] - 2026-09-25 — *What No Means*
+
+A rejection now binds for every proposal type — and means something different in each.
+
+### Fixed
+- **Three of the five proposal types still re-proposed after rejection.** `.231` bound
+  `tag_admission`; the rest deduplicated against *pending* proposals alone, so a rejection
+  removed a row from the queue and decided nothing. `procedure_merge` had already made the full
+  round trip in production.
+  - **`procedure_merge` — permanent, scoped to the exact set.** "These procedures are genuinely
+    distinct" is a durable statement about those procedures. **Scoped to the cluster, never its
+    members:** excluding any procedure that once appeared in a rejected merge would bar it from
+    every future merge, including with a procedure it has never been compared against. A cluster
+    that gains a third member is a different proposition and is still asked.
+  - **`split` — binds until the fact is edited.** "Atomic enough" stays true exactly as long as
+    the observation does. Re-opens when `updated_at` moves past the rejection, which is the same
+    shape as the one rejection that already worked.
+  - **`ghost_link_stub` — binds until the evidence grows.** Deliberately *not* permanent: a
+    target cited twice may well deserve a note at twenty, and a permanent block would silence
+    the growth that should change the answer. Re-asked once citations pass
+    `cfg.GHOST_STUB_REEVIDENCE_FACTOR` (2.0) times the rejected count.
+- **`profile_update` needed nothing — it already bound**, and is the model the other three
+  follow. Denying stamps `entry_document_evolution`, and the evolver re-opens an entry only when
+  `updated_at` moves past that stamp. Better-shaped than `.231`'s term-scoped suppression: bound
+  to a pair, and self-re-opening. **35 of the 60 outstanding rejections were never leaking.**
+
+### Added
+- **`proposals.evidence`** (migration `000.006.234`) — how much evidence a proposal was made on,
+  where the type has a natural measure. A ghost link's citation count existed only as prose
+  inside `reason` ("cited in 7 notes"), which is not comparable. 18 existing ghost-link
+  rejections backfilled by parsing that sentence: acceptable once, in a migration, against a
+  format this codebase wrote itself. Recorded values range 2–6.
+- **`memory_db.get_rejected_proposals(type)`** — the counterpart to `get_pending_proposals`.
+  Returns whole rows rather than a verdict, because what a rejection *means* differs by type and
+  that judgement belongs at the producer.
+- **`memory_db._row_to_proposal()`** — the `source_ids` JSON decode was inline in the pending
+  reader while that was the only reader. A second one that forgot it would hand producers a
+  string where they expect a list and compare it against ints without erroring.
+
+### Changed
+- **F4 closed: the `.186` tag reset manifest will not be reinstated** (user's decision). The
+  tracker described it as holding date anchors plus `status/`, `kanban` and `obsidian-graph/`
+  tags. **There were never any `kanban` or `status/` tags.** What it actually holds is 667 `CY-`
+  date anchors across 666 notes — already superseded by the `occurred:` property in `.203`, so
+  reinstating them would undo that migration — and a 49-use graph-control axis
+  (`obsidian-graph/contact` 32, `no-graph` 17) that nothing consumes: there is no `graph.json`
+  in the vault's `.obsidian/`, and the 32 contact notes live in `Contacts/`, which already says
+  what the tag said. The pre-wipe tarball stays as insurance.
+
+### Testing
+- `Evelyn/tests/test_rejection_binds_per_type.py` — each policy verified red **separately**, and
+  the scoping test verified against the *wrong fix* rather than against absence: a member-scoped
+  `procedure_merge` suppression passes a naive test and quietly bars unrelated merges.
 
 ## [000.006.233] - 2026-09-25 — *Not Our Vocabulary*
 

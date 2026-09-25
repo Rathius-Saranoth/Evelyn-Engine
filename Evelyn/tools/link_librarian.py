@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-22 21:48:15
+# date modified: 2026-09-25 18:03:45
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -1638,6 +1638,39 @@ def create_ghost_link_stub(
             (p for p in existing_proposals if stub_dedupe_key(str(p.get("topic") or "")) == target_key),
             None,
         )
+
+        # A rejected stub stays rejected until the evidence materially changes (G1, user's call
+        # 2026-09-25). Ghost links persist in the vault, so without this the same target returns
+        # on the next sweep and the only available action is to reject it again.
+        #
+        # Deliberately *not* permanent, unlike a rejected vocabulary term. "Not worth a note"
+        # is a judgement about how much the vault leans on this target, and that is exactly
+        # what changes: `[[Foo]]` cited twice may well deserve a stub at twenty. Re-asking only
+        # once the citation count has multiplied means the reviewer is answering a genuinely
+        # different question, not the same one again.
+        if not existing:
+            factor = getattr(cfg, "GHOST_STUB_REEVIDENCE_FACTOR", 2.0)
+            for prop in memory_db.get_rejected_proposals("ghost_link_stub"):
+                if stub_dedupe_key(str(prop.get("topic") or "")) != target_key:
+                    continue
+                # No recorded evidence means an old row the backfill could not read; treat it
+                # as binding rather than guess a threshold that might be zero.
+                was = prop.get("evidence")
+                if was is None or ref_count < int(was) * factor:
+                    memory_db.record_rejected_request("ghost_link_stub", str(prop.get("topic") or ""))
+                    logger.info(
+                        "[LINK LIBRARIAN] Stub for '%s' was rejected at %s citation(s); "
+                        "now %d, below the %.1f× threshold — not re-proposing.",
+                        clean_target, was, ref_count, factor,
+                    )
+                    return None
+                logger.info(
+                    "[LINK LIBRARIAN] Stub for '%s' was rejected at %s citation(s) but is now "
+                    "cited %d times — re-proposing on the new evidence.",
+                    clean_target, was, ref_count,
+                )
+                break
+
         if existing:
             proposal_id = existing["id"]
         else:
@@ -1649,6 +1682,9 @@ def create_ghost_link_stub(
                 reason=f"Ghost link [[{clean_target}]] cited in {ref_count} notes ({total_context_chars} context chars).",
                 merged_observation=xml_payload,
                 confidence="high",
+                # The number a later rejection is measured against, stored rather than left to
+                # be re-parsed out of `reason`.
+                evidence=ref_count,
             )
 
         return {

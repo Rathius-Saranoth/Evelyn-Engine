@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-24 17:14:04
+# date modified: 2026-09-25 18:03:45
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -179,6 +179,12 @@ async def process_split_queue(
             continue
 
         entry = memory_db.get_entry(entry_id)
+        if entry and _split_was_rejected_and_unchanged(entry):
+            # Queued by hand, but already declined and unedited since. Drop it rather than
+            # putting the same question back in front of the reviewer.
+            memory_db.dequeue_split(entry_id)
+            continue
+
         if entry and entry.get("status") == "live":
             res = await generate_split_proposal(entry, cat00, call_ollama_fn)
             if res:
@@ -186,6 +192,30 @@ async def process_split_queue(
         memory_db.dequeue_split(entry_id)
 
     return processed
+
+
+def _split_was_rejected_and_unchanged(entry: dict[str, Any]) -> bool:
+    """True when the reviewer declined to split this fact and the text has not moved since.
+
+    A `split` rejection says "this observation is atomic enough", which stays true exactly as
+    long as the observation does (G1, user's call 2026-09-25). Re-proposing an unchanged fact
+    offers the reviewer nothing but the chance to decline it again; re-proposing an *edited* one
+    is a fair question, because what they judged no longer exists.
+
+    This mirrors the only rejection in the codebase that already bound: denying a
+    `profile_update` stamps `entry_document_evolution`, and the evolver re-opens an entry when
+    `updated_at` moves past that stamp. Same shape, different table.
+    """
+    entry_id = int(entry["id"])
+    updated = float(entry.get("updated_at") or 0.0)
+    for prop in memory_db.get_rejected_proposals("split"):
+        if entry_id not in (prop.get("source_ids") or []):
+            continue
+        reviewed = float(prop.get("reviewed_at") or prop.get("created_at") or 0.0)
+        if updated <= reviewed:
+            memory_db.record_rejected_request("split", str(prop.get("topic") or ""))
+            return True
+    return False
 
 
 async def find_and_split_bloated_facts(
@@ -200,6 +230,7 @@ async def find_and_split_bloated_facts(
         r for r in records
         if len(str(r.get("observation") or r.get("summary") or "").split()) >= word_threshold
         and not memory_db.has_pending_proposal_for([int(r["id"])])
+        and not _split_was_rejected_and_unchanged(r)
     ]
 
     splits_created = 0

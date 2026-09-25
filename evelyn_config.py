@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-25 17:33:15
+# date modified: 2026-09-25 18:03:45
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1214,6 +1214,13 @@ LIBRARIAN_STUB_DOMAIN_FOLDERS: list[str] = [
     "Notes",
     "Lists",
 ]
+# How much stronger the evidence must be before a rejected ghost stub is proposed again.
+# A rejection here means "the vault does not lean on this target enough to deserve a note",
+# which is a judgement about a number rather than a permanent fact — unlike a rejected
+# vocabulary term. 2.0 asks again only once the citation count has doubled, so the reviewer is
+# answering a different question rather than the same one twice.
+GHOST_STUB_REEVIDENCE_FACTOR = 2.0
+
 MASTER_LIBRARIAN_AUTO_STUBS = False  # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",

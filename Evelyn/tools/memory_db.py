@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-25 07:08:56
+# date modified: 2026-09-25 18:03:45
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -118,6 +118,9 @@ def init_db() -> None:
         # Mirrors migration 000.006.231. The ALTER is a no-op on a fresh database (the CREATE
         # below already carries the column) and the column is a no-op on an existing one.
         "ALTER TABLE proposals ADD COLUMN rejection_count INTEGER DEFAULT 0",
+        # Mirrors migration 000.006.234 — the evidence level a proposal was made on, so a
+        # producer can ask whether the situation changed since the reviewer said no.
+        "ALTER TABLE proposals ADD COLUMN evidence INTEGER",
         "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
         "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
     ]:
@@ -138,7 +141,8 @@ def init_db() -> None:
             status              TEXT NOT NULL DEFAULT 'pending',
             created_at          REAL NOT NULL,
             reviewed_at         REAL,
-            rejection_count     INTEGER DEFAULT 0
+            rejection_count     INTEGER DEFAULT 0,
+            evidence            INTEGER
         )
     """)
 
@@ -1213,6 +1217,7 @@ def insert_proposal(
     topic: str | None = None,
     confidence: str = "medium",
     status: str = "pending",
+    evidence: int | None = None,
 ) -> int:
     """Insert a new proposal and return its row ID.
 
@@ -1226,6 +1231,9 @@ def insert_proposal(
         topic: Topic label.
         confidence: Proposal confidence level.
         status: Status of the proposal.
+        evidence: How much evidence this was proposed on, where the type has a natural measure
+            (ghost links: how many notes cite the target). Lets a producer tell "the reviewer
+            already said no" from "the reviewer said no when this was a third as strong".
 
     Returns:
         int: The auto-generated row ID.
@@ -1235,18 +1243,35 @@ def insert_proposal(
         """
         INSERT INTO proposals (
             type, source_ids, merged_observation, merged_tags,
-            suggested_category, reason, topic, confidence, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            suggested_category, reason, topic, confidence, status, created_at, evidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             type, json.dumps(source_ids), merged_observation, merged_tags,
-            suggested_category, reason, topic, confidence, status, time.time()
+            suggested_category, reason, topic, confidence, status, time.time(), evidence
         ),
     )
     row_id = cur.lastrowid
     con.commit()
     con.close()
     return row_id
+
+
+def _row_to_proposal(row: sqlite3.Row) -> dict:
+    """Convert a proposals row to a dict, decoding `source_ids` from its JSON column.
+
+    Shared by the pending and rejected readers. It was inline in the pending reader alone for as
+    long as that was the only one; a second caller that forgot the decode would hand producers a
+    JSON string where they expect a list, and compare it against ints without erroring.
+    """
+    d = dict(row)
+    try:
+        d["source_ids"] = json.loads(d["source_ids"])
+    except (json.JSONDecodeError, TypeError):
+        d["source_ids"] = []
+    if not isinstance(d["source_ids"], list):
+        d["source_ids"] = []
+    return d
 
 
 def get_pending_proposals(
@@ -1274,15 +1299,7 @@ def get_pending_proposals(
         ).fetchall()
     con.close()
 
-    results = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["source_ids"] = json.loads(d["source_ids"])
-        except (json.JSONDecodeError, TypeError):
-            d["source_ids"] = []
-        results.append(d)
-    return results
+    return [_row_to_proposal(r) for r in rows]
 
 
 def apply_proposal(proposal_id: int) -> bool:
@@ -1328,6 +1345,39 @@ def reject_proposal(proposal_id: int) -> bool:
     affected = cur.rowcount
     con.close()
     return affected > 0
+
+
+def get_rejected_proposals(type: str) -> list[dict]:
+    """Fetch every rejected proposal of a type, newest first.
+
+    The counterpart to `get_pending_proposals`, which every producer deduplicated against while
+    nothing read this side at all — so a rejection removed a row from the queue and decided
+    nothing (G1).
+
+    Deliberately returns whole rows rather than a verdict, because **what a rejection means
+    differs by type** and that judgement belongs at the producer:
+
+    * `tag_admission` — permanent. "Not one of our subjects" does not expire.
+    * `procedure_merge` — permanent for that exact set. "These are genuinely distinct."
+    * `split` — until the fact is edited. "Atomic enough" stays true while the text does.
+    * `ghost_link_stub` — until the evidence grows. Three citations is not thirty.
+
+    Args:
+        type: Proposal type to filter by.
+
+    Returns:
+        list[dict]: Rejected proposals, newest first.
+    """
+    con = get_db()
+    try:
+        rows = con.execute(
+            "SELECT * FROM proposals WHERE status = 'rejected' AND type = ? "
+            "ORDER BY COALESCE(reviewed_at, created_at) DESC",
+            (type,),
+        ).fetchall()
+    finally:
+        con.close()
+    return [_row_to_proposal(r) for r in rows]
 
 
 def get_rejected_topics(type: str) -> dict[str, int]:

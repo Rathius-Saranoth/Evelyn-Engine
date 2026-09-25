@@ -1,6 +1,6 @@
 # procedure_consolidator.py
 # date created: 2026-07-19 08:30:00
-# date modified: 2026-09-07 14:33:40
+# date modified: 2026-09-25 18:03:45
 # tags: #procedures, #consolidation, #deduplication, #idle, #background
 
 """
@@ -176,6 +176,30 @@ def find_procedure_clusters() -> list[list[dict]]:
             clusters.append(cluster)
             for c_item in cluster:
                 used_ids.add(c_item["id"])
+
+    # A rejected merge is permanent for that exact set (G1, user's call 2026-09-25): "these
+    # procedures are genuinely distinct" is a durable statement about them, not about evidence
+    # that might accumulate. Without this the pair re-clusters on the next run — one has already
+    # made that round trip.
+    #
+    # Scoped to the whole set, not its members. Excluding any procedure that ever appeared in a
+    # rejected merge would bar it from every future merge, including with a procedure it has
+    # never been compared against. A cluster that gains a third member is a different
+    # proposition and deserves to be asked.
+    rejected_sets = {
+        frozenset(int(i) for i in (p.get("source_ids") or []))
+        for p in memory_db.get_rejected_proposals("procedure_merge")
+    }
+    rejected_sets.discard(frozenset())
+    if rejected_sets:
+        kept = [c for c in clusters if frozenset(int(x["id"]) for x in c) not in rejected_sets]
+        if len(kept) != len(clusters):
+            print(
+                f"[PROC_CONSOLIDATOR] Skipped {len(clusters) - len(kept)} cluster(s) the "
+                f"reviewer already declined.",
+                flush=True,
+            )
+        clusters = kept
 
     return clusters
 

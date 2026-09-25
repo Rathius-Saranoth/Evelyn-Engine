@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-25 07:08:56
+# date modified: 2026-09-25 18:03:45
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5267,6 +5267,44 @@ def migrate_000_006_231_proposal_rejection_count(
     )
 
 
+def migrate_000_006_234_proposal_evidence(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.234: Record the evidence a proposal was made on.
+
+    `.231` made a `tag_admission` rejection permanent, which is right for a vocabulary term: "this
+    is not one of our subjects" does not expire. It is wrong for a ghost link. A `[[Foo]]` cited
+    in three notes may not deserve a stub today and clearly does at thirty, so a permanent block
+    would silence the very growth that should change the answer.
+
+    The evidence level has to be comparable for that, and it was only ever recorded as prose
+    inside `reason` ("cited in 7 notes"). This column holds it as a number, so a producer can ask
+    whether the situation has materially changed since the reviewer said no.
+
+    Backfilled for existing ghost-link rejections by parsing that sentence — acceptable once, in
+    a migration, against a format this codebase wrote itself. New proposals set it directly.
+    """
+    cursor = conn.cursor()
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(proposals)").fetchall()}
+    if "evidence" not in cols:
+        cursor.execute("ALTER TABLE proposals ADD COLUMN evidence INTEGER")
+        logger.info("[MIGRATION 234] Added proposals.evidence.")
+
+    rows = cursor.execute(
+        "SELECT id, reason FROM proposals WHERE type = 'ghost_link_stub' "
+        "AND COALESCE(reason,'') <> '' AND evidence IS NULL"
+    ).fetchall()
+    filled = 0
+    for pid, reason in rows:
+        m = re.search(r"cited in (\d+) notes?", str(reason or ""))
+        if not m:
+            continue
+        cursor.execute("UPDATE proposals SET evidence = ? WHERE id = ?", (int(m.group(1)), pid))
+        filled += 1
+    logger.info("[MIGRATION 234] Backfilled evidence on %d of %d ghost-link proposal(s).",
+                filled, len(rows))
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5743,6 +5781,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.231",
         name="proposal_rejection_count",
         up_fn=migrate_000_006_231_proposal_rejection_count,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.234",
+        name="proposal_evidence",
+        up_fn=migrate_000_006_234_proposal_evidence,
         post_sync_chroma=False,
     ),
 ]
