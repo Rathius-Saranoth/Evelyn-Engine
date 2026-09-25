@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-09-24 17:14:04
+# date modified: 2026-09-25 07:08:56
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -30,7 +30,7 @@ import yaml
 import evelyn_config as cfg
 from Evelyn.tools import chroma_rag, memory_db, taxonomy_db
 from Evelyn.tools.fact_extractor import load_cat00_index
-from Evelyn.tools.tag_librarian import normalize_tag_format
+from Evelyn.tools.tag_librarian import normalize_tag_format, withhold_unregistered_tags
 
 logger = logging.getLogger("evelyn.fact_deduplicator")
 
@@ -445,6 +445,33 @@ async def generate_consolidation_proposal(
 
     source_ids = [int(r["id"]) for r in records]
     status = "auto_applied" if confidence == "high" else "pending"
+
+    # Route the model's chosen tags through admission before they are stored or applied.
+    #
+    # `parse_proposal_yaml` normalizes format and resolves aliases, and `canonicalize_tags` is
+    # explicitly not a gate — so every merge wrote whatever the model picked straight onto the
+    # master fact. One night of merges after the memory corpus was hand-curated to zero
+    # unregistered terms put 102 of them back (`videogame`, `dnd`, `muffin`, `work`), none of
+    # which reached review. The extraction writers have gated since .227; this closes the
+    # merge path, the last one that could mint vocabulary.
+    #
+    # Gate here rather than in `apply_fact_merge` so the queued proposal and the applied merge
+    # carry the same tags: a reviewer approving a `pending` proposal tomorrow should see what
+    # an `auto_applied` one would have written today.
+    if merged_tags:
+        master = memory_db.select_merge_master(records)
+        master_id = int(master["id"])
+        kept = withhold_unregistered_tags(
+            entry_id=master_id,
+            tags=[t.strip() for t in merged_tags.split(",") if t.strip()],
+            origin=f"fact merge into #{master_id}",
+            reason="Subject chosen by a fact merge but not in the controlled vocabulary.",
+        )
+        # Every term the model chose is awaiting review. Leaving `merged_tags` empty would send
+        # `apply_fact_merge` to its union fallback — the bloat .225 removed — and that union
+        # would put back the very terms just withheld. The master's own tags are registered and
+        # already curated, so they are the answer when the model's are not available yet.
+        merged_tags = ", ".join(kept) if kept else (str(master.get("tags") or "").strip() or None)
 
     try:
         pid = memory_db.insert_proposal(

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-24 20:08:11
+date modified: 2026-09-25 07:08:56
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,84 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.231] - 2026-09-25 — *No Is an Answer*
+
+Rejecting a proposal now decides something. It used to decide nothing.
+
+### Fixed
+- **`status='rejected'` was a write-only column.** It was set in exactly one place,
+  `memory_db.reject_proposal()`, and read by nothing — every consumer of the proposals table
+  filters `status='pending'`. So rejecting removed a row from the queue and changed nothing
+  else: the next producer that wanted the term raised it again, and the reviewer's only
+  available action was to reject it a second time. **78 rejections across five proposal types
+  carried no effect**, and `support` completed the full round trip inside a day (rejected
+  09-23, pending again 09-24).
+  - `propose_tag_admission()` now checks rejected topics alongside pending ones and does not
+    re-raise. A rejection is **permanent** — it does not expire.
+  - A read failure suppresses nothing. A term that slips through costs one review; a term
+    wrongly suppressed is invisible.
+  - Scoped to `tag_admission` deliberately. `ghost_link_stub` and `profile_update` reject for
+    "not now" rather than "never", and one list cannot mean both — that policy stays open as G1.
+- **Rejected terms could have become the one verdict that lets a tag through.** Withholding only
+  withheld a tag once a *pending* proposal covered it. Once rejected terms stopped being
+  re-proposed, nothing pending would cover them and they would have stayed on the fact. The
+  rejected row is now counted as covering too — and it is a firmer cover than a pending one,
+  since the reviewer has already answered.
+
+### Added
+- **`proposals.rejection_count`** (migration `000.006.231`). Silence cannot distinguish a term
+  rejected once by accident of phrasing from one the corpus asks for every day. Every suppressed
+  re-request increments the count on the rejected row, so a term arrives at reconsideration with
+  the number that argues for it: **1 is a one-off, 30 is a subject the vocabulary is missing.**
+  - `memory_db.get_rejected_topics(type)` and `memory_db.record_rejected_request(type, topic)`.
+  - The 78 existing rejections are seeded at 1 — each was a deliberate decision.
+  - Indexed on `(type, topic, status)`; the suppression check runs on every admission proposal.
+  - `init_db()`'s runtime schema carries the column too, so a fresh database and a migrated one
+    agree.
+
+### Testing
+- `Evelyn/tests/test_rejection_is_binding.py` — each case verified red against the specific
+  change it pins, separately rather than together: removing the suppression and the withholding
+  coverage at the same time made the withholding test pass, because the term was re-proposed and
+  then covered as pending. A red check that removes two things at once can certify neither.
+
+## [000.006.230] - 2026-09-25 — *The Last Writer That Minted*
+
+Every memory writer routed its tags through admission except the one that consolidates them.
+
+### Fixed
+- **A fact merge could still mint vocabulary.** `fact_deduplicator` imported
+  `normalize_tag_format` (format only) and went through `canonicalize_tags` (alias resolution
+  only) — both documented as *not* gates — then handed the model's chosen `merged_tags` straight
+  to `apply_fact_merge`, which writes them verbatim. The extraction writers have gated since
+  `.227` and `.225` stopped the union bloat; neither touched admission on this path.
+  - Measured: the night after the memory corpus was hand-curated to **0** unregistered terms
+    across 10,335 live facts, one run of **50 merges put 102 back** onto 56 facts — `videogame`
+    beside the registered `video-games`, `dnd` and `tabletop-rpg` beside `ttrpg`, the container
+    word `work`, and one-offs like `muffin` and `maroon-shirt`. None reached the review queue.
+  - `merged_tags` now goes through `tag_librarian.withhold_unregistered_tags()` before it is
+    either queued on the proposal or applied to the master fact, so a reviewer approving a
+    `pending` merge tomorrow sees what an `auto_applied` one would have written today.
+  - **The fallback is part of the fix.** When every chosen term is withheld, leaving
+    `merged_tags` empty would send `apply_fact_merge` to its union branch — restoring the bloat
+    `.225` removed *and* putting back the terms just withheld. It now falls back to the master
+    entry's own tags, which are registered and already curated.
+
+### Changed
+- **`memory_db.select_merge_master()`** — the master-selection sort (earliest observed, then
+  lowest id) extracted from `apply_fact_merge` and shared. The deduplicator has to know which
+  row will carry the tag *before* the merge runs, because a tag admission proposal records the
+  entry that wanted the term so approval can put it back; picking the master by a second,
+  separately-written rule would have pointed the proposal at a row the tag never landed on.
+  `apply_fact_merge` now also excludes secondaries by id rather than list position, so a caller
+  that passed the master twice cannot make the merge soft-delete the row it just wrote.
+
+### Testing
+- `Evelyn/tests/test_merge_tag_admission.py` — drives the real
+  `generate_consolidation_proposal` with a stubbed model rather than reimplementing the gate.
+  The distinction is the whole point: the logic was never wrong, it was never called, so a test
+  that recomputes it would have passed throughout. Verified red against the unfixed module.
 
 ## [000.006.229] - 2026-09-24 — *The Reset's Missing Half*
 

@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-24 20:08:10
+# date modified: 2026-09-25 07:08:56
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -1772,6 +1772,12 @@ def withhold_unregistered_tags(
             (prop.get("topic") or "").strip()
             for prop in memory_db.get_pending_proposals(TAG_ADMISSION_PROPOSAL)
         }
+        # A rejected term is covered too, and more firmly than a pending one: the reviewer has
+        # already said no. Since G1 stopped re-proposing rejected terms, reading `pending` alone
+        # would find no proposal covering them and leave them on the fact — turning "rejected"
+        # into the one verdict that lets a term through. The rejected row is still the record
+        # that makes it recoverable, which is the condition withholding has always needed.
+        covered |= set(memory_db.get_rejected_topics(TAG_ADMISSION_PROPOSAL))
     except (sqlite3.Error, OSError) as exc:
         # Cannot prove a proposal covers anything, so withhold nothing.
         logger.warning("[TAG LIBRARIAN] Could not confirm pending proposals; keeping tags: %s", exc)
@@ -1834,6 +1840,32 @@ def propose_tag_admission(
 
     by_topic = {(p.get("topic") or "").strip(): p for p in pending}
     already = set(by_topic)
+
+    # A rejection is permanent (G1). Re-proposing a term the reviewer has already turned down
+    # offers them nothing but the chance to reject it a second time, which is what made the
+    # queue feel like busywork — `support` was rejected and back inside a day. Each further
+    # request counts against the rejected row instead, so a term the corpus keeps asking for
+    # arrives at review with the number that argues for admitting it.
+    try:
+        rejected = memory_db.get_rejected_topics(TAG_ADMISSION_PROPOSAL)
+    except (sqlite3.Error, OSError) as exc:
+        # Cannot prove anything was rejected, so suppress nothing: a term that slips through is
+        # one more review, a term wrongly suppressed is invisible.
+        logger.warning("[TAG LIBRARIAN] Could not read rejected tag proposals: %s", exc)
+        rejected = {}
+
+    for term in dict.fromkeys(unregistered):
+        if term not in rejected:
+            continue
+        with contextlib.suppress(sqlite3.Error, OSError):
+            count = memory_db.record_rejected_request(TAG_ADMISSION_PROPOSAL, term)
+            logger.info(
+                "[TAG LIBRARIAN] '%s' was rejected; not re-proposing (asked for %d time(s) now), "
+                "requested by %s.", term, count, origin or "an unnamed writer",
+            )
+    unregistered = [t for t in unregistered if t not in rejected]
+    if not unregistered:
+        return []
 
     # A term a second fact also wants must widen the existing proposal rather than be dropped,
     # or approval backfills only whichever fact happened to ask first.

@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-24 20:08:10
+# date modified: 2026-09-25 07:08:56
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -115,6 +115,9 @@ def init_db() -> None:
         "ALTER TABLE context_entries ADD COLUMN last_audited_at REAL",
         "ALTER TABLE context_entries ADD COLUMN last_tag_audit_at REAL",
         "ALTER TABLE context_entries ADD COLUMN split_from_id INTEGER",
+        # Mirrors migration 000.006.231. The ALTER is a no-op on a fresh database (the CREATE
+        # below already carries the column) and the column is a no-op on an existing one.
+        "ALTER TABLE proposals ADD COLUMN rejection_count INTEGER DEFAULT 0",
         "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
         "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
     ]:
@@ -134,7 +137,8 @@ def init_db() -> None:
             confidence          TEXT NOT NULL DEFAULT 'medium',
             status              TEXT NOT NULL DEFAULT 'pending',
             created_at          REAL NOT NULL,
-            reviewed_at         REAL
+            reviewed_at         REAL,
+            rejection_count     INTEGER DEFAULT 0
         )
     """)
 
@@ -721,6 +725,27 @@ def split_entry(source_entry_id: int, new_entries: list[dict]) -> list[int]:
     return new_ids
 
 
+def select_merge_master(source_entries: list[dict]) -> dict:
+    """Return the entry a merge folds the others into: earliest observed, then lowest id.
+
+    Factored out because the caller has to know the answer *before* the merge runs. The
+    deduplicator gates the model's chosen tags through admission, and a tag admission proposal
+    records which entry wanted the term so approval can put it back — that entry is this one.
+    When the two sides picked the master by different rules, the proposal pointed at a row the
+    tag never landed on.
+
+    Args:
+        source_entries: The entries being merged. Must not be empty.
+
+    Returns:
+        dict: The master entry.
+    """
+    return sorted(
+        source_entries,
+        key=lambda e: (e.get("first_observed") or e.get("created_at") or 0.0, e.get("id", 0))
+    )[0]
+
+
 def apply_fact_merge(
     source_entries: list[dict],
     merged_text: str,
@@ -761,13 +786,11 @@ def apply_fact_merge(
         )
 
     # Sort entries: prioritize lowest id or earliest first_observed
-    sorted_entries = sorted(
-        source_entries,
-        key=lambda e: (e.get("first_observed") or e.get("created_at") or 0.0, e.get("id", 0))
-    )
-    master_entry = sorted_entries[0]
-    secondary_entries = sorted_entries[1:]
+    master_entry = select_merge_master(source_entries)
     master_id = int(master_entry["id"])
+    # Exclude by id, not identity: a caller that passed the master twice would otherwise have
+    # the merge soft-delete the row it just wrote.
+    secondary_entries = [e for e in source_entries if int(e["id"]) != master_id]
 
     # Aggregate metadata
     total_observed_count = sum(e.get("observed_count") or 1 for e in source_entries)
@@ -1283,7 +1306,11 @@ def apply_proposal(proposal_id: int) -> bool:
 
 
 def reject_proposal(proposal_id: int) -> bool:
-    """Mark a proposal as rejected.
+    """Mark a proposal as rejected, and count the rejection.
+
+    A rejection is permanent (G1, user's call 2026-09-25). `rejection_count` starts at 1 here and
+    is incremented by `record_rejected_request()` every time a producer asks for the same thing
+    again, so the row accumulates the evidence for reconsidering rather than just going quiet.
 
     Args:
         proposal_id: Row ID of the proposal.
@@ -1293,13 +1320,71 @@ def reject_proposal(proposal_id: int) -> bool:
     """
     con = get_db()
     cur = con.execute(
-        "UPDATE proposals SET status = 'rejected', reviewed_at = ? WHERE id = ?",
+        "UPDATE proposals SET status = 'rejected', reviewed_at = ?, "
+        "rejection_count = MAX(COALESCE(rejection_count, 0), 1) WHERE id = ?",
         (time.time(), proposal_id),
     )
     con.commit()
     affected = cur.rowcount
     con.close()
     return affected > 0
+
+
+def get_rejected_topics(type: str) -> dict[str, int]:
+    """Return `{topic: rejection_count}` for every rejected proposal of a type.
+
+    The counterpart to `get_pending_proposals`. Producers deduplicated against pending proposals
+    only, so a rejected term came straight back the next time anything wanted it and the reviewer
+    could do nothing but reject it again — `support` made that round trip inside a day.
+
+    Args:
+        type: Proposal type to filter by.
+
+    Returns:
+        dict[str, int]: Rejected topics mapped to how many times they have been asked for.
+    """
+    con = get_db()
+    try:
+        rows = con.execute(
+            "SELECT topic, COALESCE(rejection_count, 1) AS n FROM proposals "
+            "WHERE status = 'rejected' AND type = ? AND topic IS NOT NULL AND TRIM(topic) <> ''",
+            (type,),
+        ).fetchall()
+    finally:
+        con.close()
+    return {str(r["topic"]).strip(): int(r["n"]) for r in rows}
+
+
+def record_rejected_request(type: str, topic: str) -> int:
+    """Count one more request for an already-rejected topic; return the new count.
+
+    Called instead of raising a duplicate proposal. The number is the whole point: a term at 1
+    was a one-off, a term at 30 is a subject the vocabulary is genuinely missing, and nothing
+    could tell the two apart while re-requests silently became new rows.
+
+    Args:
+        type: Proposal type.
+        topic: The rejected topic being requested again.
+
+    Returns:
+        int: The topic's rejection count after incrementing, or 0 if no rejected row matched.
+    """
+    con = get_db()
+    try:
+        con.execute(
+            "UPDATE proposals SET rejection_count = COALESCE(rejection_count, 1) + 1 "
+            "WHERE status = 'rejected' AND type = ? AND TRIM(topic) = ?",
+            (type, topic.strip()),
+        )
+        con.commit()
+        row = con.execute(
+            "SELECT MAX(COALESCE(rejection_count, 1)) AS n FROM proposals "
+            "WHERE status = 'rejected' AND type = ? AND TRIM(topic) = ?",
+            (type, topic.strip()),
+        ).fetchone()
+    finally:
+        con.close()
+    return int(row["n"]) if row and row["n"] is not None else 0
 
 
 def delete_proposal(proposal_id: int) -> bool:

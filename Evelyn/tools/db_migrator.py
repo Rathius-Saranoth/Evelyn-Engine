@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-24 20:08:10
+# date modified: 2026-09-25 07:08:56
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5228,6 +5228,45 @@ def migrate_000_006_229_memory_tag_audit_cursor(
     )
 
 
+def migrate_000_006_231_proposal_rejection_count(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.231: Let a rejection accumulate evidence instead of being discarded.
+
+    `status='rejected'` was written by `reject_proposal()` and read by nothing — every consumer
+    of the table filters `status='pending'`. So rejecting decided nothing: the next producer that
+    wanted the term raised it again, and the reviewer's only option was to reject it again. 78
+    rejections across five proposal types carried no effect, and `support` made the full round
+    trip inside a day.
+
+    A rejection is now permanent, and this column is what makes it informative rather than merely
+    silencing. Each subsequent request for a rejected term increments it rather than creating a
+    row, so the number answers the question a bare "no" cannot: how much does the corpus keep
+    asking for this? A term at 1 was a one-off. A term at 30 is a real subject the vocabulary is
+    missing, and the count is the argument for admitting it.
+    """
+    cursor = conn.cursor()
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(proposals)").fetchall()}
+    if "rejection_count" not in cols:
+        cursor.execute("ALTER TABLE proposals ADD COLUMN rejection_count INTEGER DEFAULT 0")
+        logger.info("[MIGRATION 231] Added proposals.rejection_count.")
+
+    # Every existing rejection was a deliberate decision by the reviewer, so it starts at one
+    # rather than zero: the count is "times this was turned down or asked for again", and each
+    # of these was turned down once.
+    cursor.execute(
+        "UPDATE proposals SET rejection_count = 1 "
+        "WHERE status = 'rejected' AND COALESCE(rejection_count, 0) = 0"
+    )
+    logger.info("[MIGRATION 231] Seeded %d existing rejection(s) at 1.", cursor.rowcount)
+
+    # The suppression check reads by (type, topic, status) on every admission proposal.
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proposals_type_topic_status "
+        "ON proposals(type, topic, status)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5697,6 +5736,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.229",
         name="memory_tag_audit_cursor",
         up_fn=migrate_000_006_229_memory_tag_audit_cursor,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.231",
+        name="proposal_rejection_count",
+        up_fn=migrate_000_006_231_proposal_rejection_count,
         post_sync_chroma=False,
     ),
 ]
