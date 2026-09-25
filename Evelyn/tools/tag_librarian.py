@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-09-24 19:10:10
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -71,6 +71,28 @@ def is_excluded_tag(tag: str) -> bool:
     exclusions = getattr(cfg, "TAG_LIBRARIAN_EXCLUSIONS", [r"^status/", r"^obsidian-graph/"])
 
     return any(re.search(pattern, clean_tag, re.IGNORECASE) for pattern in exclusions)
+
+
+def is_umbrella_term(term: str) -> bool:
+    """True when a term is a container rather than a subject.
+
+    `work`, `home`, `pets`, `tools` and their kin are the folder headings a flat vocabulary
+    removes. They select nearly everything, so they narrow nothing, and admitting one puts a
+    term in the registry that can never earn its place back.
+
+    Every tag-producing prompt says this in prose. Prose is advice: a model reaches for the
+    container anyway when nothing more specific comes to mind, and 17 of the 127 unregistered
+    terms found on memory facts were exactly these words. This is the filter that makes the
+    rule hold, placed where terms are held back for review rather than where they are asked
+    for.
+
+    Args:
+        term: A candidate term, already in §5 format.
+
+    Returns:
+        bool: True if the term must not be proposed for admission.
+    """
+    return term.strip().lower() in getattr(cfg, "TAXONOMY_CONTAINER_TERMS", set())
 
 
 def is_excluded_document(path: str) -> bool:
@@ -650,7 +672,7 @@ def reconcile_subjects(
         if match:
             if match not in known and match not in applied and _is_subject(match):
                 applied.append(match)
-        elif candidate not in proposals:
+        elif candidate not in proposals and not is_umbrella_term(candidate):
             proposals.append(candidate)
 
     return applied, proposals
@@ -1345,6 +1367,21 @@ def audit_single_document_semantic(
     tags_str = ", ".join(details.get("final_tags", []))
     if not dry_run:
         vault_db.update_document_semantic_tag_audit(doc_path, tags=tags_str)
+
+    # Send the terms this document wanted but the vocabulary does not hold to review.
+    #
+    # They were computed, stored in `details["proposals"]`, written to a logger the audit
+    # subprocess does not surface, and returned in a dict the backlog drainer discards —
+    # `propose_tag_admission` was never called from this module at all. So the pass audited 766
+    # documents and proposed nothing, and the empty admission queue read as a clean pipeline
+    # when it was really the largest producer writing nowhere.
+    if not dry_run and details.get("proposals"):
+        with contextlib.suppress(sqlite3.Error, OSError):
+            propose_tag_admission(
+                details["proposals"],
+                origin=f"vault note ({doc_path})",
+                reason="Subject named by a vault note but not in the controlled vocabulary.",
+            )
 
     # Leave a trace when the pass rewrote a document. Only the master librarian wrote to
     # librarian_activity_log, so this pass changed 115 files in one night and the log stayed

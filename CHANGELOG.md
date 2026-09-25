@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-24 18:14:27
+date modified: 2026-09-24 19:10:10
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,68 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.226] - 2026-09-24 — *Proposed to Nobody*
+
+The vault librarian found unregistered subjects in 766 documents and told no one.
+
+### Fixed
+- **The semantic audit now raises its proposals.** `audit_document_tags()` reconciles a
+  document's subjects against the registry and holds back what it cannot match, as
+  `details["proposals"]`. That list went to a `logger.info` the audit subprocess does not
+  surface and into a returned dict the backlog drainer discards — `propose_tag_admission` was
+  never called from `tag_librarian` at all. Two Reference Library chapters in one run produced
+  eight unregistered terms between them and the queue gained nothing. The empty admission queue
+  read as a clean pipeline; it was the largest producer writing nowhere. Proposals now carry the
+  note that wanted the term, so review is a judgement in context rather than about a bare word.
+
+### Added
+- **`is_umbrella_term()` and `cfg.TAXONOMY_CONTAINER_TERMS`** — one canonical list of the
+  container words, enforced where terms are held back for review. Every tag-producing prompt
+  already said "name the specific subject, never the container", and 17 of the 127 unregistered
+  terms found on live memory facts were exactly those words. A prompt is advice; a model reaches
+  for the container anyway when nothing more specific comes to mind. This is the filter that
+  makes the rule hold, and it matches exactly, so `information-retrieval` is untouched by
+  `information`.
+
+### Verification
+- `Evelyn/tests/test_vault_tag_admission.py` — sixteen cases across both: containers recognised
+  and real subjects passed, the list read from config rather than hardcoded, a container never
+  reaching the proposal branch, unmatched subjects reaching the queue, a dry run proposing
+  nothing, and the proposal recording its source note. Three confirmed to fail against the
+  previous code.
+
+### Note on rollout
+`TAG_ADMISSION_MAX_PENDING` (200) is the throttle. At two documents a run against 3,619
+unaudited notes the queue will fill over a few hours and then stop accepting more until the
+backlog is reviewed, which is the intended behaviour rather than a limit to raise.
+
+## [000.006.225] - 2026-09-24 — *Merging Is a Choice*
+
+The merge prompt asked the model which tags the consolidated fact should carry, then the code
+added every source's tags back on top.
+
+### Fixed
+- **`apply_fact_merge()` treats `merged_tags` as a selection, not an addition.** It unioned the
+  tags of every source entry *and* the model's answer, so a term deliberately left out was put
+  straight back — a leaving-out was impossible to express, and the merge prompt's rule 7 ("prefer
+  terms already on the sources, never name the container") was unenforceable at the one point it
+  mattered. Merging three four-tag facts produced up to twelve tags. Where a caller supplies
+  tags they are now the result; the union survives only as the fallback for a caller with none.
+
+### Why it was found
+Reviewing the first librarian cycle turned up 127 unregistered terms on live memory facts, 43%
+of them concentrated in twelve facts of 27–61 words carrying four to nine tags each. Those twelve
+map onto the eleven merges auto-applied between 04:51 and 05:54 the same morning. Consolidation
+is where a vocabulary is supposed to get smaller; this one grew it monotonically, and cleaning up
+after it without fixing it would have meant cleaning up again the next morning.
+
+### Verification
+- `Evelyn/tests/test_merge_tag_selection.py` — five cases: the choice is the result, a container
+  word left out stays out, merging never grows the list, the no-choice fallback is unchanged, and
+  duplicates collapse. Four confirmed to fail against the union.
+- `apply_fact_merge` has two production callers (the review-apply path and the deduplicator's
+  auto-apply); both already pass the model's tags. Existing merge tests unaffected.
 
 ## [000.006.224] - 2026-09-24 — *Not a Vector Question*
 

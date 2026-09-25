@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-09-24 19:10:10
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -726,6 +726,18 @@ FACT_EXTRACTION_START_ID = 0
 # Set to a specific model name only to use a different model for extraction.
 # Independent from SUMMARY_MODEL_OVERRIDE — the two tasks can be configured separately.
 FACT_EXTRACTION_MODEL_OVERRIDE = "default"
+
+# Container words — the folder headings a flat vocabulary removes. They match so much that
+# they narrow nothing, so they may never be proposed for admission however often a document or
+# a fact reaches for them. The tag-producing prompts also say this in prose; this list is what
+# enforces it, because a prompt is advice and a filter is not. Exact matches only:
+# `information-retrieval` is a real term and is unaffected by `information`.
+TAXONOMY_CONTAINER_TERMS = {
+    "work", "home", "tools", "tool", "life", "system", "systems", "pets", "wellness",
+    "environment", "technology", "tech", "development", "projects", "project", "general",
+    "misc", "miscellaneous", "personal", "stuff", "things", "topics", "activities",
+    "information", "content", "media", "notes", "other", "various", "data",
+}
 
 # Vector RAG & Semantic Taxonomy Retrieval for Fact Extraction
 # Max registered vocabulary terms to retrieve as candidates for the extraction prompt

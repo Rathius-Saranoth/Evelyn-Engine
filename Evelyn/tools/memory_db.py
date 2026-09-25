@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-14 20:23:52
+# date modified: 2026-09-24 19:05:36
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -663,14 +663,23 @@ def apply_fact_merge(
     """Consolidate multiple context entries into a single primary master entry in place.
 
     Identifies the primary entry (oldest established by first_observed or lowest ID),
-    aggregates observed_count, retrieval_count, earliest first_observed, latest date,
-    and union of tags, updates the master entry in place, and soft-deletes secondary entries.
+    aggregates observed_count, retrieval_count, earliest first_observed and latest date,
+    updates the master entry in place, and soft-deletes secondary entries.
+
+    **`merged_tags` is a selection, not an addition.** The merge prompt asks the model to choose
+    the tags for the consolidated fact, preferring terms already on the sources and leaving out
+    container words. This function used to union every source's tags and then add that answer on
+    top, so the model's choice could only ever grow the list — a leaving-out was impossible to
+    express. Merging three four-tag facts produced up to twelve tags, and the corpus accumulated
+    compound facts carrying eight or nine, most of them terms seen once. Where the caller supplies
+    tags, they are the result; the union survives only as the fallback for a caller that has none.
 
     Args:
         source_entries: List of existing context entry dicts being consolidated.
         merged_text: The synthesized observation string.
         target_category: Normalized target category string (e.g. 'Cat05-U').
-        merged_tags: Optional LLM-synthesized tags or None.
+        merged_tags: The chosen tags for the merged fact. None falls back to the union of the
+            sources' tags, which is right only when nobody has decided.
 
     Returns:
         int: The row ID of the updated master entry (or newly inserted if source_entries empty).
@@ -710,20 +719,19 @@ def apply_fact_merge(
     dates: list[str] = [str(e["date"]) for e in source_entries if e.get("date")]
     latest_date = max(dates) if dates else master_entry.get("date")
 
-    # Combine tags: existing tags + provided merged_tags
-    all_tags_set = set()
-    for e in source_entries:
-        if e.get("tags"):
-            for t in str(e["tags"]).split(","):
-                cleaned = t.strip()
-                if cleaned:
-                    all_tags_set.add(cleaned)
-    if merged_tags:
-        for t in merged_tags.split(","):
-            cleaned = t.strip()
-            if cleaned:
-                all_tags_set.add(cleaned)
-    final_tags = ", ".join(sorted(all_tags_set)) if all_tags_set else None
+    chosen = [t.strip() for t in (merged_tags or "").split(",") if t.strip()]
+    if chosen:
+        # The caller decided. Adding the sources back would override the decision, since a term
+        # left out deliberately is indistinguishable from one the union puts back.
+        final_tags = ", ".join(sorted(dict.fromkeys(chosen)))
+    else:
+        union = {
+            cleaned
+            for e in source_entries
+            for t in str(e.get("tags") or "").split(",")
+            if (cleaned := t.strip())
+        }
+        final_tags = ", ".join(sorted(union)) if union else None
 
     subject = master_entry.get("subject") or getattr(cfg, "USER_NAME", "Alex")
 
