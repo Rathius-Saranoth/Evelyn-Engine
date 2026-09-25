@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 07:08:56
+date modified: 2026-09-25 07:20:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,54 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.232] - 2026-09-25 — *Let It Finish*
+
+The engine has a graceful shutdown. It had never once run.
+
+### Fixed
+- **Lifespan shutdown was unreachable, so the Chroma drain never happened.**
+  `clean_shutdown_all_tasks()` terminates write producers and then drains the pending Chroma
+  write queue — correct code, correctly wired into the FastAPI lifespan. It did not execute.
+  Uvicorn waits for in-flight connections *before* running lifespan shutdown, `uvicorn.run()`
+  passed no `timeout_graceful_shutdown`, and the chat UI holds a `text/event-stream` connection
+  that never closes on its own. Every restart with a browser tab open logged
+  `Waiting for connections to close` and nothing further until SIGKILL at `TimeoutStopSec`.
+  - The custodian holds the vector store's **single-writer lease for its whole life**, so each
+    of those restarts killed the writer mid-lease. It went unnoticed because the startup reaper
+    clears the stale `.chroma_write.lock` and the boot health probe then passes: **a clean start
+    says nothing about the stop before it.**
+  - `timeout_graceful_shutdown=cfg.SHUTDOWN_CONNECTION_DRAIN_SECONDS` (5s) caps that wait.
+- **A second unbounded wait sat between cancellation and the drain.** The lifespan shutdown did
+  `await asyncio.gather(*cancelled_tasks)` with no timeout. `cancel()` raises at the next await
+  point, which a task inside `asyncio.to_thread` or a blocking Ollama call does not reach while
+  that call runs — so one stuck loop could eat the whole stop budget and take the drain with it.
+  Bounded by `cfg.SHUTDOWN_TASK_CANCEL_SECONDS` (5s); tasks that will not stop are left to die
+  with the process, and the drain proceeds regardless.
+
+### Changed
+- **`scripts/restart_evelyn_services.sh` and `scripts/stop_evelyn_services.sh` now verify the
+  shutdown instead of assuming it.** Both stop the engine on its own — not bundled with
+  `evelyn-tts` in one `systemctl` call, which hid the result — then confirm the journal carries
+  `Clean shutdown complete` before continuing. Neither reports success without it; both exit
+  non-zero and point at `ROLLBACK.md` → *Repairing a Single Chroma Collection*.
+- **`scripts/graceful_stop.sh`** (new, sourced) holds `evelyn_graceful_stop` and
+  `evelyn_checkpoint_wal`, replacing the WAL-checkpoint block that had been copied into both
+  scripts.
+- `scripts/check_evelyn_status.sh` suggested a bare `systemctl restart`; it now points at the
+  script that verifies.
+- **`TimeoutStopSec=30`** on the unit (worst case is 5 + 5 + 3 + 5 = 18s; the stock 15s cut the
+  drain off). Applied to `/etc/systemd/system/evelyn.service.d/override.conf`, which is outside
+  version control — recorded in `SETUP_GUIDE.md` so a fresh install gets it.
+- **AGENTS.md §6** now forbids a bare `systemctl restart evelyn` and requires the confirmation
+  before a restart is reported as successful.
+
+### Testing
+- `Evelyn/tests/test_graceful_shutdown.py` — source-level assertions on purpose. The defect was
+  a *missing keyword argument* and an *unwrapped await*: both read as working code, and both are
+  invisible to a call-graph wiring check because every function involved is called. Includes a
+  budget check that fails if the timeouts stop fitting inside `TimeoutStopSec`, with the message
+  that the answer is to find what is slow rather than raise the number.
 
 ## [000.006.231] - 2026-09-25 — *No Is an Answer*
 

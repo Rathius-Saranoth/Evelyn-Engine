@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-24 20:08:10
+# date modified: 2026-09-25 07:20:52
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -3405,7 +3405,23 @@ async def lifespan(app: FastAPI):
     for t in _lifespan_tasks:
         t.cancel()
     if _lifespan_tasks:
-        await asyncio.gather(*_lifespan_tasks, return_exceptions=True)
+        # Bounded. `cancel()` raises CancelledError at the next await point, which a task sitting
+        # in `asyncio.to_thread` or a blocking Ollama call does not reach for as long as that call
+        # runs — an unbounded gather here can eat the whole systemd stop budget and take the
+        # Chroma drain below down with it. A task that will not stop is left to die with the
+        # process; the drain is what must not be skipped.
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*_lifespan_tasks, return_exceptions=True),
+                timeout=cfg.SHUTDOWN_TASK_CANCEL_SECONDS,
+            )
+        except TimeoutError:
+            stuck = sum(1 for t in _lifespan_tasks if not t.done())
+            print(
+                f"[SERVER SHUTDOWN] {stuck} task(s) did not stop within "
+                f"{cfg.SHUTDOWN_TASK_CANCEL_SECONDS}s; continuing to the Chroma drain.",
+                flush=True,
+            )
 
     clean_shutdown_all_tasks()
 
@@ -7481,4 +7497,9 @@ if __name__ == "__main__":
         log_level="info",
         ssl_keyfile=ssl_keyfile,
         ssl_certfile=ssl_certfile,
+        # Without this, uvicorn waits for in-flight connections *forever* before running lifespan
+        # shutdown, and the chat UI's SSE stream never closes on its own. The engine therefore
+        # never reached its own shutdown handler — the Chroma drain inside it had never run once,
+        # on any restart, with a browser tab open. Capping the wait makes the drain reachable.
+        timeout_graceful_shutdown=cfg.SHUTDOWN_CONNECTION_DRAIN_SECONDS,
     )

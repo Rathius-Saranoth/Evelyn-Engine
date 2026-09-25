@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-24 19:45:25
+# date modified: 2026-09-25 07:20:52
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -964,6 +964,21 @@ STT_AUDIO_RETENTION_DAYS = int(os.environ.get("EVELYN_STT_AUDIO_RETENTION_DAYS",
 # =============================================================================
 SERVER_PORT = int(os.environ.get("EVELYN_PORT", "7860"))
 BIND_HOST = os.environ.get("EVELYN_BIND_HOST", "0.0.0.0")
+
+# --- Graceful shutdown budget -------------------------------------------------
+# Every one of these bounds an otherwise unbounded wait on the shutdown path. The path exists to
+# drain the Chroma write queue before the process dies; each unbounded wait ahead of that drain
+# is a way for systemd's SIGKILL to arrive first and leave the vector store mid-write.
+#
+# Measured 2026-09-25: the engine has never once completed a graceful shutdown. Uvicorn logs
+# "Waiting for connections to close" and stops there, because the chat UI holds an SSE
+# (`text/event-stream`) connection that never closes on its own, so lifespan shutdown — and the
+# drain inside it — was unreachable with a browser tab open. SIGKILL at 15s, every restart.
+#
+# The sum of these three must stay under the unit's `TimeoutStopSec` (30s; see SETUP_GUIDE.md).
+# Worst case is 5 + 5 + (3 subprocess + 5 Chroma) = 18s.
+SHUTDOWN_CONNECTION_DRAIN_SECONDS = int(os.environ.get("EVELYN_SHUTDOWN_CONN_DRAIN", "5"))
+SHUTDOWN_TASK_CANCEL_SECONDS = float(os.environ.get("EVELYN_SHUTDOWN_TASK_CANCEL", "5"))
 
 # API key for thin auth — set via environment variable EVELYN_API_KEY
 # or override in your local .env file (not committed to git)

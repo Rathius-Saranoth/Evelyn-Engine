@@ -1,7 +1,7 @@
 ---
 title: SETUP_GUIDE.md
 date created: 2026-08-22 15:00:00
-date modified: 2026-09-13 16:17:52
+date modified: 2026-09-25 07:20:52
 tags: [setup, guide, installation, configuration, deployment, evelyn]
 ---
 
@@ -221,6 +221,9 @@ ExecStart=/home/rathius/evelyn/venv/bin/python evelyn_server.py
 Restart=always
 RestartSec=5
 
+# Headroom for the graceful shutdown. Required, not optional — see below.
+TimeoutStopSec=30
+
 [Install]
 WantedBy=multi-user.target
 ```
@@ -230,6 +233,27 @@ Enable and start:
 sudo systemctl daemon-reload
 sudo systemctl enable --now evelyn
 ```
+
+#### Stopping and restarting: always use the scripts
+
+```bash
+./scripts/restart_evelyn_services.sh        # not: sudo systemctl restart evelyn
+./scripts/stop_evelyn_services.sh           # not: sudo systemctl stop evelyn
+```
+
+The engine's Chroma custodian holds the vector store's **single-writer lease for its whole
+life**, and its shutdown handler drains the pending write queue before exiting. A SIGKILL ends
+that lease mid-write. Both scripts stop the engine on its own and then confirm the drain ran by
+checking the journal for `Clean shutdown complete`; they exit non-zero and warn if it did not.
+
+`TimeoutStopSec=30` gives that handler room. The worst-case budget is 5s connection drain + 5s
+task cancel + 3s subprocess grace + 5s Chroma drain = 18s; the systemd default of 90s is fine
+too, but the 15s some setups use will cut the drain off. **If shutdown ever overruns the budget,
+find what is blocking it rather than raising the number** — the original defect was uvicorn
+waiting indefinitely on the chat UI's SSE stream, which made the drain unreachable entirely.
+
+A clean *start* proves nothing about the previous stop: the startup reaper clears a stale
+`.chroma_write.lock` and the health probe passes regardless. Verify the stop.
 
 ---
 

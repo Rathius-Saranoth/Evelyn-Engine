@@ -5,6 +5,13 @@
 
 set -euo pipefail
 
+# Shared graceful-stop + WAL helpers. `systemctl restart` alone never lets the engine reach its
+# own shutdown handler, so the Chroma drain is skipped — see scripts/graceful_stop.sh.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=graceful_stop.sh
+source "${SCRIPT_DIR}/graceful_stop.sh"
+
+GRACEFUL_OK=true
 RESTART_OLLAMA=false
 CHECKPOINT_WAL=true
 
@@ -32,16 +39,7 @@ echo "🔄 Initiating clean restart of Evelyn services..."
 
 # 1. Pre-restart SQLite WAL checkpoint to ensure zero uncommitted transactions
 if [ "$CHECKPOINT_WAL" = true ]; then
-    echo "💾 Checkpointing SQLite database WAL files..."
-    DB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"
-    if [ -d "$DB_DIR" ]; then
-        for db in "$DB_DIR"/*.db "$DB_DIR"/health/*.db; do
-            if [ -f "$db" ]; then
-                sqlite3 "$db" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null 2>&1 || true
-            fi
-        done
-        echo "  ✓ SQLite WAL checkpoint complete."
-    fi
+    evelyn_checkpoint_wal "${SCRIPT_DIR}/../data"
 fi
 
 # 2. Restart Ollama if requested
@@ -52,12 +50,20 @@ if [ "$RESTART_OLLAMA" = true ]; then
 fi
 
 # 3. Restart Evelyn TTS, STT & AI Core
+#
+# The engine is stopped on its own and verified before anything starts again. `systemctl
+# restart` gives no seam to check in, and a shutdown that was SIGKILLed mid-Chroma-write looks
+# identical to a clean one from the outside.
 echo "⚡ Restarting Evelyn Voice (TTS/STT) & Core Engine..."
+evelyn_graceful_stop || GRACEFUL_OK=false
+
 if systemctl is-active --quiet evelyn-stt 2>/dev/null || systemctl is-enabled --quiet evelyn-stt 2>/dev/null; then
-    sudo systemctl restart evelyn-tts evelyn-stt evelyn
+    sudo systemctl restart evelyn-tts evelyn-stt
+    sudo systemctl start evelyn
     echo "  ✓ evelyn-tts.service, evelyn-stt.service, and evelyn.service restarted."
 else
-    sudo systemctl restart evelyn-tts evelyn
+    sudo systemctl restart evelyn-tts
+    sudo systemctl start evelyn
     echo "  ✓ evelyn-tts.service and evelyn.service restarted."
 fi
 
@@ -92,6 +98,11 @@ if [ "$HEALTHY" = true ]; then
 else
     echo "⚠️ Warning: Evelyn Engine took longer than 12s to respond to /status."
     echo "Check logs with: journalctl -u evelyn -n 30 --no-pager"
+fi
+
+if [ "$GRACEFUL_OK" != true ]; then
+    echo "⚠️  Restart complete, but the shutdown was NOT graceful — see the warning above."
+    exit 1
 fi
 
 echo "✨ Restart complete."

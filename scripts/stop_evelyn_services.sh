@@ -5,6 +5,13 @@
 
 set -euo pipefail
 
+# Shared graceful-stop + WAL helpers — see scripts/graceful_stop.sh for why a plain
+# `systemctl stop` is not enough to get the Chroma queue drained.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=graceful_stop.sh
+source "${SCRIPT_DIR}/graceful_stop.sh"
+
+GRACEFUL_OK=true
 STOP_OLLAMA=false
 STOP_SYNCTHING=false
 CHECKPOINT_WAL=false
@@ -41,11 +48,16 @@ done
 echo "🛑 Stopping Evelyn services..."
 
 # 1. Stop Evelyn AI Core & TTS server
-if sudo systemctl is-active --quiet evelyn || sudo systemctl is-active --quiet evelyn-tts; then
-    sudo systemctl stop evelyn evelyn-tts
-    echo "  ✓ Stopped systemd services: evelyn, evelyn-tts"
+#
+# The engine goes first and on its own, so its shutdown handler can be verified. Stopping it in
+# the same command as evelyn-tts hides whether the Chroma drain completed.
+evelyn_graceful_stop || GRACEFUL_OK=false
+
+if systemctl is-active --quiet evelyn-tts 2>/dev/null; then
+    sudo systemctl stop evelyn-tts
+    echo "  ✓ Stopped systemd service: evelyn-tts"
 else
-    echo "  - evelyn and evelyn-tts were not running."
+    echo "  - evelyn-tts was not running."
 fi
 
 # 2. Stop User Watcher Service if active
@@ -82,16 +94,12 @@ fi
 
 # 4. Checkpoint SQLite databases if requested
 if [ "$CHECKPOINT_WAL" = true ]; then
-    echo "💾 Checkpointing SQLite database WAL files..."
-    DB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"
-    if [ -d "$DB_DIR" ]; then
-        for db in "$DB_DIR"/*.db "$DB_DIR"/health/*.db; do
-            if [ -f "$db" ]; then
-                sqlite3 "$db" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
-            fi
-        done
-        echo "  ✓ SQLite WAL checkpoint complete."
-    fi
+    evelyn_checkpoint_wal "${SCRIPT_DIR}/../data"
+fi
+
+if [ "$GRACEFUL_OK" != true ]; then
+    echo "⚠️  Stop complete, but the shutdown was NOT graceful — see the warning above."
+    exit 1
 fi
 
 echo "✨ Evelyn services stop complete."

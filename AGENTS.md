@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-23 21:46:27
+date modified: 2026-09-25 07:20:52
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -63,6 +63,11 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 
 ## 6. Service Verification & Process Management
 - **TCP Port & Unit Binding Verification**: When verifying if services are running (Evelyn server, TTS server, Ollama, etc.), ALWAYS inspect by **TCP Port Binding** (`ss -tulpn` / `lsof -i:<port>`) or systemd status (`systemctl status <service>`). Never rely on loose process name matching (`python`) or stale PIDs.
+- **Graceful Shutdown Is Mandatory (Never `systemctl restart evelyn`)**: The engine's Chroma custodian holds the single-writer lease for its whole life, and `clean_shutdown_all_tasks()` drains the pending write queue before the process exits. A SIGKILL ends that lease mid-write. **Always stop and restart the engine through `scripts/restart_evelyn_services.sh` or `scripts/stop_evelyn_services.sh`**, never a bare `sudo systemctl restart evelyn` / `stop evelyn`. Both scripts route through `scripts/graceful_stop.sh`, which stops the engine on its own and then **proves the drain ran** by checking the journal for `Clean shutdown complete`; they exit non-zero and print a warning when it did not.
+  - **A clean start does not mean a clean stop.** The startup reaper clears a stale `.chroma_write.lock` and the boot health probe passes either way, so a killed writer is invisible from the next boot. Verify the *stop*, not the start.
+  - **Never report a restart as successful without that confirmation.** If the warning appears, say so, and consult `ROLLBACK.md` → *Repairing a Single Chroma Collection* before assuming the store is intact.
+  - **Do not raise the timeouts to make a slow shutdown fit.** The budget (`evelyn_config.SHUTDOWN_CONNECTION_DRAIN_SECONDS`, `SHUTDOWN_TASK_CANCEL_SECONDS`, and the unit's `TimeoutStopSec=30`) is sized to the work. Overrunning it means something is blocking shutdown — find it. The original defect was exactly this: uvicorn waited forever on an SSE connection the chat UI never closes, so lifespan shutdown was unreachable and the drain had **never once run** with a browser tab open.
+- **`scripts/restart_evelyn_services.sh` bounces Ollama only with `--all` / `--with-ollama`.** Plain invocation leaves `ollama.service` alone; pass the flag deliberately, since reloading models is slow.
 
 ## 7. Vault Note Formatting & Visual PKM Style
 - **Default Visual PKM Standard**: All notes, guides, and Maps of Content (MOCs) in the Obsidian vault must adhere to the **Visual PKM / Digital Garden Dashboard** standard defined in `.agents/rules/vault-note-style.md`.

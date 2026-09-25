@@ -96,6 +96,6 @@ echo "=========================================="
 if [ "$ALL_CLEAR" = true ]; then
     echo -e "\033[0;32mAll core systems operational!\033[0m"
 else
-    echo -e "\033[0;33mSome services offline. Run: sudo systemctl restart evelyn evelyn-tts ollama && systemctl --user restart syncthing evelyn-vault-watcher\033[0m"
+    echo -e "\033[0;33mSome services offline. Run: ./scripts/restart_evelyn_services.sh --all  (verifies the graceful shutdown; plain systemctl restart does not)\033[0m"
 fi
 echo "=========================================="
