@@ -1,6 +1,6 @@
 # test_tag_admission_proposals.py
 # date created: 2026-09-22 20:20:00
-# date modified: 2026-09-22 21:48:15
+# date modified: 2026-09-24 19:52:48
 # tags: #test, #tags, #taxonomy, #proposals, #admission, #review
 
 """Cover for the tag-admission quarantine route (v000.006.201).
@@ -127,7 +127,22 @@ class TestApproval:
         stores.admit_proposed_term("motif/zzz-vector")
 
         row = next(r for r in taxonomy_db.get_master_tags() if r["tag"] == "motif/zzz-vector")
-        assert seen["category"] == row["category"] == "motif"
+        # Empty on both sides since v000.006.228: admission no longer derives a category from the
+        # prefix, because `motif/storm` does not need a category saying `motif`. What the test
+        # guards is that the row and its embedding agree, whatever the value is.
+        assert seen["category"] == (row["category"] or "") == ""
+
+    def test_a_reviewer_supplied_category_reaches_both(self, stores, monkeypatch):
+        """Agreement has to hold for a real value too, or the assertion above proves nothing."""
+        seen = {}
+        monkeypatch.setattr(
+            tag_librarian, "index_master_tag_in_chroma",
+            lambda tag, category="", description="": seen.update(tag=tag, category=category),
+        )
+        stores.admit_proposed_term("zzz-flat", category="mind-self")
+
+        row = next(r for r in taxonomy_db.get_master_tags() if r["tag"] == "zzz-flat")
+        assert seen["category"] == row["category"] == "mind-self"
 
     def test_admitted_terms_are_unprotected(self, stores):
         """A term that entered by inference stays prunable; only curated terms are protected."""

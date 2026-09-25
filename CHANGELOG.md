@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-24 19:10:10
+date modified: 2026-09-24 20:08:11
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,105 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.229] - 2026-09-24 — *The Reset's Missing Half*
+
+The vault re-entered its queue after the tag reset. Memory never did.
+
+### Added
+- **A memory tag backfill.** `000.006.187` cleared 39,061 tags across 12,893 memory rows so the
+  vocabulary could be regenerated from the standard rather than migrated toward it, and
+  `000.006.186` did the same to the vault *and reset every document's audit timestamp* — so the
+  vault re-entered the semantic queue and has been draining since. Memory got no equivalent, and
+  10,033 live facts have been invisible to tag retrieval ever since.
+  - `tag_librarian.audit_single_fact_tags()` — deliberately the same machinery as the vault pass
+    rather than a second implementation: a fact is a short document, so it goes through
+    `classify_document_subjects`, which asks a model only what the text is *about* and then
+    aligns the answer deterministically. Only terms the vocabulary already holds are written.
+  - `scripts/backfill_memory_tags.py` — a foreground drain, resumable, stops cleanly on Ctrl-C.
+    A one-time backlog rather than a scheduled pass: every current writer tags what it writes,
+    so nothing is adding to it.
+  - `memory_db.fetch_next_entries_for_tag_audit()`, `count_entries_awaiting_tag_audit()`,
+    `mark_entry_tag_audited()`. Untagged facts first; a fact that matched nothing is still
+    stamped, so it does not get retried ahead of facts nobody has looked at.
+- **`held_back`** on the audit result — every term classification could not match, raised as a
+  proposal or not. Past `TAG_ADMISSION_MAX_PENDING` no proposal is written and the fact is
+  stamped regardless, so without this the terms a full queue refused would be gone with the fact
+  marked done. The script writes them to `scratch/backfill_unmatched-*.json`.
+
+### Migrations
+- **`000.006.229` (memory)** — adds `context_entries.last_tag_audit_at` and its index.
+  `last_audited_at` could not serve: it belongs to the grounding auditor and is stamped by every
+  merge, so the two passes would reset each other's progress.
+
+### Changed
+- The admission card's category dropdown sorts heaviest-first. Alphabetical put
+  `aesthetics-culture-language` (27) above `reference` (167) in a list of twenty, so the groups a
+  term is most likely to join were the ones furthest down it.
+
+### Measured
+A 12-fact run tagged 11 and raised 11 proposals, at 0.7s per fact once the embedding model is
+warm — roughly two hours for the full backlog.
+
+## [000.006.228] - 2026-09-24 — *A Category Is Not a Facet*
+
+The registry's `category` column held two different kinds of value, and one of them said nothing.
+
+### Changed
+- **Stopped storing a category that restates the term's own prefix.** For a flat term the column
+  holds a curated topical group — `fastapi` → `ai-engineering` — a human judgement recorded
+  nowhere else. For a facet-prefixed term it was auto-filled from the prefix: `motif/storm` had
+  category `motif`. That half was pure restatement, derivable from the tag string, and it is what
+  made the column read as a facet placeholder rather than the review aid it is.
+- **`admit_proposed_term()` no longer derives one.** It filled `category` from the prefix when a
+  reviewer gave none, which is what kept re-minting the restatement. An uncategorised term now
+  stays uncategorised until somebody groups it.
+
+### Migrations
+- **`000.006.218` (vault)** — cleared 96 category values that equalled their own term's prefix.
+  The 603 curated groups were left untouched: they cannot be recomputed, so they are not swept
+  away on the strength of the derivable ones looking redundant. Chroma re-synced, since the
+  vector copy carries category in its metadata.
+
+### What the column is for
+Nothing branches on it. It reaches a person in one place: `/api/taxonomy/vocabulary` fills the
+admission card's category dropdown from it and prints `term · category` beside near-matches. It
+is a review aid, and now only holds values a reviewer actually chose.
+
+## [000.006.227] - 2026-09-24 — *Withheld, Not Lost*
+
+An unregistered tag now goes to review instead of onto the fact.
+
+### Added
+- **`withhold_unregistered_tags()` and `cfg.TAG_WITHHOLD_UNREGISTERED`.** §6.1 makes an
+  unregistered term a proposal rather than a silent addition, and the vault side already worked
+  that way — `reconcile_subjects` applies only what it can match. The memory writers stored the
+  term on the fact *and* proposed it, so the corpus and the vocabulary drifted apart: 127 terms
+  accumulated unnoticed and took a hand curation pass to reconcile. Wired into all three memory
+  writers (extraction, the manual context path, and the split apply path).
+- Withholding is only safe because approval can put an admitted term back on the facts that
+  wanted it (`backfill_admitted_term`, v000.006.216), which is why it was deferred until now.
+
+### Fixed
+- **The container filter moved to the shared choke point.** v000.006.226 put it in the vault's
+  subject pass only, so a memory writer could still propose `work` — and did, in the first test
+  written against it. It now sits in `propose_tag_admission`, which every producer goes through.
+
+### Behaviour
+- **Nothing is dropped silently.** A term is withheld only once a pending proposal covers it,
+  including one an earlier fact raised. If the queue is at `TAG_ADMISSION_MAX_PENDING`, or the
+  proposal could not be written, or the pending set cannot be read, the tag stays on the fact:
+  an unreviewed tag is untidy, a vanished one is unrecoverable.
+- **A container word is the exception, and deliberately so.** It is dropped rather than stored or
+  proposed. The guard above protects information; `work` and `pets` carry none — that is what
+  puts them on the list — so dropping them loses nothing, and keeping them is how they reached
+  17 memory facts. Logged when it happens.
+
+### Verification
+- `Evelyn/tests/test_tag_withholding.py` — eight cases: a registered tag kept, an unregistered one
+  withheld and proposed, the proposal recording its entry, a second fact covered by the existing
+  proposal and widening it, a full queue keeping the tag, the flag switching it off, a container
+  dropped, and no producer able to propose a container.
 
 ## [000.006.226] - 2026-09-24 — *Proposed to Nobody*
 

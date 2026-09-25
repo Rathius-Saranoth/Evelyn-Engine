@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-23 19:50:26
+# date modified: 2026-09-24 20:08:10
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5174,6 +5174,60 @@ def migrate_000_006_217_relation_kind(
     logger.info("[MIGRATION 000.006.217] relations rebuilt with kind; %d row(s) carried", carried)
 
 
+def migrate_000_006_218_drop_derived_categories(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.218: Stop storing a category that only restates the term's own prefix.
+
+    ``master_tag_taxonomy.category`` holds two different kinds of value. For a flat term it is a
+    curated topical group — a human judgement recorded nowhere else. For a facet-prefixed term it
+    was auto-filled from the prefix itself: ``motif/storm`` had category ``motif``. That half is
+    pure restatement, derivable from the tag string at any time, and it is what made the column
+    read as a facet placeholder rather than the review aid it is.
+
+    Clearing it leaves the curated groups untouched: they cannot be recomputed, so they are not
+    swept away on the strength of the derivable ones looking redundant.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE master_tag_taxonomy
+           SET category = '', updated_at = ?
+         WHERE instr(tag, '/') > 0
+           AND category = substr(tag, 1, instr(tag, '/') - 1)
+        """,
+        (time.time(),),
+    )
+    logger.info(
+        "[MIGRATION 218] Cleared %d category value(s) that restated the term's own prefix.",
+        cursor.rowcount,
+    )
+
+
+def migrate_000_006_229_memory_tag_audit_cursor(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.229: Give memory facts their own re-tagging cursor.
+
+    Migration `000.006.187` cleared 39,061 tags across 12,893 memory rows so the vocabulary
+    could be regenerated from the standard rather than migrated toward it. `000.006.186` did the
+    same to the vault *and reset every document's audit timestamp*, so the vault re-entered the
+    semantic queue and has been draining since. Memory got no equivalent, and 10,033 facts have
+    been sitting untagged — invisible to tag retrieval — ever since.
+
+    `last_audited_at` cannot serve as that cursor: it already belongs to the grounding auditor
+    and is stamped by every merge, so the two passes would reset each other's progress.
+    """
+    cursor = conn.cursor()
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(context_entries)").fetchall()}
+    if "last_tag_audit_at" not in cols:
+        cursor.execute("ALTER TABLE context_entries ADD COLUMN last_tag_audit_at REAL")
+        logger.info("[MIGRATION 229] Added context_entries.last_tag_audit_at.")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ce_tag_audit ON context_entries(status, last_tag_audit_at)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5628,6 +5682,21 @@ MIGRATIONS: list[Migration] = [
         version="000.006.217",
         name="relation_kind",
         up_fn=migrate_000_006_217_relation_kind,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.218",
+        name="drop_derived_categories",
+        up_fn=migrate_000_006_218_drop_derived_categories,
+        # The vector copy carries category in its metadata, so it has to be re-emitted.
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.229",
+        name="memory_tag_audit_cursor",
+        up_fn=migrate_000_006_229_memory_tag_audit_cursor,
         post_sync_chroma=False,
     ),
 ]

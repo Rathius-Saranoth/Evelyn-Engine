@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-24 19:05:36
+# date modified: 2026-09-24 20:08:10
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -113,6 +113,7 @@ def init_db() -> None:
         "ALTER TABLE context_entries ADD COLUMN vad TEXT",
         "ALTER TABLE context_entries ADD COLUMN merged_into_id INTEGER",
         "ALTER TABLE context_entries ADD COLUMN last_audited_at REAL",
+        "ALTER TABLE context_entries ADD COLUMN last_tag_audit_at REAL",
         "ALTER TABLE context_entries ADD COLUMN split_from_id INTEGER",
         "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
         "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
@@ -359,6 +360,72 @@ def get_all_entries(statuses: list[str] | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def fetch_next_entries_for_tag_audit(batch_size: int = 10) -> list[dict]:
+    """Return the next live entries due a tag audit, untagged ones first.
+
+    Ordering is the whole point. `000.006.187` cleared every tag in memory, so the backlog is
+    not a rotation — it is one pass over facts that currently say nothing about what they are
+    about. Facts with no tags come first and facts never audited before them; a tagged fact is
+    only revisited once everything else has had a turn.
+
+    Args:
+        batch_size: Maximum entries to return.
+
+    Returns:
+        list[dict]: Entry dicts, most in need of tagging first.
+    """
+    con = get_db()
+    rows = con.execute(
+        """
+        SELECT * FROM context_entries
+         WHERE status = 'live' AND last_tag_audit_at IS NULL
+         ORDER BY CASE WHEN COALESCE(tags, '') = '' THEN 0 ELSE 1 END ASC, id ASC
+         LIMIT ?
+        """,
+        (batch_size,),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def count_entries_awaiting_tag_audit() -> tuple[int, int]:
+    """Return (untagged, total) live entries that have never had a tag audit."""
+    con = get_db()
+    row = con.execute(
+        """
+        SELECT SUM(CASE WHEN COALESCE(tags, '') = '' THEN 1 ELSE 0 END), COUNT(*)
+          FROM context_entries
+         WHERE status = 'live' AND last_tag_audit_at IS NULL
+        """
+    ).fetchone()
+    con.close()
+    return (int(row[0] or 0), int(row[1] or 0))
+
+
+def mark_entry_tag_audited(entry_id: int, tags: str | None = None) -> None:
+    """Stamp an entry as tag-audited, optionally storing the tags the pass chose.
+
+    Stamped even when the pass found nothing, so a fact that yields no registered term is not
+    retried forever ahead of facts nobody has looked at yet.
+
+    Args:
+        entry_id: The entry audited.
+        tags: Tags to store, or None to leave the entry's tags alone.
+    """
+    con = get_db()
+    if tags is None:
+        con.execute(
+            "UPDATE context_entries SET last_tag_audit_at = ? WHERE id = ?", (time.time(), entry_id)
+        )
+    else:
+        con.execute(
+            "UPDATE context_entries SET last_tag_audit_at = ?, tags = ? WHERE id = ?",
+            (time.time(), tags, entry_id),
+        )
+    con.commit()
+    con.close()
+
+
 def update_entry(entry_id: int, **fields) -> bool:
     """Update specific fields on an existing context entry.
 
@@ -373,7 +440,7 @@ def update_entry(entry_id: int, **fields) -> bool:
         "category", "subject", "observation", "confidence", "source",
         "status", "date", "tags", "last_retrieved_at", "retrieval_count",
         "last_evolved_at", "recategorized_at", "first_observed", "last_observed", "observed_count",
-        "vad", "merged_into_id", "last_audited_at", "split_from_id",
+        "vad", "merged_into_id", "last_audited_at", "split_from_id", "last_tag_audit_at",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:

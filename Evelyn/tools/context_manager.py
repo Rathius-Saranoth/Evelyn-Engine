@@ -1,6 +1,6 @@
 # context_manager.py
 # date created: 2026-02-12 19:08:42
-# date modified: 2026-09-23 19:20:38
+# date modified: 2026-09-24 19:45:25
 # tags: #context, #entities, #facts, #lifecycle, #updates
 
 """
@@ -95,12 +95,14 @@ def append_context_log(
     # This runs after the insert for that reason — proposing first left `source_ids` empty.
     if combined_tags_list:
         with contextlib.suppress(sqlite3.Error, OSError):
-            tag_librarian.propose_tag_admission(
+            kept = tag_librarian.withhold_unregistered_tags(
+                row_id,
                 combined_tags_list,
                 origin=f"memory fact ({norm_cat})",
                 reason="Tag attached to a memory fact but absent from the controlled vocabulary.",
-                source_ids=[row_id],
             )
+            if kept != combined_tags_list:
+                memory_db.update_entry(row_id, tags=", ".join(kept))
 
     return f"Created Context Entry (ID: {row_id}) pending review."
 

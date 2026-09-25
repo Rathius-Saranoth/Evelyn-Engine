@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-09-24 19:45:25
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -46,6 +46,7 @@ from Evelyn.tools.tag_librarian import (
     normalize_tag_format,
     propose_tag_admission,
     strip_subject_duplicate_tags,
+    withhold_unregistered_tags,
 )
 
 # ---------------------------------------------------------------------------
@@ -1344,17 +1345,20 @@ def write_extracted_facts(facts: list[dict]) -> int:
                 tags=fact.get("tags"),
             )
             written += 1
-            # Terms the vocabulary does not hold go to review rather than entering it
-            # silently, and the entry is recorded so approval can put the term back on it.
+            # Terms the vocabulary does not hold go to review rather than onto the fact, and
+            # the entry is recorded so approval can put the term back on it. A term the queue
+            # could not accept is kept rather than lost.
             tag_list = [t.strip() for t in str(fact.get("tags") or "").split(",") if t.strip()]
             if tag_list:
                 with contextlib.suppress(sqlite3.Error, OSError):
-                    propose_tag_admission(
+                    kept = withhold_unregistered_tags(
+                        row_id,
                         tag_list,
                         origin=f"extracted fact ({category})",
                         reason="Tag proposed by fact extraction but not in the controlled vocabulary.",
-                        source_ids=[row_id],
                     )
+                    if kept != tag_list:
+                        memory_db.update_entry(row_id, tags=", ".join(kept))
         except (sqlite3.Error, OSError, ValueError) as e:
             print(f"[EXTRACTOR] Failed to insert fact: {e}", flush=True)
 

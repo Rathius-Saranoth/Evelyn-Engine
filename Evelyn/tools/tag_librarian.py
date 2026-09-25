@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-24 19:10:10
+# date modified: 2026-09-24 20:08:10
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -1288,6 +1288,82 @@ def audit_document_tags(
     return modified, new_content, details
 
 
+def audit_single_fact_tags(entry: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
+    """Derive a memory fact's subjects and align them to the vocabulary.
+
+    The memory half of the `000.006.187` tag reset. That migration cleared every tag in memory so
+    the vocabulary could be regenerated from the standard; `000.006.186` did the same to the vault
+    *and* reset each document's audit timestamp, so the vault re-entered the semantic queue and
+    has been draining since. Memory was left with no way back, and 10,033 facts have been
+    invisible to tag retrieval ever since.
+
+    Deliberately the same machinery as the vault pass rather than a second implementation: a fact
+    is a short document. `classify_document_subjects` asks a model only what the text is *about*
+    — never showing it the registry, so it cannot imitate existing shapes — and then aligns the
+    answer deterministically, applying only terms the vocabulary already holds and holding the
+    rest back for review.
+
+    Only terms that matched are written. An unmatched one becomes a `tag_admission` proposal
+    naming this entry, so approval can put it back (`backfill_admitted_term`) — which is the same
+    contract new facts have had since v000.006.227, applied to the backlog.
+
+    Args:
+        entry: A live context entry, as returned by `fetch_next_entries_for_tag_audit`.
+        dry_run: Report what would change without writing.
+
+    Returns:
+        dict[str, Any]: `id`, `applied`, `proposed`, and `status`.
+    """
+    from Evelyn.tools import memory_db
+
+    entry_id = int(entry["id"])
+    observation = str(entry.get("observation") or "").strip()
+    if not observation:
+        if not dry_run:
+            memory_db.mark_entry_tag_audited(entry_id)
+        return {"id": entry_id, "applied": [], "proposed": [], "held_back": [], "status": "empty"}
+
+    existing = [
+        t for t in (normalize_tag_format(x) for x in str(entry.get("tags") or "").split(","))
+        if t
+    ]
+    title = f"{entry.get('subject') or ''} — {entry.get('category') or ''}".strip(" —")
+
+    try:
+        applied, proposals = classify_document_subjects(
+            body=observation, gist="", title=title, existing=existing
+        )
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
+        logger.warning("[TAG LIBRARIAN] Fact #%s classification failed: %s", entry_id, exc)
+        return {"id": entry_id, "applied": [], "proposed": [], "held_back": [], "status": "error"}
+
+    final = list(dict.fromkeys([*existing, *applied]))
+    if dry_run:
+        return {"id": entry_id, "applied": final, "proposed": [], "held_back": list(proposals), "status": "dry_run"}
+
+    proposed: list[str] = []
+    if proposals:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            proposed = propose_tag_admission(
+                proposals,
+                origin=f"memory fact #{entry_id}",
+                reason="Subject named by a memory fact but not in the controlled vocabulary.",
+                source_ids=[entry_id],
+            )
+
+    memory_db.mark_entry_tag_audited(entry_id, tags=", ".join(final) if final else None)
+    return {
+        "id": entry_id,
+        "applied": final,
+        "proposed": proposed,
+        # Everything classification could not match, raised or not. A caller draining a backlog
+        # needs this: past the pending cap no proposal is written, and the fact is stamped
+        # regardless, so the terms would otherwise be gone with the fact marked done.
+        "held_back": list(proposals),
+        "status": "tagged" if final else "no_match",
+    }
+
+
 def audit_single_document_semantic(
     doc_path: str | None = None,
     vault_root: str | None = None,
@@ -1635,6 +1711,82 @@ TAG_ADMISSION_PROPOSAL = "tag_admission"
 TAG_ADMISSION_MAX_PENDING = 200
 
 
+def withhold_unregistered_tags(
+    entry_id: int,
+    tags: list[str],
+    origin: str,
+    reason: str,
+) -> list[str]:
+    """Propose the tags the vocabulary does not hold, and return the ones the entry keeps.
+
+    §6.1 says an unregistered term is a proposal, not a silent addition. Memory writers stored
+    it on the fact anyway and proposed it in parallel, so the vocabulary and the corpus drifted:
+    127 terms accumulated that way and needed a hand curation pass to reconcile. The vault side
+    already withholds — `reconcile_subjects` applies only what it can match — so this closes the
+    memory half.
+
+    **Nothing is dropped silently.** A term is withheld only once a pending proposal covers it,
+    which includes one raised earlier by another fact. If the queue is at
+    `TAG_ADMISSION_MAX_PENDING`, or the insert failed, the term is kept on the entry exactly as
+    before: an unreviewed tag is untidy, a vanished one is unrecoverable.
+
+    Call this *after* the row exists, so the proposal can record which entry wanted the term and
+    approval can put it back (`backfill_admitted_term`).
+
+    Args:
+        entry_id: The memory entry the tags belong to.
+        tags: Its tags, already normalized and alias-resolved.
+        origin: Where the tags came from, shown to the reviewer.
+        reason: Why the term was requested, shown to the reviewer.
+
+    Returns:
+        list[str]: The tags to store, in their original order.
+    """
+    from Evelyn.tools import memory_db
+
+    if not tags:
+        return []
+
+    # A container word is dropped outright rather than stored or proposed. The "never drop"
+    # guard below protects information; `work` and `pets` carry none, which is the definition
+    # of the list they are on. Keeping them is how they reached 17 memory facts.
+    containers = [t for t in tags if is_umbrella_term(t)]
+    if containers:
+        logger.info(
+            "[TAG LIBRARIAN] Dropped container word(s) from %s: %s",
+            origin, ", ".join(containers),
+        )
+        tags = [t for t in tags if not is_umbrella_term(t)]
+
+    _admitted, unregistered = taxonomy_db.partition_by_admission(tags)
+    if not unregistered:
+        return list(tags)
+
+    propose_tag_admission(unregistered, origin=origin, reason=reason, source_ids=[entry_id])
+
+    if not getattr(cfg, "TAG_WITHHOLD_UNREGISTERED", False):
+        return list(tags)
+
+    try:
+        covered = {
+            (prop.get("topic") or "").strip()
+            for prop in memory_db.get_pending_proposals(TAG_ADMISSION_PROPOSAL)
+        }
+    except (sqlite3.Error, OSError) as exc:
+        # Cannot prove a proposal covers anything, so withhold nothing.
+        logger.warning("[TAG LIBRARIAN] Could not confirm pending proposals; keeping tags: %s", exc)
+        return list(tags)
+
+    kept = [t for t in tags if t not in covered]
+    held = [t for t in tags if t in covered]
+    if held:
+        logger.info(
+            "[TAG LIBRARIAN] Withheld %d unregistered tag(s) from %s pending review: %s",
+            len(held), origin, ", ".join(held),
+        )
+    return kept
+
+
 def propose_tag_admission(
     terms: list[str], origin: str = "", reason: str = "", source_ids: list[int] | None = None
 ) -> list[str]:
@@ -1666,7 +1818,10 @@ def propose_tag_admission(
     from Evelyn.tools import memory_db
 
     _, unregistered = taxonomy_db.partition_by_admission(
-        [t for t in (normalize_tag_format(str(t)) for t in terms) if t and not is_excluded_tag(t)]
+        [
+            t for t in (normalize_tag_format(str(t)) for t in terms)
+            if t and not is_excluded_tag(t) and not is_umbrella_term(t)
+        ]
     )
     if not unregistered:
         return []
@@ -1751,7 +1906,10 @@ def admit_proposed_term(term: str, category: str = "") -> bool:
     clean = normalize_tag_format(term)
     if not clean:
         return False
-    resolved = category or (clean.split("/")[0] if "/" in clean else "")
+    # No derivation from the prefix: `motif/storm` does not need a category saying `motif`.
+    # That auto-fill put a restatement in 96 of 700 rows and made the column read as a facet
+    # placeholder. An uncategorised term stays uncategorised until a reviewer groups it.
+    resolved = category
     taxonomy_db.upsert_master_tag(
         clean, category=resolved, description="Admitted through review."
     )

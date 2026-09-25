@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-24 19:10:10
+# date modified: 2026-09-24 19:45:25
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -726,6 +726,14 @@ FACT_EXTRACTION_START_ID = 0
 # Set to a specific model name only to use a different model for extraction.
 # Independent from SUMMARY_MODEL_OVERRIDE — the two tasks can be configured separately.
 FACT_EXTRACTION_MODEL_OVERRIDE = "default"
+
+# Withhold a tag the controlled vocabulary does not hold until review admits it (§6.1).
+# Storing it anyway is how 127 unregistered terms accumulated on memory facts unnoticed and
+# needed a curation pass to clear. Withholding is only safe because approval can now put an
+# admitted term back onto the facts that wanted it (`backfill_admitted_term`, v000.006.216).
+# A term is never dropped silently: it is withheld only once a pending proposal covers it, and
+# stored as before when the queue is full or the proposal could not be written.
+TAG_WITHHOLD_UNREGISTERED = True
 
 # Container words — the folder headings a flat vocabulary removes. They match so much that
 # they narrow nothing, so they may never be proposed for admission however often a document or

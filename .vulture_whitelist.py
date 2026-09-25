@@ -138,3 +138,11 @@ _.probe_collection_health
 # scripts/ is outside vulture's scan paths. The read side, get_related_terms(), is wired into
 # /api/taxonomy/vocabulary and needs no entry here.
 _.record_relation
+
+# The memory tag backfill (B3): its only caller is scripts/backfill_memory_tags.py, a one-time
+# foreground drain over the facts the 000.006.187 reset left untagged. Not a scheduled pass —
+# every current writer tags what it writes — so there is no in-scope consumer to point at.
+# AGENTS.md §11 category 1 — external script consumers.
+_.fetch_next_entries_for_tag_audit
+_.count_entries_awaiting_tag_audit
+_.audit_single_fact_tags

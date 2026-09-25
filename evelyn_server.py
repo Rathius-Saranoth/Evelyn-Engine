@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-24 18:14:27
+# date modified: 2026-09-24 20:08:10
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6120,9 +6120,12 @@ async def get_taxonomy_vocabulary(
         counts: dict[str, int] = {}
         for r in rows:
             counts[(r.get("category") or "").strip()] = counts.get((r.get("category") or "").strip(), 0) + 1
+        # Heaviest first. Alphabetical put `aesthetics-culture-language` (27) above
+        # `reference` (167) in a list of twenty, so the groups a term is most likely to join
+        # were the ones furthest down it.
         categories = sorted(
             ({"name": k, "count": v} for k, v in counts.items() if k),
-            key=lambda c: c["name"],
+            key=lambda c: (-c["count"], c["name"]),
         )
 
         similar: list[dict[str, Any]] = []
@@ -6562,7 +6565,7 @@ async def action_proposal(
                         child_ids = memory_db.split_entry(source_id, child_entries)
                         # Now the children exist, so an unregistered term can be proposed
                         # against the rows that actually carry it and backfilled on approval.
-                        from Evelyn.tools.tag_librarian import propose_tag_admission
+                        from Evelyn.tools.tag_librarian import withhold_unregistered_tags
 
                         for child, cid in zip(child_entries, child_ids or [], strict=False):
                             tags = [
@@ -6573,13 +6576,15 @@ async def action_proposal(
                             if not tags:
                                 continue
                             with contextlib.suppress(sqlite3.Error, OSError):
-                                propose_tag_admission(
+                                kept = withhold_unregistered_tags(
+                                    cid,
                                     tags,
                                     origin=f"split fact ({child.get('category', '')})",
                                     reason="Tag proposed by a fact split but not in the "
                                            "controlled vocabulary.",
-                                    source_ids=[cid],
                                 )
+                                if kept != tags:
+                                    memory_db.update_entry(cid, tags=", ".join(kept))
                 memory_db.apply_proposal(id)
             elif prop["type"] in ("merge", "supersede"):
                 memory_db.apply_fact_merge(
