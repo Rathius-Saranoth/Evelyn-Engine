@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # curate_tag_relations.py
 # date created: 2026-09-23 19:30:00
-# date modified: 2026-09-23 19:50:26
+# date modified: 2026-09-25 18:23:56
 # tags: #taxonomy, #relations, #curation, #vocabulary
 
 """Propose and record associative (`RT`) relations between vocabulary terms.
@@ -15,6 +15,17 @@ co-occurrence, with two filters learned from the data: a pair must appear on at 
 `--min-docs` documents, and across at least `--min-areas` independent parts of the corpus.
 Without the second filter a single ten-tag appliance manual produces forty-five "relations"
 that are really one document's tag list.
+
+Candidates are then split by whether both terms sit in the same curated category. That is a
+prior a person made, and a better one than lift: two terms someone deliberately filed
+together are likely related, and two filed apart need the argument made. Measured on the 153
+clean candidates it splits 102/51, and the spurious pairs concentrate in the second bucket.
+
+A third filter is not statistical. Facet values co-occur with subjects by construction —
+documents about ttrpg do tend to be profiles — so lift ranks `ttrpg:type/profile` highly
+while saying nothing about an association between subjects, which is the only thing an `RT`
+relation may assert (§6.4). Both sides of a candidate must be subjects
+(`tag_librarian.is_subject_term`, the same guard the subject pass uses).
 
 Usage:
     python scripts/curate_tag_relations.py --report
@@ -32,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import evelyn_config as cfg
 from Evelyn.tools import taxonomy_db
+from Evelyn.tools.tag_librarian import is_subject_term
 
 
 def _corpus() -> list[tuple[str, set[str]]]:
@@ -63,6 +75,26 @@ def _corpus() -> list[tuple[str, set[str]]]:
     return out
 
 
+def _categories() -> dict[str, str]:
+    """Each registered term's curated category, for the co-membership split."""
+    return {
+        str(t["tag"]): str(t.get("category") or "").strip()
+        for t in taxonomy_db.get_master_tags()
+    }
+
+
+def _print_bucket(title: str, note: str, rows: list, labels: dict[tuple[str, str], str]) -> None:
+    """One ranked section, with the category that placed it here."""
+    print(f"\n{title} — {len(rows)}")
+    print(f"  {note}\n")
+    if not rows:
+        print("  (none)")
+        return
+    print(f"{'lift':>6} {'docs':>5} {'areas':>6}  {'candidate':<44} category")
+    for lift, count, area_count, a, b in rows:
+        print(f"{lift:6.1f} {count:5} {area_count:6}  {a + ':' + b:<44} {labels[(a, b)]}")
+
+
 def report(min_docs: int, min_areas: int, min_lift: float, limit: int) -> None:
     docs = _corpus()
     n = len(docs)
@@ -81,21 +113,55 @@ def report(min_docs: int, min_areas: int, min_lift: float, limit: int) -> None:
         existing.add(tuple(sorted((a, b))))
 
     rows = []
+    facet_pairs = 0
     for (a, b), count in pair.items():
         if count < min_docs or len(areas[(a, b)]) < min_areas:
             continue
         lift = (count / n) / ((single[a] / n) * (single[b] / n))
         if lift < min_lift or (a, b) in existing:
             continue
+        if not (is_subject_term(a) and is_subject_term(b)):
+            # A statement about document class, not about subjects. Counted after the lift
+            # filter so the number reports what was removed from the list, not every facet
+            # pair in the corpus.
+            facet_pairs += 1
+            continue
         rows.append((lift, count, len(areas[(a, b)]), a, b))
     rows.sort(reverse=True)
 
     print(f"Corpus: {n} tagged documents across both substrates")
     print(f"Filters: >= {min_docs} documents, >= {min_areas} independent areas, lift >= {min_lift}\n")
-    print(f"{'lift':>6} {'docs':>5} {'areas':>6}  candidate")
-    for lift, count, area_count, a, b in rows[:limit]:
-        print(f"{lift:6.1f} {count:5} {area_count:6}  {a}:{b}")
-    print(f"\n{len(rows)} candidates. Review each one, then:")
+    # The 603 curated category groupings are a human judgement about what belongs with
+    # what. Lift rediscovers association statistically and has no such judgement, so it
+    # cannot tell `cpap:sleep` from `cat:sleep` — one is a relation, the other is where the
+    # cat sleeps. Splitting on co-membership puts the second kind where it gets read
+    # properly instead of scrolling past in one undifferentiated list.
+    categories = _categories()
+    same: list = []
+    cross: list = []
+    labels: dict[tuple[str, str], str] = {}
+    for row in rows[:limit]:
+        a, b = row[3], row[4]
+        ca, cb = categories.get(a, ""), categories.get(b, "")
+        if ca and ca == cb:
+            labels[(a, b)] = ca
+            same.append(row)
+        else:
+            labels[(a, b)] = f"{ca or '?'} | {cb or '?'}"
+            cross.append(row)
+
+    _print_bucket(
+        "SAME CATEGORY", "Filed together by a person. Likely real — review fast.", same, labels
+    )
+    _print_bucket(
+        "CROSS CATEGORY",
+        "Filed apart. The argument has to be made — this is where co-occurrence misleads.",
+        cross, labels,
+    )
+
+    if facet_pairs:
+        print(f"\n{facet_pairs} facet pair(s) excluded — a facet is not a subject (§3.4, §6.4).")
+    print(f"\n{len(rows)} candidates ({len(same)} same-category, {len(cross)} cross). Review each one, then:")
     print("  --record 'a:b'                 for an associative pair (neither is broader)")
     print("  --record 'a:b' --kind narrower  when a is a kind of b (order matters)")
     print("  neither, if they are interchangeable — that is an alias (§6.2), not a relation")

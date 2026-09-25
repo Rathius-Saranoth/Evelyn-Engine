@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 18:03:45
+date modified: 2026-09-25 18:23:56
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,65 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.236] - 2026-09-25 — *A Person Already Sorted These*
+
+Relation candidates arrive split by the categories a person curated, not as one list.
+
+### Added
+
+- **Category co-membership as a review prior (F6).** `scripts/curate_tag_relations.py`
+  ranks by co-occurrence lift, which is a statistical rediscovery of association with no
+  judgement in it — it cannot separate `cpap:sleep` from `cat:sleep`, the same co-occurrence
+  where one is a relation and the other is where the cat sleeps. The 603 curated category
+  groupings from Pass 1 *are* that judgement and were already paid for, so candidates now
+  print in two sections: **same category** (filed together by a person — review fast) and
+  **cross category** (filed apart — the argument has to be made). On the live corpus the 153
+  clean candidates split **102 / 51**, and the spurious pairs concentrate in the second.
+  The category that placed each pair is shown, so a reviewer who disagrees with the bucket
+  can see why it is there.
+- **It re-orders, it never filters.** Both headings print even when a bucket is empty, and
+  the summary counts both — an absent heading reads as "no such candidates", which is the
+  failure mode this area keeps producing.
+
+### Tests
+
+- `Evelyn/tests/test_relation_candidates_are_ranked.py` — 5 tests over a synthetic
+  vocabulary, each red-checked separately against a no-split version, a `"" == ""` version
+  and a filtering version. The blank-category test was **written vacuous first**: its pair
+  never cleared the lift filter, so it passed against the exact bug it was written for.
+  Rewritten with a pair that reaches the split, then re-verified red.
+
+## [000.006.235] - 2026-09-25 — *Class Is Not Association*
+
+The relation generator proposed facets as if they were subjects.
+
+### Fixed
+
+- **A relation candidate must be two subjects (C1).** `scripts/curate_tag_relations.py`
+  ranks pairs by co-occurrence lift, which is the right measure for association and the wrong
+  one for this: a facet value co-occurs with subjects *by construction*. Documents about a
+  game system really do tend to be profiles, so `<subject>:type/profile` scored highly while
+  asserting nothing an `RT` relation is allowed to mean (§6.4). **14 of 167 candidates on the
+  live corpus** — the same category error the subject pass has guarded since `000.006.219`,
+  in a second place. Candidates now drop to **153**, and the excluded count is printed rather
+  than the rows vanishing silently.
+
+### Changed
+
+- **The facet guard is one predicate with two callers.** `reconcile_subjects`' inner
+  `_is_subject()` closure is promoted to `tag_librarian.is_subject_term()`, with
+  `FACET_PREFIXES` moving there too — `tag_synonym` held a second copy of the same tuple and
+  imports it from `tag_librarian` already, so the constant now sits at the base of that
+  dependency rather than being restated (AGENTS §8). No behaviour change to the subject pass.
+
+### Tests
+
+- `Evelyn/tests/test_relation_candidates_are_subjects.py` — 8 tests driving the real
+  `report()` over a synthetic corpus. Verified red twice and separately: with the guard
+  neutralised, and with the prefix list restated in the script instead of reused. The second
+  is the case worth having — a partial restatement (`type/`, `motif/`) passes the obvious
+  assertions and fails only on `setting/`, `event/`, and the reuse check.
 
 ## [000.006.234] - 2026-09-25 — *What No Means*
 

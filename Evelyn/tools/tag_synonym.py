@@ -1,6 +1,6 @@
 # tag_synonym.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-22 20:05:07
+# date modified: 2026-09-25 18:15:22
 # tags: #taxonomy, #synonyms, #vocabulary, #uf, #clustering
 
 """tag_synonym.py — Equivalence detection for the controlled vocabulary (taxonomy §6.2).
@@ -48,7 +48,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 import evelyn_config as cfg
-from Evelyn.tools.tag_librarian import is_excluded_tag
+from Evelyn.tools.tag_librarian import FACET_PREFIXES, is_excluded_tag
 
 
 def skeleton(tag: str) -> str:
@@ -497,10 +497,6 @@ def one_off_phrase_tags(
         and tag.count("-") >= min_words - 1
         and uses <= max_uses
     )
-
-# Facet prefixes keep exactly one level: the prefix names which axis a term belongs to,
-# which flat atoms cannot express. Everything else decomposes (§3.3).
-FACET_PREFIXES = ("type/", "motif/", "setting/", "event/")
 
 
 def decompose_to_atoms(tag: str) -> list[str]:

@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-25 07:08:56
+# date modified: 2026-09-25 18:15:22
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -419,6 +419,35 @@ SUBJECT_MARGIN_GUARD = getattr(cfg, "TAG_SUBJECT_MARGIN_GUARD", 0.02)
 SUBJECT_FUZZY_CUTOFF = getattr(cfg, "TAG_SUBJECT_FUZZY_CUTOFF", 92)
 SUBJECT_SUGGESTION_HEADROOM = 5    # new terms a single document may contribute
 
+# Facet prefixes keep exactly one level: the prefix names which axis a term belongs to,
+# which flat atoms cannot express. Everything else decomposes (§3.3). Defined here rather
+# than in `tag_synonym`, which imports from this module.
+FACET_PREFIXES = ("type/", "motif/", "setting/", "event/")
+
+
+def is_subject_term(term: str) -> bool:
+    """A facet is not a subject, so no subject-level pass may resolve to one.
+
+    The registry holds facet values as terms — `type/reference`, `motif/storm` — so a
+    phrase like "reference" looks them up successfully. Applying the result puts a second
+    form-axis tag on a document that §4 already gave one, undoing the profile pass that ran
+    immediately before. Two Reference Library chapters gained `type/guide` beside
+    `type/reference` this way. What facet a document carries is decided by its class (§4),
+    never by what it is about.
+
+    The same category error appears wherever subjects are compared to one another. The
+    relation generator ranked `ttrpg:type/profile` highly because documents about ttrpg do
+    tend to be profiles — a true statement about document *class*, and not an association
+    between subjects, which is the only thing an `RT` relation may assert (§6.4).
+
+    Args:
+        term: A registered term or a phrase already normalised to tag form.
+
+    Returns:
+        bool: True when the term names a subject rather than a facet value.
+    """
+    return not term.startswith(FACET_PREFIXES)
+
 
 def normalize_subject_phrase(phrase: str) -> str:
     """Format a natural-language subject phrase as a tag, without decomposing it.
@@ -616,18 +645,6 @@ def reconcile_subjects(
     proposals: list[str] = []
     surfaces = _registry_surface_forms()
 
-    def _is_subject(term: str) -> bool:
-        """A facet is not a subject, so this pass may never resolve to one.
-
-        The registry holds facet values as terms — `type/reference`, `motif/storm` — so a
-        phrase like "reference" looks them up successfully. Applying the result puts a second
-        form-axis tag on a document that §4 already gave one, undoing the profile pass that
-        ran immediately before. Two Reference Library chapters gained `type/guide` beside
-        `type/reference` this way. What facet a document carries is decided by its class
-        (§4), never by what it is about.
-        """
-        return not term.startswith(("type/", "motif/", "setting/", "event/"))
-
     for phrase in phrases:
         candidate = normalize_subject_phrase(phrase)
         if not candidate or is_excluded_tag(candidate) or candidate in known:
@@ -654,7 +671,7 @@ def reconcile_subjects(
             ]
             if parts:
                 for term in parts:
-                    if term not in known and term not in applied and _is_subject(term):
+                    if term not in known and term not in applied and is_subject_term(term):
                         applied.append(term)
                 continue
 
@@ -670,7 +687,7 @@ def reconcile_subjects(
                 match = None
 
         if match:
-            if match not in known and match not in applied and _is_subject(match):
+            if match not in known and match not in applied and is_subject_term(match):
                 applied.append(match)
         elif candidate not in proposals and not is_umbrella_term(candidate):
             proposals.append(candidate)
