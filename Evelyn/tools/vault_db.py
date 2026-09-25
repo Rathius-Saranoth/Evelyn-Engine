@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-23 19:50:26
+# date modified: 2026-09-25 17:33:15
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -458,15 +458,15 @@ def fetch_next_documents_for_semantic_tag_audit(
 
     where_clauses = [
         "(last_semantic_tag_audit IS NULL OR last_semantic_tag_audit = 0 OR mtime > last_semantic_tag_audit OR last_semantic_tag_audit <= ?)",
-        "path NOT LIKE 'Templates/%'",
-        "path NOT LIKE 'templates/%'",
-        "path NOT LIKE 'Attachments/%'",
-        "path NOT LIKE 'attachments/%'",
-        "path NOT LIKE 'Bases/%'",
-        "path NOT LIKE 'bases/%'",
-        "path NOT LIKE '.%'",
     ]
     params: list[Any] = [cutoff]
+
+    # Excluded subtrees come from config rather than being spelled out here, once per case
+    # variant. The list is the single place that answers "what does the librarian not touch",
+    # and `Reference Library/` joining it was a decision with a reason — see the config comment.
+    for prefix in getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_PREFIXES", []):
+        where_clauses.append("LOWER(path) NOT LIKE ?")
+        params.append(f"{prefix.lower()}%")
 
     if excluded_paths:
         placeholders = ", ".join(["?"] * len(excluded_paths))

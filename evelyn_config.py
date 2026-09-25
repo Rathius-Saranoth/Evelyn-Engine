@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-25 07:20:52
+# date modified: 2026-09-25 17:33:15
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1111,6 +1111,28 @@ TAG_LIBRARIAN_COOLDOWN_SECONDS = 86400  # 24 hours minimum before re-evaluating 
 # Specific document relative paths excluded from Tag Librarian auditing
 TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
     "Projects/Evelyn Engine/README.md",
+]
+
+# Whole subtrees excluded from Tag Librarian auditing. Matched case-insensitively as prefixes.
+#
+# `Reference Library/` is here by decision (2026-09-25), not by oversight. It is third-party
+# book and manual text, and admission proposals raised from it describe *someone else's*
+# subject matter: `speculative-decoding`, `evol-instruct`, `reverse-neutralization`. At roughly
+# three new terms per note across 2,713 unaudited notes it implied ~8,000 candidates against a
+# 700-term curated vocabulary, and it filled the 200-slot admission queue to exactly 200/200 in
+# a single day — which blocks *every* producer, since the cap is global. Memory extraction,
+# fact merges and personal notes were all refused for two hours before anyone noticed.
+#
+# Excluding it costs almost nothing: all 2,838 reference notes already carry tags from
+# ingestion, and only 243 had ever been through the semantic pass, which was refining tags
+# rather than supplying them. They stay searchable and stay tagged; they simply no longer
+# nominate vocabulary. Tag them by hand if one ever needs it.
+TAG_LIBRARIAN_EXCLUDED_PREFIXES = [
+    "Reference Library/",
+    "Templates/",
+    "Attachments/",
+    "Bases/",
+    ".",
 ]
 
 # Protected tag regexes (never modified, removed, or normalized)

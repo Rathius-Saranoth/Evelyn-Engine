@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 07:20:52
+date modified: 2026-09-25 17:33:15
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,43 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.233] - 2026-09-25 — *Not Our Vocabulary*
+
+The admission queue filled to 200/200 in a day, every slot from a third-party textbook.
+
+### Changed
+- **`Reference Library/` is excluded from Tag Librarian auditing** (user's decision,
+  2026-09-25). It is third-party book and manual text, and the terms it nominated described
+  *someone else's* subject matter — `speculative-decoding`, `evol-instruct`,
+  `reverse-neutralization`, `adapter-tuning`. At roughly three new terms per note across 2,713
+  unaudited notes it implied **~8,000 candidates against a 700-term curated vocabulary**.
+  - **The 200-slot cap is global, not per-producer.** Once full, `propose_tag_admission()`
+    returns `[]` for everything: memory extraction, fact merges and personal vault notes went
+    silent together, and withholding then leaves unregistered terms *on* facts because nothing
+    pending covers them. It had been refusing producers since 15:30 — 22 refusals in two hours —
+    and a full queue logs a warning and otherwise looks like quiet.
+  - **The exclusion costs almost nothing.** All 2,838 reference notes already carry tags from
+    ingestion; the semantic pass had reached only 243, and was refining tags rather than
+    supplying them. They stay tagged, stay searchable, and simply no longer nominate vocabulary.
+- **`TAG_LIBRARIAN_EXCLUDED_PREFIXES`** — excluded subtrees move from the audit's SQL, where they
+  were spelled out twice each for case, into config beside the rest of the librarian's settings.
+  Matching is now case-insensitive in one clause per prefix. Config is the single place that
+  answers "what does the librarian not touch", which matters more now that one entry on the list
+  is a decision rather than an obvious skip.
+
+### Fixed
+- The 200 queued Reference Library proposals were **deleted rather than rejected**. Since
+  `.231` a rejection is permanent and scoped to the *term*, so rejecting `semantic-similarity`
+  because a textbook asked for it would have silently suppressed a personal note that genuinely
+  meant it later. These should never have been raised; deleting leaves no record to suppress
+  anything. Backup in `scratch/` if one is ever wanted.
+
+### Testing
+- `Evelyn/tests/test_librarian_excluded_prefixes.py` — pins the decision, checks the four
+  previously-hardcoded subtrees survived the move, asserts case-insensitivity has not
+  regressed into duplicated clauses, and verifies end-to-end that no excluded subtree reaches
+  the audit queue. Config is only a list until the query reads it.
 
 ## [000.006.232] - 2026-09-25 — *Let It Finish*
 
