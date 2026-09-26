@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # check_code_hygiene.py
 # date created: 2026-09-20 07:40:23
-# date modified: 2026-09-20 07:41:52
+# date modified: 2026-09-25 20:22:37
 # tags:
 
 # scripts/check_code_hygiene.py
@@ -94,6 +94,11 @@ def main() -> int:
         help="Minimum confidence threshold for Vulture (default: 60).",
     )
     parser.add_argument(
+        "--skip-syntax",
+        action="store_true",
+        help="Skip the syntax compile stage.",
+    )
+    parser.add_argument(
         "--skip-ruff",
         action="store_true",
         help="Skip Ruff linting stage.",
@@ -126,6 +131,25 @@ def main() -> int:
     vulture_bin = str(VENV_VULTURE) if VENV_VULTURE.exists() else "vulture"
 
     stages_passed = []
+
+    # 0. Syntax Stage — every file the interpreter will import must compile.
+    #
+    # This exists because the gate once passed `evelyn_server.py` while it held an `await`
+    # inside a sync helper, which is a SyntaxError rather than a runtime one: the process died
+    # at import and systemd crash-looped it. Ruff has a rule for that exact mistake (PLE1142)
+    # and the repo's `select` list does not enable it — but the deeper point is that any rule
+    # list is a subset, while `compile()` is the interpreter's own answer. A gate that passes
+    # a file Python refuses to parse is not a gate, whatever else it checks.
+    if not args.skip_syntax:
+        syntax_cmd = [
+            sys.executable, "-c",
+            "import compileall, sys; "
+            "ok = compileall.compile_dir('.', quiet=1, force=True, "
+            "rx=__import__('re').compile(r'(venv|node_modules|\\.git|__pycache__|archive)')); "
+            "sys.exit(0 if ok else 1)",
+        ]
+        passed = run_stage("0. Syntax Verification (every file compiles)", syntax_cmd)
+        stages_passed.append(("Syntax Compile", passed))
 
     # 1. Ruff Lint Stage
     if not args.skip_ruff:

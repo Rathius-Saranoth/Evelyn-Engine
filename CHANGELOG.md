@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 20:15:28
+date modified: 2026-09-25 20:22:37
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,34 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.241] - 2026-09-25 — *Green Is Not Compiles*
+
+The hygiene gate passed a file Python refuses to parse.
+
+### Fixed
+
+- **`evelyn_server.py` held an `await` inside a sync helper.** `_execute_approval` is a
+  synchronous nested function already dispatched to a thread, so `000.006.239`'s vault
+  backfill call was a **`SyntaxError`, not a runtime error** — the process died at import and
+  systemd crash-looped it every five seconds for two minutes, with the chat UI down
+  throughout. Fixed to a direct call and folded into `.239`'s commit, so the commit that
+  introduces the call is the one that boots.
+
+### Added
+
+- **Stage 0 of the hygiene gate: every file must compile.** Ruff has a rule for this exact
+  mistake (`PLE1142`) and this repo's `select` list does not enable it — but enabling one more
+  rule is the narrow reading. **Any rule list is a subset of what the interpreter rejects,
+  while `compile()` is the interpreter's own answer.** Verified against the original defect:
+  stage 0 fails on it while Ruff still reports the same file clean.
+
+### Changed
+
+- **AGENTS §11** now states five stages rather than three, and adds two rules this incident
+  earned: *a green Ruff is not proof a file will import*, and *verify the build boots before
+  committing* — a syntax check run earlier in a session does not cover a later edit, and a
+  commit that cannot boot is worse than an uncommitted fix.
 
 ## [000.006.240] - 2026-09-25 — *A Slash Is An Axis*
 

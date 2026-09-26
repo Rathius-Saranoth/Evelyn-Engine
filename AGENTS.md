@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-25 07:20:52
+date modified: 2026-09-25 20:22:37
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -105,7 +105,9 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
 
 ## 11. Deterministic Code Hygiene & Wiring Verification Gate
 - **Deterministic Gates vs LLM Reviews**: Large language models suffer from semantic plausibility bias and attention dilution across large files. Never rely on natural language agent reviews to verify whether configuration constants, tool bindings, or functions are actively executed.
-- **Mandatory Hygiene Check**: After completing any functional change or refactor, agents must run `PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py` and confirm all 3 deterministic stages (Ruff static linting, AST config-wiring pytest, and Vulture compiler-level dead code audit) exit with `0`.
+- **Mandatory Hygiene Check**: After completing any functional change or refactor, agents must run `PYTHONPATH=. /home/rathius/evelyn/venv/bin/python scripts/check_code_hygiene.py` and confirm all **5** deterministic stages (syntax compile, Ruff static linting, AST config-wiring pytest, Vulture compiler-level dead code audit, privacy boundary scan) exit with `0`.
+- **A lint pass is not a syntax check.** Stage 0 compiles every file because a rule list is always a subset of what the interpreter rejects. On 2026-09-25 the gate passed `evelyn_server.py` while it held an `await` inside a sync helper: a `SyntaxError`, so the process died at import and systemd crash-looped it for two minutes. Ruff has a rule for exactly that (`PLE1142`) and this repo's `select` list does not enable it. **Never treat a green Ruff as proof a file will import.**
+- **Verify the build boots before committing, and check the file you just edited.** A syntax check run earlier in the session does not cover a later edit. Where a change touches a service entrypoint, restart through `scripts/restart_evelyn_services.sh` and confirm `/status` answers *before* the commit — a commit that cannot boot is worse than an uncommitted fix.
 - **Two-File Contract Auditing**: When modifying or adding producer-consumer relationships (e.g. `evelyn_config.py` <-> `chroma_rag.py`, `evelyn_tools.py` <-> `evelyn_server.py`), audit only the isolated diff pair between caller and callee to prove end-to-end wiring.
 - **Whitelist Discipline**: Dynamic framework hooks (FastAPI route entrypoints, Pydantic response models) belong in `.vulture_whitelist.py`. Whitelisting internal helper functions or unused application logic to mask dead code is strictly forbidden.
 - **Triage Before Deletion Protocol (60% Confidence Standard)**: Vulture runs at 60% confidence to aggressively detect uncalled functions and unused variables. However, agents must **NEVER** blindly delete or whitelist symbols simply because Vulture flagged them. Before modifying code to resolve a Vulture finding, agents must classify the symbol into one of four categories:
