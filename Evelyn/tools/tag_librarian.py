@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-26 07:45:55
+# date modified: 2026-09-26 08:38:51
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -2290,6 +2290,21 @@ def retire_term(term: str, replacement: str = "") -> bool:
     clean = normalize_tag_format(term)
     if not clean:
         return False
+
+    # Refuse before anything is written. `delete_master_tag` refuses a base term on its own,
+    # but this function ignored its result and returned True regardless — so a retirement
+    # would have recorded the alias, re-pointed the relations, and then reported success over
+    # a term that is still there. The base layer is shared and tracked; the guarantee that
+    # nothing the engine does can purge it has to hold here, at the only caller that tries.
+    from Evelyn.tools import taxonomy_base
+
+    if taxonomy_base.is_base_term(clean):
+        logger.warning(
+            "[TAG LIBRARIAN] '%s' comes from the shared base vocabulary and cannot be retired.",
+            clean,
+        )
+        return False
+
     preferred = normalize_tag_format(replacement) if replacement else ""
     if preferred and preferred != clean:
         taxonomy_db.record_alias(clean, preferred, tier="reviewed")
@@ -2302,7 +2317,8 @@ def retire_term(term: str, replacement: str = "") -> bool:
         gone = taxonomy_db.delete_relations(clean)
         if gone:
             logger.info("[TAG LIBRARIAN] Removed %d relation(s) on retired term '%s'.", gone, clean)
-    taxonomy_db.delete_master_tag(clean)
+    if not taxonomy_db.delete_master_tag(clean):
+        return False
     delete_tag_from_chroma(clean)
     return True
 

@@ -1,6 +1,6 @@
 # taxonomy_db.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-24 17:52:21
+# date modified: 2026-09-26 08:38:51
 # tags: #taxonomy, #tags, #vocabulary, #authority-control, #sqlite
 
 """taxonomy_db.py — Master Tag Taxonomy registry (shared controlled vocabulary).
@@ -31,30 +31,66 @@ See also: .agents/rules/vault-tag-taxonomy.md §6 (Vocabulary Control)
 """
 
 import contextlib
+import logging
 import sqlite3
 import time
 from typing import Any
 
 from Evelyn.tools.vault_db import get_db, init_db
 
+logger = logging.getLogger("evelyn.taxonomy_db")
+
 
 def get_master_tags() -> list[dict[str, Any]]:
-    """Return every registered term with its category, description, and usage count.
+    """Return every term in the vocabulary — the shared base and the local layer together.
 
     Ordered by usage_count DESC so high-frequency terms surface first.
 
+    The two layers are merged **per field, not per row**, because they answer different
+    questions. The base says what a term is and which published authority supplied it; the
+    local table says what this corpus decided about it and how often it is used. A local row
+    for a base term is therefore an override, and an empty local field means "nothing decided
+    here" rather than "blank" — the same convention `upsert_master_tag` already uses. Without
+    that, the nightly census would write a count into a local row and, in doing so, shadow the
+    base definition with empty strings.
+
+    A base term is `protected`: it is part of a shared starting vocabulary, so going unused in
+    one person's corpus is expected and is not grounds for a retirement proposal.
+
     Returns:
-        list[dict[str, Any]]: Registered taxonomy terms.
+        list[dict[str, Any]]: Every term, each carrying `source` of `base`, `local` or both.
     """
     init_db()
     con = get_db()
     try:
-        rows = con.execute(
-            "SELECT * FROM master_tag_taxonomy ORDER BY usage_count DESC, category ASC, tag ASC"
-        ).fetchall()
+        local = {r["tag"]: dict(r) for r in con.execute("SELECT * FROM master_tag_taxonomy")}
+        try:
+            base = {r["term"]: dict(r) for r in con.execute("SELECT * FROM base_tag_taxonomy")}
+        except sqlite3.Error:
+            # The base layer is an addition; the local table is a complete vocabulary alone.
+            base = {}
     finally:
         con.close()
-    return [dict(r) for r in rows]
+
+    merged: list[dict[str, Any]] = []
+    for term in set(local) | set(base):
+        loc = local.get(term, {})
+        bas = base.get(term, {})
+        merged.append({
+            "tag": term,
+            "category": (loc.get("category") or "") or (bas.get("category") or ""),
+            "description": (loc.get("description") or "") or (bas.get("description") or ""),
+            "usage_count": int(loc.get("usage_count") or 0),
+            "created_at": loc.get("created_at") or bas.get("loaded_at"),
+            "updated_at": loc.get("updated_at") or bas.get("loaded_at"),
+            "protected": 1 if bas else int(loc.get("protected") or 0),
+            "scheme": bas.get("scheme") or "",
+            "authorized_label": bas.get("authorized_label") or "",
+            "source": ("base" if bas and not loc else "local" if loc and not bas else "both"),
+        })
+
+    merged.sort(key=lambda m: (-m["usage_count"], m["category"] or "", m["tag"]))
+    return merged
 
 
 def upsert_master_tag(tag: str, category: str = "", description: str = "",
@@ -95,19 +131,40 @@ def upsert_master_tag(tag: str, category: str = "", description: str = "",
         con.close()
 
 
-def delete_master_tag(tag: str) -> None:
-    """Remove a term from the controlled vocabulary.
+def delete_master_tag(tag: str) -> bool:
+    """Remove a term from the local vocabulary. A base term cannot be removed.
+
+    The base layer is shared and tracked; deleting from it here would only diverge this
+    machine from the file, and the next sync would put the term back. More to the point, the
+    invariant that makes the base worth having is that nothing the engine does can purge it —
+    so a retirement pass that reached a base term would quietly break the one guarantee.
 
     Args:
         tag: The term to remove.
+
+    Returns:
+        bool: True if a local row was removed; False if the term is part of the base layer.
     """
     init_db()
     con = get_db()
     try:
+        try:
+            in_base = con.execute(
+                "SELECT 1 FROM base_tag_taxonomy WHERE term = ?", (tag,)
+            ).fetchone() is not None
+        except sqlite3.Error:
+            in_base = False
+        if in_base:
+            logger.warning(
+                "[TAXONOMY] Refused to delete '%s': it comes from the shared base vocabulary.",
+                tag,
+            )
+            return False
         con.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (tag,))
         con.commit()
     finally:
         con.close()
+    return True
 
 
 def get_aliases() -> dict[str, str]:
@@ -120,9 +177,17 @@ def get_aliases() -> dict[str, str]:
     con = get_db()
     try:
         rows = con.execute("SELECT alias, canonical FROM master_tag_aliases").fetchall()
+        try:
+            base = con.execute("SELECT alias, canonical FROM base_tag_aliases").fetchall()
+        except sqlite3.Error:
+            base = []
     finally:
         con.close()
-    return {r["alias"]: r["canonical"] for r in rows}
+    # Local decisions win: an equivalence a reviewer recorded here overrides one the base
+    # shipped, because only the reviewer knows what the term means in this corpus.
+    merged = {r["alias"]: r["canonical"] for r in base}
+    merged.update({r["alias"]: r["canonical"] for r in rows})
+    return merged
 
 
 # Alias lookups sit on the hot path for every tag written anywhere in the engine, so the

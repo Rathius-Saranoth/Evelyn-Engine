@@ -1,0 +1,746 @@
+{
+ "version": "2026-09-26.1",
+ "note": "The shared base of the controlled vocabulary. Every term here is matched to a published authority, which is also what keeps this file free of anything personal: a term cannot enter it without a cataloguer somewhere having published it first. Local decisions, and all usage counts, live in the gitignored vault database - see Evelyn/tools/taxonomy_base.py.",
+ "schemes": {
+  "fast": {
+   "name": "FAST (OCLC/Library of Congress)",
+   "licence": "ODC-By 1.0"
+  },
+  "mesh": {
+   "name": "Medical Subject Headings (NLM)",
+   "licence": "Free, NLM terms of use"
+  },
+  "aat": {
+   "name": "Getty Art & Architecture Thesaurus",
+   "licence": "ODC-By 1.0"
+  },
+  "lcgft": {
+   "name": "LC Genre/Form Terms",
+   "licence": "Public domain"
+  }
+ },
+ "terms": [
+  {
+   "term": "agency",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Agency (Law)"
+  },
+  {
+   "term": "alchemy",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Alchemy"
+  },
+  {
+   "term": "anime",
+   "category": "media-music",
+   "description": "",
+   "scheme": "lcgft",
+   "authorized_label": "Anime (Motion pictures)"
+  },
+  {
+   "term": "anxiety",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Anxiety"
+  },
+  {
+   "term": "apnea",
+   "category": "sleep-rest",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Apnea"
+  },
+  {
+   "term": "archetype",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Archetype (Psychology)"
+  },
+  {
+   "term": "art",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Art"
+  },
+  {
+   "term": "astral-projection",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Astral projection"
+  },
+  {
+   "term": "augmented-reality",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Augmented reality"
+  },
+  {
+   "term": "automata",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "automata"
+  },
+  {
+   "term": "avatar",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Avatar"
+  },
+  {
+   "term": "bedding",
+   "category": "making-home-improvement",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Bedding"
+  },
+  {
+   "term": "bedtime",
+   "category": "sleep-rest",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Bedtime"
+  },
+  {
+   "term": "biology",
+   "category": "nature-science",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Biology"
+  },
+  {
+   "term": "boundaries",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "boundaries"
+  },
+  {
+   "term": "brewing",
+   "category": "domestic-life",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Brewing"
+  },
+  {
+   "term": "cello",
+   "category": "media-music",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Cello"
+  },
+  {
+   "term": "classification",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Classification"
+  },
+  {
+   "term": "coffee",
+   "category": "domestic-life",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Coffee"
+  },
+  {
+   "term": "collecting",
+   "category": "gaming-tabletop",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "collecting"
+  },
+  {
+   "term": "communication",
+   "category": "relationships",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Communication"
+  },
+  {
+   "term": "computer-vision",
+   "category": "ai-engineering",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Computer vision"
+  },
+  {
+   "term": "convolutional-neural-networks",
+   "category": "reference",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Convolutional Neural Networks"
+  },
+  {
+   "term": "corruption",
+   "category": "gaming-tabletop",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Corruption"
+  },
+  {
+   "term": "crafting",
+   "category": "making-home-improvement",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "crafting"
+  },
+  {
+   "term": "cyberpunk",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Cyberpunk (Game)"
+  },
+  {
+   "term": "cybersecurity",
+   "category": "work-civic",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "cybersecurity"
+  },
+  {
+   "term": "data-privacy",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Data privacy"
+  },
+  {
+   "term": "data-processing",
+   "category": "reference",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "data processing"
+  },
+  {
+   "term": "dehydration",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Dehydration (Physiology)"
+  },
+  {
+   "term": "deities",
+   "category": "fantasy-worldbuilding",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "deities"
+  },
+  {
+   "term": "driving",
+   "category": "domestic-life",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "driving"
+  },
+  {
+   "term": "electrical",
+   "category": "making-home-improvement",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "electrical (property)"
+  },
+  {
+   "term": "electro-swing",
+   "category": "media-music",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Electro swing (Music)"
+  },
+  {
+   "term": "electrolytes",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Electrolytes"
+  },
+  {
+   "term": "emotion",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "emotion"
+  },
+  {
+   "term": "emotional-intelligence",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Emotional intelligence"
+  },
+  {
+   "term": "employment",
+   "category": "work-civic",
+   "description": "Admitted through review.",
+   "scheme": "mesh",
+   "authorized_label": "Employment"
+  },
+  {
+   "term": "ergonomics",
+   "category": "health-body",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Ergonomics"
+  },
+  {
+   "term": "ethics",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Ethics"
+  },
+  {
+   "term": "exercise",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Exercise"
+  },
+  {
+   "term": "eyewear",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Eyewear"
+  },
+  {
+   "term": "fashion",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Fashion"
+  },
+  {
+   "term": "fiber",
+   "category": "health-body",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "fiber"
+  },
+  {
+   "term": "gardening",
+   "category": "domestic-life",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Gardening"
+  },
+  {
+   "term": "grooming",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Grooming"
+  },
+  {
+   "term": "headache",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Headache"
+  },
+  {
+   "term": "heating",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Heating"
+  },
+  {
+   "term": "heraldry",
+   "category": "genealogy-history",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Heraldry"
+  },
+  {
+   "term": "honesty",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Honesty"
+  },
+  {
+   "term": "human-computer-interaction",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Human-computer interaction"
+  },
+  {
+   "term": "illness",
+   "category": "health-body",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "illness"
+  },
+  {
+   "term": "insomnia",
+   "category": "sleep-rest",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Insomnia"
+  },
+  {
+   "term": "large-language-models",
+   "category": "ai-engineering",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Large Language Models"
+  },
+  {
+   "term": "led-lighting",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "LED lighting"
+  },
+  {
+   "term": "litrpg",
+   "category": "media-music",
+   "description": "",
+   "scheme": "lcgft",
+   "authorized_label": "LitRPG (Fiction)"
+  },
+  {
+   "term": "lo-fi",
+   "category": "media-music",
+   "description": "",
+   "scheme": "lcgft",
+   "authorized_label": "Lo-fi (Rock music)"
+  },
+  {
+   "term": "magic",
+   "category": "gaming-tabletop",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Magic"
+  },
+  {
+   "term": "marketing",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Marketing"
+  },
+  {
+   "term": "marriage",
+   "category": "relationships",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Marriage"
+  },
+  {
+   "term": "metabolism",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Metabolism"
+  },
+  {
+   "term": "migraine",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Migraine"
+  },
+  {
+   "term": "mindfulness",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Mindfulness (Psychology)"
+  },
+  {
+   "term": "minimalism",
+   "category": "domestic-life",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Minimalism (Literature)"
+  },
+  {
+   "term": "musical-compositions",
+   "category": "reference",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "musical compositions"
+  },
+  {
+   "term": "musical-notation",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Musical notation"
+  },
+  {
+   "term": "mythology",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Mythology"
+  },
+  {
+   "term": "narrative",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "narrative (artistic device)"
+  },
+  {
+   "term": "natural-language-processing",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Natural language processing (Computer science)"
+  },
+  {
+   "term": "nutrition",
+   "category": "health-body",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Nutrition"
+  },
+  {
+   "term": "performance-management",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Performance--Management"
+  },
+  {
+   "term": "philosophy",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Philosophy"
+  },
+  {
+   "term": "phishing",
+   "category": "work-civic",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Phishing"
+  },
+  {
+   "term": "physics",
+   "category": "nature-science",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Physics"
+  },
+  {
+   "term": "plumbing",
+   "category": "making-home-improvement",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Plumbing"
+  },
+  {
+   "term": "privacy",
+   "category": "ai-engineering",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Privacy"
+  },
+  {
+   "term": "product-development",
+   "category": "reference",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "product development"
+  },
+  {
+   "term": "reading",
+   "category": "media-music",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Reading"
+  },
+  {
+   "term": "recovery",
+   "category": "health-body",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "recovery (health-related concept)"
+  },
+  {
+   "term": "relaxation",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Relaxation"
+  },
+  {
+   "term": "robotics",
+   "category": "ai-engineering",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Robotics"
+  },
+  {
+   "term": "science",
+   "category": "nature-science",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Science"
+  },
+  {
+   "term": "self-expression",
+   "category": "aesthetics-culture-language",
+   "description": "Admitted through review.",
+   "scheme": "aat",
+   "authorized_label": "self-expression"
+  },
+  {
+   "term": "sentiment-analysis",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Sentiment analysis"
+  },
+  {
+   "term": "sleep",
+   "category": "sleep-rest",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Sleep"
+  },
+  {
+   "term": "smartphone",
+   "category": "reference",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Smartphone"
+  },
+  {
+   "term": "software-engineering",
+   "category": "ai-engineering",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Software engineering"
+  },
+  {
+   "term": "specifications",
+   "category": "reference",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Specifications"
+  },
+  {
+   "term": "spirituality",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Spirituality"
+  },
+  {
+   "term": "sql",
+   "category": "work-civic",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "SQL (Computer program language)"
+  },
+  {
+   "term": "storage",
+   "category": "homelab-hardware",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "storage"
+  },
+  {
+   "term": "stress",
+   "category": "health-body",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "stress"
+  },
+  {
+   "term": "stretching",
+   "category": "health-body",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "stretching"
+  },
+  {
+   "term": "sustainability",
+   "category": "nature-science",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Sustainability"
+  },
+  {
+   "term": "symbolism",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Symbolism"
+  },
+  {
+   "term": "taxonomy",
+   "category": "ai-engineering",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "taxonomy (discipline)"
+  },
+  {
+   "term": "tea",
+   "category": "domestic-life",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Tea"
+  },
+  {
+   "term": "textiles",
+   "category": "aesthetics-culture-language",
+   "description": "",
+   "scheme": "mesh",
+   "authorized_label": "Textiles"
+  },
+  {
+   "term": "trust",
+   "category": "relationships",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Trust"
+  },
+  {
+   "term": "values",
+   "category": "mind-self",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Values"
+  },
+  {
+   "term": "video-games",
+   "category": "gaming-tabletop",
+   "description": "",
+   "scheme": "fast",
+   "authorized_label": "Video games"
+  },
+  {
+   "term": "woodworking",
+   "category": "making-home-improvement",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "woodworking"
+  },
+  {
+   "term": "zoning",
+   "category": "work-civic",
+   "description": "",
+   "scheme": "aat",
+   "authorized_label": "zoning"
+  }
+ ],
+ "aliases": []
+}

@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-25 19:13:07
+date modified: 2026-09-26 08:36:04
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -359,6 +359,57 @@ sewing-measurements-list     ─┘
 ```
 
 A deleted synonym with no `UF` record will be re-minted by the next import. The alias is what makes the collapse permanent, and it doubles as a retrieval expansion for RAG.
+
+#### 6.2.1 How an equivalence is shown to a reviewer
+
+Anywhere the UI, a proposal card or a report names an equivalence, it uses the catalogue's own
+reference form, unused term first:
+
+```text
+<unused term> ➔ See: <authorized term>
+```
+
+So `braiding ➔ See: braid`, exactly as a catalogue reads `Clemens, Samuel ➔ See: Twain, Mark`.
+The order carries the claim — the term you looked up is the one that is *not* used — so it must
+never be rendered reversed, and never as a bare pair or an `=`.
+
+The hierarchical and associative relations of §6.4 are a different reference and take the other
+standard form, **`See also:`**, because both of their terms are authorized and either may be
+used. Writing `See:` for a `RT` would tell a reviewer to stop using a term that is perfectly
+valid.
+
+| Relation | Both terms usable? | Display |
+| :--- | :--- | :--- |
+| `UF` / `USE` equivalence (§6.2) | no — one is retired | `unused ➔ See: authorized` |
+| `RT` related (§6.4) | yes | `term ➔ See also: term` |
+| `BT` / `NT` hierarchy (§6.4) | yes | `narrower ➔ See also: broader` |
+
+Terms inherited from a published authority carry the same form and add the source, so the
+reviewer can tell a professional decision from a local one: `journals ➔ See: diaries (LCGFT)`.
+
+#### 6.2.2 What a card says approving will do
+
+Every proposal card states its own consequence in one plain sentence, before any evidence.
+A reviewer decides what a thing *does*, never what it is called:
+
+| Card | Sentence |
+| :--- | :--- |
+| Admit term | *Approving adds `X` to the vocabulary. Notes and facts that asked for it get it back.* |
+| Relate (`RT`) | *Approving links `X` and `Y`. A search for either will surface the other.* |
+| Narrower (`BT`/`NT`) | *Approving files `X` under `Y`. A search for `Y` will surface `X` — not the reverse.* |
+| Alias (`USE`) | *Approving retires `X`. Everything tagged `X` answers to `Y` from now on, and `X` stops being offered.* |
+
+The alias sentence deliberately avoids "identical" or "the same as". An equivalence is not
+symmetric — one of the two terms stops existing — and a reviewer told they are making two things
+equal will not expect one to disappear.
+
+**A suggested reference is a proposal, never an application, and its target is editable.** An
+authority's preferred form is a cataloguing decision made for a published collection, and it can
+be wrong for a personal one. A pet's name that is also a common noun will be redirected onto the
+animal; `survival-game` was redirected onto `Paintball (Game)`. Both are correct cataloguing and
+wrong here. So the alias card offers the suggestion *and* a field to replace it with any
+registered term, because the reviewer is often right that two words mean the same thing and
+wrong about which term the authority picked.
 
 ### 6.3 Admission — when an atom earns a place
 Post-coordination removes the question this section used to answer. There are no branches, so

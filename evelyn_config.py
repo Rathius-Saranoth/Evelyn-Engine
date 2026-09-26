@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-25 20:36:40
+# date modified: 2026-09-26 08:38:51
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1133,6 +1133,20 @@ TAG_LIBRARIAN_EXCLUDED_PREFIXES = [
     "Attachments/",
     "Bases/",
     ".",
+    # Clinical records, same rule as Reference Library and the same evidence: the notes are
+    # third-party text nominating a vendor's subject matter, not the operator's. Measured
+    # 2026-09-26 - 31 notes already carrying good registered tags (`psychology`, `personality`,
+    # `medical-record`, `allergy`), while the semantic pass was proposing `semantic-analysis`,
+    # `document-indexing` and `demographics` on top of them: 12 of the 13 vault-sourced
+    # admissions in the queue came from this one subtree.
+    #
+    # Exclusion is from the *tag audit* only (`vault_db.get_documents_for_semantic_audit`).
+    # The notes stay indexed, stay in Chroma and stay fully retrievable - nothing here removes
+    # anything from what the assistant can read.
+    #
+    # Built from `USER_NAME` rather than written out, because this file is tracked and section 4
+    # keeps real identities in `.env`.
+    f"{USER_NAME}/Medical/",
 ]
 
 # Protected tag regexes (never modified, removed, or normalized)

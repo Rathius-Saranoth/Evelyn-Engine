@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-25 17:33:15
+# date modified: 2026-09-26 08:38:51
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -79,6 +79,36 @@ def init_db() -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_tag_aliases_canonical ON master_tag_aliases(canonical);
+
+        -- The shared base layer (v000.006.246). Materialised from the tracked
+        -- `taxonomy/base.json`; never written by admission, retirement or the census. It has
+        -- no `usage_count` column on purpose: counts describe one corpus, definitions do not,
+        -- and keeping them in one row is what stopped the vocabulary being shareable at all.
+        CREATE TABLE IF NOT EXISTS base_tag_taxonomy (
+            term              TEXT PRIMARY KEY,
+            category          TEXT,
+            description       TEXT,
+            scheme            TEXT,
+            scheme_id         TEXT,
+            authorized_label  TEXT,
+            loaded_at         REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_base_tag_scheme ON base_tag_taxonomy(scheme);
+
+        CREATE TABLE IF NOT EXISTS base_tag_aliases (
+            alias      TEXT PRIMARY KEY,
+            canonical  TEXT NOT NULL,
+            scheme     TEXT,
+            loaded_at  REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_base_alias_canonical ON base_tag_aliases(canonical);
+
+        CREATE TABLE IF NOT EXISTS base_taxonomy_meta (
+            key    TEXT PRIMARY KEY,
+            value  TEXT
+        );
 
         -- The relations layer (taxonomy §6.4): association and hierarchy in one flat table.
         -- `related` is symmetric and stored once, sorted. `narrower` is directional — term_a

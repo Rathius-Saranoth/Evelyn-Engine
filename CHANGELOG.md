@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 07:45:55
+date modified: 2026-09-26 08:38:51
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,68 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.246] - 2026-09-26 — *A Vocabulary A Stranger Can Read*
+
+`master_tag_taxonomy` held three different kinds of fact in one row: what a term means, who says
+so, and how often this corpus uses it. Both consequences were measurable. **Nothing in the
+repository seeds a single term** — no `upsert_master_tag` call exists in `db_migrator.py` — so a
+fresh clone got the taxonomy rules in full and an empty table, and every mechanism they describe
+operated on nothing. And the nightly census rewrites `usage_count` in the same row as the
+definition (164 of them on 2026-09-26), so definitions could never live in a tracked file
+without a background task dirtying it nightly.
+
+### Added
+
+- **A shared base layer beneath the local vocabulary.** `taxonomy/base.json` is tracked in git
+  and materialised into `base_tag_taxonomy` / `base_tag_aliases` (migration `000.006.246`),
+  which the engine never writes — not by admission, not by retirement, and above all not by the
+  census, which has no column here to write into. 103 terms to start, each citing the published
+  authority that supplied it.
+- **A structural privacy property:** a term cannot enter the base without a published authority
+  having catalogued it first, so the tracked file cannot contain anything personal. The measured
+  48% of this vocabulary that no authority knows — `motif/*`, `setting/*`, named entities, and
+  genuinely private terms — stays in the gitignored layer by construction rather than by care.
+- `Evelyn/tools/taxonomy_base.py`: version-checked sync, rebuilt only when the tracked file
+  moves, wired into boot before anything can read the registry. A test asserts the boot path
+  still reaches it.
+
+### Changed
+
+- **`get_master_tags` merges the two layers per field, not per row.** The census writes a count
+  and knows nothing about categories, so a row-level merge would let it replace a tracked
+  definition with the empty strings it passes. A local row for a base term is an override;
+  an empty local field means "nothing decided here", the convention `upsert_master_tag`
+  already uses. Rows now carry `source`, `scheme` and `authorized_label`.
+- `get_aliases` unions both alias tables, local winning.
+- **A base term cannot be deleted or retired.** `delete_master_tag` now returns whether it
+  removed anything, and `retire_term` checks *before* its first write — it recorded the alias
+  and re-pointed relations before deleting, and ignored the delete's result, so a refusal would
+  have left an alias pointing at a live term and reported success.
+- **Clinical records excluded from the semantic tag audit.** Same rule and same evidence as
+  `Reference Library/` under `000.006.233`: 31 notes already carrying good registered terms,
+  while the audit proposed `semantic-analysis`, `document-indexing` and `demographics` on top —
+  12 of the 13 vault-sourced admissions in the queue came from that one subtree. The exclusion
+  is from the audit queue only; the notes stay indexed and fully retrievable. Built from
+  `USER_NAME` rather than written out, per §4.
+
+### Documentation
+
+- **§6.2.1 / §6.2.2** in the taxonomy rules: how an equivalence is shown (`unused ➔ See:
+  authorized`, `See also:` for the relations of §6.4, since writing `See:` for an `RT` would
+  tell a reviewer to stop using a valid term), what each card states that approving will do, and
+  that a suggested reference is always a proposal with an editable target — an authority's
+  preferred form is a decision made for a published collection and can be wrong for a personal
+  one.
+
+### Tests
+
+- `test_base_taxonomy_layer.py` (13): a fresh clone gets a working vocabulary, base terms admit
+  without a proposal, the census cannot shadow a base definition, a local decision overrides one
+  field and not the rest, base terms cannot be deleted or retired and nothing is written on the
+  refusal, aliases merge with local winning, sync is idempotent, a new version replaces rather
+  than merges, a missing or malformed file still leaves a working vocabulary, and boot reaches
+  the loader.
 
 ## [000.006.245] - 2026-09-26 — *The Cap Is Not A Switch*
 

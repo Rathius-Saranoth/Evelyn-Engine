@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-26 07:45:55
+# date modified: 2026-09-26 08:38:51
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2709,6 +2709,32 @@ async def lifespan(app: FastAPI):
 
     init_db()
     from Evelyn.tools import chroma_rag, task_manager
+
+    # 0. Shared base vocabulary. Materialised from the tracked `taxonomy/base.json` before
+    # anything can read the registry, because admission, withholding and the census all ask
+    # the same question — "does the vocabulary hold this term?" — and would answer it wrongly
+    # for the whole of a boot that skipped this. Cheap: a version check, and a rebuild only
+    # when the tracked file has moved.
+    try:
+        from Evelyn.tools import taxonomy_base
+
+        base_state = await asyncio.to_thread(taxonomy_base.sync_base_taxonomy)
+        if base_state["status"] == "loaded":
+            print(
+                f"  {_GRN}Base Vocabulary:{_RST} Loaded {base_state['terms']} term(s) and "
+                f"{base_state['aliases']} alias(es) from base.json ({base_state['version']})."
+            )
+        elif base_state["status"] == "current":
+            print(
+                f"  {_GRN}Base Vocabulary:{_RST} {base_state['terms']} shared term(s) "
+                f"({base_state['version']})."
+            )
+        else:
+            # Absent or unreadable is survivable: the local layer is a complete vocabulary on
+            # its own, and this one is an addition to it.
+            print(f"  {_YEL}Base Vocabulary:{_RST} none loaded ({base_state['status']}).")
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        print(f"  {_YEL}Base Vocabulary:{_RST} could not load ({exc}).", flush=True)
 
     # 1. Startup Sanitization & Process Reaper
     reap_res = task_manager.reap_orphaned_processes()

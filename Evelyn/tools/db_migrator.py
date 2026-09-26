@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-25 19:46:32
+# date modified: 2026-09-26 08:38:51
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5305,6 +5305,66 @@ def migrate_000_006_234_proposal_evidence(
                 filled, len(rows))
 
 
+def migrate_000_006_246_base_taxonomy_layer(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.246: A read-only base layer beneath the local vocabulary.
+
+    `master_tag_taxonomy` conflates three different kinds of fact in one row: what a term
+    means, who says so, and how often this corpus happens to use it. The consequences were
+    concrete. A fresh clone got an empty table - nothing in the repository seeds a single
+    term, so every mechanism the taxonomy rules describe operated on nothing until the user
+    hand-curated a vocabulary. And the nightly census rewrites `usage_count` in the same row
+    as the definition (164 of them on 2026-09-26), so the definitions could never live in a
+    tracked file without a background task dirtying it every night.
+
+    This adds the layer underneath. `base_tag_taxonomy` is materialised from the tracked
+    `taxonomy/base.json` and is **never written by the engine** - not by admission, not by
+    retirement, and above all not by the census, which has no column here to write into.
+    Local decisions stay in `master_tag_taxonomy`, where a row for the same term is an
+    override rather than a duplicate.
+
+    `base_taxonomy_meta` records which version of the file is loaded, so the loader can tell
+    a rebuild from a no-op without re-reading every term.
+    """
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS base_tag_taxonomy (
+            term              TEXT PRIMARY KEY,
+            category          TEXT,
+            description       TEXT,
+            scheme            TEXT,
+            scheme_id         TEXT,
+            authorized_label  TEXT,
+            loaded_at         REAL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS base_tag_aliases (
+            alias      TEXT PRIMARY KEY,
+            canonical  TEXT NOT NULL,
+            scheme     TEXT,
+            loaded_at  REAL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS base_taxonomy_meta (
+            key    TEXT PRIMARY KEY,
+            value  TEXT
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_base_tag_scheme ON base_tag_taxonomy(scheme)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_base_alias_canonical ON base_tag_aliases(canonical)")
+    logger.info("[MIGRATION 246] Base taxonomy layer tables ready.")
+
+
 def migrate_000_006_239_proposal_source_path(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -5834,6 +5894,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.239",
         name="proposal_source_path",
         up_fn=migrate_000_006_239_proposal_source_path,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.246",
+        name="base_taxonomy_layer",
+        up_fn=migrate_000_006_246_base_taxonomy_layer,
         post_sync_chroma=False,
     ),
 ]
