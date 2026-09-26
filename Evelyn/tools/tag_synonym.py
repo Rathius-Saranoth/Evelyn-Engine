@@ -1,6 +1,6 @@
 # tag_synonym.py
 # date created: 2026-09-19 00:00:00
-# date modified: 2026-09-25 18:15:22
+# date modified: 2026-09-25 20:15:27
 # tags: #taxonomy, #synonyms, #vocabulary, #uf, #clustering
 
 """tag_synonym.py — Equivalence detection for the controlled vocabulary (taxonomy §6.2).
@@ -499,26 +499,55 @@ def one_off_phrase_tags(
     )
 
 
-def decompose_to_atoms(tag: str) -> list[str]:
+def _registered_terms() -> set[str]:
+    """Every term the controlled vocabulary currently holds.
+
+    Read lazily and never cached: the registry changes whenever a reviewer admits or retires
+    a term, and a stale set here would decompose a term that had since become canonical.
+    """
+    from Evelyn.tools import taxonomy_db
+
+    try:
+        return {str(t["tag"]) for t in taxonomy_db.get_master_tags()}
+    except (sqlite3.Error, OSError):
+        # Unreadable registry must not silently change what decomposition means. Returning
+        # nothing restores the pre-registry behaviour rather than inventing an answer.
+        return set()
+
+
+def decompose_to_atoms(tag: str, known: set[str] | None = None) -> list[str]:
     """Split a hierarchical term into the atoms a post-coordinate vocabulary holds.
 
     `work/routine/morning` is three concepts glued together by an indexer guessing which
     combination a future query would want. Guesses multiply — `journaling` appeared under 31
     parents here — so the concepts are separated and the query recombines them (§0.0).
 
-    Three things are left alone: protected date anchors, administrative namespaces, and the
-    single level a facet prefix carries. A facet term deeper than that loses its middle,
-    because `setting/biome/tropical` is categorising *within* an axis, which is the
-    hierarchy this removes.
+    **A term the registry already holds is never decomposed.** The point of this function is
+    to map onto the controlled vocabulary, so producing something the vocabulary does not hold
+    is a failure of its own purpose rather than a decomposition. `type/media/text` is the case
+    that exposed it: §3.4 *requires* the DCMI second level on `type/media`, and dropping the
+    middle yielded `type/text` — destroying the required level and inventing an unregistered
+    term in one step. Deciding this from the registry rather than a hardcoded exception means
+    the rule holds for whatever the standard requires next.
+
+    Otherwise: protected date anchors and administrative namespaces are left alone, and a
+    facet term keeps the single level its prefix carries, because `setting/biome/tropical` is
+    categorising *within* an axis — the hierarchy this removes.
 
     Args:
         tag: A term, possibly hierarchical.
+        known: Registered terms, injected by callers that already hold them (and by tests).
+            Read from the registry when omitted.
 
     Returns:
         list[str]: The atoms it becomes. Never empty for a non-empty input.
     """
     if not tag or is_excluded_tag(tag):
         return [tag] if tag else []
+
+    registered = _registered_terms() if known is None else known
+    if tag in registered:
+        return [tag]
 
     for prefix in FACET_PREFIXES:
         if tag.startswith(prefix):
@@ -528,21 +557,24 @@ def decompose_to_atoms(tag: str) -> list[str]:
     return [part for part in tag.split("/") if part] or [tag]
 
 
-def decompose_tag_csv(raw: str | None) -> tuple[str, bool]:
+def decompose_tag_csv(raw: str | None, known: set[str] | None = None) -> tuple[str, bool]:
     """Rewrite a comma-separated tag string into atoms, de-duplicating.
 
     Args:
         raw: Comma-separated tags.
+        known: Registered terms. Read once here when omitted, rather than once per tag —
+            this runs over whole corpora in the decomposition migrations.
 
     Returns:
         tuple[str, bool]: (rewritten CSV, whether it changed).
     """
     if not raw:
         return "", False
+    registered = _registered_terms() if known is None else known
     current = [t.strip() for t in raw.split(",") if t.strip()]
     out: list[str] = []
     for tag in current:
-        for atom in decompose_to_atoms(tag):
+        for atom in decompose_to_atoms(tag, known=registered):
             if atom and atom not in out:
                 out.append(atom)
     return ", ".join(out), out != current

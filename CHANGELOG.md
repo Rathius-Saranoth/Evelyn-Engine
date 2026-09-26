@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 19:23:42
+date modified: 2026-09-25 20:15:28
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,98 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.240] - 2026-09-25 — *A Slash Is An Axis*
+
+Post-coordination left one use for `/`. Two places had never been told.
+
+### Fixed
+
+- **Decomposition invented terms the vocabulary does not hold.** `decompose_to_atoms` flattens
+  a facet to prefix + leaf, dropping the middle — right for `setting/biome/tropical`, which
+  categorises *within* an axis, and wrong for `type/media/text`, where §3.4 **requires** the
+  DCMI second level. It yielded `type/text`: the required level destroyed and an unregistered
+  term invented in one step.
+
+  Fixed generally rather than by exempting `type/media`: **a term the registry already holds
+  is never decomposed**, because a registered term is canonical by definition and producing
+  something the vocabulary lacks is a failure of this function's own purpose. The rule then
+  holds for whatever the standard requires next. Dormant when found — only the `.181`/`.182`
+  migrations call it, and the live corpus was intact (28 documents on `type/media/text`, zero
+  on `type/text`) — but the module advertises it as a general utility.
+
+- **Admission accepted pre-coordinate compounds.** `normalize_tag_format` preserves a slash and
+  `is_excluded_tag` ignores it, so `lore/campaign-narrative` reached the review queue on
+  2026-09-23. It was rejected, and since `.231` made rejections permanent, **that rejection
+  became the only thing stopping it returning** — a format rule delegated to a human decision,
+  which also meant the rows could not be tidied without reopening the hole.
+
+  `is_wellformed_term()` now gates admission: a slash belongs to a facet axis, or it is the
+  retired hierarchy. The two rejected rows were then deleted as the errors they looked like.
+
+### Changed
+
+- **The relation card's text is written for a stranger.** It is a fixed template, not model
+  output, so it reads identically for everyone who ever clones this. Two drafts failed that:
+  "filed apart: 'x' vs 'y'" stated a fact and answered no question, and "categories of
+  *yours*" assumed the reader curated them, which a fresh install has not. Neither said what
+  approving *does* — the one thing the owner knows and a stranger cannot infer. The card now
+  reads evidence → grouping → consequence → question, and the concepts move to F7b's hint
+  rather than being crammed into a `reason` string.
+
+### Tests
+
+- `test_decompose_respects_the_registry.py` (7) and `test_admission_refuses_hierarchy.py` (10).
+  Red-checked separately, and in both cases the **over-correction** was the useful mutation:
+  "preserve anything with a slash" stops decomposition working at all, and "refuse anything
+  with a slash" eats the facet axis. Each passes the obvious assertions.
+
+## [000.006.239] - 2026-09-25 — *The Note That Asked*
+
+Approving a term a vault note proposed registered the word and reached the note with nothing.
+
+### Fixed
+
+- **Admission backfill was memory-only (G5).** `admit_proposed_term` registers the term and
+  `backfill_admitted_term` puts it on whatever asked — but only via `source_ids`, which holds
+  `context_entries` ids. A vault note is not one, so a vault-sourced proposal carried an empty
+  list and the second call was a no-op: the vocabulary gained an entry and the note that
+  demonstrably concerns the subject stayed unindexed for it.
+
+  Measured on the three terms admitted 2026-09-25 — the two raised by extracted facts landed
+  on `#14460` and `#14459`; the one raised by a journal note landed on **nothing**.
+  **G1's shape one field along:** approve has a consumer for one substrate and not the other,
+  and the queue empties either way, so it reads as finished.
+
+  Not data loss. The vault audit applies only registered terms and proposes the rest without
+  writing them (confirmed: zero unregistered tags across all personal notes), so nothing was
+  dropped — the term simply entered a vocabulary and was never used.
+
+- **`backfill_admitted_term_to_note()`** writes through the audit's own path: frontmatter
+  rewrite preserving mtime, then the index told directly. **The mtime is preserved
+  deliberately, so the vault watcher never sees the write** — an index update that looked
+  redundant is the only thing keeping the store from diverging silently, and it has a test
+  saying so.
+
+### Added
+
+- **Migration `000.006.239` — `proposals.source_path`.** The path already existed inside the
+  `merged_observation` origin sentence this codebase writes itself, so **35 existing proposals
+  were backfilled from it**, including all 5 pending ones: the standing queue became
+  actionable rather than only proposals raised from now on.
+
+### Changed
+
+- **The backfill resolves against the configured vault root at call time**, not
+  `path_utils.VAULT_ROOT`, which is captured at import and cannot follow a reconfigured vault
+  — the same reason `audit_single_document_semantic` takes an explicit root. The traversal
+  guard is kept and separately tested, since resolving by hand means re-proving it.
+
+### Tests
+
+- `Evelyn/tests/test_vault_admission_backfill.py` — 10 tests, hermetic against a temp vault.
+  Three mutations red-checked separately: dropping the traversal guard, skipping the index
+  update, and re-adding a term already present.
 
 ## [000.006.238] - 2026-09-25 — *Reachable From The Queue*
 

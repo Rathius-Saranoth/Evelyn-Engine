@@ -1,6 +1,6 @@
 # tag_relations.py
 # date created: 2026-09-25
-# date modified: 2026-09-25 19:20:57
+# date modified: 2026-09-25 20:15:28
 # tags: #taxonomy, #relations, #candidates, #vocabulary
 
 """Relation candidate generation for the controlled vocabulary (taxonomy §6.4).
@@ -324,10 +324,22 @@ def propose_tag_relations(limit: int | None = None) -> list[str]:
                     )
                 continue
 
+        # This string is a fixed template, not model output, so it reads identically for
+        # everyone who ever runs this — including someone who has never opened the taxonomy
+        # standard. Two drafts failed that test. The first reported "filed apart:
+        # 'learning-methods' vs 'work-civic'", which states a fact and answers no question a
+        # reviewer has. The second said "categories of yours", which assumes the reader
+        # curated them; on a fresh install they came from seeding, so it credits a judgement
+        # nobody made. It also never said what approving *does* — the one thing a stranger
+        # cannot infer and the owner already knows.
         placement = (
-            f"both filed under '{candidate.category_a}'" if candidate.same_category
-            else f"filed apart: '{candidate.category_a or 'uncategorised'}' vs "
-                 f"'{candidate.category_b or 'uncategorised'}'"
+            f"The vocabulary already groups both under '{candidate.category_a}', which is some "
+            "evidence they belong together."
+            if candidate.same_category
+            else "The vocabulary groups them separately"
+                 f" ('{candidate.category_a or 'uncategorised'}'"
+                 f" and '{candidate.category_b or 'uncategorised'}'),"
+                 " so nothing yet says they belong together."
         )
         try:
             memory_db.insert_proposal(
@@ -339,9 +351,13 @@ def propose_tag_relations(limit: int | None = None) -> list[str]:
                 suggested_category="related",
                 reason=(
                     f"'{candidate.term_a}' and '{candidate.term_b}' appear together on "
-                    f"{candidate.documents} documents across {candidate.areas} areas — "
-                    f"{candidate.lift:.1f}x more often than their own frequencies predict, and "
-                    f"{placement}."
+                    f"{candidate.documents} documents, across {candidate.areas} different parts "
+                    f"of the vault — {candidate.lift:.1f}x more often than chance.\n"
+                    f"{placement}\n"
+                    "Approving records that the two are connected, so a search for one also "
+                    "surfaces the other. It edits no notes and can be undone.\n"
+                    "Approve if they are genuinely about each other; reject if they merely turn "
+                    "up in the same notes."
                 ),
                 merged_observation="co-occurrence across the vault and memory",
                 confidence="low",

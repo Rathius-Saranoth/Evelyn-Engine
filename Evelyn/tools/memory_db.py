@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-09-25 19:46:32
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -121,6 +121,9 @@ def init_db() -> None:
         # Mirrors migration 000.006.234 — the evidence level a proposal was made on, so a
         # producer can ask whether the situation changed since the reviewer said no.
         "ALTER TABLE proposals ADD COLUMN evidence INTEGER",
+        # Mirrors migration 000.006.239 — the vault note a proposal came from. `source_ids`
+        # holds memory entry ids and cannot name one, so approval had nothing to act on.
+        "ALTER TABLE proposals ADD COLUMN source_path TEXT",
         "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
         "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
     ]:
@@ -142,7 +145,8 @@ def init_db() -> None:
             created_at          REAL NOT NULL,
             reviewed_at         REAL,
             rejection_count     INTEGER DEFAULT 0,
-            evidence            INTEGER
+            evidence            INTEGER,
+            source_path         TEXT
         )
     """)
 
@@ -1218,6 +1222,7 @@ def insert_proposal(
     confidence: str = "medium",
     status: str = "pending",
     evidence: int | None = None,
+    source_path: str | None = None,
 ) -> int:
     """Insert a new proposal and return its row ID.
 
@@ -1234,6 +1239,9 @@ def insert_proposal(
         evidence: How much evidence this was proposed on, where the type has a natural measure
             (ghost links: how many notes cite the target). Lets a producer tell "the reviewer
             already said no" from "the reviewer said no when this was a third as strong".
+        source_path: Vault note this came from, when the source is a document rather than a
+            memory entry. `source_ids` cannot name one, so without this an approval has
+            nothing to write the result back onto.
 
     Returns:
         int: The auto-generated row ID.
@@ -1243,12 +1251,14 @@ def insert_proposal(
         """
         INSERT INTO proposals (
             type, source_ids, merged_observation, merged_tags,
-            suggested_category, reason, topic, confidence, status, created_at, evidence
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            suggested_category, reason, topic, confidence, status, created_at, evidence,
+            source_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             type, json.dumps(source_ids), merged_observation, merged_tags,
-            suggested_category, reason, topic, confidence, status, time.time(), evidence
+            suggested_category, reason, topic, confidence, status, time.time(), evidence,
+            source_path
         ),
     )
     row_id = cur.lastrowid

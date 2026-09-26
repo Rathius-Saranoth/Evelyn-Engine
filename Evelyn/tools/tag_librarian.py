@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-25 18:15:22
+# date modified: 2026-09-25 20:15:27
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -447,6 +447,30 @@ def is_subject_term(term: str) -> bool:
         bool: True when the term names a subject rather than a facet value.
     """
     return not term.startswith(FACET_PREFIXES)
+
+
+def is_wellformed_term(term: str) -> bool:
+    """A slash belongs to a facet axis, or it is the retired hierarchy (§3.3).
+
+    Post-coordination left exactly one use for `/`: naming which axis a facet value sits on.
+    Anything else is a pre-coordinate compound — `lore/campaign-narrative` is `lore` and
+    `campaign-narrative` glued together by an indexer guessing which combination a future
+    query would want, which is the structure this vocabulary removed.
+
+    Nothing was checking. `normalize_tag_format` preserves the slash and `is_excluded_tag`
+    ignores it, so two such terms reached the review queue on 2026-09-23 and the only thing
+    stopping them returning was the reviewer's rejection — a permanent decision doing work a
+    format rule should never have delegated to it.
+
+    Args:
+        term: A term already in canonical §5 format.
+
+    Returns:
+        bool: True when the term is flat, or a facet value on a known axis.
+    """
+    if "/" not in term:
+        return True
+    return term.startswith(FACET_PREFIXES)
 
 
 def normalize_subject_phrase(phrase: str) -> str:
@@ -1474,6 +1498,7 @@ def audit_single_document_semantic(
                 details["proposals"],
                 origin=f"vault note ({doc_path})",
                 reason="Subject named by a vault note but not in the controlled vocabulary.",
+                source_path=doc_path,
             )
 
     # Leave a trace when the pass rewrote a document. Only the master librarian wrote to
@@ -1811,7 +1836,8 @@ def withhold_unregistered_tags(
 
 
 def propose_tag_admission(
-    terms: list[str], origin: str = "", reason: str = "", source_ids: list[int] | None = None
+    terms: list[str], origin: str = "", reason: str = "", source_ids: list[int] | None = None,
+    source_path: str = "",
 ) -> list[str]:
     """Raise a review proposal for each term the controlled vocabulary does not hold.
 
@@ -1834,6 +1860,9 @@ def propose_tag_admission(
         source_ids: Memory entries that wanted the term. Recorded so approval can put the term
             back onto them; without the trail an approved term has no way to reach the facts
             that asked for it, which is what makes withholding unregistered tags possible.
+        source_path: The vault note that wanted it, for the same reason. `source_ids` holds
+            memory entry ids and cannot name a document, so a vault-sourced proposal used to
+            approve into a vocabulary and reach nothing (G5).
 
     Returns:
         list[str]: Terms newly proposed by this call.
@@ -1844,6 +1873,7 @@ def propose_tag_admission(
         [
             t for t in (normalize_tag_format(str(t)) for t in terms)
             if t and not is_excluded_tag(t) and not is_umbrella_term(t)
+            and is_wellformed_term(t)
         ]
     )
     if not unregistered:
@@ -1922,6 +1952,7 @@ def propose_tag_admission(
                 reason=reason or f"Requested by {origin or 'an unnamed writer'}; not in the controlled vocabulary.",
                 merged_observation=origin,
                 confidence="low",
+                source_path=source_path or None,
             )
         except (sqlite3.Error, OSError) as exc:
             logger.warning("[TAG LIBRARIAN] Could not propose '%s': %s", term, exc)
@@ -2013,6 +2044,85 @@ def backfill_admitted_term(term: str, source_ids: list[int]) -> int:
 
 
 TAG_RETIREMENT_PROPOSAL = "tag_retirement"
+
+
+
+def backfill_admitted_term_to_note(term: str, source_path: str) -> bool:
+    """Put a newly admitted term back onto the vault note that asked for it.
+
+    The memory half of this has existed since `000.006.216`; the vault half never did, because
+    `source_ids` holds `context_entries` ids and a note is not one. So approving a term a note
+    proposed registered the word and stopped there: the vocabulary gained an entry, the note
+    stayed unindexed for a subject it demonstrably concerns, and the queue emptied either way
+    so it read as finished (G5).
+
+    Writes through the same path the audit itself uses — frontmatter rewrite preserving mtime,
+    then a Chroma re-ingest **by enqueue**, never a direct write, since the engine's custodian
+    holds the single-writer lease.
+
+    Args:
+        term: The admitted term, in canonical §5 format.
+        source_path: Vault-relative path recorded on the proposal.
+
+    Returns:
+        bool: True when the note gained the term.
+    """
+    clean = normalize_tag_format(term)
+    if not clean or not source_path:
+        return False
+
+    # Resolved against the configured root at call time, not `path_utils.VAULT_ROOT`, which is
+    # captured at import and so cannot follow a reconfigured vault — the same reason
+    # `audit_single_document_semantic` takes an explicit root. The traversal guard is kept:
+    # a path that escapes the vault is refused rather than written to.
+    root = os.path.realpath(getattr(cfg, "VAULT_BASE_DIR", "") or "")
+    if not root:
+        logger.warning("[TAG LIBRARIAN] Backfill has no vault root configured.")
+        return False
+    abs_path = os.path.realpath(os.path.join(root, str(source_path).strip().lstrip("/\\")))
+    if os.path.commonpath([abs_path, root]) != root:
+        logger.warning("[TAG LIBRARIAN] Backfill path '%s' escapes the vault; refused.",
+                       source_path)
+        return False
+    if not os.path.exists(abs_path):
+        logger.warning("[TAG LIBRARIAN] Backfill target no longer exists: %s", source_path)
+        return False
+
+    try:
+        with open(abs_path, encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError as exc:
+        logger.warning("[TAG LIBRARIAN] Backfill could not read '%s': %s", source_path, exc)
+        return False
+
+    current, _body = parse_frontmatter_tags(content)
+    if clean in current:
+        return False
+
+    updated_tags = [*current, clean]
+    try:
+        write_file_with_frontmatter(
+            abs_path, update_frontmatter_tags(content, updated_tags), preserve_mtime=True
+        )
+    except OSError as exc:
+        logger.warning("[TAG LIBRARIAN] Backfill could not write '%s': %s", source_path, exc)
+        return False
+
+    # The write preserves mtime, so the vault watcher will not notice it — the index has to
+    # be told directly, exactly as the audit tells it at the end of a pass.
+    tags_str = ", ".join(updated_tags)
+    with contextlib.suppress(sqlite3.Error, OSError):
+        vault_db.update_document_semantic_tag_audit(source_path, tags=tags_str)
+    with contextlib.suppress(Exception):
+        chroma_rag.ingest_markdown_file(
+            file_path=abs_path,
+            content=update_frontmatter_tags(content, updated_tags),
+            collection_name=getattr(cfg, "CHROMA_MEMORY_COLLECTION", "evelyn_memory"),
+            extra_metadata={"tags": tags_str},
+        )
+
+    logger.info("[TAG LIBRARIAN] Backfilled '%s' onto note %s.", clean, source_path)
+    return True
 
 
 def propose_tag_retirement(master_tags: list[dict[str, Any]], unused: list[str]) -> list[str]:

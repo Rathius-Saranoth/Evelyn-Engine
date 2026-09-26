@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-09-25 19:46:32
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5305,6 +5305,45 @@ def migrate_000_006_234_proposal_evidence(
                 filled, len(rows))
 
 
+def migrate_000_006_239_proposal_source_path(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.239: Name the vault note a proposal came from.
+
+    `source_ids` holds `context_entries` ids, so a proposal raised by a vault note carries an
+    empty list — a note is not a memory entry. Approving such a term therefore registered the
+    word and did nothing else: `backfill_admitted_term` had nothing to put it on, and the note
+    that demonstrably concerned the subject stayed unindexed for it. Measured on three terms
+    admitted 2026-09-25, the two memory-sourced ones landed on their facts and the one
+    vault-sourced one landed on nothing.
+
+    The path existed already, inside the `merged_observation` origin sentence this codebase
+    writes itself ("vault note (Some/Path.md)"). Backfilled from it here — acceptable once, in
+    a migration, against our own format — so the existing queue becomes actionable rather than
+    only proposals raised from now on.
+    """
+    cursor = conn.cursor()
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(proposals)").fetchall()}
+    if "source_path" not in cols:
+        cursor.execute("ALTER TABLE proposals ADD COLUMN source_path TEXT")
+        logger.info("[MIGRATION 239] Added proposals.source_path.")
+
+    rows = cursor.execute(
+        "SELECT id, merged_observation FROM proposals "
+        "WHERE COALESCE(merged_observation,'') LIKE 'vault note (%' "
+        "AND COALESCE(source_path,'') = ''"
+    ).fetchall()
+    filled = 0
+    for pid, origin in rows:
+        m = re.match(r"^vault note \((.+)\)$", str(origin or "").strip())
+        if not m:
+            continue
+        cursor.execute("UPDATE proposals SET source_path = ? WHERE id = ?", (m.group(1), pid))
+        filled += 1
+    logger.info("[MIGRATION 239] Backfilled source_path on %d of %d vault proposal(s).",
+                filled, len(rows))
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -5788,6 +5827,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.234",
         name="proposal_evidence",
         up_fn=migrate_000_006_234_proposal_evidence,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.239",
+        name="proposal_source_path",
+        up_fn=migrate_000_006_239_proposal_source_path,
         post_sync_chroma=False,
     ),
 ]
