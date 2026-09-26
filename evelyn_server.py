@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-25 20:36:40
+# date modified: 2026-09-26 07:45:55
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2579,6 +2579,23 @@ async def run_tag_librarian_task(
         await proc.wait()
         if proc.returncode == 0:
             print(f"{_CYN}[TAG LIBRARIAN]{_RST} Semantic tag audit completed successfully.", flush=True)
+            # Terms the queue was too full to show are held as `deferred` rows so that the
+            # gate keeps withholding at the cap. Something has to put them back, and it has
+            # to be the queue having room rather than a new term happening to arrive — so it
+            # runs here, on the schedule, before the producers below add anything new.
+            try:
+                from Evelyn.tools import tag_librarian as _tl_release
+
+                released = await asyncio.to_thread(_tl_release.release_deferred_admissions)
+                if released:
+                    print(
+                        f"{_CYN}[TAG LIBRARIAN]{_RST} Released {released} deferred tag "
+                        f"admission(s) into the review queue.",
+                        flush=True,
+                    )
+            except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
+                print(f"[TAG LIBRARIAN] Deferred admission release failed: {e}", flush=True)
+
             # Relation candidates ride the same schedule as the audit that produces the tags
             # they are measured from, and land in the same review queue. Without this the
             # measurement is only reachable by running a script by hand, which is why the
@@ -6360,19 +6377,29 @@ async def get_proposals(_: None = Depends(check_auth)):
     return await asyncio.to_thread(_fetch)
 
 
-@app.post("/api/review/proposals/{id}/{action}")
-async def action_proposal(
+async def _apply_proposal_action(
     id: int,
     action: str,
     req: ProposalActionRequest | None = None,
-    _: None = Depends(check_auth),
-):
+    refresh: bool = True,
+) -> dict:
     """Approve, deny, or unlink source context entries on a proposal.
 
+    Shared by the single-proposal route and the bulk route so that a decision means exactly
+    the same thing however it was submitted. It is a function rather than a route body
+    because tag admission review arrives in floods — 158 pending on 2026-09-26, each one a
+    separate POST — and a second implementation of approval is a second set of side effects
+    to forget: the vocabulary write, the fact backfill, the note backfill.
+
     Args:
-        id:     Proposal row ID.
-        action: "approve" | "deny" | "unlink_source".
-        req:    Optional JSON body containing modified_text or source_id.
+        id:      Proposal row ID.
+        action:  "approve" | "deny" | "unlink_source".
+        req:     Optional JSON body containing modified_text or source_id.
+        refresh: Whether a successful approval triggers a memory refresh. The bulk caller
+                 passes False and refreshes once for the whole batch instead of once per item.
+
+    Returns:
+        dict: ``{"status": "ok"}`` on success.
     """
     from Evelyn.tools import memory_db
 
@@ -6387,12 +6414,20 @@ async def action_proposal(
                 for eid in prop.get("source_ids", []):
                     memory_db.touch_entry_evolved(eid, target_filename, prop_ts)
                 advance_doc_run_timestamp(target_filename, "BELOW_THRESHOLD", "Proposal denied; entries stamped")
-            memory_db.reject_proposal(id)
+            return memory_db.reject_proposal(id)
 
-        await asyncio.to_thread(_deny)
+        # Both `reject_proposal` and `delete_proposal` have always returned whether they
+        # changed a row, and nothing ever read it — so denying an id that does not exist
+        # reported success. One card at a time that is invisible, because the card was
+        # already gone. In a batch the applied/failed count is the reviewer's only feedback,
+        # and a silent no-op turns it into a lie: a double-submitted batch of 80 rejections
+        # reports 80 applied the second time too.
+        if not await asyncio.to_thread(_deny):
+            raise HTTPException(status_code=404, detail="Proposal not found")
         return {"status": "ok"}
     elif action in ("delete", "hard_delete"):
-        await asyncio.to_thread(memory_db.delete_proposal, id)
+        if not await asyncio.to_thread(memory_db.delete_proposal, id):
+            raise HTTPException(status_code=404, detail="Proposal not found")
         return {"status": "ok"}
     elif action == "edit":
         if not req or req.modified_text is None:
@@ -6837,10 +6872,134 @@ async def action_proposal(
             return {"status": "ok"}
 
         res = await asyncio.to_thread(_execute_approval)
-        await start_refresh_memory_internal()
+        if refresh:
+            await start_refresh_memory_internal()
         return res
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
+
+
+@app.post("/api/review/proposals/{id}/{action}")
+async def action_proposal(
+    id: int,
+    action: str,
+    req: ProposalActionRequest | None = None,
+    _: None = Depends(check_auth),
+):
+    """Approve, deny, or unlink source context entries on one proposal.
+
+    Args:
+        id:     Proposal row ID.
+        action: "approve" | "deny" | "unlink_source".
+        req:    Optional JSON body containing modified_text or source_id.
+
+    Returns:
+        dict: ``{"status": "ok"}`` on success.
+    """
+    return await _apply_proposal_action(id, action, req)
+
+
+# A reviewer working through a flood is the case this exists for, so the ceiling is the
+# queue's own ceiling rather than a round number: a batch can always clear everything the
+# producers were willing to raise, and never more than one screenful of unbounded work.
+BULK_PROPOSAL_MAX = 250
+
+
+class BulkProposalDecision(BaseModel):
+    """One reviewer decision inside a bulk submission.
+
+    Mirrors the fields of `ProposalActionRequest` that a decision can carry, because a bulk
+    approval is the same decision as a single one and must be able to say the same things —
+    a corrected term, a chosen category, a relation kind.
+    """
+
+    id: int
+    action: str
+    modified_text: str | None = None
+    category: str | None = None
+    kind: str | None = None
+
+
+class BulkProposalActionRequest(BaseModel):
+    """A list of independent decisions, applied in order."""
+
+    decisions: list[BulkProposalDecision]
+
+
+@app.post("/api/review/proposals/bulk")
+async def action_proposals_bulk(
+    req: BulkProposalActionRequest,
+    _: None = Depends(check_auth),
+):
+    """Apply many proposal decisions in one request, reporting each one's outcome.
+
+    Decisions are applied **sequentially and independently**. Sequentially because approval
+    writes to SQLite, the vault and the Chroma queue, and interleaving those buys nothing;
+    independently because a batch of 150 that aborts on the first bad row makes the reviewer's
+    work harder than one at a time, which is the problem this is here to solve. A failure is
+    reported against its own id and the rest still run.
+
+    The memory refresh that a single approval triggers runs **once** for the whole batch, and
+    only if something was actually approved.
+
+    Args:
+        req: The decisions to apply.
+
+    Returns:
+        dict: `applied`/`failed` counts and a per-decision result list.
+    """
+    decisions = req.decisions or []
+    if not decisions:
+        raise HTTPException(status_code=400, detail="No decisions submitted")
+    if len(decisions) > BULK_PROPOSAL_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bulk review accepts at most {BULK_PROPOSAL_MAX} decisions; got {len(decisions)}",
+        )
+
+    results: list[dict] = []
+    approved_any = False
+
+    for decision in decisions:
+        single = ProposalActionRequest(
+            modified_text=decision.modified_text,
+            category=decision.category,
+            kind=decision.kind,
+        )
+        try:
+            await _apply_proposal_action(decision.id, decision.action, single, refresh=False)
+        except HTTPException as exc:
+            results.append({"id": decision.id, "status": "error", "detail": str(exc.detail)})
+            continue
+        except Exception as exc:  # noqa: BLE001 - one bad row must not end the batch
+            import traceback
+
+            print(
+                f"{_RED}[REVIEW ERROR]{_RST} Bulk decision failed for proposal "
+                f"{decision.id}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            traceback.print_exc()
+            results.append({"id": decision.id, "status": "error", "detail": str(exc)})
+            continue
+        results.append({"id": decision.id, "status": "ok"})
+        if decision.action in ("approve", "merge_into_master"):
+            approved_any = True
+
+    failed = sum(1 for r in results if r["status"] == "error")
+    if approved_any:
+        await start_refresh_memory_internal()
+
+    print(
+        f"{_GRN}[REVIEW]{_RST} Bulk decision: {len(results) - failed} applied, {failed} failed.",
+        flush=True,
+    )
+    return {
+        "status": "ok",
+        "applied": len(results) - failed,
+        "failed": failed,
+        "results": results,
+    }
 
 
 class SplitPreviewRequest(BaseModel):

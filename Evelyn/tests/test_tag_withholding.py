@@ -1,6 +1,6 @@
 # test_tag_withholding.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 19:45:25
+# date modified: 2026-09-26 07:45:55
 # tags: #taxonomy, #admission, #memory, #testing
 
 """An unregistered tag goes to review, not onto the fact — but is never lost (D2).
@@ -12,10 +12,16 @@ terms accumulated unnoticed and needed a hand curation pass (A3) to reconcile.
 
 Withholding is only safe because approval can now put an admitted term back on the facts that
 wanted it (`backfill_admitted_term`, v000.006.216). The guard that matters is the other
-direction: a term is withheld only once a pending proposal covers it. If the queue is full or
-the proposal could not be written, the tag stays on the fact — an unreviewed tag is untidy, a
-vanished one is unrecoverable.
+direction: a term is withheld only once *some* proposal row covers it, so its disappearance
+from the fact is recoverable. An unreviewed tag is untidy; a vanished one is unrecoverable.
+
+A full queue used to mean no row, so the tag stayed on the fact and the gate switched itself
+off — at 158 of 200 pending on 2026-09-26, roughly three hours from doing exactly that. The
+cap now defers the row instead of skipping it (v000.006.245): the queue stays reviewable, the
+term stays recorded, and only a write that fails outright puts the tag back on the fact.
 """
+
+import sqlite3
 
 import pytest
 
@@ -35,6 +41,15 @@ def _entry() -> int:
     return memory_db.insert_entry(
         category="Cat05-U", subject="Tester", observation="A drinks espresso each morning."
     )
+
+
+def _deferred() -> set[str]:
+    return {
+        (p.get("topic") or "").strip()
+        for p in memory_db.get_proposals_by_status(
+            tag_librarian.TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS
+        )
+    }
 
 
 def _pending() -> set[str]:
@@ -89,11 +104,90 @@ def test_a_term_a_second_fact_wants_is_still_withheld(registry: None) -> None:
     assert set(proposal["source_ids"]) == {first, second}
 
 
-def test_a_term_the_queue_could_not_accept_is_kept(
+def test_a_full_queue_defers_the_row_and_keeps_withholding(
     registry: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The guard. A full queue must not turn withholding into deletion."""
+    """The cap limits what the reviewer is handed, not what gets recorded.
+
+    While a full queue wrote nothing, it also stopped withholding — the tag went onto the
+    fact unreviewed, which is the drift the gate exists to prevent, arriving precisely when
+    the vocabulary is under most pressure.
+    """
     monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 0)
+
+    kept = tag_librarian.withhold_unregistered_tags(
+        _entry(), ["coffee", "espresso"], origin="test", reason="test"
+    )
+
+    assert kept == ["coffee"]
+    assert _pending() == set(), "A deferred term must not reach the reviewer's queue"
+    assert _deferred() == {"espresso"}, "...but it must still be recorded"
+
+
+def test_a_deferred_term_returns_to_the_queue_when_there_is_room(
+    registry: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backlog nothing drains is a backlog that decided to lose the term slowly."""
+    monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 0)
+    tag_librarian.withhold_unregistered_tags(
+        _entry(), ["espresso"], origin="test", reason="test"
+    )
+    assert _deferred() == {"espresso"}
+
+    monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 10)
+    assert tag_librarian.release_deferred_admissions() == 1
+
+    assert "espresso" in _pending()
+    assert _deferred() == set()
+
+
+def test_the_release_takes_only_what_the_queue_has_room_for(
+    registry: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Releasing the whole backlog into a full queue would just undo the cap."""
+    monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 0)
+    tag_librarian.propose_tag_admission(["zzz-one", "zzz-two", "zzz-three"], origin="test")
+    assert len(_deferred()) == 3
+
+    monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 2)
+
+    assert tag_librarian.release_deferred_admissions() == 2
+    assert len(_pending()) == 2
+    assert len(_deferred()) == 1
+    assert tag_librarian.release_deferred_admissions() == 0, "The queue is full again"
+
+
+def test_the_release_does_not_depend_on_a_new_term_arriving(
+    registry: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The backlog's release must follow the queue having room, and nothing else.
+
+    Hanging it off `propose_tag_admission` looked equivalent and is not: that function
+    returns early whenever a pass finds nothing unregistered, which is the normal case, so
+    the backlog would drain only when some unrelated new term happened to show up.
+    """
+    monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 0)
+    tag_librarian.withhold_unregistered_tags(
+        _entry(), ["espresso"], origin="test", reason="test"
+    )
+
+    monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 10)
+    # A pass where every term is already registered: the early-return path.
+    assert tag_librarian.propose_tag_admission(["coffee"], origin="a quiet pass") == []
+    assert _deferred() == {"espresso"}, "Guard only — the quiet pass must not be the releaser"
+
+    assert tag_librarian.release_deferred_admissions() == 1
+    assert _pending() == {"espresso"}
+
+
+def test_a_term_that_could_not_be_recorded_at_all_is_kept(
+    registry: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The surviving guard. No row means nothing proves the term was ever wanted."""
+    def _explode(**kwargs: object) -> int:
+        raise sqlite3.OperationalError("disk is full")
+
+    monkeypatch.setattr(memory_db, "insert_proposal", _explode)
 
     kept = tag_librarian.withhold_unregistered_tags(
         _entry(), ["coffee", "espresso"], origin="test", reason="test"
@@ -101,6 +195,7 @@ def test_a_term_the_queue_could_not_accept_is_kept(
 
     assert kept == ["coffee", "espresso"]
     assert _pending() == set()
+    assert _deferred() == set()
 
 
 def test_withholding_can_be_switched_off(registry: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -135,3 +230,24 @@ def test_a_container_is_never_proposed_by_any_producer(registry: None) -> None:
     assert tag_librarian.propose_tag_admission(
         ["work", "pets", "espresso"], origin="test", reason="test"
     ) == ["espresso"]
+
+
+def test_the_scheduled_pass_releases_the_backlog() -> None:
+    """The release must have a caller on the schedule, or the backlog is a one-way door.
+
+    Six defects this week were the same shape: code written, correct, and reached by nobody
+    (G1, G2, G4, G5, F7a, G6). Deferral without a scheduled release would have been the
+    seventh — every term past the cap recorded, withheld, and never shown to anyone.
+    """
+    import ast
+    import inspect
+
+    import evelyn_server
+
+    tree = ast.parse(inspect.getsource(evelyn_server.run_tag_librarian_task).lstrip())
+    # Attributes, not calls: the scheduler hands the function to `asyncio.to_thread`, so it
+    # is referenced rather than invoked at this site.
+    referenced = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    assert "release_deferred_admissions" in referenced, (
+        "Nothing on the schedule releases deferred tag admissions; the backlog cannot drain"
+    )

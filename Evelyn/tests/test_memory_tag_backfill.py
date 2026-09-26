@@ -1,6 +1,6 @@
 # test_memory_tag_backfill.py
 # date created: 2026-09-24
-# date modified: 2026-09-24 20:08:10
+# date modified: 2026-09-26 07:45:55
 # tags: #memory, #taxonomy, #backfill, #testing
 
 """The memory half of the 000.006.187 tag reset (B3).
@@ -99,10 +99,12 @@ class TestTheAudit:
     def test_held_back_terms_are_reported_even_when_not_proposed(
         self, vocabulary: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Past the pending cap nothing is written, and the fact is stamped regardless.
+        """Past the pending cap nothing is *queued*, and the fact is stamped regardless.
 
-        Without this the terms a full queue refused would be gone with the fact marked done,
-        which is the silent loss the whole admission path exists to prevent.
+        The row itself is written, deferred, so the term stays recorded and withheld — but
+        the reviewer has not seen it, so it must still read as held back. Without this the
+        terms a full queue set aside would look decided with the fact marked done, which is
+        the silent loss the whole admission path exists to prevent.
         """
         entry_id = _fact("A drinks espresso.")
         monkeypatch.setattr(tag_librarian, "TAG_ADMISSION_MAX_PENDING", 0)

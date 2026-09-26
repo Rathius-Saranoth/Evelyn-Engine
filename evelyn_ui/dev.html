@@ -677,6 +677,11 @@
     let procMgmtSearch = '';
     let selectedProcIds = new Set();
     let selectedExtractionIds = new Set();
+    // Tag admission arrives in floods — 158 pending on 2026-09-26, each previously its own
+    // POST and its own confirm dialog. Selection is held here rather than in the DOM so that
+    // it survives a re-render, and so ticking a box never has to re-render the list and throw
+    // away a term the reviewer was part-way through correcting.
+    let selectedProposalIds = new Set();
     const expandedProposalContexts = new Set();
 
     function toggleProposalContext(proposalId, isOpen) {
@@ -1856,6 +1861,134 @@
       if (input) {
         input.focus();
         input.selectionStart = input.selectionEnd = input.value.length;
+      }
+    }
+
+    // ---- Bulk proposal review -------------------------------------------------------
+    // One decision per POST is fine for a handful and unusable for a flood. These drive
+    // `/api/review/proposals/bulk`, which applies the same `_apply_proposal_action` the
+    // single-card buttons use, so a bulk admission still writes the vocabulary row AND
+    // backfills the fact or note that asked for the term.
+
+    let lastVisibleAdmissionIds = [];
+
+    function renderBulkProposalBar(visibleIds) {
+      lastVisibleAdmissionIds = visibleIds;
+      const n = selectedProposalIds.size;
+      const dim = 'background: transparent; border: 1px solid var(--border); font-size: 12px; padding: 5px 10px; color: var(--text-dim); cursor: pointer;';
+      const act = (bg, fg) => `background: ${bg}; color: ${fg}; border: none; font-size: 12px; padding: 5px 12px; cursor: pointer;`;
+      return `
+        <div id="bulk-proposal-bar" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: rgba(52, 211, 153, 0.07); border: 1px solid rgba(52, 211, 153, 0.28); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px;">
+          <span style="font-size: 13px; color: #34d399; font-weight: 600;">${n} selected</span>
+          <button class="btn btn-sm" style="${dim}" onclick="selectAllVisibleAdmissions()">Select all ${visibleIds.length} shown</button>
+          <button class="btn btn-sm" style="${dim}" onclick="clearProposalSelection()">Clear</button>
+          <span style="flex: 1;"></span>
+          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${act('#059669', '#fff')}" onclick="submitBulkProposalAction('approve', this)">Admit ${n || ''}</button>
+          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${act('#b91c1c', '#fff')}" onclick="submitBulkProposalAction('deny', this)">Reject ${n || ''}</button>
+          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${dim}" onclick="submitBulkProposalAction('delete', this)">🗑️ Remove ${n || ''}</button>
+          <div style="flex-basis: 100%; font-size: 11px; color: var(--text-dim); line-height: 1.5;">
+            <strong style="color: #f87171;">Reject is permanent</strong> &mdash; a rejected term is suppressed from every future proposal, so nothing asks again.
+            <strong>Remove</strong> only clears the row, so the term returns the next time a fact or note wants it.
+            Admitting uses the term and category shown on each card.
+          </div>
+        </div>`;
+    }
+
+    // Repaint the bar alone. A full `render()` on every tick would discard any term a
+    // reviewer had half-corrected in another card's input.
+    function updateBulkProposalBar() {
+      const bar = document.getElementById('bulk-proposal-bar');
+      if (bar) bar.outerHTML = renderBulkProposalBar(lastVisibleAdmissionIds);
+    }
+
+    function toggleProposalSelection(id, checked) {
+      if (checked) selectedProposalIds.add(id); else selectedProposalIds.delete(id);
+      updateBulkProposalBar();
+    }
+
+    function selectAllVisibleAdmissions() {
+      lastVisibleAdmissionIds.forEach(id => {
+        selectedProposalIds.add(id);
+        const box = document.getElementById(`bulk-pick-${id}`);
+        if (box) box.checked = true;
+      });
+      updateBulkProposalBar();
+    }
+
+    function clearProposalSelection() {
+      selectedProposalIds.forEach(id => {
+        const box = document.getElementById(`bulk-pick-${id}`);
+        if (box) box.checked = false;
+      });
+      selectedProposalIds.clear();
+      updateBulkProposalBar();
+    }
+
+    async function submitBulkProposalAction(action, btnElement) {
+      const ids = [...selectedProposalIds];
+      if (!ids.length) return;
+
+      const verb = { approve: 'ADMIT', deny: 'REJECT', delete: 'REMOVE' }[action] || action;
+      let warning = `${verb} ${ids.length} proposal${ids.length > 1 ? 's' : ''}?`;
+      if (action === 'deny') {
+        warning += '\n\nRejecting a term is permanent: it is suppressed from every future proposal, so nothing will ask you about it again.';
+      } else if (action === 'delete') {
+        warning += '\n\nRemoving only clears the row. The term will be proposed again the next time a fact or note asks for it.';
+      } else {
+        warning += '\n\nEach term is admitted with the category shown on its card, and put back onto whatever asked for it.';
+      }
+      if (!confirm(warning)) return;
+
+      const original = btnElement ? btnElement.innerHTML : '';
+      if (btnElement) { btnElement.disabled = true; btnElement.innerHTML = '⏳ Working...'; }
+
+      const decisions = ids.map(id => {
+        const item = unifiedItems.find(x => x.id == id && x.item_type === 'proposal');
+        const decision = { id: Number(id), action: action };
+        if (action === 'approve' && item && item.type === 'tag_admission') {
+          // Same two fields the single-card path sends, read from the same inputs — a term
+          // corrected in place must survive a bulk admit exactly as it does a single one.
+          const termInput = document.getElementById(`tag-term-${id}`);
+          const catSelect = document.getElementById(`tag-cat-${id}`);
+          decision.modified_text = termInput ? termInput.value.trim() : (item.topic || '');
+          decision.category = catSelect ? catSelect.value : '';
+        }
+        return decision;
+      });
+
+      try {
+        const res = await fetch(`${API_BASE}/api/review/proposals/bulk`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ decisions: decisions })
+        });
+        if (!res.ok) {
+          alert(`Bulk action failed: ${res.status} ${await res.text()}`);
+          return;
+        }
+        const data = await res.json();
+        const results = data.results || [];
+        const okIds = new Set(results.filter(r => r.status === 'ok').map(r => r.id));
+        const failures = results.filter(r => r.status === 'error');
+
+        unifiedItems = unifiedItems.filter(x => !(x.item_type === 'proposal' && okIds.has(x.id)));
+        okIds.forEach(id => selectedProposalIds.delete(id));
+        updateCounts();
+        render();
+
+        if (failures.length) {
+          // A partial failure is the normal case worth reporting: the ones that worked are
+          // already gone from the queue, and these are what is left to look at.
+          alert(
+            `${data.applied} applied, ${failures.length} failed:\n\n` +
+            failures.slice(0, 12).map(f => `#${f.id}: ${f.detail}`).join('\n') +
+            (failures.length > 12 ? `\n... and ${failures.length - 12} more` : '')
+          );
+        }
+      } catch (err) {
+        alert(`Bulk action failed: ${err}`);
+      } finally {
+        if (btnElement) { btnElement.disabled = false; btnElement.innerHTML = original; }
       }
     }
 
@@ -4846,7 +4979,17 @@
                 <span class="badge" style="background: ${isAdmission ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 146, 60, 0.15)'}; color: ${isAdmission ? '#34d399' : '#fb923c'}; border: 1px solid ${isAdmission ? 'rgba(52, 211, 153, 0.35)' : 'rgba(251, 146, 60, 0.35)'};">
                   PROPOSAL: ${isAdmission ? 'ADMIT TERM' : 'RETIRE TERM'}
                 </span>
-                <span>ID: ${item.id}</span>
+                <span style="display: flex; align-items: center; gap: 10px;">
+                  ${isAdmission ? `
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; color: var(--text-dim);" title="Select for a bulk decision">
+                      <input type="checkbox" id="bulk-pick-${item.id}" ${selectedProposalIds.has(item.id) ? 'checked' : ''}
+                        onchange="toggleProposalSelection(${item.id}, this.checked)"
+                        style="accent-color: #34d399; cursor: pointer; width: 15px; height: 15px;" />
+                      Select
+                    </label>
+                  ` : ''}
+                  <span>ID: ${item.id}</span>
+                </span>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
                 <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
@@ -5265,7 +5408,17 @@
           return;
         }
 
-        container.innerHTML = filterBarHtml + filteredItems.map(item => renderTriageItemCard(item)).join('');
+        // The bulk bar is built from `filteredItems` rather than the whole queue, because
+        // "select all" that reaches past the filter would act on cards the reviewer cannot
+        // see. Filter first, then select all of what is on screen.
+        const visibleAdmissionIds = filteredItems
+          .filter(i => i.item_type === 'proposal' && i.type === 'tag_admission')
+          .map(i => i.id);
+        const bulkBarHtml = visibleAdmissionIds.length > 1
+          ? renderBulkProposalBar(visibleAdmissionIds)
+          : '';
+
+        container.innerHTML = filterBarHtml + bulkBarHtml + filteredItems.map(item => renderTriageItemCard(item)).join('');
         // Tag proposals need the registry read before their category select and
         // similar-terms list mean anything; the cards render first, then fill in.
         hydrateTagProposalCards();

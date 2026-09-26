@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 20:49:55
+date modified: 2026-09-26 07:45:55
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,102 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.245] - 2026-09-26 — *The Cap Is Not A Switch*
+
+`TAG_ADMISSION_MAX_PENDING` was documented as a queue limit and behaved as a feature flag. At
+the cap `propose_tag_admission` wrote no row, and withholding withholds a term only once some
+row proves its disappearance from the entry is recoverable — so with none, the tag went back
+onto the fact unreviewed. The gate switched itself off exactly when the vocabulary was under
+most pressure, which is the drift that accumulated 127 stray terms and needed a hand curation
+pass to undo. At 158 of 200 pending and ~13 new an hour, this was about three hours away.
+
+### Fixed
+
+- **A full queue now defers the row instead of skipping it.** Past the cap the proposal is
+  written with `status = 'deferred'`: the reviewer is not handed a 201st card, the term stays
+  recorded, and — because withholding asks only whether *a* row covers the term — the gate
+  keeps working. The one case that still puts the tag back on the entry is a write that fails
+  outright, where no row exists and withholding really would be deletion.
+- **`release_deferred_admissions()` runs on the tag librarian's schedule** and promotes the
+  backlog oldest-first into whatever room the queue has. It is deliberately *not* called from
+  `propose_tag_admission`, which returns early whenever a pass finds nothing unregistered —
+  the normal case — so hanging the release there would have drained the backlog only when an
+  unrelated new term happened to arrive. A test asserts the scheduled pass still references
+  it, because deferral without a release is a one-way door.
+
+### Changed
+
+- **Withholding checks coverage with one indexed lookup** (`topics_with_any_proposal`) rather
+  than loading every pending and every rejected proposal on each fact write. Cost now follows
+  the number of tags asked about rather than the size of a queue that only grows — and it is
+  what makes a deferred row count as cover, which the two hard-coded status readers could not
+  express.
+
+### Added
+
+- `memory_db.get_proposals_by_status`, `count_proposals`, `promote_deferred_proposals` and
+  `DEFERRED_STATUS`. Deferred rows are invisible to every existing consumer, all of which key
+  on `status = 'pending'`.
+
+### Tests
+
+- `test_tag_withholding.py` grew to 13. The test asserting a full queue keeps the tag is
+  replaced — it encoded the decision being reversed — by four covering the new rule: the cap
+  defers and keeps withholding, the release takes only what there is room for, the release
+  does not depend on a new term arriving, and a write that fails outright still keeps the tag.
+
+## [000.006.244] - 2026-09-26 — *One Decision, Many Rows*
+
+Tag admission review arrived faster than one-at-a-time review could clear it. Overnight the
+pending queue went from 21 to 158 against a ceiling of 200, and that ceiling is not a queue
+limit but a switch: at the cap `withhold_unregistered_tags` stops proposing and keeps the
+unregistered term on the entry instead, which is precisely the drift the withholding gate was
+built to stop. A reviewer who cannot clear the queue faster than it fills never gets to decide
+at all.
+
+### Added
+
+- **Bulk proposal review (`POST /api/review/proposals/bulk`).** Applies many decisions in one
+  request, sequentially and independently: a bad row is reported against its own id and the
+  rest still run, because a batch of 150 that aborts on the first failure is worse than no
+  batch at all. Accepts the same per-decision fields a single card can carry — a corrected
+  term, a chosen category, a relation kind — so nothing a reviewer can say one at a time is
+  lost in bulk. Capped at `BULK_PROPOSAL_MAX` (250).
+- **Bulk selection in the review UI.** A checkbox on each admission card and a bar carrying
+  *Select all shown*, *Admit*, *Reject* and *Remove*. Selection lives in JavaScript state
+  rather than the DOM, so ticking a box never re-renders the list and discards a term the
+  reviewer was part-way through correcting, and "select all" is scoped to what the current
+  filter actually shows rather than reaching past it. The bar states the asymmetry the two
+  refusals carry: **reject is permanent** and suppresses the term from every future proposal,
+  while **remove** only clears the row and the term returns the next time something asks.
+
+### Changed
+
+- **Proposal approval extracted into `_apply_proposal_action`.** The single-proposal route is
+  now a thin wrapper over the same helper the bulk route calls, so a decision means exactly
+  the same thing however it was submitted. A second implementation of approval would have been
+  a second set of side effects to forget — the vocabulary write, the fact backfill, the note
+  backfill — and a test asserts the single route still delegates.
+- **The memory refresh runs once per batch, not once per decision,** and only when something
+  was actually approved.
+
+### Fixed
+
+- **Denying or removing a proposal that is not there no longer reports success.** Both
+  `reject_proposal` and `delete_proposal` have always returned whether they changed a row and
+  nothing ever read it — the same defect shape as G1, one level down. One card at a time it was
+  invisible, because the card was already gone; in a batch the applied/failed count is the
+  reviewer's only feedback, so a double-submitted batch of 80 rejections reported 80 applied
+  the second time too. Both now raise a 404 the batch reports against that id.
+
+### Tests
+
+- `test_bulk_proposal_review.py` (12): every decision applied, one bad row not ending the batch,
+  approval still backfilling the fact that asked (G5), rejection still recorded as permanent,
+  the refresh firing exactly once and not at all for a batch of rejections, empty and oversized
+  batches refused, the single route still sharing the bulk implementation, and a missing row
+  counted as a failure rather than an application — including the same batch submitted twice.
 
 ## [000.006.243] - 2026-09-25 — *Every Note Starts Here*
 

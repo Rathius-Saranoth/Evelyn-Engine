@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-25 20:36:40
+# date modified: 2026-09-26 07:45:55
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -1398,8 +1398,9 @@ def audit_single_fact_tags(entry: dict[str, Any], dry_run: bool = False) -> dict
         "applied": final,
         "proposed": proposed,
         # Everything classification could not match, raised or not. A caller draining a backlog
-        # needs this: past the pending cap no proposal is written, and the fact is stamped
-        # regardless, so the terms would otherwise be gone with the fact marked done.
+        # needs this: past the pending cap the row is deferred rather than queued, and the
+        # fact is stamped regardless, so the terms would otherwise look decided when nobody
+        # has yet seen them.
         "held_back": list(proposals),
         "status": "tagged" if final else "no_match",
     }
@@ -1810,16 +1811,14 @@ def withhold_unregistered_tags(
         return list(tags)
 
     try:
-        covered = {
-            (prop.get("topic") or "").strip()
-            for prop in memory_db.get_pending_proposals(TAG_ADMISSION_PROPOSAL)
-        }
-        # A rejected term is covered too, and more firmly than a pending one: the reviewer has
-        # already said no. Since G1 stopped re-proposing rejected terms, reading `pending` alone
-        # would find no proposal covering them and leave them on the fact — turning "rejected"
-        # into the one verdict that lets a term through. The rejected row is still the record
-        # that makes it recoverable, which is the condition withholding has always needed.
-        covered |= set(memory_db.get_rejected_topics(TAG_ADMISSION_PROPOSAL))
+        # Any surviving row is cover, because withholding asks only whether the term's
+        # disappearance from the entry is recoverable. Pending means queued; rejected means
+        # the reviewer already ruled — and reading pending alone once turned "rejected" into
+        # the single verdict that let a term through; deferred means the queue was full and
+        # the term is waiting for room, which is the case that used to reopen the gate
+        # entirely. One indexed lookup, so the cost follows the tags asked about rather than
+        # the size of a queue that only grows.
+        covered = memory_db.topics_with_any_proposal(TAG_ADMISSION_PROPOSAL, list(tags))
     except (sqlite3.Error, OSError) as exc:
         # Cannot prove a proposal covers anything, so withhold nothing.
         logger.warning("[TAG LIBRARIAN] Could not confirm pending proposals; keeping tags: %s", exc)
@@ -1833,6 +1832,59 @@ def withhold_unregistered_tags(
             len(held), origin, ", ".join(held),
         )
     return kept
+
+
+def release_deferred_admissions() -> int:
+    """Move deferred tag admissions back into the review queue, as far as the cap allows.
+
+    Deferral is only half a mechanism: something has to put the backlog back. This runs on
+    the tag librarian's schedule rather than inside `propose_tag_admission`, because that
+    function returns early whenever a pass finds nothing unregistered — which is the normal
+    case — so hanging the release off it would drain the backlog only when a *new* term
+    happened to arrive. The backlog's release must depend on the queue having room, and on
+    nothing else.
+
+    Returns:
+        int: How many proposals were promoted.
+    """
+    from Evelyn.tools import memory_db
+
+    try:
+        # Backlog first: it is empty in the ordinary case, and then this costs one indexed
+        # read and nothing else.
+        backlog = memory_db.get_proposals_by_status(
+            TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS
+        )
+        if not backlog:
+            return 0
+        pending = len(memory_db.get_pending_proposals(TAG_ADMISSION_PROPOSAL))
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("[TAG LIBRARIAN] Could not read the queue to release deferrals: %s", exc)
+        return 0
+
+    room = TAG_ADMISSION_MAX_PENDING - pending
+    if room <= 0:
+        logger.info(
+            "[TAG LIBRARIAN] %d term(s) deferred, queue still full at %d; nothing released.",
+            len(backlog), pending,
+        )
+        return 0
+
+    try:
+        promoted = memory_db.promote_deferred_proposals(TAG_ADMISSION_PROPOSAL, room)
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("[TAG LIBRARIAN] Could not release deferred admissions: %s", exc)
+        return 0
+
+    if promoted:
+        # Both reads are oldest-first, so these are the rows that moved. Naming them matters:
+        # otherwise terms appear in the reviewer's queue with no record of where from.
+        released = [str(p.get("topic") or "") for p in backlog[:promoted]]
+        logger.info(
+            "[TAG LIBRARIAN] Released %d of %d deferred tag admission(s) into the queue: %s",
+            promoted, len(backlog), ", ".join(released),
+        )
+    return promoted
 
 
 def propose_tag_admission(
@@ -1928,17 +1980,18 @@ def propose_tag_admission(
                 logger.warning("[TAG LIBRARIAN] Could not widen proposal for '%s': %s", term, exc)
 
     room = TAG_ADMISSION_MAX_PENDING - len(pending)
-    if room <= 0:
-        logger.warning(
-            "[TAG LIBRARIAN] %d tag admission proposals already pending; not adding more.",
-            len(pending),
-        )
-        return []
 
     proposed: list[str] = []
+    deferred: list[str] = []
     for term in dict.fromkeys(unregistered):
-        if term in already or len(proposed) >= room:
+        if term in already:
             continue
+        # Past the cap the row is still written, as `deferred`. The cap exists to keep the
+        # queue reviewable, not to stop recording what the corpus asked for — and the two
+        # were the same thing while a full queue wrote nothing, because withholding needs a
+        # row to prove the term is recoverable. With none, the tag stayed on the entry and
+        # the gate switched itself off exactly when the vocabulary was under most pressure.
+        status = "pending" if len(proposed) < room else memory_db.DEFERRED_STATUS
         # Only a facet-prefixed term states its own axis. A flat term's category is a
         # curatorial judgement the reviewer makes, so it is left empty rather than filled
         # with a placeholder that would enter the registry as if it meant something.
@@ -1952,18 +2005,33 @@ def propose_tag_admission(
                 reason=reason or f"Requested by {origin or 'an unnamed writer'}; not in the controlled vocabulary.",
                 merged_observation=origin,
                 confidence="low",
+                status=status,
                 source_path=source_path or None,
             )
         except (sqlite3.Error, OSError) as exc:
+            # The one case where the tag must stay on the entry: no row exists, so nothing
+            # records that the term was ever wanted and withholding it would be deletion.
             logger.warning("[TAG LIBRARIAN] Could not propose '%s': %s", term, exc)
             continue
-        proposed.append(term)
+        (proposed if status == "pending" else deferred).append(term)
+
+    if deferred:
+        backlog = 0
+        with contextlib.suppress(sqlite3.Error, OSError):
+            backlog = memory_db.count_proposals(TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS)
+        logger.warning(
+            "[TAG LIBRARIAN] Queue at capacity (%d); deferred %d term(s), backlog now %d: %s",
+            TAG_ADMISSION_MAX_PENDING, len(deferred), backlog, ", ".join(deferred),
+        )
 
     if proposed:
         logger.info(
             "[TAG LIBRARIAN] Proposed %d term(s) for admission from %s: %s",
             len(proposed), origin or "unknown origin", ", ".join(proposed),
         )
+    # Only the queued terms are "proposed". A deferred term is recorded, and covered for
+    # withholding, but the reviewer has not been handed it — so a caller draining a backlog
+    # still sees it in `held_back` and does not mark it done.
     return proposed
 
 

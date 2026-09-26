@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-25 19:46:32
+# date modified: 2026-09-26 07:45:55
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -1445,6 +1445,124 @@ def record_rejected_request(type: str, topic: str) -> int:
     finally:
         con.close()
     return int(row["n"]) if row and row["n"] is not None else 0
+
+
+DEFERRED_STATUS = "deferred"
+
+
+def topics_with_any_proposal(type: str, topics: list[str]) -> set[str]:
+    """Return which of `topics` already have a proposal row of any status but applied.
+
+    Withholding asks one question — *is this term's disappearance from the entry recoverable?*
+    — and any surviving row answers it: pending means it is queued, rejected means the reviewer
+    already ruled, deferred means the queue was full and it is waiting for room. Reading the
+    whole pending list and the whole rejected list to answer it, as this used to, costs more
+    every day the queue grows and was the reason a full queue could not be made to keep
+    withholding: there was nowhere to put a row that was neither pending nor rejected.
+
+    Uses `idx_proposals_type_topic_status`, so the cost follows the number of terms asked
+    about rather than the size of the queue.
+
+    Args:
+        type: Proposal type.
+        topics: Terms to check.
+
+    Returns:
+        set[str]: The subset that some proposal row already covers.
+    """
+    wanted = [t.strip() for t in topics if t and t.strip()]
+    if not wanted:
+        return set()
+
+    con = get_db()
+    try:
+        placeholders = ",".join("?" * len(wanted))
+        rows = con.execute(
+            f"SELECT DISTINCT TRIM(topic) AS topic FROM proposals "
+            f"WHERE type = ? AND status IN ('pending', 'rejected', '{DEFERRED_STATUS}') "
+            f"AND TRIM(topic) IN ({placeholders})",
+            (type, *wanted),
+        ).fetchall()
+    finally:
+        con.close()
+    return {str(r["topic"]).strip() for r in rows}
+
+
+def count_proposals(type: str, status: str) -> int:
+    """Count the proposals of a type in a given status.
+
+    Args:
+        type: Proposal type.
+        status: Status to count.
+
+    Returns:
+        int: How many rows match.
+    """
+    con = get_db()
+    try:
+        row = con.execute(
+            "SELECT COUNT(*) AS n FROM proposals WHERE type = ? AND status = ?",
+            (type, status),
+        ).fetchone()
+    finally:
+        con.close()
+    return int(row["n"]) if row else 0
+
+
+def get_proposals_by_status(type: str, status: str) -> list[dict]:
+    """Fetch the proposals of a type in a given status, oldest first.
+
+    `get_pending_proposals` and `get_rejected_proposals` each hard-code their status, so the
+    deferred backlog — which is neither — had no reader at all.
+
+    Args:
+        type: Proposal type.
+        status: Status to fetch.
+
+    Returns:
+        list[dict]: Matching proposals, oldest first.
+    """
+    con = get_db()
+    try:
+        rows = con.execute(
+            "SELECT * FROM proposals WHERE type = ? AND status = ? ORDER BY created_at ASC",
+            (type, status),
+        ).fetchall()
+    finally:
+        con.close()
+    return [_row_to_proposal(r) for r in rows]
+
+
+def promote_deferred_proposals(type: str, limit: int) -> int:
+    """Move up to `limit` deferred proposals into the review queue, oldest first.
+
+    Deferral exists so that a full queue can keep withholding: the term is recorded and the
+    entry does not keep it, but the reviewer is not handed a 201st card. Nothing would ever
+    come back off that backlog without this, so clearing the queue is what releases it.
+
+    Args:
+        type: Proposal type.
+        limit: Maximum rows to promote.
+
+    Returns:
+        int: How many were promoted.
+    """
+    if limit <= 0:
+        return 0
+
+    con = get_db()
+    try:
+        cur = con.execute(
+            "UPDATE proposals SET status = 'pending' WHERE id IN ("
+            "  SELECT id FROM proposals WHERE type = ? AND status = ? "
+            "  ORDER BY created_at ASC LIMIT ?"
+            ")",
+            (type, DEFERRED_STATUS, limit),
+        )
+        con.commit()
+        return cur.rowcount
+    finally:
+        con.close()
 
 
 def delete_proposal(proposal_id: int) -> bool:
