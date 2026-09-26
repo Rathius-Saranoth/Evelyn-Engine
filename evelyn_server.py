@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-25 07:20:52
+# date modified: 2026-09-25 19:20:57
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2579,6 +2579,27 @@ async def run_tag_librarian_task(
         await proc.wait()
         if proc.returncode == 0:
             print(f"{_CYN}[TAG LIBRARIAN]{_RST} Semantic tag audit completed successfully.", flush=True)
+            # Relation candidates ride the same schedule as the audit that produces the tags
+            # they are measured from, and land in the same review queue. Without this the
+            # measurement is only reachable by running a script by hand, which is why the
+            # first 155 relations were curated outside the review system entirely.
+            #
+            # Cheap when there is no room: the producer checks the pending queue before it
+            # counts anything. Off-thread because counting reads both substrates end to end.
+            try:
+                from Evelyn.tools import tag_relations
+
+                raised = await asyncio.to_thread(tag_relations.propose_tag_relations)
+                if raised:
+                    print(
+                        f"{_CYN}[TAG LIBRARIAN]{_RST} Proposed {len(raised)} relation(s) for "
+                        f"review: {', '.join(raised)}",
+                        flush=True,
+                    )
+            except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
+                # A failure here must not mark the audit itself as failed — the audit
+                # succeeded, and the relation pass is an additional producer riding on it.
+                print(f"[TAG LIBRARIAN] Relation proposal pass failed: {e}", flush=True)
             task_manager.clear_running("tag_librarian", status="idle")
         else:
             task_manager.clear_running(
@@ -6196,6 +6217,10 @@ class ProposalActionRequest(BaseModel):
     source_id: int | None = None
     target_id: int | None = None
     category: str | None = None
+    # `tag_relation` only: what the reviewer decided the pair actually is. The generator
+    # measures association and cannot tell these apart (§6.4.1 question 3), so it is the one
+    # field the card must collect rather than infer.
+    kind: str | None = None
 
 
 class GroundingAuditRequest(BaseModel):
@@ -6650,6 +6675,31 @@ async def action_proposal(
                 # Put the term back onto the facts that asked for it. A no-op while admission
                 # is propose-only, and the thing that makes withholding possible.
                 tag_librarian.backfill_admitted_term(term, prop.get("source_ids") or [])
+                memory_db.apply_proposal(id)
+
+            elif prop["type"] == "tag_relation":
+                # `topic` carries the pair as `a:b`. The generator measured that the two terms
+                # co-occur far more than chance; it cannot say *how* they relate, which is the
+                # whole reason this is a proposal and not a write.
+                #
+                # Three outcomes, and they are genuinely different decisions:
+                #   related  — associative, symmetric, the common case
+                #   narrower — `a` is a kind of `b`, and the order given is the claim
+                #   alias    — not a relation at all: one concept under two names (§6.2), so
+                #              `a` is retired onto `b` and its relations move with it
+                #
+                # `modified_text` re-orders the pair, which is required for `narrower` and for
+                # `alias` because both are directional and the topic is stored alphabetically.
+                from Evelyn.tools import tag_relations
+
+                pair = ((req.modified_text if req else None) or prop.get("topic") or "").strip()
+                kind = (
+                    (req.kind if req else None) or prop.get("suggested_category") or "related"
+                ).strip()
+                try:
+                    tag_relations.apply_relation_decision(pair, kind)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
                 memory_db.apply_proposal(id)
 
             elif prop["type"] == "tag_retirement":

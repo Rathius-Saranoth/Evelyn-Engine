@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-25 18:42:59
+# date modified: 2026-09-25 19:20:57
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.237"
-__version_info__ = (0, 6, 237)
-__version_name__ = "An Alias Is One Term"
+__version__ = "000.006.238"
+__version_info__ = (0, 6, 238)
+__version_name__ = "Reachable From The Queue"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

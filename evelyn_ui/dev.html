@@ -1959,6 +1959,14 @@
               modified_text: termInput ? termInput.value.trim() : (item.topic || ''),
               category: catSelect ? catSelect.value : ''
             });
+          } else if (item && item.type === 'tag_relation') {
+            // One <select> carries both the kind and the direction, because for two of the
+            // three outcomes the order IS the claim: `narrower` says a is a kind of b, and an
+            // alias retires a onto b. Splitting them into two controls invites the reviewer to
+            // set one and forget the other.
+            const verdict = document.getElementById(`rel-kind-${id}`);
+            const [kind, pair] = (verdict ? verdict.value : `related|${item.topic || ''}`).split('|');
+            body = JSON.stringify({ kind: kind, modified_text: pair });
           } else if (item && item.type === 'tag_retirement') {
             // An empty replacement is meaningful: retire with no pointer.
             const repl = document.getElementById(`tag-replacement-${id}`);
@@ -4766,6 +4774,60 @@
               </div>
             </div>
           `;
+        }
+
+        if (item.type === 'tag_relation') {
+          // The generic card renders `merged_observation`, which here is only the origin
+          // string — the pair being decided lives in `topic` and would never be shown. The
+          // same defect the admission card was built to fix.
+          //
+          // The generator measured that these two co-occur far more than chance. It cannot
+          // say HOW they relate, and that is the decision: association, hierarchy, or not a
+          // relation at all but one concept under two names (taxonomy 6.4.1 question 3).
+          const [relA, relB] = String(item.topic || '').split(':');
+          const opts = [
+            [`related|${relA}:${relB}`, `Related — associated, neither is broader`],
+            [`narrower|${relA}:${relB}`, `${relA} is a kind of ${relB}`],
+            [`narrower|${relB}:${relA}`, `${relB} is a kind of ${relA}`],
+            [`alias|${relA}:${relB}`, `Same thing — retire "${relA}", keep "${relB}"`],
+            [`alias|${relB}:${relA}`, `Same thing — retire "${relB}", keep "${relA}"`],
+          ];
+          return `
+            <div class="card" data-relation-proposal="${item.id}">
+              <div class="card-header">
+                <span class="badge" style="background: rgba(129, 140, 248, 0.15); color: #a5b4fc; border: 1px solid rgba(129, 140, 248, 0.35);">
+                  PROPOSAL: RELATE TERMS
+                </span>
+                <span>ID: ${item.id}</span>
+              </div>
+              <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Pair to decide
+                  </div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: #a5b4fc;">
+                    ${escapeHtml(relA || '')} <span style="color: var(--text-dim);">&harr;</span> ${escapeHtml(relB || '')}
+                  </div>
+                  <div style="font-size: 13px; color: var(--text); line-height: 1.5;">${escapeHtml(item.reason || '')}</div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label for="rel-kind-${item.id}" style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                    What are they to each other?
+                  </label>
+                  <select id="rel-kind-${item.id}" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 14px; outline: none;">
+                    ${opts.map(([v, label]) => `<option value="${escapeAttr(v)}">${escapeHtml(label)}</option>`).join('')}
+                  </select>
+                  <div style="font-size: 11px; color: var(--text-dim);">
+                    Deny if they merely turn up together. <strong>&quot;Same thing&quot; removes a term from the vocabulary</strong> &mdash; the other options only add a row.
+                  </div>
+                </div>
+              </div>
+              <div class="card-actions" style="display: flex; gap: 8px;">
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Record</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+              </div>
+            </div>`;
         }
 
         if (item.type === 'tag_admission' || item.type === 'tag_retirement') {

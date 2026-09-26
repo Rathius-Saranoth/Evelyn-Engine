@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-09-25 19:20:57
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1220,6 +1220,21 @@ LIBRARIAN_STUB_DOMAIN_FOLDERS: list[str] = [
 # vocabulary term. 2.0 asks again only once the citation count has doubled, so the reviewer is
 # answering a different question rather than the same one twice.
 GHOST_STUB_REEVIDENCE_FACTOR = 2.0
+
+# --- Relation candidates (taxonomy §6.4) -------------------------------------------------
+# Support thresholds for a co-occurring pair to be worth a reviewer's time. The second is the
+# one that matters: without an independent-areas floor, a single ten-tag manual produces
+# forty-five "relations" that are really one document's tag list.
+TAG_RELATION_MIN_DOCS = 5
+TAG_RELATION_MIN_AREAS = 3
+TAG_RELATION_MIN_LIFT = 3.0
+# The review queue is one person's. This cap is per-type, unlike the admission cap, which is
+# global and once reached refused every other producer with it (G3).
+TAG_RELATION_MAX_PENDING = 25
+# Same shape as GHOST_STUB_REEVIDENCE_FACTOR, for the same reason: "these two are not related"
+# is a judgement about the documents that existed when it was made, and twice as many of them
+# is a different question rather than the same one asked again.
+TAG_RELATION_REEVIDENCE_FACTOR = 2.0
 
 MASTER_LIBRARIAN_AUTO_STUBS = False  # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [

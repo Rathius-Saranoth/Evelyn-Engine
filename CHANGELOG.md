@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 18:57:38
+date modified: 2026-09-25 19:23:42
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,68 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.238] - 2026-09-25 — *Reachable From The Queue*
+
+Relation candidates now reach the review queue, and both answers have a reader.
+
+### Added
+
+- **`Evelyn/tools/tag_relations.py` — the measurement, where the engine can call it.** It sat
+  inside `scripts/curate_tag_relations.py`, so the only way to see a candidate was to run a
+  command by hand. The first 155 relations were consequently curated over a terminal and a
+  conversation, **outside the review system that exists for exactly this**. The script is now
+  a thin CLI over the module and behaviour is unchanged.
+- **`tag_relation` proposals.** `propose_tag_relations()` rides the scheduled tag-librarian
+  pass — the same cadence as the audit producing the tags it measures, into the same queue.
+  Bounded by `TAG_RELATION_MAX_PENDING` (25, per-type rather than global, unlike the admission
+  cap that once refused every other producer with it), and it reads the queue **before**
+  counting the corpus, since counting means reading both substrates end to end.
+- **Three outcomes on one card, because they are three decisions.**
+  `apply_relation_decision()` takes `related` (symmetric), `narrower` (**directional — the
+  order given is the claim**) or `alias` (not a relation at all: one concept under two names,
+  so the first term is retired onto the second and its relations move with it). The generator
+  measures association and cannot tell these apart, which is the whole reason it is a proposal
+  and not a write. An unrecognised verdict is refused rather than defaulted to `related`.
+- **A rejection binds, and re-opens on evidence** — the `.234` per-type policy applied to a
+  type that did not exist then. A relation candidate *is* an evidence claim, so the ghost-stub
+  shape fits: suppressed while the document count stays under `REEVIDENCE_FACTOR` × the count
+  it was rejected at, with each suppressed request incrementing `rejection_count`.
+
+### Changed
+
+- **`.agents/rules/vault-tag-taxonomy.md` §6.4.1 — the six questions to ask a reviewer.**
+  Curation policy, so it belongs with the standard rather than in a scratch file. It records
+  the split of labour that C3 got wrong: the reviewer holds context the corpus cannot show,
+  and the thesaurus logic belongs to the pipeline. **Reviewing 153 candidates by tag evidence
+  alone held 18 back and got 8 of them wrong**; six plain questions settled every one.
+  It also records what *not* to lead with — reversibility answers "how bad if I am wrong",
+  not "is this legitimate", and a reviewer offered the first will keep everything.
+
+### Fixed
+
+- **`describe_candidate()` deleted before it shipped.** Written speculatively for a consumer
+  that did not exist yet; Vulture flagged it as uncalled and it was removed rather than
+  whitelisted. That is the §11 triage working as intended on the exact defect class — code
+  written, plausible, and reached by nothing — that `.230`, `.231` and `.232` each fixed after
+  the fact.
+
+- **A review card for `tag_relation`** (`evelyn_ui/dev.html`). Without one the generic card
+  would have rendered `merged_observation` and **never shown the pair** — the same defect the
+  admission card was built to fix. It leads with the two terms and the evidence, and collects
+  the verdict in a single `<select>` carrying both kind and direction, because for two of the
+  three outcomes the order *is* the claim. The alias options say plainly which term they
+  remove: that decision subtracts from the vocabulary, the other two only add a row.
+
+### Tests
+
+- `Evelyn/tests/test_relation_proposals.py` — 15 tests over the whole loop: produce, suppress,
+  re-open, and all three approval outcomes. Five mutations red-checked separately, including
+  sorting a `narrower` pair (silently reverses about half of them) and defaulting an unknown
+  verdict to `related` (invents a decision the reviewer did not make).
+- The two existing relation suites were rewritten against the module's structured return
+  rather than by parsing printed output. That parsing had already broken twice, and both
+  breaks were in the test rather than the code.
 
 ## [000.006.237] - 2026-09-25 — *An Alias Is One Term*
 
