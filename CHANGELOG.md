@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 20:36:40
+date modified: 2026-09-25 20:49:55
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,41 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.243] - 2026-09-25 — *Every Note Starts Here*
+
+Six of nine vault templates seeded new notes with tags the registry does not hold.
+
+### Fixed
+
+- **Template tags re-mapped onto the vocabulary (F2).** Every offender was the same mistake —
+  a statement about document *class* written as a flat word or a pre-coordinate compound, when
+  §3.4 puts class on the `type/` axis:
+
+  | template | was | now |
+  |---|---|---|
+  | Disambiguation Node | `system/disambiguation`, `moc`, `index` | `type/moc` |
+  | External Resources | `External_Resource` | `type/reference` |
+  | List Template | `list`, `{{slug}}` | `type/list` |
+  | List of Templates | `index`, `moc` | `type/moc` |
+  | Reference Cards | `learning`, `module-X`, `reference-card` | `type/reference`, `learning` |
+  | Session Notes | `type/notes`, `dnd/session-recap` | `type/notes`, `ttrpg`, `campaign` |
+
+  **Two were placeholders, not tags.** `{{slug}}` and `module-X` never rendered, so every note
+  made from those templates carried them verbatim.
+
+- **Why it went unseen.** `Templates/` is excluded from both indexing and the semantic audit —
+  correctly, since a template is not a document about anything and auditing one would propose
+  subjects for placeholder prose. The cost is that no producer and no pass will *ever* notice
+  drift there, and the `.186` reset skipped excluded directories too.
+
+### Tests
+
+- `Evelyn/tests/test_templates_are_registered.py` — 4 tests, and **the only guard this
+  directory has**. Red-checked by restoring an actual original file rather than a synthetic
+  one. Skips where no vault is present, so a clone does not fail on somebody else's
+  directory. One test asserts the exclusion *stays*, since this guard only makes sense while
+  the audit keeps its hands off.
 
 ## [000.006.242] - 2026-09-25 — *Count Yourself Sometimes*
 
