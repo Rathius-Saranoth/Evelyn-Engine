@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-25 19:46:32
+# date modified: 2026-09-25 20:36:40
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -2600,6 +2600,26 @@ async def run_tag_librarian_task(
                 # A failure here must not mark the audit itself as failed — the audit
                 # succeeded, and the relation pass is an additional producer riding on it.
                 print(f"[TAG LIBRARIAN] Relation proposal pass failed: {e}", flush=True)
+
+            # The vocabulary re-counts itself against the whole corpus, at most daily. This
+            # is the census's only reachable caller: the master librarian path skips it even
+            # when enabled, because the scheduled invocation never passes
+            # `rebalance_taxonomy=True`. Off-thread — it scans both substrates and procedures.
+            try:
+                from Evelyn.tools import tag_librarian as _tl
+
+                census = await asyncio.to_thread(_tl.run_taxonomy_census_if_due)
+                if census:
+                    print(
+                        f"{_CYN}[TAG LIBRARIAN]{_RST} Taxonomy census: "
+                        f"{census.get('updated_master_tags')} count(s) corrected, "
+                        f"{census.get('unused_terms')} unused, "
+                        f"{census.get('retirement_proposed')} proposed for retirement.",
+                        flush=True,
+                    )
+            except (sqlite3.Error, OSError, ValueError, RuntimeError) as e:
+                print(f"[TAG LIBRARIAN] Taxonomy census failed: {e}", flush=True)
+
             task_manager.clear_running("tag_librarian", status="idle")
         else:
             task_manager.clear_running(

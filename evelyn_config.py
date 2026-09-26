@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-25 19:20:57
+# date modified: 2026-09-25 20:36:40
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1235,6 +1235,12 @@ TAG_RELATION_MAX_PENDING = 25
 # is a judgement about the documents that existed when it was made, and twice as many of them
 # is a different question rather than the same one asked again.
 TAG_RELATION_REEVIDENCE_FACTOR = 2.0
+
+# How often the vocabulary re-counts itself against the whole corpus. The census is a full
+# scan of vault, memory and procedures, so it is daily rather than per-pass — but it had no
+# reachable caller at all until 000.006.242, and 585 of 702 counts had drifted from the live
+# corpus by then. Set to 0 to disable.
+TAXONOMY_CENSUS_INTERVAL_HOURS = 24
 
 MASTER_LIBRARIAN_AUTO_STUBS = False  # Tier 2 review proposals by default (True = Tier 1 autonomous creation)
 LIBRARIAN_EXCLUDED_DOCUMENTS = [

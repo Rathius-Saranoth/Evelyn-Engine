@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 20:22:37
+date modified: 2026-09-25 20:36:40
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,51 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.242] - 2026-09-25 — *Count Yourself Sometimes*
+
+The vocabulary had never counted itself. 585 of 702 registry counts were wrong.
+
+### Fixed
+
+- **The usage census had no reachable caller (G6).** `maintain_master_taxonomy()` recounts
+  every registered term across vault, memory and procedures — `.221` fixed it to span all
+  three and corrected 278 counts. Nothing then checked whether anything *calls* it. Two routes
+  exist and neither runs: `scripts/master_librarian.py` behind `--rebalance-taxonomy`, whose
+  only scheduled caller invokes `run_master_librarian_task()` bare so the flag defaults to
+  `False`, and a manual endpoint nothing calls. **Enabling the master librarian would not have
+  fixed it**, which is why this was its own defect rather than a consequence of D3.
+
+  `run_taxonomy_census_if_due()` now rides the scheduled tag-librarian pass, throttled to
+  `TAXONOMY_CENSUS_INTERVAL_HOURS` (24). Measured cost: **6.1s** over 4,386 documents, 10,273
+  facts and 51 procedures.
+
+- **The census never wrote a zero.** A term with no current uses was collected into `unused`
+  and its cached count left untouched — so a term that *fell out* of use kept its old number
+  forever. Four read `usage_count = 1` against a true zero, which is precisely the set a
+  reviewer consults when deciding what to retire and precisely what a vocabulary view would
+  render. Not deleting an unused term is the rule; leaving its count wrong was never part of
+  it. The row stays, the number tells the truth.
+
+- **The retirement path had therefore never executed.** `propose_tag_retirement` is called
+  *from inside* the census, so no term has ever been proposed for retirement in this system's
+  life. It runs now: three unprotected zero-usage terms become eligible 2026-12-22/23 once
+  their 90-day grace expires.
+
+### Notes
+
+- First run corrected **583** counts, then **3** more after the zero fix. Registry drift
+  against the live corpus is now nil. Top terms re-measured: `type/reference` 2899,
+  `persona` 1356, `workplace` 893.
+- Same defect class as G1, G2, G4, G5 and F7a — written, correct, reached by nobody. **Six in
+  one week**, all found by asking "what reads the output?" rather than "is it wired?".
+
+### Tests
+
+- `Evelyn/tests/test_taxonomy_census_runs.py` — 9 tests. One pins the root cause so nobody
+  "fixes" this by enabling D3, and one covers the safety circuit breaker that aborts the
+  census against an empty corpus — which the first draft of the zeroing test tripped, and
+  which would otherwise have read as the fix not working.
 
 ## [000.006.241] - 2026-09-25 — *Green Is Not Compiles*
 

@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-25 20:15:27
+# date modified: 2026-09-25 20:36:40
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -2239,6 +2239,51 @@ def retire_term(term: str, replacement: str = "") -> bool:
     return True
 
 
+_last_census_ts = 0.0
+
+
+def run_taxonomy_census_if_due(force: bool = False) -> dict[str, Any] | None:
+    """Run the usage census when it is due, and otherwise cheaply do nothing.
+
+    **`maintain_master_taxonomy()` had no reachable caller.** It is invoked from
+    `scripts/master_librarian.py` behind `--rebalance-taxonomy`, and the only scheduled path to
+    that script calls `run_master_librarian_task()` with no arguments — so the flag defaults to
+    `False` and the census would be skipped *even with the master librarian enabled*. The other
+    route is a manual endpoint nothing calls. Measured 2026-09-25: **585 of 702 registry counts
+    disagreed with the live corpus.**
+
+    Two things read those counts, so both were wrong. The vocabulary view (F5) would render
+    them, and `propose_tag_retirement` runs *inside* the census — meaning the retirement path
+    had never executed either, and no term has ever been proposed for retirement.
+
+    Throttled in memory rather than persisted: the census is idempotent, and running once more
+    after a restart is cheaper than a table to remember that it did.
+
+    Args:
+        force: Run regardless of when it last ran.
+
+    Returns:
+        dict[str, Any] | None: The census result, or None when it was not due.
+    """
+    global _last_census_ts
+
+    hours = getattr(cfg, "TAXONOMY_CENSUS_INTERVAL_HOURS", 24)
+    if not hours and not force:
+        return None
+    if not force and (time.time() - _last_census_ts) < (hours * 3600):
+        return None
+
+    _last_census_ts = time.time()
+    result = maintain_master_taxonomy()
+    logger.info(
+        "[TAG LIBRARIAN] Taxonomy census: %s term count(s) corrected, %s unused, "
+        "%s proposed for retirement.",
+        result.get("updated_master_tags"), result.get("unused_terms"),
+        result.get("retirement_proposed"),
+    )
+    return result
+
+
 def maintain_master_taxonomy() -> dict[str, Any]:
     """Perform periodic maintenance on the master tag taxonomy table and sync to Chroma.
 
@@ -2306,6 +2351,15 @@ def maintain_master_taxonomy() -> dict[str, Any]:
             # document. Long-unused terms are proposed for retirement instead, and the
             # decision is a human one (see propose_tag_retirement).
             unused.append(t)
+            # Not deleting is the rule above; *lying* is not part of it. The count was left
+            # at whatever it last was, so a term that fell out of use kept its old number
+            # forever — four such terms read `usage_count = 1` against a true zero on
+            # 2026-09-25, which is precisely the set a reviewer would want to see. The row
+            # stays; the number tells the truth.
+            if m.get("usage_count", 0) != 0:
+                tags_to_update.append(
+                    (t, m.get("category", "general"), m.get("description", ""), 0)
+                )
         elif count != m.get("usage_count", 0):
             tags_to_update.append((t, m.get("category", "general"), m.get("description", ""), count))
 
