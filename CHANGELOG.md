@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-25 18:23:56
+date modified: 2026-09-25 18:57:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,41 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.237] - 2026-09-25 — *An Alias Is One Term*
+
+A reviewer's decision to make two terms one did not survive the next report.
+
+### Fixed
+
+- **The relation candidate generator counted aliased surface forms as separate terms.** A `UF`
+  alias means the two terms *are* one concept (§6.2), and recording one leaves the old form on
+  the documents that already carried it — correct for retrieval, which is exactly what the
+  pointer is for, and wrong for a co-occurrence count. The pair therefore came back as a
+  candidate on the very next run, so **deciding it decided nothing** — the same shape as the
+  rejected column in `000.006.231`. `_resolve_aliases()` now collapses surface forms before
+  counting, and a document whose tags collapse to a single term leaves the corpus, preserving
+  the `1 < len(tags)` invariant `_corpus` has always applied.
+
+  Measured across both substrates: 171 aliases, of which **one** had an unresolved surface form
+  on documents (31 uses, 0.07%) — the rest were applied when they were curated. Small today,
+  and guaranteed to recur every time an alias is drawn from a co-occurring pair.
+
+### Changed
+
+- **`000.006.236` named the wrong example.** `cat:sleep` was used as *the* spurious candidate —
+  in that entry, in the generator's comment and in a test docstring — on the reasoning that it
+  is where the cat sleeps rather than a relation. Reviewed with the vault's owner it is real:
+  the cat decides how the night goes. The category split it justified is unaffected and still
+  worth having, but it is **a prior and not a verdict** — 42 of the 51 cross-category pairs were
+  real on review. The prose now says so, and uses `hydration:rest` as the example instead.
+
+### Tests
+
+- Two added to `Evelyn/tests/test_relation_candidates_are_ranked.py` (7 total). The resolution
+  was first written inside `_corpus`, where the tests stub it out and could never reach it —
+  the test failed green-side and moved the logic to the analysis seam rather than the I/O one.
+  The single-term guard was then found **uncovered** by its own red check and given a test.
 
 ## [000.006.236] - 2026-09-25 — *A Person Already Sorted These*
 

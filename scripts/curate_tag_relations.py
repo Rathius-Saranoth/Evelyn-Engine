@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # curate_tag_relations.py
 # date created: 2026-09-23 19:30:00
-# date modified: 2026-09-25 18:23:56
+# date modified: 2026-09-25 19:06:46
 # tags: #taxonomy, #relations, #curation, #vocabulary
 
 """Propose and record associative (`RT`) relations between vocabulary terms.
@@ -19,7 +19,8 @@ that are really one document's tag list.
 Candidates are then split by whether both terms sit in the same curated category. That is a
 prior a person made, and a better one than lift: two terms someone deliberately filed
 together are likely related, and two filed apart need the argument made. Measured on the 153
-clean candidates it splits 102/51, and the spurious pairs concentrate in the second bucket.
+clean candidates it splits 102/51, and the pairs that need the hardest look fall in the
+second bucket.
 
 A third filter is not statistical. Facet values co-occur with subjects by construction —
 documents about ttrpg do tend to be profiles — so lift ranks `ttrpg:type/profile` highly
@@ -95,8 +96,37 @@ def _print_bucket(title: str, note: str, rows: list, labels: dict[tuple[str, str
         print(f"{lift:6.1f} {count:5} {area_count:6}  {a + ':' + b:<44} {labels[(a, b)]}")
 
 
+def _resolve_aliases(docs: list[tuple[str, set[str]]]) -> list[tuple[str, set[str]]]:
+    """Collapse aliased surface forms onto their canonical term before counting.
+
+    A `UF` alias means the two terms *are* one concept (§6.2), so counting them separately
+    splits a term's co-occurrence in two and keeps proposing the aliased pair itself as a
+    relation candidate forever — the reviewer decides, and the decision does not stick.
+    Recording `romance` as an alias of `intimacy` left 31 documents still carrying the
+    literal `romance`: correct for retrieval, which is what the pointer is for, and wrong
+    for this count. A document whose tags collapse to a single term drops out, as one tag
+    carries no co-occurrence.
+
+    Args:
+        docs: (area, tag set) pairs straight from the substrates.
+
+    Returns:
+        list[tuple[str, set[str]]]: The same documents with canonical terms.
+    """
+    aliases = taxonomy_db.get_aliases()
+    alias_map = dict(aliases.items() if isinstance(aliases, dict) else aliases)
+    if not alias_map:
+        return docs
+    out = []
+    for area, tags in docs:
+        resolved = {alias_map.get(t, t) for t in tags}
+        if len(resolved) > 1:
+            out.append((area, resolved))
+    return out
+
+
 def report(min_docs: int, min_areas: int, min_lift: float, limit: int) -> None:
-    docs = _corpus()
+    docs = _resolve_aliases(_corpus())
     n = len(docs)
     single: Counter = Counter()
     pair: Counter = Counter()
@@ -133,9 +163,13 @@ def report(min_docs: int, min_areas: int, min_lift: float, limit: int) -> None:
     print(f"Filters: >= {min_docs} documents, >= {min_areas} independent areas, lift >= {min_lift}\n")
     # The 603 curated category groupings are a human judgement about what belongs with
     # what. Lift rediscovers association statistically and has no such judgement, so it
-    # cannot tell `cpap:sleep` from `cat:sleep` — one is a relation, the other is where the
-    # cat sleeps. Splitting on co-membership puts the second kind where it gets read
-    # properly instead of scrolling past in one undifferentiated list.
+    # ranks `cpap:sleep` and `hydration:rest` alike — one a relation, the other two things
+    # that land in the same daily note. Splitting on co-membership puts the second kind
+    # where it gets read properly instead of scrolling past in one undifferentiated list.
+    #
+    # The split is a prior, not a verdict. Reviewed in full, 42 of 51 cross-category pairs
+    # were real — including `cat:sleep`, used here as the spurious example until the person
+    # who owns the vault said the cat does in fact decide how the night goes.
     categories = _categories()
     same: list = []
     cross: list = []
