@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-19 09:31:34
+date modified: 2026-09-27 17:00:57
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -420,6 +420,51 @@ Endpoints driving the background research engine and the interactive developer d
 * **Purpose**: Proxies user audio recordings (WebM/Opus, MP4, WAV) to the local STT service (`stt_server.py`), strips silences/hallucinations via Silero VAD, optionally persists the audio waveform in `media_db` (`evelyn_media.db`), and returns the transcript text along with an asset GUID for downstream 3D Affective VAD analysis.
 * **Form Parameters**: `file` (UploadFile audio recording), `language` (string, default `"en"`).
 * **Returns**: `{"text": "...", "duration_s": 2.45, "language": "en", "asset_guid": "med_aud_..."}`
+
+---
+
+## 13. Taxonomy & Vocabulary Governance Endpoints
+
+### `GET /api/taxonomy/vocabulary`
+* **Purpose**: Retrieves the complete controlled subject vocabulary from `evelyn_vault.db` (`master_tag_taxonomy`, `master_tag_aliases`, `master_tag_related`), annotated with occurrences across both the Obsidian Vault and Fast Memory databases.
+* **Returns**: JSON object `{"status": "ok", "terms": [{"tag": "python", "description": "...", "usage_count": 42, "vault_count": 30, "memory_count": 12, ...}], "aliases": [{"alias": "ai", "canonical": "artificial-intelligence", "tier": "preferred"}], "relations": [{"term": "machine-learning", "related_term": "artificial-intelligence", "kind": "narrower"}]}`
+
+### `GET /api/taxonomy/graph`
+* **Purpose**: Returns the live taxonomy relationship graph decomposed into connected components, hierarchy trees (roots and narrower directed acyclic graphs), and unassigned peer atoms.
+* **Returns**: JSON object `{"status": "ok", "roots": ["artificial-intelligence", "biology", ...], "trees": {"artificial-intelligence": ["machine-learning", "neural-networks", ...]}, "peers": ["astronomy", ...], "term_map": {...}, "relations": [...]}`
+
+### `POST /api/taxonomy/relation`
+* **Purpose**: Creates or updates an associative (`related`) or hierarchical (`narrower` / `broader`) relationship between two taxonomy terms.
+* **Payload**: JSON object `{"term": "machine-learning", "related_term": "deep-learning", "kind": "narrower"}`
+* **Returns**: JSON object `{"status": "ok", "message": "Relation recorded", "relation": {...}}`
+
+### `POST /api/taxonomy/alias/flip`
+* **Purpose**: Inverts the directionality of an equivalence alias in `master_tag_aliases`, promoting the non-preferred surface form to the canonical term and making the former canonical term the alias.
+* **Payload**: JSON object `{"alias": "ml", "canonical": "machine-learning"}`
+* **Returns**: JSON object `{"status": "ok", "message": "Flipped: ml is now canonical, machine-learning is alias"}`
+
+### `POST /api/taxonomy/alias/sever`
+* **Purpose**: Severs an equivalence relation, deleting the alias from `master_tag_aliases` and instating it as an independent canonical term in `master_tag_taxonomy`.
+* **Payload**: JSON object `{"alias": "ml"}`
+* **Returns**: JSON object `{"status": "ok", "message": "Severed alias 'ml'; now independent canonical term"}`
+
+### `GET /api/taxonomy/authority/lookup`
+* **Purpose**: Queries the external Library of Congress Linked Data Service (`id.loc.gov`) and OCLC FAST authority indexes for controlled vocabulary subject headings, variants, and LC classification notations.
+* **Query Parameters**: `query` (string, search term)
+* **Returns**: JSON object `{"status": "ok", "results": [{"uri": "http://id.loc.gov/authorities/subjects/sh85008180", "label": "Artificial intelligence", "scheme": "LCSH", "variants": ["AI", "Machine intelligence"]}]}`
+
+### `POST /api/taxonomy/authority/promote`
+* **Purpose**: Promotes an authoritative heading retrieved from LOC/FAST into `master_tag_taxonomy`, automatically normalizing the label into a canonical hyphenated slug and registering variants as `UF` equivalence aliases.
+* **Payload**: JSON object `{"label": "Artificial intelligence", "uri": "...", "scheme": "LCSH", "variants": ["AI"]}`
+* **Returns**: JSON object `{"status": "ok", "tag": "artificial-intelligence", "aliases_registered": 1}`
+
+### `GET /api/taxonomy/names`
+* **Purpose**: Retrieves all registered named entities (individuals, organizations, locations, creative works) tracked in `tag_entities` (`evelyn_vault.db`).
+* **Returns**: JSON object `{"status": "ok", "names": [{"entity": "Ada Lovelace", "entity_type": "person", ...}], "total": 502}`
+
+### `POST /api/taxonomy/names/{term}/forget`
+* **Purpose**: Prunes or unregisters a named entity from `tag_entities`.
+* **Returns**: JSON object `{"status": "ok", "deleted": true, "term": "..."}`
 
 ---
 
