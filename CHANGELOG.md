@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 19:53:18
+date modified: 2026-09-26 20:07:11
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,30 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.258] - 2026-09-26 — *A Stub Is Not A Witness*
+
+### Fixed
+
+- **Stub evidence no longer counts other stubs.** `harvest_entity_references` gathered
+  context from every note citing a target, including notes tagged `type/stub`. A stub's
+  `Context & Mentions` section is itself made of excerpts harvested from elsewhere, so
+  quoting one counted a single original source twice — and a stub quoting a stub that quoted
+  a stub compounded, which is how 307 excerpt-truncation artefacts spread through 134 notes
+  before `.257`.
+
+  Harvesting now skips stub notes, keyed on the `type/stub` tag rather than the folder,
+  since stubs are filed and refiled by hand: `Stubs/` is where they usually live, not what
+  they are. The pre-existing self-reference guard is unchanged.
+
+### Notes
+
+- Measured against the current vault: **176 of 269 existing stubs still clear the evidence
+  bar on independent sources alone; 93 do not.** That number is an upper bound rather than a
+  verdict — it re-harvests each stub by its filename, so a note whose inbound links spell the
+  target differently (`[[Super Smash Bros.]]` against `Super Smash Bros.md`) reads as having
+  no evidence when it merely has a name the filesystem could not keep. Nothing was deleted or
+  flagged for deletion on this measurement.
 
 ## [000.006.257] - 2026-09-26 — *Do Not Cut A Link In Half*
 

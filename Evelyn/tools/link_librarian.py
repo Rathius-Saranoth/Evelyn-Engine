@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-26 19:05:18
+# date modified: 2026-09-26 20:07:11
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -114,6 +114,26 @@ class StubPayload:
     synthesis_mode: str = "fallback"
 
 
+def _is_stub_note(frontmatter: dict[str, Any] | None) -> bool:
+    """Report whether a parsed note carries the stub tag.
+
+    Keyed on the tag rather than the folder: stubs are filed and refiled by hand, so
+    `Stubs/` is where they usually live, not what they are.
+
+    Args:
+        frontmatter: Parsed frontmatter mapping, or None.
+
+    Returns:
+        bool: True when the note is tagged `type/stub`.
+    """
+    if not frontmatter:
+        return False
+    tags = frontmatter.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in re.split(r"[,\n]", tags)]
+    return any(str(t).strip().strip("'\"[]").lower() == "type/stub" for t in tags)
+
+
 def harvest_entity_references(
     target_name: str,
     vault_root: str | None = None,
@@ -188,7 +208,16 @@ def harvest_entity_references(
         try:
             with open(fpath, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            _, body = frontmatter_utils.parse_frontmatter(content)
+            fm, body = frontmatter_utils.parse_frontmatter(content)
+
+            # A stub is not a witness. Its own Context & Mentions section is made of
+            # excerpts harvested from elsewhere, so quoting it counts one original source
+            # twice — and quoting a stub that itself quoted a stub compounds, which is how
+            # 307 truncation artefacts propagated through 134 notes (`.257`). Every stub
+            # got its evidence from outside the stub tree; that is where to read it.
+            if _is_stub_note(fm):
+                continue
+
             excerpt = string_utils.extract_link_context(body, target_name, window_chars=180)
             if excerpt:
                 seen_sources.add(rel_path)
