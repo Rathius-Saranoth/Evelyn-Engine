@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 16:47:41
+date modified: 2026-09-27 16:56:19
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.275] - 2026-09-27 — *Responsive Header Brand & Viewport Protection*
+
+### Fixed
+
+- **Header Subtitle Overrun & Bleed-Through Prevention (`evelyn_ui/taxonomy.html`)**:
+  - Enforced rigid boundary on the top navigation header (`overflow: hidden; gap: 12px;`), preventing child elements from escaping the 56px header bounds.
+  - Constrained `.brand-text h1` and `.brand-text p` with `white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;`.
+  - Added responsive media query (`@media (max-width: 1400px) { .brand-text p { display: none !important; } }`) to automatically hide the 66-character page subtitle on smaller viewports, TV displays with high OS scaling (e.g. 250%), and narrow browser splits, eliminating vertical text wrapping over the left sidebar search dock.
+  - Made secondary header telemetry pills (`Aliases` and `Relations`) responsive via `.pill-hide-sm` (`@media (max-width: 1200px)`), and cleanly collapsed all header pills at `<= 950px` to protect brand and navigation action buttons.
+  - Expanded left sidebar width slightly from `310px` to `330px` and refined navigation tab grid button padding (`padding: 6px 1px;`), ensuring tab labels (`🌳 Trees`, `📊 Categories`, `⚡ Peers`, `🔤 All`, `🔀 Aliases`) have comfortable breathing room on scaled displays.
 
 ## [000.006.274] - 2026-09-27 — *Independent Frame Scrolling & Responsive Taxonomy UI*
 
