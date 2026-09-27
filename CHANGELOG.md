@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 16:02:11
+date modified: 2026-09-27 16:17:44
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,17 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.272] - 2026-09-27 — *Purge Legacy Facet Aliases*
+
+### Changed
+
+- **Database Migration `migrate_000_006_272_purge_legacy_facet_aliases` (`vault`)**:
+  - Purged all 97 legacy slashed facet entries (`tier = 'facet'` or `alias LIKE '%/%'`) from `master_tag_aliases` in `data/evelyn_vault.db` (e.g. `type/guide`, `type/journal-entry`, `type/log`, `type/profile`, `type/report`).
+  - Enforced full decoupling of document classes and format facets (`type:`, `motif:`, `setting:`, `event:`) as native YAML frontmatter properties rather than subject aliases.
+  - Invalidated in-process alias cache across taxonomy subsystems.
+  - Enqueued Chroma deletions for all 97 purged alias forms in `evelyn_tag_taxonomy`, and enqueued 1,087 clean preferred/alternate surface forms via vector sync hook.
+  - Established a **100% Zero-Slash Invariant** across `master_tag_taxonomy`, `master_tag_related`, and `master_tag_aliases`.
 
 ## [000.006.271] - 2026-09-27 — *Taxonomy Explorer & Hierarchy Graph UI*
 

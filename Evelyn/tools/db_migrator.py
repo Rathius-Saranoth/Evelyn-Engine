@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-27 15:38:49
+# date modified: 2026-09-27 16:17:44
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5966,6 +5966,46 @@ def migrate_000_006_270_acronym_primacy_and_inversions_memory(
     )
 
 
+def migrate_000_006_272_purge_legacy_facet_aliases(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.272: Purge legacy slashed facet entries from master_tag_aliases.
+
+    With format facets and document classes (type:, motif:, setting:, event:) canonically
+    governed by frontmatter properties and zero-slash invariants, legacy slashed aliases
+    (tier = 'facet') in master_tag_aliases are redundant and pollute the controlled
+    vocabulary and vector index.
+
+    This migration removes all rows where tier = 'facet' or alias contains '/', invalidates
+    the alias cache, and enqueues deletion of the corresponding Chroma vector entries.
+    """
+    cursor = conn.cursor()
+
+    # 1. Collect aliases to remove from ChromaDB
+    cursor.execute("SELECT alias FROM master_tag_aliases WHERE tier = 'facet' OR alias LIKE '%/%'")
+    rows = cursor.fetchall()
+    aliases_to_purge = [r[0] for r in rows if r[0]]
+
+    # 2. Delete rows from master_tag_aliases
+    cursor.execute("DELETE FROM master_tag_aliases WHERE tier = 'facet' OR alias LIKE '%/%'")
+    deleted = cursor.rowcount
+
+    # 3. Enqueue Chroma deletions for each alias surface form
+    from Evelyn.tools import chroma_rag, taxonomy_db
+
+    tag_col = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
+    for alias in aliases_to_purge:
+        chroma_rag.enqueue_delete(f"alias::{alias}", collection_name=tag_col)
+
+    # 4. Invalidate taxonomy alias cache
+    taxonomy_db.invalidate_alias_cache()
+
+    logger.info(
+        "[MIGRATION 272] Purged %d legacy slashed facet aliases from master_tag_aliases and enqueued Chroma deletions.",
+        deleted,
+    )
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -6612,6 +6652,13 @@ MIGRATIONS: list[Migration] = [
         name="acronym_primacy_and_inversions_memory",
         up_fn=migrate_000_006_270_acronym_primacy_and_inversions_memory,
         post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.272",
+        name="purge_legacy_facet_aliases",
+        up_fn=migrate_000_006_272_purge_legacy_facet_aliases,
+        post_sync_chroma=True,
     ),
 ]
 
