@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 16:17:44
+date modified: 2026-09-27 16:29:04
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.273] - 2026-09-27 — *Dynamic Category Intelligence Dashboard*
+
+### Added
+
+- **Dynamic Category Intelligence Dashboard & Tab (`evelyn_ui/taxonomy.html`)**:
+  - Added dedicated `📊 Categories` navigation tab providing macro-level domain analytics without rigid pre-coordinate schemas.
+  - **Dynamic Hierarchy Trunks Sidebar**: Interactive ranked list of all 69 dynamic root concept trunks computed on the fly from `master_tag_related`. Supports instant switching between sort by `🌿 Branches` (sub-concepts count) and `🔥 Usage` (total occurrences across Obsidian vault and Fast Memory).
+  - **Executive Intelligence Overview**: Live metric cards displaying total dynamic trunks (69), deepest branching tree (`finances`, 6 sub-concepts), highest corpus activity (`values`, 828 occurrences), and total hierarchy links (263).
+  - **Active Category Drilldown Card**: Displays deep branch breakdown, proportional usage bar distinguishing root tag occurrences from sub-concept occurrences, and interactive sub-concept chips with quick-action buttons to open the tree navigator or inspect the neighborhood.
+  - **Dual Comparative Leaderboards**:
+    - *Top Categories by Sub-Concepts (Depth & Breadth)*: Ranked table displaying sub-concept counts and interactive child badges.
+    - *Top Categories by Corpus Activity*: Ranked table displaying total occurrences, visual distribution progress meters, and child branch stats.
 
 ## [000.006.272] - 2026-09-27 — *Purge Legacy Facet Aliases*
 

@@ -223,8 +223,8 @@
 
     .nav-tabs {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 4px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 3px;
       background: rgba(0, 0, 0, 0.25);
       padding: 3px;
       border-radius: 8px;
@@ -234,13 +234,16 @@
       background: transparent;
       border: none;
       color: var(--text-dim);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
-      padding: 6px 4px;
+      padding: 6px 2px;
       border-radius: 6px;
       cursor: pointer;
       text-align: center;
       transition: all 0.15s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .nav-tab-btn:hover {
@@ -251,6 +254,174 @@
       background: rgba(255, 255, 255, 0.08);
       color: var(--cyan);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .cat-sort-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .cat-sort-btn:hover {
+      color: var(--text-main);
+    }
+
+    .cat-sort-btn.active {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--cyan);
+    }
+
+    .rank-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      width: 26px;
+      display: inline-block;
+    }
+
+    .rank-num.top-3 {
+      color: var(--amber);
+      font-weight: 700;
+    }
+
+    .category-dashboard {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .dashboard-banner {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(6, 182, 212, 0.06));
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 12px;
+      padding: 18px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .metric-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .metric-value {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .metric-sub {
+      font-size: 11.5px;
+      color: var(--cyan);
+      font-family: var(--font-mono);
+    }
+
+    .cat-drilldown-card {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.8));
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .progress-track {
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 4px;
+      height: 7px;
+      overflow: hidden;
+      display: flex;
+      margin-top: 4px;
+    }
+
+    .progress-fill-root {
+      background: var(--primary);
+      height: 100%;
+    }
+
+    .progress-fill-kids {
+      background: var(--cyan);
+      height: 100%;
+    }
+
+    .leaderboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+    }
+
+    .leaderboard-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .leaderboard-title {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .leaderboard-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .leaderboard-table th {
+      text-align: left;
+      padding: 8px 8px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .leaderboard-table td {
+      padding: 8px 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      vertical-align: middle;
+    }
+
+    .leaderboard-table tr:hover td {
+      background: rgba(255, 255, 255, 0.03);
     }
 
     .tree-scroll {
@@ -716,6 +887,7 @@
         </div>
         <div class="nav-tabs">
           <button class="nav-tab-btn active" data-mode="trees" onclick="setNavMode('trees')">🌳 Trees</button>
+          <button class="nav-tab-btn" data-mode="categories" onclick="setNavMode('categories')">📊 Categories</button>
           <button class="nav-tab-btn" data-mode="peers" onclick="setNavMode('peers')">⚡ Peers</button>
           <button class="nav-tab-btn" data-mode="all" onclick="setNavMode('all')">🔤 All</button>
           <button class="nav-tab-btn" data-mode="aliases" onclick="setNavMode('aliases')">🔀 Aliases</button>
@@ -736,6 +908,11 @@
         <div style="font-size: 36px; opacity: 0.4;">🏷️</div>
         <h2 style="font-family: var(--font-display); font-size: 18px; color: var(--text-muted);">Select a Tag or Concept</h2>
         <p style="font-size: 13px; max-width: 320px;">Browse the hierarchy trees on the left or search for any concept to inspect its parent, children, and aliases.</p>
+      </div>
+
+      <!-- Center: Dynamic Category Intelligence Dashboard -->
+      <div id="category-dashboard" style="display: none; height: 100%; overflow-y: auto;">
+        <!-- Rendered dynamically -->
       </div>
 
       <div id="inspector-content" style="display: none;">
@@ -906,8 +1083,10 @@
     let childrenMap = new Map();      // parent -> list of narrower children
     let relatedMap = new Map();       // term -> list of related terms
 
-    let navMode = 'trees';            // 'trees' | 'peers' | 'all' | 'aliases'
+    let navMode = 'trees';            // 'trees' | 'categories' | 'peers' | 'all' | 'aliases'
     let selectedTag = null;
+    let selectedCategory = null;
+    let categorySort = 'branches';    // 'branches' | 'usage'
     let searchQuery = '';
 
     // Initialize
@@ -959,6 +1138,27 @@
       document.querySelectorAll('.nav-tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);
       });
+
+      const catDash = document.getElementById('category-dashboard');
+      const empty = document.getElementById('inspector-empty');
+      const content = document.getElementById('inspector-content');
+
+      if (mode === 'categories') {
+        if (catDash) catDash.style.display = 'block';
+        if (empty) empty.style.display = 'none';
+        if (content) content.style.display = 'none';
+        renderCategoryDashboard();
+      } else {
+        if (catDash) catDash.style.display = 'none';
+        if (selectedTag) {
+          if (content) content.style.display = 'block';
+          if (empty) empty.style.display = 'none';
+        } else {
+          if (content) content.style.display = 'none';
+          if (empty) empty.style.display = 'flex';
+        }
+      }
+
       renderNavList();
     }
 
@@ -978,7 +1178,8 @@
         rawGraph = await res.json();
         processGraphData();
         renderNavList();
-        if (selectedTag) selectTag(selectedTag);
+        if (navMode === 'categories') renderCategoryDashboard();
+        if (selectedTag && navMode !== 'categories') selectTag(selectedTag);
         if (forceToast) showToast('Taxonomy graph refreshed.');
       } catch (err) {
         showToast('Failed to load taxonomy graph: ' + err.message, true);
@@ -1037,6 +1238,8 @@
 
       if (navMode === 'trees') {
         renderTreeMode(container);
+      } else if (navMode === 'categories') {
+        renderCategoriesMode(container);
       } else if (navMode === 'peers') {
         renderPeersMode(container);
       } else if (navMode === 'all') {
@@ -1100,14 +1303,350 @@
 
     function getAllDescendants(term) {
       const descendants = [];
+      const visited = new Set();
       const stack = [...(childrenMap.get(term) || [])];
       while (stack.length) {
         const curr = stack.pop();
-        descendants.push(curr);
-        const next = childrenMap.get(curr) || [];
-        for (const n of next) stack.push(n);
+        if (!visited.has(curr)) {
+          visited.add(curr);
+          descendants.push(curr);
+          const next = childrenMap.get(curr) || [];
+          for (const n of next) {
+            if (!visited.has(n)) stack.push(n);
+          }
+        }
       }
       return descendants;
+    }
+
+    function computeTreeStats() {
+      const stats = [];
+      for (const root of roots) {
+        const directKids = childrenMap.get(root) || [];
+        const allDesc = getAllDescendants(root);
+        const rootUsage = termMap.get(root)?.usage_count || 0;
+        let kidsUsage = 0;
+        for (const d of allDesc) {
+          kidsUsage += (termMap.get(d)?.usage_count || 0);
+        }
+        stats.push({
+          root,
+          directKids,
+          allDesc,
+          rootUsage,
+          kidsUsage,
+          totalUsage: rootUsage + kidsUsage,
+          branchesCount: allDesc.length,
+        });
+      }
+      return stats;
+    }
+
+    function setCategorySort(sortType) {
+      categorySort = sortType;
+      renderNavList();
+      renderCategoryDashboard();
+    }
+
+    function renderCategoriesMode(container) {
+      const stats = computeTreeStats();
+      if (categorySort === 'branches') {
+        stats.sort((a, b) => b.branchesCount - a.branchesCount || b.totalUsage - a.totalUsage);
+      } else {
+        stats.sort((a, b) => b.totalUsage - a.totalUsage || b.branchesCount - a.branchesCount);
+      }
+
+      const filtered = searchQuery
+        ? stats.filter(s => s.root.includes(searchQuery) || s.allDesc.some(d => d.includes(searchQuery)))
+        : stats;
+
+      if (!filtered.length) {
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No dynamic categories match query.</div>`;
+        return;
+      }
+
+      const controls = document.createElement('div');
+      controls.style.cssText = 'padding: 8px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 11px;';
+      controls.innerHTML = `
+        <span style="color: var(--text-dim); font-weight: 600;">${filtered.length} TRUNKS</span>
+        <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.25); padding: 2px; border-radius: 6px;">
+          <button class="cat-sort-btn ${categorySort === 'branches' ? 'active' : ''}" onclick="setCategorySort('branches')">🌿 Branches</button>
+          <button class="cat-sort-btn ${categorySort === 'usage' ? 'active' : ''}" onclick="setCategorySort('usage')">🔥 Usage</button>
+        </div>
+      `;
+      container.appendChild(controls);
+
+      if (!selectedCategory && filtered.length > 0) {
+        selectedCategory = filtered[0].root;
+      }
+
+      filtered.forEach((s, idx) => {
+        const isSelected = selectedCategory === s.root;
+        const row = document.createElement('div');
+        row.className = `tree-node-parent ${isSelected ? 'selected' : ''}`;
+        row.onclick = () => {
+          selectedCategory = s.root;
+          renderNavList();
+          renderCategoryDashboard();
+        };
+
+        const rankClass = idx < 3 ? 'top-3' : '';
+        row.innerHTML = `
+          <div class="node-label">
+            <span class="rank-num ${rankClass}">#${idx + 1}</span>
+            <span>${highlightText(s.root, searchQuery)}</span>
+          </div>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span class="badge-count" style="color: var(--cyan);">${s.branchesCount} kids</span>
+            <span class="badge-count">${s.totalUsage}</span>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function renderCategoryDashboard() {
+      const container = document.getElementById('category-dashboard');
+      if (!container) return;
+
+      const stats = computeTreeStats();
+      const byBranches = [...stats].sort((a, b) => b.branchesCount - a.branchesCount || b.totalUsage - a.totalUsage);
+      const byUsage = [...stats].sort((a, b) => b.totalUsage - a.totalUsage || b.branchesCount - a.branchesCount);
+
+      if (!selectedCategory && byBranches.length > 0) {
+        selectedCategory = byBranches[0].root;
+      }
+      const activeCat = stats.find(s => s.root === selectedCategory) || byBranches[0];
+
+      const totalRoots = stats.length;
+      const topBranch = byBranches[0] || { root: '—', branchesCount: 0 };
+      const topActive = byUsage[0] || { root: '—', totalUsage: 0 };
+      const totalHierarchyRelations = relations.filter(r => r.kind === 'narrower').length;
+
+      let drilldownHtml = '';
+      if (activeCat) {
+        const rootOccur = activeCat.rootUsage;
+        const kidsOccur = activeCat.kidsUsage;
+        const totalOccur = activeCat.totalUsage;
+        const rootPct = totalOccur > 0 ? Math.round((rootOccur / totalOccur) * 100) : 100;
+        const kidsPct = 100 - rootPct;
+
+        drilldownHtml = `
+          <div class="cat-drilldown-card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-family: var(--font-display); font-size: 20px; font-weight: 700; color: #fff;">${escapeHtml(activeCat.root)}</span>
+                  <span class="term-tag-badge badge-root">DYNAMIC CONCEPT TRUNK</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">
+                  Ranked <strong>#${byBranches.findIndex(s => s.root === activeCat.root) + 1}</strong> by Sub-Concepts · <strong>#${byUsage.findIndex(s => s.root === activeCat.root) + 1}</strong> by Corpus Usage
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-sm btn-primary" onclick="jumpToTree('${escapeAttr(activeCat.root)}')">🌳 View in Tree Navigator</button>
+                <button class="btn btn-sm" onclick="jumpToInspector('${escapeAttr(activeCat.root)}')">🏷️ Inspect Neighborhood</button>
+              </div>
+            </div>
+
+            <!-- Usage Proportional Bar -->
+            <div>
+              <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">
+                <span>Corpus Activity Distribution: <strong>${totalOccur.toLocaleString()} total occurrences</strong></span>
+                <span>Root (${rootOccur}) vs Sub-Concepts (${kidsOccur})</span>
+              </div>
+              <div class="progress-track" title="Trunk: ${rootOccur} (${rootPct}%) | Sub-Concepts: ${kidsOccur} (${kidsPct}%)">
+                <div class="progress-fill-root" style="width: ${rootPct}%;"></div>
+                <div class="progress-fill-kids" style="width: ${kidsPct}%;"></div>
+              </div>
+              <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 11px; color: var(--text-dim);">
+                <span><span style="color: var(--primary);">■</span> Trunk Tag Usage: <b>${rootOccur}</b> (${rootPct}%)</span>
+                <span><span style="color: var(--cyan);">■</span> Sub-Concepts Usage: <b>${kidsOccur}</b> (${kidsPct}%)</span>
+              </div>
+            </div>
+
+            <!-- Sub-concepts list -->
+            <div>
+              <div style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px;">
+                Narrower Sub-Concepts (${activeCat.branchesCount}):
+              </div>
+              <div class="chip-cloud">
+                ${activeCat.allDesc.length > 0 ? activeCat.allDesc.map(d => {
+                  const u = termMap.get(d)?.usage_count || 0;
+                  return `
+                    <div class="chip chip-narrower" onclick="jumpToInspector('${escapeAttr(d)}')" title="Click to inspect this sub-concept">
+                      <span>⬇️ ${escapeHtml(d)}</span>
+                      <span class="badge-count" style="font-size: 10px;">${u}</span>
+                    </div>
+                  `;
+                }).join('') : '<span style="color: var(--text-dim); font-size: 12px;">No sub-concepts linked yet.</span>'}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="category-dashboard">
+          <!-- Banner -->
+          <div class="dashboard-banner">
+            <div>
+              <h2 style="font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px;">
+                📊 Dynamic Category & Concept Intelligence
+              </h2>
+              <p style="font-size: 12.5px; color: var(--text-muted); max-width: 640px;">
+                Live concept hierarchy computed automatically from broader/narrower graph relationships in <code>master_tag_related</code>. Organizes your knowledge graph into macro-domains without static, rigid pre-coordinate schemas.
+              </p>
+            </div>
+          </div>
+
+          <!-- Top Metrics Cards -->
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span class="metric-label">Dynamic Trunks</span>
+              <span class="metric-value">${totalRoots}</span>
+              <span class="metric-sub">Root Macro-Concepts</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Deepest Branching</span>
+              <span class="metric-value" style="font-size: 17px; font-family: var(--font-mono);">${escapeHtml(topBranch.root)}</span>
+              <span class="metric-sub">${topBranch.branchesCount} Sub-Concepts</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Highest Activity</span>
+              <span class="metric-value" style="font-size: 17px; font-family: var(--font-mono);">${escapeHtml(topActive.root)}</span>
+              <span class="metric-sub">${topActive.totalUsage.toLocaleString()} Occurrences</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Hierarchy Edges</span>
+              <span class="metric-value">${totalHierarchyRelations}</span>
+              <span class="metric-sub">Narrower Links</span>
+            </div>
+          </div>
+
+          <!-- Active Category Drilldown -->
+          ${drilldownHtml}
+
+          <!-- Dual Leaderboards Grid -->
+          <div class="leaderboard-grid">
+            <!-- Left: Top by Sub-Concepts -->
+            <div class="leaderboard-card">
+              <div class="leaderboard-title">
+                <span>🌿 Top Categories by Sub-Concepts (Depth & Breadth)</span>
+                <span class="badge-count" style="color: var(--cyan);">Top 10</span>
+              </div>
+              <table class="leaderboard-table">
+                <thead>
+                  <tr>
+                    <th style="width: 32px;">#</th>
+                    <th>Concept Trunk</th>
+                    <th style="text-align: center;">Branches</th>
+                    <th>Sub-Concept Samples</th>
+                    <th style="text-align: right;">Total Uses</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${byBranches.slice(0, 10).map((cat, idx) => {
+                    const isSelected = activeCat && activeCat.root === cat.root;
+                    return `
+                      <tr style="cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.12);' : ''}" onclick="selectCategoryForDrilldown('${escapeAttr(cat.root)}')">
+                        <td class="rank-num ${idx < 3 ? 'top-3' : ''}">#${idx + 1}</td>
+                        <td style="font-family: var(--font-mono); font-weight: 600; color: #fff;">
+                          ${escapeHtml(cat.root)}
+                        </td>
+                        <td style="text-align: center;">
+                          <span class="badge-count" style="color: var(--cyan);">${cat.branchesCount}</span>
+                        </td>
+                        <td>
+                          <div style="display: flex; gap: 4px; flex-wrap: wrap; max-width: 200px;">
+                            ${cat.directKids.slice(0, 3).map(k => `
+                              <span style="font-size: 10px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono); color: var(--text-muted);">${escapeHtml(k)}</span>
+                            `).join('')}
+                            ${cat.directKids.length > 3 ? `<span style="font-size: 9.5px; color: var(--text-dim);">+${cat.directKids.length - 3}</span>` : ''}
+                          </div>
+                        </td>
+                        <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">
+                          ${cat.totalUsage.toLocaleString()}
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Right: Top by Corpus Usage -->
+            <div class="leaderboard-card">
+              <div class="leaderboard-title">
+                <span>🔥 Top Categories by Corpus Activity (Vault & Memory)</span>
+                <span class="badge-count" style="color: var(--amber);">Top 10</span>
+              </div>
+              <table class="leaderboard-table">
+                <thead>
+                  <tr>
+                    <th style="width: 32px;">#</th>
+                    <th>Concept Trunk</th>
+                    <th style="text-align: right;">Occurrences</th>
+                    <th style="width: 120px;">Distribution</th>
+                    <th style="text-align: right;">Branches</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${byUsage.slice(0, 10).map((cat, idx) => {
+                    const isSelected = activeCat && activeCat.root === cat.root;
+                    const rPct = cat.totalUsage > 0 ? Math.round((cat.rootUsage / cat.totalUsage) * 100) : 100;
+                    const kPct = 100 - rPct;
+                    return `
+                      <tr style="cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.12);' : ''}" onclick="selectCategoryForDrilldown('${escapeAttr(cat.root)}')">
+                        <td class="rank-num ${idx < 3 ? 'top-3' : ''}">#${idx + 1}</td>
+                        <td style="font-family: var(--font-mono); font-weight: 600; color: #fff;">
+                          ${escapeHtml(cat.root)}
+                        </td>
+                        <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: #fff;">
+                          ${cat.totalUsage.toLocaleString()}
+                        </td>
+                        <td>
+                          <div class="progress-track" title="Trunk: ${cat.rootUsage} (${rPct}%) | Sub-Concepts: ${cat.kidsUsage} (${kPct}%)">
+                            <div class="progress-fill-root" style="width: ${rPct}%;"></div>
+                            <div class="progress-fill-kids" style="width: ${kPct}%;"></div>
+                          </div>
+                          <div style="font-size: 9.5px; color: var(--text-dim); display: flex; justify-content: space-between; margin-top: 2px;">
+                            <span>${cat.rootUsage} trunk</span>
+                            <span>${cat.kidsUsage} kids</span>
+                          </div>
+                        </td>
+                        <td style="text-align: right;">
+                          <span class="badge-count" style="color: var(--cyan);">${cat.branchesCount}</span>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function selectCategoryForDrilldown(root) {
+      selectedCategory = root;
+      renderNavList();
+      renderCategoryDashboard();
+    }
+
+    function jumpToTree(root) {
+      setNavMode('trees');
+      selectTag(root);
+      const kids = document.getElementById(`kids-${root}`);
+      const chev = document.getElementById(`chev-${root}`);
+      if (kids) kids.classList.add('visible');
+      if (chev) chev.classList.add('expanded');
+    }
+
+    function jumpToInspector(tag) {
+      setNavMode('trees');
+      selectTag(tag);
     }
 
     function handleNodeClick(tag, event) {
