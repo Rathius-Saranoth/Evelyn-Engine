@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-24 06:43:24
+date modified: 2026-09-27 07:43:07
 ---
 # Evelyn Project Roadmap
 
@@ -110,6 +110,8 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Canonical Systemd Service Repository & Root Cleanliness (`systemd/`)**: Consolidate all systemd unit templates (`evelyn.service`, `evelyn-tts.service`, `evelyn-vault-watcher.service`, `syncthing.service`) into `systemd/` and relocate root TLS certificates into a dedicated `certs/` directory.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 - [ ] **Pinned System Action Cards (Unified Triage Queue)**: System conditions that need the user to act surface as cards pinned above the regular review items, instead of lines in the server log. Each card says what broke, why it matters, and the exact fix, and clears itself once a later check passes. The first producer is Google OAuth failures (Calendar / Drive / Tasks `invalid_grant`, with the matching `setup_*.py` command). The same hook takes later producers such as low disk space, a failed Chroma health probe, or a maintenance script refused by the writer lease.
+- [ ] **Stub Evidence Quality & Attribution Safety**: Rework what a generated entity stub is allowed to treat as evidence. A stub abstract is synthesized strictly from the text surrounding each inbound link, which is correct — the local model was measured answering from its own knowledge and got nationality, genre and collaborators wrong on three of three music artists, inventing one project outright — but the surrounding text is taken as a flat window. Where that window spans a curated list, a section's attributes are attributed to every member: five music stubs each inherited their section's entire genre list, filing a violinist under flamenco guitar. Separately, 22% of harvested reference lines mention the target only inside a run of linked names, which predicates nothing about it and should not count toward the stub threshold. Needs excerpt windows that stop at structural boundaries, a reference predicate that distinguishes description from co-membership, and a re-synthesis pass over the stubs already built.
+
 - [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
 ---
