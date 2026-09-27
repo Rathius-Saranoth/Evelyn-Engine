@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-26 08:36:04
+date modified: 2026-09-26 17:50:22
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -133,6 +133,35 @@ The single most important boundary in the schema. It follows the SKOS *Concept* 
 
 > [!TIP] Reconciling this with FAST
 > FAST *does* carry Person, Corporate Body, Place, and Title as subject facets — but it backs each with a name-authority file. In an Obsidian vault the entity's own note **is** that authority file. The two models agree; only the storage differs.
+
+### 2.1 The substrates that cannot hold a link
+
+"Converted to a link" has a destination in the vault and **nowhere else**. Memory facts
+(`context_entries`) and journal entries deliberately carry no wikilinks: link syntax in raw
+text logs muddied the context those records exist to supply, so links were relegated to the
+vault. That is a standing decision, not an oversight.
+
+So a memory fact naming an individual has no legal move under §2 as stated. It may not carry
+the name as a tag, and it cannot carry a link. That gap is what the **name register**
+(`tag_entities`, `000.006.250`) fills, and the register's role follows from §2 rather than
+competing with it:
+
+| | Vault note | Memory fact |
+| :--- | :--- | :--- |
+| References an individual by | `[[Wikilink]]` | a row in the name register |
+| Authority record | **the entity's own note** | **the entity's own note** |
+
+The register is a **pointer, not an authority**. Every row carries the vault path of the note
+that *is* the authority, and a row whose note is missing is not a second record of the entity —
+it is evidence that a stub should exist (§7). Read the other way, that is parity: the vault and
+the register should name the same individuals, and any disagreement is work to do.
+
+> [!WARNING] Do not conclude the register is redundant
+> It looks redundant from §2 alone, and was briefly argued to be on 2026-09-26. The argument
+> fails on the substrate rule above: deleting the register would leave memory facts with no
+> legal way to name an individual at all. If links are ever permitted in `context_entries`,
+> **that** is the change that would retire it — and it needs verifying against retrieval
+> quality first, which is the reason they were excluded to begin with.
 
 ---
 

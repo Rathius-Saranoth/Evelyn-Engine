@@ -1,5 +1,5 @@
 {
- "version": "2026-09-26.1",
+ "version": "2026-09-26.2",
  "note": "The shared base of the controlled vocabulary. Every term here is matched to a published authority, which is also what keeps this file free of anything personal: a term cannot enter it without a cataloguer somewhere having published it first. Local decisions, and all usage counts, live in the gitignored vault database - see Evelyn/tools/taxonomy_base.py.",
  "schemes": {
   "fast": {
@@ -742,5 +742,406 @@
    "authorized_label": "zoning"
   }
  ],
- "aliases": []
+ "aliases": [
+  {
+   "alias": "alexnet",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "analysis-sentiment",
+   "canonical": "sentiment-analysis",
+   "scheme": "fast"
+  },
+  {
+   "alias": "anime-style-motion-pictures",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "ar",
+   "canonical": "augmented-reality",
+   "scheme": "fast"
+  },
+  {
+   "alias": "automatic-data-processing",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "automatic-toys",
+   "canonical": "automata",
+   "scheme": "aat"
+  },
+  {
+   "alias": "automaton",
+   "canonical": "automata",
+   "scheme": "aat"
+  },
+  {
+   "alias": "automatons",
+   "canonical": "automata",
+   "scheme": "aat"
+  },
+  {
+   "alias": "boundary",
+   "canonical": "boundaries",
+   "scheme": "aat"
+  },
+  {
+   "alias": "children-s-bedtime",
+   "canonical": "bedtime",
+   "scheme": "fast"
+  },
+  {
+   "alias": "cognitive-ergonomics",
+   "canonical": "ergonomics",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "collection",
+   "canonical": "collecting",
+   "scheme": "aat"
+  },
+  {
+   "alias": "compositions-musical",
+   "canonical": "musical-compositions",
+   "scheme": "aat"
+  },
+  {
+   "alias": "computer-augmented-reality",
+   "canonical": "augmented-reality",
+   "scheme": "fast"
+  },
+  {
+   "alias": "computer-human-interaction",
+   "canonical": "human-computer-interaction",
+   "scheme": "fast"
+  },
+  {
+   "alias": "computer-software-engineering",
+   "canonical": "software-engineering",
+   "scheme": "fast"
+  },
+  {
+   "alias": "contracts-and-specifications",
+   "canonical": "specifications",
+   "scheme": "fast"
+  },
+  {
+   "alias": "crafted",
+   "canonical": "crafting",
+   "scheme": "aat"
+  },
+  {
+   "alias": "cyber-security",
+   "canonical": "cybersecurity",
+   "scheme": "aat"
+  },
+  {
+   "alias": "data-processing-automatic",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "data-processing-electronic",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "densely-connected-convolutional-networks",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "direct-to-video-anime",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "efficientnet",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "ei",
+   "canonical": "emotional-intelligence",
+   "scheme": "fast"
+  },
+  {
+   "alias": "electric",
+   "canonical": "electrical",
+   "scheme": "aat"
+  },
+  {
+   "alias": "electronic-data-processing",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "emotions",
+   "canonical": "emotion",
+   "scheme": "aat"
+  },
+  {
+   "alias": "employment-termination",
+   "canonical": "employment",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "engineering-psychology",
+   "canonical": "ergonomics",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "feelings",
+   "canonical": "emotion",
+   "scheme": "aat"
+  },
+  {
+   "alias": "gamelit",
+   "canonical": "litrpg",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "googlenet",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "humanoid-avatar",
+   "canonical": "avatar",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "ill-health",
+   "canonical": "illness",
+   "scheme": "aat"
+  },
+  {
+   "alias": "illnesses",
+   "canonical": "illness",
+   "scheme": "aat"
+  },
+  {
+   "alias": "interaction-human-computer",
+   "canonical": "human-computer-interaction",
+   "scheme": "fast"
+  },
+  {
+   "alias": "japanimation",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "labor-force",
+   "canonical": "employment",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "lenet-5-convolutional-neural-network",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "literary-role-playing-games",
+   "canonical": "litrpg",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "low-fi-music",
+   "canonical": "lo-fi",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "low-fidelity-music",
+   "canonical": "lo-fi",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "magick",
+   "canonical": "magic",
+   "scheme": "fast"
+  },
+  {
+   "alias": "mass-communication",
+   "canonical": "communication",
+   "scheme": "fast"
+  },
+  {
+   "alias": "migraine-headache",
+   "canonical": "migraine",
+   "scheme": "fast"
+  },
+  {
+   "alias": "mobilenets",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "musical-composition",
+   "canonical": "musical-compositions",
+   "scheme": "aat"
+  },
+  {
+   "alias": "narration",
+   "canonical": "narrative",
+   "scheme": "aat"
+  },
+  {
+   "alias": "notation-musical",
+   "canonical": "musical-notation",
+   "scheme": "fast"
+  },
+  {
+   "alias": "oav",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "organizational-ergonomics",
+   "canonical": "ergonomics",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "original-animation-video",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "original-video-animation",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "ova",
+   "canonical": "anime",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "physical-ergonomics",
+   "canonical": "ergonomics",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "preening",
+   "canonical": "grooming",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "processing-automatic-data",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "processing-data",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "processing-electronic-data",
+   "canonical": "data-processing",
+   "scheme": "aat"
+  },
+  {
+   "alias": "progression-fantasy-fiction",
+   "canonical": "litrpg",
+   "scheme": "lcgft"
+  },
+  {
+   "alias": "projection-astral",
+   "canonical": "astral-projection",
+   "scheme": "fast"
+  },
+  {
+   "alias": "residual-neural-network",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "science-of-science",
+   "canonical": "science",
+   "scheme": "fast"
+  },
+  {
+   "alias": "sciences",
+   "canonical": "science",
+   "scheme": "fast"
+  },
+  {
+   "alias": "sickness",
+   "canonical": "illness",
+   "scheme": "aat"
+  },
+  {
+   "alias": "sicknesses",
+   "canonical": "illness",
+   "scheme": "aat"
+  },
+  {
+   "alias": "sleeping",
+   "canonical": "sleep",
+   "scheme": "fast"
+  },
+  {
+   "alias": "stresses",
+   "canonical": "stress",
+   "scheme": "aat"
+  },
+  {
+   "alias": "stretched",
+   "canonical": "stretching",
+   "scheme": "aat"
+  },
+  {
+   "alias": "sustainability-science",
+   "canonical": "sustainability",
+   "scheme": "fast"
+  },
+  {
+   "alias": "taxonomic",
+   "canonical": "taxonomy",
+   "scheme": "aat"
+  },
+  {
+   "alias": "underemployment",
+   "canonical": "employment",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "vggnet",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "vision-computer",
+   "canonical": "computer-vision",
+   "scheme": "fast"
+  },
+  {
+   "alias": "visual-ergonomics",
+   "canonical": "ergonomics",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "woodwork-technique",
+   "canonical": "woodworking",
+   "scheme": "aat"
+  },
+  {
+   "alias": "workouts",
+   "canonical": "exercise",
+   "scheme": "fast"
+  },
+  {
+   "alias": "zfnet",
+   "canonical": "convolutional-neural-networks",
+   "scheme": "mesh"
+  },
+  {
+   "alias": "zoned",
+   "canonical": "zoning",
+   "scheme": "aat"
+  }
+ ]
 }

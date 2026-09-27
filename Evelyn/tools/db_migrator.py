@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-26 08:38:51
+# date modified: 2026-09-26 17:20:01
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5305,6 +5305,44 @@ def migrate_000_006_234_proposal_evidence(
                 filled, len(rows))
 
 
+def migrate_000_006_250_tag_entities(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.250: A register for names, kept apart from the subject vocabulary.
+
+    A proposed term that turns out to be a name had no correct action. Admitting it puts a
+    shop or a person into a controlled vocabulary of subjects, where it will be applied to
+    unrelated notes; rejecting it is permanent since `.231` and spends the *word*, so
+    `historical` could never again be admitted as the ordinary adjective.
+
+    Separating the registers dissolves the collision, which is why authority control has
+    always kept them apart - LCSH beside LCNAF, and four of FAST's nine facets are name
+    facets. A name and a subject may share a string because they are not in the same
+    namespace.
+
+    `label` exists because the term is often lossy: a split recorded one shop as `Historical`,
+    dropping the second word of its actual name. The register is the place to put it back.
+
+    Local and gitignored by construction: this is the one taxonomy table that can hold
+    personal names, so it must never reach the tracked base vocabulary (§4).
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tag_entities (
+            term          TEXT PRIMARY KEY,
+            label         TEXT,
+            kind          TEXT,
+            note          TEXT,
+            request_count INTEGER NOT NULL DEFAULT 1,
+            recorded_at   REAL
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tag_entities_kind ON tag_entities(kind)")
+    logger.info("[MIGRATION 250] Name register ready.")
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -5901,6 +5939,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.246",
         name="base_taxonomy_layer",
         up_fn=migrate_000_006_246_base_taxonomy_layer,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.250",
+        name="tag_entities",
+        up_fn=migrate_000_006_250_tag_entities,
         post_sync_chroma=False,
     ),
 ]

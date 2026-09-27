@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-26 08:38:51
+# date modified: 2026-09-26 19:12:38
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -37,6 +37,32 @@ def _load_dotenv(filepath: str) -> None:
                     os.environ[k] = v
     except OSError, UnicodeDecodeError:
         pass
+
+
+def _env_flag(key: str, default: bool) -> bool:
+    """Read a boolean feature flag from the environment, falling back to the literal default.
+
+    Every autonomous pass below is gated by one of these. They were literals for a long time,
+    and `.env` carried the same six keys with nothing reading them — five happened to agree
+    with the default, so the group went unnoticed until `MASTER_LIBRARIAN_ENABLED` disagreed
+    and a pass stayed off for days while `.env` said it was on.
+
+    Args:
+        key: Environment variable name.
+        default: Value to use when the variable is unset or unparseable.
+
+    Returns:
+        bool: The effective flag value.
+    """
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    cleaned = raw.strip().strip("'\"").lower()
+    if cleaned in ("true", "1", "yes", "on"):
+        return True
+    if cleaned in ("false", "0", "no", "off"):
+        return False
+    return default
 
 
 _load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -553,7 +579,7 @@ JOURNAL_DIRECT_WRITE = True
 # --- Autonomous After-Hours Journaling ---
 # Master switch — when True, Evelyn autonomously generates and writes the daily journal
 # late at night if the user steps away without requesting a manual bedtime recap.
-AUTO_JOURNAL_ENABLED = True
+AUTO_JOURNAL_ENABLED = _env_flag("AUTO_JOURNAL_ENABLED", True)
 
 # How often (seconds) the background idle loop checks for auto-journaling eligibility.
 AUTO_JOURNAL_CHECK_INTERVAL = 900  # 15 minutes
@@ -577,7 +603,7 @@ AUTO_JOURNAL_CHUNK_SIZE = 25
 # --- Daytime Ambient Reflections & Thought Bubbles ---
 # Master switch — when True, Evelyn generates spontaneous daytime micro-reflections
 # during afternoon pauses in conversation and exposes them to the ambient UI feed.
-AMBIENT_REFLECTIONS_ENABLED = True
+AMBIENT_REFLECTIONS_ENABLED = _env_flag("AMBIENT_REFLECTIONS_ENABLED", True)
 
 # How often (seconds) the background idle loop evaluates ambient reflection eligibility.
 AMBIENT_REFLECTIONS_CHECK_INTERVAL = 1800  # 30 minutes
@@ -671,7 +697,7 @@ AMBIENT_ACTIVITIES = [
 # Extracted files are written to EXTRACTED_DIR for manual review.
 
 # Master switch — set False to disable without touching the summarizer.
-FACT_EXTRACTION_ENABLED = True
+FACT_EXTRACTION_ENABLED = _env_flag("FACT_EXTRACTION_ENABLED", True)
 
 # Minimum number of new messages required before the extractor runs.
 # At 2 messages per turn (user + assistant), 6 means ~3 turns of conversation.
@@ -767,7 +793,7 @@ FACT_EXTRACTION_TOP_K_FACTS = 6
 # Nothing is auto-applied to the live vault.
 
 # Master switch.
-CONSOLIDATION_ENABLED = True
+CONSOLIDATION_ENABLED = _env_flag("CONSOLIDATION_ENABLED", True)
 
 # When True, also scan EX_*.md files from the Extracted/ staging folder.
 # Useful while the live CE_ vault is sparse — finds duplicate auto-extracted
@@ -1020,7 +1046,7 @@ DEBUG_TOOL_FULL = False
 # Background task that proposes updates to persona files based on accumulated
 # context entries. All proposals go through human review in dev.html.
 
-PROFILE_EVOLUTION_ENABLED = True
+PROFILE_EVOLUTION_ENABLED = _env_flag("PROFILE_EVOLUTION_ENABLED", True)
 
 # Minimum seconds between evolution runs (per document).
 # Default: 12 hours. The evolver checks all three documents per run.
@@ -1127,27 +1153,41 @@ TAG_LIBRARIAN_EXCLUDED_DOCUMENTS = [
 # ingestion, and only 243 had ever been through the semantic pass, which was refining tags
 # rather than supplying them. They stay searchable and stay tagged; they simply no longer
 # nominate vocabulary. Tag them by hand if one ever needs it.
-TAG_LIBRARIAN_EXCLUDED_PREFIXES = [
-    "Reference Library/",
+# Folders the librarian does not draw vocabulary from, in two layers for the same reason the
+# taxonomy has two: **one operator's folder names must not ship to everyone who clones this.**
+#
+# Exclusion here is from the *tag audit* only (`vault_db.fetch_next_documents_for_semantic_tag_audit`).
+# Excluded notes stay indexed, stay in Chroma and stay fully retrievable — nothing on either
+# list removes anything from what the assistant can read.
+
+# Structural: a property of how any vault built on this engine is laid out. True for a fresh
+# clone, so it belongs in the tracked file.
+VAULT_STRUCTURAL_IGNORE = [
     "Templates/",
     "Attachments/",
     "Bases/",
     ".",
-    # Clinical records, same rule as Reference Library and the same evidence: the notes are
-    # third-party text nominating a vendor's subject matter, not the operator's. Measured
-    # 2026-09-26 - 31 notes already carrying good registered tags (`psychology`, `personality`,
-    # `medical-record`, `allergy`), while the semantic pass was proposing `semantic-analysis`,
-    # `document-indexing` and `demographics` on top of them: 12 of the 13 vault-sourced
-    # admissions in the queue came from this one subtree.
-    #
-    # Exclusion is from the *tag audit* only (`vault_db.get_documents_for_semantic_audit`).
-    # The notes stay indexed, stay in Chroma and stay fully retrievable - nothing here removes
-    # anything from what the assistant can read.
-    #
-    # Built from `USER_NAME` rather than written out, because this file is tracked and section 4
-    # keeps real identities in `.env`.
-    f"{USER_NAME}/Medical/",
+    # The assistant's own profile and context documents. These are *aspect* notes about the
+    # two people — "Core Identity", "Emotional States & Responses" — so a pass that reads
+    # them for subjects harvests document titles instead of names (measured 2026-09-26: 30
+    # such notes typed as profiles).
+    f"{ASSISTANT_NAME}/{ASSISTANT_NAME}'s Context/",
 ]
+
+# Personal: this operator's own folder layout, supplied by the gitignored `.env`. Anything
+# here is a statement about one vault and nobody else's — a folder called `Reference Library`
+# or a subtree of clinical records is a choice, not a property of the engine. Comma-separated,
+# and `USER_NAME` / `ASSISTANT_NAME` interpolate so a path can name its owner without §4
+# putting that name into version control.
+VAULT_USER_IGNORE = [
+    p.strip().format(USER_NAME=USER_NAME, ASSISTANT_NAME=ASSISTANT_NAME)
+    for p in os.getenv("EVELYN_VAULT_USER_IGNORE", "").split(",")
+    if p.strip()
+]
+
+# What consumers read. The name is unchanged so every existing caller keeps working; the
+# split lives in the definition, which is where it matters for what ships.
+TAG_LIBRARIAN_EXCLUDED_PREFIXES = [*VAULT_STRUCTURAL_IGNORE, *VAULT_USER_IGNORE]
 
 # Protected tag regexes (never modified, removed, or normalized)
 # The time axis is no longer among them: dates live in the `occurred` property, not in
@@ -1192,9 +1232,12 @@ TAG_SUBJECT_FUZZY_CUTOFF = 92
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)
 # =============================================================================
-MASTER_LIBRARIAN_ENABLED = False  # Still off by choice, not by blocker: inherit_parent_tags
-# became opt-in and facet-safe in v000.006.214, so the hazard it named is resolved. Awaiting
-# review of one TAG_LIBRARIAN_ENABLED cycle before this autonomous vault-rewriting pass runs.
+MASTER_LIBRARIAN_ENABLED = _env_flag("MASTER_LIBRARIAN_ENABLED", False)
+# Still off by choice, not by blocker: inherit_parent_tags became opt-in and facet-safe in
+# v000.006.214, so the hazard it named is resolved. Awaiting review of one dry run before this
+# autonomous vault-rewriting pass runs. Until v000.006.255 this literal silently outranked
+# `MASTER_LIBRARIAN_ENABLED=True` in `.env`, and the pass stayed off while the operator's
+# config said it was on — 159 of 269 stubs went un-audited as a result.
 MASTER_LIBRARIAN_IDLE_THRESHOLD = 300  # 5 minutes idle (Reflex tier)
 MASTER_LIBRARIAN_BATCH_SIZE = 5  # Process 5 documents per idle burst
 LIBRARIAN_FOLDER_BATCH_CAP = 5  # Max docs processed per directory cluster per run
@@ -1210,24 +1253,11 @@ LIBRARIAN_STUB_SYNTHESIS_TIMEOUT = 45  # Socket timeout for stub abstract synthe
 # otherwise dominate. Relative to VAULT_BASE_DIR.
 LIBRARIAN_STUB_DIR = "Stubs"
 
-# Top-level vault folders that identify a subject domain. A stub is filed under
-# Stubs/<folder>/ when its referencing notes predominantly live in one of them, so the
-# sub-path mirrors where the note belongs once it outgrows stub status.
-#
-# The assistant's journal is deliberately excluded: it references every subject in the
-# vault, so it identifies nothing. Stubs sourced only from it stay directly in Stubs/
-# for manual filing — an unsorted stub is far cheaper to fix than a confidently
-# misfiled one.
-LIBRARIAN_STUB_DOMAIN_FOLDERS: list[str] = [
-    "Dungeons & Dragons",
-    "Genealogy",
-    "Reference Library",
-    "Dream Journal",
-    "Contacts",
-    "Projects",
-    "Notes",
-    "Lists",
-]
+# `LIBRARIAN_STUB_DOMAIN_FOLDERS` was removed in v000.006.252 along with the heuristic it
+# fed. Filing a stub by the folder its referencing notes live in measures where a thing is
+# talked about and reports it as what the thing is: it filed a holiday under Contacts,
+# because contact notes were where it was mentioned. The list was also a second place this
+# operator's folder names lived in tracked config.
 # How much stronger the evidence must be before a rejected ghost stub is proposed again.
 # A rejection here means "the vault does not lean on this target enough to deserve a note",
 # which is a judgement about a number rather than a permanent fact — unlike a rejected

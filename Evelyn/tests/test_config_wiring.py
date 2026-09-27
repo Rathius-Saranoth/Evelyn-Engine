@@ -1,6 +1,6 @@
 # test_config_wiring.py
 # date created: 2026-09-06 18:46:08
-# date modified: 2026-09-15 18:16:17
+# date modified: 2026-09-26 17:37:34
 # tags:
 
 """
@@ -32,6 +32,12 @@ CONFIG_WHITELIST = {
     "SQLITE_PRAGMAS",
     "CONTEXT_DIR",
     "VAULT_WRITE_IGNORE",
+    # Composed one line later into TAG_LIBRARIAN_EXCLUDED_PREFIXES, which is what the engine
+    # reads. They are named rather than inlined because the split is the point: one layer is
+    # a property of any vault on this engine, the other is one operator's own folders and
+    # must not ship to anyone else. `test_vault_ignore_layers.py` asserts on both by name.
+    "VAULT_STRUCTURAL_IGNORE",
+    "VAULT_USER_IGNORE",
     "DEBUG_TOOL_FULL",
     "SHOW_TOOL_LOOP_THINKING",
 

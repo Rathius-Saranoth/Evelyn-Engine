@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-19 11:02:30
+# date modified: 2026-09-26 19:05:18
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -144,6 +144,28 @@ def sanitize_filename(
 
     final_name = clean[:max_length].rstrip(". ") + ext
     return final_name
+
+
+def is_filename_safe(name: str) -> bool:
+    """Report whether a name can be used verbatim as a note filename.
+
+    Defined as a round-trip through :func:`sanitize_filename`: if sanitising changes
+    the string at all, the note on disk will carry a different stem than the name.
+
+    This matters for wikilinks. Obsidian resolves ``[[Target]]`` against filenames
+    only — a frontmatter alias makes a note *findable* while typing (it inserts
+    ``[[Real Name|Alias]]``) but it never makes a bare ``[[Alias]]`` resolve. So a
+    link written as ``[[Nier: Automata]]`` against a file named ``Nier Automata.md``
+    is permanently unresolved no matter what the alias says, and the only repair is
+    to rewrite the link.
+
+    Args:
+        name: Candidate note name, without extension.
+
+    Returns:
+        bool: True when the name survives sanitisation unchanged.
+    """
+    return bool(name) and sanitize_filename(name, default="") == name
 
 
 def protect_code_blocks(text: str) -> tuple[str, dict[str, str]]:

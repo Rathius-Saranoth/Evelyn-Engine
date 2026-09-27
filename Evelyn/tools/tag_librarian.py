@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-26 08:38:51
+# date modified: 2026-09-26 17:20:01
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -1966,6 +1966,34 @@ def propose_tag_admission(
     if not unregistered:
         return []
 
+    # A term registered as a name is decided, not pending. Re-proposing it as a subject asks
+    # the reviewer the one question they have already answered, and it is the question with
+    # no good answer — admitting puts a shop into a vocabulary of subjects, rejecting spends
+    # the word. Each further request is counted instead: a name the corpus keeps nominating
+    # is either one it keeps mentioning, which is expected, or a word that also has a subject
+    # sense the vocabulary is missing, and only the number tells those apart.
+    try:
+        from Evelyn.tools import tag_entities
+
+        names = tag_entities.entity_terms()
+    except (sqlite3.Error, OSError) as exc:
+        # Cannot prove anything is a name, so suppress nothing.
+        logger.warning("[TAG LIBRARIAN] Could not read the name register: %s", exc)
+        names = set()
+
+    for term in dict.fromkeys(unregistered):
+        if term in names:
+            with contextlib.suppress(sqlite3.Error, OSError):
+                count = tag_entities.record_entity_request(term)
+                logger.info(
+                    "[TAG LIBRARIAN] '%s' is registered as a name; not re-proposing "
+                    "(asked for %d time(s) now), requested by %s.",
+                    term, count, origin or "an unnamed writer",
+                )
+    unregistered = [t for t in unregistered if t not in names]
+    if not unregistered:
+        return []
+
     # A term a second fact also wants must widen the existing proposal rather than be dropped,
     # or approval backfills only whichever fact happened to ask first.
     for term in dict.fromkeys(unregistered) if source_ids else ():
@@ -2113,6 +2141,100 @@ def backfill_admitted_term(term: str, source_ids: list[int]) -> int:
 
 TAG_RETIREMENT_PROPOSAL = "tag_retirement"
 
+
+
+_EXCERPT_CACHE: dict[tuple[str, float], str] = {}
+EXCERPT_MAX_BYTES = 400_000
+EXCERPT_MAX_CHARS = 460
+
+
+def excerpt_for_term(term: str, source_path: str, max_lines: int = 3) -> str:
+    """Return the sentences of a vault note that put a proposed term in context.
+
+    A reviewer asked to rule on a bare term cannot do it from the term and an origin label.
+    One term in the queue names a clothing retailer in this corpus, an orchid genus in FAST,
+    and a novel everywhere else; the sentence it was extracted from, which named it beside
+    another online shop, settles that in a glance and no amount of measurement gets there.
+
+    Matching is deliberately loose. The proposed term is a normalized form (`color-code-system`)
+    while the note holds prose (`the Color Code system`), so the words are sought rather than
+    the string. A note that turns out not to contain them still returns its opening prose,
+    because *some* context beats none.
+
+    Args:
+        term: The proposed term, in canonical §5 form.
+        source_path: Vault-relative path of the note that raised it.
+        max_lines: How many matching lines to return.
+
+    Returns:
+        str: A short excerpt, or "" when the note cannot be read.
+    """
+    clean_term = (term or "").strip().lower()
+    rel = str(source_path or "").strip()
+    if not clean_term or not rel:
+        return ""
+
+    # Same resolution and traversal guard as the backfill: the configured root at call time,
+    # and a path that escapes it is refused rather than read.
+    root = os.path.realpath(getattr(cfg, "VAULT_BASE_DIR", "") or "")
+    if not root:
+        return ""
+    abs_path = os.path.realpath(os.path.join(root, rel.lstrip("/\\")))
+    try:
+        if os.path.commonpath([abs_path, root]) != root or not os.path.isfile(abs_path):
+            return ""
+        stamp = (abs_path, os.path.getmtime(abs_path))
+    except (OSError, ValueError):
+        return ""
+
+    if stamp in _EXCERPT_CACHE:
+        return _EXCERPT_CACHE[stamp]
+
+    try:
+        with open(abs_path, encoding="utf-8", errors="replace") as fh:
+            content = fh.read(EXCERPT_MAX_BYTES)
+    except OSError:
+        return ""
+
+    _tags, body = parse_frontmatter_tags(content)
+    words = [w for w in re.split(r"[^a-z0-9]+", clean_term) if len(w) > 2]
+    phrase = clean_term.replace("-", " ")
+
+    lines = [ln.strip() for ln in (body or content).splitlines()]
+    # Callouts, tables, headings and index links are the note's furniture, not its prose, and
+    # a reviewer shown an `[!abstract]` banner learns nothing the card did not already say.
+    lines = [
+        ln for ln in lines
+        if len(ln) > 25
+        and not ln.startswith(("#", "|", "---", "```", ">", "-", "*", "!["))
+        and ln.count("[[") < 2
+    ]
+
+    hits = [ln for ln in lines if phrase in ln.lower()]
+    if not hits and words:
+        # Rank by how much of the term a line actually accounts for, rather than demanding
+        # every word: `color-code-theory` appears in prose as "the Color Code", and a line
+        # matching two words of three is the one worth reading.
+        scored = sorted(
+            ((sum(w in ln.lower() for w in words), -len(ln), ln) for ln in lines),
+            reverse=True,
+        )
+        hits = [ln for score, _, ln in scored if score > 0][:max_lines]
+    if not hits:
+        hits = lines[:max_lines]
+    if not hits:
+        # Nothing survived the prose filters. That is not a failure to report as silence: a
+        # note whose whole body is a heading and a PDF embed is an *attachment wrapper*, and
+        # showing the reviewer those three lines says so immediately — which is the decisive
+        # fact about terms like `document-indexing`, inferred from a table of chapter numbers
+        # rather than from any content. The raw lines are the honest answer.
+        hits = [ln.strip() for ln in (body or content).splitlines() if ln.strip()][:max_lines]
+
+    excerpt = " … ".join(hits[:max_lines])[:EXCERPT_MAX_CHARS]
+    if len(_EXCERPT_CACHE) > 512:
+        _EXCERPT_CACHE.clear()
+    _EXCERPT_CACHE[stamp] = excerpt
+    return excerpt
 
 
 def backfill_admitted_term_to_note(term: str, source_path: str) -> bool:

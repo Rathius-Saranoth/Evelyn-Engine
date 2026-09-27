@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-09-26 19:05:18
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -413,11 +413,14 @@ def render_stub_markdown(payload: StubPayload, now_str: str | None = None) -> st
     ts = now_str or time.strftime("%Y-%m-%d %H:%M:%S")
 
     # When sanitising changed the stem, the original is the name every existing `[[wikilink]]`
-    # uses; carrying it as an alias is what keeps those links resolving to this note.
-    from Evelyn.tools.string_utils import sanitize_filename
+    # uses. The alias records that name so the note is still findable by it in search and the
+    # quick switcher — it does NOT make those links resolve. Obsidian resolves a wikilink
+    # against filenames only, so `[[Nier: Automata]]` stays unresolved against
+    # `Nier Automata.md` however the alias reads. Retargeting the links is what fixes them,
+    # and that is `retarget_inbound_links`, called by the stub writers.
+    from Evelyn.tools.string_utils import is_filename_safe
 
-    safe_stem = sanitize_filename(payload.target_name, default="Untitled")
-    aliases = [payload.target_name] if safe_stem != payload.target_name else []
+    aliases = [] if is_filename_safe(payload.target_name) else [payload.target_name]
 
     fm_dict = {
         "title": payload.target_name,
@@ -947,6 +950,115 @@ def canonicalize_document_wikilinks(
     return changed, updated_body, actions
 
 
+def retarget_inbound_links(
+    written_target: str,
+    canonical_stem: str,
+    vault_root: str | None = None,
+    sources: list[str] | None = None,
+) -> tuple[int, list[str]]:
+    """Point every `[[written_target]]` in the vault at `canonical_stem` instead.
+
+    Called when a note is filed under a stem that differs from the name the links use,
+    which happens whenever the target is not filename-safe: `[[Nier: Automata]]` has to
+    be stored as `Nier Automata.md`. Obsidian resolves links by filename, so until the
+    links themselves are rewritten they stay unresolved and the new note is an orphan
+    nothing points at. A frontmatter alias does not cover this (see
+    :func:`string_utils.is_filename_safe`).
+
+    The reader's words are preserved in every case:
+        [[Nier: Automata]]            -> [[Nier Automata|Nier: Automata]]
+        [[Nier: Automata|the game]]   -> [[Nier Automata|the game]]
+        [[Nier: Automata#Combat]]     -> [[Nier Automata#Combat|Nier: Automata]]
+
+    Matching is case-insensitive on the target, so `[[NieR: Automata]]` is retargeted
+    too and keeps its own spelling as the display text.
+
+    Args:
+        written_target: Target exactly as the links spell it.
+        canonical_stem: Stem of the note that now exists on disk.
+        vault_root: Optional vault root directory.
+        sources: Optional vault-relative paths to limit the rewrite to. When omitted,
+            the referencing notes are harvested from the vault.
+
+    Returns:
+        tuple[int, list[str]]: (files_rewritten, action labels).
+    """
+    root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    actions: list[str] = []
+    if not written_target or not canonical_stem or written_target == canonical_stem:
+        return 0, actions
+
+    if sources is None:
+        sources = [
+            r["source"]
+            for r in harvest_entity_references(
+                written_target,
+                vault_root=root,
+                max_refs=getattr(cfg, "LIBRARIAN_STUB_MAX_HARVEST_REFS", 12),
+            )
+        ]
+
+    pattern = re.compile(
+        WIKILINK_OPEN_GUARD
+        + r"\[\["
+        + re.escape(written_target)
+        + r"(#[^|\]\n]+)?(\|[^\]\n]+)?\]\]",
+        re.IGNORECASE,
+    )
+
+    def replacer(match: re.Match) -> str:
+        subpath = match.group(1) or ""
+        display = match.group(2) or ""
+        if display:
+            return f"[[{canonical_stem}{subpath}{display}]]"
+        # Recover the spelling this document actually used, so casing survives.
+        as_written = match.group(0).split("[[", 1)[1].split("]]")[0].split("#")[0]
+        return f"[[{canonical_stem}{subpath}|{as_written}]]"
+
+    rewritten = 0
+    for rel in sources:
+        abspath = os.path.join(root, rel)
+        if not os.path.isfile(abspath):
+            continue
+        try:
+            with open(abspath, encoding="utf-8") as f:
+                raw = f.read()
+        except OSError as e:
+            logger.debug(f"retarget_inbound_links could not read {rel}: {e}")
+            continue
+
+        masked, placeholders = string_utils.protect_code_blocks(raw)
+        updated, hits = pattern.subn(replacer, masked)
+        if not hits:
+            continue
+        restored = string_utils.restore_code_blocks(updated, placeholders)
+        if restored == raw:
+            continue
+
+        tmp_path = f"{abspath}.tmp_{os.getpid()}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(restored)
+            os.replace(tmp_path, abspath)
+        except OSError as e:
+            logger.warning(f"[LINK LIBRARIAN] Could not retarget links in {rel}: {e}")
+            continue
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        rewritten += 1
+        actions.append(f"retargeted_links:{rel}:{hits}")
+
+    if rewritten:
+        logger.info(
+            "[LINK LIBRARIAN] '%s' is not filename-safe; retargeted %d link(s) across "
+            "%d note(s) to [[%s]].",
+            written_target, sum(int(a.rsplit(":", 1)[1]) for a in actions), rewritten, canonical_stem,
+        )
+    return rewritten, actions
+
+
 def reattach_split_array_qualifiers(text: str) -> tuple[bool, str]:
     """Re-join a module qualifier that an earlier fence split off from its call.
 
@@ -1448,40 +1560,27 @@ def audit_document_links(
 
 
 def infer_stub_domain(references: list[dict[str, str]]) -> str:
-    """Infer a stub's subject domain from where its referencing notes live.
+    """Retired. A stub is filed flat, and the reviewer files it.
 
-    Uses the harvested references directly, so it costs no extra vault scan. Only
-    top-level folders listed in LIBRARIAN_STUB_DOMAIN_FOLDERS count as evidence; the
-    assistant's journal references every subject in the vault and so identifies none.
+    Kept as a no-op because the *reason* is worth carrying: this function has now produced
+    the same defect twice under two different heuristics. The first voted on co-linked notes
+    and filed a country under Contacts at 89% confidence. Its replacement voted on the
+    top-level folder of the referencing notes and filed a **holiday** under Contacts, because
+    contact notes are where it happened to be mentioned.
 
-    A "nearby links" heuristic was tried and rejected: journal entries co-mention people,
-    so voting on co-linked notes filed a country under Contacts at 89% confidence. A
-    confidently wrong folder costs more to undo than an unsorted stub.
+    Both were measuring *where a thing is talked about* and reporting it as *what the thing
+    is*, which is not a weaker version of the same signal — it is a different question. The
+    lesson was already written into this module's docstring after the first attempt: a
+    confidently wrong folder costs more to undo than an unsorted stub. It was then re-learned
+    against the second.
 
     Args:
-        references: Harvested reference dicts carrying a 'source' vault relpath.
+        references: Ignored.
 
     Returns:
-        str: Winning domain folder name, or "" when no referencing note identifies one.
+        str: Always "", so stubs land in `Stubs/` for the reviewer to file.
     """
-    domains = [d for d in getattr(cfg, "LIBRARIAN_STUB_DOMAIN_FOLDERS", []) if d]
-    if not domains:
-        return ""
-    lookup = {d.lower(): d for d in domains}
-    counts: dict[str, int] = {}
-    for ref in references:
-        source = str(ref.get("source") or "").replace("\\", "/")
-        if "/" not in source:
-            continue
-        top = lookup.get(source.split("/")[0].strip().lower())
-        if top:
-            counts[top] = counts.get(top, 0) + 1
-    if not counts:
-        return ""
-    best = max(counts.values())
-    winners = sorted(d for d, n in counts.items() if n == best)
-    # A tie identifies nothing; leave it unsorted rather than guessing.
-    return winners[0] if len(winners) == 1 else ""
+    return ""
 
 
 def stub_relpath(target_stem: str, domain: str = "") -> str:
@@ -1500,7 +1599,8 @@ def stub_relpath(target_stem: str, domain: str = "") -> str:
     parts = [p for p in (stub_dir, domain.strip("/")) if p]
     # A wikilink target may legally contain characters a filename may not: `[[Nier: Automata]]`
     # produced `Nier: Automata.md`, which Windows cannot represent and Syncthing refuses to
-    # sync. The note keeps its real name in `title` and an alias, so the link still resolves.
+    # sync. The note keeps its real name in `title` and an alias, but that does not make the
+    # inbound links resolve — callers must retarget them with `retarget_inbound_links`.
     parts.append(f"{sanitize_filename(target_stem, default='Untitled')}.md")
     return "/".join(parts)
 
@@ -1737,6 +1837,14 @@ def create_ghost_link_stub(
     )
     vault_db.update_document_librarian_audit(target_relpath, ghost_count=0, mtime=new_mtime)
 
+    # The note is filed under a sanitised stem, so every link that named the original spelling
+    # now points at a file that does not exist. Rewrite them, or the stub we just wrote is an
+    # orphan and the links stay ghosts forever — a note can never be created under that name.
+    written_stem = os.path.splitext(os.path.basename(target_relpath))[0]
+    links_retargeted, retarget_actions = retarget_inbound_links(
+        clean_target, written_stem, vault_root=root, sources=sources,
+    )
+
     import sys
     subprocess.run(
         [sys.executable, "scripts/update_frontmatter.py", target_abspath],
@@ -1751,4 +1859,6 @@ def create_ghost_link_stub(
         "total_context_chars": total_context_chars,
         "tier": 1,
         "xml_payload": xml_payload,
+        "links_retargeted": links_retargeted,
+        "retarget_actions": retarget_actions,
     }

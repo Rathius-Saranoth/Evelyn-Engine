@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 08:38:51
+date modified: 2026-09-26 19:12:38
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,331 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.255] - 2026-09-26 — *A Literal That Outranked The Config*
+
+### Fixed
+
+- **Six feature flags set in the environment are now actually read.** `CONSOLIDATION_ENABLED`,
+  `FACT_EXTRACTION_ENABLED`, `PROFILE_EVOLUTION_ENABLED`, `AUTO_JOURNAL_ENABLED`,
+  `AMBIENT_REFLECTIONS_ENABLED` and `MASTER_LIBRARIAN_ENABLED` were literals in
+  `evelyn_config.py` with no `os.getenv` anywhere, so setting them in the environment did
+  nothing. Five coincided with their hardcoded default, which is why the group went unnoticed
+  for so long — the class of defect only surfaced on the one flag where the two disagreed, and
+  there an autonomous pass stayed off while the configuration said it was on.
+
+  All six now read through a new `_env_flag()` helper. It accepts `true/1/yes/on` and
+  `false/0/no/off`, tolerates surrounding quotes and whitespace, and **falls back to the
+  default on anything it cannot parse** rather than guessing — a typo must not switch on a
+  pass that rewrites notes unattended.
+
+### Changed
+
+- **`.env.example` documents all six**, with the accepted spellings and a note that the
+  librarian rewrites vault notes without asking and should be dry-run first.
+
+### Notes
+
+- **No behaviour changes with this release.** The wiring landed with the master librarian
+  explicitly disabled, so the effective configuration is identical to `.254`. Enabling that
+  pass is a separate, deliberate decision.
+- `test_feature_flag_env_wiring.py` (39 tests) pins each flag to an environment read, checks
+  both spellings and the unparseable-value fallback, and fails if a documented key is ever
+  left unread again. Verified red against the previous literal before being committed green.
+
+## [000.006.254] - 2026-09-26 — *An Alias Is Not A Link*
+
+### Fixed
+
+- **A stub filed under a sanitised name now rewrites the links that pointed at the old one.**
+  A wikilink may contain characters a filename may not, so `[[Nier: Automata]]` is stored as
+  `Nier Automata.md`. Both stub writers recorded the original spelling as a frontmatter alias
+  and stopped there, on the stated belief that "carrying it as an alias is what keeps those
+  links resolving to this note."
+
+  That belief is wrong. Obsidian resolves a wikilink against filenames only; an alias makes a
+  note *findable while typing* — it inserts `[[Real Name|Alias]]` — and never makes a bare
+  `[[Alias]]` resolve. So every such link was permanently unresolved, and the note it should
+  have pointed at was an orphan. Because the name can never exist as a file, the link could
+  never be repaired by creating one.
+
+  `link_librarian.retarget_inbound_links()` now rewrites them, preserving the reader's words
+  in every case (`[[Nier: Automata]]` → `[[Nier Automata|Nier: Automata]]`, a piped link
+  keeps the author's display text, subpaths and casing variants survive). It is called from
+  the Tier 1 auto-synthesis path and from the Tier 2 approval route, and the approval response
+  says how many notes it touched. The alias is still written — it earns its place in search
+  and the quick switcher — but it is no longer mistaken for a link.
+
+  `string_utils.is_filename_safe()` is the canonical predicate, defined as a round-trip
+  through `sanitize_filename`, and replaces the hand-rolled comparison in the stub scaffold.
+
+### Notes
+
+- Two comments asserting the false premise (in `render_stub_markdown` and `stub_relpath`) are
+  corrected in place rather than deleted, since both name the real constraint that produced
+  the sanitised filename — Windows cannot represent `:` and Syncthing refuses to sync it.
+
+## [000.006.253] - 2026-09-26 — *Admitted Is Not The Same As Applied*
+
+### Fixed
+
+- **An admission whose note cannot be updated now says so.** A proposal stores the path its
+  note had when it was raised, and a vault is a live filesystem. Of 11 admissions applied on
+  2026-09-26, **seven reached nothing** — the notes had been refiled between the proposal and
+  the decision — and every one of them returned `ok`. `backfill_admitted_term_to_note` has
+  always returned whether it wrote anything and the caller discarded it, the same shape as
+  the deny no-op fixed in `.244`.
+
+  The result is **reported, not enforced**: the term is genuinely admitted either way, so
+  failing the approval would be wrong. The response carries a `warnings` list, the bulk route
+  carries it per row, and the server logs each one — because a decision that succeeds while
+  leaving something undone is exactly what needs saying out loud.
+
+### Tests
+
+- `test_admission_context.py` grows to 11: an admission against a note that is no longer
+  there still admits the term **and** reports the note it could not update.
+
+## [000.006.252] - 2026-09-26 — *Where It Is Mentioned Is Not What It Is*
+
+### Fixed
+
+- **Stubs are no longer filed by the folder their referencing notes live in.** The heuristic
+  produced the same defect twice under two different signals: the first voted on co-linked
+  notes and filed a country under Contacts at 89% confidence; its replacement voted on the
+  top-level folder of the referencing notes and filed a **holiday** under Contacts, because
+  contact notes were where it happened to be mentioned. Both measured *where a thing is
+  talked about* and reported it as *what the thing is* — a different question, not a weaker
+  signal. The lesson had already been written into the module docstring after the first
+  attempt and was re-learned against the second, so `infer_stub_domain` is now a no-op that
+  carries the reasoning, and stubs land unsorted in `Stubs/` for the reviewer to file.
+- `LIBRARIAN_STUB_DOMAIN_FOLDERS` removed with the heuristic it fed. It was also a second
+  place one operator's folder names lived in tracked config.
+
+### Documentation
+
+- **§2.1 — the substrates that cannot hold a link.** §2 says a tag naming an individual is a
+  defect "converted to a link, not preserved", and that has a destination in the vault and
+  nowhere else: memory facts and journal entries deliberately carry no wikilinks, because
+  link syntax in raw text logs muddied the context those records exist to supply. A memory
+  fact naming an individual therefore has no legal move under §2 as written — not a tag, and
+  not a link.
+
+  That gap is what the name register fills, and §2.1 states its role: a **pointer, not an
+  authority**. Every row carries the vault path of the note that *is* the authority, and a
+  row with no note is evidence a stub should exist rather than a second record. The section
+  carries an explicit warning, because the register looks redundant from §2 alone and was
+  argued to be on the day it shipped; the argument fails on the substrate rule, and the
+  change that would genuinely retire it is permitting links in `context_entries` — which
+  needs verifying against retrieval quality first.
+
+### Tests
+
+- `test_master_librarian.py`: the stub-domain test is replaced rather than fixed — it encoded
+  the behaviour being reversed — by one asserting that **even a unanimous folder majority is
+  not evidence about the subject**, while an explicit domain from a caller that actually
+  knows is still honoured.
+
+## [000.006.251] - 2026-09-26 — *Your Folders Are Not Everyone's*
+
+`TAG_LIBRARIAN_EXCLUDED_PREFIXES` held two different kinds of fact in one tracked list. That
+`Templates/` is not a source of subjects is true of any vault built on this engine. That
+`Reference Library/` is not either is a statement about exactly one person's vault — and it
+was shipping to everyone who clones the repository. Same split as the taxonomy's base and
+local layers, for the same reason.
+
+### Changed
+
+- **Two layers.** `VAULT_STRUCTURAL_IGNORE` stays in the tracked config: properties of the
+  layout any clone has. `VAULT_USER_IGNORE` comes from the gitignored `.env` via
+  `EVELYN_VAULT_USER_IGNORE`, comma-separated, with `{USER_NAME}` / `{ASSISTANT_NAME}`
+  interpolated so a path can name its owner without that name entering version control.
+  `TAG_LIBRARIAN_EXCLUDED_PREFIXES` is their union, so every existing caller is unchanged —
+  the split lives in the definition, which is where it matters for what ships.
+- **The assistant's own context folder joins the structural layer.** Those notes are *aspect*
+  documents about the two people — "Core Identity", "Emotional States & Responses" — so a
+  pass reading them for subjects harvests document titles rather than names. Measured
+  2026-09-26: 30 such notes typed as profiles. Every clone has this folder, so it is
+  structural rather than personal.
+
+### Added
+
+- `EVELYN_VAULT_USER_IGNORE` documented in `.env.example`, including that exclusion is from
+  the tag audit only — excluded notes stay indexed and fully retrievable.
+
+### Tests
+
+- `test_vault_ignore_layers.py` (5): the layers combine, **the tracked layer names nobody**
+  (parsed from source, so a personal path written there fails the suite), a user entry
+  interpolates its owner, a blank env var does not become a prefix matching every path, and
+  the audit queue honours both layers.
+
+## [000.006.250] - 2026-09-26 — *A Name Is Not A Subject*
+
+A proposed term that turns out to be a name had **no correct action**. Admitting it puts a
+shop, a product or a person into a controlled vocabulary of subjects, where the classifier
+then applies it to unrelated notes. Rejecting it is permanent since `.231` and is scoped to
+the *word* — so turning down a clothing retailer whose name is an ordinary adjective would
+spend that adjective for good. Reviewing could not clear those proposals however long it ran.
+
+Authority control settled this long ago by keeping the registers apart — LCSH beside LCNAF,
+and four of FAST's nine facets are name facets. Separate namespaces are what let a name and a
+subject share a string without competing for the same slot.
+
+### Added
+
+- **A name register** (`tag_entities`, migration `000.006.250`) and a third action on the
+  admission card: **"This is a name"**. It records the term, closes the proposal as decided,
+  and keeps it out of the subject vocabulary. It is **not** a rejection: the word stays
+  admissible, and the record is reversible.
+- **A `label` field**, because the term is often lossy — one shop reached the queue as a
+  single word, the rest of its name dropped by the split that extracted it. The register is
+  where it goes back, along with a `kind` (organization, product, work, person, place).
+- `GET /api/taxonomy/names` and `POST /api/taxonomy/names/{term}/forget`. The card promises
+  the decision can be undone; without a route saying so that would be a promise the code does
+  not keep.
+- Local and gitignored by construction: this is the one taxonomy table that can hold personal
+  names, so it must never reach the tracked base vocabulary (§4).
+
+### Changed
+
+- `propose_tag_admission` no longer re-proposes a registered name, and **counts each further
+  request** instead of going quiet. A name the corpus keeps nominating is either one it keeps
+  mentioning, which is expected, or a word that also has a subject sense the vocabulary is
+  missing — only the number tells those apart, the same reasoning as `record_rejected_request`.
+
+### Tests
+
+- `test_name_register.py` (9): the proposal closes and the name registers, the term does not
+  enter the subject vocabulary, it is not proposed again, further requests are counted, **the
+  word survives and becomes proposable once the name is forgotten** — which a rejection would
+  never allow — the full name and kind are kept, re-recording does not blank a label, only an
+  admission can be named, and the bulk route carries it.
+
+## [000.006.249] - 2026-09-26 — *Show The Sentence*
+
+A tag admission card offered a bare word and an origin label — `split fact (Cat05-U)` — and
+asked for a permanent decision. That label names a category, not a sentence, and it settles
+nothing. One term in the queue names a clothing retailer in this corpus, an orchid genus in
+FAST, and a novel everywhere else; the term cannot distinguish them and no amount of
+measurement gets there. The single sentence it was extracted from — which named it alongside
+another online shop — settles it at a glance.
+
+### Added
+
+- **"Where it came from" on every admission card**, above the term's own evidence, because it
+  is what the decision actually rests on. Memory-sourced proposals show the observations of
+  the facts that asked (up to four, with ids and categories); vault-sourced ones show the
+  lines of the note that mention the term, with its path. Every word of the proposed term is
+  highlighted in the text.
+- `tag_librarian.excerpt_for_term()`. Matching is deliberately loose — the term is a
+  normalised form (`color-code-theory`) while the note holds prose (*"the Color Code
+  Personality Assessment"*) — so lines are ranked by how much of the term they account for
+  rather than being required to contain it whole. Callouts, tables, headings and index links
+  are skipped: a reviewer shown an `[!abstract]` banner learns nothing the card did not
+  already say. A note that turns out not to mention the term still returns its opening prose,
+  because some context beats none.
+- The excerpt is cached on path and mtime, so a queue of 200 costs one pass over the notes
+  rather than one per render, and it carries the **same traversal guard as the backfill** —
+  review context must not become a file-read primitive.
+
+### Verified
+
+- **The `.245` deferral held in production, on its first real exercise.** The queue reached its
+  200 cap this afternoon and deferred rather than disarming: 198 pending, **67 deferred**,
+  logged term by term. Before `.245` those 67 would have gone back onto facts unregistered and
+  unreviewed, silently, which is the drift that took a hand curation pass to undo.
+
+### Tests
+
+- `test_admission_context.py` (8): the mentioning line is returned and the unrelated one is
+  not, prose is matched rather than the normalised form, note furniture is skipped, a path
+  escaping the vault is refused, a missing note is empty rather than an error, the excerpt is
+  cached on mtime, a note without the term still yields something, and the unified review
+  builder actually reaches the helper.
+
+## [000.006.248] - 2026-09-26 — *Eighty Equivalences We Did Not Have To Argue About*
+
+### Added
+
+- **Inherited see-from references on the base vocabulary: 80 aliases across 103 terms**
+  (AAT 29, FAST 20, MeSH 19, LCGFT 12). `feelings ➔ See: emotion`, `sleeping ➔ See: sleep`,
+  `workouts ➔ See: exercise`, `ei ➔ See: emotional-intelligence`, `japanimation ➔ See: anime` —
+  each one a term the corpus would otherwise have minted and a reviewer would otherwise have
+  had to rule on. The vocabulary now resolves 251 equivalences, up from 171.
+
+  This is the **safe direction** and the only one taken automatically: adding a pointer *to* a
+  base term retires nothing. Redirecting one of our own terms onto an authority's preferred
+  form stays a proposal (`.247`), because that choice is made for a published collection and
+  can be wrong here.
+
+### Changed
+
+- **27 pending admissions approved** against the authority method, through the bulk route so
+  each carries a proposal row and a decision rather than appearing from nowhere. All 27
+  reached the fact that asked for them, verified per term. 10 were held back with reasons:
+  four from the clinical subtree excluded in `.246`, one near-duplicate of another term in the
+  same batch, and five whose only authority match is sense-qualified.
+
+### Fixed
+
+- **A qualified authority label is not an exact match.** The coverage probe normalised
+  `Dracula (Plants)` — an orchid genus — to `dracula`, the same way it had matched
+  `Endurance (Ship : A171)` before the facet filter. A term whose only authorised form carries
+  a parenthetical qualifier is a *sense-specific* heading, and stripping the qualifier asserts
+  a match the authority never made.
+- **The harvester's guards, which fired.** One inherited alias was already a registered term;
+  adding it would have silently retired that term. Aliases colliding with another base term,
+  with a conflicting local alias, or carrying pre-coordinate `--` strings are dropped too.
+- **AAT needs its language tag.** Without `@en` the literal does not match at all, which is why
+  23 AAT terms first yielded nothing; and because AAT is multilingual the results must be
+  filtered to English, or the vocabulary inherits `Bekleidung (Mode)` as a see-from reference.
+  MeSH has no flat entry-terms route — `lookup/terms` serves HTML — so entry terms are read
+  from the descriptor's concept chain.
+
+## [000.006.247] - 2026-09-26 — *We Already Have A Word For That*
+
+The admission card's own advice was: *"If one of these already covers it, **Reject** — the
+vocabulary is post-coordinate, so a near-duplicate splits the concept in two."* But `_deny`
+called `reject_proposal` and nothing else, and the whole server held exactly one
+`record_alias`/`retire_term` call, in the `tag_relation` branch. **The admission path could not
+record an equivalence at all** — so the card broke the rule it was citing (§6.2: *a deleted
+synonym with no `UF` record will be re-minted by the next import*). Since `.231` the rejection
+does stop the term returning, so nothing was re-minted; the equivalence was simply lost, and
+retrieval never learned that the two words mean the same thing.
+
+### Added
+
+- **A third verdict on an admission: `POST /api/review/proposals/{id}/alias`.** Records the
+  `UF` equivalence, puts the *preferred* term onto whatever asked for the unused one, and
+  closes the proposal as applied. Reject keeps its old meaning — "not a subject at all".
+  Available through the bulk route too, which is where a flood of near-duplicates lands.
+- **The `➔ See:` control on the admission card** (§6.2.1), pre-filled with the nearest
+  registered term and **editable**, because an authority's preferred form is a cataloguing
+  decision made for a published collection and can be wrong for a personal one: of the
+  see-references measured on 2026-09-26, `ancestry ➔ genealogy` and `version-control ➔
+  revision control` were right, while a pet's name was redirected onto the animal and
+  `survival-game` onto `Paintball (Game)`. The card states the consequence in §6.2.2's words
+  rather than naming the mechanism.
+
+### Changed
+
+- The similar-terms hint no longer tells reviewers to reject a near-duplicate; it points at
+  the see-reference instead, since rejecting alone discards the equivalence.
+- **The target is resolved through existing equivalences before being recorded.** Resolution
+  is transitive at read time, so a chain would still resolve — but it would store a target
+  that is itself retired, and the alias table stops being readable as "what does this term
+  mean now". A resolution that lands back on the proposed term is refused as a cycle.
+- The target must be a term the vocabulary actually holds — base layer included — or the
+  reference points at nothing and every tag resolving through it lands on an unregistered
+  word, which is the state admission exists to prevent.
+
+### Tests
+
+- `test_see_reference_action.py` (8): the equivalence is recorded and the proposal closed, the
+  fact that asked gets the preferred term and not the retired one, an unregistered target is
+  refused with nothing written, self-reference is refused, chains are flattened, a base term is
+  a valid target, only an admission can become a see-reference, and the bulk route carries it.
 
 ## [000.006.246] - 2026-09-26 — *A Vocabulary A Stranger Can Read*
 

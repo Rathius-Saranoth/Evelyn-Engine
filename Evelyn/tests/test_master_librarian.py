@@ -1,6 +1,6 @@
 # test_master_librarian.py
 # date created: 2026-09-05 17:50:00
-# date modified: 2026-09-22 21:41:20
+# date modified: 2026-09-26 17:50:22
 # tags: #test, #master_librarian, #format_librarian, #link_librarian, #unit_test
 
 """Hermetic unit tests for the Master Librarian pipeline and sub-librarians."""
@@ -265,8 +265,8 @@ array([[1.5, 2.5]])
                 )
             self.assertEqual(res_tier1["status"], "created_stub")
             self.assertIn("xml_payload", res_tier1)
-            # Referenced from Notes/, so it files under Stubs/Notes/ rather than the root
-            stub_file = os.path.join(tmp_vault, "Stubs", "Notes", "KnownEntity.md")
+            # Flat under Stubs/: being mentioned in Notes/ says nothing about the subject.
+            stub_file = os.path.join(tmp_vault, "Stubs", "KnownEntity.md")
             self.assertTrue(os.path.exists(stub_file))
             self.assertFalse(os.path.exists(os.path.join(tmp_vault, "KnownEntity.md")))
             with open(stub_file, encoding="utf-8") as f:
@@ -803,40 +803,38 @@ Additional bench tests confirmed 4x speedup over baseline models.
                 self.assertFalse(resolved, "ambiguous article variants must not be conflated")
                 self.assertEqual(canon, "A Vault")
 
-    def test_infer_stub_domain_and_path(self):
-        """Verify stubs route by referencing folder, and stay unsorted when ambiguous."""
-        with patch.object(cfg, "LIBRARIAN_STUB_DOMAIN_FOLDERS",
-                          ["Dungeons & Dragons", "Contacts", "Notes"]), \
-             patch.object(cfg, "LIBRARIAN_STUB_DIR", "Stubs"):
+    def test_a_stub_is_never_filed_by_where_it_is_mentioned(self):
+        """The heuristic is retired: a stub lands flat and the reviewer files it.
 
-            # Clear majority from a domain folder
-            refs = [{"source": "Dungeons & Dragons/Sessions/S1.md"},
-                    {"source": "Dungeons & Dragons/Sessions/S2.md"},
-                    {"source": "Journal/Entries/2025-01-01.md"}]
-            self.assertEqual(link_librarian.infer_stub_domain(refs), "Dungeons & Dragons")
+        It produced the same defect twice under two different signals. The first voted on
+        co-linked notes and filed a country under Contacts. Its replacement voted on the
+        top-level folder of the referencing notes and filed a *holiday* under Contacts,
+        because contact notes were where it happened to be mentioned.
 
-            # Journal-only sources identify nothing: the journal references everything
-            self.assertEqual(
-                link_librarian.infer_stub_domain([{"source": "Journal/Entries/a.md"}]), ""
-            )
+        Both measured where a thing is talked about and reported it as what the thing is.
+        That is not a weaker version of the same signal, it is a different question - and a
+        confidently wrong folder costs more to undo than an unsorted stub.
+        """
+        with patch.object(cfg, "LIBRARIAN_STUB_DIR", "Stubs"):
 
-            # A tie identifies nothing and must not be guessed
-            tie = [{"source": "Notes/a.md"}, {"source": "Contacts/b.md"}]
-            self.assertEqual(link_librarian.infer_stub_domain(tie), "")
+            # Even a unanimous folder majority is not evidence about the subject.
+            unanimous = [{"source": "Contacts/Alice.md"},
+                         {"source": "Contacts/Bob.md"},
+                         {"source": "Contacts/Carol.md"}]
+            self.assertEqual(link_librarian.infer_stub_domain(unanimous), "")
 
-            # Root-level references carry no folder signal
-            self.assertEqual(link_librarian.infer_stub_domain([{"source": "Loose.md"}]), "")
             self.assertEqual(link_librarian.infer_stub_domain([]), "")
 
-            # Paths mirror where the note belongs once it outgrows stub status
+            # An explicit domain from a caller that actually knows is still honoured.
             self.assertEqual(
                 link_librarian.stub_relpath("Kurtulmak", "Dungeons & Dragons"),
                 "Stubs/Dungeons & Dragons/Kurtulmak.md",
             )
+            # With none, the stub is unsorted rather than misfiled.
             self.assertEqual(link_librarian.stub_relpath("Croatia"), "Stubs/Croatia.md")
 
     def test_tier1_stub_written_under_domain_folder(self):
-        """Verify an auto-created stub lands in Stubs/<domain>/, not the vault root."""
+        """Verify an auto-created stub lands in Stubs/, unsorted, not the vault root."""
         with tempfile.TemporaryDirectory() as vault:
             sessions = os.path.join(vault, "Dungeons & Dragons", "Sessions")
             os.makedirs(sessions, exist_ok=True)
@@ -851,7 +849,6 @@ Additional bench tests confirmed 4x speedup over baseline models.
 
             with patch.object(cfg, "MASTER_LIBRARIAN_AUTO_STUBS", True), \
                  patch.object(cfg, "LIBRARIAN_STUB_LLM_SYNTHESIS", False), \
-                 patch.object(cfg, "LIBRARIAN_STUB_DOMAIN_FOLDERS", ["Dungeons & Dragons"]), \
                  patch.object(cfg, "LIBRARIAN_STUB_DIR", "Stubs"):
                 res = link_librarian.create_ghost_link_stub(
                     "Kurtulmak", vault_root=vault,
@@ -859,8 +856,8 @@ Additional bench tests confirmed 4x speedup over baseline models.
                 )
 
             self.assertEqual(res["status"], "created_stub")
-            expected = os.path.join(vault, "Stubs", "Dungeons & Dragons", "Kurtulmak.md")
-            self.assertTrue(os.path.exists(expected), "stub not filed under its domain")
+            expected = os.path.join(vault, "Stubs", "Kurtulmak.md")
+            self.assertTrue(os.path.exists(expected), "stub not filed under Stubs/")
             self.assertFalse(os.path.exists(os.path.join(vault, "Kurtulmak.md")),
                              "stub must not land in the vault root")
 

@@ -1992,6 +1992,132 @@
       }
     }
 
+    // Highlight every word of a proposed term inside its source text. The term is a
+    // normalized form (`color-code-system`) and the prose is not, so the words are marked
+    // rather than the string.
+    function highlightTerm(text, term) {
+      const safe = escapeHtml(text || '');
+      const words = String(term || '').split(/[^a-z0-9]+/i).filter(w => w.length > 2);
+      if (!words.length) return safe;
+      const pattern = new RegExp(`\\b(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+      return safe.replace(pattern, '<mark style="background: rgba(251,146,60,0.28); color: #fdba74; padding: 0 2px; border-radius: 3px;">$1</mark>');
+    }
+
+    // The block a reviewer actually decides from. Without it the card offers a bare word and
+    // an origin label - "split fact (Cat05-U)" - which settles nothing: `dracula` is a
+    // clothing retailer here, an orchid genus in FAST and a novel everywhere else, and only
+    // the sentence it came from says which.
+    function renderAdmissionContext(item, term) {
+      const entries = item.source_entries || [];
+      const excerpt = (item.source_excerpt || '').trim();
+      const notePath = (item.source_path || '').trim();
+      let inner = '';
+
+      if (entries.length) {
+        inner = entries.slice(0, 4).map(e => `
+          <div style="border-left: 2px solid var(--border); padding: 2px 0 2px 10px; margin-bottom: 8px;">
+            <div style="font-size: 14px; color: var(--text); line-height: 1.5;">${highlightTerm(e.observation || '', term)}</div>
+            <div style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">memory #${e.id} \u00b7 ${escapeHtml(e.category || '')}</div>
+          </div>`).join('');
+        if (entries.length > 4) {
+          inner += `<div style="font-size: 11px; color: var(--text-dim);">\u2026 and ${entries.length - 4} more</div>`;
+        }
+      } else if (excerpt) {
+        inner = `
+          <div style="border-left: 2px solid var(--border); padding: 2px 0 2px 10px;">
+            <div style="font-size: 14px; color: var(--text); line-height: 1.5;">${highlightTerm(excerpt, term)}</div>
+            <div style="font-size: 11px; color: var(--text-dim); margin-top: 3px;">\ud83d\udcc4 ${escapeHtml(notePath)}</div>
+          </div>`;
+      } else {
+        inner = `<div style="font-size: 13px; color: var(--warning);">No source text \u2014 the fact or note that asked for this term is gone. Decide on the word alone, or remove it.</div>`;
+      }
+
+      return `
+        <div style="background: var(--surface2); border: 1px solid var(--border); border-left: 3px solid #fb923c; border-radius: 8px; padding: 12px;">
+          <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Where it came from</div>
+          ${inner}
+        </div>`;
+    }
+
+    // A reviewer saying "we already have a word for that" is a decision, not a rejection.
+    // Rejecting recorded nothing, so the equivalence was lost and retrieval never learned it
+    // (taxonomy section 6.2). This records it and closes the proposal.
+    // The third register. Not a rejection: the word is untouched and the record is
+    // reversible, which is what lets a shop and an ordinary adjective share a string.
+    async function handleMarkAsName(id, btnElement) {
+      const item = unifiedItems.find(x => x.id == id && x.item_type === 'proposal');
+      const term = item ? (item.topic || '') : '';
+      const label = (document.getElementById(`name-label-${id}`)?.value || '').trim();
+      const kind = document.getElementById(`name-kind-${id}`)?.value || 'other';
+
+      if (!confirm(`Record "${term}" as a name${label ? ` (${label})` : ''}?\n\nIt will not enter the subject vocabulary, and nothing will propose it again. The word itself stays available, and you can undo this.`)) return;
+
+      const original = btnElement ? btnElement.innerHTML : '';
+      if (btnElement) { btnElement.disabled = true; btnElement.innerHTML = '\u23f3 Recording...'; }
+      try {
+        const res = await fetch(`${API_BASE}/api/review/proposals/${id}/name`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ modified_text: label, kind: kind })
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          alert(`Could not record the name: ${detail}`);
+          return;
+        }
+        expandedProposalContexts.delete(id);
+        selectedProposalIds.delete(id);
+        unifiedItems = unifiedItems.filter(x => !(x.item_type === 'proposal' && x.id == id));
+        updateCounts();
+        render();
+      } catch (err) {
+        alert(`Could not record the name: ${err}`);
+      } finally {
+        if (btnElement) { btnElement.disabled = false; btnElement.innerHTML = original; }
+      }
+    }
+
+    async function handleSeeReference(id, btnElement) {
+      const input = document.getElementById(`see-target-${id}`);
+      const target = input ? input.value.trim() : '';
+      if (!target) {
+        alert('Name the term this should point at.');
+        if (input) input.focus();
+        return;
+      }
+
+      const item = unifiedItems.find(x => x.id == id && x.item_type === 'proposal');
+      const term = item ? (item.topic || '') : '';
+      if (!confirm(`${term} \u27a4 See: ${target}\n\n"${term}" will not be added. Anything tagged "${term}" resolves to "${target}" from now on, and whatever asked for it gets "${target}" instead.`)) return;
+
+      const original = btnElement ? btnElement.innerHTML : '';
+      if (btnElement) { btnElement.disabled = true; btnElement.innerHTML = '\u23f3 Recording...'; }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/review/proposals/${id}/alias`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ modified_text: target })
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          alert(`Could not record the see-reference: ${detail}`);
+          return;
+        }
+        expandedProposalContexts.delete(id);
+        selectedProposalIds.delete(id);
+        unifiedItems = unifiedItems.filter(x => !(x.item_type === 'proposal' && x.id == id));
+        updateCounts();
+        render();
+      } catch (err) {
+        alert(`Could not record the see-reference: ${err}`);
+      } finally {
+        if (btnElement) { btnElement.disabled = false; btnElement.innerHTML = original; }
+      }
+    }
+
     async function handleAction(type, id, action, targetId = null, btnElement = null) {
       if (action === 'delete') {
         const typeName = type === 'extractions' ? 'extraction' : (type === 'proposals' ? 'proposal' : type);
@@ -5005,6 +5131,7 @@
                   `}
                 </div>
 
+                ${isAdmission ? renderAdmissionContext(item, term) : ''}
                 <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
                   <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Why it is here</div>
                   <div style="font-size: 14px; color: var(--text); line-height: 1.4;">${escapeHtml(item.reason || '')}</div>
@@ -5024,7 +5151,44 @@
                   <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
                     <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Already registered, and similar</div>
                     <div id="tag-similar-${item.id}" style="font-size: 13px; color: var(--text-dim);">Checking the vocabulary...</div>
-                    <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">If one of these already covers it, <strong>Reject</strong> — the vocabulary is post-coordinate, so a near-duplicate splits the concept in two.</div>
+                    <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">If one of these already covers it, record it as a <strong>see-reference</strong> below rather than rejecting — the vocabulary is post-coordinate, so a near-duplicate splits the concept in two, but a rejection alone throws the equivalence away.</div>
+                  </div>
+
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Already have a word for it?</div>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                      <code style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fb923c;">${escapeHtml(term)}</code>
+                      <span style="color: var(--text-dim); font-size: 14px;">➤ See:</span>
+                      <input id="see-target-${item.id}" type="text" placeholder="an existing term"
+                        style="flex: 1; min-width: 150px; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: #34d399; padding: 7px 10px; border-radius: 6px; outline: none;" />
+                      <button class="btn btn-sm" style="background: #7c3aed; color: #fff; border: none; font-size: 12px; padding: 6px 12px; cursor: pointer;"
+                        onclick="handleSeeReference(${item.id}, this)">➤ Record see-reference</button>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
+                      <code>${escapeHtml(term)}</code> is <strong>not</strong> added. Anything tagged <code>${escapeHtml(term)}</code> resolves to the term you name from now on, and whatever asked for it gets that term instead. The suggestion is only a suggestion — replace it with any registered term if it is wrong.
+                  </div>
+
+                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Or is it a name?</div>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                      <input id="name-label-${item.id}" type="text" placeholder="Full name, if the term lost part of it"
+                        style="flex: 1; min-width: 170px; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 6px; outline: none;" />
+                      <select id="name-kind-${item.id}"
+                        style="font-size: 12px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 7px 8px; border-radius: 6px; outline: none;">
+                        <option value="organization">a company or shop</option>
+                        <option value="product">a product or tool</option>
+                        <option value="work">a book, game or film</option>
+                        <option value="person">a person</option>
+                        <option value="place">a place</option>
+                        <option value="other" selected>something else</option>
+                      </select>
+                      <button class="btn btn-sm" style="background: #0891b2; color: #fff; border: none; font-size: 12px; padding: 6px 12px; cursor: pointer;"
+                        onclick="handleMarkAsName(${item.id}, this)">\ud83c\udff7\ufe0f This is a name</button>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
+                      Names are kept in their own register, so this does <strong>not</strong> spend the word &mdash; a shop called <code>historical</code> and the ordinary adjective can both exist. Unlike Reject, it can be undone.
+                    </div>
+                  </div>
                   </div>
                 ` : `
                   <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
@@ -5337,6 +5501,15 @@
                 `<option value="${escapeAttr(c.name)}"${c.name === preset ? ' selected' : ''}>${escapeHtml(c.name)} (${c.count})</option>`
               ));
             select.innerHTML = opts.join('');
+          }
+
+          const seeInput = document.getElementById(`see-target-${id}`);
+          if (seeInput && !seeInput.value) {
+            // The nearest registered term, as a suggestion only. `braiding` proposes `braid`
+            // because that is what is actually in the vocabulary; the reviewer replaces it
+            // whenever the closest word is not the right one.
+            const best = (data.similar || [])[0];
+            if (best && best.tag) seeInput.value = best.tag;
           }
 
           if (similarBox) {

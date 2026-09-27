@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-26 08:38:51
+# date modified: 2026-09-26 19:05:18
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6000,6 +6000,41 @@ def _enrich_extraction_with_taxonomy(item: dict) -> dict:
     return item
 
 
+def _attach_admission_context(p: dict) -> dict:
+    """Give a tag admission proposal the text a reviewer needs to rule on it.
+
+    A term and an origin label decide nothing. One term in the queue names a clothing
+    retailer in this corpus, an orchid genus in FAST, and a novel everywhere else. The term
+    alone cannot distinguish those and neither can any amount of measurement; the sentence it
+    was extracted from, which named it beside another online shop, settles it immediately.
+
+    Memory-sourced proposals already carry their text in `source_entries`. Vault-sourced ones
+    carry only a path, so the note is read here and the lines that mention the term extracted.
+    The excerpt is cached on path and mtime, so a queue of 200 costs one pass.
+
+    Args:
+        p: A proposal dict, modified in place.
+
+    Returns:
+        dict: The same proposal.
+    """
+    if p.get("type") != TAG_ADMISSION_TYPE:
+        return p
+    note_path = (p.get("source_path") or "").strip()
+    if not note_path:
+        return p
+    try:
+        from Evelyn.tools import tag_librarian
+
+        p["source_excerpt"] = tag_librarian.excerpt_for_term(
+            str(p.get("topic") or ""), note_path
+        )
+    except (OSError, ValueError) as exc:
+        # Context is an aid to review, never a precondition for it.
+        print(f"{_YEL}[REVIEW]{_RST} No excerpt for '{p.get('topic')}': {exc}", flush=True)
+    return p
+
+
 @app.get("/api/review/unified")
 async def get_unified_review(_: None = Depends(check_auth)):
     """Return all pending review items (extractions, proposals, profile updates, procedures)
@@ -6047,6 +6082,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
                         entry["is_split_queued"] = eid in queued_split_ids
                         source_entries.append(entry)
             p["source_entries"] = source_entries
+            _attach_admission_context(p)
 
             if p.get("type") == "ghost_link_stub":
                 from Evelyn.tools import link_librarian
@@ -6375,6 +6411,7 @@ async def get_proposals(_: None = Depends(check_auth)):
                     if entry:
                         source_entries.append(entry)
             p["source_entries"] = source_entries
+            _attach_admission_context(p)
             if p.get("type") == "ghost_link_stub":
                 from Evelyn.tools import link_librarian
 
@@ -6469,6 +6506,8 @@ async def _apply_proposal_action(
         await asyncio.to_thread(memory_db.remove_proposal_source_id, id, req.source_id)
         return {"status": "ok"}
     elif action in ("approve", "merge_into_master"):
+
+        warnings: list[str] = []
 
         def _execute_approval():
             proposals = memory_db.get_pending_proposals()
@@ -6760,11 +6799,21 @@ async def _apply_proposal_action(
                 # reached nothing at all (G5).
                 tag_librarian.backfill_admitted_term(term, prop.get("source_ids") or [])
                 note_path = (prop.get("source_path") or "").strip()
-                if note_path:
-                    # `_execute_approval` is a sync helper already dispatched to a thread, so
-                    # this is a direct call. An `await` here is a SyntaxError rather than a
-                    # runtime one, which takes the whole server down at import.
-                    tag_librarian.backfill_admitted_term_to_note(term, note_path)
+                # `_execute_approval` is a sync helper already dispatched to a thread, so
+                # this is a direct call. An `await` here is a SyntaxError rather than a
+                # runtime one, which takes the whole server down at import.
+                #
+                # The result is *reported*, not enforced. A proposal stores the path the note
+                # had when it was raised, and a vault is a live filesystem — 7 of 11
+                # admissions on 2026-09-26 reached nothing because the notes were being
+                # refiled between the proposal and the decision. The term is genuinely
+                # admitted either way, so failing the approval would be wrong; saying nothing
+                # is what made it invisible.
+                if note_path and not tag_librarian.backfill_admitted_term_to_note(term, note_path):
+                    warnings.append(
+                        f"'{term}' was admitted, but its note could not be updated: "
+                        f"{note_path} (moved, renamed or deleted)"
+                    )
                 memory_db.apply_proposal(id)
 
             elif prop["type"] == "tag_relation":
@@ -6888,6 +6937,22 @@ async def _apply_proposal_action(
                 )
                 vault_db.update_document_librarian_audit(target_filename, ghost_count=0, mtime=new_mtime)
 
+                # A target that is not filename-safe is filed under a sanitised stem, which
+                # leaves every link that used the original spelling pointing at a file that
+                # cannot exist. Rewrite them here, or approving the stub produces an orphan.
+                written_stem = os.path.splitext(os.path.basename(target_filename))[0]
+                retargeted, _ = link_librarian.retarget_inbound_links(
+                    clean_target,
+                    written_stem,
+                    vault_root=vault_root,
+                    sources=[r["source"] for r in payload.references] if payload and payload.references else None,
+                )
+                if retargeted:
+                    warnings.append(
+                        f"'{clean_target}' cannot be a filename, so the note was saved as "
+                        f"'{written_stem}'; {retargeted} note(s) had their links retargeted."
+                    )
+
                 subprocess.run(
                     [sys.executable, "scripts/update_frontmatter.py", dest_path],
                     cwd=str(BASE_DIR),
@@ -6898,9 +6963,122 @@ async def _apply_proposal_action(
             return {"status": "ok"}
 
         res = await asyncio.to_thread(_execute_approval)
+        if warnings:
+            for line in warnings:
+                print(f"{_YEL}[REVIEW]{_RST} {line}", flush=True)
+            if isinstance(res, dict):
+                res = {**res, "warnings": warnings}
         if refresh:
             await start_refresh_memory_internal()
         return res
+    elif action == "name":
+        # The third register, not a third verdict. A proposed term that turns out to be a
+        # shop, a product or a person has no correct answer among the other two: admitting
+        # puts it into a controlled vocabulary of subjects, where the classifier will apply
+        # it to unrelated notes, and rejecting is permanent and scoped to the *word*, so
+        # turning down a retailer called `historical` would spend the ordinary adjective too.
+        def _execute_name():
+            from Evelyn.tools import tag_entities
+            from Evelyn.tools.tag_librarian import normalize_tag_format
+
+            proposals = memory_db.get_pending_proposals()
+            prop = next((p for p in proposals if p["id"] == id), None)
+            if not prop:
+                raise HTTPException(status_code=404, detail="Proposal not found")
+            if prop["type"] != TAG_ADMISSION_TYPE:
+                raise HTTPException(
+                    status_code=400, detail="Only a tag admission can be recorded as a name"
+                )
+
+            term = normalize_tag_format(str(prop.get("topic") or ""))
+            if not term:
+                raise HTTPException(status_code=400, detail="Proposal carries no term")
+
+            # `modified_text` is the full name, because the term is often lossy: a split
+            # recorded one shop by a single word, dropping the rest of its actual name. The
+            # register is where it goes back.
+            label = ((req.modified_text if req else None) or "").strip()
+            kind = ((req.kind if req else None) or "other").strip()
+
+            if not tag_entities.record_entity(term, label=label, kind=kind):
+                raise HTTPException(status_code=400, detail=f"Could not register '{term}'")
+            if not memory_db.apply_proposal(id):
+                raise HTTPException(status_code=404, detail="Proposal not found")
+
+        await asyncio.to_thread(_execute_name)
+        return {"status": "ok"}
+    elif action == "alias":
+        # The third verdict on an admission, and the one the card's own advice needed.
+        # "Reject" means "not a subject at all"; this means "a subject we already have a word
+        # for". Rejecting was what reviewers were told to do here, and it recorded nothing —
+        # §6.2: *a deleted synonym with no `UF` record will be re-minted by the next import*.
+        # Since .231 the rejection does stop it being re-minted, so the term did not come
+        # back; the equivalence was simply lost, and retrieval never learned it.
+        def _execute_alias():
+            from Evelyn.tools import tag_librarian, taxonomy_db
+            from Evelyn.tools.tag_librarian import normalize_tag_format
+
+            proposals = memory_db.get_pending_proposals()
+            prop = next((p for p in proposals if p["id"] == id), None)
+            if not prop:
+                raise HTTPException(status_code=404, detail="Proposal not found")
+            if prop["type"] != TAG_ADMISSION_TYPE:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only a tag admission can be resolved as a see-reference",
+                )
+
+            unused = normalize_tag_format(str(prop.get("topic") or ""))
+            canonical = normalize_tag_format((req.modified_text if req else "") or "")
+            if not unused or not canonical:
+                raise HTTPException(
+                    status_code=400, detail="A see-reference needs a term to point at"
+                )
+            if unused == canonical:
+                raise HTTPException(
+                    status_code=400, detail=f"'{unused}' cannot be a see-reference to itself"
+                )
+
+            # Point at the preferred form, not at another retired one. Resolution is
+            # transitive at read time, so a chain would still resolve — but it would store a
+            # target that is itself retired, and the table stops being readable as "what does
+            # this term mean now".
+            resolved = taxonomy_db.canonicalize_tags([canonical])
+            canonical = resolved[0] if resolved else canonical
+            if unused == canonical:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{canonical}' already resolves to '{unused}'; that would be a cycle",
+                )
+
+            # The target must be a term the vocabulary actually holds, or the reference
+            # points at nothing and every tag that resolves through it lands on an
+            # unregistered word — which is the state admission exists to prevent.
+            admitted, _ = taxonomy_db.partition_by_admission([canonical])
+            if not admitted:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{canonical}' is not in the vocabulary, so nothing can point at it",
+                )
+
+            taxonomy_db.record_alias(unused, canonical, tier="reviewed")
+            taxonomy_db.invalidate_alias_cache()
+
+            # Whatever asked for the unused word gets the preferred one. Without this the
+            # equivalence is recorded and the fact that prompted it still carries neither
+            # term — the same gap G5 left on the admission path.
+            tag_librarian.backfill_admitted_term(canonical, prop.get("source_ids") or [])
+            note_path = (prop.get("source_path") or "").strip()
+            if note_path:
+                tag_librarian.backfill_admitted_term_to_note(canonical, note_path)
+
+            if not memory_db.apply_proposal(id):
+                raise HTTPException(status_code=404, detail="Proposal not found")
+
+        await asyncio.to_thread(_execute_alias)
+        if refresh:
+            await start_refresh_memory_internal()
+        return {"status": "ok"}
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
 
@@ -6928,6 +7106,8 @@ async def action_proposal(
 # A reviewer working through a flood is the case this exists for, so the ceiling is the
 # queue's own ceiling rather than a round number: a batch can always clear everything the
 # producers were willing to raise, and never more than one screenful of unbounded work.
+TAG_ADMISSION_TYPE = "tag_admission"
+
 BULK_PROPOSAL_MAX = 250
 
 
@@ -6950,6 +7130,42 @@ class BulkProposalActionRequest(BaseModel):
     """A list of independent decisions, applied in order."""
 
     decisions: list[BulkProposalDecision]
+
+
+@app.get("/api/taxonomy/names")
+async def list_tag_names(_: None = Depends(check_auth)):
+    """Every term recorded as a name rather than a subject.
+
+    Returns:
+        dict: `names` (term, label, kind, request_count) and a `total`.
+    """
+    from Evelyn.tools import tag_entities
+
+    names = await asyncio.to_thread(tag_entities.get_entities)
+    return {"names": names, "total": len(names)}
+
+
+@app.post("/api/taxonomy/names/{term}/forget")
+async def forget_tag_name(term: str, _: None = Depends(check_auth)):
+    """Un-register a name, so the word can be proposed as a subject again.
+
+    This is what separates the name register from a rejection, which is permanent and scoped
+    to the word. The review card promises the decision is reversible; without a route saying
+    so it would be a promise the code does not keep.
+
+    Args:
+        term: The registered name to remove.
+
+    Returns:
+        dict: `{"status": "ok"}`.
+    """
+    from Evelyn.tools import tag_entities
+
+    if not await asyncio.to_thread(tag_entities.is_entity, term):
+        raise HTTPException(status_code=404, detail=f"'{term}' is not registered as a name")
+    if not await asyncio.to_thread(tag_entities.forget_entity, term):
+        raise HTTPException(status_code=500, detail=f"Could not un-register '{term}'")
+    return {"status": "ok"}
 
 
 @app.post("/api/review/proposals/bulk")
@@ -6993,7 +7209,9 @@ async def action_proposals_bulk(
             kind=decision.kind,
         )
         try:
-            await _apply_proposal_action(decision.id, decision.action, single, refresh=False)
+            outcome = await _apply_proposal_action(
+                decision.id, decision.action, single, refresh=False
+            )
         except HTTPException as exc:
             results.append({"id": decision.id, "status": "error", "detail": str(exc.detail)})
             continue
@@ -7008,7 +7226,13 @@ async def action_proposals_bulk(
             traceback.print_exc()
             results.append({"id": decision.id, "status": "error", "detail": str(exc)})
             continue
-        results.append({"id": decision.id, "status": "ok"})
+        # A decision can succeed and still leave something undone — a term admitted whose
+        # note has since been moved. Reporting `ok` and dropping that is how it stayed
+        # invisible; in a batch the per-row result is the only place it can surface.
+        row = {"id": decision.id, "status": "ok"}
+        if isinstance(outcome, dict) and outcome.get("warnings"):
+            row["warnings"] = outcome["warnings"]
+        results.append(row)
         if decision.action in ("approve", "merge_into_master"):
             approved_any = True
 

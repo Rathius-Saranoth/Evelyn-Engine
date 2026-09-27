@@ -1,6 +1,6 @@
 # vault_db.py
 # date created: 2026-05-24 17:44:20
-# date modified: 2026-09-26 08:38:51
+# date modified: 2026-09-26 17:20:01
 # tags: #vault, #database, #sqlite, #indexing, #filesystem
 
 """
@@ -104,6 +104,21 @@ def init_db() -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_base_alias_canonical ON base_tag_aliases(canonical);
+
+        -- The name register (v000.006.250). A name is not a subject: it is not
+        -- post-coordinated, has no synonyms in the subject sense, and routinely collides with
+        -- an ordinary word. Keeping it in its own namespace is what lets `historical` be both
+        -- a shop and an adjective. Local only - this table can hold personal names (§4).
+        CREATE TABLE IF NOT EXISTS tag_entities (
+            term          TEXT PRIMARY KEY,
+            label         TEXT,
+            kind          TEXT,
+            note          TEXT,
+            request_count INTEGER NOT NULL DEFAULT 1,
+            recorded_at   REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tag_entities_kind ON tag_entities(kind);
 
         CREATE TABLE IF NOT EXISTS base_taxonomy_meta (
             key    TEXT PRIMARY KEY,
