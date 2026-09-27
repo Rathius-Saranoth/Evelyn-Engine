@@ -851,11 +851,9 @@ def format_chapter_filename(index: int, title: str, total_count: int = 100) -> s
 
 def format_chapter_markdown(chapter: Section, book_title: str) -> str:
     """Format a chapter as Obsidian-compatible markdown."""
-    # The form axis is the `type/` facet tag, not a bespoke `type:` property (§3.4). The book
-    # title used to be a tag too; a named work is a link, not a subject term (§2), and it is
-    # already recorded in `source`. `reference-library` was never a registered term.
     frontmatter = f"""---
-tags: [type/reference]
+type: [reference]
+tags: []
 source: "{book_title}"
 ---
 
@@ -903,9 +901,8 @@ def generate_sidecar_card(
     Returns:
         str: Fully formatted Obsidian markdown sidecar note.
     """
-    all_tags = set(tags or [])
-    all_tags.add("type/moc")
-    tags_line = f"tags: {format_yaml_array(all_tags)}\n"
+    clean_tags = [t for t in (tags or []) if not str(t).startswith("type/")]
+    tags_line = f"tags: {format_yaml_array(clean_tags)}\n" if clean_tags else "tags: []\n"
 
     alias_list = list(aliases or [])
     if subtitle and subtitle not in alias_list:
@@ -918,6 +915,7 @@ def generate_sidecar_card(
 
     frontmatter = f"""---
 title: "{title}"
+type: [moc]
 {fm_sub_block}{fm_source_block}{fm_author_block}{tags_line}{fm_aliases_block}created: {time.strftime('%Y-%m-%d')}
 status: unread
 ---
@@ -981,7 +979,8 @@ def generate_index_markdown(book_title: str, author: str,
                              gists: dict[str, str]) -> str:
     """Generate the _Index.md master TOC file (legacy compatibility)."""
     frontmatter = f"""---
-tags: [type/moc]
+type: [moc]
+tags: []
 source: "{book_title}"
 ---
 

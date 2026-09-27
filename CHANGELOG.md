@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 17:29:13
+date modified: 2026-09-27 17:35:43
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.277] - 2026-09-27 — *Controlled Taxonomy Architecture Backbone & Facet Property Wiring*
+
+### Added
+
+- **Controlled Taxonomy & Classification Backbone (`reference/engine_architecture.md`)**:
+  - Authored and integrated **Section 9: Controlled Taxonomy & Classification Backbone** into the canonical engine architecture specification.
+  - Documented post-coordinate indexing principles adhering to ANSI/NISO Z39.19, ISO 25964, and DCMI application profiles.
+  - Formulated the dual-substrate unified model where vault notes and memory facts share a single controlled vocabulary (`master_tag_taxonomy`, `master_tag_aliases`, `master_tag_related`, `tag_entities`).
+  - Added full Mermaid architectural diagram mapping the relations between rule definitions, storage substrates, engine classification passes, API routes, and interactive UI visualizers.
+
+### Changed
+
+- **Zero-Slash Invariant & Native YAML Facet Properties (`AGENTS.md`, `evelyn_server.py`, `scripts/extract_pdf_library.py`)**:
+  - Aligned engine generation routines and agent operational rules with the strict Zero-Slash Invariant:
+    - Updated `AGENTS.md` §10 to mandate native YAML properties for non-subject facets (`type:`, `motif:`, `setting:`, `event:`), reserving `tags: [...]` purely for subject domain atoms and administrative flags (`obsidian-graph/`, `status/`).
+    - Fixed ghost link stub generation in `evelyn_server.py` to record `tags=""` instead of legacy `"type/stub"`, preventing slash tags from entering `vault_documents.tags` upon approval.
+    - Updated PDF extraction pipeline (`scripts/extract_pdf_library.py`) to emit native `type: [reference]` for chapters and `type: [moc]` for sidecars/index notes, keeping `tags:` flat and zero-slash.
+    - Updated test suite (`Evelyn/tests/test_pdf_sidecar_generator.py`) to assert against `type: [moc]` property.
 
 ## [000.006.276] - 2026-09-27 — *Zero-Unvetted Memory Tag Curation & Autonomous Audit Safeguards*
 

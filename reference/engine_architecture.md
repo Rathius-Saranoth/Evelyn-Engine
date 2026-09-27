@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-23 21:46:27
+date modified: 2026-09-27 17:31:32
 ---
 # Evelyn Engine Architecture Map
 
@@ -448,3 +448,65 @@ graph TD
 1. **Dynamic Programming Title Normalization**: Converts unspaced or concatenated filenames into clean Title Case and subtitle metadata, applying custom maps for technical terminology (`AI`, `ML`, `PyTorch`, `Scikit-Learn`, `Multi-Agent`).
 2. **First-Class Sidecar Index Cards**: Each non-markdown document receives a dedicated `.md` note that embeds the binary asset from `Attachments/Source Material/<Domain>/` and provides structured TOCs, summary gists, nearest-neighbor semantic connections, and referenced vault entities.
 3. **Zero-Embedding Path Remapping**: Moving or reorganizing notes across vault directories executes atomic path updates in `vault_documents` ($<1\text{ms}$) and transfers precomputed vector chunks in ChromaDB without running GPU/CPU embedding inference.
+
+---
+
+## 9. Controlled Taxonomy & Classification Backbone
+
+The Evelyn Engine implements an authoritative, post-coordinate classification and taxonomy backbone governing all subject metadata across both the Obsidian Vault and Fast Memory databases.
+
+```mermaid
+graph TD
+    subgraph Standard [Governing Classification Standard]
+        Rule["vault-tag-taxonomy.md<br>(ANSI/NISO Z39.19 & ISO 25964)"]
+        ZeroSlash["Zero-Slash Invariant<br>(tags: [atomic, subject, terms])"]
+        Properties["Native YAML Properties<br>(type:, motif:, setting:, event:)"]
+    end
+
+    subgraph Storage [Master Taxonomy Store (evelyn_vault.db)]
+        Taxonomy["master_tag_taxonomy<br>(903 Authorized Atoms)"]
+        Aliases["master_tag_aliases<br>(187 Equivalence UF Forms)"]
+        Related["master_tag_related<br>(262 Hierarchical DAGs & Relations)"]
+        Entities["tag_entities<br>(502 Named People, Tools, Works)"]
+    end
+
+    subgraph Substrates [Unified Dual-Substrate Indexing]
+        VaultNotes["Obsidian Vault (4,394 notes)<br>(100% Registry Compliance)"]
+        MemoryFacts["Fast Memory (10,116 facts)<br>(100% Registry Compliance)"]
+    end
+
+    subgraph Governance [Governance & Explorer UI]
+        TaxUI["taxonomy.html (Web Dashboard)<br>(Independent 3-Frame Architecture)"]
+        LOC["Library of Congress (id.loc.gov)<br>(FAST Authority Lookup & Promotion)"]
+        Toggles["Autonomous Safeguard Toggles<br>(/api/librarian/toggle)"]
+    end
+
+    Rule --> ZeroSlash
+    Rule --> Properties
+    ZeroSlash --> Taxonomy
+    Taxonomy --> VaultNotes
+    Taxonomy --> MemoryFacts
+    Aliases --> Taxonomy
+    Related --> Taxonomy
+    Entities --> VaultNotes
+    Entities --> MemoryFacts
+    TaxUI <--> Storage
+    TaxUI <--> LOC
+    Toggles -.-> Storage
+```
+
+### 9.1 Core Architectural Principles
+1. **Faceted Post-Coordinate Indexing**:
+   - Concepts are maintained as discrete atoms at indexing time and combined dynamically at query time.
+   - Non-subject axes are decoupled into first-class YAML properties: `type:` (document structural form, e.g. `[reference]`, `[journal-entry]`), `motif:` (recurring abstract themes, e.g. `[combat, flight]`), `setting:` (conceptual environments, e.g. `[urban]`), `event:` (life occurrence anchors, e.g. `[surgery]`), and `occurred:` (EDTF ISO 8601-2:2019 timestamps).
+   - The `tags:` frontmatter property is strictly reserved for atomic, lowercase subject domain coordinates (**Zero-Slash Invariant**).
+2. **Unified Dual-Substrate Authority**:
+   - The vault markdown notes and memory facts (`context_entries`) form a single knowledge structure governed by the shared controlled vocabulary in `data/evelyn_vault.db`.
+   - Named individuals, software tools, games, organizations, and creative works are registered in `tag_entities` rather than admitted as freeform subject tags.
+3. **Interactive Explorer & Dynamic Concept Trunks (`ui/taxonomy.html`)**:
+   - Provides a standalone 3-frame web dashboard for inspecting dynamic broader/narrower DAG trees, unassigned peer atoms, equivalence aliases with directionality controls (`flip` / `sever`), and live LOC/FAST authority promotion.
+   - Computes dynamic macro-domain concept trunks and real-time activity leaderboards on the fly, eliminating rigid, static pre-coordinate category schemas.
+4. **Autonomous Audit Safeguards & Operational Discipline**:
+   - Decoupled into rapid reflex formatting (`master_librarian.py`) and diurnal semantic Tag RAG clustering (`tag_librarian.py`).
+   - Gated behind thread-safe runtime toggles (`POST /api/librarian/toggle`) to prevent hot-reload triggering during development, with explicit manual execution available on demand via `POST /api/librarian/run`.
+

@@ -7248,7 +7248,7 @@ async def _apply_proposal_action(
                     gist=gist_text,
                     rag_priority="normal",
                     rag_pinned=False,
-                    tags="type/stub",
+                    tags="",
                     aliases="",
                 )
                 vault_db.update_document_librarian_audit(target_filename, ghost_count=0, mtime=new_mtime)

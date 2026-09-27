@@ -84,7 +84,7 @@ def test_generate_sidecar_card():
     assert "source: \"[[Attachments/Source Material/AI/buildingapplicationswithaiagents.pdf]]\"" in card
     assert "authors: \"Michael Albano\"" in card
     assert "Tech/AI/Agents" in card
-    assert "literature/reference" in card
+    assert "type: [moc]" in card
     assert "![[Attachments/Source Material/AI/buildingapplicationswithaiagents.pdf]]" in card
     assert "Introduction to Agents" in card
     assert "[[Agent Orchestrator]]" in card
