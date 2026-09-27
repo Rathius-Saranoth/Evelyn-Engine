@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-26 19:35:33
+# date modified: 2026-09-26 19:53:18
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6313,11 +6313,21 @@ async def get_taxonomy_vocabulary(
             "total": len(rows),
         }
         if full:
+            # Axes a see-reference must never point at. `type/` is the document's own form
+            # (§3.1, cardinality exactly 1): `reference` the subject and `type/reference` the
+            # document class are different concepts, so collapsing one into the other is the
+            # §3.4 category error rather than an equivalence. The rest are administrative
+            # (§3.2) and are not subject terms at all.
+            #
+            # `motif/`, `setting/` and `event/` are deliberately kept: they describe content,
+            # so `kansas` ➔ `setting/kansas` is a correct see-reference and omitting it would
+            # hide a real answer.
+            closed_axes = ("type/", "status/", "obsidian-graph/", "kanban")
             payload["terms"] = sorted(
                 (
                     {"tag": str(r.get("tag") or ""), "category": r.get("category") or ""}
                     for r in rows
-                    if r.get("tag")
+                    if r.get("tag") and not str(r["tag"]).startswith(closed_axes)
                 ),
                 key=lambda t: t["tag"],
             )

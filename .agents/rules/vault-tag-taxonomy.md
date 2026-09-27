@@ -3,7 +3,7 @@ title: vault-tag-taxonomy.md
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
 tags: [obsidian, pkm, taxonomy, faceted-classification, tagging, style-guide, authority-control]
 date created: 2026-09-19 00:00:00
-date modified: 2026-09-26 17:50:22
+date modified: 2026-09-26 19:53:18
 ---
 
 # 🏛️ Vault Tag Taxonomy & Faceted Classification Standard
@@ -312,8 +312,6 @@ The pass determines the document's **class first**; the class then decides which
 > profile table precisely because a dream record *needs* motif and setting, where a journal entry only
 > permits them. Ninety-eight dream notes are classified `type/dream`; an entry that merely mentions a
 > dream stays `type/journal-entry` and may carry `dream` as a subject.
-
-The administrative axis (§3.2) is **outside this table entirely** — it applies to any class and is never gated.
 
 The administrative axis (§3.2) is **outside this table entirely** — it applies to any class and is never gated.
 

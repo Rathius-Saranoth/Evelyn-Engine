@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 19:35:33
+date modified: 2026-09-26 19:53:18
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,38 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.257] - 2026-09-26 — *Do Not Cut A Link In Half*
+
+### Fixed
+
+- **Context excerpts no longer end mid-wikilink.** An excerpt is a fixed-width slice around
+  a match, written verbatim into any stub note built from it. Two separate steps were
+  leaving an unclosed `[[` in that text, and an unclosed `[[` runs on into whatever follows
+  it — the excerpt's closing quote, and then the next reference's own link.
+
+  - **The trailing punctuation strip was the larger source.** `]]` is entirely non-word
+    characters, so a blanket `[\W_]+$` turned a perfectly well-formed `… [[Beat Saber]]`
+    into `… [[Beat Saber`. The excerpt manufactured the defect even when the slice had been
+    cut cleanly. The strip now leaves a terminal `]]` alone.
+  - **The slice itself cut mid-link**, at either end. New `string_utils.trim_partial_wikilinks()`
+    drops a leading orphan `]]` and a trailing unclosed `[[`, and runs both on the raw slice
+    and again after cleaning, since the strips can expose a fragment the first pass could
+    not see.
+
+  Measured before the fix: **307 unclosed fragments across 134 stub notes**, concentrated in
+  the deepest stub folders. Because stub excerpts are harvested from other notes — including
+  other stubs — the damage compounded with each generation.
+
+### Notes
+
+- Six further hits in imported reference material are **not** this defect and were left
+  alone: they are Python list literals (`[[0.0053587136790156364, …`) flattened out of code
+  blocks by PDF ingest, which no wikilink rule should touch.
+- The existing damage was repaired by **removing the stray `[[`**, not by restoring the `]]`
+  the strip had eaten. Which of the two causes produced any given fragment is not reliably
+  recoverable after the fact, and inventing a closing bracket would add links to the vault
+  on a guess. Removing the fragment restores the text either way.
 
 ## [000.006.256] - 2026-09-26 — *How To Decide, At The Moment Of Deciding*
 

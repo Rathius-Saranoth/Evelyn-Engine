@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-26 19:05:18
+# date modified: 2026-09-26 19:53:18
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -771,6 +771,40 @@ def inject_envelope_to_turn(user_content: str, envelope: str | list[str] | None)
     return f"{stacked}\n\n{clean_content}"
 
 
+def trim_partial_wikilinks(text: str) -> str:
+    """Drop wikilink fragments left at either end by a character-budget slice.
+
+    A fixed-width excerpt window cuts wherever the budget runs out, which is regularly
+    inside a ``[[…]]``. The trailing case is the damaging one: an unclosed ``[[`` swallows
+    the next real link's ``]]``, so ``… - [[Beat Saber`` followed by the excerpt's closing
+    quote and the next reference's own ``**[[Some Note]]`` run together into a single dead
+    target. The excerpt gains a link that can never resolve, and the note it ran into loses
+    a backlink that pointed at something real.
+
+    Args:
+        text: A raw slice of markdown, possibly cut mid-link at either end.
+
+    Returns:
+        str: The slice with a leading orphan ``]]`` and a trailing unclosed ``[[`` removed.
+    """
+    if not text:
+        return text
+
+    # A ']]' before any '[[' means the slice began inside a link.
+    first_open = text.find("[[")
+    first_close = text.find("]]")
+    if first_close != -1 and (first_open == -1 or first_close < first_open):
+        text = text[first_close + 2:]
+
+    # A '[[' after the last ']]' was never closed.
+    last_open = text.rfind("[[")
+    last_close = text.rfind("]]")
+    if last_open != -1 and (last_close == -1 or last_open > last_close):
+        text = text[:last_open]
+
+    return text
+
+
 def extract_link_context(body: str, target: str, window_chars: int = 180) -> str:
     """Extract a clean, non-YAML excerpt surrounding a target wikilink in document body.
 
@@ -793,7 +827,7 @@ def extract_link_context(body: str, target: str, window_chars: int = 180) -> str
         return ""
     start = max(0, match.start() - window_chars)
     end = min(len(body), match.end() + window_chars)
-    raw_slice = body[start:end]
+    raw_slice = trim_partial_wikilinks(body[start:end])
     # Strip markdown table syntax or frontmatter boundaries if slice caught them.
     # Alias pipes inside wikilinks must survive: a blanket replace turns
     # [[Target|Alias]] into [[Target Alias]], and this excerpt is written verbatim
@@ -807,8 +841,18 @@ def extract_link_context(body: str, target: str, window_chars: int = 180) -> str
     )
     raw_slice = raw_slice.replace("|", " ").replace("\x00", "|")
     clean = " ".join(raw_slice.split())
-    clean = re.sub(r"^[\W_]+|[\W_]+$", "", clean)
-    return clean
+
+    # Trim bounding punctuation, but never off the end of a wikilink. `]]` is entirely
+    # non-word characters, so a blanket trailing strip turned a perfectly good
+    # `... [[Beat Saber]]` into `... [[Beat Saber` — an unclosed link written straight into
+    # a stub note. This was the larger of the two sources of that damage; slicing mid-link
+    # was the other, and `trim_partial_wikilinks` above handles it.
+    clean = re.sub(r"^[\W_]+", "", clean)
+    if not clean.endswith("]]"):
+        clean = re.sub(r"[\W_]+$", "", clean)
+
+    # The strips can expose a fragment the slice trim could not see yet.
+    return trim_partial_wikilinks(clean)
 
 
 def estimate_tokens(text: str) -> int:
