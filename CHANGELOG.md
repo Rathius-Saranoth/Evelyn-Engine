@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 12:46:42
+date modified: 2026-09-27 15:24:13
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,19 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.269] - 2026-09-27 — *Sever False Tag Aliases & Restore Hierarchy*
+
+### Added
+
+- **Database Migration `migrate_000_006_269_sever_false_aliases_and_loops`**:
+  - Severed 60+ false equivalence collapses from `master_tag_aliases` where narrower or distinct concepts were forcibly rewritten on save (e.g. `git`, `baking`, `manga`, `kitten`, `npc`, `sop`, `arch-linux`, `action-rpg`, `3d-scanning`, `meditation`, `poetry`).
+  - Guaranteed each liberated concept exists independently in `master_tag_taxonomy` under its appropriate subject category.
+  - Recorded legitimate parent-child hierarchies into `master_tag_related` with `kind = 'narrower'` (e.g. `git` narrower than `version-control`, `baking` narrower than `cooking`, `kitten` narrower than `cat`, `rain` narrower than `weather`, `npc` narrower than `ttrpg`, `sop` narrower than `procedures`), enabling relational navigation and vector retrieval without erasing specific search terms.
+  - Preserved loosely associated concepts (`controlnet`, `biometrics`, `addressing`, `glasses`, `session`) as independent peer terms without forced hierarchical relations.
+  - Eliminated 10 circular reverse loops (`basement <-> setting/basement`, `birthday <-> event/birthday`, `guam <-> setting/guam`, `kansas <-> setting/kansas`, etc.) where atomic terms had been pointed to slashed prefix forms.
+  - Cleaned transitive alias chains for direct plurals and inflections (`holidays -> holiday`, `recipes -> recipe`, `flooding -> flood`, `rules -> rule`, `portals -> portal`).
+  - Invalidated in-process alias caches and enqueued 1,183 updated tag surface forms into the Chroma vector sync queue.
 
 ## [000.006.268] - 2026-09-27 — *Decouple Doc Properties & Local Authority Tool*
 

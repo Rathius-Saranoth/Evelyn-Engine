@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-26 17:20:01
+# date modified: 2026-09-27 15:24:13
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5526,6 +5526,203 @@ def migrate_000_006_267_retire_base_taxonomy(
     logger.info("[MIGRATION 267] Unified base terms and aliases into master tables and dropped base_tag tables.")
 
 
+def migrate_000_006_269_sever_false_aliases_and_loops(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.269: Eliminate circular alias loops, transitive chains, and liberate narrower concepts.
+
+    1. Deletes the 10 circular reverse rows in `master_tag_aliases` where atomic tags pointed to slashed prefixes.
+    2. Deletes the chained rows where concepts were collapsed into document types/facets.
+    3. Liberates distinct/narrower concepts (git, baking, manga, npc, sop, etc.) from `master_tag_aliases` so
+       they are never rewritten on save.
+    4. Ensures each liberated term is registered as an approved tag in `master_tag_taxonomy`.
+    5. Records legitimate parent-child hierarchies into `master_tag_related` with `kind = 'narrower'`,
+       ensuring both terms exist independently as peer descriptors without erasure.
+    """
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Circular reverse rows where an atomic tag was mapped to a slashed prefix
+    circular_loops = [
+        ("basement", "setting/basement"),
+        ("birthday", "event/birthday"),
+        ("breakup", "event/breakup"),
+        ("diagnosis", "event/diagnosis"),
+        ("game-night", "event/game-night"),
+        ("guam", "setting/guam"),
+        ("kansas", "setting/kansas"),
+        ("promotion", "event/promotion"),
+        ("visit", "event/visit"),
+        ("protection", "motif/protection"),
+    ]
+    for alias, canonical in circular_loops:
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ? AND canonical = ?", (alias, canonical))
+
+    # 2. Direct plural / inflection redirects (clean up transitive chains)
+    plural_fixes = [
+        ("holidays", "holiday"),
+        ("recipes", "recipe"),
+        ("flooding", "flood"),
+        ("rules", "rule"),
+        ("portals", "portal"),
+    ]
+    for alias, canonical in plural_fixes:
+        cursor.execute("""
+            INSERT OR REPLACE INTO master_tag_aliases (alias, canonical, tier, created_at)
+            VALUES (?, ?, 'reviewed', ?)
+        """, (alias, canonical, now))
+
+    # Ensure plural targets exist in taxonomy
+    for _, canonical in plural_fixes:
+        cursor.execute("""
+            INSERT OR IGNORE INTO master_tag_taxonomy (tag, category, usage_count, created_at, updated_at)
+            VALUES (?, 'general', 0, ?, ?)
+        """, (canonical, now, now))
+
+    # 3. Distinct and narrower concepts to liberate from master_tag_aliases
+    # Each entry is (term, broader_concept_or_None, category)
+    liberated_concepts: list[tuple[str, str | None, str]] = [
+        ("git", "version-control", "dev-tools"),
+        ("arch-linux", "linux", "tech-infrastructure"),
+        ("action-rpg", "rpg", "gaming-mechanics"),
+        ("3d-scanning", "photogrammetry", "art-3d"),
+        ("audio-equipment", "audio", "music-production"),
+        ("audiobooks", "reading", "learning"),
+        ("baking", "cooking", "daily-living"),
+        ("beard", "grooming", "personal-care"),
+        ("bills", "finances", "finance-personal"),
+        ("biometrics", None, "health-metrics"),
+        ("bios", "hardware", "tech-hardware"),
+        ("blood-work", "lab-result", "health-clinical"),
+        ("books", "reading", "learning"),
+        ("camera", "photography", "photography"),
+        ("census-records", "census", "genealogy"),
+        ("chemistry", "science", "science"),
+        ("cleaning", "chore", "daily-living"),
+        ("co-op", "multiplayer", "gaming-mechanics"),
+        ("coding", "software-development", "dev-programming"),
+        ("cordial", "brewing", "food-beverage"),
+        ("core-strength", "exercise", "health-fitness"),
+        ("cosmic-horror", "horror", "narrative-theme"),
+        ("courses", "learning", "learning"),
+        ("creative-writing", "fiction", "creative-writing"),
+        ("debt", "finances", "finance-personal"),
+        ("diet", "nutrition", "health-nutrition"),
+        ("domain-controller", "active-directory", "tech-sysadmin"),
+        ("education", "learning", "learning"),
+        ("emergency-communications", None, "gis-parcel"),
+        ("errands", "chore", "daily-living"),
+        ("game-development", "game-design", "gaming-development"),
+        ("game-lore", "lore", "narrative-theme"),
+        ("glasses", None, "personal-care"),
+        ("group-policy", "active-directory", "tech-sysadmin"),
+        ("hail", "storm", "nature-weather"),
+        ("hair", "grooming", "personal-care"),
+        ("home-repair", "home-improvement", "home-property"),
+        ("insulation", "home-improvement", "home-property"),
+        ("jewelry", "fashion", "personal-care"),
+        ("keyboard", "peripheral", "tech-hardware"),
+        ("laundry", "chore", "daily-living"),
+        ("level-design", "game-design", "gaming-development"),
+        ("manga", "reading", "media-comics"),
+        ("meditation", "mindfulness", "mental-health"),
+        ("minifigures", "lego", "collecting"),
+        ("moon", "astronomy", "science"),
+        ("mowing", "yard-work", "home-property"),
+        ("naturalization", "immigration", "civics"),
+        ("navy", "military", "military"),
+        ("note-taking", "knowledge-management", "pkm-methodology"),
+        ("pkm", "knowledge-management", "pkm-methodology"),
+        ("poetry", "writing", "creative-writing"),
+        ("prescriptions", "medication", "health-clinical"),
+        ("programming", "software-development", "dev-programming"),
+        ("project-management", "planning", "productivity"),
+        ("property-tax", "tax", "finance-personal"),
+        ("rain", "weather", "nature-weather"),
+        ("recycling", "sustainability", "sustainability"),
+        ("renovation", "home-improvement", "home-property"),
+        ("road-trip", "travel", "travel"),
+        ("sewing", "tailoring", "craft-textile"),
+        ("sleep-apnea", "sleep", "health-sleep"),
+        ("snoring", "sleep", "health-sleep"),
+        ("snow", "weather", "nature-weather"),
+        ("speakers", "audio", "tech-hardware"),
+        ("spells", "magic", "lore-fantasy"),
+        ("tapestry", "home-decor", "home-property"),
+        ("tattoos", "fashion", "personal-care"),
+        ("tickets", "it-support", "tech-sysadmin"),
+        ("time-management", "productivity", "productivity"),
+        ("tornado", "storm", "nature-weather"),
+        ("transhumanism", None, "philosophy"),
+        ("utilities", "finances", "finance-personal"),
+        ("vacation", "travel", "travel"),
+        ("veteran", "military", "military"),
+        ("veterinary", "pet", "pets"),
+        ("vitamins", "supplement", "health-nutrition"),
+        ("vpn", "networking", "tech-networking"),
+        ("vram", "gpu", "tech-hardware"),
+        ("wiring", "electrical", "home-property"),
+        ("kitten", "cat", "pets"),
+        ("couch", "furniture", "home-property"),
+        ("work-station", "furniture", "home-property"),
+        ("controlnet", None, "ai-generative"),
+        ("gemma-3", "large-language-models", "ai-generative"),
+        ("display", "peripheral", "tech-hardware"),
+        ("monitor", "peripheral", "tech-hardware"),
+        ("fitness", "exercise", "health-fitness"),
+        ("alexnet", "convolutional-neural-networks", "ai-architecture"),
+        ("efficientnet", "convolutional-neural-networks", "ai-architecture"),
+        ("googlenet", "convolutional-neural-networks", "ai-architecture"),
+        ("mobilenets", "convolutional-neural-networks", "ai-architecture"),
+        ("vggnet", "convolutional-neural-networks", "ai-architecture"),
+        ("npc", "ttrpg", "gaming-tabletop"),
+        ("sop", "procedures", "dev-operations"),
+        ("checklist", "productivity", "pkm-methodology"),
+        ("renaissance-faire", None, "culture"),
+        ("session", None, "gaming-tabletop"),
+        ("addressing", None, "gis-parcel"),
+    ]
+
+    for term, broader, category in liberated_concepts:
+        # A. Remove from master_tag_aliases so it is never forcibly rewritten
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (term,))
+
+        # B. Register in master_tag_taxonomy so it is a recognized, valid subject tag
+        cursor.execute("""
+            INSERT OR IGNORE INTO master_tag_taxonomy (tag, category, usage_count, created_at, updated_at)
+            VALUES (?, ?, 0, ?, ?)
+        """, (term, category, now, now))
+
+        # C. If legitimate parent-child hierarchy exists, record in master_tag_related as 'narrower'
+        if broader:
+            # Ensure broader term also exists in master_tag_taxonomy
+            cursor.execute("""
+                INSERT OR IGNORE INTO master_tag_taxonomy (tag, category, usage_count, created_at, updated_at)
+                VALUES (?, ?, 0, ?, ?)
+            """, (broader, category, now, now))
+
+            cursor.execute("""
+                INSERT OR IGNORE INTO master_tag_related (term_a, term_b, kind, weight, tier, created_at)
+                VALUES (?, ?, 'narrower', 0.5, 'reviewed', ?)
+            """, (term, broader, now))
+
+    # Also clean remaining chained aliases that pointed to slashed types/facets
+    chained_removals = [
+        "protocol", "transformation-genre", "renaissance-festival", "fair"
+    ]
+    for ch in chained_removals:
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (ch,))
+
+    # Invalidate in-process alias cache
+    from Evelyn.tools import taxonomy_db
+    taxonomy_db.invalidate_alias_cache()
+
+    logger.info(
+        "[MIGRATION 269] Severed %d false aliases, cleared 10 circular loops, and registered hierarchical relations.",
+        len(liberated_concepts),
+    )
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -6150,6 +6347,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.267",
         name="retire_base_taxonomy",
         up_fn=migrate_000_006_267_retire_base_taxonomy,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.269",
+        name="sever_false_aliases_and_loops",
+        up_fn=migrate_000_006_269_sever_false_aliases_and_loops,
         post_sync_chroma=True,
     ),
 ]

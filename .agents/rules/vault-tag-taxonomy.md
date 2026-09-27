@@ -1,10 +1,6 @@
 ---
-trigger: manual
+trigger: model_decision
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
-title: vault-tag-taxonomy.md
-date created: 2026-09-27 10:52:56
-date modified: 2026-09-27 11:05:12
-tags: []
 ---
 
 # Vault Tag Taxonomy & Faceted Classification Specification
