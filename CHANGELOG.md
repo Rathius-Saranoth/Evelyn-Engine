@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 16:29:04
+date modified: 2026-09-27 16:47:41
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.274] - 2026-09-27 — *Independent Frame Scrolling & Responsive Taxonomy UI*
+
+### Changed
+
+- **Independent Multi-Frame Layout Architecture (`evelyn_ui/taxonomy.html`)**:
+  - Pinned overall application viewport (`html, body { height: 100vh; overflow: hidden; }`) and navigation header (`height: 56px; flex-shrink: 0;`), completely eliminating whole-page vertical/horizontal rolling.
+  - Divided workspace into three rigid, independently scrollable frames:
+    - **Left Navigator Frame (`.sidebar`)**: Search dock and tab buttons are permanently pinned (`flex-shrink: 0;`), while the tree/category list scrolls smoothly on its own inside `.tree-scroll` with sticky sorting controls (`🌿 Branches` / `🔥 Usage`). The search dock and tabs are always visible without scrolling back to top.
+    - **Center Inspector Frame (`.inspector`)**: Dedicated independent vertical scroll (`overflow-y: auto; overflow-x: hidden;`) with CSS container query capabilities (`container-type: inline-size`).
+    - **Right Toolbox Frame (`.toolbox`)**: Dedicated independent vertical scroll (`overflow-y: auto; overflow-x: hidden;`) for Library of Congress search, relations viewer, and quick hierarchy linkers.
+  - Added header toggle button `📐 Tools` (`#btn-toggle-toolbox`) to collapse/expand the right panel with persistent `localStorage` state, maximizing center workspace on couch/TV viewing.
+
+### Fixed
+
+- **Sidebar Truncation & Badge Alignment on Long Terms (`evelyn_ui/taxonomy.html`)**:
+  - Fixed flex layout blowout on long terms (e.g. `convolutional-neural-network`) where child count badges (`5 kids`) wrapped into two lines and pushed occurrence counters out of alignment.
+  - Enforced rigid flex badges (`.node-badges { flex-shrink: 0; white-space: nowrap; }`, `.badge-count { flex-shrink: 0; white-space: nowrap; }`) and graceful text ellipsis truncation (`.term-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }`) with full term name preserved in browser hover tooltips (`title="..."`).
+- **Eliminated Horizontal Scroll on 4K TV & Scaled Displays (`evelyn_ui/taxonomy.html`)**:
+  - Fixed horizontal scroll blowout on 3840x2160 displays with 250% scaling (effective 1536x864 viewport).
+  - Replaced unconstrained CSS grid tracks with `minmax(0, 1fr)` and integrated CSS container queries (`@container inspector (max-width: 980px)`) and responsive breakpoint fallback (`@media (max-width: 1400px)`), allowing dual leaderboards to automatically stack into a clean, spacious single column when horizontal width is restricted.
+  - Added `table-layout: fixed`, fixed column widths, and responsive horizontal wrappers (`.table-responsive`) to prevent table cell expansions from forcing grid overflow.
+  - Hardened leaderboard card surfaces with opaque background styling (`#111827`) to eliminate ghosting and text bleed-through.
 
 ## [000.006.273] - 2026-09-27 — *Dynamic Category Intelligence Dashboard*
 

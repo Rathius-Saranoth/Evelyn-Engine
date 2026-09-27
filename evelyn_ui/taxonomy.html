@@ -37,28 +37,36 @@
       padding: 0;
     }
 
-    body {
+    html, body {
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
       background-color: var(--bg-base);
       color: var(--text-main);
       font-family: var(--font-body);
-      min-height: 100vh;
+      margin: 0;
+      padding: 0;
       display: flex;
       flex-direction: column;
-      overflow-x: hidden;
     }
 
-    /* Top Navigation Header */
+    /* Top Navigation Header - Locked Height */
     header {
       background: rgba(14, 19, 31, 0.85);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
-      padding: 12px 24px;
+      padding: 10px 20px;
+      height: 56px;
+      min-height: 56px;
+      max-height: 56px;
+      box-sizing: border-box;
       display: flex;
       align-items: center;
       justify-content: space-between;
       position: sticky;
       top: 0;
       z-index: 50;
+      flex-shrink: 0;
     }
 
     .brand {
@@ -162,30 +170,47 @@
       border-radius: 6px;
     }
 
-    /* Main Grid Layout */
+    /* Main Grid Layout - 3 Independent Scroll Frames */
     .workspace {
       display: grid;
-      grid-template-columns: 340px 1fr 380px;
+      grid-template-columns: 310px minmax(0, 1fr) 330px;
       flex: 1;
-      height: calc(100vh - 61px);
+      height: calc(100vh - 56px);
+      max-height: calc(100vh - 56px);
       overflow: hidden;
+      box-sizing: border-box;
+      transition: grid-template-columns 0.2s ease;
     }
 
-    /* Left Sidebar: Navigator & Trees */
+    .workspace.no-toolbox {
+      grid-template-columns: 310px minmax(0, 1fr) 0px;
+    }
+
+    .workspace.no-toolbox .toolbox {
+      display: none;
+    }
+
+    /* Left Frame: Navigator & Trees */
     .sidebar {
       background: var(--bg-surface);
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
+      height: 100%;
+      max-height: 100%;
       overflow: hidden;
+      min-width: 0;
+      box-sizing: border-box;
     }
 
     .search-dock {
-      padding: 14px;
+      padding: 12px 14px;
       border-bottom: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       gap: 10px;
+      flex-shrink: 0;
+      box-sizing: border-box;
     }
 
     .search-input-wrap {
@@ -282,6 +307,8 @@
       font-size: 11px;
       color: var(--text-dim);
       width: 26px;
+      min-width: 26px;
+      flex-shrink: 0;
       display: inline-block;
     }
 
@@ -291,66 +318,83 @@
     }
 
     .category-dashboard {
-      padding: 24px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 18px;
+      min-width: 0;
     }
 
     .dashboard-banner {
       background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(6, 182, 212, 0.06));
       border: 1px solid rgba(99, 102, 241, 0.25);
       border-radius: 12px;
-      padding: 18px 22px;
+      padding: 16px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      min-width: 0;
     }
 
     .metric-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      min-width: 0;
+    }
+
+    @media (max-width: 1100px) {
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     .metric-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 14px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .metric-value {
       font-family: var(--font-display);
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 700;
       color: #fff;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .metric-label {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-dim);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
 
     .metric-sub {
-      font-size: 11.5px;
+      font-size: 11px;
       color: var(--cyan);
       font-family: var(--font-mono);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .cat-drilldown-card {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.8));
       border: 1px solid rgba(99, 102, 241, 0.25);
       border-radius: 12px;
-      padding: 20px;
+      padding: 18px 20px;
       display: flex;
       flex-direction: column;
       gap: 14px;
+      min-width: 0;
     }
 
     .progress-track {
@@ -374,23 +418,38 @@
 
     .leaderboard-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
+      min-width: 0;
+    }
+
+    @container inspector (max-width: 980px) {
+      .leaderboard-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 1400px) {
+      .leaderboard-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
 
     .leaderboard-card {
-      background: var(--bg-card);
+      background: #111827;
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 18px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .leaderboard-title {
       font-family: var(--font-display);
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       color: #fff;
       display: flex;
@@ -398,26 +457,35 @@
       justify-content: space-between;
     }
 
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      min-width: 0;
+    }
+
     .leaderboard-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 11.5px;
+      table-layout: fixed;
     }
 
     .leaderboard-table th {
       text-align: left;
-      padding: 8px 8px;
-      font-size: 10.5px;
+      padding: 7px 6px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       color: var(--text-dim);
       border-bottom: 1px solid var(--border);
+      white-space: nowrap;
     }
 
     .leaderboard-table td {
-      padding: 8px 8px;
+      padding: 7px 6px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       vertical-align: middle;
+      white-space: nowrap;
     }
 
     .leaderboard-table tr:hover td {
@@ -427,22 +495,27 @@
     .tree-scroll {
       flex: 1;
       overflow-y: auto;
-      padding: 10px;
+      overflow-x: hidden;
+      padding: 8px 10px;
+      min-height: 0;
+      box-sizing: border-box;
     }
 
     .tree-group {
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .tree-node-parent {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 7px 10px;
+      gap: 8px;
+      padding: 6px 10px;
       border-radius: 6px;
       cursor: pointer;
       transition: background 0.15s;
       user-select: none;
+      min-width: 0;
     }
 
     .tree-node-parent:hover {
@@ -459,11 +532,40 @@
       align-items: center;
       gap: 8px;
       font-family: var(--font-mono);
-      font-size: 12.5px;
+      font-size: 12px;
       color: #e2e8f0;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .node-label span.term-text {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      min-width: 0;
+      display: block;
+    }
+
+    .node-badges {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .badge-count {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-dim);
+      font-size: 10px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 10px;
+      flex-shrink: 0;
+      white-space: nowrap;
+      display: inline-block;
     }
 
     .node-chevron {
@@ -492,6 +594,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
       padding: 5px 8px;
       border-radius: 5px;
       cursor: pointer;
@@ -512,13 +616,12 @@
       border-left: 2px solid var(--primary);
     }
 
-    .badge-count {
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--text-dim);
-      font-size: 10px;
-      font-family: var(--font-mono);
-      padding: 1px 6px;
-      border-radius: 10px;
+    .tree-node-child .term-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     /* Center Panel: Inspector & Neighborhood */
@@ -526,9 +629,16 @@
       background: var(--bg-base);
       display: flex;
       flex-direction: column;
+      height: 100%;
+      max-height: 100%;
       overflow-y: auto;
-      padding: 28px;
+      overflow-x: hidden;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 20px 24px;
       position: relative;
+      container-type: inline-size;
+      container-name: inspector;
     }
 
     .inspector-empty {
@@ -674,7 +784,12 @@
       border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
+      height: 100%;
+      max-height: 100%;
       overflow-y: auto;
+      overflow-x: hidden;
+      min-width: 0;
+      box-sizing: border-box;
       padding: 20px;
       gap: 20px;
     }
@@ -869,6 +984,7 @@
     </div>
 
     <div class="nav-actions">
+      <button class="btn btn-sm" id="btn-toggle-toolbox" onclick="toggleToolbox()" title="Toggle Right Tools Panel (LOC Search / Quick Linker)">📐 Tools</button>
       <button class="btn btn-sm" onclick="loadGraphData(true)">⟳ Refresh</button>
       <a href="/ui/dev.html" class="btn btn-sm">⚙️ Dev Dashboard</a>
       <a href="/ui/" class="btn btn-sm">💬 Chat</a>
@@ -911,7 +1027,7 @@
       </div>
 
       <!-- Center: Dynamic Category Intelligence Dashboard -->
-      <div id="category-dashboard" style="display: none; height: 100%; overflow-y: auto;">
+      <div id="category-dashboard" style="display: none; min-width: 0;">
         <!-- Rendered dynamically -->
       </div>
 
@@ -1109,8 +1225,21 @@
         if (e.key === 'Enter') runAuthoritySearch();
       });
 
+      if (localStorage.getItem('taxonomy_hide_toolbox') === '1') {
+        document.querySelector('.workspace')?.classList.add('no-toolbox');
+        document.getElementById('btn-toggle-toolbox')?.classList.add('active');
+      }
+
       loadGraphData();
     });
+
+    function toggleToolbox() {
+      const ws = document.querySelector('.workspace');
+      const btn = document.getElementById('btn-toggle-toolbox');
+      const isHidden = ws.classList.toggle('no-toolbox');
+      localStorage.setItem('taxonomy_hide_toolbox', isHidden ? '1' : '0');
+      if (btn) btn.classList.toggle('active', isHidden);
+    }
 
     function showToast(message, isError = false) {
       const box = document.getElementById('toast-box');
@@ -1280,17 +1409,19 @@
         const autoExpand = Boolean(searchQuery);
 
         group.innerHTML = `
-          <div class="tree-node-parent ${isSelected ? 'selected' : ''}" data-tag="${escapeAttr(root)}" onclick="handleNodeClick('${escapeAttr(root)}', event)">
+          <div class="tree-node-parent ${isSelected ? 'selected' : ''}" data-tag="${escapeAttr(root)}" title="${escapeAttr(root)}" onclick="handleNodeClick('${escapeAttr(root)}', event)">
             <div class="node-label">
-              ${hasChildren ? `<span class="node-chevron ${autoExpand ? 'expanded' : ''}" id="chev-${escapeAttr(root)}">▶</span>` : '<span style="width: 10px;"></span>'}
-              <span>${highlightText(root, searchQuery)}</span>
+              ${hasChildren ? `<span class="node-chevron ${autoExpand ? 'expanded' : ''}" id="chev-${escapeAttr(root)}">▶</span>` : '<span style="width: 10px; flex-shrink: 0;"></span>'}
+              <span class="term-text">${highlightText(root, searchQuery)}</span>
             </div>
-            <span class="badge-count">${children.length ? children.length + ' kids' : (termMap.get(root)?.usage_count || 0)}</span>
+            <div class="node-badges">
+              <span class="badge-count">${children.length ? children.length + ' kids' : (termMap.get(root)?.usage_count || 0)}</span>
+            </div>
           </div>
           ${hasChildren ? `<div class="tree-children ${autoExpand ? 'visible' : ''}" id="kids-${escapeAttr(root)}">
             ${children.map(child => `
-              <div class="tree-node-child ${selectedTag === child ? 'selected' : ''}" data-tag="${escapeAttr(child)}" onclick="selectTag('${escapeAttr(child)}')">
-                <span>${highlightText(child, searchQuery)}</span>
+              <div class="tree-node-child ${selectedTag === child ? 'selected' : ''}" data-tag="${escapeAttr(child)}" title="${escapeAttr(child)}" onclick="selectTag('${escapeAttr(child)}')">
+                <span class="term-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${highlightText(child, searchQuery)}</span>
                 <span class="badge-count">${termMap.get(child)?.usage_count || 0}</span>
               </div>
             `).join('')}
@@ -1366,7 +1497,7 @@
       }
 
       const controls = document.createElement('div');
-      controls.style.cssText = 'padding: 8px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 11px;';
+      controls.style.cssText = 'position: sticky; top: -8px; background: var(--bg-surface); z-index: 10; padding: 8px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 11px;';
       controls.innerHTML = `
         <span style="color: var(--text-dim); font-weight: 600;">${filtered.length} TRUNKS</span>
         <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.25); padding: 2px; border-radius: 6px;">
@@ -1392,11 +1523,11 @@
 
         const rankClass = idx < 3 ? 'top-3' : '';
         row.innerHTML = `
-          <div class="node-label">
+          <div class="node-label" title="${escapeAttr(s.root)}">
             <span class="rank-num ${rankClass}">#${idx + 1}</span>
-            <span>${highlightText(s.root, searchQuery)}</span>
+            <span class="term-text">${highlightText(s.root, searchQuery)}</span>
           </div>
-          <div style="display: flex; gap: 4px; align-items: center;">
+          <div class="node-badges">
             <span class="badge-count" style="color: var(--cyan);">${s.branchesCount} kids</span>
             <span class="badge-count">${s.totalUsage}</span>
           </div>
@@ -1535,44 +1666,46 @@
                 <span>🌿 Top Categories by Sub-Concepts (Depth & Breadth)</span>
                 <span class="badge-count" style="color: var(--cyan);">Top 10</span>
               </div>
-              <table class="leaderboard-table">
-                <thead>
-                  <tr>
-                    <th style="width: 32px;">#</th>
-                    <th>Concept Trunk</th>
-                    <th style="text-align: center;">Branches</th>
-                    <th>Sub-Concept Samples</th>
-                    <th style="text-align: right;">Total Uses</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${byBranches.slice(0, 10).map((cat, idx) => {
-                    const isSelected = activeCat && activeCat.root === cat.root;
-                    return `
-                      <tr style="cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.12);' : ''}" onclick="selectCategoryForDrilldown('${escapeAttr(cat.root)}')">
-                        <td class="rank-num ${idx < 3 ? 'top-3' : ''}">#${idx + 1}</td>
-                        <td style="font-family: var(--font-mono); font-weight: 600; color: #fff;">
-                          ${escapeHtml(cat.root)}
-                        </td>
-                        <td style="text-align: center;">
-                          <span class="badge-count" style="color: var(--cyan);">${cat.branchesCount}</span>
-                        </td>
-                        <td>
-                          <div style="display: flex; gap: 4px; flex-wrap: wrap; max-width: 200px;">
-                            ${cat.directKids.slice(0, 3).map(k => `
-                              <span style="font-size: 10px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono); color: var(--text-muted);">${escapeHtml(k)}</span>
-                            `).join('')}
-                            ${cat.directKids.length > 3 ? `<span style="font-size: 9.5px; color: var(--text-dim);">+${cat.directKids.length - 3}</span>` : ''}
-                          </div>
-                        </td>
-                        <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">
-                          ${cat.totalUsage.toLocaleString()}
-                        </td>
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
+              <div class="table-responsive">
+                <table class="leaderboard-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 28px;">#</th>
+                      <th style="width: 140px;">Concept Trunk</th>
+                      <th style="width: 65px; text-align: center;">Branches</th>
+                      <th>Sample Sub-Concepts</th>
+                      <th style="width: 75px; text-align: right;">Total Uses</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${byBranches.slice(0, 10).map((cat, idx) => {
+                      const isSelected = activeCat && activeCat.root === cat.root;
+                      return `
+                        <tr style="cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.12);' : ''}" onclick="selectCategoryForDrilldown('${escapeAttr(cat.root)}')">
+                          <td class="rank-num ${idx < 3 ? 'top-3' : ''}">#${idx + 1}</td>
+                          <td style="font-family: var(--font-mono); font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeAttr(cat.root)}">
+                            ${escapeHtml(cat.root)}
+                          </td>
+                          <td style="text-align: center;">
+                            <span class="badge-count" style="color: var(--cyan);">${cat.branchesCount}</span>
+                          </td>
+                          <td>
+                            <div style="display: flex; gap: 4px; overflow: hidden; white-space: nowrap; max-width: 170px;">
+                              ${cat.directKids.slice(0, 2).map(k => `
+                                <span style="font-size: 10px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; max-width: 80px;" title="${escapeAttr(k)}">${escapeHtml(k)}</span>
+                              `).join('')}
+                              ${cat.directKids.length > 2 ? `<span style="font-size: 9.5px; color: var(--text-dim); flex-shrink: 0;">+${cat.directKids.length - 2}</span>` : ''}
+                            </div>
+                          </td>
+                          <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">
+                            ${cat.totalUsage.toLocaleString()}
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <!-- Right: Top by Corpus Usage -->
@@ -1581,48 +1714,50 @@
                 <span>🔥 Top Categories by Corpus Activity (Vault & Memory)</span>
                 <span class="badge-count" style="color: var(--amber);">Top 10</span>
               </div>
-              <table class="leaderboard-table">
-                <thead>
-                  <tr>
-                    <th style="width: 32px;">#</th>
-                    <th>Concept Trunk</th>
-                    <th style="text-align: right;">Occurrences</th>
-                    <th style="width: 120px;">Distribution</th>
-                    <th style="text-align: right;">Branches</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${byUsage.slice(0, 10).map((cat, idx) => {
-                    const isSelected = activeCat && activeCat.root === cat.root;
-                    const rPct = cat.totalUsage > 0 ? Math.round((cat.rootUsage / cat.totalUsage) * 100) : 100;
-                    const kPct = 100 - rPct;
-                    return `
-                      <tr style="cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.12);' : ''}" onclick="selectCategoryForDrilldown('${escapeAttr(cat.root)}')">
-                        <td class="rank-num ${idx < 3 ? 'top-3' : ''}">#${idx + 1}</td>
-                        <td style="font-family: var(--font-mono); font-weight: 600; color: #fff;">
-                          ${escapeHtml(cat.root)}
-                        </td>
-                        <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: #fff;">
-                          ${cat.totalUsage.toLocaleString()}
-                        </td>
-                        <td>
-                          <div class="progress-track" title="Trunk: ${cat.rootUsage} (${rPct}%) | Sub-Concepts: ${cat.kidsUsage} (${kPct}%)">
-                            <div class="progress-fill-root" style="width: ${rPct}%;"></div>
-                            <div class="progress-fill-kids" style="width: ${kPct}%;"></div>
-                          </div>
-                          <div style="font-size: 9.5px; color: var(--text-dim); display: flex; justify-content: space-between; margin-top: 2px;">
-                            <span>${cat.rootUsage} trunk</span>
-                            <span>${cat.kidsUsage} kids</span>
-                          </div>
-                        </td>
-                        <td style="text-align: right;">
-                          <span class="badge-count" style="color: var(--cyan);">${cat.branchesCount}</span>
-                        </td>
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
+              <div class="table-responsive">
+                <table class="leaderboard-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 28px;">#</th>
+                      <th style="width: 140px;">Concept Trunk</th>
+                      <th style="width: 75px; text-align: right;">Occurrences</th>
+                      <th style="width: 120px;">Distribution</th>
+                      <th style="width: 65px; text-align: center;">Branches</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${byUsage.slice(0, 10).map((cat, idx) => {
+                      const isSelected = activeCat && activeCat.root === cat.root;
+                      const rPct = cat.totalUsage > 0 ? Math.round((cat.rootUsage / cat.totalUsage) * 100) : 100;
+                      const kPct = 100 - rPct;
+                      return `
+                        <tr style="cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.12);' : ''}" onclick="selectCategoryForDrilldown('${escapeAttr(cat.root)}')">
+                          <td class="rank-num ${idx < 3 ? 'top-3' : ''}">#${idx + 1}</td>
+                          <td style="font-family: var(--font-mono); font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeAttr(cat.root)}">
+                            ${escapeHtml(cat.root)}
+                          </td>
+                          <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: #fff;">
+                            ${cat.totalUsage.toLocaleString()}
+                          </td>
+                          <td>
+                            <div class="progress-track" title="Trunk: ${cat.rootUsage} (${rPct}%) | Sub-Concepts: ${cat.kidsUsage} (${kPct}%)">
+                              <div class="progress-fill-root" style="width: ${rPct}%;"></div>
+                              <div class="progress-fill-kids" style="width: ${kPct}%;"></div>
+                            </div>
+                            <div style="font-size: 9.5px; color: var(--text-dim); display: flex; justify-content: space-between; margin-top: 2px;">
+                              <span>${cat.rootUsage} trunk</span>
+                              <span>${cat.kidsUsage} kids</span>
+                            </div>
+                          </td>
+                          <td style="text-align: center;">
+                            <span class="badge-count" style="color: var(--cyan);">${cat.branchesCount}</span>
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -1673,13 +1808,16 @@
       for (const p of filtered) {
         const row = document.createElement('div');
         row.className = `tree-node-parent ${selectedTag === p.tag ? 'selected' : ''}`;
+        row.title = p.tag;
         row.onclick = () => selectTag(p.tag);
         row.innerHTML = `
           <div class="node-label">
-            <span style="color: var(--cyan); font-size: 10px;">⚡</span>
-            <span>${highlightText(p.tag, searchQuery)}</span>
+            <span style="color: var(--cyan); font-size: 10px; flex-shrink: 0;">⚡</span>
+            <span class="term-text">${highlightText(p.tag, searchQuery)}</span>
           </div>
-          <span class="badge-count">${p.usage_count || 0}</span>
+          <div class="node-badges">
+            <span class="badge-count">${p.usage_count || 0}</span>
+          </div>
         `;
         container.appendChild(row);
       }
@@ -1696,12 +1834,15 @@
       for (const t of filtered) {
         const row = document.createElement('div');
         row.className = `tree-node-parent ${selectedTag === t.tag ? 'selected' : ''}`;
+        row.title = t.tag;
         row.onclick = () => selectTag(t.tag);
         row.innerHTML = `
           <div class="node-label">
-            <span>${highlightText(t.tag, searchQuery)}</span>
+            <span class="term-text">${highlightText(t.tag, searchQuery)}</span>
           </div>
-          <span class="badge-count">${t.usage_count || 0}</span>
+          <div class="node-badges">
+            <span class="badge-count">${t.usage_count || 0}</span>
+          </div>
         `;
         container.appendChild(row);
       }
@@ -1721,14 +1862,17 @@
       for (const a of filtered) {
         const row = document.createElement('div');
         row.className = `tree-node-parent ${selectedTag === a.canonical ? 'selected' : ''}`;
+        row.title = `${a.alias} ➔ ${a.canonical}`;
         row.onclick = () => selectTag(a.canonical);
         row.innerHTML = `
           <div class="node-label" style="font-size: 12px;">
-            <span style="color: var(--amber);">${highlightText(a.alias, searchQuery)}</span>
-            <span style="color: var(--text-dim); font-size: 10px;">➔</span>
-            <span style="color: #fff;">${highlightText(a.canonical, searchQuery)}</span>
+            <span style="color: var(--amber); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 105px;">${highlightText(a.alias, searchQuery)}</span>
+            <span style="color: var(--text-dim); font-size: 10px; flex-shrink: 0;">➔</span>
+            <span class="term-text" style="color: #fff;">${highlightText(a.canonical, searchQuery)}</span>
           </div>
-          <span class="stat-pill pill-amber" style="padding: 1px 6px; font-size: 9px;">${a.tier}</span>
+          <div class="node-badges">
+            <span class="stat-pill pill-amber" style="padding: 1px 6px; font-size: 9px; flex-shrink: 0; white-space: nowrap;">${a.tier}</span>
+          </div>
         `;
         container.appendChild(row);
       }
