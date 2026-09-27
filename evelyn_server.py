@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-27 07:21:45
+# date modified: 2026-09-27 07:29:06
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6044,6 +6044,77 @@ def _attach_admission_context(p: dict) -> dict:
     return p
 
 
+def _attach_sibling_context(admissions: list[dict]) -> None:
+    """Tell each admission card what else is being asked of the same source, and what it has.
+
+    A card is decided alone, but the terms are not produced alone: one pass over one note or
+    one fact emits several at once. Measured 2026-09-27 over a live queue of 200, **139 (70%)
+    had at least one sibling**, and the siblings are where the judgement is. `Scooter's Coffee`
+    asked for `social-gatherings` and `social-interaction` in the same batch — near-duplicates
+    of each other, invisible while they arrive on separate cards an hour apart.
+
+    Also attaches what the source already carries, because a term the note is already tagged
+    with is not a new subject, and a term that restates one of them is pre-coordination
+    (§3.3) rather than a new coordinate.
+
+    Modifies each proposal in place, adding ``sibling_terms`` and ``existing_tags``. Both the
+    note lookup and the grouping are done once for the whole queue rather than per card.
+
+    Args:
+        admissions: The tag-admission proposals from one unified-review response.
+    """
+    if not admissions:
+        return
+
+    def _source_key(p: dict) -> tuple[str, str] | None:
+        path = (p.get("source_path") or "").strip()
+        if path:
+            return ("note", path)
+        ids = sorted(str(e.get("id")) for e in (p.get("source_entries") or []) if e.get("id"))
+        return ("fact", ",".join(ids)) if ids else None
+
+    # One query for every note in the queue, not one per card.
+    note_tags: dict[str, str] = {}
+    paths = {k[1] for k in (_source_key(p) for p in admissions) if k and k[0] == "note"}
+    if paths:
+        try:
+            from Evelyn.tools import vault_db
+
+            con = vault_db.get_db()
+            placeholders = ",".join("?" * len(paths))
+            for row in con.execute(
+                f"SELECT path, tags FROM vault_documents WHERE path IN ({placeholders})",
+                tuple(paths),
+            ):
+                note_tags[row[0]] = row[1] or ""
+            con.close()
+        except (sqlite3.Error, OSError) as e:
+            print(f"{_YEL}[REVIEW]{_RST} Could not read note tags for sibling context: {e}", flush=True)
+
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for p in admissions:
+        key = _source_key(p)
+        if key:
+            grouped.setdefault(key, []).append(str(p.get("topic") or ""))
+
+    for p in admissions:
+        key = _source_key(p)
+        term = str(p.get("topic") or "")
+        p["sibling_terms"] = (
+            [t for t in grouped.get(key, []) if t and t != term] if key else []
+        )
+
+        if key and key[0] == "note":
+            raw = note_tags.get(key[1], "")
+        else:
+            raw = ", ".join(
+                str(e.get("tags") or "") for e in (p.get("source_entries") or [])
+            )
+        p["existing_tags"] = sorted(
+            {t.strip().strip("[]'\"") for t in raw.split(",") if t.strip().strip("[]'\"")}
+        )
+
+
 @app.get("/api/review/unified")
 async def get_unified_review(_: None = Depends(check_auth)):
     """Return all pending review items (extractions, proposals, profile updates, procedures)
@@ -6122,6 +6193,10 @@ async def get_unified_review(_: None = Depends(check_auth)):
             else:
                 p["item_type"] = "proposal"
             unified_items.append(p)
+
+        _attach_sibling_context(
+            [i for i in unified_items if i.get("type") == TAG_ADMISSION_TYPE]
+        )
 
         # 3. Procedures
         procedures = memory_db.get_all_procedures(status="extracted")

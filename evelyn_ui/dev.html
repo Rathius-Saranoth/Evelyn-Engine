@@ -2024,6 +2024,46 @@
     // an origin label - "split fact (Cat05-U)" - which settles nothing: `dracula` is a
     // clothing retailer here, an orchid genus in FAST and a novel everywhere else, and only
     // the sentence it came from says which.
+    function chip(text, accent) {
+      const col = accent ? 'rgba(251, 146, 60, 0.16)' : 'rgba(148, 163, 184, 0.12)';
+      const brd = accent ? 'rgba(251, 146, 60, 0.45)' : 'var(--border)';
+      return `<span style="display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px; border-radius: 12px; background: ${col}; border: 1px solid ${brd}; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text);">${escapeHtml(text)}</span>`;
+    }
+
+    // What else the same note or fact is asking for, and what it already carries.
+    //
+    // Terms are produced in batches — one pass over one source emits several — but reviewed
+    // one at a time, often an hour apart. Measured 2026-09-27: 70% of the queue had a sibling.
+    // `Scooter's Coffee` asked for `social-gatherings` and `social-interaction` together, which
+    // reads as one obvious duplicate here and as two reasonable terms on separate cards.
+    function renderSiblingContext(item, term) {
+      const siblings = item.sibling_terms || [];
+      const existing = item.existing_tags || [];
+      if (!siblings.length && !existing.length) return '';
+
+      // A proposal that restates a tag the source already has is pre-coordination (§3.3),
+      // not a new coordinate — worth marking, since it is the common failure here.
+      const parts = String(term).split(/[\/-]/).filter(w => w.length > 3);
+      const overlaps = existing.filter(e =>
+        parts.some(w => e === w || e.split(/[\/-]/).includes(w)));
+
+      return `
+        <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+          ${existing.length ? `
+            <div>
+              <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">The source already carries</div>
+              <div>${existing.map(e => chip(e, overlaps.includes(e))).join('')}</div>
+            </div>` : ''}
+          ${siblings.length ? `
+            <div>
+              <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Also proposed from the same source (${siblings.length})</div>
+              <div>${siblings.map(s => chip(s, false)).join('')}</div>
+            </div>` : ''}
+          ${overlaps.length ? `
+            <div style="font-size: 11px; color: #fb923c;">&ldquo;${escapeHtml(term)}&rdquo; restates <strong>${overlaps.map(escapeHtml).join(', ')}</strong>, which the source already has. A compound of terms you already hold is pre-coordination &mdash; the vocabulary recombines them at query time instead.</div>` : ''}
+        </div>`;
+    }
+
     function renderAdmissionContext(item, term) {
       const entries = item.source_entries || [];
       const excerpt = (item.source_excerpt || '').trim();
@@ -5284,6 +5324,7 @@
                 </div>
 
                 ${isAdmission ? renderAdmissionContext(item, term) : ''}
+                ${isAdmission ? renderSiblingContext(item, term) : ''}
                 ${isAdmission ? '' : `
                 <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
                   <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Why it is here</div>
@@ -5647,7 +5688,7 @@
             const sim = data.similar || [];
             similarBox.innerHTML = sim.length
               ? sim.map(x =>
-                  `<span style="display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px; border-radius: 12px; background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text);">${escapeHtml(x.tag)}</span>`
+                  chip(x.tag, false)
                 ).join('')
               : `<span style="color: var(--text-dim);">Nothing similar in the ${data.total} registered terms.</span>`;
           }

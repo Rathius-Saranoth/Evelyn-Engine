@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 07:21:45
+date modified: 2026-09-27 07:29:06
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,36 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.263] - 2026-09-27 — *Terms Arrive In Batches, Not Alone*
+
+### Added
+
+- **An admission card now shows what else its source is asking for, and what that source
+  already carries.** Terms are produced in batches — one pass over one note or one fact emits
+  several — but reviewed one at a time, often an hour apart. Measured over a live queue of
+  200: **139 cards (70%) had at least one sibling**, and the siblings are frequently where the
+  judgement is.
+
+  `Scooter's Coffee` asked for `social-gatherings` and `social-interaction` in the same batch.
+  Read together that is one obvious duplicate; read an hour apart they are two reasonable
+  terms. `Amazon` asked for five near-synonymous commercial terms at once.
+
+  The card gains two rows of chips — **the source already carries** and **also proposed from
+  the same source** — plus a warning when the proposed term restates a tag the source already
+  holds. `private-intimacy` was proposed against a fact already tagged `intimacy`, alongside
+  `public-persona` against the same fact's `persona`: that is pre-coordination (§3.3), not a
+  new coordinate, and the vocabulary recombines existing terms at query time instead.
+
+### Changed
+
+- Near-match and sibling chips share one `chip()` helper rather than two copies of the same
+  inline markup.
+
+### Notes
+
+- Both the note-tag lookup and the grouping run once per queue, not once per card: a single
+  `IN (…)` query over `vault_documents` covers every note in the response.
 
 ## [000.006.262] - 2026-09-27 — *The Note Moved, It Did Not Vanish*
 
