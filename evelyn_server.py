@@ -144,6 +144,10 @@ _last_window_warn_ts: float = 0.0
 _active_research_processes = {}
 _last_research_spawn_ts: float = 0.0  # Layer 2: spawn debounce
 _error_resume_ts: dict = {}  # Layer 3: per-task error cooldown
+_autonomous_audit_toggles: dict[str, bool] = {
+    "master_librarian": getattr(cfg, "MASTER_LIBRARIAN_ENABLED", False),
+    "tag_librarian": getattr(cfg, "TAG_LIBRARIAN_ENABLED", False),
+}
 
 
 def record_interactive_ping() -> None:
@@ -3310,8 +3314,7 @@ async def lifespan(app: FastAPI):
         """Background loop that periodically enqueues Tag Librarian semantic audit."""
         while True:
             await asyncio.sleep(600)  # Check every 10 minutes
-            importlib.reload(cfg)
-            if not getattr(cfg, "TAG_LIBRARIAN_ENABLED", True):
+            if not _autonomous_audit_toggles.get("tag_librarian", False):
                 continue
             idle_seconds = _get_current_idle_seconds()
             threshold = getattr(cfg, "TAG_LIBRARIAN_IDLE_THRESHOLD", 1200)
@@ -3319,15 +3322,14 @@ async def lifespan(app: FastAPI):
                 task_manager.enqueue_idle_task("tag_librarian")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_tag_librarian_loop()))
-    print(f"  {_CYN}Tag Librarian:{_RST} idle loop started (threshold=20m, limit=2 docs/run)")
+    print(f"  {_CYN}Tag Librarian:{_RST} idle loop registered (active={_autonomous_audit_toggles.get('tag_librarian', False)})")
 
     # Idle-time Master Librarian loop
     async def _idle_master_librarian_loop():
         """Background loop that periodically enqueues Master Librarian audit."""
         while True:
             await asyncio.sleep(300)  # Check every 5 minutes
-            importlib.reload(cfg)
-            if not getattr(cfg, "MASTER_LIBRARIAN_ENABLED", True):
+            if not _autonomous_audit_toggles.get("master_librarian", False):
                 continue
             idle_seconds = _get_current_idle_seconds()
             threshold = getattr(cfg, "MASTER_LIBRARIAN_IDLE_THRESHOLD", 300)
@@ -3335,7 +3337,7 @@ async def lifespan(app: FastAPI):
                 task_manager.enqueue_idle_task("master_librarian")
 
     _lifespan_tasks.append(asyncio.create_task(_idle_master_librarian_loop()))
-    print(f"  {_GRN}Master Librarian:{_RST} idle loop started (threshold=5m, limit=5 docs/run)")
+    print(f"  {_GRN}Master Librarian:{_RST} idle loop registered (active={_autonomous_audit_toggles.get('master_librarian', False)})")
 
     # Periodic Google Calendar auto-sync loop (Hermes Tier 2 #7)
     async def _gcal_sync_loop():
@@ -8236,7 +8238,7 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
 
 @app.get("/api/librarian/status")
 async def get_librarian_status(_: None = Depends(check_auth)):
-    """Return status of Master Librarian audit progress, ghost links, and activity logs."""
+    """Return status of Master Librarian audit progress, ghost links, activity logs, and autonomous toggles."""
     from Evelyn.tools import vault_db
 
     try:
@@ -8245,10 +8247,33 @@ async def get_librarian_status(_: None = Depends(check_auth)):
         return {
             "status": "ok",
             **summary,
+            "autonomous_toggles": _autonomous_audit_toggles,
             "recent_activity": recent,
         }
     except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class LibrarianToggleRequest(BaseModel):
+    """Pydantic model for setting autonomous audit toggle states."""
+
+    master_librarian: bool | None = None
+    tag_librarian: bool | None = None
+
+
+@app.post("/api/librarian/toggle")
+async def toggle_librarian_audit(
+    req: LibrarianToggleRequest, _: None = Depends(check_auth)
+):
+    """Set runtime toggle state for autonomous librarian audit passes."""
+    if req.master_librarian is not None:
+        _autonomous_audit_toggles["master_librarian"] = bool(req.master_librarian)
+    if req.tag_librarian is not None:
+        _autonomous_audit_toggles["tag_librarian"] = bool(req.tag_librarian)
+    return {
+        "status": "ok",
+        "autonomous_toggles": _autonomous_audit_toggles,
+    }
 
 
 @app.post("/api/librarian/run")

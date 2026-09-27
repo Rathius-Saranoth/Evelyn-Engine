@@ -404,8 +404,13 @@ Endpoints driving the background research engine and the interactive developer d
 ## 11. Master Librarian Endpoints
 
 ### `GET /api/librarian/status`
-* **Purpose**: Returns real-time health and progress statistics of Master Librarian vault curation, audited document ratios, ghost link totals, and recent activity records.
-* **Returns**: `{"status": "ok", "total_notes": 4234, "audited_notes": 120, "audit_pct": 2.8, "ghost_links": 45, "total_activities": 12, "total_modifications": 12, "recent_activity": [...]}`
+* **Purpose**: Returns real-time health and progress statistics of Master Librarian vault curation, audited document ratios, ghost link totals, recent activity records, and autonomous runtime toggle states.
+* **Returns**: `{"status": "ok", "total_notes": 4234, "audited_notes": 120, "audit_pct": 2.8, "ghost_links": 45, "total_activities": 12, "total_modifications": 12, "autonomous_toggles": {"master_librarian": false, "tag_librarian": false}, "recent_activity": [...]}`
+
+### `POST /api/librarian/toggle`
+* **Purpose**: Sets runtime toggle states for autonomous background librarian audit passes without requiring server restart or risking unintended hot-reload triggering.
+* **Payload**: `{"master_librarian": false, "tag_librarian": false}`
+* **Returns**: `{"status": "ok", "autonomous_toggles": {"master_librarian": false, "tag_librarian": false}}`
 
 ### `POST /api/librarian/run`
 * **Purpose**: Manually initiates an immediate Master Librarian curation audit batch. Rejects with `409 Conflict` if another heavy task currently holds the lock.

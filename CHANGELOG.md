@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 16:56:19
+date modified: 2026-09-27 17:29:13
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.276] - 2026-09-27 — *Zero-Unvetted Memory Tag Curation & Autonomous Audit Safeguards*
+
+### Changed
+
+- **Autonomous Audit Runtime Safeguards & API Toggles (`evelyn_server.py`, `reference/endpoints.md`)**:
+  - Eliminated dangerous `importlib.reload(cfg)` calls inside the 5-minute and 10-minute idle background loops (`_idle_master_librarian_loop`, `_idle_tag_librarian_loop`), permanently resolving the `G14` config hot-reload vulnerability where editing code or configuration files could inadvertently trigger autonomous background vault sweeps.
+  - Implemented thread-safe in-memory runtime toggles (`_autonomous_audit_toggles`) initialized safely from `evelyn_config.py` at boot and defaulting to `False`.
+  - Added new administrative endpoint `POST /api/librarian/toggle` to dynamically enable or disable autonomous background audits on demand without server restart.
+  - Updated `GET /api/librarian/status` to report live `autonomous_toggles` telemetry for front-end dashboards and triage cards.
+
+### Curated
+
+- **Zero-Unvetted Memory Tag Curation (`data/evelyn_memory.db`, `scripts/remap_unvetted_memory_tags.py`)**:
+  - Re-mapped all 12 context entry rows carrying unvetted entity/alias tags in `context_entries` to authorized subject domain atoms:
+    - `comfyui` $\rightarrow$ `image-generation`
+    - `ollama` $\rightarrow$ `large-language-models`
+    - `dnd` $\rightarrow$ `ttrpg`
+    - `oura-ring` $\rightarrow$ `biometrics`
+    - `youtube` $\rightarrow$ `media`
+    - `relationship-dynamics` $\rightarrow$ `relationship` (canonical equivalence alias resolution)
+  - Verified `tag_entities` in `data/evelyn_vault.db`: verified all 5 software, product, and game names are properly cataloged as named entities.
+  - **Achieved 100.0% zero-unvetted tag compliance across the entire memory database** (0 unvetted tags remaining in `evelyn_memory.db`).
 
 ## [000.006.275] - 2026-09-27 — *Responsive Header Brand & Viewport Protection*
 
