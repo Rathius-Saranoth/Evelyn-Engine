@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 15:24:13
+date modified: 2026-09-27 15:38:49
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.270] - 2026-09-27 — *Acronym Primacy & Inversion Flips*
+
+### Added
+
+- **Database Migrations `migrate_000_006_270_acronym_primacy_and_inversions_vault` and `memory`**:
+  - **Acronym Primacy**: Promoted short, natural conversational acronyms (`ai`, `vr`, `ar`) to canonical status in `master_tag_taxonomy` per user operational preference, flipping long formal phrases (`artificial-intelligence`, `virtual-reality`, `augmented-reality`) into aliases.
+  - **Singular Count Noun Inversion Flips**: Inverted historical plural tags to canonical singular count nouns (`boundary`, `musical-composition`, `automaton`), redirecting plural forms (`boundaries`, `musical-compositions`, `automata`, `automatons`) to aliases.
+  - **Sever False Merges**: Liberated distinct concepts (`data-structures`, `plant`, `snack`, `romance`, `style`, `tagging`, `commerce`, `affection`, `vae`, `storytelling`, `reflection`) from `master_tag_aliases` into independent taxonomy entries and populated valid hierarchical/associative relationships in `master_tag_related`.
+  - **Alias Collision Resolution**: Resolved collision on `organization` where an approved taxonomy term was previously trapped as an alias to `curation`.
+  - **Substrate Synchronization**: Synchronized 115 notes in `vault_documents.tags` and 262 facts in `context_entries.tags` to adopt the canonical forms.
+  - Invalidated alias caches and enqueued 1,184 updated surface forms into Chroma vector store.
 
 ## [000.006.269] - 2026-09-27 — *Sever False Tag Aliases & Restore Hierarchy*
 

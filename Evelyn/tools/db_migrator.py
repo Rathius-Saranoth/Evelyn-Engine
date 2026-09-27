@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-27 15:24:13
+# date modified: 2026-09-27 15:38:49
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -5723,6 +5723,249 @@ def migrate_000_006_269_sever_false_aliases_and_loops(
     )
 
 
+def migrate_000_006_270_acronym_primacy_and_inversions_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.270: Acronym primacy, singular count noun flips, and sever false merges (vault).
+
+    1. Acronym primacy: Promotes acronyms (ai, vr, ar) to canonical taxonomy terms per operator preference,
+       flipping the long formal names (artificial-intelligence, virtual-reality, augmented-reality) into aliases.
+    2. Singular count noun inversion flips: Flips inverted pairs so singular count nouns (boundary,
+       musical-composition, automaton) are canonical, and plurals (boundaries, musical-compositions,
+       automata, automatons) are aliases.
+    3. Sever false merges & resolve collisions:
+       - Liberates data-structures, plant, snack, romance, style, tagging, commerce, affection,
+         vae, storytelling, reflection.
+       - Resolves alias collision on organization (admitted in taxonomy but trapped as alias to curation).
+       - Updates taxation -> tax, plants -> plant, snacks -> snack, affectionate -> affection.
+    4. Updates existing tag assignments in vault_documents.tags.
+    """
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Acronym primacy flips: (acronym, long_form, category)
+    acronym_flips = [
+        ("ai", "artificial-intelligence", "ai-engineering"),
+        ("vr", "virtual-reality", "gaming-tabletop"),
+        ("ar", "augmented-reality", "reference"),
+    ]
+
+    for acronym, long_form, default_cat in acronym_flips:
+        row = cursor.execute(
+            "SELECT category, description, usage_count FROM master_tag_taxonomy WHERE tag = ?",
+            (long_form,),
+        ).fetchone()
+        cat = row[0] if row and row[0] else default_cat
+        desc = row[1] if row and row[1] else ""
+        cnt = row[2] if row and row[2] else 0
+
+        cursor.execute("""
+            INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tag) DO UPDATE SET
+                usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                updated_at = excluded.updated_at
+        """, (acronym, cat, desc, cnt, now, now))
+
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (long_form,))
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (acronym,))
+        cursor.execute("""
+            INSERT OR REPLACE INTO master_tag_aliases (alias, canonical, tier, created_at)
+            VALUES (?, ?, 'reviewed', ?)
+        """, (long_form, acronym, now))
+
+        cursor.execute("UPDATE master_tag_aliases SET canonical = ? WHERE canonical = ?", (acronym, long_form))
+        cursor.execute("UPDATE master_tag_related SET term_a = ? WHERE term_a = ?", (acronym, long_form))
+        cursor.execute("UPDATE master_tag_related SET term_b = ? WHERE term_b = ?", (acronym, long_form))
+
+    # 2. Singular count noun inversion flips: (singular, plural, default_category)
+    inversion_flips = [
+        ("boundary", "boundaries", "mind-self"),
+        ("musical-composition", "musical-compositions", "reference"),
+        ("automaton", "automata", "aesthetics-culture-language"),
+    ]
+
+    for singular, plural, default_cat in inversion_flips:
+        row = cursor.execute(
+            "SELECT category, description, usage_count FROM master_tag_taxonomy WHERE tag = ?",
+            (plural,),
+        ).fetchone()
+        cat = row[0] if row and row[0] else default_cat
+        desc = row[1] if row and row[1] else ""
+        cnt = row[2] if row and row[2] else 0
+
+        cursor.execute("""
+            INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tag) DO UPDATE SET
+                usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                updated_at = excluded.updated_at
+        """, (singular, cat, desc, cnt, now, now))
+
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (plural,))
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (singular,))
+        cursor.execute("""
+            INSERT OR REPLACE INTO master_tag_aliases (alias, canonical, tier, created_at)
+            VALUES (?, ?, 'reviewed', ?)
+        """, (plural, singular, now))
+
+        cursor.execute("UPDATE master_tag_aliases SET canonical = ? WHERE canonical = ?", (singular, plural))
+        cursor.execute("UPDATE master_tag_related SET term_a = ? WHERE term_a = ?", (singular, plural))
+        cursor.execute("UPDATE master_tag_related SET term_b = ? WHERE term_b = ?", (singular, plural))
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO master_tag_aliases (alias, canonical, tier, created_at)
+        VALUES ('automatons', 'automaton', 'authority', ?)
+    """, (now,))
+
+    # 3. Sever false merges and liberate distinct concepts
+    liberated = [
+        ("data-structures", "dev-programming", "software-development", "narrower"),
+        ("plant", "nature-science", None, None),
+        ("snack", "domestic-life", "food", "narrower"),
+        ("romance", "relationships", "intimacy", "related"),
+        ("style", "aesthetics-culture-language", None, None),
+        ("tagging", "pkm-methodology", "taxonomy", "related"),
+        ("commerce", "work-civic", "shopping", "related"),
+        ("affection", "relationships", "intimacy", "related"),
+        ("vae", "ai-generative", "generative-ai", "narrower"),
+        ("storytelling", "creative-writing", "narrative", "related"),
+        ("reflection", "mind-self", "introspection", "related"),
+        ("organization", "productivity", "curation", "related"),
+    ]
+
+    for term, category, other_term, rel_kind in liberated:
+        cursor.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (term,))
+        cursor.execute("""
+            INSERT OR IGNORE INTO master_tag_taxonomy (tag, category, usage_count, created_at, updated_at)
+            VALUES (?, ?, 0, ?, ?)
+        """, (term, category, now, now))
+
+        if other_term and rel_kind:
+            cursor.execute("""
+                INSERT OR IGNORE INTO master_tag_taxonomy (tag, category, usage_count, created_at, updated_at)
+                VALUES (?, ?, 0, ?, ?)
+            """, (other_term, category, now, now))
+            cursor.execute("""
+                INSERT OR IGNORE INTO master_tag_related (term_a, term_b, kind, weight, tier, created_at)
+                VALUES (?, ?, ?, 0.5, 'reviewed', ?)
+            """, (term, other_term, rel_kind, now))
+
+    cursor.execute("DELETE FROM master_tag_aliases WHERE alias IN ('plants', 'taxation', 'snacks', 'affectionate')")
+    alias_redirects = [
+        ("plants", "plant"),
+        ("taxation", "tax"),
+        ("snacks", "snack"),
+        ("affectionate", "affection"),
+    ]
+    for a, c in alias_redirects:
+        cursor.execute("""
+            INSERT OR REPLACE INTO master_tag_aliases (alias, canonical, tier, created_at)
+            VALUES (?, ?, 'reviewed', ?)
+        """, (a, c, now))
+
+    # 4. Synchronize vault_documents.tags
+    token_map = {
+        "artificial-intelligence": "ai",
+        "virtual-reality": "vr",
+        "augmented-reality": "ar",
+        "boundaries": "boundary",
+        "musical-compositions": "musical-composition",
+        "automata": "automaton",
+    }
+    docs = cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall()
+    v_updated = 0
+    for doc_path, raw_tags in docs:
+        tokens = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        new_tokens = [token_map.get(t, t) for t in tokens]
+        if new_tokens != tokens:
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for t in new_tokens:
+                if t and t not in seen:
+                    seen.add(t)
+                    deduped.append(t)
+            cursor.execute(
+                "UPDATE vault_documents SET tags = ? WHERE path = ?",
+                (", ".join(deduped), doc_path),
+            )
+            v_updated += 1
+
+    from Evelyn.tools import taxonomy_db
+    taxonomy_db.invalidate_alias_cache()
+
+    logger.info(
+        "[MIGRATION 270] Flipped acronym/singular inversions, liberated 12 concepts, updated %d vault_documents.",
+        v_updated,
+    )
+
+
+def migrate_000_006_270_acronym_primacy_and_inversions_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.270: Synchronize context_entries.tags and procedures.tags with acronym primacy."""
+    cursor = conn.cursor()
+
+    token_map = {
+        "artificial-intelligence": "ai",
+        "virtual-reality": "vr",
+        "augmented-reality": "ar",
+        "boundaries": "boundary",
+        "musical-compositions": "musical-composition",
+        "automata": "automaton",
+    }
+
+    # 1. Update context_entries
+    entries = cursor.execute(
+        "SELECT id, tags FROM context_entries WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall()
+    m_updated = 0
+    for entry_id, raw_tags in entries:
+        tokens = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        new_tokens = [token_map.get(t, t) for t in tokens]
+        if new_tokens != tokens:
+            deduped_m: list[str] = []
+            seen_m: set[str] = set()
+            for t in new_tokens:
+                if t and t not in seen_m:
+                    seen_m.add(t)
+                    deduped_m.append(t)
+            cursor.execute(
+                "UPDATE context_entries SET tags = ? WHERE id = ?",
+                (", ".join(deduped_m), entry_id),
+            )
+            m_updated += 1
+
+    # 2. Update procedures
+    procedures = cursor.execute(
+        "SELECT id, tags FROM procedures WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall()
+    p_updated = 0
+    for proc_id, raw_tags in procedures:
+        tokens = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        new_tokens = [token_map.get(t, t) for t in tokens]
+        if new_tokens != tokens:
+            deduped_p: list[str] = []
+            seen_p: set[str] = set()
+            for t in new_tokens:
+                if t and t not in seen_p:
+                    seen_p.add(t)
+                    deduped_p.append(t)
+            cursor.execute(
+                "UPDATE procedures SET tags = ? WHERE id = ?",
+                (", ".join(deduped_p), proc_id),
+            )
+            p_updated += 1
+
+    logger.info(
+        "[MIGRATION 270] Synchronized memory tags: %d context_entries, %d procedures.",
+        m_updated,
+        p_updated,
+    )
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -6355,6 +6598,20 @@ MIGRATIONS: list[Migration] = [
         name="sever_false_aliases_and_loops",
         up_fn=migrate_000_006_269_sever_false_aliases_and_loops,
         post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.270",
+        name="acronym_primacy_and_inversions_vault",
+        up_fn=migrate_000_006_270_acronym_primacy_and_inversions_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.270",
+        name="acronym_primacy_and_inversions_memory",
+        up_fn=migrate_000_006_270_acronym_primacy_and_inversions_memory,
+        post_sync_chroma=False,
     ),
 ]
 
