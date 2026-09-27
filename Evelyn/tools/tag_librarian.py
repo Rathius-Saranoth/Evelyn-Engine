@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-26 17:20:01
+# date modified: 2026-09-27 08:48:52
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -326,10 +326,30 @@ def _extract_chunk_subjects(chunk: str, title: str) -> list[str]:
     Returns:
         list[str]: Lowercase subject phrases, empty on any failure.
     """
+    # "List the distinct subjects this text covers" is a noun-phrase extractor, and that is
+    # what it was doing: `Arby's` yielded `curly fries`, `Elden Ring` yielded `journaling` and
+    # `data taxonomy` off its own citation lines, `Tyler Bates` yielded five ways of saying
+    # film composer. Nothing in it distinguished what a document is *about* from what it
+    # mentions once.
+    #
+    # The rules below are not new policy. They are what vault-tag-taxonomy.md already decided,
+    # finally stated where the model can act on it: §6.3.3 (a category is earned in the prose,
+    # not by a passing mention), §3.3 (one concept one tag, no pre-composition — the vocabulary
+    # recombines at query time), and §2 (proper nouns are never tags; a named individual gets a
+    # note). Measured over 12 random notes: 81 phrases before, 27 after.
     system = (
-        "List the distinct subjects this text covers. Output ONLY a JSON array of short "
-        'lowercase noun phrases, e.g. ["floodplain management", "drone operations"]. '
-        "No commentary. If the text covers one subject, return one item."
+        "Name what this document is ABOUT — the subjects a reader would be satisfied to "
+        "find it filed under.\n"
+        "- A thing mentioned once, in passing, or only as a comparison is NOT a subject.\n"
+        "- Ignore the document's own furniture: citations, reference lists, the names of "
+        "notes it links to, and the journals that mention it.\n"
+        "- Do not give several near-synonyms for one subject. Pick the single best term.\n"
+        "- Give the plain concept, not a compound: 'exercise' and 'routine' separately, "
+        "never 'exercise routine'.\n"
+        "- Never name a person, place, company, product or title. Those are not subjects.\n"
+        "- Most documents have one to three subjects. Return fewer rather than padding.\n"
+        'Output ONLY a JSON array of short lowercase noun phrases, e.g. ["floodplain '
+        'management", "drone operations"]. No commentary.'
     )
     try:
         raw = _canonical_query_ollama(

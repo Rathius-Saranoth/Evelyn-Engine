@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 07:29:06
+date modified: 2026-09-27 08:48:53
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,41 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.264] - 2026-09-27 — *About, Not Mentioned*
+
+### Fixed
+
+- **Subject extraction asks what a document is about, not what it mentions.** The instruction
+  was *"List the distinct subjects this text covers"* — a noun-phrase extractor. It was
+  behaving correctly: `Arby's` yielded `curly fries`, `Elden Ring` yielded `journaling` and
+  `data taxonomy` off its own citation lines, `Tyler Bates` yielded five ways of saying film
+  composer. Nothing in it separated aboutness from mention, so the largest producer in the
+  pipeline was nominating most of the nouns in every note it read.
+
+  The replacement states no new policy. It states what `vault-tag-taxonomy.md` had already
+  decided and the prompt had never been told: **§6.3.3** (a category is earned in the prose,
+  not by a passing mention), **§3.3** (one concept, one tag — the vocabulary recombines at
+  query time, so no pre-composed compounds), and **§2** (proper nouns are never subjects).
+  Plus two practical rules: ignore the document's own citation furniture, and do not return
+  several near-synonyms for one subject.
+
+  Measured over 12 random notes: **81 phrases before, 27 after — 67% fewer**, with the
+  survivors being the right ones.
+
+```
+Arby's       curly fries, dining establishments, fast food        ->  fast food
+Elden Ring   video games, game mechanics, dark souls, teyvat,     ->  video games
+             greedfall, data taxonomy, journaling
+Tyler Bates  film scoring, musical composition, orchestral        ->  film scoring, composition
+             music, vocal performance, musical aesthetics
+```
+
+### Notes
+
+- 3,394 of 4,381 vault documents have never been through this pass. At the old rate the
+  remaining backlog projected to roughly 475 further admission proposals; at the new one it
+  is nearer 155.
 
 ## [000.006.263] - 2026-09-27 — *Terms Arrive In Batches, Not Alone*
 
