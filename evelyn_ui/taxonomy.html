@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evelyn Taxonomy & Vocabulary Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #07090e;
+      --bg-surface: #0e131f;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-glow: rgba(99, 102, 241, 0.2);
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.2);
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Navigation Header */
+    header {
+      background: rgba(14, 19, 31, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      font-size: 24px;
+      filter: drop-shadow(0 0 8px var(--primary-glow));
+    }
+
+    .brand-text h1 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .stat-pill-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+    }
+
+    .stat-pill b {
+      color: #fff;
+      font-family: var(--font-mono);
+    }
+
+    .stat-pill.pill-primary { border-color: rgba(99, 102, 241, 0.3); }
+    .stat-pill.pill-primary b { color: var(--cyan); }
+    .stat-pill.pill-amber { border-color: rgba(245, 158, 11, 0.3); }
+    .stat-pill.pill-amber b { color: var(--amber); }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), #4338ca);
+      border-color: rgba(99, 102, 241, 0.4);
+      box-shadow: 0 0 12px var(--primary-glow);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #4f46e5, #3730a3);
+      border-color: var(--primary);
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+
+    /* Main Grid Layout */
+    .workspace {
+      display: grid;
+      grid-template-columns: 340px 1fr 380px;
+      flex: 1;
+      height: calc(100vh - 61px);
+      overflow: hidden;
+    }
+
+    /* Left Sidebar: Navigator & Trees */
+    .sidebar {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .search-dock {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .search-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 32px 8px 12px;
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 8px var(--primary-glow);
+    }
+
+    .search-clear {
+      position: absolute;
+      right: 10px;
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 14px;
+      display: none;
+    }
+
+    .nav-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 3px;
+      border-radius: 8px;
+    }
+
+    .nav-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    .nav-tab-btn:hover {
+      color: var(--text-main);
+    }
+
+    .nav-tab-btn.active {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--cyan);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .tree-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+
+    .tree-group {
+      margin-bottom: 6px;
+    }
+
+    .tree-node-parent {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      user-select: none;
+    }
+
+    .tree-node-parent:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .tree-node-parent.selected {
+      background: rgba(99, 102, 241, 0.15);
+      border-left: 3px solid var(--primary);
+    }
+
+    .node-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: #e2e8f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .node-chevron {
+      color: var(--text-dim);
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+
+    .node-chevron.expanded {
+      transform: rotate(90deg);
+      color: var(--cyan);
+    }
+
+    .tree-children {
+      margin-left: 18px;
+      border-left: 1px dashed rgba(255, 255, 255, 0.1);
+      padding-left: 8px;
+      display: none;
+    }
+
+    .tree-children.visible {
+      display: block;
+    }
+
+    .tree-node-child {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .tree-node-child:hover {
+      background: rgba(255, 255, 255, 0.04);
+      color: #fff;
+    }
+
+    .tree-node-child.selected {
+      background: rgba(99, 102, 241, 0.15);
+      color: #fff;
+      border-left: 2px solid var(--primary);
+    }
+
+    .badge-count {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-dim);
+      font-size: 10px;
+      font-family: var(--font-mono);
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+
+    /* Center Panel: Inspector & Neighborhood */
+    .inspector {
+      background: var(--bg-base);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 28px;
+      position: relative;
+    }
+
+    .inspector-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      color: var(--text-dim);
+      text-align: center;
+      gap: 12px;
+    }
+
+    .inspector-header {
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+    }
+
+    .term-title-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .term-title {
+      font-family: var(--font-mono);
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+
+    .term-tag-badge {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-canonical {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-alias {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-root {
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 16px;
+      backdrop-filter: blur(12px);
+    }
+
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .chip-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #e2e8f0;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .chip:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+
+    .chip-broader {
+      border-color: rgba(99, 102, 241, 0.4);
+      background: rgba(99, 102, 241, 0.08);
+    }
+
+    .chip-narrower {
+      border-color: rgba(6, 182, 212, 0.4);
+      background: rgba(6, 182, 212, 0.08);
+    }
+
+    .chip-alias {
+      border-color: rgba(245, 158, 11, 0.4);
+      background: rgba(245, 158, 11, 0.08);
+      color: var(--amber);
+    }
+
+    .chip-del {
+      color: var(--text-dim);
+      font-size: 12px;
+      cursor: pointer;
+      padding-left: 4px;
+    }
+
+    .chip-del:hover {
+      color: var(--rose);
+    }
+
+    /* Right Panel: Authority & Tools Dock */
+    .toolbox {
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 20px;
+      gap: 20px;
+    }
+
+    .tool-section-title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .authority-results {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .authority-item {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .authority-item:hover {
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    .authority-heading {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .authority-atom {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--cyan);
+    }
+
+    .authority-variants {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .variant-pill {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      color: var(--amber);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Modals & Toasts */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: slideUp 0.2s ease-out;
+    }
+
+    .toast-success { border-color: var(--emerald); }
+    .toast-error { border-color: var(--rose); }
+
+    @keyframes slideUp {
+      from { transform: translateY(12px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      z-index: 90;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 440px;
+      max-width: 90vw;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal h3 {
+      font-family: var(--font-display);
+      font-size: 17px;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .form-control {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .form-control:focus {
+      border-color: var(--primary);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🪐</div>
+      <div class="brand-text">
+        <h1>Taxonomy & Hierarchy Explorer</h1>
+        <p>Dynamic Post-Coordinate Subject Hierarchies & Authority Control</p>
+      </div>
+    </div>
+
+    <div class="stat-pill-group">
+      <div class="stat-pill pill-primary">
+        <span>Atoms:</span>
+        <b id="stat-terms">—</b>
+      </div>
+      <div class="stat-pill">
+        <span>Root Trees:</span>
+        <b id="stat-roots">—</b>
+      </div>
+      <div class="stat-pill pill-amber">
+        <span>Aliases:</span>
+        <b id="stat-aliases">—</b>
+      </div>
+      <div class="stat-pill">
+        <span>Relations:</span>
+        <b id="stat-relations">—</b>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <button class="btn btn-sm" onclick="loadGraphData(true)">⟳ Refresh</button>
+      <a href="/ui/dev.html" class="btn btn-sm">⚙️ Dev Dashboard</a>
+      <a href="/ui/" class="btn btn-sm">💬 Chat</a>
+    </div>
+  </header>
+
+  <!-- 3-Column Workspace -->
+  <div class="workspace">
+
+    <!-- Left Column: Tree & Navigator -->
+    <div class="sidebar">
+      <div class="search-dock">
+        <div class="search-input-wrap">
+          <input type="text" id="tag-search" class="search-input" placeholder="Search tags, aliases, concepts... (/)">
+          <span id="search-clear" class="search-clear" onclick="clearSearch()">✕</span>
+        </div>
+        <div class="nav-tabs">
+          <button class="nav-tab-btn active" data-mode="trees" onclick="setNavMode('trees')">🌳 Trees</button>
+          <button class="nav-tab-btn" data-mode="peers" onclick="setNavMode('peers')">⚡ Peers</button>
+          <button class="nav-tab-btn" data-mode="all" onclick="setNavMode('all')">🔤 All</button>
+          <button class="nav-tab-btn" data-mode="aliases" onclick="setNavMode('aliases')">🔀 Aliases</button>
+        </div>
+      </div>
+
+      <div class="tree-scroll" id="nav-list-container">
+        <!-- Rendered dynamically -->
+        <div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">
+          Loading taxonomy graph...
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Column: Inspector & Graph Neighborhood -->
+    <div class="inspector" id="inspector-panel">
+      <div class="inspector-empty" id="inspector-empty">
+        <div style="font-size: 36px; opacity: 0.4;">🏷️</div>
+        <h2 style="font-family: var(--font-display); font-size: 18px; color: var(--text-muted);">Select a Tag or Concept</h2>
+        <p style="font-size: 13px; max-width: 320px;">Browse the hierarchy trees on the left or search for any concept to inspect its parent, children, and aliases.</p>
+      </div>
+
+      <div id="inspector-content" style="display: none;">
+        <!-- Header -->
+        <div class="inspector-header">
+          <div>
+            <div class="term-title-row">
+              <span class="term-title" id="insp-tag-name">concept</span>
+              <span class="term-tag-badge badge-canonical" id="insp-type-badge">CANONICAL</span>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+              <span style="font-size: 12px; color: var(--text-dim);">Obsidian & Memory Usage:</span>
+              <span class="badge-count" style="font-size: 11px;" id="insp-usage-count">0 notes/facts</span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-sm" onclick="openRelateModal()">+ Add Relation</button>
+            <button class="btn btn-sm" onclick="searchAuthorityFromInspector()">🏛️ Search LOC</button>
+          </div>
+        </div>
+
+        <!-- Broader Parent Card -->
+        <div class="card" id="card-broader">
+          <div class="card-title">
+            <span>⬆️ Broader Term (Parent Concept)</span>
+            <span style="font-size: 11px; color: var(--text-dim);">Traces upward to macro-category</span>
+          </div>
+          <div id="insp-broader-container" class="chip-cloud">
+            <span style="color: var(--text-dim); font-size: 12.5px;">Root Concept (Top of this hierarchy tree)</span>
+          </div>
+        </div>
+
+        <!-- Narrower Children Card -->
+        <div class="card" id="card-narrower">
+          <div class="card-title">
+            <span>⬇️ Narrower Terms (Child Specializations)</span>
+            <span class="badge-count" id="insp-children-count">0</span>
+          </div>
+          <div id="insp-narrower-container" class="chip-cloud">
+            <span style="color: var(--text-dim); font-size: 12.5px;">No narrower child terms recorded.</span>
+          </div>
+        </div>
+
+        <!-- Related Peers Card -->
+        <div class="card" id="card-related">
+          <div class="card-title">
+            <span>🔗 Related Concepts (Associative Peers)</span>
+            <span class="badge-count" id="insp-related-count">0</span>
+          </div>
+          <div id="insp-related-container" class="chip-cloud">
+            <span style="color: var(--text-dim); font-size: 12.5px;">No associative peer terms linked.</span>
+          </div>
+        </div>
+
+        <!-- Incoming Aliases Card -->
+        <div class="card" id="card-aliases">
+          <div class="card-title">
+            <span>🔀 Equivalent Aliases (Redirects Here)</span>
+            <span class="badge-count" id="insp-aliases-count">0</span>
+          </div>
+          <div id="insp-aliases-container" class="chip-cloud">
+            <span style="color: var(--text-dim); font-size: 12.5px;">No recorded aliases point to this term.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Toolbox & Authority Dock -->
+    <div class="toolbox">
+      <!-- Authority Lookup Dock -->
+      <div>
+        <div class="tool-section-title">
+          <span>🏛️ Library of Congress & FAST Authority</span>
+        </div>
+        <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">
+          Search institutional subject headings (`id.loc.gov`) and promote standardized preferred terms and variants.
+        </p>
+
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="authority-search-input" class="form-control" placeholder="Search authority (e.g. sleep apnea)..." style="flex: 1;">
+          <button class="btn btn-primary btn-sm" onclick="runAuthoritySearch()">Search</button>
+        </div>
+
+        <div class="authority-results" id="authority-results-box">
+          <!-- Live results populated here -->
+        </div>
+      </div>
+
+      <!-- Quick Relationship Linker -->
+      <div style="border-top: 1px solid var(--border); padding-top: 18px;">
+        <div class="tool-section-title">
+          <span>🔗 Quick Relationship Linker</span>
+        </div>
+        <div class="form-group">
+          <label>Specific Concept (Child / Term A):</label>
+          <input type="text" id="link-term-a" class="form-control" placeholder="e.g. git">
+        </div>
+        <div class="form-group">
+          <label>Relationship Type:</label>
+          <select id="link-kind" class="form-control">
+            <option value="narrower">Narrower than (Term A is a kind of Term B)</option>
+            <option value="related">Related to (Associative peers)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Broader Concept / Target (Term B):</label>
+          <input type="text" id="link-term-b" class="form-control" placeholder="e.g. version-control">
+        </div>
+        <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 4px;" onclick="saveQuickRelation()">
+          Record Relationship
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-box"></div>
+
+  <!-- Relationship Modal -->
+  <div class="modal-overlay" id="relation-modal">
+    <div class="modal">
+      <h3 id="modal-title">Link Concept</h3>
+      <div class="form-group">
+        <label>Current Term:</label>
+        <input type="text" id="modal-term-a" class="form-control" readonly>
+      </div>
+      <div class="form-group">
+        <label>Relationship Type:</label>
+        <select id="modal-rel-kind" class="form-control">
+          <option value="narrower">Narrower than (Current is kind of Target)</option>
+          <option value="broader">Broader than (Target is kind of Current)</option>
+          <option value="related">Related to (Associative peers)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Target Term:</label>
+        <input type="text" id="modal-term-b" class="form-control" placeholder="Type target term...">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
+        <button class="btn" onclick="closeRelateModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitRelateModal()">Save Relation</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    let apiKey = localStorage.getItem('evelyn_api_key') || '';
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      if (apiKey) h['X-API-Key'] = apiKey;
+      return h;
+    }
+
+    // App State
+    let rawGraph = null;
+    let terms = [];
+    let aliases = [];
+    let relations = [];
+    let roots = [];
+
+    let termMap = new Map();
+    let aliasMap = new Map();         // canonical -> list of aliases
+    let reverseAliasMap = new Map();  // alias -> canonical
+    let parentMap = new Map();        // child -> broader parent
+    let childrenMap = new Map();      // parent -> list of narrower children
+    let relatedMap = new Map();       // term -> list of related terms
+
+    let navMode = 'trees';            // 'trees' | 'peers' | 'all' | 'aliases'
+    let selectedTag = null;
+    let searchQuery = '';
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', () => {
+      // Hotkey for search
+      window.addEventListener('keydown', (e) => {
+        if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+          e.preventDefault();
+          document.getElementById('tag-search').focus();
+        }
+      });
+
+      document.getElementById('tag-search').addEventListener('input', (e) => {
+        searchQuery = e.target.value.trim().toLowerCase();
+        document.getElementById('search-clear').style.display = searchQuery ? 'block' : 'none';
+        renderNavList();
+      });
+
+      document.getElementById('authority-search-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') runAuthoritySearch();
+      });
+
+      loadGraphData();
+    });
+
+    function showToast(message, isError = false) {
+      const box = document.getElementById('toast-box');
+      const toast = document.createElement('div');
+      toast.className = `toast ${isError ? 'toast-error' : 'toast-success'}`;
+      toast.innerHTML = `<span>${isError ? '⚠️' : '✓'}</span> <span>${escapeHtml(message)}</span>`;
+      box.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = 'all 0.3s';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function clearSearch() {
+      document.getElementById('tag-search').value = '';
+      searchQuery = '';
+      document.getElementById('search-clear').style.display = 'none';
+      renderNavList();
+    }
+
+    function setNavMode(mode) {
+      navMode = mode;
+      document.querySelectorAll('.nav-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+      renderNavList();
+    }
+
+    // Load graph data from backend
+    async function loadGraphData(forceToast = false) {
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/graph`, { headers: headers() });
+        if (res.status === 401 || res.status === 403) {
+          const key = prompt('Please enter your Evelyn API Key:');
+          if (key) {
+            apiKey = key.trim();
+            localStorage.setItem('evelyn_api_key', apiKey);
+            return loadGraphData(forceToast);
+          }
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        rawGraph = await res.json();
+        processGraphData();
+        renderNavList();
+        if (selectedTag) selectTag(selectedTag);
+        if (forceToast) showToast('Taxonomy graph refreshed.');
+      } catch (err) {
+        showToast('Failed to load taxonomy graph: ' + err.message, true);
+      }
+    }
+
+    function processGraphData() {
+      terms = rawGraph.terms || [];
+      aliases = rawGraph.aliases || [];
+      relations = rawGraph.relations || [];
+      roots = rawGraph.roots || [];
+
+      // Update Header Stats
+      document.getElementById('stat-terms').textContent = (rawGraph.stats.total_terms || terms.length).toLocaleString();
+      document.getElementById('stat-roots').textContent = (rawGraph.stats.total_roots || roots.length).toLocaleString();
+      document.getElementById('stat-aliases').textContent = (rawGraph.stats.total_aliases || aliases.length).toLocaleString();
+      document.getElementById('stat-relations').textContent = (rawGraph.stats.total_relations || relations.length).toLocaleString();
+
+      // Clear Lookups
+      termMap.clear();
+      aliasMap.clear();
+      reverseAliasMap.clear();
+      parentMap.clear();
+      childrenMap.clear();
+      relatedMap.clear();
+
+      for (const t of terms) {
+        termMap.set(t.tag, t);
+      }
+
+      for (const a of aliases) {
+        reverseAliasMap.set(a.alias, a.canonical);
+        if (!aliasMap.has(a.canonical)) aliasMap.set(a.canonical, []);
+        aliasMap.get(a.canonical).push(a);
+      }
+
+      for (const r of relations) {
+        if (r.kind === 'narrower') {
+          // term_a is narrower than term_b (term_b is parent)
+          parentMap.set(r.term_a, r.term_b);
+          if (!childrenMap.has(r.term_b)) childrenMap.set(r.term_b, []);
+          childrenMap.get(r.term_b).push(r.term_a);
+        } else if (r.kind === 'related') {
+          if (!relatedMap.has(r.term_a)) relatedMap.set(r.term_a, []);
+          relatedMap.get(r.term_a).push(r.term_b);
+          if (!relatedMap.has(r.term_b)) relatedMap.set(r.term_b, []);
+          relatedMap.get(r.term_b).push(r.term_a);
+        }
+      }
+    }
+
+    // Render Navigation List based on current Mode
+    function renderNavList() {
+      const container = document.getElementById('nav-list-container');
+      container.innerHTML = '';
+
+      if (navMode === 'trees') {
+        renderTreeMode(container);
+      } else if (navMode === 'peers') {
+        renderPeersMode(container);
+      } else if (navMode === 'all') {
+        renderAllMode(container);
+      } else if (navMode === 'aliases') {
+        renderAliasesMode(container);
+      }
+    }
+
+    // Mode 1: Hierarchy Trees (Roots & Branches)
+    function renderTreeMode(container) {
+      let filteredRoots = roots;
+      if (searchQuery) {
+        // Find all matching tags
+        const matchingTags = new Set(
+          terms.filter(t => t.tag.includes(searchQuery)).map(t => t.tag)
+        );
+        // Include roots that match, or roots whose descendants match
+        filteredRoots = roots.filter(root => {
+          if (matchingTags.has(root)) return true;
+          const kids = getAllDescendants(root);
+          return kids.some(k => matchingTags.has(k));
+        });
+      }
+
+      if (filteredRoots.length === 0) {
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No hierarchy trees found.</div>`;
+        return;
+      }
+
+      for (const root of filteredRoots) {
+        const group = document.createElement('div');
+        group.className = 'tree-group';
+
+        const children = childrenMap.get(root) || [];
+        const isSelected = selectedTag === root;
+        const hasChildren = children.length > 0;
+        const autoExpand = Boolean(searchQuery);
+
+        group.innerHTML = `
+          <div class="tree-node-parent ${isSelected ? 'selected' : ''}" data-tag="${escapeAttr(root)}" onclick="handleNodeClick('${escapeAttr(root)}', event)">
+            <div class="node-label">
+              ${hasChildren ? `<span class="node-chevron ${autoExpand ? 'expanded' : ''}" id="chev-${escapeAttr(root)}">▶</span>` : '<span style="width: 10px;"></span>'}
+              <span>${highlightText(root, searchQuery)}</span>
+            </div>
+            <span class="badge-count">${children.length ? children.length + ' kids' : (termMap.get(root)?.usage_count || 0)}</span>
+          </div>
+          ${hasChildren ? `<div class="tree-children ${autoExpand ? 'visible' : ''}" id="kids-${escapeAttr(root)}">
+            ${children.map(child => `
+              <div class="tree-node-child ${selectedTag === child ? 'selected' : ''}" data-tag="${escapeAttr(child)}" onclick="selectTag('${escapeAttr(child)}')">
+                <span>${highlightText(child, searchQuery)}</span>
+                <span class="badge-count">${termMap.get(child)?.usage_count || 0}</span>
+              </div>
+            `).join('')}
+          </div>` : ''}
+        `;
+
+        container.appendChild(group);
+      }
+    }
+
+    function getAllDescendants(term) {
+      const descendants = [];
+      const stack = [...(childrenMap.get(term) || [])];
+      while (stack.length) {
+        const curr = stack.pop();
+        descendants.push(curr);
+        const next = childrenMap.get(curr) || [];
+        for (const n of next) stack.push(n);
+      }
+      return descendants;
+    }
+
+    function handleNodeClick(tag, event) {
+      const chev = document.getElementById(`chev-${tag}`);
+      const kids = document.getElementById(`kids-${tag}`);
+      if (kids) {
+        const isVisible = kids.classList.contains('visible');
+        kids.classList.toggle('visible', !isVisible);
+        if (chev) chev.classList.toggle('expanded', !isVisible);
+      }
+      selectTag(tag);
+    }
+
+    // Mode 2: Peer Atoms (Independent tags without parent or children)
+    function renderPeersMode(container) {
+      const peers = terms.filter(t => !parentMap.has(t.tag) && (!childrenMap.has(t.tag) || childrenMap.get(t.tag).length === 0));
+      const filtered = searchQuery ? peers.filter(p => p.tag.includes(searchQuery)) : peers;
+
+      if (!filtered.length) {
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No peer tags found.</div>`;
+        return;
+      }
+
+      for (const p of filtered) {
+        const row = document.createElement('div');
+        row.className = `tree-node-parent ${selectedTag === p.tag ? 'selected' : ''}`;
+        row.onclick = () => selectTag(p.tag);
+        row.innerHTML = `
+          <div class="node-label">
+            <span style="color: var(--cyan); font-size: 10px;">⚡</span>
+            <span>${highlightText(p.tag, searchQuery)}</span>
+          </div>
+          <span class="badge-count">${p.usage_count || 0}</span>
+        `;
+        container.appendChild(row);
+      }
+    }
+
+    // Mode 3: All Canonical Tags (A-Z)
+    function renderAllMode(container) {
+      const filtered = searchQuery ? terms.filter(t => t.tag.includes(searchQuery)) : terms;
+      if (!filtered.length) {
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No tags match query.</div>`;
+        return;
+      }
+
+      for (const t of filtered) {
+        const row = document.createElement('div');
+        row.className = `tree-node-parent ${selectedTag === t.tag ? 'selected' : ''}`;
+        row.onclick = () => selectTag(t.tag);
+        row.innerHTML = `
+          <div class="node-label">
+            <span>${highlightText(t.tag, searchQuery)}</span>
+          </div>
+          <span class="badge-count">${t.usage_count || 0}</span>
+        `;
+        container.appendChild(row);
+      }
+    }
+
+    // Mode 4: Aliases & Equivalences
+    function renderAliasesMode(container) {
+      const filtered = searchQuery
+        ? aliases.filter(a => a.alias.includes(searchQuery) || a.canonical.includes(searchQuery))
+        : aliases;
+
+      if (!filtered.length) {
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px;">No aliases found.</div>`;
+        return;
+      }
+
+      for (const a of filtered) {
+        const row = document.createElement('div');
+        row.className = `tree-node-parent ${selectedTag === a.canonical ? 'selected' : ''}`;
+        row.onclick = () => selectTag(a.canonical);
+        row.innerHTML = `
+          <div class="node-label" style="font-size: 12px;">
+            <span style="color: var(--amber);">${highlightText(a.alias, searchQuery)}</span>
+            <span style="color: var(--text-dim); font-size: 10px;">➔</span>
+            <span style="color: #fff;">${highlightText(a.canonical, searchQuery)}</span>
+          </div>
+          <span class="stat-pill pill-amber" style="padding: 1px 6px; font-size: 9px;">${a.tier}</span>
+        `;
+        container.appendChild(row);
+      }
+    }
+
+    // Inspector Detail Pane
+    function selectTag(tag) {
+      selectedTag = tag;
+      document.querySelectorAll('.tree-node-parent, .tree-node-child').forEach(el => {
+        el.classList.toggle('selected', el.dataset.tag === tag);
+      });
+
+      const empty = document.getElementById('inspector-empty');
+      const content = document.getElementById('inspector-content');
+      empty.style.display = 'none';
+      content.style.display = 'block';
+
+      const isCanonical = termMap.has(tag);
+      const tInfo = termMap.get(tag) || { tag: tag, usage_count: 0 };
+
+      document.getElementById('insp-tag-name').textContent = tag;
+      document.getElementById('insp-usage-count').textContent = `${tInfo.usage_count || 0} notes/facts`;
+
+      const typeBadge = document.getElementById('insp-type-badge');
+      if (roots.includes(tag)) {
+        typeBadge.textContent = 'ROOT TREE';
+        typeBadge.className = 'term-tag-badge badge-root';
+      } else if (isCanonical) {
+        typeBadge.textContent = 'CANONICAL';
+        typeBadge.className = 'term-tag-badge badge-canonical';
+      } else {
+        typeBadge.textContent = 'ALIAS';
+        typeBadge.className = 'term-tag-badge badge-alias';
+      }
+
+      // 1. Broader Parent
+      const broaderContainer = document.getElementById('insp-broader-container');
+      const parent = parentMap.get(tag);
+      if (parent) {
+        broaderContainer.innerHTML = `
+          <div class="chip chip-broader" onclick="selectTag('${escapeAttr(parent)}')">
+            <span>⬆️ ${escapeHtml(parent)}</span>
+            <span class="chip-del" title="Unlink parent" onclick="event.stopPropagation(); deleteRelation('${escapeAttr(tag)}', '${escapeAttr(parent)}')">✕</span>
+          </div>
+        `;
+      } else {
+        broaderContainer.innerHTML = `<span style="color: var(--text-dim); font-size: 12.5px;">Root Concept (Top of this hierarchy branch)</span>`;
+      }
+
+      // 2. Narrower Children
+      const narrowerContainer = document.getElementById('insp-narrower-container');
+      const children = childrenMap.get(tag) || [];
+      document.getElementById('insp-children-count').textContent = children.length;
+      if (children.length) {
+        narrowerContainer.innerHTML = children.map(ch => `
+          <div class="chip chip-narrower" onclick="selectTag('${escapeAttr(ch)}')">
+            <span>⬇️ ${escapeHtml(ch)}</span>
+            <span class="chip-del" title="Unlink child" onclick="event.stopPropagation(); deleteRelation('${escapeAttr(ch)}', '${escapeAttr(tag)}')">✕</span>
+          </div>
+        `).join('');
+      } else {
+        narrowerContainer.innerHTML = `<span style="color: var(--text-dim); font-size: 12.5px;">No narrower child terms recorded.</span>`;
+      }
+
+      // 3. Related Peers
+      const relatedContainer = document.getElementById('insp-related-container');
+      const related = relatedMap.get(tag) || [];
+      document.getElementById('insp-related-count').textContent = related.length;
+      if (related.length) {
+        relatedContainer.innerHTML = related.map(rel => `
+          <div class="chip" onclick="selectTag('${escapeAttr(rel)}')">
+            <span>🔗 ${escapeHtml(rel)}</span>
+            <span class="chip-del" title="Unlink peer" onclick="event.stopPropagation(); deleteRelation('${escapeAttr(tag)}', '${escapeAttr(rel)}')">✕</span>
+          </div>
+        `).join('');
+      } else {
+        relatedContainer.innerHTML = `<span style="color: var(--text-dim); font-size: 12.5px;">No associative peer terms linked.</span>`;
+      }
+
+      // 4. Aliases
+      const aliasContainer = document.getElementById('insp-aliases-container');
+      const termAliases = aliasMap.get(tag) || [];
+      document.getElementById('insp-aliases-count').textContent = termAliases.length;
+      if (termAliases.length) {
+        aliasContainer.innerHTML = termAliases.map(al => `
+          <div class="chip chip-alias">
+            <span>🔀 ${escapeHtml(al.alias)}</span>
+            <button class="btn btn-sm" style="padding: 1px 6px; font-size: 10px; margin-left: 4px;" title="Flip: make this alias the canonical tag" onclick="flipAlias('${escapeAttr(al.alias)}', '${escapeAttr(tag)}')">Flip ⇄</button>
+            <button class="btn btn-sm" style="padding: 1px 6px; font-size: 10px;" title="Sever: make both independent canonical tags" onclick="severAlias('${escapeAttr(al.alias)}')">Sever</button>
+          </div>
+        `).join('');
+      } else {
+        aliasContainer.innerHTML = `<span style="color: var(--text-dim); font-size: 12.5px;">No recorded aliases point to this term.</span>`;
+      }
+
+      // Sync Quick Linker inputs
+      document.getElementById('link-term-a').value = tag;
+    }
+
+    // Actions & API Calls
+    async function deleteRelation(termA, termB) {
+      if (!confirm(`Remove relationship between "${termA}" and "${termB}"?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/relation`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ term_a: termA, term_b: termB, kind: 'delete' })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast(`Removed relationship between ${termA} and ${termB}`);
+        await loadGraphData();
+      } catch (err) {
+        showToast('Error removing relation: ' + err.message, true);
+      }
+    }
+
+    async function flipAlias(alias, canonical) {
+      if (!confirm(`Flip directionality?\n\n"${alias}" will become the primary canonical tag.\n"${canonical}" will become the alias redirecting to it.`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/alias/flip`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ alias: alias, canonical: canonical })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast(`Flipped: "${alias}" is now canonical!`);
+        selectedTag = alias;
+        await loadGraphData();
+      } catch (err) {
+        showToast('Error flipping alias: ' + err.message, true);
+      }
+    }
+
+    async function severAlias(alias) {
+      if (!confirm(`Sever alias "${alias}"?\n\nBoth terms will exist independently in the taxonomy as distinct concepts.`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/alias/sever`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ alias: alias })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast(`Severed "${alias}" into an independent tag!`);
+        selectedTag = alias;
+        await loadGraphData();
+      } catch (err) {
+        showToast('Error severing alias: ' + err.message, true);
+      }
+    }
+
+    async function saveQuickRelation() {
+      const termA = document.getElementById('link-term-a').value.trim().toLowerCase();
+      const termB = document.getElementById('link-term-b').value.trim().toLowerCase();
+      const kind = document.getElementById('link-kind').value;
+
+      if (!termA || !termB || termA === termB) {
+        showToast('Please specify two distinct terms.', true);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/relation`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ term_a: termA, term_b: termB, kind: kind })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast(`Recorded: ${termA} --(${kind})--> ${termB}`);
+        await loadGraphData();
+        selectTag(termA);
+      } catch (err) {
+        showToast('Error recording relation: ' + err.message, true);
+      }
+    }
+
+    // Modal
+    function openRelateModal() {
+      if (!selectedTag) return;
+      document.getElementById('modal-term-a').value = selectedTag;
+      document.getElementById('modal-term-b').value = '';
+      document.getElementById('relation-modal').style.display = 'flex';
+      document.getElementById('modal-term-b').focus();
+    }
+
+    function closeRelateModal() {
+      document.getElementById('relation-modal').style.display = 'none';
+    }
+
+    async function submitRelateModal() {
+      const termA = document.getElementById('modal-term-a').value.trim().toLowerCase();
+      const target = document.getElementById('modal-term-b').value.trim().toLowerCase();
+      const relMode = document.getElementById('modal-rel-kind').value;
+
+      if (!target || termA === target) {
+        showToast('Specify a valid target term.', true);
+        return;
+      }
+
+      let subA = termA;
+      let subB = target;
+      let kind = 'related';
+
+      if (relMode === 'narrower') {
+        subA = termA; // termA is narrower than target
+        subB = target;
+        kind = 'narrower';
+      } else if (relMode === 'broader') {
+        subA = target; // target is narrower than termA
+        subB = termA;
+        kind = 'narrower';
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/relation`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ term_a: subA, term_b: subB, kind: kind })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        closeRelateModal();
+        showToast(`Relation recorded between ${termA} and ${target}`);
+        await loadGraphData();
+        selectTag(termA);
+      } catch (err) {
+        showToast('Error recording relation: ' + err.message, true);
+      }
+    }
+
+    // Authority Search
+    function searchAuthorityFromInspector() {
+      if (!selectedTag) return;
+      document.getElementById('authority-search-input').value = selectedTag.replace(/-/g, ' ');
+      runAuthoritySearch();
+    }
+
+    async function runAuthoritySearch() {
+      const query = document.getElementById('authority-search-input').value.trim();
+      const resultsBox = document.getElementById('authority-results-box');
+      if (!query) return;
+
+      resultsBox.innerHTML = `<div style="color: var(--text-dim); font-size: 12px;">Searching Library of Congress & FAST...</div>`;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/authority/lookup?term=${encodeURIComponent(query)}`, {
+          headers: headers()
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const results = data.results || [];
+
+        if (!results.length) {
+          resultsBox.innerHTML = `<div style="color: var(--text-dim); font-size: 12px;">No authoritative headings found.</div>`;
+          return;
+        }
+
+        resultsBox.innerHTML = results.map(r => `
+          <div class="authority-item">
+            <div>
+              <div class="authority-heading">${escapeHtml(r.title)}</div>
+              <div class="authority-atom">#${escapeHtml(r.canonical_tag)}</div>
+            </div>
+            ${r.variants && r.variants.length ? `
+              <div style="font-size: 11px; color: var(--text-dim);">See-from (UF) aliases:</div>
+              <div class="authority-variants">
+                ${r.variants.slice(0, 6).map(v => `<span class="variant-pill">${escapeHtml(v)}</span>`).join('')}
+                ${r.variants.length > 6 ? `<span style="font-size: 10px; color: var(--text-dim);">+${r.variants.length - 6} more</span>` : ''}
+              </div>
+            ` : '<div style="font-size: 11px; color: var(--text-dim);">No variant aliases recorded.</div>'}
+            <button class="btn btn-primary btn-sm" style="align-self: flex-start; margin-top: 4px;" onclick='promoteAuthorityConcept(${JSON.stringify(r.canonical_tag)}, ${JSON.stringify(r.variants || [])})'>
+              Promote to Taxonomy
+            </button>
+          </div>
+        `).join('');
+      } catch (err) {
+        resultsBox.innerHTML = `<div style="color: var(--rose); font-size: 12px;">Lookup error: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function promoteAuthorityConcept(canonicalTag, variants) {
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/authority/promote`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ canonical_tag: canonicalTag, variants: variants })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast(`Promoted #${canonicalTag} and ${variants.length} aliases!`);
+        await loadGraphData();
+        selectTag(canonicalTag);
+      } catch (err) {
+        showToast('Error promoting authority term: ' + err.message, true);
+      }
+    }
+
+    // Utilities
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeAttr(str) {
+      if (!str) return '';
+      return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    function highlightText(text, query) {
+      if (!query) return escapeHtml(text);
+      const idx = text.toLowerCase().indexOf(query.toLowerCase());
+      if (idx === -1) return escapeHtml(text);
+      const before = escapeHtml(text.slice(0, idx));
+      const match = escapeHtml(text.slice(idx, idx + query.length));
+      const after = escapeHtml(text.slice(idx + query.length));
+      return `${before}<mark style="background: rgba(99, 102, 241, 0.4); color: #fff; padding: 0 2px; border-radius: 2px;">${match}</mark>${after}`;
+    }
+  </script>
+</body>
+</html>

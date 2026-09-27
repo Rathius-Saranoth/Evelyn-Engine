@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 15:38:49
+date modified: 2026-09-27 16:02:11
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,25 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.271] - 2026-09-27 — *Taxonomy Explorer & Hierarchy Graph UI*
+
+### Added
+
+- **Standalone Taxonomy & Hierarchy Explorer (`evelyn_ui/taxonomy.html`)**:
+  - Built a dedicated dashboard for visualizing and curating Evelyn's post-coordinate subject taxonomy, decoupling tag curation from the cluttered `dev.html`.
+  - **Dynamic Hierarchy Tree Navigator**: Computes top-level root concept trunks (`software-development`, `food`, `hardware`, `weather`, `pet`, etc.) and collapsible narrower branches directly from `master_tag_related`, abandoning stale static category strings.
+  - **Peer & Equivalence Browsing**: Dedicated views for standalone independent peer atoms (`controlnet`, `biometrics`) and active alias mappings with instant client-side search.
+  - **Interactive Neighborhood Inspector**: Displays broader parents, narrower children, related peers, and incoming aliases for any selected tag with one-click actions to reparent, link, sever, or flip directionality.
+  - **Live Library of Congress & FAST Authority Dock**: Real-time integration to query `id.loc.gov` subject headings and promote authoritative terms and variants into the local SQLite taxonomy.
+  - Connected direct cross-navigation between `dev.html` and `taxonomy.html`.
+- **FastAPI Taxonomy Graph & Relationship Endpoints**:
+  - `GET /api/taxonomy/graph`: Computes roots, relations, terms, and aliases in a single cached payload.
+  - `POST /api/taxonomy/relation`: Adds, modifies, or deletes hierarchical (`narrower`) and associative (`related`) term links.
+  - `POST /api/taxonomy/alias/flip`: Dynamically flips directionality between an alias and its canonical target.
+  - `POST /api/taxonomy/alias/sever`: Liberates an alias into an independent canonical atom.
+  - `GET /api/taxonomy/authority/lookup`: Proxies Library of Congress REST searches.
+  - `POST /api/taxonomy/authority/promote`: Promotes authority concepts and variants directly into SQLite.
 
 ## [000.006.270] - 2026-09-27 — *Acronym Primacy & Inversion Flips*
 

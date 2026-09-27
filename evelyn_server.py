@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-27 07:29:06
+# date modified: 2026-09-27 16:02:11
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -42,7 +42,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 _server_background_tasks: set[asyncio.Task] = set()
 
@@ -6393,6 +6393,234 @@ async def get_taxonomy_vocabulary(
         return payload
 
     return await asyncio.to_thread(_lookup)
+
+
+@app.get("/api/taxonomy/graph")
+async def get_taxonomy_graph(_: None = Depends(check_auth)):
+    """Return complete taxonomy graph: terms, aliases, relations, and computed root concepts."""
+    from Evelyn.tools import vault_db
+
+    def _build_graph():
+        vault_db.init_db()
+        con = vault_db.get_db()
+        try:
+            terms_rows = con.execute(
+                "SELECT tag, description, usage_count, protected FROM master_tag_taxonomy ORDER BY tag"
+            ).fetchall()
+            alias_rows = con.execute(
+                "SELECT alias, canonical, tier FROM master_tag_aliases ORDER BY alias"
+            ).fetchall()
+            rel_rows = con.execute(
+                "SELECT term_a, term_b, kind, weight, tier FROM master_tag_related ORDER BY term_a, term_b"
+            ).fetchall()
+
+            narrower_children = {r["term_a"] for r in rel_rows if r["kind"] == "narrower"}
+            narrower_parents = {r["term_b"] for r in rel_rows if r["kind"] == "narrower"}
+            roots = sorted(narrower_parents - narrower_children)
+
+            terms = [dict(r) for r in terms_rows]
+            aliases = [dict(r) for r in alias_rows]
+            relations = [dict(r) for r in rel_rows]
+
+            return {
+                "terms": terms,
+                "aliases": aliases,
+                "relations": relations,
+                "roots": roots,
+                "stats": {
+                    "total_terms": len(terms),
+                    "total_aliases": len(aliases),
+                    "total_relations": len(relations),
+                    "total_roots": len(roots),
+                },
+            }
+        finally:
+            con.close()
+
+    return await asyncio.to_thread(_build_graph)
+
+
+class TaxonomyRelationRequest(BaseModel):
+    """Pydantic model for updating taxonomy relationships."""
+
+    term_a: str
+    term_b: str
+    kind: str
+
+
+@app.post("/api/taxonomy/relation")
+async def update_taxonomy_relation(
+    req: TaxonomyRelationRequest, _: None = Depends(check_auth)
+):
+    """Add, update, or delete a relationship between two terms."""
+    from Evelyn.tools import taxonomy_db, vault_db
+
+    a = req.term_a.strip().lower()
+    b = req.term_b.strip().lower()
+    kind = req.kind.strip().lower()
+
+    if not a or not b or a == b:
+        raise HTTPException(status_code=400, detail="Invalid terms specified")
+
+    if kind == "delete":
+        def _delete():
+            vault_db.init_db()
+            con = vault_db.get_db()
+            try:
+                con.execute(
+                    "DELETE FROM master_tag_related WHERE (term_a = ? AND term_b = ?) OR (term_a = ? AND term_b = ?)",
+                    (a, b, b, a),
+                )
+                con.commit()
+            finally:
+                con.close()
+
+        await asyncio.to_thread(_delete)
+        return {"status": "ok", "message": f"Relation between {a} and {b} deleted"}
+
+    if kind not in ("narrower", "related"):
+        raise HTTPException(status_code=400, detail="Kind must be 'narrower', 'related', or 'delete'")
+
+    await asyncio.to_thread(taxonomy_db.record_relation, a, b, kind=kind, tier="reviewed")
+    return {"status": "ok", "message": f"Recorded relation: {a} --({kind})--> {b}"}
+
+
+class TaxonomyAliasFlipRequest(BaseModel):
+    """Pydantic model for flipping alias directionality."""
+
+    alias: str
+    canonical: str
+
+
+@app.post("/api/taxonomy/alias/flip")
+async def flip_taxonomy_alias(
+    req: TaxonomyAliasFlipRequest, _: None = Depends(check_auth)
+):
+    """Flip directionality so an alias becomes canonical, and old canonical becomes alias."""
+    from Evelyn.tools import taxonomy_db, vault_db
+
+    alias = req.alias.strip().lower()
+    canonical = req.canonical.strip().lower()
+    if not alias or not canonical or alias == canonical:
+        raise HTTPException(status_code=400, detail="Invalid alias or canonical specified")
+
+    def _flip():
+        vault_db.init_db()
+        con = vault_db.get_db()
+        now = time.time()
+        try:
+            row = con.execute(
+                "SELECT category, description, usage_count, protected FROM master_tag_taxonomy WHERE tag = ?",
+                (canonical,),
+            ).fetchone()
+            desc = row["description"] if row and row["description"] else ""
+            cnt = row["usage_count"] if row and row["usage_count"] else 0
+            prot = row["protected"] if row and row["protected"] else 0
+
+            con.execute(
+                """INSERT INTO master_tag_taxonomy (tag, description, usage_count, created_at, updated_at, protected)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(tag) DO UPDATE SET updated_at = excluded.updated_at""",
+                (alias, desc, cnt, now, now, prot),
+            )
+            con.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (canonical,))
+            con.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (alias,))
+            con.execute(
+                """INSERT OR REPLACE INTO master_tag_aliases (alias, canonical, tier, created_at)
+                   VALUES (?, ?, 'reviewed', ?)""",
+                (canonical, alias, now),
+            )
+            con.execute("UPDATE master_tag_aliases SET canonical = ? WHERE canonical = ?", (alias, canonical))
+            con.execute("UPDATE master_tag_related SET term_a = ? WHERE term_a = ?", (alias, canonical))
+            con.execute("UPDATE master_tag_related SET term_b = ? WHERE term_b = ?", (alias, canonical))
+            con.commit()
+        finally:
+            con.close()
+
+        taxonomy_db.invalidate_alias_cache()
+
+    await asyncio.to_thread(_flip)
+    return {"status": "ok", "message": f"Flipped: {alias} is now canonical, {canonical} is alias"}
+
+
+class TaxonomyAliasSeverRequest(BaseModel):
+    """Pydantic model for severing an alias."""
+
+    alias: str
+
+
+@app.post("/api/taxonomy/alias/sever")
+async def sever_taxonomy_alias(
+    req: TaxonomyAliasSeverRequest, _: None = Depends(check_auth)
+):
+    """Sever an alias so it becomes an independent canonical taxonomy tag."""
+    from Evelyn.tools import taxonomy_db, vault_db
+
+    alias = req.alias.strip().lower()
+    if not alias:
+        raise HTTPException(status_code=400, detail="Alias not specified")
+
+    def _sever():
+        vault_db.init_db()
+        con = vault_db.get_db()
+        now = time.time()
+        try:
+            con.execute("DELETE FROM master_tag_aliases WHERE alias = ?", (alias,))
+            con.execute(
+                """INSERT OR IGNORE INTO master_tag_taxonomy (tag, description, usage_count, created_at, updated_at)
+                   VALUES (?, '', 0, ?, ?)""",
+                (alias, now, now),
+            )
+            con.commit()
+        finally:
+            con.close()
+        taxonomy_db.invalidate_alias_cache()
+
+    await asyncio.to_thread(_sever)
+    return {"status": "ok", "message": f"Severed {alias} into an independent canonical tag"}
+
+
+@app.get("/api/taxonomy/authority/lookup")
+async def lookup_authority_terms(
+    term: str = "", max_results: int = 5, _: None = Depends(check_auth)
+):
+    """Query Library of Congress Subject Headings / FAST for a search query."""
+    from scripts.lookup_authority_taxonomy import query_authority
+
+    clean = (term or "").strip()
+    if not clean:
+        return {"results": []}
+
+    results = await asyncio.to_thread(query_authority, clean, max_results=max_results)
+    return {"results": results}
+
+
+class TaxonomyAuthorityPromoteRequest(BaseModel):
+    """Pydantic model for promoting an authority concept."""
+
+    canonical_tag: str
+    description: str = ""
+    variants: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/taxonomy/authority/promote")
+async def promote_authority_terms(
+    req: TaxonomyAuthorityPromoteRequest, _: None = Depends(check_auth)
+):
+    """Promote an authoritative heading and its variants into the local taxonomy."""
+    from scripts.lookup_authority_taxonomy import promote_term
+
+    tag = req.canonical_tag.strip().lower()
+    if not tag:
+        raise HTTPException(status_code=400, detail="Canonical tag is required")
+
+    result = await asyncio.to_thread(
+        promote_term,
+        canonical_tag=tag,
+        description=req.description,
+        variants=req.variants,
+    )
+    return {"status": "ok", "promoted": tag, "details": result}
 
 
 class ProposalActionRequest(BaseModel):

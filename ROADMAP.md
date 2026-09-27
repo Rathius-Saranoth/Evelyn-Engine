@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-27 07:43:07
+date modified: 2026-09-27 16:02:11
 ---
 # Evelyn Project Roadmap
 
@@ -33,8 +33,9 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Modular Fact Consolidation & Subject Grounding Architecture**: Modularized fact consolidation into deduplication, anti-hysteresis categorization, and decomposition engines with soft-delete provenance lineage, explicit noun subject mandates, and non-destructive review-gated subject grounding with on-demand ephemeral source chat context.
 - [x] **Faceted Vault Taxonomy Standard**: Authored a governing post-coordinate classification standard (`.agents/rules/vault-tag-taxonomy.md`) grounded in ANSI/NISO Z39.19, ISO 25964 and DCMI application profiles, covering facet axes, format rules, authority control, literary warrant and admission criteria for the unified vault and memory vocabulary.
 - [x] **Generated-Vocabulary Reset**: Cleared the entire inherited tag corpus — registry, equivalence table and every assignment across both substrates — after establishing that the vocabulary had been produced by the same pipeline it was meant to correct, making each successive repair a refinement of its predecessor's errors. Prior state preserved in per-document manifests and pre-migration snapshots.
-- [ ] **Controlled-Vocabulary Matching Layer**: Rebuild subject reconciliation as a cascade — exact and near-exact lexical lookup against the registry and its equivalences, dense retrieval only for what misses, and an explicit abstain decision in place of a single distance threshold — with the vector index demoted to a disposable cache derived from the registry rather than a source of truth.
-- [ ] **Inline Hashtag Ingestion Boundary**: Exclude body hashtags from vault ingestion so the controlled vocabulary has exactly one entry path, and defuse the reference numbers, markup artifacts and abandoned tag schemes currently harvested from note bodies.
+- [x] **Controlled-Vocabulary Matching Layer**: Rebuilt subject reconciliation as a deterministic cascade with exact and near-exact lexical lookups, splitting of post-coordinate compound phrases, and dense vector fallback gated by explicit margin-guard abstain decisions.
+- [x] **Inline Hashtag Ingestion Boundary**: Excluded note body hashtags from vault ingestion, ensuring the controlled vocabulary admits terms exclusively through YAML frontmatter `tags:`.
+- [x] **Standalone Taxonomy & Hierarchy Explorer (`ui/taxonomy.html`)**: Built a dedicated web dashboard for browsing dynamic hierarchy trees (broader/narrower DAGs), peer concept atoms, equivalence aliases with directionality controls, and live Library of Congress / FAST authority promotion.
 - [ ] **Vocabulary Bootstrap & Term-Aggregated Review**: Derive a seed vocabulary from the corpus itself, surfacing candidate terms aggregated by term rather than per document so approval is a vocabulary decision rather than thousands of per-note ones, establishing the first curated subject vocabulary and the evaluation set that threshold tuning has lacked.
 - [ ] **Vault Classification Backfill**: Classify the full note corpus against the seeded vocabulary, accumulating unmatched subjects as batched proposals and applying the admission floor against observed usage.
 - [ ] **Vocabulary Maintenance Re-enablement**: Restore equivalence merging, stale-tag removal and registry rebalancing behind review gates, held until the vocabulary is stable enough that automated maintenance cannot compound its own errors.
