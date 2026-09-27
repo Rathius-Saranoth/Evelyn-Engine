@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-26 19:12:38
+# date modified: 2026-09-26 20:31:42
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -555,6 +555,18 @@ RAG_PRIORITY_MULTIPLIERS = {
 # Max chunks to guaranteed-inject per pinned document.
 # Prevents a very long contact card from monopolising the context window.
 RAG_PINNED_MAX_CHUNKS = 2
+
+# --- RAG Relation Expansion (vault-tag-taxonomy §6.4) ---
+# Post-coordination atomised `health/sleep` into `health` + `sleep`, and with it the only
+# statement that the two belong together. The curated relations table is now the sole place
+# that knowledge lives; these flags are what lets query time read it.
+#
+# Off by default and deliberately: this reorders what the model is shown, so it is turned on
+# against a measured before/after, not on the assumption that more signal is better.
+RAG_RELATION_EXPANSION_ENABLED = _env_flag("RAG_RELATION_EXPANSION_ENABLED", False)
+RAG_RELATION_OVERFETCH = 2  # Fetch K x this, re-rank, then cut back to K
+RAG_RELATION_SEED_K = 3  # Take expansion seeds from this many top results
+RAG_RELATION_BOOST_CAP = 0.15  # Most a relation match may close the distance (15%)
 
 # --- RAG Query Reformulation ---
 # Direct semantic search on dense embeddings (bge-large-en-v1.5) provides 15x faster

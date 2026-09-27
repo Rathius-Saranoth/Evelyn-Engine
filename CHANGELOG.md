@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 20:07:11
+date modified: 2026-09-26 20:31:41
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,50 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.259] - 2026-09-26 — *Built, Measured, Left Off*
+
+### Added
+
+- **Query-time expansion over the curated tag relations (§6.4), behind a flag that stays
+  off.** Post-coordination atomised `health/sleep` into `health` + `sleep` and with it the
+  only statement that the two belong together; the relations table has been the sole home of
+  that knowledge and nothing read it at retrieval. `_apply_relation_boost()` now can.
+
+  It **re-ranks what was already retrieved** rather than issuing a second search. The caller
+  over-fetches so a chunk can be promoted into the kept set, but the pool stays bounded and a
+  poor relation costs ordering rather than correctness. Seeds are the tags of the strongest
+  initial results, not terms matched out of the query text — query-word matching was tried
+  and rejected, because the vocabulary holds ordinary English words and "the rest of the
+  files" matches the subject `rest`.
+
+  `RAG_RELATION_EXPANSION_ENABLED` (default **false**), `RAG_RELATION_OVERFETCH`,
+  `RAG_RELATION_SEED_K`, `RAG_RELATION_BOOST_CAP`.
+
+### Notes
+
+- **The measurement says do not turn it on, and that is the result of this release.** On 12
+  queries chosen to reach tagged content, with fetch size held constant so the re-rank is
+  isolated: it fired on **2**, changed the top-6 on **2**, and promoted **2** documents. Of
+  those two promotions one is a clear regression — for "how does retrieval augmented
+  generation work", it promoted a bibliography page over the note that answers the question,
+  because the bibliography carries `rag`, `llm` and `information-retrieval` and tag density
+  outweighed semantic distance. The other swapped two comparable notes and demoted the one
+  carrying the query's own words. **None were improvements.**
+- **Three things would have to change before this is worth enabling**, and they are findings
+  in their own right:
+  1. **Context entries carry no tags in Chroma metadata**, though they carry them in SQLite.
+     They are 54% of the collection and dominate the top of the ranking, so the seed set is
+     usually empty: 10 of 12 queries produced no seeds at all.
+  2. **156 relations over 749 terms is sparse.** Widening the seed window lifted firing from
+     2 to 9 while leaving reordering and promotions at 2 — the extra firings were no-ops, so
+     the conservative seeding was kept.
+  3. **Boost strength scales with the number of matched tags**, which is exactly what favours
+     tag-dense, content-poor reference pages.
+- **`scripts/benchmark_rag.py` cannot measure this, and is itself stale.** Its golden set
+  scores 1/25 overall — the single hit being a negative query that passes by returning
+  nothing — because its expected sources are placeholder names that do not exist in this
+  vault. Relations on versus off produced byte-identical output on it.
 
 ## [000.006.258] - 2026-09-26 — *A Stub Is Not A Witness*
 

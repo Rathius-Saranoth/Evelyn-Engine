@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-23 21:46:27
+# date modified: 2026-09-26 20:31:41
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1451,6 +1451,124 @@ def _apply_priority_boost(chunks: list[dict]) -> list[dict]:
     return chunks
 
 
+def _chunk_tags(chunk: dict) -> set[str]:
+    """Read a chunk's tag set from its Chroma metadata.
+
+    Chroma metadata values are scalars, so a note's tag list is stored as its string
+    repr and has to be parsed back rather than indexed.
+
+    Args:
+        chunk: A retrieved chunk dictionary.
+
+    Returns:
+        set[str]: Lowercased tags, empty when the chunk carries none.
+    """
+    meta = chunk.get("metadata") or {}
+    raw = meta.get("tags") or ""
+    if not raw:
+        return set()
+    parts = [str(t) for t in raw] if isinstance(raw, (list, tuple)) else str(raw).split(",")
+    return {p.strip().strip("[]'\" ").lower() for p in parts if p.strip().strip("[]'\" ")}
+
+
+def _expand_tags_by_relation(seed_tags: set[str]) -> dict[str, float]:
+    """Expand a set of tags with the terms recorded as related to them (§6.4).
+
+    The seeds are the tags of the strongest initial results, **not** terms matched out of
+    the query text. Query-word matching was measured and rejected: the vocabulary holds
+    ordinary English words, so "the rest of the files" matches the subject `rest` and would
+    boost sleep notes. A tag on a retrieved note was put there by review and means what it
+    says.
+
+    Args:
+        seed_tags: Tags carried by the top initial results.
+
+    Returns:
+        dict[str, float]: Expansion terms mapped to their relation weight. Seeds are
+        excluded — they already matched on their own merits.
+    """
+    if not seed_tags:
+        return {}
+    try:
+        from Evelyn.tools import taxonomy_db
+    except ImportError:
+        import taxonomy_db
+
+    expanded: dict[str, float] = {}
+    for seed in seed_tags:
+        try:
+            for rel in taxonomy_db.get_related_terms(seed):
+                tag = str(rel.get("tag") or "").strip().lower()
+                if not tag or tag in seed_tags:
+                    continue
+                weight = float(rel.get("weight") or 0.0)
+                # A term reachable from two seeds is more likely to be on topic than one
+                # reachable from a single seed, so keep the strongest path to it.
+                if weight > expanded.get(tag, 0.0):
+                    expanded[tag] = weight
+        except (sqlite3.Error, OSError, ValueError, TypeError) as e:
+            if cfg.DEBUG_LOGGING:
+                print(f"[RAG] relation lookup failed for '{seed}': {e}", flush=True)
+    return expanded
+
+
+def _apply_relation_boost(chunks: list[dict]) -> tuple[list[dict], dict]:
+    """Re-rank retrieved chunks using the curated tag relations (§6.4).
+
+    Post-coordination removed the hierarchy that used to state `health/sleep`, so nothing
+    else in the engine knows that `sleep` belongs with `health`. The relations table is the
+    only place that knowledge lives, and until now nothing read it at query time.
+
+    This **re-ranks what was already retrieved** rather than issuing a second search. The
+    caller over-fetches, so a chunk can be promoted into the kept set by its relations, but
+    the candidate pool stays bounded and a poor relation costs ordering rather than
+    correctness.
+
+    Args:
+        chunks: Retrieved chunks, already priority-boosted and sorted.
+
+    Returns:
+        tuple[list[dict], dict]: The re-sorted chunks, and a telemetry dict describing what
+        the expansion did — empty when the pass was a no-op.
+    """
+    seed_k = getattr(cfg, "RAG_RELATION_SEED_K", 3)
+    cap = getattr(cfg, "RAG_RELATION_BOOST_CAP", 0.15)
+
+    seeds: set[str] = set()
+    for c in chunks[:seed_k]:
+        seeds |= _chunk_tags(c)
+    expanded = _expand_tags_by_relation(seeds)
+    if not expanded:
+        return chunks, {}
+
+    boosted = 0
+    for c in chunks:
+        tags = _chunk_tags(c)
+        if not tags:
+            continue
+        matched = tags & set(expanded)
+        if not matched:
+            continue
+        # Strength saturates: three related tags are not three times the evidence, and an
+        # uncapped product would let tag count outrank semantic distance outright.
+        strength = min(cap, sum(expanded[t] for t in matched) * cap)
+        c["distance"] = c.get("distance", 1.0) * (1.0 - strength)
+        c["relation_boost"] = strength
+        c["relation_matched"] = sorted(matched)
+        boosted += 1
+
+    before = [c.get("source") for c in chunks]
+    chunks.sort(key=lambda x: x.get("distance", 1.0))
+    after = [c.get("source") for c in chunks]
+
+    return chunks, {
+        "seeds": sorted(seeds),
+        "expanded": len(expanded),
+        "boosted": boosted,
+        "reordered": before != after,
+    }
+
+
 def _fetch_pinned_chunks(query: str) -> list[dict]:
     """Scan both collections for pinned documents whose aliases appear in the query.
 
@@ -1783,10 +1901,31 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
 
     # Step 2: Normal vector search (uses REFORMULATED query for semantic matching)
     # Query evelyn_memory (full-text index of all vault notes and context entries).
-    all_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION)
+    #
+    # With relation expansion on, over-fetch first: the re-rank can only promote a chunk
+    # that was retrieved, so without the wider pool it could reorder the top K but never
+    # bring anything into it.
+    relations_on = getattr(cfg, "RAG_RELATION_EXPANSION_ENABLED", False)
+    top_k = cfg.RAG_TOP_K
+    fetch_k = top_k * getattr(cfg, "RAG_RELATION_OVERFETCH", 2) if relations_on else top_k
+    all_chunks = query_collection(search_query, cfg.CHROMA_MEMORY_COLLECTION, n_results=fetch_k)
 
     # Step 3: Priority re-ranking
     all_chunks = _apply_priority_boost(all_chunks)
+
+    # Step 3b: Relation re-ranking (§6.4), then back down to the normal result count so
+    # the over-fetch never widens what the caller actually receives.
+    if relations_on:
+        all_chunks, relation_stats = _apply_relation_boost(all_chunks)
+        all_chunks = all_chunks[:top_k]
+        if cfg.DEBUG_LOGGING and relation_stats:
+            print(
+                f"[RAG] relations seeds={len(relation_stats['seeds'])}"
+                f" expanded={relation_stats['expanded']}"
+                f" boosted={relation_stats['boosted']}"
+                f" reordered={relation_stats['reordered']}",
+                flush=True,
+            )
 
     threshold = cfg.RAG_DISTANCE_THRESHOLD
 
