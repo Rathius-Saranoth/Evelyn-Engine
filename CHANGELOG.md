@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 20:31:41
+date modified: 2026-09-26 20:52:30
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.260] - 2026-09-26 — *A Broken Instrument Reads Worse Than None*
+
+### Fixed
+
+- **Context entries now carry their tags into the vector store.** `sync_memory_collection`
+  wrote `subject` and `category` into a context entry's Chroma metadata but never `tags`,
+  although the row has them and they were already being written into the chunk *text*. Vault
+  notes have carried the key all along, so anything reading tags at query time was blind to
+  **73% of the collection** — the part that dominates retrieval. One line, plus a re-ingest of
+  the 10,182 affected entries through the normal staging queue.
+
+### Changed
+
+- **`benchmark_rag.py` refuses to score a golden set marked `"status": "stale"`**, printing the
+  set's own recorded diagnosis and exiting non-zero. `reference/rag_benchmark_queries.json` is
+  marked stale; its 25 queries are preserved inside the marker for whoever rebuilds it. Both
+  the legacy bare-list shape and a wrapped non-stale set still load normally.
+
+  It scored **1/25** against the live corpus, and the single hit was a negative query passing
+  by returning nothing. Five defects, recorded in the file itself:
+
+  1. **The matcher cannot see most of the corpus.** It compares `os.path.basename(source)`,
+     but a context entry's source is `sqlite::context_entry::5830` — basename returns that
+     unchanged and it carries no category, title or tag.
+  2. **Queries name people who do not exist.** They were genericised for the public repo; the
+     corpus was not.
+  3. **Expectations that cannot be satisfied** — a category summary that was never created, a
+     note deleted earlier the same day.
+  4. **One expectation the engine is right to refuse** — a `sensitivity: private` note, which
+     policy says must never reach RAG.
+  5. **The ground-truth model does not match the data.** Repairing the matcher does not rescue
+     it: facts about one topic are spread across nine categories, so "expect category N" is a
+     false premise. This is why it needs rebuilding rather than fixing.
+
+  A benchmark that returns a number while measuring nothing is worse than no benchmark,
+  because the number gets quoted. Rebuilding it belongs with the model-alignment benchmark
+  work, not with retrieval patches.
 
 ## [000.006.259] - 2026-09-26 — *Built, Measured, Left Off*
 

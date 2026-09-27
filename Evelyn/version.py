@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-26 20:31:41
+# date modified: 2026-09-26 20:52:30
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.259"
-__version_info__ = (0, 6, 259)
-__version_name__ = "Built, Measured, Left Off"
+__version__ = "000.006.260"
+__version_info__ = (0, 6, 260)
+__version_name__ = "A Broken Instrument Reads Worse Than None"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

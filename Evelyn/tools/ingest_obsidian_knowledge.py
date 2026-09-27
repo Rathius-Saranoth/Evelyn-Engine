@@ -1,6 +1,6 @@
 # ingest_obsidian_knowledge.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-23 17:30:15
+# date modified: 2026-09-26 20:52:30
 # tags: #obsidian, #ingest, #knowledge, #sync, #pipeline
 
 """
@@ -266,6 +266,11 @@ def sync_memory_collection() -> None:
                 "aliases": "",
                 "subject": row.get("subject", ""),
                 "category": row.get("category", ""),
+                # A context entry's tags were written into the chunk *text* above but never
+                # into its metadata, so anything reading tags at query time saw nothing for
+                # 73% of the collection — they are the majority of what gets retrieved.
+                # Vault notes have carried this key all along; this is the gap, not a new idea.
+                "tags": row.get("tags", "") or "",
             }
             print(f"Ingesting DB Entry: {file_path}")
 

@@ -1,235 +1,248 @@
-[
-  {
-    "id": "conversational_operator",
-    "query": "Tell me about Alex",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat01-U",
-      "Cat05-U",
-      "Cat11-U"
-    ],
-    "notes": "Simple conversational request — should surface identity/preference/factual docs."
-  },
-  {
-    "id": "conversational_family",
-    "query": "How's Jordan doing these days?",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Jordan"
-    ],
-    "notes": "Casual question about a household member — should surface their entries."
-  },
-  {
-    "id": "conversational_greeting",
-    "query": "Good morning babe, how are you?",
-    "category": "conversational",
-    "expected_sources_contain": [],
-    "notes": "Greeting with no information need — should retrieve few/no relevant chunks. This tests noise resistance."
-  },
-  {
-    "id": "conversational_food",
-    "query": "I'm hungry, what should I eat?",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat05-U"
-    ],
-    "notes": "Indirect food preference query — need to match through 'eat' → preferences."
-  },
-  {
-    "id": "conversational_parents",
-    "query": "I talked to my mom today",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat06-U",
-      "Peggy"
-    ],
-    "notes": "Indirect family mention — 'mom' should resolve to Peggy/family context."
-  },
-  {
-    "id": "conversational_rough_day",
-    "query": "Had a really rough day at work",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat08-U",
-      "Cat10-U",
-      "Cat03-U"
-    ],
-    "notes": "Emotional statement about work stress — should surface health/daily life/emotional entries."
-  },
-  {
-    "id": "conversational_music",
-    "query": "Put on some good music, what have we been listening to?",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat05-U"
-    ],
-    "notes": "Casual music request — should surface music preferences."
-  },
-  {
-    "id": "conversational_sleep",
-    "query": "I couldn't sleep last night",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat08-U"
-    ],
-    "notes": "Sleep complaint — should surface health/sleep entries."
-  },
-  {
-    "id": "conversational_memory",
-    "query": "Remember when we talked about that book?",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat05-U",
-      "Journal"
-    ],
-    "notes": "Vague memory recall — tests whether 'book' surfaces reading preferences."
-  },
-  {
-    "id": "conversational_project",
-    "query": "I've been working on the AI stuff all day",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat11-U",
-      "Local AI"
-    ],
-    "notes": "Project mention — should surface Evelyn Engine / local AI development entries."
-  },
-  {
-    "id": "conversational_feeling_down",
-    "query": "I'm feeling kind of down tonight",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat03-U",
-      "Journal"
-    ],
-    "notes": "Emotional state — should surface emotional context or journal reflections."
-  },
-  {
-    "id": "conversational_love",
-    "query": "You mean a lot to me, you know that right?",
-    "category": "conversational",
-    "expected_sources_contain": [
-      "Cat02-U",
-      "Cat02-A",
-      "Cat03-U",
-      "Cat03-A"
-    ],
-    "notes": "Affectionate statement — tests whether relationship/emotional docs surface."
-  },
-  {
-    "id": "exact_name_operator",
-    "query": "Alex",
-    "category": "exact_name",
-    "expected_sources_contain": [
-      "Cat05-U",
-      "Cat11-U"
-    ],
-    "notes": "Single word name lookup — direct name match."
-  },
-  {
-    "id": "exact_name_family",
-    "query": "Jordan",
-    "category": "exact_name",
-    "expected_sources_contain": [
-      "Jordan"
-    ],
-    "notes": "Household member name lookup — should surface their persona or context entries."
-  },
-  {
-    "id": "exact_name_saros",
-    "query": "Saros",
-    "category": "exact_name",
-    "expected_sources_contain": [
-      "Saros"
-    ],
-    "notes": "Fictional character name — should surface Saros persona."
-  },
-  {
-    "id": "direct_question_health",
-    "query": "What medications am I on?",
-    "category": "direct_question",
-    "expected_sources_contain": [
-      "Cat08-U"
-    ],
-    "notes": "Direct health question — should surface Cat08 health entries."
-  },
-  {
-    "id": "direct_question_physical",
-    "query": "Describe what I look like",
-    "category": "direct_question",
-    "expected_sources_contain": [
-      "Physical Description"
-    ],
-    "notes": "Physical description request — should surface the physical description file."
-  },
-  {
-    "id": "direct_question_psychology",
-    "query": "What kind of person am I?",
-    "category": "direct_question",
-    "expected_sources_contain": [
-      "Psychological Blueprint",
-      "Cat01-U"
-    ],
-    "notes": "Personality/psychology query — should surface the blueprint doc."
-  },
-  {
-    "id": "direct_question_games",
-    "query": "What games do I play?",
-    "category": "direct_question",
-    "expected_sources_contain": [
-      "Cat05-U"
-    ],
-    "notes": "Gaming preference query — should surface Cat05 preferences."
-  },
-  {
-    "id": "direct_question_lexicon",
-    "query": "What are our pet names for each other?",
-    "category": "direct_question",
-    "expected_sources_contain": [
-      "Cat15-U",
-      "Cat15-A"
-    ],
-    "notes": "Lexicon/pet names query — should surface Cat15."
-  },
-  {
-    "id": "negative_unrelated",
-    "query": "quantum mechanics and black holes",
-    "category": "negative",
-    "expected_sources_contain": [],
-    "notes": "Unrelated scientific topic — should return zero kept chunks."
-  },
-  {
-    "id": "negative_fictional",
-    "query": "Harry Potter and Hogwarts",
-    "category": "negative",
-    "expected_sources_contain": [],
-    "notes": "Fictional content unlikely in vault — should return zero kept chunks."
-  },
-  {
-    "id": "negative_casual_chat",
-    "query": "lol that's hilarious",
-    "category": "negative",
-    "expected_sources_contain": [],
-    "notes": "Pure reaction with no info need — should ideally return nothing relevant."
-  },
-  {
-    "id": "ambiguous_mom",
-    "query": "mom",
-    "category": "ambiguous",
-    "expected_sources_contain": [
-      "Cat06-U",
-      "Peggy"
-    ],
-    "notes": "Single ambiguous word — tests whether the model can resolve 'mom' to family context."
-  },
-  {
-    "id": "ambiguous_lonely",
-    "query": "feeling lonely",
-    "category": "ambiguous",
-    "expected_sources_contain": [
-      "Cat03-U",
-      "Journal"
-    ],
-    "notes": "Short emotional phrase — should match emotional entries."
-  }
-]
+{
+  "status": "stale",
+  "stale_since": "2026-09-26",
+  "summary": "This golden set scores 1/25 against the live corpus and the single hit is a negative query passing by returning nothing. It measures nothing. benchmark_rag.py refuses to score against it until it is rebuilt.",
+  "defects": [
+    "MATCHER IS BLIND TO MOST OF THE CORPUS. check_source_match() compares os.path.basename(source). A context entry's source is 'sqlite::context_entry::5830', which basename returns unchanged and which carries no category, title or tag. Context entries are ~73% of the collection, so an expectation like 'Cat05-U' can only match the summary NOTE, never the 10,182 raw entries that dominate retrieval.",
+    "QUERIES NAME PEOPLE WHO DO NOT EXIST. 'Alex' is EXAMPLE_THIRD_PARTY_NAME from evelyn_config; 'Jordan' matches nothing in the vault. The queries were genericised for the public repo and the corpus was not, so semantic search has nothing to match on.",
+    "EXPECTATIONS THAT CANNOT BE SATISFIED. 'Cat10-U' was never created as a note. 'Local AI' was deleted from the vault on 2026-09-26.",
+    "ONE EXPECTATION THE ENGINE IS CORRECT TO REFUSE. 'Psychological Blueprint' is sensitivity: private, and policy is that private notes never reach RAG. The benchmark penalises the engine for obeying its own privacy rule.",
+    "THE GROUND-TRUTH MODEL DOES NOT MATCH THE DATA. Fixing the matcher does not rescue it: 'What medications am I on?' expects Cat08-U, but medication facts are spread across nine categories (Cat01-U has 20, Cat05-U has 18, Cat08-U has 9), and retrieval returned Cat01-U among others. 'Expect category N' assumes facts are filed by topic into one category. They are not. This is why the set needs rebuilding rather than repairing."
+  ],
+  "rebuild_guidance": "Scoring belongs with the model-alignment benchmark work, not with retrieval patches. When it is built: score vault-note queries by source (they have real filenames) and fact queries by whether the retrieved TEXT contains the answer; template person names as {USER_NAME}/{ASSISTANT_NAME} so this tracked file carries no real identities and works on any deployment, with a gitignored local overlay for vault-specific queries.",
+  "queries": [
+    {
+      "id": "conversational_operator",
+      "query": "Tell me about Alex",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat01-U",
+        "Cat05-U",
+        "Cat11-U"
+      ],
+      "notes": "Simple conversational request \u2014 should surface identity/preference/factual docs."
+    },
+    {
+      "id": "conversational_family",
+      "query": "How's Jordan doing these days?",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Jordan"
+      ],
+      "notes": "Casual question about a household member \u2014 should surface their entries."
+    },
+    {
+      "id": "conversational_greeting",
+      "query": "Good morning babe, how are you?",
+      "category": "conversational",
+      "expected_sources_contain": [],
+      "notes": "Greeting with no information need \u2014 should retrieve few/no relevant chunks. This tests noise resistance."
+    },
+    {
+      "id": "conversational_food",
+      "query": "I'm hungry, what should I eat?",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat05-U"
+      ],
+      "notes": "Indirect food preference query \u2014 need to match through 'eat' \u2192 preferences."
+    },
+    {
+      "id": "conversational_parents",
+      "query": "I talked to my mom today",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat06-U",
+        "Peggy"
+      ],
+      "notes": "Indirect family mention \u2014 'mom' should resolve to Peggy/family context."
+    },
+    {
+      "id": "conversational_rough_day",
+      "query": "Had a really rough day at work",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat08-U",
+        "Cat10-U",
+        "Cat03-U"
+      ],
+      "notes": "Emotional statement about work stress \u2014 should surface health/daily life/emotional entries."
+    },
+    {
+      "id": "conversational_music",
+      "query": "Put on some good music, what have we been listening to?",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat05-U"
+      ],
+      "notes": "Casual music request \u2014 should surface music preferences."
+    },
+    {
+      "id": "conversational_sleep",
+      "query": "I couldn't sleep last night",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat08-U"
+      ],
+      "notes": "Sleep complaint \u2014 should surface health/sleep entries."
+    },
+    {
+      "id": "conversational_memory",
+      "query": "Remember when we talked about that book?",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat05-U",
+        "Journal"
+      ],
+      "notes": "Vague memory recall \u2014 tests whether 'book' surfaces reading preferences."
+    },
+    {
+      "id": "conversational_project",
+      "query": "I've been working on the AI stuff all day",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat11-U",
+        "Local AI"
+      ],
+      "notes": "Project mention \u2014 should surface Evelyn Engine / local AI development entries."
+    },
+    {
+      "id": "conversational_feeling_down",
+      "query": "I'm feeling kind of down tonight",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat03-U",
+        "Journal"
+      ],
+      "notes": "Emotional state \u2014 should surface emotional context or journal reflections."
+    },
+    {
+      "id": "conversational_love",
+      "query": "You mean a lot to me, you know that right?",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Cat02-U",
+        "Cat02-A",
+        "Cat03-U",
+        "Cat03-A"
+      ],
+      "notes": "Affectionate statement \u2014 tests whether relationship/emotional docs surface."
+    },
+    {
+      "id": "exact_name_operator",
+      "query": "Alex",
+      "category": "exact_name",
+      "expected_sources_contain": [
+        "Cat05-U",
+        "Cat11-U"
+      ],
+      "notes": "Single word name lookup \u2014 direct name match."
+    },
+    {
+      "id": "exact_name_family",
+      "query": "Jordan",
+      "category": "exact_name",
+      "expected_sources_contain": [
+        "Jordan"
+      ],
+      "notes": "Household member name lookup \u2014 should surface their persona or context entries."
+    },
+    {
+      "id": "exact_name_saros",
+      "query": "Saros",
+      "category": "exact_name",
+      "expected_sources_contain": [
+        "Saros"
+      ],
+      "notes": "Fictional character name \u2014 should surface Saros persona."
+    },
+    {
+      "id": "direct_question_health",
+      "query": "What medications am I on?",
+      "category": "direct_question",
+      "expected_sources_contain": [
+        "Cat08-U"
+      ],
+      "notes": "Direct health question \u2014 should surface Cat08 health entries."
+    },
+    {
+      "id": "direct_question_physical",
+      "query": "Describe what I look like",
+      "category": "direct_question",
+      "expected_sources_contain": [
+        "Physical Description"
+      ],
+      "notes": "Physical description request \u2014 should surface the physical description file."
+    },
+    {
+      "id": "direct_question_psychology",
+      "query": "What kind of person am I?",
+      "category": "direct_question",
+      "expected_sources_contain": [
+        "Psychological Blueprint",
+        "Cat01-U"
+      ],
+      "notes": "Personality/psychology query \u2014 should surface the blueprint doc."
+    },
+    {
+      "id": "direct_question_games",
+      "query": "What games do I play?",
+      "category": "direct_question",
+      "expected_sources_contain": [
+        "Cat05-U"
+      ],
+      "notes": "Gaming preference query \u2014 should surface Cat05 preferences."
+    },
+    {
+      "id": "direct_question_lexicon",
+      "query": "What are our pet names for each other?",
+      "category": "direct_question",
+      "expected_sources_contain": [
+        "Cat15-U",
+        "Cat15-A"
+      ],
+      "notes": "Lexicon/pet names query \u2014 should surface Cat15."
+    },
+    {
+      "id": "negative_unrelated",
+      "query": "quantum mechanics and black holes",
+      "category": "negative",
+      "expected_sources_contain": [],
+      "notes": "Unrelated scientific topic \u2014 should return zero kept chunks."
+    },
+    {
+      "id": "negative_fictional",
+      "query": "Harry Potter and Hogwarts",
+      "category": "negative",
+      "expected_sources_contain": [],
+      "notes": "Fictional content unlikely in vault \u2014 should return zero kept chunks."
+    },
+    {
+      "id": "negative_casual_chat",
+      "query": "lol that's hilarious",
+      "category": "negative",
+      "expected_sources_contain": [],
+      "notes": "Pure reaction with no info need \u2014 should ideally return nothing relevant."
+    },
+    {
+      "id": "ambiguous_mom",
+      "query": "mom",
+      "category": "ambiguous",
+      "expected_sources_contain": [
+        "Cat06-U",
+        "Peggy"
+      ],
+      "notes": "Single ambiguous word \u2014 tests whether the model can resolve 'mom' to family context."
+    },
+    {
+      "id": "ambiguous_lonely",
+      "query": "feeling lonely",
+      "category": "ambiguous",
+      "expected_sources_contain": [
+        "Cat03-U",
+        "Journal"
+      ],
+      "notes": "Short emotional phrase \u2014 should match emotional entries."
+    }
+  ]
+}

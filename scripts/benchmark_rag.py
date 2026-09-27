@@ -1,6 +1,6 @@
 # benchmark_rag.py
 # date created: 2026-04-26 12:18:17
-# date modified: 2026-05-25 20:03:05
+# date modified: 2026-09-26 20:52:30
 # tags: #rag, #benchmark, #evaluation, #testing, #metrics
 
 """
@@ -63,10 +63,51 @@ _YEL = "\033[93m"
 _CYN = "\033[96m"
 
 
+class StaleGoldenSet(RuntimeError):
+    """Raised when the golden set has been marked as no longer measuring anything."""
+
+
 def load_golden_queries(path: str) -> list[dict]:
-    """Load and validate the golden query test set."""
+    """Load and validate the golden query test set.
+
+    Refuses a set marked ``"status": "stale"``. A benchmark that returns a number while
+    measuring nothing is worse than no benchmark: the number gets quoted. The marker
+    carries its own diagnosis, which is printed rather than summarised here so the two
+    cannot drift apart.
+
+    Args:
+        path: Path to the golden query JSON.
+
+    Returns:
+        list[dict]: Validated query definitions.
+
+    Raises:
+        StaleGoldenSet: If the file declares itself stale.
+    """
     with open(path, encoding="utf-8") as f:
-        queries = json.load(f)
+        data = json.load(f)
+
+    if isinstance(data, dict):
+        if data.get("status") == "stale":
+            lines = [
+                "",
+                f"{_RED}{_BLD}This golden set is marked STALE and will not be scored.{_RST}",
+                f"  {path}",
+                "",
+                f"  {data.get('summary', '')}",
+                "",
+                f"{_BLD}  Why it cannot simply be repaired:{_RST}",
+            ]
+            for i, d in enumerate(data.get("defects", []), 1):
+                lines.append(f"    {i}. {d}")
+            if data.get("rebuild_guidance"):
+                lines += ["", f"{_BLD}  When rebuilding:{_RST}", f"    {data['rebuild_guidance']}"]
+            lines += ["", f"  Marked stale {data.get('stale_since', '?')}.", ""]
+            raise StaleGoldenSet("\n".join(lines))
+        queries = data.get("queries", [])
+    else:
+        queries = data
+
     for q in queries:
         assert "id" in q, f"Query missing 'id': {q}"
         assert "query" in q, f"Query missing 'query': {q}"
@@ -308,7 +349,12 @@ def main():
     original_debug = cfg.DEBUG_LOGGING
     cfg.DEBUG_LOGGING = False
 
-    queries = load_golden_queries(args.golden)
+    try:
+        queries = load_golden_queries(args.golden)
+    except StaleGoldenSet as e:
+        print(e)
+        cfg.DEBUG_LOGGING = original_debug
+        return 2
     threshold = cfg.RAG_DISTANCE_THRESHOLD
 
     if args.compare:
@@ -418,5 +464,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
 
