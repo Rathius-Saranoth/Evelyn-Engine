@@ -1,6 +1,6 @@
 # test_tag_admission_proposals.py
 # date created: 2026-09-22 20:20:00
-# date modified: 2026-09-24 19:52:48
+# date modified: 2026-09-27 12:16:52
 # tags: #test, #tags, #taxonomy, #proposals, #admission, #review
 
 """Cover for the tag-admission quarantine route (v000.006.201).
@@ -86,9 +86,10 @@ def test_the_queue_is_capped(stores, monkeypatch):
     assert len(_pending()) == 3
 
 
-def test_facet_is_recorded_for_the_reviewer(stores):
-    stores.propose_tag_admission(["motif/zzz-unknown"])
-    assert _pending()[0]["suggested_category"] == "motif"
+def test_slashed_terms_are_refused_by_admission(stores):
+    """Under the Zero-Slash Invariant, terms with slashes are not proposed."""
+    assert stores.propose_tag_admission(["motif/zzz-unknown"]) == []
+    assert len(_pending()) == 0
 
 
 def test_a_flat_term_is_left_uncategorised_for_the_reviewer(stores):
@@ -162,26 +163,27 @@ class TestApproval:
 
 
 class TestStubTagsFollowTheStandard:
-    """A ghost stub carries its type and nothing else (v000.006.207).
+    """A ghost stub carries its class in the `type: [stub]` property (Zero-Slash Invariant).
 
-    The generator defaulted to `stub, concept`. Neither is a registered term, and the §4
-    class profile forbids a domain tag on the `stub` class outright — the registered form
-    is the type facet `type/stub`, which is what the 124 stubs already in the vault carry.
+    Subject tags: [...] are empty until indexed with atomic subject terms.
     """
 
-    def test_the_payload_default_is_the_registered_type_facet(self):
+    def test_the_payload_default_is_the_registered_type_property(self):
         from Evelyn.tools import link_librarian
 
-        assert link_librarian.StubPayload(target_name="Anything").tags == ["type/stub"]
+        payload = link_librarian.StubPayload(target_name="Anything")
+        assert payload.type == ["stub"]
+        assert payload.tags == []
 
-    def test_a_payload_with_no_tags_element_falls_back_to_the_type_facet(self):
+    def test_a_payload_with_no_tags_element_has_empty_tags_and_stub_type(self):
         from Evelyn.tools import link_librarian
 
         parsed = link_librarian.parse_stub_xml(
             '<entity_stub target="Anything"><abstract>x</abstract></entity_stub>'
         )
 
-        assert parsed.tags == ["type/stub"]
+        assert parsed.type == ["stub"]
+        assert parsed.tags == []
 
 
 class TestStubFilenamesAreCrossPlatform:

@@ -32,6 +32,16 @@ def test_stub_tag_is_recognised(tags):
     assert link_librarian._is_stub_note({"tags": tags}) is True
 
 
+@pytest.mark.parametrize("type_val", [
+    ["stub"],
+    ["STUB"],
+    "stub",
+    ["stub", "reference"],
+])
+def test_stub_type_property_is_recognised(type_val):
+    assert link_librarian._is_stub_note({"type": type_val}) is True
+
+
 @pytest.mark.parametrize("tags", [
     ["type/reference", "video-games"],
     ["type/profile"],

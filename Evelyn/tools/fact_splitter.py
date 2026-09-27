@@ -1,6 +1,6 @@
 # fact_splitter.py
 # date created: 2026-09-14
-# date modified: 2026-09-25 18:03:45
+# date modified: 2026-09-27 12:15:35
 # tags: #facts, #decomposition, #splitting, #atomic_memory
 
 """
@@ -60,10 +60,10 @@ async def generate_split_proposal(
         "1. If this entry contains only ONE coherent fact or preference (even if detailed), verdict is 'atomic' and entries is empty.\n"
         "2. If this entry contains TWO OR MORE distinct observations or domain predicates, verdict is 'split'.\n"
         "3. DO NOT lose specific details, nouns, conditions, or context from the original observation.\n"
-        "4. CONTROLLED VOCABULARY TAGS: Tags are flat subject terms combined at retrieval "
-        "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Lowercase "
-        "always; hyphens join words; named entities follow the same rule — no TitleCase, no "
-        "underscores. Prefer terms that already exist over inventing near-duplicates. "
+        "4. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Tags are flat subject terms combined at retrieval "
+        "time, not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). "
+        "Lowercase always; hyphens join words; singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). "
+        "Named entities follow the same rule — no TitleCase, no underscores. Prefer terms that already exist over inventing near-duplicates. "
         "Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.\n"
         "5. EXPLICIT NOUN SUBJECT GROUNDING: Each split observation MUST explicitly name the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn maintains...', 'Biscuit the cat...'). NEVER begin with a subject-less verb and NEVER use ambiguous floating pronouns ('he', 'she', 'they').\n\n"
         "Output ONLY a YAML block:\n"

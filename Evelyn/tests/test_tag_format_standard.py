@@ -741,16 +741,27 @@ class TestStalenessRemoval:
 class TestApplicationProfile:
     """§4: the class decides which facets are required, permitted or forbidden."""
 
-    def test_type_facet_is_added_for_the_class(self):
+    def test_type_facet_is_not_added_to_tags(self):
+        """Zero-Slash Invariant: form/type belongs in frontmatter properties, not in tags."""
         from Evelyn.tools.tag_librarian import apply_application_profile
         add, drop, _gaps = apply_application_profile("reference", ["music"])
-        assert add == ["type/reference"] and drop == []
+        assert add == [] and drop == []
 
     def test_a_second_type_facet_is_removed(self):
-        """One form per document; a second is wrong about what the document is."""
+        """Legacy slashed type facet tags must be stripped from tags."""
         from Evelyn.tools.tag_librarian import apply_application_profile
         add, drop, _g = apply_application_profile("reference", ["type/journal-entry", "music"])
-        assert "type/reference" in add and drop == ["type/journal-entry"]
+        assert add == [] and drop == ["type/journal-entry"]
+
+    def test_zero_slash_invariant_drops_all_facet_prefixes_from_tags(self):
+        """Zero-Slash Invariant: tags array drops all facet prefixes."""
+        from Evelyn.tools.tag_librarian import apply_application_profile
+        _add, drop, _g = apply_application_profile(
+            "dream",
+            ["type/dream", "motif/combat", "setting/tropical", "event/flight", "sleep"],
+            occurred="2026-01-01",
+        )
+        assert set(drop) == {"type/dream", "motif/combat", "setting/tropical", "event/flight"}
 
     def test_forbidden_facet_is_enforced_not_requested(self):
         """A motif on reference material is rejected mechanically, never argued with."""

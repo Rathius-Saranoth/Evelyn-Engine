@@ -1,6 +1,6 @@
 # fact_extractor.py
 # date created: 2026-05-03 18:05:36
-# date modified: 2026-09-24 19:45:25
+# date modified: 2026-09-27 12:15:35
 # tags: #facts, #extractor, #extraction, #idle_time, #analysis
 
 """
@@ -795,10 +795,12 @@ def _build_extraction_prompt(
         f"   - If an observation represents an enduring preference or trait, state it as a lasting fact naming the subject (e.g. '{cfg.USER_NAME} prefers dark roast pour-over coffee with oat milk').\n"
         "4. WRITE DEEP, SUBSTANTIVE OBSERVATIONS: State the exact specific facts with nouns, preferences, "
         "conditions, reasons, and temporal context. AVOID vague or shallow one-liners.\n"
-        "5. CONTROLLED VOCABULARY TAGS: Tags are flat subject terms combined at retrieval time, "
-        "not a tree. Write `coffee, routine`, never `Home/Coffee/Espresso` — the combination is "
-        "made when searching, so building the hierarchy into the tag only fragments it.\n"
+        "5. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant):\n"
+        "   - Tags are strictly flat subject terms combined at retrieval time, not a tree. "
+        "Write `coffee, routine`, never `Home/Coffee/Espresso`. Building hierarchy into the tag only fragments retrieval.\n"
+        "   - Zero-Slash Invariant: NEVER include slashes (`/`), colons, or punctuation in tags. Hierarchies and facet prefixes are strictly forbidden in tags.\n"
         "   - Lowercase always; hyphens join words (`heart-rate-variability`, `home-improvement`).\n"
+        "   - Singular count and mass nouns by default (`routine`, `cat`, `dream`, not `routines`, `cats`, `dreams`).\n"
         "   - Named entities follow the SAME rule as any other term — no TitleCase, no "
         "underscores. A person or place is usually better recorded in the observation text than "
         "as a tag.\n"
@@ -831,7 +833,7 @@ def _build_extraction_prompt(
         "    date: \"2025-03-15\"\n"
         f"  - subject: {cfg.EXAMPLE_PET_NAME:<16}# pet/household entity\n"
         f"    category: Cat01-{cfg.SUBJECT_CODE_USER}        # User canon ({cfg.USER_NAME}'s pet)\n"
-        "    tags: \"cat, pet, routine\"  # tags\n"
+        "    tags: \"cat, routine\"  # tags\n"
         f"    summary: \"{cfg.EXAMPLE_PET_NAME} the cat acts as an alarm to wake {cfg.USER_NAME} up in the morning.\" # observation explicitly naming {cfg.EXAMPLE_PET_NAME} and {cfg.USER_NAME}\n"
         "    confidence: high\n"
         "    date: \"2025-03-15\"\n"

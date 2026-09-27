@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-23 17:30:16
+# date modified: 2026-09-27 12:15:35
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -134,7 +134,7 @@ def write_journal_entry(
         vibe_check: Brief micro-assessment or immediate feeling.
         narrative: Main reflective text or journal body.
         message_in_a_bottle: A lingering question or message meant for future recall.
-        tags: Comma-separated list of tags to associate.
+        tags: Comma-separated list of atomic lowercase subject tags (e.g. 'reflection, planning'; zero slashes, singular count nouns).
         **kwargs: Flexible keyword arguments.
 
     Returns:
@@ -169,7 +169,7 @@ def write_dream_entry(
         description: Raw, untouched dream narrative from the user.
         date: Optional date string in YYYY-MM-DD format (defaults to current date).
         feelings: Optional initial feelings, immediate waking thoughts, or mood.
-        tags: Comma-separated list of tags to associate.
+        tags: Comma-separated list of atomic lowercase subject tags (e.g. 'anxiety, flying, ocean'; zero slashes, singular count nouns).
         analysis: Optional thematic or cross-referencing analysis notes.
         **kwargs: Flexible keyword arguments.
 
@@ -3107,7 +3107,7 @@ MODEL_TOOL_DEFINITIONS = [
                     },
                     "tags": {
                         "type": "string",
-                        "description": "Comma-separated tags for the dream (e.g. 'dream, anxiety-dreams, video-game-dreams').",
+                        "description": "Comma-separated atomic subject tags for the dream (e.g. 'anxiety, flying, ocean'). Lowercase singular nouns, zero slashes.",
                     },
                 },
                 "required": ["title", "description"],

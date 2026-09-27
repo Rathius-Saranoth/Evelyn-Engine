@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 08:53:24
+date modified: 2026-09-27 12:16:52
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,49 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.267] - 2026-09-27 — *Retire Tracked Taxonomy Base*
+
+### Added
+
+- **Database Migration `migrate_000_006_267_retire_base_taxonomy`**:
+  - Unified all authority terms and see-from references directly into local `master_tag_taxonomy` and `master_tag_aliases` tables in `data/evelyn_vault.db`.
+  - Copied all 80 authority see-from aliases from `base_tag_aliases` into `master_tag_aliases` before table retirement (bringing `master_tag_aliases` to 409 total registered aliases).
+  - Dropped obsolete `base_tag_taxonomy`, `base_tag_aliases`, and `base_taxonomy_meta` tables from `evelyn_vault.db`.
+  - Enqueued updated taxonomy surface forms into Chroma sync queue.
+
+### Changed
+
+- **Privacy Boundary & Vocabulary Decoupling**:
+  - Retired and removed the tracked `taxonomy/base.json` and loader `Evelyn/tools/taxonomy_base.py`. Controlled vocabulary terms are maintained strictly within local, gitignored SQLite databases to eliminate any profile/selection bias leaks in git history (per AGENTS.md §4).
+  - Simplified `Evelyn/tools/taxonomy_db.py`: `get_master_tags()`, `delete_master_tag()`, and `get_aliases()` query solely from `master_tag_taxonomy` and `master_tag_aliases` without querying dropped base tables.
+  - Simplified `Evelyn/tools/tag_librarian.py`: Removed base term retirement refusal checks in `retire_term()`.
+  - Simplified `evelyn_server.py`: Pruned startup base vocabulary loader and sync hooks.
+  - Updated `Evelyn/tools/journal_manager.py` and `Evelyn/tools/dream_manager.py`: Directly set frontmatter property `type: ["journal-entry"]` and `type: ["dream"]` with atomic tags.
+  - Updated `Evelyn/tests/test_see_reference_action.py`: Pointed see-reference tests to `taxonomy_db.upsert_master_tag`.
+  - **Prompt & Docstring Taxonomy Alignment**: Audited all tag writers and modifiers (`fact_extractor.py`, `fact_deduplicator.py`, `fact_splitter.py`, `evelyn_tools.py`, `dream_manager.py`, `journal_manager.py`, `tag_librarian.py`), explicitly reinforcing the Zero-Slash Invariant, singular noun format, and atomic coordinate examples in model prompts and docstrings.
+
+## [000.006.266] - 2026-09-27 — *Zero-Slash Facet Properties*
+
+### Added
+
+- **Native YAML frontmatter properties for non-subject facets**:
+  Non-subject facets (`type`, `motif`, `setting`, `event`) are formally migrated out of `tags: [...]` into dedicated frontmatter properties formatted as single-line flow arrays (e.g. `type: [reference]`, `motif: [combat, flight]`, `setting: [urban]`, `event: [surgery]`).
+- **`migrate_facets_to_properties.py` vault migration**:
+  Scanned and updated all 4,394 vault notes with atomic single-line flow arrays. Set 4,392 `type` properties, 115 `motif` properties, 87 `setting` properties, and 50 `event` properties. Saved backup manifest to `data/backups/`.
+- **Database Migrations `migrate_000_006_266_zero_slash_vault` and `migrate_000_006_266_zero_slash_memory`**:
+  - Vault DB: Flattened 97 prefix terms in `master_tag_taxonomy` (`event/*`, `motif/*`, `setting/*`, `type/*`) into atomic coordinates while recording equivalence aliases in `master_tag_aliases`. Stripped prefix slashes across `vault_documents.tags`.
+  - Memory DB: Stripped prefix slashes across `context_entries.tags` and operational `procedures.tags`. Enqueued 1,149 taxonomy surface forms into Chroma sync queue.
+
+### Changed
+
+- **Zero-Slash Invariant on Tags**:
+  `tags: [...]` in both Obsidian vault notes and database rows (`context_entries.tags`, `vault_documents.tags`, `procedures.tags`, `master_tag_taxonomy`) now strictly contains atomic lowercase subject nouns matching `^[a-z0-9-]+$` with zero slashes.
+- **Tag Librarian & Downstream Pipelines**:
+  - `Evelyn/tools/tag_librarian.py`: `apply_application_profile` drops any legacy facet prefix tags from `tags: [...]` and enforces frontmatter properties. `is_wellformed_term` strictly rejects slashes.
+  - `Evelyn/tools/link_librarian.py`: Stubs now use frontmatter property `type: [stub]` with empty/atomic subject tags. `_is_stub_note` inspects the `type` property with legacy fallback.
+  - `Evelyn/tools/pdf_staging_worker.py`: Generated sidecar notes assign `type: [media]` as a frontmatter property and keep `tags: [...]` strictly atomic.
+  - `Evelyn/tools/frontmatter_utils.py`: Added `type`, `motif`, `setting`, and `event` to `ARRAY_KEYS` to guarantee single-line flow array rendering.
 
 ## [000.006.265] - 2026-09-27 — *One More Literal That Outranked The Config*
 

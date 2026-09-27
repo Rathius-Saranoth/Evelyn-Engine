@@ -1,6 +1,10 @@
 ---
 trigger: manual
 description: Faceted Classification schema, facet axes, format standard, and vocabulary-control rules governing all tag curation across the vault and memory as one structure.
+title: vault-tag-taxonomy.md
+date created: 2026-09-27 10:52:56
+date modified: 2026-09-27 11:05:12
+tags: []
 ---
 
 # Vault Tag Taxonomy & Faceted Classification Specification
@@ -13,29 +17,30 @@ description: Faceted Classification schema, facet axes, format standard, and voc
    - In vault notes, individuals are referenced as wikilinks (`[[Jane Doe]]`, `[[Kansas]]`).
    - In memory context entries, individuals are referenced via the name register table (`tag_entities`).
 4. **Substrate-Specific Divergences**:
-   - `type/` and document class profiles apply only to vault notes (memory facts lack document forms).
+   - `type:` and document class profiles apply only to vault notes (memory facts lack document forms).
+   - In vault notes, structural and contextual facets (`type`, `motif`, `setting`, `event`) are maintained as native frontmatter properties, keeping `tags:` strictly atomic and zero-slash.
    - `obsidian-graph/*` applies only to vault notes. The memory administrative namespace is `status/*`.
    - Fast-memory categories (`Cat##-U` / `Cat##-A`) operate independently of this taxonomy.
 
 ---
 
-## 2. Facet Namespaces
+## 2. Facet Properties & Zero-Slash Tags
 
-Facets are orthogonal coordinates. A note or fact exists at their intersection.
+Facets are orthogonal coordinates. In vault notes, non-subject facets are maintained as native YAML frontmatter properties (formatted as Visual PKM single-line flow arrays), keeping the `tags:` property reserved strictly for subject domain atoms.
 
-| Axis | Namespace / Format | Cardinality | Purpose |
-|---|---|---|---|
-| **Domain** | Atomic, no prefix (`gis`, `routine`) | $\ge 1$ | Subject matter of the content |
-| **Type** | `type/<form>` | Exactly 1 | Document structural class (vault notes only) |
-| **Motif** | `motif/<atom>` | $\ge 0$ | Recurring abstract theme or symbol (conditional) |
-| **Setting** | `setting/<atom>` | $\ge 0$ | Conceptual environment or space type (conditional) |
-| **Event** | `event/<atom>` | $\ge 0$ | Class of life occurrence anchoring the note (conditional) |
-| **Time** | `occurred: <EDTF>` | 0 or 1 | Frontmatter date attribute; not a tag |
-| **Administrative** | `obsidian-graph/`, `status/` | $\ge 0$ | Engine operational flags; excluded from catalog audits |
+| Axis | Location / Schema | Format | Cardinality | Purpose |
+|---|---|---|---|---|
+| **Domain (Tags)** | `tags: [...]` | Atomic, lowercase (`gis`, `routine`) | $\ge 1$ | Subject matter of content (**Zero-Slash Invariant**) |
+| **Type** | `type: [...]` | Flow array (`[reference]`, `[journal-entry]`) | $\ge 1$ | Document structural class (vault notes only) |
+| **Motif** | `motif: [...]` | Flow array of atoms (`[combat, flight]`) | $\ge 0$ | Recurring abstract theme or symbol (conditional) |
+| **Setting** | `setting: [...]` | Flow array of atoms (`[subterranean, urban]`) | $\ge 0$ | Conceptual environment or space type (conditional) |
+| **Event** | `event: [...]` | Flow array of atoms (`[job-change]`, `[surgery]`) | $\ge 0$ | Class of life occurrence anchoring note (conditional) |
+| **Time** | `occurred: <EDTF>` | EDTF string attribute | 0 or 1 | Frontmatter date attribute (`YYYY-MM-DD`, etc.) |
+| **Sensitivity** | `sensitivity: <level>` | String attribute (`private`, `secret`) | 0 or 1 | Access and RAG indexing boundary |
+| **Administrative** | `obsidian-graph/`, `status/` | Prefix tags in `tags: [...]` | $\ge 0$ | Engine operational flags; excluded from catalog audits |
 
 ### 2.1 Media Sub-Typing
-The `type/media` facet requires a secondary sub-type selected strictly from the DCMI Type Vocabulary:
-`type/media/sound`, `type/media/moving-image`, `type/media/still-image`, `type/media/text`, `type/media/interactive`, `type/media/software`, `type/media/dataset`, `type/media/physical-object`.
+For media entries, the `type:` property holds the primary media class and optional DCMI Type Vocabulary sub-type (e.g. `type: [media, media/text]` or `type: [media/sound]`).
 
 ### 2.2 Time Property Standards
 Dates are stored in the frontmatter `occurred:` key using EDTF (ISO 8601-2:2019) syntax (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`, or uppercase `X` for unspecified digits, e.g., `XXXX-11-16`). Dates are not tags.
@@ -44,9 +49,9 @@ Dates are stored in the frontmatter `occurred:` key using EDTF (ISO 8601-2:2019)
 
 ## 3. Document Class Profiles
 
-The document's `type/` determines which conditional facets are permitted, required, or prohibited.
+The document's `type:` frontmatter property determines which conditional facet properties are permitted, required, or prohibited.
 
-| Class (`type/`) | Domain | Motif | Setting | Event | Time (`occurred:`) |
+| Class (`type:`) | Domain (`tags:`) | Motif (`motif:`) | Setting (`setting:`) | Event (`event:`) | Time (`occurred:`) |
 |---|---|---|---|---|---|
 | `reference`, `guide`, `manual` | Required | Prohibited | Prohibited | Prohibited | Optional |
 | `overview`, `moc`, `list` | Required | Prohibited | Prohibited | Prohibited | Optional |
@@ -63,10 +68,11 @@ The document's `type/` determines which conditional facets are permitted, requir
 
 ## 4. Syntax & Format Invariants
 
-1. **Casing**: Lowercase ASCII alphanumeric characters only. Acronyms must be lowercased (`gis`, `gps`).
-2. **Compounds**: Hyphens join words strictly within a single concept (`3d-printing`, `machine-learning`). Coordinate combinations must be separated into individual tags.
-3. **Delimiter**: Slashes indicate a facet namespace prefix only. A tag may contain at most one slash (`motif/combat`, `type/guide`), with the sole exception of DCMI media sub-typing (`type/media/<dcmi-token>`).
-4. **Number Form**: Singular count and mass nouns by default per ANSI/NISO Z39.19 exception warrant (`dream`, not `dreams`).
+1. **Zero-Slash Invariant on Tags**: The `tags:` array contains strictly atomic lowercase tokens matching `^[a-z0-9-]+$`. Slashes are strictly prohibited in `tags:`, with the sole exception of administrative engine flags (`obsidian-graph/*`, `status/*`).
+2. **Properties Flow Array Standard**: Non-subject facets (`type`, `motif`, `setting`, `event`) are formatted as Visual PKM single-line flow arrays (e.g., `type: [journal-entry]`, `motif: [combat, flight]`, `setting: [urban]`, `event: [move]`), allowing multiple terms per property where applicable.
+3. **Casing**: Lowercase ASCII alphanumeric characters only. Acronyms must be lowercased (`gis`, `gps`).
+4. **Compounds**: Hyphens join words strictly within a single concept (`3d-printing`, `machine-learning`). Coordinate combinations must be separated into individual tags or properties.
+5. **Number Form**: Singular count and mass nouns by default per ANSI/NISO Z39.19 exception warrant (`dream`, not `dreams`).
 
 ---
 

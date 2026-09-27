@@ -36,10 +36,10 @@ def test_a_hierarchical_compound_is_never_proposed(term) -> None:
 
 
 @pytest.mark.parametrize("term", ["type/media/text", "setting/forest", "motif/storm",
-                                  "event/move"])
-def test_a_facet_value_is_still_welcome(term) -> None:
-    """The guard must not eat the one legitimate use of a slash, including DCMI sub-typing."""
-    assert tag_librarian.is_wellformed_term(term)
+                                  "event/move", "lore/campaign-narrative"])
+def test_all_slashed_terms_are_refused_under_zero_slash_invariant(term) -> None:
+    """Zero-Slash Invariant: facets live in frontmatter properties; tags: [...] strictly forbids slashes."""
+    assert not tag_librarian.is_wellformed_term(term)
 
 
 def test_a_flat_term_is_unaffected() -> None:

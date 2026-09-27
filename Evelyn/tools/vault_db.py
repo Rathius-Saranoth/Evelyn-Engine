@@ -80,31 +80,6 @@ def init_db() -> None:
 
         CREATE INDEX IF NOT EXISTS idx_tag_aliases_canonical ON master_tag_aliases(canonical);
 
-        -- The shared base layer (v000.006.246). Materialised from the tracked
-        -- `taxonomy/base.json`; never written by admission, retirement or the census. It has
-        -- no `usage_count` column on purpose: counts describe one corpus, definitions do not,
-        -- and keeping them in one row is what stopped the vocabulary being shareable at all.
-        CREATE TABLE IF NOT EXISTS base_tag_taxonomy (
-            term              TEXT PRIMARY KEY,
-            category          TEXT,
-            description       TEXT,
-            scheme            TEXT,
-            scheme_id         TEXT,
-            authorized_label  TEXT,
-            loaded_at         REAL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_base_tag_scheme ON base_tag_taxonomy(scheme);
-
-        CREATE TABLE IF NOT EXISTS base_tag_aliases (
-            alias      TEXT PRIMARY KEY,
-            canonical  TEXT NOT NULL,
-            scheme     TEXT,
-            loaded_at  REAL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_base_alias_canonical ON base_tag_aliases(canonical);
-
         -- The name register (v000.006.250). A name is not a subject: it is not
         -- post-coordinated, has no synonyms in the subject sense, and routinely collides with
         -- an ordinary word. Keeping it in its own namespace is what lets `historical` be both

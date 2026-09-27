@@ -28,7 +28,7 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "scripts")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import extract_pdf_library
+import extract_pdf_library  # pyright: ignore[reportMissingImports]
 
 import evelyn_config as cfg
 from Evelyn.tools import backlog_drainer, task_manager
@@ -127,19 +127,14 @@ def process_staging_item(pdf_file: Path, mode: str) -> dict:
             sidecar_dir.mkdir(parents=True, exist_ok=True)
             sidecar_file = sidecar_dir / f"{title}_index.md"
 
-            # A multi-word domain is a single term, not a hierarchy: the old form turned
-            # 'Machine Learning' into 'machine/learning' and 'Owner's Manuals' into
-            # "owner's/manuals", inventing an axis and leaking an apostrophe into YAML.
-            # The one permitted slash names an axis (taxonomy §5).
-            # `type/media/text` is the form axis (§3.4), replacing the bespoke `type:`
-            # property. `source/pdf` was never a registered term and the `source` key below
-            # already records the attachment.
-            tags_str = format_yaml_array(
-                ["type/media/text", normalize_tag_format(domain_name)]
-            )
+            # Facets live in frontmatter properties (type: [media]).
+            # tags contains strictly atomic lowercase subject terms (zero slashes).
+            clean_dom = normalize_tag_format(domain_name) if domain_name else ""
+            tags_str = format_yaml_array([clean_dom] if clean_dom else [])
             content = f"""---
 title: "{title}"
 source: "[[{rel_dest_pdf}]]"
+type: [media]
 tags: {tags_str}
 created: {time.strftime('%Y-%m-%d')}
 ---

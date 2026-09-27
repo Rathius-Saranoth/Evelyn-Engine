@@ -101,10 +101,10 @@ class StubPayload:
     source_path: str = ""
     context_excerpt: str = ""
     domain: str = ""
-    # A stub carries nothing but its type until a human fills it in (taxonomy §3.4).
-    # `stub` and `concept` were never registered terms, and the §4 class profile
-    # forbids a domain tag on this class outright.
-    tags: list[str] = field(default_factory=lambda: ["type/stub"])
+    # A stub carries its class in the `type: [stub]` frontmatter property (taxonomy §3.4).
+    # Its tags are empty until a human or librarian indexes it with atomic subject terms.
+    type: list[str] = field(default_factory=lambda: ["stub"])
+    tags: list[str] = field(default_factory=list)
     min_refs: int = 2
     ref_count: int = 0
     sources: list[str] = field(default_factory=list)
@@ -115,19 +115,31 @@ class StubPayload:
 
 
 def _is_stub_note(frontmatter: dict[str, Any] | None) -> bool:
-    """Report whether a parsed note carries the stub tag.
+    """Report whether a parsed note represents an entity stub.
 
-    Keyed on the tag rather than the folder: stubs are filed and refiled by hand, so
-    `Stubs/` is where they usually live, not what they are.
+    Keyed on the `type: [stub]` property (or legacy `type/stub` tag) rather than the folder:
+    stubs are filed and refiled by hand, so `Stubs/` is where they usually live, not what they are.
 
     Args:
         frontmatter: Parsed frontmatter mapping, or None.
 
     Returns:
-        bool: True when the note is tagged `type/stub`.
+        bool: True when the note carries type 'stub' or is tagged 'stub'/'type/stub'.
     """
     if not frontmatter:
         return False
+    # 1. Canonical: check type property
+    raw_type = frontmatter.get("type") or []
+    if isinstance(raw_type, str):
+        type_vals = [raw_type.strip().lower()]
+    elif isinstance(raw_type, (list, tuple, set)):
+        type_vals = [str(x).strip().lower() for x in raw_type]
+    else:
+        type_vals = []
+    if "stub" in type_vals or "type/stub" in type_vals:
+        return True
+
+    # 2. Legacy fallback: check tags (only type/stub; bare 'stub' in tags is a subject)
     tags = frontmatter.get("tags") or []
     if isinstance(tags, str):
         tags = [t.strip() for t in re.split(r"[,\n]", tags)]
@@ -383,8 +395,11 @@ def parse_stub_xml(xml_str: str) -> StubPayload:
     source_path = root.findtext("source_path") or ""
     context = root.findtext("context") or ""
     domain = root.findtext("domain") or ""
-    tags_str = root.findtext("tags") or "type/stub"
-    tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+    tags_str = root.findtext("tags") or ""
+    tags = [
+        t.strip() for t in tags_str.split(",")
+        if t.strip() and t.strip() not in ("type/stub", "stub") and not t.strip().startswith("type/")
+    ]
 
     sources = []
     references = []
@@ -454,7 +469,11 @@ def render_stub_markdown(payload: StubPayload, now_str: str | None = None) -> st
     fm_dict = {
         "title": payload.target_name,
         "aliases": aliases,
-        "tags": payload.tags,
+        "type": ["stub"],
+        "tags": [
+            t for t in payload.tags
+            if t not in ("type/stub", "stub") and not t.startswith("type/")
+        ],
         "date created": ts,
         "date modified": ts,
     }
@@ -526,6 +545,8 @@ def render_stub_markdown(payload: StubPayload, now_str: str | None = None) -> st
             fm_lines.append(f"tags: {normalize_flow_array(fm_dict.get('tags', []))}")
         elif line.startswith("aliases:"):
             fm_lines.append(f"aliases: {normalize_flow_array(fm_dict.get('aliases', []))}")
+        elif line.startswith("type:"):
+            fm_lines.append(f"type: {normalize_flow_array(fm_dict.get('type', []))}")
         else:
             fm_lines.append(line)
 
@@ -1746,7 +1767,7 @@ def create_ghost_link_stub(
         source_path=primary_source,
         context_excerpt=primary_context,
         domain=domain,
-        tags=["type/stub"],
+        tags=[],
         min_refs=min_refs_val,
         ref_count=ref_count,
         sources=sources,
@@ -1792,7 +1813,12 @@ def create_ghost_link_stub(
                         "now %d, below the %.1f× threshold — not re-proposing.",
                         clean_target, was, ref_count, factor,
                     )
-                    return None
+                    return {
+                        "status": "skipped",
+                        "reason": "rejected_threshold_not_met",
+                        "target": clean_target,
+                        "ref_count": ref_count,
+                    }
                 logger.info(
                     "[LINK LIBRARIAN] Stub for '%s' was rejected at %s citation(s) but is now "
                     "cited %d times — re-proposing on the new evidence.",
@@ -1861,7 +1887,7 @@ def create_ghost_link_stub(
         gist=gist_text,
         rag_priority="normal",
         rag_pinned=False,
-        tags="type/stub",
+        tags="",
         aliases="",
     )
     vault_db.update_document_librarian_audit(target_relpath, ghost_count=0, mtime=new_mtime)

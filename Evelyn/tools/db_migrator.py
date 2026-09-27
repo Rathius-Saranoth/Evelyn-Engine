@@ -5343,6 +5343,189 @@ def migrate_000_006_250_tag_entities(
     logger.info("[MIGRATION 250] Name register ready.")
 
 
+def migrate_000_006_266_zero_slash_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.266: Zero-Slash Invariant on vault taxonomy and vault_documents.tags."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    # 1. Migrate all prefix tags in master_tag_taxonomy (event/*, motif/*, setting/*, type/*)
+    slashed = cursor.execute(
+        "SELECT tag, category, usage_count FROM master_tag_taxonomy WHERE tag LIKE '%/%'"
+    ).fetchall()
+
+    for full_tag, category, usage_count in slashed:
+        _prefix, atom = full_tag.split("/", 1)
+        clean_atom = atom.replace("/", "-")
+
+        # Ensure clean_atom exists in master_tag_taxonomy
+        cursor.execute(
+            """INSERT INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at)
+               VALUES (?, ?, '', ?, ?, ?)
+               ON CONFLICT(tag) DO UPDATE SET usage_count = master_tag_taxonomy.usage_count + excluded.usage_count,
+                                              updated_at = excluded.updated_at""",
+            (clean_atom, category or "general", usage_count or 0, now, now),
+        )
+
+        # Record equivalence alias: full_tag -> clean_atom
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'facet', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical,
+                                                tier = excluded.tier""",
+            (full_tag, clean_atom, now),
+        )
+
+        # Delete old full_tag from master_tag_taxonomy
+        cursor.execute("DELETE FROM master_tag_taxonomy WHERE tag = ?", (full_tag,))
+
+    # 2. Synchronize vault_documents.tags by stripping prefix facet tags
+    docs = cursor.execute(
+        "SELECT path, tags FROM vault_documents WHERE tags IS NOT NULL AND tags != ''"
+    ).fetchall()
+    updated_docs = 0
+    for doc_path, raw_tags in docs:
+        tokens = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        clean_tokens = []
+        changed = False
+        for t in tokens:
+            t_lower = t.lower()
+            if t_lower.startswith(("type/", "motif/", "setting/", "event/")):
+                changed = True
+            else:
+                clean_tokens.append(t)
+        if changed:
+            cursor.execute(
+                "UPDATE vault_documents SET tags = ? WHERE path = ?",
+                (", ".join(clean_tokens), doc_path),
+            )
+            updated_docs += 1
+
+    logger.info(
+        "[MIGRATION 266] Migrated %d slashed terms to atoms/aliases; updated %d vault_documents rows.",
+        len(slashed),
+        updated_docs,
+    )
+
+
+def migrate_000_006_266_zero_slash_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.266: Zero-Slash Invariant on context_entries.tags and procedures.tags."""
+    cursor = conn.cursor()
+
+    rewrite_prefixes = ("event/", "motif/", "setting/")
+    legacy_rewrites = {
+        "creative/storytelling": "storytelling",
+        "hobbies/games/dnd": "dnd",
+        "fiction/character-creation": "character-creation",
+        "hobbies/tabletop-rp": "ttrpg",
+        "home/plans": "routine",
+        "life/moving": "move",
+        "relationship/dynamics": "relationship",
+    }
+
+    updated_entries = 0
+    rows = cursor.execute(
+        "SELECT id, tags FROM context_entries WHERE tags LIKE '%/%'"
+    ).fetchall()
+    for row_id, raw_tags in rows:
+        tokens = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        clean_tokens = []
+        seen = set()
+        for t in tokens:
+            t_lower = t.lower()
+            if t_lower in legacy_rewrites:
+                clean = legacy_rewrites[t_lower]
+            elif any(t_lower.startswith(pfx) for pfx in rewrite_prefixes):
+                clean = t.split("/", 1)[1].strip()
+            else:
+                clean = t
+            if clean and clean not in seen:
+                seen.add(clean)
+                clean_tokens.append(clean)
+
+        cursor.execute(
+            "UPDATE context_entries SET tags = ? WHERE id = ?",
+            (", ".join(clean_tokens), row_id),
+        )
+        updated_entries += 1
+
+    # Also procedures
+    updated_procedures = 0
+    proc_rows = cursor.execute(
+        "SELECT id, tags FROM procedures WHERE tags LIKE '%/%'"
+    ).fetchall()
+    for row_id, raw_tags in proc_rows:
+        tokens = [t.strip().strip("'\"#") for t in raw_tags.split(",") if t.strip().strip("'\"#")]
+        clean_tokens = []
+        seen = set()
+        for t in tokens:
+            t_lower = t.lower()
+            if t_lower in legacy_rewrites:
+                clean = legacy_rewrites[t_lower]
+            elif any(t_lower.startswith(pfx) for pfx in rewrite_prefixes):
+                clean = t.split("/", 1)[1].strip()
+            else:
+                clean = t
+            if clean and clean not in seen:
+                seen.add(clean)
+                clean_tokens.append(clean)
+
+        cursor.execute(
+            "UPDATE procedures SET tags = ? WHERE id = ?",
+            (", ".join(clean_tokens), row_id),
+        )
+        updated_procedures += 1
+
+    logger.info(
+        "[MIGRATION 266] Stripped slashes across %d context_entries and %d procedures.",
+        updated_entries,
+        updated_procedures,
+    )
+
+
+def migrate_000_006_267_retire_base_taxonomy(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.267: Retire separate base_tag_taxonomy tables and unify into local SQLite.
+
+    Preserves all 80 authoritative see-from aliases and 103 terms locally in master_tag_aliases
+    and master_tag_taxonomy, while eliminating the public git tracking of personal subject lists.
+    """
+    cursor = conn.cursor()
+
+    # 1. Check if base_tag_aliases exists and copy rows to master_tag_aliases
+    has_base_aliases = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='base_tag_aliases'"
+    ).fetchone()
+    if has_base_aliases:
+        cursor.execute("""
+            INSERT OR IGNORE INTO master_tag_aliases (alias, canonical, tier, created_at)
+            SELECT alias, canonical, 'authority', loaded_at
+            FROM base_tag_aliases
+        """)
+
+    # 2. Check if base_tag_taxonomy exists and copy rows to master_tag_taxonomy
+    has_base_tax = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='base_tag_taxonomy'"
+    ).fetchone()
+    if has_base_tax:
+        cursor.execute("""
+            INSERT OR IGNORE INTO master_tag_taxonomy (tag, category, description, usage_count, created_at, updated_at, protected)
+            SELECT term, category, description, 0, loaded_at, loaded_at, 1
+            FROM base_tag_taxonomy
+        """)
+
+    # 3. Drop the separate base tables
+    cursor.execute("DROP TABLE IF EXISTS base_tag_taxonomy")
+    cursor.execute("DROP TABLE IF EXISTS base_tag_aliases")
+    cursor.execute("DROP TABLE IF EXISTS base_taxonomy_meta")
+
+    logger.info("[MIGRATION 267] Unified base terms and aliases into master tables and dropped base_tag tables.")
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -5947,6 +6130,27 @@ MIGRATIONS: list[Migration] = [
         name="tag_entities",
         up_fn=migrate_000_006_250_tag_entities,
         post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.266",
+        name="zero_slash_vault",
+        up_fn=migrate_000_006_266_zero_slash_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.266",
+        name="zero_slash_memory",
+        up_fn=migrate_000_006_266_zero_slash_memory,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.267",
+        name="retire_base_taxonomy",
+        up_fn=migrate_000_006_267_retire_base_taxonomy,
+        post_sync_chroma=True,
     ),
 ]
 

@@ -1,6 +1,6 @@
 # dream_manager.py
 # date created: 2026-08-29 07:45:00
-# date modified: 2026-09-22 20:15:53
+# date modified: 2026-09-27 12:15:35
 # tags: #dreams, #management, #entries, #vault, #protocols
 
 """
@@ -88,7 +88,7 @@ def create_dream_entry(
         description: Raw, untouched dream description from the user.
         date_str: Optional date string (YYYY-MM-DD). Defaults to current date.
         feelings: Optional initial feelings, immediate waking thoughts, or mood.
-        tags: Optional tag list or comma-separated tag string.
+        tags: Optional tag list or comma-separated string of atomic lowercase subject tags (zero slashes, singular count nouns).
         analysis: Optional thematic or cross-referencing analysis notes.
 
     Returns:
@@ -179,6 +179,7 @@ def create_dream_entry(
         new_meta = {
             "title": f"Dream Entry {target_date_str}",
             "aliases": [],
+            "type": ["dream"],
             "tags": clean_tags,
             OCCURRED_PROPERTY: occurred,
             "icon": [],

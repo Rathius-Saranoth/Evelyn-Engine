@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-27 08:48:52
+# date modified: 2026-09-27 12:15:35
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -348,8 +348,10 @@ def _extract_chunk_subjects(chunk: str, title: str) -> list[str]:
         "never 'exercise routine'.\n"
         "- Never name a person, place, company, product or title. Those are not subjects.\n"
         "- Most documents have one to three subjects. Return fewer rather than padding.\n"
-        'Output ONLY a JSON array of short lowercase noun phrases, e.g. ["floodplain '
-        'management", "drone operations"]. No commentary.'
+        "- Zero-Slash Invariant: NEVER include slashes (`/`), colons, or punctuation. "
+        "Use singular count nouns by default.\n"
+        'Output ONLY a JSON array of short lowercase atomic noun terms, e.g. ["floodplain", '
+        '"drone", "mapping"]. No commentary.'
     )
     try:
         raw = _canonical_query_ollama(
@@ -439,9 +441,9 @@ SUBJECT_MARGIN_GUARD = getattr(cfg, "TAG_SUBJECT_MARGIN_GUARD", 0.02)
 SUBJECT_FUZZY_CUTOFF = getattr(cfg, "TAG_SUBJECT_FUZZY_CUTOFF", 92)
 SUBJECT_SUGGESTION_HEADROOM = 5    # new terms a single document may contribute
 
-# Facet prefixes keep exactly one level: the prefix names which axis a term belongs to,
-# which flat atoms cannot express. Everything else decomposes (§3.3). Defined here rather
-# than in `tag_synonym`, which imports from this module.
+# Non-subject facets (type, motif, setting, event) live in frontmatter properties.
+# FACET_PREFIXES is retained for legacy safety to prevent old prefixed forms from
+# resolving as subject terms (§3.3). Defined here rather than in `tag_synonym`.
 FACET_PREFIXES = ("type/", "motif/", "setting/", "event/")
 
 
@@ -470,27 +472,21 @@ def is_subject_term(term: str) -> bool:
 
 
 def is_wellformed_term(term: str) -> bool:
-    """A slash belongs to a facet axis, or it is the retired hierarchy (§3.3).
+    """Enforce the Zero-Slash Invariant on subject tags (§4.1).
 
-    Post-coordination left exactly one use for `/`: naming which axis a facet value sits on.
-    Anything else is a pre-coordinate compound — `lore/campaign-narrative` is `lore` and
-    `campaign-narrative` glued together by an indexer guessing which combination a future
-    query would want, which is the structure this vocabulary removed.
-
-    Nothing was checking. `normalize_tag_format` preserves the slash and `is_excluded_tag`
-    ignores it, so two such terms reached the review queue on 2026-09-23 and the only thing
-    stopping them returning was the reviewer's rejection — a permanent decision doing work a
-    format rule should never have delegated to it.
+    Subject tags are strictly flat atoms without slashes. Non-subject facets (`type`,
+    `motif`, `setting`, `event`) live in frontmatter properties. The only permitted slashes
+    in `tags:` are protected engine administrative tags (`obsidian-graph/*`, `status/*`).
 
     Args:
-        term: A term already in canonical §5 format.
+        term: A term already in canonical format.
 
     Returns:
-        bool: True when the term is flat, or a facet value on a known axis.
+        bool: True when the term is flat (no slashes) or a protected administrative tag.
     """
     if "/" not in term:
         return True
-    return term.startswith(FACET_PREFIXES)
+    return is_excluded_tag(term)
 
 
 def normalize_subject_phrase(phrase: str) -> str:
@@ -878,7 +874,7 @@ FACET_PROFILE: dict[str, dict[str, str]] = {
     # Entity cards ("what is it / how does it relate to me"): contacts, pets, personas, D&D
     # characters and places, software. The second-largest class in the vault (Pass 1 review).
     "profile":       {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    # Auto-generated ghost stubs: the type tag and nothing else until a human fills them in.
+    # Auto-generated ghost stubs: the type property [stub] and nothing else until a human fills them in.
     "stub":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
 }
 DOCUMENT_CLASSES = sorted(FACET_PROFILE)
@@ -922,20 +918,19 @@ def determine_document_class(body: str, title: str, path: str = "") -> str:
 
 
 def apply_application_profile(
-    doc_class: str, tags: list[str], occurred: str | None = None
+    doc_class: str,
+    tags: list[str],
+    occurred: str | None = None,
+    motif: list[str] | None = None,
+    setting: list[str] | None = None,
+    event: list[str] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
-    """Enforce a class's facet profile against a document's tags (§4).
+    """Enforce a class's facet profile against a document's tags and properties (§3).
 
-    Returns what the profile requires be added, what it forbids and must go, and which
-    required facets the document still lacks. The last of those is a gap to report rather
-    than something to invent: a `dream` with no motif needs one, but guessing which motif
-    is subject analysis, not cataloguing.
-
-    Args:
-        doc_class: A class from DOCUMENT_CLASSES.
-        tags: The document's current tags.
-        occurred: The document's `occurred` property, if it has one. The time facet is
-            satisfied by this rather than by a tag.
+    Under the Zero-Slash Invariant, non-subject facets (type, motif, setting, event)
+    live in frontmatter properties. Any legacy facet prefix tags (type/*, motif/*,
+    setting/*, event/*) in the tags array are routed to `remove` so they are stripped
+    from tags.
 
     Returns:
         tuple[list[str], list[str], list[str]]: (to add, to remove, unmet requirements).
@@ -948,29 +943,25 @@ def apply_application_profile(
     remove: list[str] = []
     gaps: list[str] = []
 
-    type_tag = f"type/{doc_class}"
-    # A DCMI sub-type (`type/media/text`) is the class's type tag in a more specific form.
-    if not any(t == type_tag or t.startswith(type_tag + "/") for t in tags):
-        add.append(type_tag)
-    # One type facet only — any other is wrong about the document's form.
+    # Any legacy prefix tags in tags array are dropped to uphold Zero-Slash Invariant
     remove.extend(
         t for t in tags
-        if t.startswith("type/") and t != type_tag and not t.startswith(type_tag + "/")
+        if t.startswith(("type/", "motif/", "setting/", "event/")) and not is_excluded_tag(t)
     )
 
     for facet, rule in profile.items():
-        # The time axis lives in the `occurred` property, not in the tag list. It is the one
-        # facet whose primary access pattern is a range ("notes between March and June"),
-        # which a tag cannot answer without enumerating every day, and the only one every
-        # tag consumer had to special-case.
-        present = (
-            bool(occurred) if facet == "time"
-            else any(t.startswith(f"{facet}/") for t in tags)
-        )
+        if facet == "time":
+            present = bool(occurred)
+        elif facet == "motif":
+            present = bool(motif) or any(t.startswith("motif/") for t in tags)
+        elif facet == "setting":
+            present = bool(setting) or any(t.startswith("setting/") for t in tags)
+        elif facet == "event":
+            present = bool(event) or any(t.startswith("event/") for t in tags)
+        else:
+            present = False
 
-        if rule == FORBIDDEN and present:
-            remove.extend(t for t in tags if t.startswith(f"{facet}/"))
-        elif rule == REQUIRED and not present:
+        if rule == REQUIRED and not present:
             gaps.append(facet)
 
     return add, [t for t in remove if not is_excluded_tag(t)], gaps
@@ -1262,6 +1253,7 @@ def audit_document_tags(
     # same model shown existing tags produced eight different terms for "sleep" across five
     # documents and never the bare atom; shown only the documents, it produced the identical
     # phrase three times. Alignment happens afterwards, by measurement (§6.1).
+    doc_class: str = ""
     if enable_llm:
         title = os.path.basename(path).replace(".md", "") if path else "Untitled"
         doc_info = vault_db.get_document(path) if path else None
@@ -1315,19 +1307,11 @@ def audit_document_tags(
         # profile pass (1) already settles which one, so its answer wins and any other is
         # dropped here. This is belt-and-braces — pass 2 can no longer emit a facet — but the
         # rule is cheap to assert and was violated silently for a day without it.
-        type_tags = [t for t in final_tags_list if t.startswith("type/")]
-        if len(type_tags) > 1:
-            keep = f"type/{doc_class}" if doc_class else type_tags[0]
-            keep = next(
-                (t for t in type_tags if t == keep or t.startswith(keep + "/")), type_tags[0]
-            )
-            dropped = [t for t in type_tags if t != keep]
-            final_tags_list = [t for t in final_tags_list if t == keep or not t.startswith("type/")]
-            details["type_conflict_resolved"] = {"kept": keep, "dropped": dropped}
-            logger.warning(
-                "[TAG LIBRARIAN] %s carried %d type/ tags (%s); kept %s.",
-                path, len(type_tags), ", ".join(type_tags), keep,
-            )
+        # Backstop for Zero-Slash Invariant: no facet prefixes survive in tags
+        final_tags_list = [
+            t for t in final_tags_list
+            if not t.startswith(FACET_PREFIXES) or is_excluded_tag(t)
+        ]
 
         final_tags_list = sorted(taxonomy_db.canonicalize_tags(final_tags_list))
         details["final_tags"] = final_tags_list
@@ -1340,11 +1324,24 @@ def audit_document_tags(
                 path, len(proposals), ", ".join(proposals),
             )
 
-
     modified = (set(final_tags_list) != set(current_tags))
     new_content = content
+    if enable_llm and doc_class:
+        meta_now, _ = parse_frontmatter(new_content)
+        existing_types = meta_now.get("type", [])
+        if isinstance(existing_types, str):
+            types_list = [existing_types] if existing_types else []
+        elif isinstance(existing_types, (list, tuple, set)):
+            types_list = list(existing_types)
+        else:
+            types_list = []
+        if doc_class not in types_list:
+            types_list.append(doc_class)
+            new_content = update_frontmatter_field(new_content, "type", types_list)
+            modified = True
+
     if modified:
-        new_content = update_frontmatter_tags(content, final_tags_list)
+        new_content = update_frontmatter_tags(new_content, final_tags_list)
 
     return modified, new_content, details
 
@@ -1992,19 +1989,20 @@ def propose_tag_admission(
     # the word. Each further request is counted instead: a name the corpus keeps nominating
     # is either one it keeps mentioning, which is expected, or a word that also has a subject
     # sense the vocabulary is missing, and only the number tells those apart.
+    tag_entities_mod = None
     try:
-        from Evelyn.tools import tag_entities
+        from Evelyn.tools import tag_entities as tag_entities_mod
 
-        names = tag_entities.entity_terms()
-    except (sqlite3.Error, OSError) as exc:
+        names = tag_entities_mod.entity_terms()
+    except (ImportError, sqlite3.Error, OSError) as exc:
         # Cannot prove anything is a name, so suppress nothing.
         logger.warning("[TAG LIBRARIAN] Could not read the name register: %s", exc)
         names = set()
 
     for term in dict.fromkeys(unregistered):
-        if term in names:
+        if term in names and tag_entities_mod is not None:
             with contextlib.suppress(sqlite3.Error, OSError):
-                count = tag_entities.record_entity_request(term)
+                count = tag_entities_mod.record_entity_request(term)
                 logger.info(
                     "[TAG LIBRARIAN] '%s' is registered as a name; not re-proposing "
                     "(asked for %d time(s) now), requested by %s.",
@@ -2020,7 +2018,7 @@ def propose_tag_admission(
         prop = by_topic.get(term)
         if not prop:
             continue
-        merged = list(dict.fromkeys([*(prop.get("source_ids") or []), *source_ids]))
+        merged = list(dict.fromkeys([*(prop.get("source_ids") or []), *(source_ids or [])]))
         if merged != (prop.get("source_ids") or []):
             try:
                 memory_db.update_proposal(prop["id"], source_ids=merged)
@@ -2433,19 +2431,6 @@ def retire_term(term: str, replacement: str = "") -> bool:
     if not clean:
         return False
 
-    # Refuse before anything is written. `delete_master_tag` refuses a base term on its own,
-    # but this function ignored its result and returned True regardless — so a retirement
-    # would have recorded the alias, re-pointed the relations, and then reported success over
-    # a term that is still there. The base layer is shared and tracked; the guarantee that
-    # nothing the engine does can purge it has to hold here, at the only caller that tries.
-    from Evelyn.tools import taxonomy_base
-
-    if taxonomy_base.is_base_term(clean):
-        logger.warning(
-            "[TAG LIBRARIAN] '%s' comes from the shared base vocabulary and cannot be retired.",
-            clean,
-        )
-        return False
 
     preferred = normalize_tag_format(replacement) if replacement else ""
     if preferred and preferred != clean:

@@ -186,7 +186,10 @@ def render_frontmatter(metadata: dict[str, Any], body: str = "") -> str:
 
 def _format_field_line(key: str, value: Any) -> str:
     """Helper to format a single frontmatter key-value pair."""
-    ARRAY_KEYS = {"tags", "aliases", "keywords", "categories", "collections", "related"}
+    ARRAY_KEYS = {
+        "tags", "aliases", "keywords", "categories", "collections", "related",
+        "type", "motif", "setting", "event",
+    }
 
     if key.lower() in ARRAY_KEYS or isinstance(value, (list, set, tuple)):
         return f"{key}: {format_yaml_array(value)}"

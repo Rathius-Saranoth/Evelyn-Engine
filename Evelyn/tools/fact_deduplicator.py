@@ -1,6 +1,6 @@
 # fact_deduplicator.py
 # date created: 2026-09-14
-# date modified: 2026-09-25 07:08:56
+# date modified: 2026-09-27 12:15:35
 # tags: #facts, #deduplication, #vector_search, #chroma, #merging
 
 """
@@ -64,7 +64,7 @@ TASK:
 4. THE EVENT EXCEPTION: If the entries represent discrete events, moods, or occurrences tied to different dates (State-Data vs Time-Series Data), they are a historical log. You MUST choose 'keep_both'.
 5. If verdict is 'keep_both', set merged_summary to an empty string.
 6. DATA PRESERVATION RULE: If you choose 'merge' or 'supersede', the resulting `merged_summary` MUST include every specific noun, condition, and contextual detail present in the source entries. Do not generalize or drop context to make the sentence read more smoothly. If combining them causes a loss of specific detail, you must choose 'keep_both'.
-7. CONTROLLED VOCABULARY TAGS: Format `merged_tags` as flat subject terms combined at retrieval time, not a tree — `coffee, routine`, never `home/coffee/espresso`. Lowercase always, hyphens joining words; never TitleCase or underscores. Named individuals are not tags at all. Prefer terms that already appear on the source entries over inventing new ones. Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.
+7. CONTROLLED VOCABULARY TAGS (Zero-Slash Invariant): Format `merged_tags` as flat subject terms combined at retrieval time, not a tree — `coffee, routine`, never `home/coffee/espresso`. Slashes are strictly prohibited (Zero-Slash Invariant). Lowercase always, hyphens joining words; never TitleCase or underscores. Singular count nouns by default (`routine`, `cat`, not `routines`, `cats`). Named individuals are not tags at all. Prefer terms that already appear on the source entries over inventing new ones. Name the specific subject, never the container: `work`, `home`, `tools`, `pets`, `wellness`, `system` and the like are folder headings a flat vocabulary removes and narrow nothing. Write `firewall` not `work`, `cat` not `pets`.
 8. EXPLICIT NOUN SUBJECT MANDATE: The `merged_summary` MUST explicitly state the subject/actor by name at the beginning (e.g. 'Alex prefers...', 'Evelyn observes...', 'Biscuit the cat acts as...', 'Jordan is acclimating...'). NEVER begin the summary with a subject-less verb (e.g. 'Enjoys...', 'Prefers...', 'Acts as...') and NEVER use ambiguous floating pronouns ('He', 'She', 'They') as the primary subject referent. If one entity is observing or commenting on another, explicitly name BOTH entities in the text (e.g. 'Evelyn observes that Alex values clarity...').
 {cat_ref}
 

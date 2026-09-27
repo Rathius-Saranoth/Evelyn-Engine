@@ -1,6 +1,6 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-09-22 20:05:07
+# date modified: 2026-09-27 12:15:35
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
@@ -114,8 +114,9 @@ def create_journal_entry(
     overwriting the existing file. This preserves multiple sessions in a
     single day's entry.
 
-    Tags are cleaned (``#`` prefix stripped) and merged with an automatic
-    base metadata: the ``occurred`` date property.
+    Tags are normalized to atomic lowercase subject terms (zero slashes,
+    singular count nouns) and paired with the frontmatter properties
+    (`type: [journal-entry]`, `occurred: YYYY-MM-DD`).
 
     Args:
         vibe_check: Brief intro capturing the emotional atmosphere of the entry.
@@ -123,7 +124,7 @@ def create_journal_entry(
         message_in_a_bottle: A closing thought, wish, or intention for the future.
         mood: Single-word or short mood label (e.g. ``"Reflective"``). Written
             into the YAML frontmatter and Vibe Check section.
-        tags: Optional list of tag strings (with or without leading ``#``).
+        tags: Optional list of atomic lowercase subject tags (zero slashes).
         date_str: Optional target date string in YYYY-MM-DD format (defaults to current date).
 
     Returns:
@@ -174,7 +175,7 @@ def create_journal_entry(
 *{message_in_a_bottle}*
 """
     file_content = render_frontmatter(
-        {"mood": mood, "tags": clean_tags, OCCURRED_PROPERTY: occurred}, body=body
+        {"type": ["journal-entry"], "mood": mood, "tags": clean_tags, OCCURRED_PROPERTY: occurred}, body=body
     )
 
     from Evelyn.tools import memory_db

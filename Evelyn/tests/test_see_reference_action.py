@@ -19,7 +19,7 @@ import asyncio
 import pytest
 
 import evelyn_server
-from Evelyn.tools import memory_db, taxonomy_base, taxonomy_db
+from Evelyn.tools import memory_db, taxonomy_db
 
 
 def _act(pid: int, canonical: str):
@@ -100,16 +100,9 @@ def test_the_target_is_resolved_through_existing_equivalences(vocabulary: None) 
     assert taxonomy_db.get_aliases()["lineage"] == "genealogy", "Stored flat, not chained"
 
 
-def test_a_base_term_is_a_valid_target(vocabulary: None, tmp_path) -> None:
-    """The shared layer is part of the vocabulary, so it can be pointed at."""
-    import json
-    base = tmp_path / "base.json"
-    base.write_text(json.dumps({
-        "version": "t.1",
-        "terms": [{"term": "leather", "category": "objects", "scheme": "fast"}],
-        "aliases": [],
-    }), encoding="utf-8")
-    taxonomy_base.sync_base_taxonomy(str(base))
+def test_a_registered_term_is_a_valid_target(vocabulary: None) -> None:
+    """A registered term in the controlled vocabulary can be pointed at."""
+    taxonomy_db.upsert_master_tag("leather", category="objects")
     pid = _admission("hides")
 
     _act(pid, "leather")

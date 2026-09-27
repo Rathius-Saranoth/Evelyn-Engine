@@ -109,6 +109,10 @@ def test_evelyn_tools_write_dream_entry(temp_vault_dir):
 
 def test_procedure_search_scoring(monkeypatch):
     """Test that search_procedures_by_trigger returns accurate matches with relevance scoring."""
+    memory_db.insert_procedure(
+        trigger_pattern="Alex asks to log a dream entry from last night",
+        steps="1. Use write_dream_entry...",
+    )
     # Query with specific domain keywords
     results = memory_db.search_procedures_by_trigger("Alex asks to log a dream entry from last night")
     assert len(results) > 0
