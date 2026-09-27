@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 20:52:30
+date modified: 2026-09-26 21:34:46
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,42 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.261] - 2026-09-26 — *Stop Asking For What Nothing Reads*
+
+### Changed
+
+- **The review card no longer asks for a category.** A term's `category` is consumed by
+  nothing: it is deliberately excluded from the tag's embedding vector (the labelled-prose
+  format it belonged to made 31.5% of terms fail to match themselves, fixed in `.221`-`.224`)
+  and it reaches no prompt. Its only readers were a dropdown and a sort order.
+
+  It also drifted into an uncontrolled vocabulary inside the controlled one — 21 values with
+  `work-civic` (35) beside `professional-civic` (1), `domestic-life` (34) beside
+  `making-home-improvement` (20) beside `home-projects` (3), and three singletons. The single
+  largest value, `reference` (167), is not a subject domain at all.
+
+  It traces to `f8fceeb`, the original faceted-classification migration, which predates the
+  post-coordinate revision: it is the last surviving piece of the hierarchy that was removed.
+  The job it appeared to do is already done twice over — facet prefixes state the axis, and
+  the relations table states association and hierarchy, many-to-many and already reviewed.
+
+  **Collection stops; the data stays.** The column and its 643 assignments remain, because
+  they convert directly into `narrower` relations (`sleep narrower health-body`) and deleting
+  them before that decision is made would discard the one useful thing the column produced.
+
+- **The admission card now says what the term box can do.** It was already editable and its
+  contents were already what got registered — including a facet prefix, so `setting/bedroom`
+  registers even though no such term exists yet. Nothing said so, and a reviewer reasonably
+  concluded they could only pick from existing terms. The hint is on the card and in the
+  `? Hint` modal.
+
+### Notes
+
+- `GET /api/taxonomy/vocabulary` still returns `categories`, and
+  `register_admitted_term(category=...)` still accepts one. Removing those, the column and the
+  field in `taxonomy/base.json` is queued separately, gated on deciding whether to convert the
+  existing assignments into relations first.
 
 ## [000.006.260] - 2026-09-26 — *A Broken Instrument Reads Worse Than None*
 

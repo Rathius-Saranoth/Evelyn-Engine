@@ -1968,9 +1968,7 @@
           // Same two fields the single-card path sends, read from the same inputs — a term
           // corrected in place must survive a bulk admit exactly as it does a single one.
           const termInput = document.getElementById(`tag-term-${id}`);
-          const catSelect = document.getElementById(`tag-cat-${id}`);
           decision.modified_text = termInput ? termInput.value.trim() : (item.topic || '');
-          decision.category = catSelect ? catSelect.value : '';
         }
         return decision;
       });
@@ -2120,7 +2118,7 @@
           ["Does a word you already have cover it?",
            "If so, the near-matches above the buttons will show it, and <strong>&#10156; See</strong> points this word at that one instead of adding a near-duplicate."],
         ],
-        footer: "If the excerpt doesn&rsquo;t tell you what the word meant here, Remove it and let it come back with better evidence. Guessing is worse than waiting.",
+        footer: "The term box is editable, and a facet prefix (<code>setting/</code>, <code>motif/</code>, <code>event/</code>, <code>type/</code>) puts the term on that axis &mdash; <code>setting/bedroom</code> registers even though no such term exists yet.<br><br>If the excerpt doesn&rsquo;t tell you what the word meant here, Remove it and let it come back with better evidence. Guessing is worse than waiting.",
       },
       tag_retirement: {
         title: 'Should this word leave?',
@@ -2222,7 +2220,7 @@
         if (!res.ok) return;
         const data = await res.json();
         list.innerHTML = (data.terms || []).map(t =>
-          `<option value="${escapeAttr(t.tag)}">${escapeAttr(t.category || '')}</option>`
+          `<option value="${escapeAttr(t.tag)}"></option>`
         ).join('');
         vocabTermsLoaded = true;
       } catch (_) {
@@ -2362,13 +2360,12 @@
             const textToSend = editArea ? editArea.value : item.merged_observation;
             body = JSON.stringify({ modified_text: textToSend });
           } else if (item && item.type === 'tag_admission') {
-            // The term may have been corrected in place, and the category is a choice the
-            // reviewer makes here — it cannot be inferred from a flat term.
+            // The term may have been corrected in place — including by adding a facet prefix,
+            // which is how a term is put on an axis. No category is sent: it was a single-
+            // valued label nothing read, and collecting it stopped in v000.006.261.
             const termInput = document.getElementById(`tag-term-${id}`);
-            const catSelect = document.getElementById(`tag-cat-${id}`);
             body = JSON.stringify({
-              modified_text: termInput ? termInput.value.trim() : (item.topic || ''),
-              category: catSelect ? catSelect.value : ''
+              modified_text: termInput ? termInput.value.trim() : (item.topic || '')
             });
           } else if (item && item.type === 'tag_relation') {
             // One <select> carries both the kind and the direction, because for two of the
@@ -5255,7 +5252,7 @@
           const term = item.topic || '';
           const origin = item.merged_observation || '';
           return `
-            <div class="card" data-tag-proposal="${item.id}" data-tag-term="${escapeAttr(term)}" data-tag-category="${escapeAttr(item.suggested_category || '')}" data-tag-kind="${isAdmission ? 'admission' : 'retirement'}">
+            <div class="card" data-tag-proposal="${item.id}" data-tag-term="${escapeAttr(term)}" data-tag-kind="${isAdmission ? 'admission' : 'retirement'}">
               <div class="card-header">
                 <span class="badge" style="background: ${isAdmission ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 146, 60, 0.15)'}; color: ${isAdmission ? '#34d399' : '#fb923c'}; border: 1px solid ${isAdmission ? 'rgba(52, 211, 153, 0.35)' : 'rgba(251, 146, 60, 0.35)'};">
                   PROPOSAL: ${isAdmission ? 'ADMIT TERM' : 'RETIRE TERM'}
@@ -5280,7 +5277,7 @@
                   ${isAdmission ? `
                     <input id="tag-term-${item.id}" type="text" value="${escapeAttr(term)}"
                       style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; background: #07070a; border: 1px solid var(--border); color: #34d399; padding: 10px 12px; border-radius: 6px; outline: none;" />
-                    <div style="font-size: 11px; color: var(--text-dim);">Edit to correct the spelling or form before admitting.</div>
+                    <div style="font-size: 11px; color: var(--text-dim);">Editable &mdash; correct the spelling or form before admitting. You can also <strong>put it on an axis</strong> by typing a facet prefix: <code style="color: var(--accent);">setting/</code> <code style="color: var(--accent);">motif/</code> <code style="color: var(--accent);">event/</code> <code style="color: var(--accent);">type/</code>. <code>setting/bedroom</code> registers even though no such term exists yet.</div>
                   ` : `
                     <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: #fb923c; padding: 4px 0;">${escapeHtml(term)}</div>
                   `}
@@ -5294,15 +5291,6 @@
                 </div>
 
                 ${isAdmission ? `
-                  <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
-                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Category</div>
-                    <select id="tag-cat-${item.id}"
-                      style="width: 100%; font-family: inherit; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; outline: none;">
-                      <option value="">Loading categories...</option>
-                    </select>
-                    <div style="font-size: 11px; color: var(--text-dim);">A flat term carries no category of its own; this is your call.</div>
-                  </div>
-
                   <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
                     <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Already registered, and similar</div>
                     <div id="tag-similar-${item.id}" style="font-size: 13px; color: var(--text-dim);">Checking the vocabulary...</div>
@@ -5626,10 +5614,6 @@
       });
     }
 
-    // Cached across cards: the category list is identical for every admission proposal,
-    // so one fetch serves the whole queue.
-    let taxonomyCategoryCache = null;
-
     async function hydrateTagProposalCards() {
       const cards = document.querySelectorAll('[data-tag-proposal]');
       if (!cards.length) return;
@@ -5639,8 +5623,6 @@
         const id = card.getAttribute('data-tag-proposal');
         if (card.getAttribute('data-tag-kind') !== 'admission') continue;
         const term = card.getAttribute('data-tag-term') || '';
-        const preset = card.getAttribute('data-tag-category') || '';
-        const select = document.getElementById(`tag-cat-${id}`);
         const similarBox = document.getElementById(`tag-similar-${id}`);
 
         try {
@@ -5650,15 +5632,6 @@
           );
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
-          taxonomyCategoryCache = data.categories || taxonomyCategoryCache;
-
-          if (select) {
-            const opts = ['<option value="">— uncategorised —</option>']
-              .concat((data.categories || []).map(c =>
-                `<option value="${escapeAttr(c.name)}"${c.name === preset ? ' selected' : ''}>${escapeHtml(c.name)} (${c.count})</option>`
-              ));
-            select.innerHTML = opts.join('');
-          }
 
           const seeInput = document.getElementById(`see-target-${id}`);
           if (seeInput && !seeInput.value) {
@@ -5673,7 +5646,7 @@
             const sim = data.similar || [];
             similarBox.innerHTML = sim.length
               ? sim.map(x =>
-                  `<span style="display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px; border-radius: 12px; background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text);">${escapeHtml(x.tag)}${x.category ? `<span style="color: var(--text-dim);"> · ${escapeHtml(x.category)}</span>` : ''}</span>`
+                  `<span style="display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px; border-radius: 12px; background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text);">${escapeHtml(x.tag)}</span>`
                 ).join('')
               : `<span style="color: var(--text-dim);">Nothing similar in the ${data.total} registered terms.</span>`;
           }
