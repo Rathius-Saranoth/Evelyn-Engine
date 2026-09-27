@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 12:16:52
+date modified: 2026-09-27 12:46:42
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,33 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.268] - 2026-09-27 — *Decouple Doc Properties & Local Authority Tool*
+
+### Added
+
+- **`scripts/lookup_authority_taxonomy.py` (Local Authority Lookup & Promotion CLI)**:
+  - Connects to institutional authorities (Library of Congress Subject Headings & FAST via `id.loc.gov` REST API) to search authoritative headings, preferred labels, and see-from (`UF`) variant aliases.
+  - Supports `--term <name>`, `--promote` (registers canonical atom into `master_tag_taxonomy` and all variants into `master_tag_aliases`), and `--check-unregistered` (audits all terms in active use across vault and memory).
+  - Fully local with zero git tracking, preserving privacy boundaries (AGENTS.md §4).
+- **`format_librarian.audit_document_properties`**:
+  - Validates `type:` property (document class) against `FACET_PROFILE`.
+  - Enforces profile rules by stripping forbidden facet properties (`motif`, `setting`, `event` on reference/manual/guide notes).
+  - Detects and reports gaps for required properties (`missing_required_occurred` on journal entries, `missing_required_motif` on dreams).
+  - Normalizes legacy prefix values inside properties (e.g. `motif: [motif/flying]` -> `motif: [flying]`).
+
+### Changed
+
+- **Decoupled Document Properties from Tag Creation**:
+  - Migrated `FACET_PROFILE`, `DOCUMENT_CLASSES`, `REQUIRED`, `OPTIONAL`, `FORBIDDEN`, and `get_document_class` to `Evelyn/tools/format_librarian.py` as canonical document structure definitions.
+  - Updated `format_librarian.audit_document_format` to normalize all facet properties (`type`, `motif`, `setting`, `event`) into clean single-line flow arrays alongside `aliases` and `tags`.
+  - Updated `master_librarian.py` to run both format normalization and document properties auditing in its initial pass.
+  - Removed document frontmatter `type` property modification from `Evelyn/tools/tag_librarian.py`, ensuring tag auditing focuses exclusively on subject classification and subject tags (`tags: [...]`).
+- **Memory Facts Audit Completion**:
+  - Drained the remaining 101 unaudited memory facts via `scripts/backfill_memory_tags.py`.
+  - All 12,847 memory facts are now fully audited (`0 awaiting audit, 0 untagged`).
+- **Proposal Reference Cleanup**:
+  - Cleaned up obsolete scratch reference documents in `proposals/Taxonomy_LIbrarian/`.
 
 ## [000.006.267] - 2026-09-27 — *Retire Tracked Taxonomy Base*
 

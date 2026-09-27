@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-09-27 12:46:42
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -850,34 +850,13 @@ def verify_tags_still_apply(body: str, title: str, tags: list[str]) -> list[str]
 
 
 # The application profile (§4) in the DCMI sense: which facets a class of document requires,
-# permits, or forbids. The class is the only part a model decides; everything downstream is a
-# table lookup, so "forbidden" is enforced rather than requested.
-REQUIRED, OPTIONAL, FORBIDDEN = "required", "optional", "forbidden"
-
-FACET_PROFILE: dict[str, dict[str, str]] = {
-    "reference":     {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "guide":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "manual":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "overview":      {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "moc":           {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "list":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "log":           {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": OPTIONAL,  "time": REQUIRED},
-    "report":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": OPTIONAL,  "time": REQUIRED},
-    "journal-entry": {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": REQUIRED},
-    "dream":         {"motif": REQUIRED,  "setting": REQUIRED,  "event": OPTIONAL,  "time": REQUIRED},
-    "creative":      {"motif": REQUIRED,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
-    # A film or novel carries motif; a scanned tax return or court order is `media` too (a PDF
-    # wrapper card, DCMI sub-type Text) and carries none. So motif is permitted, not demanded.
-    "media":         {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
-    "recipe":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    "notes":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    # Entity cards ("what is it / how does it relate to me"): contacts, pets, personas, D&D
-    # characters and places, software. The second-largest class in the vault (Pass 1 review).
-    "profile":       {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-    # Auto-generated ghost stubs: the type property [stub] and nothing else until a human fills them in.
-    "stub":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
-}
-DOCUMENT_CLASSES = sorted(FACET_PROFILE)
+# permits, or forbids. Defined canonically in format_librarian.py as part of document properties.
+from Evelyn.tools.format_librarian import (
+    DOCUMENT_CLASSES,
+    FACET_PROFILE,
+    REQUIRED,
+    get_document_class,
+)
 
 
 def determine_document_class(body: str, title: str, path: str = "") -> str:
@@ -1259,11 +1238,11 @@ def audit_document_tags(
         doc_info = vault_db.get_document(path) if path else None
         gist = doc_info.get("gist", "") if doc_info else ""
 
-        # PASS 1 — application profile (§4). The class is the only judgement; everything it
-        # implies is a table lookup, so "forbidden" is enforced rather than requested. These
-        # removals are rule violations, not opinions, and so are not subject to the
-        # staleness ceiling below.
-        doc_class = determine_document_class(body, title, path)
+        # PASS 1 — application profile (§4). Read existing class from type property first,
+        # avoiding redundant LLM calls when type is already defined.
+        doc_class = get_document_class(content)
+        if not doc_class:
+            doc_class = determine_document_class(body, title, path)
         if doc_class:
             # Canonicalised on read, so a hand-typed '2026/05/18' or a legacy 'CY-2026/05'
             # still satisfies the time facet rather than being silently ignored.
@@ -1326,20 +1305,6 @@ def audit_document_tags(
 
     modified = (set(final_tags_list) != set(current_tags))
     new_content = content
-    if enable_llm and doc_class:
-        meta_now, _ = parse_frontmatter(new_content)
-        existing_types = meta_now.get("type", [])
-        if isinstance(existing_types, str):
-            types_list = [existing_types] if existing_types else []
-        elif isinstance(existing_types, (list, tuple, set)):
-            types_list = list(existing_types)
-        else:
-            types_list = []
-        if doc_class not in types_list:
-            types_list.append(doc_class)
-            new_content = update_frontmatter_field(new_content, "type", types_list)
-            modified = True
-
     if modified:
         new_content = update_frontmatter_tags(new_content, final_tags_list)
 

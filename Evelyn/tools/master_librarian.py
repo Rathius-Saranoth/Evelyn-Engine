@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-23 18:26:59
+# date modified: 2026-09-27 12:46:42
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -115,10 +115,17 @@ def audit_single_document(
     pre_hash = hashlib.sha256(original_content.encode("utf-8")).hexdigest()
     content = original_content
 
-    # 1. Format Librarian pass
+    # 1. Format & Document Properties pass
     format_changed, content, format_details = format_librarian.audit_document_format(
         content, path=doc_path
     )
+    prop_changed, content, prop_details = format_librarian.audit_document_properties(
+        content, path=doc_path
+    )
+    if prop_changed:
+        format_changed = True
+    if prop_details:
+        format_details["properties"] = prop_details
 
     # 2. Tag Librarian pass (with collection inheritance)
     tag_changed = False

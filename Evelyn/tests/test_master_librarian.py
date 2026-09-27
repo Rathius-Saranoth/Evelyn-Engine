@@ -45,6 +45,70 @@ Here is some text.
         self.assertIn("tags: [tech, ai/llm]", updated)
         self.assertIn('aliases: ["Hello: World", NormalAlias]', updated)
 
+    def test_format_librarian_facet_flow_arrays_and_forbidden_stripping(self):
+        """Verify facet properties (type, motif, setting, event) normalize to flow arrays and obey profile."""
+        raw_reference = """---
+title: Reference Note
+type: [reference]
+motif:
+  - combat
+  - flying
+tags: [knowledge]
+---
+# Reference Note
+Some facts.
+"""
+        changed, updated, _details = format_librarian.audit_document_format(raw_reference)
+        self.assertTrue(changed)
+        self.assertNotIn("motif:", updated)
+        self.assertIn("type: [reference]", updated)
+        self.assertIn("tags: [knowledge]", updated)
+
+        raw_dream = """---
+title: Dream Note
+type: [dream]
+motif:
+  - motif/combat
+setting:
+  - setting/castle
+tags: [lucid]
+---
+# Dream Note
+A vivid dream.
+"""
+        changed2, updated2, _details2 = format_librarian.audit_document_format(raw_dream)
+        self.assertTrue(changed2)
+        self.assertIn("type: [dream]", updated2)
+        self.assertIn("motif: [combat]", updated2)
+        self.assertIn("setting: [castle]", updated2)
+
+    def test_audit_document_properties_gaps_and_profile_rules(self):
+        """Verify audit_document_properties enforces profile rules and detects missing required facets."""
+        raw_journal = """---
+title: Journal Entry
+type: [journal-entry]
+tags: [daily]
+---
+# Today
+Reflections.
+"""
+        changed, _updated, details = format_librarian.audit_document_properties(raw_journal)
+        self.assertFalse(changed)
+        self.assertIn("missing_required_occurred", details["property_gaps"])
+
+        raw_journal_with_date = """---
+title: Journal Entry
+type: [journal-entry]
+occurred: 2026-09-27
+tags: [daily]
+---
+# Today
+Reflections.
+"""
+        changed2, _updated2, details2 = format_librarian.audit_document_properties(raw_journal_with_date)
+        self.assertFalse(changed2)
+        self.assertEqual(details2["property_gaps"], [])
+
     def test_link_librarian_spurious_arrays_outside_code_blocks(self):
         """Verify spurious array wrapping outside code blocks and immunity inside code blocks."""
         raw_text = """

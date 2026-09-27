@@ -1,6 +1,6 @@
 # format_librarian.py
 # date created: 2026-09-05 17:40:00
-# date modified: 2026-09-08 18:26:42
+# date modified: 2026-09-27 12:46:42
 # tags: #librarian, #format, #frontmatter, #schema, #visual-pkm, #vault
 
 """
@@ -8,8 +8,13 @@ format_librarian.py — Vault Frontmatter, Schema & Visual PKM Normalizer.
 
 Exports:
     audit_document_format()     — Audits and normalizes YAML frontmatter, flow arrays, and schema.
+    audit_document_properties() — Audits and enforces document properties (type, motif, setting, event, occurred).
     normalize_flow_array()      — Formats string list into a safe, quoted single-line YAML flow array.
     clean_icon_brackets()       — Converts bracketed icon links into clean attachment paths.
+    get_document_class()        — Reads and validates document class from type: frontmatter.
+    FACET_PROFILE               — Registry of document classes and their required/forbidden facets.
+    DOCUMENT_CLASSES            — Sorted list of registered document classes.
+    REQUIRED, OPTIONAL, FORBIDDEN — Facet requirement states.
 """
 
 from __future__ import annotations
@@ -24,6 +29,155 @@ from Evelyn.tools import frontmatter_utils, string_utils
 logger = logging.getLogger("evelyn.format_librarian")
 
 MANDATORY_KEYS = ("title", "aliases", "tags", "date created", "date modified")
+
+REQUIRED, OPTIONAL, FORBIDDEN = "required", "optional", "forbidden"
+
+FACET_PROFILE: dict[str, dict[str, str]] = {
+    "reference":     {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "guide":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "manual":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "overview":      {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "moc":           {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "list":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "log":           {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": OPTIONAL,  "time": REQUIRED},
+    "report":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": OPTIONAL,  "time": REQUIRED},
+    "journal-entry": {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": REQUIRED},
+    "dream":         {"motif": REQUIRED,  "setting": REQUIRED,  "event": OPTIONAL,  "time": REQUIRED},
+    "creative":      {"motif": REQUIRED,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
+    "media":         {"motif": OPTIONAL,  "setting": OPTIONAL,  "event": OPTIONAL,  "time": OPTIONAL},
+    "recipe":        {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "notes":         {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "profile":       {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+    "stub":          {"motif": FORBIDDEN, "setting": FORBIDDEN, "event": FORBIDDEN, "time": OPTIONAL},
+}
+DOCUMENT_CLASSES = sorted(FACET_PROFILE)
+
+FLOW_ARRAY_PROPERTIES = ("aliases", "tags", "type", "motif", "setting", "event")
+
+
+def get_document_class(content: str) -> str:
+    """Read and validate the document class from the `type:` frontmatter property.
+
+    Returns a valid class from DOCUMENT_CLASSES, or '' if missing or unrecognized.
+    """
+    meta, _ = frontmatter_utils.parse_frontmatter(content)
+    raw = meta.get("type", [])
+    if isinstance(raw, str):
+        types = [t.strip().strip("'\"[]") for t in raw.split(",") if t.strip().strip("'\"[]")]
+    elif isinstance(raw, (list, tuple, set)):
+        types = [str(t).strip().strip("'\"[]") for t in raw if str(t).strip().strip("'\"[]")]
+    else:
+        types = []
+    for t in types:
+        clean = string_utils.slugify(t, delimiter="-").lower()
+        if clean in FACET_PROFILE:
+            return clean
+    return ""
+
+
+def audit_document_properties(content: str, path: str = "") -> tuple[bool, str, dict[str, Any]]:
+    """Audit and enforce document frontmatter properties against FACET_PROFILE rules.
+
+    Decouples document metadata properties (type, motif, setting, event, occurred)
+    from subject tag extraction:
+    1. Validates `type:` property (document class).
+    2. Strips forbidden facet properties for this document class (e.g. `motif`, `setting`, `event` on reference notes).
+    3. Detects gaps for required facets (e.g. `missing_required_occurred` on `journal-entry`, `missing_required_motif` on `dream`).
+    4. Strips legacy prefix tags from property values (e.g. `motif: [motif/combat]` -> `motif: [combat]`).
+
+    Args:
+        content: Raw markdown text of note.
+        path: Optional relative path of document.
+
+    Returns:
+        tuple[bool, str, dict[str, Any]]: (changed, updated_content, details_dict)
+    """
+    if not content:
+        return False, content, {"status": "empty"}
+
+    fm_dict, body = frontmatter_utils.parse_frontmatter(content)
+    if not fm_dict and not content.startswith("---"):
+        return False, content, {"status": "no_frontmatter"}
+
+    changed = False
+    details: dict[str, Any] = {
+        "property_fixes": [],
+        "property_gaps": [],
+    }
+
+    doc_class = get_document_class(content)
+    details["document_class"] = doc_class
+
+    # 1. Clean legacy prefix values inside facet properties (e.g. motif: [motif/flying] -> [flying])
+    for facet in ("type", "motif", "setting", "event"):
+        if facet in fm_dict:
+            raw_val = fm_dict[facet]
+            if isinstance(raw_val, str):
+                val_items = [p.strip().strip("'\"[]") for p in raw_val.split(",") if p.strip().strip("'\"[]")]
+            elif isinstance(raw_val, (list, tuple, set)):
+                val_items = [str(p).strip().strip("'\"[]") for p in raw_val if str(p).strip().strip("'\"[]")]
+            else:
+                val_items = []
+
+            cleaned_items = []
+            for item in val_items:
+                s = item
+                if s.startswith(f"{facet}/"):
+                    s = s[len(facet) + 1:]
+                if s:
+                    cleaned_items.append(s)
+
+            if cleaned_items != val_items or not isinstance(raw_val, list):
+                fm_dict[facet] = cleaned_items
+                changed = True
+                details["property_fixes"].append(f"cleaned_{facet}_prefixes")
+
+    # 2. Enforce FACET_PROFILE rules if doc_class is known
+    if doc_class and doc_class in FACET_PROFILE:
+        profile = FACET_PROFILE[doc_class]
+        for facet, rule in profile.items():
+            if facet == "time":
+                occurred_val = str(fm_dict.get("occurred", "")).strip()
+                if rule == REQUIRED and not occurred_val:
+                    details["property_gaps"].append("missing_required_occurred")
+            elif facet in ("motif", "setting", "event"):
+                if rule == FORBIDDEN:
+                    if facet in fm_dict:
+                        del fm_dict[facet]
+                        changed = True
+                        details["property_fixes"].append(f"stripped_forbidden_{facet}")
+                elif rule == REQUIRED:
+                    val = fm_dict.get(facet)
+                    if not val or val == [] or val == "[]":
+                        details["property_gaps"].append(f"missing_required_{facet}")
+
+    if not changed:
+        return False, content, details
+
+    # Re-render frontmatter
+    fm_raw = frontmatter_utils.render_frontmatter(fm_dict)
+    lines = fm_raw.splitlines()
+    new_lines = []
+    for line in lines:
+        matched = False
+        for key in FLOW_ARRAY_PROPERTIES:
+            if line.startswith(f"{key}:"):
+                val = fm_dict.get(key, [])
+                if isinstance(val, (list, tuple, set)):
+                    rendered_flow = normalize_flow_array(list(val))
+                elif isinstance(val, str) and (val.startswith("[") or "," in val):
+                    rendered_flow = normalize_flow_array(val)
+                else:
+                    rendered_flow = normalize_flow_array([str(val)]) if val else "[]"
+                new_lines.append(f"{key}: {rendered_flow}")
+                matched = True
+                break
+        if not matched:
+            new_lines.append(line)
+
+    updated_fm = "\n".join(new_lines)
+    updated_content = f"{updated_fm}\n{body}" if body else f"{updated_fm}\n"
+    return True, updated_content, details
 
 
 def normalize_flow_array(items: list[str] | str) -> str:
@@ -209,32 +363,62 @@ def audit_document_format(content: str, path: str = "") -> tuple[bool, str, dict
             else:
                 details["format_fixes"].append("normalized_aliases_list")
 
-    # 4. Clean icon brackets in frontmatter
+    # 4. Normalize facet properties (type, motif, setting, event) and enforce forbidden profile rules
+    for facet in ("type", "motif", "setting", "event"):
+        if facet in fm_dict:
+            raw_val = fm_dict[facet]
+            if isinstance(raw_val, str):
+                val_items = [p.strip().strip("'\"[]") for p in raw_val.split(",") if p.strip().strip("'\"[]")]
+            elif isinstance(raw_val, (list, tuple, set)):
+                val_items = [str(p).strip().strip("'\"[]") for p in raw_val if str(p).strip().strip("'\"[]")]
+            else:
+                val_items = []
+
+            cleaned_items = []
+            for item in val_items:
+                s = item
+                if s.startswith(f"{facet}/"):
+                    s = s[len(facet) + 1:]
+                if s:
+                    cleaned_items.append(s)
+
+            if cleaned_items != raw_val or not isinstance(raw_val, list):
+                fm_dict[facet] = cleaned_items
+                changed = True
+                details["format_fixes"].append(f"normalized_{facet}_property")
+
+    doc_class = get_document_class(content)
+    if doc_class and doc_class in FACET_PROFILE:
+        profile = FACET_PROFILE[doc_class]
+        for facet, rule in profile.items():
+            if rule == FORBIDDEN and facet in fm_dict:
+                del fm_dict[facet]
+                changed = True
+                details["format_fixes"].append(f"stripped_forbidden_{facet}")
+
+    # 5. Clean icon brackets in frontmatter
     fm_raw = frontmatter_utils.render_frontmatter(fm_dict)
     icon_changed, fm_raw = clean_icon_brackets(fm_raw)
     if icon_changed:
         changed = True
         details["format_fixes"].append("cleaned_icon_brackets")
 
-    # 5. Format aliases and tags into single-line flow arrays
+    # 6. Format aliases, tags, and facet properties into single-line flow arrays
     lines = fm_raw.splitlines()
     new_lines = []
     for line in lines:
-        if line.startswith("tags:"):
-            rendered_flow = normalize_flow_array(fm_dict.get("tags", []))
-            new_line = f"tags: {rendered_flow}"
-            if new_line != line:
-                changed = True
-                details["format_fixes"].append("flow_array_tags")
-            new_lines.append(new_line)
-        elif line.startswith("aliases:"):
-            rendered_flow = normalize_flow_array(fm_dict.get("aliases", []))
-            new_line = f"aliases: {rendered_flow}"
-            if new_line != line:
-                changed = True
-                details["format_fixes"].append("flow_array_aliases")
-            new_lines.append(new_line)
-        else:
+        matched_flow = False
+        for key in FLOW_ARRAY_PROPERTIES:
+            if line.startswith(f"{key}:"):
+                rendered_flow = normalize_flow_array(fm_dict.get(key, []))
+                new_line = f"{key}: {rendered_flow}"
+                if new_line != line:
+                    changed = True
+                    details["format_fixes"].append(f"flow_array_{key}")
+                new_lines.append(new_line)
+                matched_flow = True
+                break
+        if not matched_flow:
             new_lines.append(line)
 
     if not changed:
