@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 21:34:46
+date modified: 2026-09-27 07:21:45
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,44 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.262] - 2026-09-27 — *The Note Moved, It Did Not Vanish*
+
+### Fixed
+
+- **A review card follows its source note when the note has been refiled.** Measured against
+  the live queue: **94 of 200 admission cards showed no source text at all**, and 91 of those
+  had a note that still existed — under a new folder, after the stub reorganisation. Only 3
+  were genuinely gone.
+
+  This is the same defect as `.253` in a different consumer. A row stores the path its note
+  had when the row was written, and the vault is refiled by hand; `.253` made the *write* path
+  report the miss, while the *read* path kept failing silently and handing the reviewer a
+  blank card.
+
+  New `path_utils.resolve_moved_note()` follows a moved note by filename and requires a
+  **unique** match — two notes sharing a name are genuinely ambiguous, and attaching the wrong
+  evidence to a decision is worse than attaching none. The vault index behind it is cached for
+  60 seconds, long enough to serve one render of a 200-row queue. Blank cards **94 → 3**.
+
+### Changed
+
+- **The "Why it is here" block is gone from admission cards**, and the one useful line it held
+  moved into the header: *Term to admit — requested by `fact merge into #1035`*. The block had
+  four distinct values across the whole queue, every one of them "\<producer\> but not in the
+  controlled vocabulary" — true of every card by definition, and the producer is now stated
+  above. Retirement cards keep the block, where the reason is not boilerplate.
+
+### Notes
+
+- Where a term was derived semantically rather than lifted from the text, no sentence contains
+  it, so the recovered excerpt falls back to the note's opening. That identifies the note and
+  its subject, which is enough to rule on the term, but it is not the term in context — and
+  nothing can quote a sentence that was never written.
+- `backfill_admitted_term_to_note` resolves the same stored path and has warned on a miss since
+  `.253`. Those warnings are very likely the same moved notes, but reading from a note resolved
+  by name is safe where **writing** to one is not obviously so, and that is left as its own
+  decision.
 
 ## [000.006.261] - 2026-09-26 — *Stop Asking For What Nothing Reads*
 

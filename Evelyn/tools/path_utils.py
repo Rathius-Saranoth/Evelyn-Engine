@@ -1,6 +1,6 @@
 # path_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-08-28 12:25:00
+# date modified: 2026-09-27 07:21:45
 # tags: #utils, #paths, #vault, #posix, #security
 
 """
@@ -127,3 +127,63 @@ def is_vault_excluded(path: str | Path, custom_excludes: set[str] | None = None)
             return True
 
     return False
+
+
+# A vault is refiled by hand, and a stored path is only true until someone drags the note.
+# Rebuilding the basename index per lookup would walk the vault once per queue row, so it is
+# cached briefly: long enough to serve one render of a 200-row review queue, short enough that
+# a move made while the page is open is picked up on the next one.
+_NAME_INDEX: dict[str, tuple[float, dict[str, list[str]]]] = {}
+_NAME_INDEX_TTL_SECONDS = 60.0
+
+
+def _basename_index(vault_root: str) -> dict[str, list[str]]:
+    """Map each note filename in the vault to every relative path carrying that name."""
+    import time as _time
+
+    cached = _NAME_INDEX.get(vault_root)
+    if cached and (_time.time() - cached[0]) < _NAME_INDEX_TTL_SECONDS:
+        return cached[1]
+
+    index: dict[str, list[str]] = {}
+    for dirpath, dirnames, filenames in os.walk(vault_root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for fn in filenames:
+            if fn.endswith(".md"):
+                rel = os.path.relpath(os.path.join(dirpath, fn), vault_root).replace("\\", "/")
+                index.setdefault(fn, []).append(rel)
+    _NAME_INDEX[vault_root] = (_time.time(), index)
+    return index
+
+
+def resolve_moved_note(rel_path: str, vault_root: str | None = None) -> str:
+    """Return the note's current vault-relative path, following it if it has been refiled.
+
+    A proposal, a backfill target and a harvested reference all store the path a note had
+    when the row was written. The operator then reorganises the vault and every one of those
+    paths silently stops resolving — measured 2026-09-27: **91 of 94 review cards showing no
+    source text** had simply had their note moved, not deleted.
+
+    Resolution is by filename and requires a **unique** match. Two notes sharing a name are
+    genuinely ambiguous, and guessing between them would attach the wrong evidence to a
+    decision, which is worse than attaching none.
+
+    Args:
+        rel_path: Vault-relative path as it was stored.
+        vault_root: Vault root to search. Defaults to the configured root, read at call time
+            so a reconfigured vault is followed (``VAULT_ROOT`` is captured at import).
+
+    Returns:
+        str: The path that exists now — unchanged if it still resolves, the new location if
+        the note moved and the name is unique, or ``""`` if it is gone or ambiguous.
+    """
+    clean = (rel_path or "").strip().replace("\\", "/").lstrip("/")
+    if not clean:
+        return ""
+    root = vault_root or str(getattr(cfg, "VAULT_BASE_DIR", VAULT_ROOT))
+
+    if os.path.isfile(os.path.join(root, clean)):
+        return clean
+
+    matches = _basename_index(root).get(os.path.basename(clean), [])
+    return matches[0] if len(matches) == 1 else ""

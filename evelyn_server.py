@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-26 19:53:18
+# date modified: 2026-09-27 07:21:45
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6024,7 +6024,16 @@ def _attach_admission_context(p: dict) -> dict:
     if not note_path:
         return p
     try:
-        from Evelyn.tools import tag_librarian
+        from Evelyn.tools import path_utils, tag_librarian
+
+        # The stored path was true when the proposal was raised; the vault is refiled by hand
+        # between then and now. Measured 2026-09-27: 94 of 200 cards showed no source text,
+        # and 91 of those had simply had their note moved. Follow it before giving up.
+        current = path_utils.resolve_moved_note(note_path)
+        if current and current != note_path:
+            p["source_path"] = current
+            p["source_moved_from"] = note_path
+        note_path = current or note_path
 
         p["source_excerpt"] = tag_librarian.excerpt_for_term(
             str(p.get("topic") or ""), note_path
