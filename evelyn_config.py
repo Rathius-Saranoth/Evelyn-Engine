@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-26 20:31:42
+# date modified: 2026-09-27 08:53:24
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1128,7 +1128,8 @@ TERMINAL_MAX_OUTPUT_CHARS = 10000  # Truncate beyond this
 # =============================================================================
 # Tag Librarian Configuration (Incremental Vault Tag Maintenance)
 # =============================================================================
-TAG_LIBRARIAN_ENABLED = True  # Re-enabled v000.006.219 after the subject pass was stopped from
+TAG_LIBRARIAN_ENABLED = _env_flag("TAG_LIBRARIAN_ENABLED", True)
+# Re-enabled v000.006.219 after the subject pass was stopped from
 # emitting facet tags, a §3.4 backstop was added, and the pass was made to log what it rewrites.
 # First enabled v000.006.215 after the vocabulary reconciliation:
 # both substrates measured at 0 unregistered terms and 0 non-facet hierarchies, the five

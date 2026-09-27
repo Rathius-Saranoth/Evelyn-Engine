@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 08:48:53
+date modified: 2026-09-27 08:53:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,26 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.265] - 2026-09-27 — *One More Literal That Outranked The Config*
+
+### Fixed
+
+- **`TAG_LIBRARIAN_ENABLED` is read from the environment.** `.255` wired six feature flags
+  through `_env_flag()`; this one was not among them, because it was not in `.env` at the time
+  and so never showed the disagreement that exposed the others. Setting it did nothing until
+  now. Documented in `.env.example` alongside the rest.
+
+### Changed
+
+- **The tag-admission queue was cleared: 257 proposals removed.** Every one was produced by
+  the extraction prompt replaced in `.264`, which nominated what a document mentioned rather
+  than what it was about. They were stale output rather than a review backlog, and the
+  reviewer would have been ruling on terms the current pipeline would not propose.
+
+  Sequence: pause the producer, snapshot all 257 to `scratch/`, delete, resume. Relation,
+  split and ghost-stub proposals were left alone — different producers, unaffected by the
+  prompt.
 
 ## [000.006.264] - 2026-09-27 — *About, Not Mentioned*
 
