@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-26 19:12:38
+# date modified: 2026-09-26 19:35:33
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.255"
-__version_info__ = (0, 6, 255)
-__version_name__ = "A Literal That Outranked The Config"
+__version__ = "000.006.256"
+__version_info__ = (0, 6, 256)
+__version_name__ = "How To Decide, At The Moment Of Deciding"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-26 19:12:38
+date modified: 2026-09-26 19:35:33
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,39 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.256] - 2026-09-26 — *How To Decide, At The Moment Of Deciding*
+
+### Added
+
+- **A `? Hint` button on every proposal card**, opening the questions that apply to that
+  proposal type. The guidance existed — §6.4.1 of the taxonomy standard — but it lived where
+  nobody reads it at the moment a decision is actually made. The reviewer met a card with a
+  term, a category, near-matches and two buttons, and nothing on it said *how* to decide.
+
+  Five types are written: `tag_admission`, `tag_retirement`, `tag_relation`, `split` and
+  `ghost_link_stub`. Two constraints shaped the text, both from review:
+
+  - **It leads with legitimacy, not reversibility.** The reviewer's question is "is this
+    real, or is it noise?", not "how bad is it if I'm wrong?" — a reviewer handed the second
+    question decides on risk appetite and keeps everything. Cost appears only where it
+    genuinely distinguishes one option from another (retiring a term, collapsing two into
+    one, a rejection that binds the word rather than the instance).
+  - **It uses no term of art.** No *warrant*, *facet*, *post-coordinate*, *BT/NT/RT*. It is
+    written for someone who has downloaded this project and never read the standard.
+
+- **Autocomplete on the see-reference and preferred-term inputs**, backed by
+  `/api/taxonomy/vocabulary?full=true`. Both fields may only name a term that is already
+  registered — the server refuses an unknown one — but with 749 terms and no way to see
+  them, a reviewer's only route to that knowledge was to type a guess and be refused. The
+  field now completes as you type, so a term that does not exist is visibly absent before
+  anything is submitted. A failed fetch leaves a plain text field, which still works.
+
+### Changed
+
+- `GET /api/taxonomy/vocabulary` takes `full` (default false). When set it adds `terms`, the
+  whole registered vocabulary sorted by tag. The near-match and category behaviour is
+  unchanged, so existing callers see the same payload.
 
 ## [000.006.255] - 2026-09-26 — *A Literal That Outranked The Config*
 

@@ -530,6 +530,25 @@
     </div>
   </div>
 
+  <!-- Modal for Review Hints (taxonomy 6.4.1) -->
+  <div class="modal" id="hint-modal">
+    <div class="modal-content" style="max-width: 760px; max-height: 88vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <span class="modal-title" id="hint-modal-title">How to decide this</span>
+        <button class="close-btn" onclick="closeHintModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="hint-modal-body" style="overflow-y: auto; padding: 20px; line-height: 1.65;"></div>
+      <div class="modal-header" style="border-top: 1px solid var(--border); border-bottom: none; display: flex; justify-content: flex-end;">
+        <button class="btn btn-action" style="max-width: 160px;" onclick="closeHintModal()">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Every registered term, for the see-reference and preferred-term inputs. A
+       see-reference may only point at a term that already exists, so the reviewer needs to
+       see the vocabulary rather than discover it by being refused. -->
+  <datalist id="vocab-terms"></datalist>
+
   <!-- Modal for Context Entry Splitting -->
   <div class="modal" id="split-modal">
     <div class="modal-content" style="max-width: 850px; max-height: 90vh; display: flex; flex-direction: column;">
@@ -2075,6 +2094,139 @@
         alert(`Could not record the name: ${err}`);
       } finally {
         if (btnElement) { btnElement.disabled = false; btnElement.innerHTML = original; }
+      }
+    }
+
+    // Guidance shown at the moment a decision is made, per proposal type (taxonomy 6.4.1).
+    //
+    // Two things this text is deliberately NOT. It does not lead with reversibility: the
+    // reviewer's question is "is this legitimate, or is it noise?", and a reviewer offered
+    // "how bad is it if I'm wrong?" decides on risk appetite and keeps everything. Cost
+    // appears only where it is a real consequence of one option over another.
+    //
+    // And it uses no term of art — no warrant, facet, post-coordinate, BT/NT/RT. It is
+    // written for someone who downloaded this project and has never read the standard.
+    const REVIEW_HINTS = {
+      tag_admission: {
+        title: 'Should this word join the vocabulary?',
+        lede: "The question is whether this word is a real subject, or just a word that happened to appear.",
+        points: [
+          ["Is it a thing you&rsquo;d look for, or a thing you&rsquo;d say?",
+           "Would you ever go looking for <em>everything about this</em>? <code>taxonomy</code> and <code>parcel</code> are subjects. <code>morning</code>, <code>safety</code> and <code>teamwork</code> sound vague but are real subjects if you genuinely write about them &mdash; trust that over how the word feels."],
+          ["Is it a subject, or a state?",
+           "<code>budgeting</code> is what a note is <em>about</em>. <code>in-progress</code> is how you feel about it. States change; subjects don&rsquo;t. If it would stop being true next week, it isn&rsquo;t a subject."],
+          ["Is it somebody or something&rsquo;s name?",
+           "People, places, companies, products and titles are never tags here &mdash; they get their own note instead, so everything about them lives in one place. If this is a name, use <strong>&ldquo;This is a name&rdquo;</strong> rather than Approve or Reject. Reject is permanent and applies to the <em>word</em>, so rejecting a shop called <em>Historical</em> would also spend the ordinary adjective."],
+          ["Does a word you already have cover it?",
+           "If so, the near-matches above the buttons will show it, and <strong>&#10156; See</strong> points this word at that one instead of adding a near-duplicate."],
+        ],
+        footer: "If the excerpt doesn&rsquo;t tell you what the word meant here, Remove it and let it come back with better evidence. Guessing is worse than waiting.",
+      },
+      tag_retirement: {
+        title: 'Should this word leave?',
+        lede: "This is the expensive direction &mdash; every other decision only adds a row, this one takes a word away.",
+        points: [
+          ["The test: if you searched for this word and got nothing back, would you be annoyed?",
+           "Annoyed &rarr; keep it. Wouldn&rsquo;t notice &rarr; retire it."],
+          ["Low usage is not the same as wrong.",
+           "A word used twice can still be exactly right; it may just be something you write about rarely. The counter measures what got written down, never what&rsquo;s true. When the count and your memory disagree, you&rsquo;re right."],
+          ["If another word already does this job, name it in &ldquo;Preferred term&rdquo;.",
+           "Notes phrased the old way will still be found. Leaving it blank retires the word with nothing pointing at it, and anything filed under it gets harder to find."],
+        ],
+      },
+      tag_relation: {
+        title: 'How are these two connected?',
+        lede: "Something noticed these two turn up together far more than chance. It can&rsquo;t tell you why. That&rsquo;s your call.",
+        points: [
+          ["Is this a real connection, or just the same Tuesday?",
+           "<code>cat</code> and <code>sleep</code> share 52 notes &mdash; so would <code>coffee</code> and <code>email</code>. Do these come up together because they&rsquo;re <em>about</em> each other, or because they land in the same daily note? If unsure: <em>would it annoy you if searching one never showed the other?</em>"],
+          ["Is one a kind of the other?",
+           "Say it out loud: <em>&ldquo;a ___ is a kind of ___.&rdquo;</em> Does it sound like a definition, or a stretch? Definition &rarr; pick the &ldquo;is a kind of&rdquo; option, in that order. Connected but not a definition &rarr; <strong>Related</strong>, which is the usual answer."],
+          ["Are they actually the same thing under two names?",
+           "If you searched one and got results tagged the other, would that feel <em>wrong</em>, or <em>fine</em>? Fine both ways &rarr; &ldquo;Same thing&rdquo;. You&rsquo;d notice &rarr; they&rsquo;re two words, probably Related."],
+          ["Do you want each one when searching the other &mdash; both ways?",
+           "If it only works in one direction, still record it as Related. Lopsidedness is a tuning problem, not a reason to refuse."],
+        ],
+        footer: "If they merely turn up together, Reject. That&rsquo;s a legitimate answer and the most common one.",
+      },
+      split: {
+        title: 'Is this one fact or two?',
+        lede: "One saved note ended up holding two unrelated things, so neither can be found on its own.",
+        points: [
+          ["The test: could you imagine wanting one of these without the other?",
+           "Yes &rarr; split. No &rarr; they&rsquo;re one fact and splitting makes two half-facts that each make less sense alone."],
+        ],
+        footer: "Read the proposed pieces, not just the original. If a piece can&rsquo;t stand up by itself, it isn&rsquo;t a piece.",
+      },
+      ghost_link_stub: {
+        title: 'Should this get its own note?',
+        lede: "Something is mentioned repeatedly but has no note, so those mentions don&rsquo;t connect to anything.",
+        points: [
+          ["Is it actually a thing?",
+           "Check the quoted excerpts. Garbled text and half-sentences produce convincing-looking entries for things that were never real."],
+          ["Do the mentions say different things, or the same thing twice?",
+           "Two quotes from one sentence aren&rsquo;t two pieces of evidence."],
+          ["Would you want a page about this?",
+           "If you&rsquo;d never open it, Reject &mdash; it comes back if it gets mentioned a lot more later, so this isn&rsquo;t your last chance."],
+        ],
+      },
+    };
+
+    function openHintModal(type) {
+      const hint = REVIEW_HINTS[type];
+      const modal = document.getElementById('hint-modal');
+      const body = document.getElementById('hint-modal-body');
+      if (!modal || !body) return;
+
+      if (!hint) {
+        document.getElementById('hint-modal-title').textContent = 'How to decide this';
+        body.innerHTML = `<p style="color: var(--text-dim);">No guidance is written for <code>${escapeHtml(type)}</code> yet.</p>`;
+        modal.style.display = 'flex';
+        return;
+      }
+
+      document.getElementById('hint-modal-title').textContent = hint.title;
+      const points = hint.points.map(([q, a], i) => `
+        <div style="margin-bottom: 18px;">
+          <div style="font-weight: 600; color: var(--text); margin-bottom: 5px;">
+            <span style="color: var(--accent); font-family: 'JetBrains Mono', monospace;">${i + 1}.</span> ${q}
+          </div>
+          <div style="color: var(--text-dim); padding-left: 22px;">${a}</div>
+        </div>`).join('');
+
+      body.innerHTML = `
+        <p style="font-size: 15px; color: var(--text); margin: 0 0 20px 0;">${hint.lede}</p>
+        ${points}
+        ${hint.footer ? `<div style="margin-top: 6px; padding: 12px 14px; border-left: 3px solid var(--accent); background: var(--surface2); border-radius: 0 6px 6px 0; color: var(--text-dim); font-style: italic;">${hint.footer}</div>` : ''}`;
+      modal.style.display = 'flex';
+    }
+
+    function closeHintModal() {
+      const modal = document.getElementById('hint-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function hintButton(type) {
+      return `<button class="btn btn-sm" style="flex: 0 0 auto; min-width: 0; padding: 4px 12px; background: rgba(148, 163, 184, 0.12); color: var(--text-dim); border: 1px solid var(--border);" onclick="openHintModal('${type}')" title="How to decide this">? Hint</button>`;
+    }
+
+    // One fetch serves every card: the registered vocabulary is the same for all of them.
+    let vocabTermsLoaded = false;
+
+    async function hydrateVocabDatalist() {
+      if (vocabTermsLoaded) return;
+      const list = document.getElementById('vocab-terms');
+      if (!list) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/taxonomy/vocabulary?full=true`, { headers: headers() });
+        if (!res.ok) return;
+        const data = await res.json();
+        list.innerHTML = (data.terms || []).map(t =>
+          `<option value="${escapeAttr(t.tag)}">${escapeAttr(t.category || '')}</option>`
+        ).join('');
+        vocabTermsLoaded = true;
+      } catch (_) {
+        // An autocomplete that fails to load leaves a plain text field, which still works.
       }
     }
 
@@ -4786,6 +4938,7 @@
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Split</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                ${hintButton('split')}
               </div>
             </div>
           `;
@@ -5030,6 +5183,7 @@
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve & Create Stub</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                ${hintButton('ghost_link_stub')}
               </div>
             </div>
           `;
@@ -5085,6 +5239,7 @@
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Record</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                ${hintButton('tag_relation')}
               </div>
             </div>`;
         }
@@ -5159,7 +5314,7 @@
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                       <code style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fb923c;">${escapeHtml(term)}</code>
                       <span style="color: var(--text-dim); font-size: 14px;">➤ See:</span>
-                      <input id="see-target-${item.id}" type="text" placeholder="an existing term"
+                      <input id="see-target-${item.id}" type="text" list="vocab-terms" placeholder="an existing term"
                         style="flex: 1; min-width: 150px; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: #34d399; padding: 7px 10px; border-radius: 6px; outline: none;" />
                       <button class="btn btn-sm" style="background: #7c3aed; color: #fff; border: none; font-size: 12px; padding: 6px 12px; cursor: pointer;"
                         onclick="handleSeeReference(${item.id}, this)">➤ Record see-reference</button>
@@ -5193,7 +5348,7 @@
                 ` : `
                   <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
                     <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Preferred term (optional)</div>
-                    <input id="tag-replacement-${item.id}" type="text" placeholder="e.g. chore"
+                    <input id="tag-replacement-${item.id}" type="text" list="vocab-terms" placeholder="e.g. chore"
                       style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; outline: none;" />
                     <div style="font-size: 11px; color: var(--text-dim);">Naming one records an equivalence so documents phrased the retired way still resolve. Leaving it blank retires the term with no pointer.</div>
                   </div>
@@ -5203,6 +5358,7 @@
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">${isAdmission ? 'Admit' : 'Retire'}</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                ${hintButton(isAdmission ? 'tag_admission' : 'tag_retirement')}
               </div>
             </div>
           `;
@@ -5477,6 +5633,7 @@
     async function hydrateTagProposalCards() {
       const cards = document.querySelectorAll('[data-tag-proposal]');
       if (!cards.length) return;
+      hydrateVocabDatalist();
 
       for (const card of cards) {
         const id = card.getAttribute('data-tag-proposal');
@@ -7640,6 +7797,7 @@
         closeAllDropdowns();
         closeModal();
         if (typeof closeGuidanceModal === 'function') closeGuidanceModal();
+        if (typeof closeHintModal === 'function') closeHintModal();
         if (typeof closeSplitModal === 'function') closeSplitModal();
         if (typeof closeFeedbackCommentModal === 'function') closeFeedbackCommentModal();
         if (typeof closeVaultNoteModal === 'function') closeVaultNoteModal();

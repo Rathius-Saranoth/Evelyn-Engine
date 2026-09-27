@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-26 19:05:18
+# date modified: 2026-09-26 19:35:33
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6229,13 +6229,18 @@ async def get_persona_file(filename: str, _: None = Depends(check_auth)):
 
 @app.get("/api/taxonomy/vocabulary")
 async def get_taxonomy_vocabulary(
-    term: str = "", limit: int = 8, _: None = Depends(check_auth)
+    term: str = "", limit: int = 8, full: bool = False, _: None = Depends(check_auth)
 ):
     """Return the registry's categories, and registered terms near `term`.
 
     Backs the tag-admission review card: a reviewer cannot judge whether a proposed term
     earns a place without seeing what the vocabulary already holds, and cannot pick its
     category without knowing which categories exist.
+
+    With ``full=true`` the whole registered term list is returned as well, which is what
+    the review card's autocomplete needs. A see-reference may only point at a term that is
+    already registered, so without the list a reviewer's only way to discover whether a
+    term exists is to type it and be refused.
 
     Matching is deliberately lexical rather than vector-based. The taxonomy embedding
     returns 0.33-0.55 distances for correct and unrelated terms alike, so a nearest-
@@ -6245,9 +6250,11 @@ async def get_taxonomy_vocabulary(
     Args:
         term:  Optional proposed term to find near-matches for.
         limit: Maximum number of near-matches to return.
+        full:  When true, also return every registered term for autocomplete.
 
     Returns:
-        dict: ``categories`` (name + term count), ``similar`` matches, and ``total`` terms.
+        dict: ``categories`` (name + term count), ``similar`` matches, ``total`` terms,
+        and — only when ``full`` is set — ``terms``, the whole registered vocabulary.
     """
     from Evelyn.tools import taxonomy_db
 
@@ -6299,12 +6306,22 @@ async def get_taxonomy_vocabulary(
         if probe:
             related = taxonomy_db.get_related_terms(probe)
 
-        return {
+        payload: dict[str, Any] = {
             "categories": categories,
             "similar": similar,
             "related": related,
             "total": len(rows),
         }
+        if full:
+            payload["terms"] = sorted(
+                (
+                    {"tag": str(r.get("tag") or ""), "category": r.get("category") or ""}
+                    for r in rows
+                    if r.get("tag")
+                ),
+                key=lambda t: t["tag"],
+            )
+        return payload
 
     return await asyncio.to_thread(_lookup)
 
