@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-26 20:07:11
+# date modified: 2026-09-27 21:28:55
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -114,18 +114,25 @@ class StubPayload:
     synthesis_mode: str = "fallback"
 
 
-def _is_stub_note(frontmatter: dict[str, Any] | None) -> bool:
-    """Report whether a parsed note represents an entity stub.
+def _is_stub_note(frontmatter: dict[str, Any] | None, path: str | None = None) -> bool:
+    """Report whether a parsed note or path represents an entity stub.
 
-    Keyed on the `type: [stub]` property (or legacy `type/stub` tag) rather than the folder:
-    stubs are filed and refiled by hand, so `Stubs/` is where they usually live, not what they are.
+    A stub note is identified either by its location in the vault (`Stubs/` directory)
+    or by its frontmatter metadata (`type: [stub]` property or legacy `type/stub` tag).
 
     Args:
         frontmatter: Parsed frontmatter mapping, or None.
+        path: Optional relative or absolute filepath.
 
     Returns:
-        bool: True when the note carries type 'stub' or is tagged 'stub'/'type/stub'.
+        bool: True when the note resides in Stubs/ or carries type 'stub'/'type/stub'.
     """
+    if path:
+        norm = path.replace("\\", "/").strip().lower()
+        parts = [p for p in norm.split("/") if p]
+        if any(part == "stubs" for part in parts[:-1]) or norm.startswith("stubs/"):
+            return True
+
     if not frontmatter:
         return False
     # 1. Canonical: check type property
@@ -217,6 +224,10 @@ def harvest_entity_references(
         if os.path.basename(rel_path).lower() == f"{target_name.lower()}.md":
             continue
 
+        # Fast path check: if path is inside Stubs/, skip reading and parsing
+        if _is_stub_note(None, path=rel_path):
+            continue
+
         try:
             with open(fpath, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
@@ -227,7 +238,7 @@ def harvest_entity_references(
             # twice — and quoting a stub that itself quoted a stub compounds, which is how
             # 307 truncation artefacts propagated through 134 notes (`.257`). Every stub
             # got its evidence from outside the stub tree; that is where to read it.
-            if _is_stub_note(fm):
+            if _is_stub_note(fm, path=rel_path):
                 continue
 
             excerpt = string_utils.extract_link_context(body, target_name, window_chars=180)
@@ -275,13 +286,23 @@ def synthesize_entity_abstract(
     if should_use_llm:
         from Evelyn.tools import ollama_client
 
+        domain_hint = f"Domain / Topic Area: {domain}\n" if domain else ""
         prompt = (
-            f"The entity \"{target_name}\" is cited across multiple notes in an Obsidian knowledge base:\n\n"
+            f"You are an expert knowledge base curator and PKM librarian writing an executive abstract for an Obsidian vault entry titled \"{target_name}\".\n\n"
+            f"{domain_hint}"
+            f"Referencing notes from the vault citing this entity:\n"
             f"{ref_block}\n\n"
-            f"Write a concise, high-density 2-3 sentence executive abstract describing who or what "
-            f"\"{target_name}\" is based strictly on the provided context. "
-            f"Do NOT include headings, bullet points, introductory phrases, or markdown formatting other than wikilinks. "
-            f"State the facts directly."
+            f"Instructions:\n"
+            f"1. Identify who or what \"{target_name}\" actually is. Use your general world knowledge if \"{target_name}\" is an established real-world entity (e.g. musical artist/band, software/service, hardware tool, video game, company, creative work, mythological deity, public figure, or scientific concept).\n"
+            f"2. If \"{target_name}\" is a personal, private, or campaign entity (e.g. a tabletop RPG character/location/item, custom AI persona, personal project, or private contact), deduce its true nature and role accurately from the referencing notes.\n"
+            f"3. Write a concise, high-density 2-3 sentence executive abstract that:\n"
+            f"   - Directly defines the entity's core identity, medium/domain, origin or creator, and primary nature.\n"
+            f"   - Contextualizes how it connects to the vault or user's records (e.g. personal gaming preference, project dependency, listening rotation, campaign element, or gift preference).\n"
+            f"4. Critical guardrails (DO NOT violate):\n"
+            f"   - DO NOT mistake list items (like gift ideas, hobbies, or music tracks) for colleagues, employers, or people.\n"
+            f"   - DO NOT claim two distinct entities or titles are synonyms simply because they were listed together with a slash, comma, or conjunction.\n"
+            f"   - DO NOT define a major real-world entity solely through a single personal anecdote (e.g. do not say 'Star Wars is a gift idea for X'; state what Star Wars is first, then its vault context).\n"
+            f"5. Output format: Output ONLY the 2-3 sentence abstract text with relevant [[wikilinks]]. Do NOT include markdown headings, bullet points, introductory phrases, or markdown callout blocks (> [!ABSTRACT]). State facts directly."
         )
         try:
             # think=False is load-bearing: with reasoning enabled this call measured 26.9s
@@ -289,12 +310,15 @@ def synthesize_entity_abstract(
             # fell back to the deterministic compiler. Disabled it runs in ~2.2s.
             res = ollama_client.query_ollama(
                 prompt=prompt,
-                system="You are an expert archivist and PKM librarian writing concise, objective entity abstracts.",
+                system="You are an expert knowledge base curator and PKM librarian writing concise, objective entity abstracts.",
                 timeout=getattr(cfg, "LIBRARIAN_STUB_SYNTHESIS_TIMEOUT", 45),
                 think=False,
             )
             clean_res = string_utils.clean_llm_gist(res)
             clean_res = string_utils.strip_thinking_tags(clean_res).strip()
+            # Strip accidental callout syntax, markdown quotes, or double-prefixing
+            clean_res = re.sub(r"^>\s*\[!ABSTRACT\][^\n]*\n?", "", clean_res, flags=re.IGNORECASE)
+            clean_res = "\n".join(l.lstrip("> ").strip() for l in clean_res.splitlines() if l.lstrip("> ").strip())
             if clean_res and len(clean_res) >= 30:
                 return clean_res, "llm"
             logger.warning(
@@ -1717,9 +1741,22 @@ def create_ghost_link_stub(
     harvested_refs = harvest_entity_references(clean_target, vault_root=root, max_refs=max_harvest)
 
     # If caller provided a specific source and excerpt, ensure it is included
+    caller_is_stub = False
     if source_path:
         caller_rel = source_path.replace("\\", "/")
-        if not any(r["source"] == caller_rel for r in harvested_refs):
+        caller_is_stub = _is_stub_note(None, path=caller_rel)
+        if not caller_is_stub:
+            caller_abs = os.path.join(root, caller_rel) if not os.path.isabs(caller_rel) else caller_rel
+            if os.path.exists(caller_abs):
+                try:
+                    with open(caller_abs, encoding="utf-8", errors="ignore") as cf:
+                        cfm, _ = frontmatter_utils.parse_frontmatter(cf.read())
+                    caller_is_stub = _is_stub_note(cfm, path=caller_rel)
+                except OSError:
+                    pass
+
+        # A stub is not a witness. Never include a stub note in harvested evidence.
+        if not caller_is_stub and not any(r["source"] == caller_rel for r in harvested_refs):
             clean_caller_ctx = context_excerpt.strip()
             if clean_caller_ctx:
                 harvested_refs.insert(0, {"source": caller_rel, "context": clean_caller_ctx})
@@ -1759,8 +1796,12 @@ def create_ghost_link_stub(
         clean_target, harvested_refs, domain=domain
     )
     sources = [r["source"] for r in harvested_refs]
-    primary_source = source_path or (sources[0] if sources else "Vault")
-    primary_context = context_excerpt or (harvested_refs[0]["context"] if harvested_refs else "")
+    if caller_is_stub or not source_path:
+        primary_source = sources[0] if sources else "Vault"
+        primary_context = harvested_refs[0]["context"] if harvested_refs else ""
+    else:
+        primary_source = source_path
+        primary_context = context_excerpt or (harvested_refs[0]["context"] if harvested_refs else "")
 
     payload = StubPayload(
         target_name=clean_target,

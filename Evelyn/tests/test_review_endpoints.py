@@ -1,6 +1,6 @@
 # test_review_endpoints.py
 # date created: 2026-09-03 19:47:07
-# date modified: 2026-09-22 21:27:46
+# date modified: 2026-09-27 21:28:55
 # tags:
 
 """
@@ -199,7 +199,7 @@ def test_ghost_link_stub_proposal_lifecycle():
         assert matching_u["source_path"] == "Hardware/Toolhead.md"
         assert matching_u["parsed_payload"] is not None
         assert matching_u["parsed_payload"]["domain"] == "hardware"
-        assert "stub" in matching_u["parsed_payload"]["tags"]
+        assert "stub" in matching_u["parsed_payload"]["type"]
 
         # 2. Test GET /api/review/proposals
         res_props = client.get("/api/review/proposals", headers=headers)
@@ -240,7 +240,7 @@ def test_ghost_link_stub_proposal_lifecycle():
         doc = vault_db.get_document("Stubs/hardware/Test Ghost Tool.md")
         assert doc is not None
         assert doc["title"] == "Test Ghost Tool"
-        assert "stub" in (doc["tags"] or "")
+        assert "type: [stub]" in note_text
 
     finally:
         if orig_vault_dir is not None:
@@ -410,7 +410,7 @@ def test_ghost_link_stub_multi_reference_approval():
         doc = vault_db.get_document("Stubs/lore/Caladorn.md")
         assert doc is not None
         assert doc["title"] == "Caladorn"
-        assert "stub" in (doc["tags"] or "")
+        assert "type: [stub]" in note_text
 
     finally:
         if orig_vault_dir is not None:

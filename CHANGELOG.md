@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 17:35:43
+date modified: 2026-09-27 21:28:55
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,48 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.279] - 2026-09-27 — *Entity Stub Citation Independence & Caller Witness Isolation*
+
+### Fixed
+
+- **Caller Witness Isolation & Evidence Inflation Guard (`Evelyn/tools/link_librarian.py`)**:
+  - Fixed a critical evidence leakage defect where `create_ghost_link_stub` unconditionally force-inserted `source_path` into `harvested_refs` when `caller_rel` was omitted by `harvest_entity_references`. When `source_path` was a stub note (e.g. `Stubs/Google Sites.md`), this artificially inflated the reference count from 1 to 2, causing ghost links mentioned once in the vault to cross the minimum threshold and spawn bogus proposals.
+  - Enhanced `_is_stub_note` to inspect file paths in addition to frontmatter (`norm.startswith("stubs/")` or component `"stubs"`), ensuring notes residing in `Stubs/` are identified even before or without frontmatter extraction.
+  - Guarded `harvest_entity_references` with a fast path check (`_is_stub_note(None, path=rel_path)`) before file read and parsing.
+  - Guarded `create_ghost_link_stub` against using stub callers as `primary_source` or injecting their context into `primary_context`.
+- **Master Librarian Stub Audit Bypass (`Evelyn/tools/master_librarian.py`)**:
+  - In `audit_single_document`, Step 4 (Ghost Link Stub Synthesis) is now completely bypassed when the document being audited is a stub note (`is_stub_doc`). Stubs are leaf entity summaries whose `Context & Mentions` sections are citations of other notes; they are never original authoring sources and must never initiate ghost link stub synthesis.
+- **Database Hygiene Cleanup (`data/evelyn_memory.db`)**:
+  - Purged 15 invalid pending `ghost_link_stub` proposals in `proposals` that had been artificially inflated by cross-stub citations.
+
+### Added
+
+- **Regression Unit Tests (`Evelyn/tests/test_stub_evidence_independence.py`)**:
+  - Added test cases verifying path-based stub identification (`test_stub_path_is_recognised`, `test_non_stub_paths_are_not_recognised_as_stubs`).
+  - Added test case verifying caller stubs do not inflate citation counts (`test_caller_stub_does_not_inflate_count`).
+  - Added test case verifying caller stubs are excluded from sources even when real notes meet thresholds (`test_caller_stub_excluded_when_real_notes_meet_threshold`).
+  - Added test case verifying `master_librarian.audit_single_document` bypasses ghost stub synthesis when auditing stub notes (`test_master_librarian_bypasses_ghost_stub_creation_for_stubs`).
+
+## [000.006.278] - 2026-09-27 — *Entity Stub Synthesis General Knowledge & Grounded Identity Architecture*
+
+### Added
+
+- **Grounded Entity Stub Synthesis Instructions (`Evelyn/tools/link_librarian.py`)**:
+  - Overhauled `synthesize_entity_abstract` to actively leverage general world knowledge for real-world entities (musicians, video games, software, hardware, franchises, deities, historical figures) while grounding internal concepts (tabletop RPG characters, personas, private projects) in vault records.
+  - Added optional `domain_hint` context injection into the LLM synthesis prompt from `infer_stub_domain` or caller parameters.
+  - Integrated robust anti-hallucination guardrails: forbids misclassifying list items (gift ideas, game rotations) as coworkers or people, forbids declaring slash-separated titles as synonyms, and prevents defining global entities solely by single isolated anecdotes.
+  - Added defensive cleaning stripping accidental model-generated markdown callouts (`> [!ABSTRACT]`) and bounding formatting.
+
+### Changed
+
+- **Stub Approval Gist Indexing (`evelyn_server.py`)**:
+  - Updated `/api/review/proposals/{id}/approve` handler for `ghost_link_stub` to record `payload.synthesized_abstract` directly into `vault_documents.gist` rather than hardcoding a generic boilerplate string, improving vector search and RAG retrieval.
+  - Exposed `"type": payload.type` in `parsed_payload` across `/api/review/unified` and `/api/review/proposals` to surface frontmatter type classifications to the review UI.
+- **Review Endpoint Test Alignment (`Evelyn/tests/test_review_endpoints.py`)**:
+  - Aligned stub lifecycle tests with taxonomy §3.4 frontmatter contract (`type: [stub]` property rather than subject tags).
+- **Vault Stub Knowledge Base Curation (`~/obsidian_vault/Stubs/`)**:
+  - Overhauled and verified 103 entity stub notes across the vault to establish accurate real-world definitions, clear personal vault contextualization, and clean Visual PKM callout blocks (`> [!ABSTRACT]`).
 
 ## [000.006.277] - 2026-09-27 — *Controlled Taxonomy Architecture Backbone & Facet Property Wiring*
 

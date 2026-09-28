@@ -1,6 +1,6 @@
 # master_librarian.py
 # date created: 2026-09-05 17:48:00
-# date modified: 2026-09-27 12:46:42
+# date modified: 2026-09-27 21:28:55
 # tags: #librarian, #master_librarian, #governance, #orchestrator, #vault, #single_pass
 
 """
@@ -171,10 +171,17 @@ def audit_single_document(
     )
 
     # 4. Optional Ghost Link Stub Synthesis / Tier 2 Proposal Logging
+    # A stub document is not an original authoring source; its context/mentions are
+    # citations of other notes. It must never initiate ghost link stub synthesis.
+    is_stub_doc = link_librarian._is_stub_note(None, path=doc_path)
+    if not is_stub_doc:
+        doc_fm, _ = frontmatter_utils.parse_frontmatter(content)
+        is_stub_doc = link_librarian._is_stub_note(doc_fm, path=doc_path)
+
     ghost_targets = link_details.get("ghost_targets", [])
     stubs_created = []
     proposals_logged = []
-    if ghost_targets and not dry_run:
+    if ghost_targets and not dry_run and not is_stub_doc:
         min_refs = getattr(cfg, "LIBRARIAN_GHOST_STUB_MIN_REFS", 2)
         _, doc_body = frontmatter_utils.parse_frontmatter(content)
         for gt in ghost_targets:

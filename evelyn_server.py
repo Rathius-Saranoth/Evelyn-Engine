@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-27 16:02:11
+# date modified: 2026-09-27 21:28:55
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6153,6 +6153,7 @@ async def get_unified_review(_: None = Depends(check_auth)):
                         "source_path": payload.source_path,
                         "context_excerpt": payload.context_excerpt,
                         "domain": payload.domain,
+                        "type": payload.type,
                         "tags": payload.tags,
                         "ref_count": payload.ref_count,
                         "min_refs": payload.min_refs,
@@ -6740,6 +6741,7 @@ async def get_proposals(_: None = Depends(check_auth)):
                         "source_path": payload.source_path,
                         "context_excerpt": payload.context_excerpt,
                         "domain": payload.domain,
+                        "type": payload.type,
                         "tags": payload.tags,
                         "ref_count": payload.ref_count,
                         "min_refs": payload.min_refs,
@@ -7238,7 +7240,11 @@ async def _apply_proposal_action(
                         os.remove(tmp_path)
 
                 source_stem = os.path.splitext(os.path.basename(source_path))[0] if source_path else "Vault"
-                gist_text = f"Conceptual entity stub for [[{clean_target}]], referenced from [[{source_stem}]]."
+                gist_text = (
+                    payload.synthesized_abstract
+                    if (payload and payload.synthesized_abstract)
+                    else f"Conceptual entity stub for [[{clean_target}]], referenced from [[{source_stem}]]."
+                )
                 new_mtime = os.path.getmtime(dest_path)
 
                 vault_db.upsert_document(
