@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-28 19:19:49
+date modified: 2026-09-28 21:18:11
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,18 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.281] - 2026-09-28 — *Pinned Vector Store Alias Parsing & Chat Background Shielding*
+
+### Fixed
+
+- **ChromaDB Pinned Document Alias Type Normalization (`Evelyn/tools/chroma_rag.py`)**:
+  - Fixed an unhandled `AttributeError: 'list' object has no attribute 'split'` in `_fetch_pinned_chunks()` when ChromaDB document metadata stores `aliases` as a native list of strings (common in notes with YAML flow lists like `aliases: [Amber]`).
+  - Added type-checking to support lists, tuples, comma-separated strings, or `None`, preventing crashes during pinned knowledge retrieval across all non-phatic conversational turns.
+  - Added unit test `test_fetch_pinned_chunks_supports_list_and_string_aliases` in `Evelyn/tests/test_rag_precision_targeting.py` verifying seamless handling of mixed alias types.
+- **Chat Worker Unhandled Exception Shielding (`evelyn_server.py`)**:
+  - Broadened background worker exception handling in `_process_chat_background()` from a narrow tuple `(httpx.HTTPError, sqlite3.Error, OSError, RuntimeError, ValueError)` to `Exception`.
+  - Added `traceback.print_exc()` logging so unexpected background task exceptions are prominently recorded in systemd journalctl instead of failing silently into `finally:`.
 
 ## [000.006.280] - 2026-09-28 — *Tag Admission Quorum & Stub Proposal Card Inline UX*
 

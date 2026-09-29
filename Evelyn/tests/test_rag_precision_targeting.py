@@ -1,25 +1,17 @@
 # test_rag_precision_targeting.py
 # date created: 2026-09-01
-# date modified: 2026-09-01 20:33:06
+# date modified: 2026-09-28 21:18:11
 # tags: #test, #rag, #precision_targeting, #abstract, #frontmatter
 
 """Unit tests for Pre-Chunk Sanitization, Abstract Metadata Anchoring, and Precision RAG Context Assembly."""
 
 import os
-import sys
 import unittest
-from unittest.mock import patch
-
-# Ensure repo root and Evelyn/tools are on python path
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-tools_dir = os.path.join(repo_root, "Evelyn/tools")
-if repo_root not in sys.path:
-    sys.path.insert(0, repo_root)
-if tools_dir not in sys.path:
-    sys.path.insert(0, tools_dir)
+from unittest.mock import MagicMock, patch
 
 import evelyn_config as cfg
 from Evelyn.tools.chroma_rag import (
+    _fetch_pinned_chunks,
     clean_rag_chunk_content,
     extract_abstract_callout,
     preprocess_markdown_for_indexing,
@@ -201,7 +193,33 @@ Some important text from the middle of the document.
             self.assertNotIn("Evelyn's Journal", envelope)
             self.assertNotIn("A profound sense of completion", envelope)
 
+    def test_fetch_pinned_chunks_supports_list_and_string_aliases(self):
+        """Verify _fetch_pinned_chunks parses aliases stored as lists, strings, or None without AttributeError."""
+        mock_col = MagicMock()
+        mock_col.count.return_value = 1
+        mock_col.get.side_effect = [
+            # First call: pinned metadata-only search
+            {
+                "metadatas": [
+                    {"source": "/vault/Contacts/Amber.md", "aliases": ["Amber", "Amb"]},
+                    {"source": "/vault/Contacts/Bob.md", "aliases": "Bob, Bobby"},
+                    {"source": "/vault/Contacts/Charlie.md", "aliases": None},
+                ]
+            },
+            # Second call: chunk fetch for matched document (Amber)
+            {
+                "documents": ["Amber is a close friend."],
+                "metadatas": [{"chunk": 0, "total_chunks": 1, "rag_priority": "high"}],
+            },
+        ]
+
+        with patch("Evelyn.tools.chroma_rag.get_or_create_collection", return_value=mock_col):
+            chunks = _fetch_pinned_chunks("Talked to Amber today")
+            self.assertEqual(len(chunks), 1)
+            self.assertEqual(chunks[0]["source"], "/vault/Contacts/Amber.md")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

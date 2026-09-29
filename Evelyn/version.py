@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-28 18:48:52
+# date modified: 2026-09-28 21:18:11
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.280"
-__version_info__ = (0, 6, 280)
-__version_name__ = "Tag Admission Quorum & Stub Proposal Card Inline UX"
+__version__ = "000.006.281"
+__version_info__ = (0, 6, 281)
+__version_name__ = "Pinned Vector Store Alias Parsing & Chat Background Shielding"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

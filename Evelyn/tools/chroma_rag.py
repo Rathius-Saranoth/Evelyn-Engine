@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-26 20:31:41
+# date modified: 2026-09-28 21:18:11
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1603,8 +1603,12 @@ def _fetch_pinned_chunks(query: str) -> list[dict]:
                 src = meta.get("source", "")
                 if src and src not in pinned_sources:
                     aliases_raw = meta.get("aliases", "")
-                    # aliases stored as comma-separated string
-                    aliases = [a.strip().lower() for a in aliases_raw.split(",") if a.strip()]
+                    if isinstance(aliases_raw, (list, tuple)):
+                        aliases = [str(a).strip().lower() for a in aliases_raw if str(a).strip()]
+                    elif isinstance(aliases_raw, str):
+                        aliases = [a.strip().lower() for a in aliases_raw.split(",") if a.strip()]
+                    else:
+                        aliases = []
                     # Also add the filename stem as an implicit alias
                     stem = os.path.splitext(os.path.basename(src))[0].lower()
                     # Strip " (persona)" suffix for matching

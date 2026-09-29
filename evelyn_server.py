@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-28 18:48:52
+# date modified: 2026-09-28 21:18:11
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -30,6 +30,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import traceback
 import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
@@ -2096,11 +2097,12 @@ async def _process_chat_background(
         dlog(f"Chat background task cancelled for session {session.stream_id}")
         session.is_cancelled = True
         raise
-    except (httpx.HTTPError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - catch all unexpected errors so background task fails visibly
         print(
             f"{_RED}[CHAT BACKGROUND ERROR]{_RST} {type(exc).__name__}: {exc}",
             flush=True,
         )
+        traceback.print_exc()
         session.mark_complete(error=str(exc))
     finally:
         # Always commit to DB inside shielded block — independent of whether task is cancelled
