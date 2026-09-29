@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-27 21:28:55
+date modified: 2026-09-28 19:19:49
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,37 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.280] - 2026-09-28 — *Tag Admission Quorum & Stub Proposal Card Inline UX*
+
+### Added
+
+- **Tag Admission Quorum & Auto-Admission Engine (`Evelyn/tools/tag_librarian.py`, `evelyn_config.py`)**:
+  - Added `TAG_ADMISSION_MIN_SOURCES = 2` and `TAG_ADMISSION_AUTO_ADMIT = True` to configuration.
+  - Implemented `evaluate_tag_confidence(term)` in `tag_librarian.py`: evaluates distance bands against the taxonomy vector index, checks wellformedness format rules, inspects the entity/proper noun register, and dispatches to local Ollama validation for distant terms.
+  - Added quorum corroboration to `propose_tag_admission` and `release_deferred_admissions`: unregistered terms citing fewer than 2 distinct sources (notes/facts) are held in `deferred` status to suppress single-occurrence noise from flooding the queue.
+  - When quorum is met ($\ge 2$ sources) and confidence is high, `propose_tag_admission` auto-admits the term directly into `taxonomy_db`, triggers backfilling across referencing facts and notes, and logs the auto-admission without operator burden.
+  - Added `Stubs/` to `VAULT_STRUCTURAL_IGNORE` and guarded `is_excluded_document` and `audit_single_document_semantic` to skip notes in `Stubs/` or carrying `type: stub`.
+- **Direct Stub Proposal Editing & API Parity (`evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - Added direct fields (`target_name`, `abstract`, `domain`, `tags`) to `ProposalActionRequest` and `BulkProposalDecision` in `evelyn_server.py`.
+  - Updated `/api/review/proposals/{id}/approve` handler to inspect both stored/transmitted XML and apply direct UI field overrides when generating stub notes.
+  - Replaced the unformatted raw XML `<details>` editing box on the stub proposal card in `dev.html` with direct, styled in-place editable inputs (Target Note, Synthesized Executive Abstract textarea, Domain Folder, and Tags inputs).
+  - Renamed the "Domain" metadata field to "Domain Folder" with explanatory tooltip (`Subfolder under Stubs/...`) and placeholder (`e.g. general, hardware, lore`) to make subfolder placement immediately clear.
+  - Wrapped harvested mentions and context excerpts in `"… <excerpt> …"` both in `render_stub_markdown` and in the UI card.
+- **Proposals Queue Rebranding & Advanced Type Filtering (`evelyn_ui/dev.html`)**:
+  - Rebranded "Unified Triage Queue" to "Proposals Queue" across tabs, headers, and UI messages.
+  - Overhauled the triage filter bar: retained prominent pills for `All`, `Profile Updates`, and `Procedures`, while introducing a compact styled dropdown selecting specific proposal types (`🏷️ Term Admissions`, `👻 Ghost Link Stubs`, `🔗 Term Relations`, `⚡ Procedure Merges`, `⚡ Procedure Splits`, `✂️ Fact Splits`) and folding `📥 Extractions` into the dropdown.
+  - Updated `parseAdvancedQuery` and `matchesAdvancedQuery` with `type:<type>` and `-type:<type>` search filter tokens.
+  - Enriched `getTriageSearchableFields` with `item.type`, `item.item_type`, and human-friendly search aliases across all queue items.
+- **Web UI Usability, Information Architecture & Tooltip Standards (`.agents/rules/ui-standards.md`, `AGENTS.md`)**:
+  - Created canonical UI rulebook `.agents/rules/ui-standards.md` establishing the "Human-First Tooltip Mandate (UI Docstrings)": every interactive control, input, textarea, action button, filter control, and metric badge must carry a beginner-friendly `title="..."` hover tooltip explaining what it controls, expected formats, and downstream effects.
+  - Added Section 12 to `AGENTS.md` governing frontend usability, in-place structured editing over raw serialization blocks, and progressive disclosure.
+  - Performed comprehensive tooltip sweep across `evelyn_ui/dev.html` (expanding tooltip coverage from 22 to 164 elements): added descriptive tooltips to main navigation tabs, bulk action bars, search and filter controls, and across every proposal and review card (Ghost Link Stubs, Term Admissions, Term Relations, Procedure Merges, Procedure Splits, Fact Splits, Extractions, and Profile Updates).
+
+### Fixed
+
+- **Queue Saturation & Stub-Sourced Term Purge (`data/evelyn_memory.db`)**:
+  - Purged 76 stub-sourced tag proposals and 100 single-source proposals from `data/evelyn_memory.db`, reducing the clogged 200/200 proposal backlog down to 29 high-value actionable items.
 
 ## [000.006.279] - 2026-09-27 — *Entity Stub Citation Independence & Caller Witness Isolation*
 

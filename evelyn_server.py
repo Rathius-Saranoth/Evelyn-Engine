@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-27 21:28:55
+# date modified: 2026-09-28 18:48:52
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6637,6 +6637,11 @@ class ProposalActionRequest(BaseModel):
     # measures association and cannot tell these apart (§6.4.1 question 3), so it is the one
     # field the card must collect rather than infer.
     kind: str | None = None
+    # `ghost_link_stub` direct editing: fields passed from the styled UI card.
+    target_name: str | None = None
+    abstract: str | None = None
+    domain: str | None = None
+    tags: str | None = None
 
 
 class GroundingAuditRequest(BaseModel):
@@ -7182,22 +7187,43 @@ async def _apply_proposal_action(
                 payload = None
                 markdown_content = ""
 
-                if final_text and final_text.strip().startswith("<"):
+                stored_obs = (prop.get("merged_observation") or "").strip()
+                xml_source = final_text if (final_text and final_text.strip().startswith("<")) else (stored_obs if stored_obs.startswith("<") else "")
+                if xml_source:
                     with suppress(ET.ParseError, ValueError, TypeError):
-                        payload = link_librarian.parse_stub_xml(final_text)
+                        payload = link_librarian.parse_stub_xml(xml_source)
 
-                if payload and payload.target_name:
+                user_target = req.target_name if req else None
+                user_abstract = req.abstract if req and req.abstract is not None else None
+                user_domain = req.domain if req and req.domain is not None else None
+                user_tags_raw = req.tags if req and req.tags is not None else None
+
+                if payload:
+                    if user_target and user_target.strip():
+                        payload.target_name = user_target.strip()
+                    if user_abstract is not None:
+                        payload.synthesized_abstract = user_abstract.strip()
+                    if user_domain is not None:
+                        payload.domain = user_domain.strip()
+                    if user_tags_raw is not None:
+                        payload.tags = [t.strip() for t in user_tags_raw.split(",") if t.strip()]
                     clean_target = payload.target_name
                     markdown_content = link_librarian.render_stub_markdown(payload)
                 elif final_text and "---" in final_text:
                     # User provided raw markdown content directly
                     markdown_content = final_text
                 else:
+                    target_val = (user_target.strip() if user_target else "") or clean_target or "Unknown"
+                    tags_val = [t.strip() for t in user_tags_raw.split(",") if t.strip()] if user_tags_raw is not None else []
                     fallback_payload = link_librarian.StubPayload(
-                        target_name=clean_target or "Unknown",
+                        target_name=target_val,
                         source_path=source_path,
                         context_excerpt="",
+                        domain=(user_domain.strip() if user_domain else "") or "",
+                        tags=tags_val,
+                        synthesized_abstract=(user_abstract.strip() if user_abstract else "") or "",
                     )
+                    clean_target = fallback_payload.target_name
                     markdown_content = link_librarian.render_stub_markdown(fallback_payload)
 
                 stem = os.path.basename(clean_target)
@@ -7446,6 +7472,10 @@ class BulkProposalDecision(BaseModel):
     modified_text: str | None = None
     category: str | None = None
     kind: str | None = None
+    target_name: str | None = None
+    abstract: str | None = None
+    domain: str | None = None
+    tags: str | None = None
 
 
 class BulkProposalActionRequest(BaseModel):
@@ -7529,6 +7559,10 @@ async def action_proposals_bulk(
             modified_text=decision.modified_text,
             category=decision.category,
             kind=decision.kind,
+            target_name=decision.target_name,
+            abstract=decision.abstract,
+            domain=decision.domain,
+            tags=decision.tags,
         )
         try:
             outcome = await _apply_proposal_action(

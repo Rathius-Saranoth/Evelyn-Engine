@@ -482,11 +482,11 @@
       </button>
 
       <div class="tabs" id="tabs-bar">
-        <button class="tab-btn active" data-tab="triage" id="tab-triage" onclick="switchTab('triage')">Unified Triage Queue (<span data-count="triage" id="count-triage">0</span>)</button>
-        <button class="tab-btn" data-tab="procedures-mgmt" id="tab-procedures" onclick="switchTab('procedures-mgmt')">⚙️ Procedures (<span data-count="procedures" id="count-all-proc">0</span>)</button>
-        <button class="tab-btn" data-tab="research" id="tab-research" onclick="switchTab('research')">Deep Research (<span data-count="research" id="count-res">0</span>)</button>
-        <button class="tab-btn" data-tab="ingest" id="tab-ingest" onclick="switchTab('ingest')">📄 Document Ingestion</button>
-        <button class="tab-btn" data-tab="telemetry" id="tab-telemetry" onclick="switchTab('telemetry')">📊 Analytics & Feedback</button>
+        <button class="tab-btn active" data-tab="triage" id="tab-triage" onclick="switchTab('triage')" title="Pending review items: taxonomy proposals, ghost link stubs, memory extractions, and procedures">Proposals Queue (<span data-count="triage" id="count-triage">0</span>)</button>
+        <button class="tab-btn" data-tab="procedures-mgmt" id="tab-procedures" onclick="switchTab('procedures-mgmt')" title="Manage operational procedures: review live master procedures, trigger keywords, and execution steps">⚙️ Procedures (<span data-count="procedures" id="count-all-proc">0</span>)</button>
+        <button class="tab-btn" data-tab="research" id="tab-research" onclick="switchTab('research')" title="Autonomous deep research tasks, synthesis reports, and source tracking">Deep Research (<span data-count="research" id="count-res">0</span>)</button>
+        <button class="tab-btn" data-tab="ingest" id="tab-ingest" onclick="switchTab('ingest')" title="Ingest external PDFs, EPUBs, and web pages into the knowledge base">📄 Document Ingestion</button>
+        <button class="tab-btn" data-tab="telemetry" id="tab-telemetry" onclick="switchTab('telemetry')" title="Engine telemetry: latency, task logs, retrieval health, and token usage">📊 Analytics & Feedback</button>
       </div>
 
       <button class="carousel-arrow carousel-arrow-right" id="carousel-next-btn" onclick="scrollTabs(1)" title="Next workspace" aria-label="Next workspace">
@@ -685,6 +685,7 @@
     const API_KEY = localStorage.getItem('evelyn_api_key') || '';
     let currentTab = 'triage';
     let triageFilter = 'all';
+    let triageSubtype = 'all';
     let triageSearch = '';
     
     let unifiedItems = [];
@@ -1103,7 +1104,9 @@
         includeTags: [],
         excludeTags: [],
         includeSources: [],
-        excludeSources: []
+        excludeSources: [],
+        includeTypes: [],
+        excludeTypes: []
       };
 
       for (let t of tokens) {
@@ -1112,7 +1115,13 @@
         
         const lower = clean.toLowerCase();
         
-        if (lower.startsWith('-tag:') || lower.startsWith('-tags:')) {
+        if (lower.startsWith('-type:') || lower.startsWith('-types:')) {
+          const val = clean.replace(/^-types?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.excludeTypes.push(val);
+        } else if (lower.startsWith('type:') || lower.startsWith('types:')) {
+          const val = clean.replace(/^types?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
+          if (val) parsed.includeTypes.push(val);
+        } else if (lower.startsWith('-tag:') || lower.startsWith('-tags:')) {
           const val = clean.replace(/^-tags?:/i, '').replace(/^"|"$/g, '').trim().toLowerCase();
           if (val) parsed.excludeTags.push(val);
         } else if (lower.startsWith('tag:') || lower.startsWith('tags:')) {
@@ -1133,7 +1142,7 @@
         }
       }
 
-      if (!parsed.includeWords.length && !parsed.excludeWords.length && !parsed.includeTags.length && !parsed.excludeTags.length && !parsed.includeSources.length && !parsed.excludeSources.length) {
+      if (!parsed.includeWords.length && !parsed.excludeWords.length && !parsed.includeTags.length && !parsed.excludeTags.length && !parsed.includeSources.length && !parsed.excludeSources.length && !parsed.includeTypes.length && !parsed.excludeTypes.length) {
         return null;
       }
       return parsed;
@@ -1145,6 +1154,20 @@
       const allText = (fields.text || []).map(t => String(t || '').toLowerCase()).join(' ');
       const tagsList = (fields.tags || []).map(t => String(t || '').toLowerCase());
       const allTagsText = tagsList.join(', ');
+
+      // 0. Check types
+      if (queryParsed.excludeTypes && queryParsed.excludeTypes.length > 0) {
+        const itemType = String(item.type || item.item_type || '').toLowerCase();
+        for (const exType of queryParsed.excludeTypes) {
+          if (itemType.includes(exType)) return false;
+        }
+      }
+      if (queryParsed.includeTypes && queryParsed.includeTypes.length > 0) {
+        const itemType = String(item.type || item.item_type || '').toLowerCase();
+        for (const incType of queryParsed.includeTypes) {
+          if (!itemType.includes(incType)) return false;
+        }
+      }
 
       // 1. Check exclude tags
       for (const exTag of queryParsed.excludeTags) {
@@ -1203,24 +1226,24 @@
     function getTriageSearchableFields(item) {
       if (item.item_type === 'extraction') {
         return {
-          text: [item.observation, item.category, item.subject, item.source_file, item.id ? String(item.id) : ''],
+          text: [item.observation, item.category, item.subject, item.source_file, item.id ? String(item.id) : '', 'extraction'],
           tags: item.tags ? String(item.tags).split(',').map(t => t.trim()).filter(Boolean) : []
         };
       } else if (item.item_type === 'procedure') {
         return {
-          text: [item.trigger_pattern, item.steps, item.pitfalls, item.verification, item.suggested_tools, item.source, item.id ? String(item.id) : ''],
+          text: [item.trigger_pattern, item.steps, item.pitfalls, item.verification, item.suggested_tools, item.source, item.id ? String(item.id) : '', 'procedure'],
           tags: item.tags ? String(item.tags).split(',').map(t => t.trim()).filter(Boolean) : []
         };
       } else if (item.item_type === 'proposal') {
         if (item.type === 'procedure_merge') {
           const pd = parseProcedureYaml(item.merged_observation);
           return {
-            text: [item.reason, item.topic, pd.trigger_pattern, pd.steps, pd.pitfalls, pd.verification, pd.suggested_tools, item.id ? String(item.id) : ''],
+            text: [item.reason, item.topic, pd.trigger_pattern, pd.steps, pd.pitfalls, pd.verification, pd.suggested_tools, item.id ? String(item.id) : '', 'procedure_merge', 'procedure merge', 'proposal'],
             tags: (pd.tags || item.merged_tags || '').split(',').map(t => t.trim()).filter(Boolean)
           };
         } else if (item.type === 'procedure_split') {
           const sp = parseProcedureSplitYaml(item.merged_observation);
-          const allText = [item.reason, item.topic, item.id ? String(item.id) : ''];
+          const allText = [item.reason, item.topic, item.id ? String(item.id) : '', 'procedure_split', 'procedure split', 'proposal'];
           const allTags = [];
           for (const p of sp) {
             allText.push(p.trigger_pattern, p.steps, p.pitfalls, p.verification, p.suggested_tools);
@@ -1244,13 +1267,17 @@
               p.domain,
               item.suggested_category,
               item.merged_observation,
-              item.id ? String(item.id) : ''
+              item.id ? String(item.id) : '',
+              'ghost_link_stub',
+              'ghost link',
+              'stub',
+              'proposal'
             ],
             tags: (p.tags && Array.isArray(p.tags)) ? p.tags : (item.merged_tags ? String(item.merged_tags).split(',').map(t => t.trim()).filter(Boolean) : [])
           };
         } else if (item.type === 'split') {
           const facts = parseSplitYaml(item.merged_observation);
-          const allText = [item.reason, item.topic, item.id ? String(item.id) : ''];
+          const allText = [item.reason, item.topic, item.id ? String(item.id) : '', 'split', 'fact split', 'proposal'];
           const allTags = [];
           for (const f of facts) {
             allText.push(f.category, f.subject, f.observation);
@@ -1259,13 +1286,23 @@
           return { text: allText, tags: allTags };
         } else {
           return {
-            text: [item.reason, item.topic, item.merged_observation, item.suggested_category, item.id ? String(item.id) : ''],
+            text: [
+              item.reason,
+              item.topic,
+              item.merged_observation,
+              item.suggested_category,
+              item.id ? String(item.id) : '',
+              item.type || '',
+              (item.type || '').replace(/_/g, ' '),
+              item.type === 'tag_admission' ? 'term admission' : '',
+              'proposal'
+            ],
             tags: item.merged_tags ? String(item.merged_tags).split(',').map(t => t.trim()).filter(Boolean) : []
           };
         }
       } else if (item.item_type === 'profile_update') {
         return {
-          text: [item.reason, item.suggested_category, item.merged_observation, item.id ? String(item.id) : ''],
+          text: [item.reason, item.suggested_category, item.merged_observation, item.id ? String(item.id) : '', 'profile_update', 'profile update'],
           tags: item.merged_tags ? String(item.merged_tags).split(',').map(t => t.trim()).filter(Boolean) : []
         };
       }
@@ -1840,7 +1877,7 @@
 
       const title = document.getElementById('header-title');
       if (currentTab === 'triage') {
-        title.textContent = 'Unified Triage Queue';
+        title.textContent = 'Proposals Queue';
         loadReviewData();
       }
       else if (currentTab === 'procedures-mgmt') {
@@ -1870,8 +1907,26 @@
 
     function setTriageFilter(filter) {
       triageFilter = filter;
+      triageSubtype = 'all';
       render();
       loadReviewData();
+    }
+
+    function setTriageSubtype(val) {
+      if (val === 'all') {
+        triageFilter = 'all';
+        triageSubtype = 'all';
+      } else if (val === 'extraction') {
+        triageFilter = 'extraction';
+        triageSubtype = 'all';
+      } else if (val === 'all_proposals') {
+        triageFilter = 'proposal';
+        triageSubtype = 'all';
+      } else if (val.startsWith('prop:')) {
+        triageFilter = 'proposal';
+        triageSubtype = val.replace('prop:', '');
+      }
+      render();
     }
 
     function handleTriageSearch(val) {
@@ -1900,12 +1955,12 @@
       return `
         <div id="bulk-proposal-bar" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: rgba(52, 211, 153, 0.07); border: 1px solid rgba(52, 211, 153, 0.28); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px;">
           <span style="font-size: 13px; color: #34d399; font-weight: 600;">${n} selected</span>
-          <button class="btn btn-sm" style="${dim}" onclick="selectAllVisibleAdmissions()">Select all ${visibleIds.length} shown</button>
-          <button class="btn btn-sm" style="${dim}" onclick="clearProposalSelection()">Clear</button>
+          <button class="btn btn-sm" style="${dim}" onclick="selectAllVisibleAdmissions()" title="Select all proposal cards currently visible under the active filter">Select all ${visibleIds.length} shown</button>
+          <button class="btn btn-sm" style="${dim}" onclick="clearProposalSelection()" title="Clear selection">Clear</button>
           <span style="flex: 1;"></span>
-          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${act('#059669', '#fff')}" onclick="submitBulkProposalAction('approve', this)">Admit ${n || ''}</button>
-          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${act('#b91c1c', '#fff')}" onclick="submitBulkProposalAction('deny', this)">Reject ${n || ''}</button>
-          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${dim}" onclick="submitBulkProposalAction('delete', this)">🗑️ Remove ${n || ''}</button>
+          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${act('#059669', '#fff')}" onclick="submitBulkProposalAction('approve', this)" title="Bulk admit all selected terms into the master taxonomy and backfill referencing vault notes and fast memory facts">Admit ${n || ''}</button>
+          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${act('#b91c1c', '#fff')}" onclick="submitBulkProposalAction('deny', this)" title="Permanently reject and suppress all selected terms from ever appearing in future proposals">Reject ${n || ''}</button>
+          <button class="btn btn-sm" ${n ? '' : 'disabled'} style="${dim}" onclick="submitBulkProposalAction('delete', this)" title="Remove these proposal rows without permanently suppressing the terms (they can reappear if cited again)">🗑️ Remove ${n || ''}</button>
           <div style="flex-basis: 100%; font-size: 11px; color: var(--text-dim); line-height: 1.5;">
             <strong style="color: #f87171;">Reject is permanent</strong> &mdash; a rejected term is suppressed from every future proposal, so nothing asks again.
             <strong>Remove</strong> only clears the row, so the term returns the next time a fact or note wants it.
@@ -2420,6 +2475,17 @@
             // An empty replacement is meaningful: retire with no pointer.
             const repl = document.getElementById(`tag-replacement-${id}`);
             body = JSON.stringify({ modified_text: repl ? repl.value.trim() : '' });
+          } else if (item && item.type === 'ghost_link_stub') {
+            const targetName = document.getElementById(`stub-target-${id}`)?.value || item.topic || '';
+            const abstract = document.getElementById(`stub-abstract-${id}`)?.value || '';
+            const domain = document.getElementById(`stub-domain-${id}`)?.value || '';
+            const tags = document.getElementById(`stub-tags-${id}`)?.value || '';
+            body = JSON.stringify({
+              target_name: targetName.trim(),
+              abstract: abstract.trim(),
+              domain: domain.trim(),
+              tags: tags.trim()
+            });
           } else {
             const editArea = document.getElementById(`prop-edit-${id}`);
             if (editArea) {
@@ -4854,12 +4920,12 @@
         } else if (alignLabel === 'Untagged') {
           badgeStyle = 'background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);';
         }
-        const noveltyBadge = `<span class="badge" style="${badgeStyle}">${alignLabel} (${item.novelty_score !== undefined ? item.novelty_score : '1.00'})</span>`;
+        const noveltyBadge = `<span class="badge" style="${badgeStyle}" title="Novelty & vocabulary alignment score. 'Aligned' means all tags exist in the master vocabulary; 'Untagged' means tags are needed or unrecognised.">${alignLabel} (${item.novelty_score !== undefined ? item.novelty_score : '1.00'})</span>`;
         
         const suggestionsHTML = (item.suggested_tags && item.suggested_tags.length > 0) ? `
           <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px;">
             <span style="color: var(--text-dim);">Also in the vocabulary:</span>
-            ${item.suggested_tags.map(t => `<button class="filter-pill" style="padding: 2px 8px; font-size: 11px;" onclick="appendExtractionTag(${item.id}, '${escapeHtml(t)}')">+ ${escapeHtml(t)}</button>`).join('')}
+            ${item.suggested_tags.map(t => `<button class="filter-pill" style="padding: 2px 8px; font-size: 11px;" onclick="appendExtractionTag(${item.id}, '${escapeHtml(t)}')" title="Click to add registered tag #${escapeHtml(t)}">+ ${escapeHtml(t)}</button>`).join('')}
           </div>
         ` : '';
 
@@ -4868,7 +4934,7 @@
         const unregisteredHTML = (item.unregistered_tags && item.unregistered_tags.length > 0) ? `
           <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px;">
             <span style="color: var(--text-dim);">New to the vocabulary:</span>
-            ${item.unregistered_tags.map(u => `<span class="badge" style="font-size: 10px; background: rgba(168, 85, 247, 0.15); color: #c084fc;" title="Nearest registered term">${escapeHtml(u.tag)}${u.nearest ? ` &rarr; ${escapeHtml(u.nearest)} (${u.distance})` : ''}</span>`).join('')}
+            ${item.unregistered_tags.map(u => `<span class="badge" style="font-size: 10px; background: rgba(168, 85, 247, 0.15); color: #c084fc;" title="Unregistered term. Nearest registered term: ${escapeHtml(u.nearest || 'none')} (${u.distance || ''})">${escapeHtml(u.tag)}${u.nearest ? ` &rarr; ${escapeHtml(u.nearest)} (${u.distance})` : ''}</span>`).join('')}
           </div>
         ` : '';
 
@@ -4876,33 +4942,33 @@
           <div class="card">
             <div class="card-header">
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                <input type="checkbox" ${selectedExtractionIds.has(item.id) ? 'checked' : ''} onchange="toggleExtractionSelection(${item.id})" title="Select for merge" style="cursor: pointer; width: 15px; height: 15px;" />
-                <span class="badge extraction">EXTRACTION</span>
+                <input type="checkbox" ${selectedExtractionIds.has(item.id) ? 'checked' : ''} onchange="toggleExtractionSelection(${item.id})" title="Select this extraction for a merged combination" style="cursor: pointer; width: 15px; height: 15px;" />
+                <span class="badge extraction" title="Unreviewed conversational memory extraction candidate">EXTRACTION</span>
                 ${noveltyBadge}
               </div>
               <span>${escapeHtml(item.date || 'No Date')}</span>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 8px;">
               <div style="display: flex; gap: 8px;">
-                <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || currentIdentity.user_name)}" placeholder="Subject" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Tags (e.g. coffee, routine)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-cat-${item.id}" value="${escapeHtml(item.category || '')}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" title="Memory taxonomy category code (e.g. Cat05-U for user preferences, Cat04-A for assistant observations)" oninput="handleEditInput(${item.id})" style="width: 140px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-subj-${item.id}" value="${escapeHtml(item.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes (user name or assistant persona)" oninput="handleEditInput(${item.id})" style="width: 100px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                <input type="text" id="ext-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="Tags (e.g. coffee, routine)" title="Controlled vocabulary subject tags (comma-separated)" oninput="handleEditInput(${item.id})" style="flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
               </div>
-              <textarea id="obs-${item.id}" oninput="handleEditInput(${item.id})" style="min-height: 70px; line-height: 1.4;">${escapeHtml(item.observation)}</textarea>
+              <textarea id="obs-${item.id}" title="The factual observation or atomic memory statement to be stored" oninput="handleEditInput(${item.id})" style="min-height: 70px; line-height: 1.4;">${escapeHtml(item.observation)}</textarea>
               ${unregisteredHTML}
               ${suggestionsHTML}
             </div>
             <div class="card-actions">
-              <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve', null, this)">Approve</button>
+              <button class="btn btn-approve" id="btn-approve-${item.id}" onclick="handleAction('extractions', ${item.id}, 'approve', null, this)" title="Approve and commit this memory fact into the active memory bank">Approve</button>
               ${item.is_split_queued ? `
-                <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;">✂️ Queued for Split</span>
+                <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;" title="This fact is queued for background agent splitting into atomic observations">✂️ Queued for Split</span>
               ` : `
-                <button class="btn btn-sm" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;" onclick="queueEntrySplit(${item.id}, this)" title="Queue for background split by agent">✂️ Queue Split</button>
-                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 11px; padding: 4px 10px;" onclick="openSplitModal(${item.id}, 'extractions')" title="Open interactive modal to split immediately">⚡ Instant Split</button>
+                <button class="btn btn-sm" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px; padding: 4px 10px;" onclick="queueEntrySplit(${item.id}, this)" title="Queue this compound fact for background splitting into atomic facts">✂️ Queue Split</button>
+                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 11px; padding: 4px 10px;" onclick="openSplitModal(${item.id}, 'extractions')" title="Open interactive modal to split this compound observation immediately">⚡ Instant Split</button>
               `}
-              <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit', null, this)">Save Edit</button>
-              <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})">Revert</button>
-              <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete', null, this)">Delete</button>
+              <button class="btn btn-edit" id="btn-edit-${item.id}" style="display:none;" onclick="handleAction('extractions', ${item.id}, 'edit', null, this)" title="Save your inline edits to this observation">Save Edit</button>
+              <button class="btn btn-edit" id="btn-revert-${item.id}" style="display:none;" onclick="handleRevert(${item.id})" title="Revert back to the original extracted observation">Revert</button>
+              <button class="btn btn-reject" onclick="handleAction('extractions', ${item.id}, 'delete', null, this)" title="Discard this extraction without saving it to memory">Delete</button>
             </div>
           </div>
         `;
@@ -4918,32 +4984,32 @@
                 <div class="split-fact-card" id="split-fact-${item.id}-${idx}" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
                   <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                      <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;">Fact #${idx + 1}: ${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}</span>
-                      <span style="color: var(--text-dim); font-size: 12px;">(${escapeHtml(ce.subject || currentIdentity.user_name)})</span>
-                      ${ce.tags ? `<span style="font-size: 11px; color: var(--accent); font-family: monospace;">#${escapeHtml(ce.tags)}</span>` : ''}
+                      <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; font-size: 11px;" title="Atomic fact item to be created from this split">Fact #${idx + 1}: ${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}</span>
+                      <span style="color: var(--text-dim); font-size: 12px;" title="Entity subject this fact describes">(${escapeHtml(ce.subject || currentIdentity.user_name)})</span>
+                      ${ce.tags ? `<span style="font-size: 11px; color: var(--accent); font-family: monospace;" title="Controlled vocabulary subject tags">#${escapeHtml(ce.tags)}</span>` : ''}
                     </div>
                     <div style="display: flex; gap: 4px; flex-shrink: 0; align-items: center;">
-                      <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSplitFact(${item.id}, ${idx})">Edit</button>
-                      <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="removeSplitFact(${item.id}, ${idx}, this)">✕ Remove</button>
+                      <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);" onclick="toggleEditSplitFact(${item.id}, ${idx})" title="Edit this atomic fact before approving">Edit</button>
+                      <button class="btn btn-sm" style="font-size: 11px; padding: 3px 8px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="removeSplitFact(${item.id}, ${idx}, this)" title="Remove this atomic fact from the split">✕ Remove</button>
                     </div>
                   </div>
                   <div style="font-size: 13px; line-height: 1.4; color: var(--text); white-space: pre-wrap;">${escapeHtml(ce.observation || '')}</div>
                   <div id="edit-split-fact-${item.id}-${idx}" style="display: none; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; gap: 8px; flex-direction: column;">
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                      <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                      <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
-                      <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Tags (e.g. coffee, routine)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-cat-${item.id}-${idx}" value="${escapeHtml(ce.category || `Cat05-${currentIdentity.subject_code_user}`)}" placeholder="Category (e.g. Cat05-${currentIdentity.subject_code_user})" title="Memory taxonomy category code (e.g. Cat05-U for user preferences, Cat04-A for assistant observations)" style="width: 140px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-subj-${item.id}-${idx}" value="${escapeHtml(ce.subject || currentIdentity.user_name)}" placeholder="Subject" title="Subject entity this memory describes" style="width: 100px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
+                      <input type="text" id="split-prop-tags-${item.id}-${idx}" value="${escapeHtml(ce.tags || '')}" placeholder="Tags (e.g. coffee, routine)" title="Controlled vocabulary subject tags (comma-separated)" style="flex: 1; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;" />
                     </div>
-                    <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
+                    <textarea id="split-prop-obs-${item.id}-${idx}" placeholder="Substantive atomic observation..." title="Substantive atomic observation statement" style="width: 100%; min-height: 60px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;">${escapeHtml(ce.observation || '')}</textarea>
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                      <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSplitFact(${item.id}, ${idx}, this)">Save</button>
-                      <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSplitFact(${item.id}, ${idx})">Cancel</button>
+                      <button class="btn btn-sm btn-approve" style="font-size: 12px; padding: 4px 10px;" onclick="saveSplitFact(${item.id}, ${idx}, this)" title="Save edits to this atomic fact">Save</button>
+                      <button class="btn btn-sm" style="font-size: 12px; padding: 4px 10px; background: var(--surface2); color: var(--text); border: 1px solid var(--border);" onclick="toggleEditSplitFact(${item.id}, ${idx})" title="Cancel editing this fact">Cancel</button>
                     </div>
                   </div>
                 </div>
               `).join('')}
               <div style="display: flex; justify-content: flex-start; margin-top: 4px;">
-                <button class="btn btn-sm" style="background: var(--surface); border: 1px dashed var(--border); font-size: 12px; padding: 6px 12px;" onclick="addSplitFact(${item.id}, this)">+ Add Atomic Fact</button>
+                <button class="btn btn-sm" style="background: var(--surface); border: 1px dashed var(--border); font-size: 12px; padding: 6px 12px;" onclick="addSplitFact(${item.id}, this)" title="Add another atomic fact to this split proposal">+ Add Atomic Fact</button>
               </div>
             </div>
           ` : `<pre style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); white-space: pre-wrap;">${escapeHtml(item.merged_observation)}</pre>`;
@@ -4951,7 +5017,7 @@
           return `
             <div class="card">
               <div class="card-header">
-                <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">PROPOSAL: SPLIT ENTRY</span>
+                <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);" title="Proposal to split a compound memory into multiple atomic single-topic facts">PROPOSAL: SPLIT ENTRY</span>
                 <span>ID: ${item.id}</span>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
@@ -4973,9 +5039,9 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Split</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve this split: creates the separate atomic facts in memory and archives the compound source">Approve Split</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this split proposal without altering memory">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently delete this proposal record from the database">🗑️ Remove</button>
                 ${hintButton('split')}
               </div>
             </div>
@@ -4999,7 +5065,7 @@
             <div class="card">
               <div class="card-header">
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <span class="badge extraction" style="background: var(--accent); color: #fff;">PROPOSAL: PROCEDURE MERGE</span>
+                  <span class="badge extraction" style="background: var(--accent); color: #fff;" title="Proposal to consolidate overlapping or duplicate procedures into a unified specification">PROPOSAL: PROCEDURE MERGE</span>
                   <span>ID: ${item.id}</span>
                   ${targetMasterId ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px; cursor: pointer;" onclick="openProcedureModal(${targetMasterId})" title="Click to view Master Procedure #${targetMasterId}">⚡ TARGET MASTER #${targetMasterId} 🔍</span>` : ''}
                 </div>
@@ -5014,33 +5080,33 @@
                   <div style="font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px;">Proposed Procedure Specification</div>
 
                   <div>
-                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TRIGGER PATTERN (Conversational query keyword)</label>
-                    <input type="text" id="proc-merge-trigger-${item.id}" value="${escapeHtml(procData.trigger_pattern || '')}" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Conversational queries or keywords that cause Evelyn to suggest or execute this procedure">TRIGGER PATTERN (Conversational query keyword)</label>
+                    <input type="text" id="proc-merge-trigger-${item.id}" value="${escapeHtml(procData.trigger_pattern || '')}" title="Conversational trigger keywords (e.g. daily standup, sync vault)" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
                   </div>
 
                   <div>
-                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
-                    <input type="text" id="proc-merge-tools-${item.id}" value="${escapeHtml(procData.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Engine tools suggested or prioritized during this procedure">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
+                    <input type="text" id="proc-merge-tools-${item.id}" value="${escapeHtml(procData.suggested_tools || '')}" placeholder="e.g. write_file, create_task" title="Comma-separated engine tool names to surface when triggered" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
                   </div>
 
                   <div>
-                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">STEPS (Markdown list of operations)</label>
-                    <textarea id="proc-merge-steps-${item.id}" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 120px;">${escapeHtml(procData.steps || '')}</textarea>
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Step-by-step operational directives in markdown list format">STEPS (Markdown list of operations)</label>
+                    <textarea id="proc-merge-steps-${item.id}" title="Sequential operational steps" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 120px;">${escapeHtml(procData.steps || '')}</textarea>
                   </div>
 
                   <div>
-                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">PITFALLS / WHAT TO AVOID (Optional)</label>
-                    <input type="text" id="proc-merge-pitfalls-${item.id}" value="${escapeHtml(procData.pitfalls || '')}" placeholder="None" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Known traps, common mistakes, or failure modes to guard against">PITFALLS / WHAT TO AVOID (Optional)</label>
+                    <input type="text" id="proc-merge-pitfalls-${item.id}" value="${escapeHtml(procData.pitfalls || '')}" placeholder="None" title="Known traps or failure modes" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
                   </div>
 
                   <div>
-                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">VERIFICATION CHECKS (Optional)</label>
-                    <input type="text" id="proc-merge-verification-${item.id}" value="${escapeHtml(procData.verification || '')}" placeholder="None" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Validation checks to verify the procedure completed successfully">VERIFICATION CHECKS (Optional)</label>
+                    <input type="text" id="proc-merge-verification-${item.id}" value="${escapeHtml(procData.verification || '')}" placeholder="None" title="Success criteria and validation commands" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
                   </div>
 
                   <div>
-                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TAGS (Comma separated)</label>
-                    <input type="text" id="proc-merge-tags-${item.id}" value="${escapeHtml(procData.tags || '')}" placeholder="None" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
+                    <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Controlled vocabulary subject tags classifying this procedure">TAGS (Comma separated)</label>
+                    <input type="text" id="proc-merge-tags-${item.id}" value="${escapeHtml(procData.tags || '')}" placeholder="None" title="Subject tags from master_tag_taxonomy" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 14px; outline: none;" />
                   </div>
                 </div>
 
@@ -5053,13 +5119,13 @@
               </div>
               <div class="card-actions-group">
                 <div class="card-actions-row">
-                  <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
-                  <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve (New Procedure)</button>
+                  <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)" title="Save edits to this proposed procedure without approving yet">💾 Save Changes</button>
+                  <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve and register this specification as an active procedure in the engine">Approve (New Procedure)</button>
                   ${renderMergeControl('proposal', item.id, targetMasterId)}
                 </div>
                 <div class="card-actions-row">
-                  <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                  <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                  <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this procedure proposal">Reject</button>
+                  <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently remove this proposal record from the database">🗑️ Remove</button>
                 </div>
               </div>
             </div>
@@ -5072,30 +5138,30 @@
             <div style="background: #07070a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
               <div style="font-size: 11px; color: var(--accent); font-weight: 600; text-transform: uppercase;">Child Procedure #${idx + 1}</div>
               <div>
-                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">TRIGGER PATTERN</label>
-                <input type="text" id="proc-split-trigger-${item.id}-${idx}" value="${escapeHtml(proc.trigger_pattern || '')}" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;" />
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;" title="Conversational trigger keywords for this child procedure">TRIGGER PATTERN</label>
+                <input type="text" id="proc-split-trigger-${item.id}-${idx}" value="${escapeHtml(proc.trigger_pattern || '')}" title="Keywords or conversational user phrases that invoke this child procedure" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;" />
               </div>
               <div>
-                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">SUGGESTED TOOLS</label>
-                <input type="text" id="proc-split-tools-${item.id}-${idx}" value="${escapeHtml(proc.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;" />
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;" title="Engine tools suggested for this child procedure">SUGGESTED TOOLS</label>
+                <input type="text" id="proc-split-tools-${item.id}-${idx}" value="${escapeHtml(proc.suggested_tools || '')}" placeholder="e.g. write_file, create_task" title="Comma-separated engine tool names suggested when triggered" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none;" />
               </div>
               <div>
-                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">STEPS</label>
-                <textarea id="proc-split-steps-${item.id}-${idx}" style="width: 100%; min-height: 80px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: vertical;">${escapeHtml(proc.steps || '')}</textarea>
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;" title="Step-by-step operational instructions for this child procedure">STEPS</label>
+                <textarea id="proc-split-steps-${item.id}-${idx}" title="Step-by-step execution instructions" style="width: 100%; min-height: 80px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: vertical;">${escapeHtml(proc.steps || '')}</textarea>
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <div>
-                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">PITFALLS</label>
-                  <input type="text" id="proc-split-pitfalls-${item.id}-${idx}" value="${escapeHtml(proc.pitfalls || '')}" placeholder="None" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
+                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;" title="Known traps, common mistakes, or failure modes to guard against">PITFALLS</label>
+                  <input type="text" id="proc-split-pitfalls-${item.id}-${idx}" value="${escapeHtml(proc.pitfalls || '')}" placeholder="None" title="Known traps or edge cases to avoid" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
                 </div>
                 <div>
-                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">VERIFICATION</label>
-                  <input type="text" id="proc-split-verification-${item.id}-${idx}" value="${escapeHtml(proc.verification || '')}" placeholder="None" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
+                  <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;" title="Validation checks to confirm success">VERIFICATION</label>
+                  <input type="text" id="proc-split-verification-${item.id}-${idx}" value="${escapeHtml(proc.verification || '')}" placeholder="None" title="Success criteria and validation commands" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
                 </div>
               </div>
               <div>
-                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;">TAGS</label>
-                <input type="text" id="proc-split-tags-${item.id}-${idx}" value="${escapeHtml(proc.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
+                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;" title="Controlled vocabulary subject tags classifying this child procedure">TAGS</label>
+                <input type="text" id="proc-split-tags-${item.id}-${idx}" value="${escapeHtml(proc.tags || '')}" placeholder="None" title="Subject tags from master_tag_taxonomy" style="width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;" />
               </div>
             </div>
           `).join('');
@@ -5103,7 +5169,7 @@
           return `
             <div class="card">
               <div class="card-header">
-                <span class="badge" style="background: #8b5cf6; color: #fff;">PROPOSAL: PROCEDURE SPLIT</span>
+                <span class="badge" style="background: #8b5cf6; color: #fff;" title="Proposal to break a multi-task compound procedure into distinct single-focus procedures">PROPOSAL: PROCEDURE SPLIT</span>
                 <span>ID: ${item.id}</span>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
@@ -5126,12 +5192,12 @@
               </div>
               <div class="card-actions-group">
                 <div class="card-actions-row">
-                  <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)">💾 Save Changes</button>
-                  <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Procedure Split</button>
+                  <button class="btn btn-action" onclick="handleAction('proposals', ${item.id}, 'edit', null, this)" title="Save edits made to these split child procedures without approving yet">💾 Save Changes</button>
+                  <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve and register these separate child procedures in the active registry">Approve Procedure Split</button>
                 </div>
                 <div class="card-actions-row">
-                  <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                  <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                  <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this split proposal">Reject</button>
+                  <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently remove this proposal record from the database">🗑️ Remove</button>
                 </div>
               </div>
             </div>
@@ -5156,11 +5222,11 @@
             <div class="card">
               <div class="card-header">
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <span class="badge" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.4); font-weight: 600;">PROPOSAL: GHOST LINK STUB</span>
+                  <span class="badge" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.4); font-weight: 600;" title="Proposal to create an entity stub note resolving unlinked mentions across your Obsidian vault">PROPOSAL: GHOST LINK STUB</span>
                   <span>ID: ${item.id}</span>
-                  <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">[[${escapeHtml(targetName)}]]</span>
-                  <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">${refCount}/${minRefs} Refs</span>
-                  ${totalChars > 0 ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">${totalChars} Context Chars</span>` : ''}
+                  <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);" title="Ghost link concept title cited across vault notes">[[${escapeHtml(targetName)}]]</span>
+                  <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);" title="Number of unique notes linking to this concept / Minimum required to propose a stub">${refCount}/${minRefs} Refs</span>
+                  ${totalChars > 0 ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);" title="Total characters of surrounding context harvested across referencing notes">${totalChars} Context Chars</span>` : ''}
                 </div>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
@@ -5169,58 +5235,62 @@
                   <div style="font-size: 13px; color: var(--text); line-height: 1.4;">${escapeHtml(item.reason || 'Ghost link target referenced across vault notes.')}</div>
                 </div>
 
-                ${abstract ? `
-                  <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 12px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                      <div style="font-size: 11px; color: #818cf8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Synthesized Executive Abstract</div>
-                      <span class="badge" style="font-size: 10px; background: ${isLlmSynthesis ? 'rgba(99, 102, 241, 0.2)' : 'rgba(245, 158, 11, 0.18)'}; color: ${isLlmSynthesis ? '#c7d2fe' : '#fbbf24'};" title="${isLlmSynthesis ? 'Abstract written by local Ollama synthesis.' : 'Ollama synthesis was unavailable or returned nothing usable; this abstract was compiled deterministically from the harvested references.'}">${isLlmSynthesis ? 'Multi-Reference LLM Synthesis' : 'Deterministic Fallback — No LLM Synthesis'}</span>
-                    </div>
-                    <div style="font-size: 13px; color: var(--text); line-height: 1.5; font-style: italic; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border-left: 3px solid #818cf8;">
-                      "${escapeHtml(abstract)}"
-                    </div>
+                <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 12px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 11px; color: #818cf8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;" title="High-level abstract to place in the [!ABSTRACT] callout box at the top of the stub note">Synthesized Executive Abstract (Editable)</div>
+                    <span class="badge" style="font-size: 10px; background: ${isLlmSynthesis ? 'rgba(99, 102, 241, 0.2)' : 'rgba(245, 158, 11, 0.18)'}; color: ${isLlmSynthesis ? '#c7d2fe' : '#fbbf24'};" title="${isLlmSynthesis ? 'Abstract written by local Ollama synthesis.' : 'Ollama synthesis was unavailable or returned nothing usable; this abstract was compiled deterministically from the harvested references.'}">${isLlmSynthesis ? 'Multi-Reference LLM Synthesis' : 'Deterministic Fallback — No LLM Synthesis'}</span>
                   </div>
-                ` : ''}
+                  <textarea id="stub-abstract-${item.id}"
+                    style="width: 100%; min-height: 80px; font-family: inherit; font-size: 13px; font-style: italic; line-height: 1.5; background: rgba(0,0,0,0.3); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 6px; border-left: 3px solid #818cf8; color: var(--text); padding: 10px; resize: vertical; box-sizing: border-box;"
+                    placeholder="Enter or edit synthesized executive abstract..."
+                    title="Enter or edit executive abstract for the [!ABSTRACT] callout box">${escapeHtml(abstract)}</textarea>
+                </div>
 
-                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
                   <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
-                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Stub Metadata</div>
-                    <div style="font-size: 12px; color: var(--text-dim);">${refCount > 1 ? `${refCount} Referencing Notes` : `Referencing Note: <code style="color: #60a5fa;">${escapeHtml(sourcePath)}</code>`}</div>
+                    <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Stub Metadata (Editable)</div>
+                    <div style="font-size: 12px; color: var(--text-dim);">${refCount > 1 ? `<span title="Number of vault documents citing this ghost link">${refCount} Referencing Notes</span>` : `Referencing Note: <code style="color: #60a5fa;" title="Source document citing this ghost link">${escapeHtml(sourcePath)}</code>`}</div>
                   </div>
-                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; font-size: 13px;">
-                    <div><span style="color: var(--text-dim);">Target Note:</span> <strong style="color: #fff;">[[${escapeHtml(targetName)}]]</strong></div>
-                    <div><span style="color: var(--text-dim);">Domain:</span> <span style="color: var(--accent);">${escapeHtml(domain || 'general')}</span></div>
-                    <div><span style="color: var(--text-dim);">Tags:</span> <span style="font-family: monospace; font-size: 12px; color: var(--text);">${escapeHtml(tags)}</span></div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 13px;">
+                    <div>
+                      <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; font-weight: 600; text-transform: uppercase;" title="The note title and filename: creates Stubs/<Domain Folder>/<Target>.md in your Obsidian vault">Target Note</label>
+                      <input type="text" id="stub-target-${item.id}" value="${escapeHtml(targetName)}" title="The note title and filename (creates Stubs/<Domain Folder>/<Target>.md)" style="width: 100%; background: #07070a; border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: #fff; font-weight: 600; font-size: 13px; box-sizing: border-box;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; font-weight: 600; text-transform: uppercase;" title="Subfolder under Stubs/ where this note will be placed (e.g. Stubs/<Domain Folder>/<Target>.md)">Domain Folder</label>
+                      <input type="text" id="stub-domain-${item.id}" value="${escapeHtml(domain || 'general')}" placeholder="e.g. general, hardware, lore" title="Subfolder under Stubs/ (e.g. general)" style="width: 100%; background: #07070a; border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--accent); font-size: 13px; box-sizing: border-box;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; font-weight: 600; text-transform: uppercase;" title="Controlled vocabulary subject tags from master_tag_taxonomy (comma-separated)">Tags (comma-separated)</label>
+                      <input type="text" id="stub-tags-${item.id}" value="${escapeHtml(tags)}" placeholder="e.g. stub, concept, hardware" title="Controlled vocabulary subject tags (comma-separated, e.g. stub, concept, hardware)" style="width: 100%; background: #07070a; border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--text); font-family: monospace; font-size: 12px; box-sizing: border-box;" />
+                    </div>
                   </div>
 
                   ${references.length > 0 ? `
                     <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
-                      <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Harvested Mentions Across Vault (${references.length})</div>
-                      ${references.map(ref => `
+                      <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;" title="Specific citations harvested from vault notes">Harvested Mentions Across Vault (${references.length})</div>
+                      ${references.map(ref => {
+                        const rawSnippet = (ref.snippet || ref.context || '').trim();
+                        const snippet = rawSnippet ? `… ${rawSnippet.replace(/^[…\.\s]+|[…\.\s]+$/g, '')} …` : '';
+                        return `
                         <div style="background: #07070a; padding: 8px 10px; border-radius: 4px; border: 1px solid var(--border);">
-                          <div style="font-size: 11px; color: #60a5fa; font-weight: 600; margin-bottom: 3px;">[[${escapeHtml(ref.source)}]]</div>
-                          <div style="font-size: 12px; color: var(--text); font-style: italic; line-height: 1.4;">"${escapeHtml(ref.snippet || ref.context || '')}"</div>
+                          <div style="font-size: 11px; color: #60a5fa; font-weight: 600; margin-bottom: 3px;" title="Referencing note">[[${escapeHtml(ref.source)}]]</div>
+                          <div style="font-size: 12px; color: var(--text); font-style: italic; line-height: 1.4;">"${escapeHtml(snippet)}"</div>
                         </div>
-                      `).join('')}
+                      `}).join('')}
                     </div>
                   ` : (excerpt ? `
                     <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border);">
                       <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Referencing Context Excerpt</div>
-                      <div style="font-size: 12px; color: var(--text); font-style: italic; background: #07070a; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); line-height: 1.4;">"${escapeHtml(excerpt)}"</div>
+                      <div style="font-size: 12px; color: var(--text); font-style: italic; background: #07070a; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); line-height: 1.4;">"… ${escapeHtml(excerpt.trim().replace(/^[…\.\s]+|[…\.\s]+$/g, ''))} …"</div>
                     </div>
                   ` : '')}
                 </div>
-
-                <details style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;">
-                  <summary style="font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none;">Structured XML payload — edit before approving</summary>
-                  <textarea id="prop-edit-${item.id}"
-                    style="width: 100%; min-height: 110px; margin-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 6px; resize: vertical;"
-                    spellcheck="false">${escapeHtml(item.merged_observation)}</textarea>
-                </details>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve & Create Stub</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve this proposal: generates the stub note in Obsidian and resolves ghost links across your vault">Approve & Create Stub</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this proposal and archive it without creating a stub note">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently delete this proposal record from the database">🗑️ Remove</button>
                 ${hintButton('ghost_link_stub')}
               </div>
             </div>
@@ -5246,14 +5316,14 @@
           return `
             <div class="card" data-relation-proposal="${item.id}">
               <div class="card-header">
-                <span class="badge" style="background: rgba(129, 140, 248, 0.15); color: #a5b4fc; border: 1px solid rgba(129, 140, 248, 0.35);">
+                <span class="badge" style="background: rgba(129, 140, 248, 0.15); color: #a5b4fc; border: 1px solid rgba(129, 140, 248, 0.35);" title="Proposal to record an ontological relationship between two co-occurring terms in the taxonomy">
                   PROPOSAL: RELATE TERMS
                 </span>
                 <span>ID: ${item.id}</span>
               </div>
               <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
                 <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
-                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;" title="These terms co-occur significantly more than chance across notes and memory">
                     Pair to decide
                   </div>
                   <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: #a5b4fc;">
@@ -5262,10 +5332,10 @@
                   <div style="font-size: 13px; color: var(--text); line-height: 1.6; white-space: pre-line;">${escapeHtml(item.reason || '')}</div>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 6px;">
-                  <label for="rel-kind-${item.id}" style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <label for="rel-kind-${item.id}" style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;" title="Select the conceptual relationship between these two terms">
                     What are they to each other?
                   </label>
-                  <select id="rel-kind-${item.id}" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 14px; outline: none;">
+                  <select id="rel-kind-${item.id}" title="Choose relationship: Related (association), Narrower (sub-concept), or Alias (synonym retirement)" style="width: 100%; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 14px; outline: none;">
                     ${opts.map(([v, label]) => `<option value="${escapeAttr(v)}">${escapeHtml(label)}</option>`).join('')}
                   </select>
                   <div style="font-size: 11px; color: var(--text-dim);">
@@ -5274,9 +5344,9 @@
                 </div>
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Record</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Save this relationship into the taxonomy database">Record</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this relationship without modifying the taxonomy">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently delete this proposal record from the database">🗑️ Remove</button>
                 ${hintButton('tag_relation')}
               </div>
             </div>`;
@@ -5295,7 +5365,7 @@
           return `
             <div class="card" data-tag-proposal="${item.id}" data-tag-term="${escapeAttr(term)}" data-tag-kind="${isAdmission ? 'admission' : 'retirement'}">
               <div class="card-header">
-                <span class="badge" style="background: ${isAdmission ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 146, 60, 0.15)'}; color: ${isAdmission ? '#34d399' : '#fb923c'}; border: 1px solid ${isAdmission ? 'rgba(52, 211, 153, 0.35)' : 'rgba(251, 146, 60, 0.35)'};">
+                <span class="badge" style="background: ${isAdmission ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 146, 60, 0.15)'}; color: ${isAdmission ? '#34d399' : '#fb923c'}; border: 1px solid ${isAdmission ? 'rgba(52, 211, 153, 0.35)' : 'rgba(251, 146, 60, 0.35)'};" title="${isAdmission ? 'Proposal to admit an unregistered term into the master vocabulary' : 'Proposal to retire an obsolete or duplicate term from the vocabulary'}">
                   PROPOSAL: ${isAdmission ? 'ADMIT TERM' : 'RETIRE TERM'}
                 </span>
                 <span style="display: flex; align-items: center; gap: 10px;">
@@ -5303,6 +5373,7 @@
                     <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; color: var(--text-dim);" title="Select for a bulk decision">
                       <input type="checkbox" id="bulk-pick-${item.id}" ${selectedProposalIds.has(item.id) ? 'checked' : ''}
                         onchange="toggleProposalSelection(${item.id}, this.checked)"
+                        title="Select for bulk admission, rejection, or removal"
                         style="accent-color: #34d399; cursor: pointer; width: 15px; height: 15px;" />
                       Select
                     </label>
@@ -5317,10 +5388,11 @@
                   </div>
                   ${isAdmission ? `
                     <input id="tag-term-${item.id}" type="text" value="${escapeAttr(term)}"
+                      title="The candidate term to admit (editable to fix typos, or add facet prefixes like setting/ or type/)"
                       style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; background: #07070a; border: 1px solid var(--border); color: #34d399; padding: 10px 12px; border-radius: 6px; outline: none;" />
                     <div style="font-size: 11px; color: var(--text-dim);">Editable &mdash; correct the spelling or form before admitting. You can also <strong>put it on an axis</strong> by typing a facet prefix: <code style="color: var(--accent);">setting/</code> <code style="color: var(--accent);">motif/</code> <code style="color: var(--accent);">event/</code> <code style="color: var(--accent);">type/</code>. <code>setting/bedroom</code> registers even though no such term exists yet.</div>
                   ` : `
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: #fb923c; padding: 4px 0;">${escapeHtml(term)}</div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: #fb923c; padding: 4px 0;" title="Obsolete term to retire">${escapeHtml(term)}</div>
                   `}
                 </div>
 
@@ -5346,9 +5418,11 @@
                       <code style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fb923c;">${escapeHtml(term)}</code>
                       <span style="color: var(--text-dim); font-size: 14px;">➤ See:</span>
                       <input id="see-target-${item.id}" type="text" list="vocab-terms" placeholder="an existing term"
+                        title="Existing registered term that covers this concept (records an alias redirect)"
                         style="flex: 1; min-width: 150px; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: #34d399; padding: 7px 10px; border-radius: 6px; outline: none;" />
                       <button class="btn btn-sm" style="background: #7c3aed; color: #fff; border: none; font-size: 12px; padding: 6px 12px; cursor: pointer;"
-                        onclick="handleSeeReference(${item.id}, this)">➤ Record see-reference</button>
+                        onclick="handleSeeReference(${item.id}, this)"
+                        title="Record an alias redirecting this term to the existing registered synonym">➤ Record see-reference</button>
                     </div>
                     <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
                       <code>${escapeHtml(term)}</code> is <strong>not</strong> added. Anything tagged <code>${escapeHtml(term)}</code> resolves to the term you name from now on, and whatever asked for it gets that term instead. The suggestion is only a suggestion — replace it with any registered term if it is wrong.
@@ -5358,8 +5432,10 @@
                     <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Or is it a name?</div>
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                       <input id="name-label-${item.id}" type="text" placeholder="Full name, if the term lost part of it"
+                        title="Full proper name to register (e.g. company, person, product, or work)"
                         style="flex: 1; min-width: 170px; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 6px; outline: none;" />
                       <select id="name-kind-${item.id}"
+                        title="Select the proper entity category"
                         style="font-size: 12px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 7px 8px; border-radius: 6px; outline: none;">
                         <option value="organization">a company or shop</option>
                         <option value="product">a product or tool</option>
@@ -5369,7 +5445,8 @@
                         <option value="other" selected>something else</option>
                       </select>
                       <button class="btn btn-sm" style="background: #0891b2; color: #fff; border: none; font-size: 12px; padding: 6px 12px; cursor: pointer;"
-                        onclick="handleMarkAsName(${item.id}, this)">\ud83c\udff7\ufe0f This is a name</button>
+                        onclick="handleMarkAsName(${item.id}, this)"
+                        title="Register this term in the proper names register instead of the subject tag taxonomy">🏷️ This is a name</button>
                     </div>
                     <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
                       Names are kept in their own register, so this does <strong>not</strong> spend the word &mdash; a shop called <code>historical</code> and the ordinary adjective can both exist. Unlike Reject, it can be undone.
@@ -5380,15 +5457,16 @@
                   <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
                     <div style="font-size: 12px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Preferred term (optional)</div>
                     <input id="tag-replacement-${item.id}" type="text" list="vocab-terms" placeholder="e.g. chore"
+                      title="Preferred replacement term for the retired term so existing references resolve correctly"
                       style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; outline: none;" />
                     <div style="font-size: 11px; color: var(--text-dim);">Naming one records an equivalence so documents phrased the retired way still resolve. Leaving it blank retires the term with no pointer.</div>
                   </div>
                 `}
               </div>
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">${isAdmission ? 'Admit' : 'Retire'}</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="${isAdmission ? 'Admit this term into the master taxonomy and backfill referencing vault notes and fast memory facts' : 'Retire this term from the active vocabulary'}">${isAdmission ? 'Admit' : 'Retire'}</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Permanently reject and suppress this term from future admission proposals">Reject</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Remove this proposal row without permanently suppressing the term">🗑️ Remove</button>
                 ${hintButton(isAdmission ? 'tag_admission' : 'tag_retirement')}
               </div>
             </div>
@@ -5462,7 +5540,7 @@
         return `
           <div class="card">
             <div class="card-header">
-              <span class="badge" style="background: var(--accent); color: #fff;">PROFILE UPDATE: ${escapeHtml(item.suggested_category)}</span>
+              <span class="badge" style="background: var(--accent); color: #fff;" title="Proposal to update your user profile note in the vault with newly extracted facts and preferences">PROFILE UPDATE: ${escapeHtml(item.suggested_category)}</span>
               <span>ID: ${item.id}</span>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
@@ -5473,23 +5551,24 @@
               </div>
               
               <div>
-                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Proposed Document Content (Editable prior to approval):</div>
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;" title="Proposed markdown content to write to your profile note in the vault">Proposed Document Content (Editable prior to approval):</div>
                 <textarea id="prop-edit-${item.id}"
+                  title="Proposed profile markdown content to write to your profile note in the vault (editable prior to approval)"
                   style="width: 100%; min-height: 180px; font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #07070a; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; resize: vertical;"
                   oninput="updateLiveDiff(${item.id})">${escapeHtml(item.merged_observation)}</textarea>
               </div>
 
               <div>
-                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;">Live Diff Comparison:</div>
+                <div style="font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #fff;" title="Visual diff comparing existing profile note with proposed changes">Live Diff Comparison:</div>
                 <div id="prop-diff-${item.id}" data-original="${escapeAttr(rawOriginal)}">
                   <!-- diff populated after DOM insertion by render() -->
                 </div>
               </div>
 
               <div class="card-actions" style="display: flex; gap: 8px;">
-                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)">Approve Update</button>
-                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)">Reject Update</button>
-                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)">🗑️ Remove</button>
+                <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve this update: writes the proposed content to your profile note in the vault and archives the proposal">Approve Update</button>
+                <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this profile update without modifying your profile note">Reject Update</button>
+                <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently remove this proposal record from the database">🗑️ Remove</button>
               </div>
 
               <details ${expandedProposalContexts.has(item.id) ? 'open' : ''} ontoggle="toggleProposalContext(${item.id}, this.open)" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 4px;">
@@ -5506,47 +5585,47 @@
           <div class="card">
             <div class="card-header">
               <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="badge extraction" style="background: var(--accent); color: #fff;">PROCEDURE</span>
+                <span class="badge extraction" style="background: var(--accent); color: #fff;" title="Operational procedure specification awaiting review">PROCEDURE</span>
                 <span>ID: ${item.id}</span>
                 ${item.merged_into_id ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 11px; cursor: pointer;" onclick="openProcedureModal(${item.merged_into_id})" title="Click to view Master Procedure #${item.merged_into_id}">⚡ MATCHES MASTER #${item.merged_into_id} 🔍</span>` : ''}
               </div>
             </div>
             <div class="card-body" style="display: flex; flex-direction: column; gap: 12px;">
               <div>
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TRIGGER PATTERN (Conversational query keyword)</label>
-                <input type="text" id="proc-trigger-${item.id}" value="${escapeHtml(item.trigger_pattern)}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Conversational queries or keywords that cause Evelyn to suggest or execute this procedure">TRIGGER PATTERN (Conversational query keyword)</label>
+                <input type="text" id="proc-trigger-${item.id}" value="${escapeHtml(item.trigger_pattern)}" title="Conversational trigger keywords (e.g. daily standup, sync vault)" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
               <div>
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
-                <input type="text" id="proc-tools-${item.id}" value="${escapeHtml(item.suggested_tools || '')}" placeholder="e.g. write_file, create_task" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Engine tools suggested or prioritized during this procedure">SUGGESTED TOOLS (e.g. write_file, create_task, get_health_metrics)</label>
+                <input type="text" id="proc-tools-${item.id}" value="${escapeHtml(item.suggested_tools || '')}" placeholder="e.g. write_file, create_task" title="Comma-separated engine tool names to surface when triggered" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
               <div>
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">STEPS (Markdown list of operations)</label>
-                <textarea id="proc-steps-${item.id}" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 100px;">${escapeHtml(item.steps)}</textarea>
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Step-by-step operational directives in markdown list format">STEPS (Markdown list of operations)</label>
+                <textarea id="proc-steps-${item.id}" title="Sequential steps for this procedure" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; min-height: 100px;">${escapeHtml(item.steps)}</textarea>
               </div>
               <div>
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">PITFALLS / WHAT TO AVOID (Optional)</label>
-                <input type="text" id="proc-pitfalls-${item.id}" value="${escapeHtml(item.pitfalls || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Known traps, common mistakes, or failure modes to guard against">PITFALLS / WHAT TO AVOID (Optional)</label>
+                <input type="text" id="proc-pitfalls-${item.id}" value="${escapeHtml(item.pitfalls || '')}" placeholder="None" title="Known traps or failure modes" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
               <div>
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">VERIFICATION CHECKS (Optional)</label>
-                <input type="text" id="proc-verification-${item.id}" value="${escapeHtml(item.verification || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Validation checks to verify the procedure completed successfully">VERIFICATION CHECKS (Optional)</label>
+                <input type="text" id="proc-verification-${item.id}" value="${escapeHtml(item.verification || '')}" placeholder="None" title="Success criteria and validation commands" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
               <div>
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;">TAGS (Comma separated)</label>
-                <input type="text" id="proc-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="None" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;" title="Controlled vocabulary subject tags classifying this procedure">TAGS (Comma separated)</label>
+                <input type="text" id="proc-tags-${item.id}" value="${escapeHtml(item.tags || '')}" placeholder="None" title="Subject tags from master_tag_taxonomy" style="width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none;" />
               </div>
             </div>
             <div class="card-actions-group">
               <div class="card-actions-row">
-                <button class="btn btn-action" onclick="handleProcedureAction(${item.id}, 'edit', null, this)">💾 Save Changes</button>
-                <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)">Approve (Live)</button>
+                <button class="btn btn-action" onclick="handleProcedureAction(${item.id}, 'edit', null, this)" title="Save edits to this procedure without changing its live status">💾 Save Changes</button>
+                <button class="btn btn-approve" onclick="handleProcedureAction(${item.id}, 'approve', null, this)" title="Approve this procedure to make it active in the engine">Approve (Live)</button>
                 ${renderMergeControl('procedure', item.id, item.merged_into_id)}
               </div>
               <div class="card-actions-row">
-                <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)">Reject</button>
-                <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny', null, this)">Archive</button>
-                <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete', null, this)">🗑️ Delete</button>
+                <button class="btn btn-reject" onclick="handleProcedureAction(${item.id}, 'reject', null, this)" title="Reject this procedure">Reject</button>
+                <button class="btn btn-reject" style="background: #374151; color: #9ca3af;" onclick="handleProcedureAction(${item.id}, 'deny', null, this)" title="Archive this procedure so it is preserved but inactive">Archive</button>
+                <button class="btn btn-delete" onclick="handleProcedureAction(${item.id}, 'delete', null, this)" title="Permanently remove this procedure from the database">🗑️ Delete</button>
               </div>
             </div>
           </div>
@@ -5712,34 +5791,57 @@
         const profUpCount = unifiedItems.filter(i => i.item_type === 'profile_update').length;
         const procCount = unifiedItems.filter(i => i.item_type === 'procedure').length;
 
+        const tagAdmCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'tag_admission').length;
+        const stubCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'ghost_link_stub').length;
+        const relCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'tag_relation').length;
+        const procMergeCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'procedure_merge').length;
+        const procSplitCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'procedure_split').length;
+        const splitCount = unifiedItems.filter(i => i.item_type === 'proposal' && i.type === 'split').length;
+
         const mergeBarHtml = selectedExtractionIds.size > 0 ? `
           <div style="display: flex; gap: 12px; align-items: center; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 8px 14px;">
             <span style="font-size: 13px; color: #60a5fa; font-weight: 500;">${selectedExtractionIds.size} extraction${selectedExtractionIds.size > 1 ? 's' : ''} selected</span>
-            <button class="btn btn-sm" style="background: #2563eb; color: #fff; font-size: 12px; padding: 5px 12px;" onclick="queueSelectedExtractionsMerge(this)">🔀 Queue Merge (${selectedExtractionIds.size})</button>
-            <button class="btn btn-sm" style="background: transparent; border: 1px solid var(--border); font-size: 12px; padding: 5px 10px; color: var(--text-dim);" onclick="selectedExtractionIds.clear(); render();">Deselect All</button>
+            <button class="btn btn-sm" style="background: #2563eb; color: #fff; font-size: 12px; padding: 5px 12px;" onclick="queueSelectedExtractionsMerge(this)" title="Queue these extractions to be merged by a background agent into a single comprehensive fact">🔀 Queue Merge (${selectedExtractionIds.size})</button>
+            <button class="btn btn-sm" style="background: transparent; border: 1px solid var(--border); font-size: 12px; padding: 5px 10px; color: var(--text-dim);" onclick="selectedExtractionIds.clear(); render();" title="Deselect all currently highlighted extractions">Deselect All</button>
           </div>
         ` : '';
 
+        const isTypeActive = triageSubtype !== 'all' || triageFilter === 'extraction' || (triageFilter === 'proposal' && triageSubtype === 'all');
         const filterBarHtml = `
           <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
-            <div class="filter-bar" style="margin-bottom: 0;">
-              <button class="filter-pill ${triageFilter === 'all' ? 'active' : ''}" onclick="setTriageFilter('all')">All (${unifiedItems.length})</button>
-              <button class="filter-pill ${triageFilter === 'extraction' ? 'active' : ''}" onclick="setTriageFilter('extraction')">Extractions (${extCount})</button>
-              <button class="filter-pill ${triageFilter === 'proposal' ? 'active' : ''}" onclick="setTriageFilter('proposal')">Proposals (${propCount})</button>
-              <button class="filter-pill ${triageFilter === 'profile_update' ? 'active' : ''}" onclick="setTriageFilter('profile_update')">Profile Updates (${profUpCount})</button>
-              <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')">Procedures (${procCount})</button>
+            <div class="filter-bar" style="margin-bottom: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <button class="filter-pill ${triageFilter === 'all' && triageSubtype === 'all' ? 'active' : ''}" onclick="setTriageFilter('all')" title="Show all pending proposals and extractions">All (${unifiedItems.length})</button>
+              <button class="filter-pill ${triageFilter === 'profile_update' ? 'active' : ''}" onclick="setTriageFilter('profile_update')" title="Filter to facts and observations regarding user identity and preferences">Profile Updates (${profUpCount})</button>
+              <button class="filter-pill ${triageFilter === 'procedure' ? 'active' : ''}" onclick="setTriageFilter('procedure')" title="Filter to operational procedures (new procedures, merges, and splits)">Procedures (${procCount})</button>
+
+              <div style="position: relative; display: inline-flex; align-items: center;">
+                <select id="triage-type-select" onchange="setTriageSubtype(this.value)" title="Filter proposals by specific type (e.g. Term Admissions, Ghost Link Stubs, Procedure Merges)" style="background: var(--surface2); border: 1px solid ${isTypeActive ? 'var(--accent)' : 'var(--border)'}; color: ${isTypeActive ? 'var(--accent)' : 'var(--text)'}; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; outline: none;">
+                  <option value="all" ${triageFilter === 'all' && triageSubtype === 'all' ? 'selected' : ''}>Filter by Type...</option>
+                  <option value="all_proposals" ${triageFilter === 'proposal' && triageSubtype === 'all' ? 'selected' : ''}>All Proposals (${propCount})</option>
+                  <option value="prop:tag_admission" ${triageSubtype === 'tag_admission' ? 'selected' : ''}>🏷️ Term Admissions (${tagAdmCount})</option>
+                  <option value="prop:ghost_link_stub" ${triageSubtype === 'ghost_link_stub' ? 'selected' : ''}>👻 Ghost Link Stubs (${stubCount})</option>
+                  <option value="prop:tag_relation" ${triageSubtype === 'tag_relation' ? 'selected' : ''}>🔗 Term Relations (${relCount})</option>
+                  ${procMergeCount > 0 ? `<option value="prop:procedure_merge" ${triageSubtype === 'procedure_merge' ? 'selected' : ''}>⚡ Procedure Merges (${procMergeCount})</option>` : ''}
+                  ${procSplitCount > 0 ? `<option value="prop:procedure_split" ${triageSubtype === 'procedure_split' ? 'selected' : ''}>⚡ Procedure Splits (${procSplitCount})</option>` : ''}
+                  ${splitCount > 0 ? `<option value="prop:split" ${triageSubtype === 'split' ? 'selected' : ''}>✂️ Fact Splits (${splitCount})</option>` : ''}
+                  <option value="extraction" ${triageFilter === 'extraction' ? 'selected' : ''}>📥 Extractions (${extCount})</option>
+                </select>
+              </div>
             </div>
             ${mergeBarHtml}
             <div style="display: flex; gap: 8px; align-items: center;">
-              <input type="text" id="triage-search-input" value="${escapeHtml(triageSearch)}" placeholder="🔍 Filter triage queue (e.g. journal, -dream, -tag:sleep, tag:routine)..." oninput="handleTriageSearch(this.value)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
-              ${triageSearch ? `<button class="btn btn-sm" onclick="handleTriageSearch('')" style="background: var(--surface); border: 1px solid var(--border); font-size: 12px; padding: 7px 12px; cursor: pointer; color: var(--text-dim);">Clear</button>` : ''}
+              <input type="text" id="triage-search-input" value="${escapeHtml(triageSearch)}" placeholder="🔍 Filter proposals (e.g. journal, type:stub, tag:routine)..." title="Search across all proposals. Supports plain text keywords or advanced filters: type:stub, -type:term, author, tags" oninput="handleTriageSearch(this.value)" style="flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; outline: none;" />
+              ${triageSearch ? `<button class="btn btn-sm" onclick="handleTriageSearch('')" title="Clear current search query" style="background: var(--surface); border: 1px solid var(--border); font-size: 12px; padding: 7px 12px; cursor: pointer; color: var(--text-dim);">Clear</button>` : ''}
             </div>
           </div>
         `;
 
         let filteredItems = unifiedItems;
         if (triageFilter !== 'all') {
-          filteredItems = unifiedItems.filter(i => i.item_type === triageFilter);
+          filteredItems = filteredItems.filter(i => i.item_type === triageFilter);
+        }
+        if (triageFilter === 'proposal' && triageSubtype !== 'all') {
+          filteredItems = filteredItems.filter(i => i.type === triageSubtype);
         }
 
         const queryParsed = parseAdvancedQuery(triageSearch);
@@ -5748,9 +5850,9 @@
         }
 
         if (filteredItems.length === 0) {
-          const filterDesc = triageFilter === 'all' ? '' : ` in ${triageFilter.replace('_', ' ')}`;
+          const filterDesc = triageSubtype !== 'all' ? ` for type "${triageSubtype.replace(/_/g, ' ')}"` : (triageFilter === 'all' ? '' : ` in ${triageFilter.replace('_', ' ')}`);
           const searchDesc = triageSearch ? ` matching "${escapeHtml(triageSearch)}"` : '';
-          container.innerHTML = filterBarHtml + `<div class="empty-state">No triage items found${filterDesc}${searchDesc}.</div>`;
+          container.innerHTML = filterBarHtml + `<div class="empty-state">No items found${filterDesc}${searchDesc}.</div>`;
           return;
         }
 

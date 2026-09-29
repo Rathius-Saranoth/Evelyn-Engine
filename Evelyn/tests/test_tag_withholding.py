@@ -35,6 +35,8 @@ def registry(monkeypatch: pytest.MonkeyPatch) -> None:
         taxonomy_db.upsert_master_tag(term, category="domestic-life")
     taxonomy_db.invalidate_alias_cache()
     monkeypatch.setattr(tag_librarian, "index_master_tag_in_chroma", lambda *a, **k: None)
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 1)
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", False)
 
 
 def _entry() -> int:

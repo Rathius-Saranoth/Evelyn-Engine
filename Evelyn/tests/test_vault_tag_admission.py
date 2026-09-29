@@ -30,6 +30,8 @@ from Evelyn.tools import memory_db, tag_librarian, taxonomy_db
 def vocabulary(monkeypatch: pytest.MonkeyPatch) -> None:
     taxonomy_db.upsert_master_tag("floodplain", category="nature-science")
     monkeypatch.setattr(tag_librarian, "index_master_tag_in_chroma", lambda *a, **k: None)
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 1)
+    monkeypatch.setattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", False)
 
 
 def _pending() -> set[str]:
@@ -124,3 +126,80 @@ class TestTheAuditProposesWhatItCannotMatch:
         proposals = memory_db.get_pending_proposals(tag_librarian.TAG_ADMISSION_PROPOSAL)
         # `origin` is stored in merged_observation, which is the field the review card shows.
         assert proposals[0]["merged_observation"] == "vault note (Reference/note.md)"
+
+    def test_unregistered_term_deferred_when_under_quorum(
+        self, vocabulary: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """With quorum requirement >= 2, single-source candidate is deferred."""
+        monkeypatch.setattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 2)
+        monkeypatch.setattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", False)
+
+        note = tmp_path / "Reference/note.md"
+        note.parent.mkdir(parents=True, exist_ok=True)
+        note.write_text("---\ntags: [floodplain]\n---\n\nBody.\n", encoding="utf-8")
+        monkeypatch.setattr(
+            tag_librarian, "audit_document_tags",
+            lambda **kw: (False, "", {"final_tags": ["floodplain"], "previous_tags": ["floodplain"],
+                                      "proposals": ["rare-solitary-term"]}),
+        )
+
+        tag_librarian.audit_single_document_semantic(
+            doc_path="Reference/note.md", vault_root=str(tmp_path)
+        )
+
+        assert _pending() == set()
+        deferred = {
+            (p.get("topic") or "").strip()
+            for p in memory_db.get_proposals_by_status(
+                tag_librarian.TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS
+            )
+        }
+        assert "rare-solitary-term" in deferred
+
+    def test_high_confidence_term_auto_admitted_when_quorum_met(
+        self, vocabulary: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """A well-formed term with >= 2 sources is auto-admitted without manual review."""
+        monkeypatch.setattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 2)
+        monkeypatch.setattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", True)
+
+        note_a = tmp_path / "Reference/note_a.md"
+        note_b = tmp_path / "Reference/note_b.md"
+        note_a.parent.mkdir(parents=True, exist_ok=True)
+        note_a.write_text("---\ntags: []\n---\n\nBody.\n", encoding="utf-8")
+        note_b.write_text("---\ntags: []\n---\n\nBody.\n", encoding="utf-8")
+
+        # Propose from note_a (deferred)
+        tag_librarian.propose_tag_admission(["river-hydrology"], origin="note_a", source_path="Reference/note_a.md")
+        assert _pending() == set()
+        admitted, _ = taxonomy_db.partition_by_admission(["river-hydrology"])
+        assert "river-hydrology" not in admitted
+
+        # Second source arrives from note_b: quorum met, high confidence -> auto-admit
+        tag_librarian.propose_tag_admission(["river-hydrology"], origin="note_b", source_path="Reference/note_b.md")
+        assert _pending() == set()
+        admitted, _ = taxonomy_db.partition_by_admission(["river-hydrology"])
+        assert "river-hydrology" in admitted
+
+    def test_stub_note_skipped_from_audit(
+        self, vocabulary: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Notes in Stubs/ or with type: stub are ignored during semantic tag audit."""
+        stub = tmp_path / "Stubs/ghost.md"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text("---\ntype: stub\ntags: []\n---\n\nStub note.\n", encoding="utf-8")
+
+        audited = False
+        def fake_audit(**kw):
+            nonlocal audited
+            audited = True
+            return (False, "", {"final_tags": [], "previous_tags": [], "proposals": []})
+
+        monkeypatch.setattr(tag_librarian, "audit_document_tags", fake_audit)
+
+        res = tag_librarian.audit_single_document_semantic(
+            doc_path="Stubs/ghost.md", vault_root=str(tmp_path)
+        )
+        assert not audited
+        assert res.get("status") == "skipped"
+

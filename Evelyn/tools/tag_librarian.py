@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-27 12:46:42
+# date modified: 2026-09-28 18:48:52
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -102,18 +102,31 @@ def is_excluded_document(path: str) -> bool:
         path: Relative or absolute path to evaluate.
 
     Returns:
-        bool: True if the document path is configured in TAG_LIBRARIAN_EXCLUDED_DOCUMENTS.
+        bool: True if the document path is configured in TAG_LIBRARIAN_EXCLUDED_DOCUMENTS
+            or matches TAG_LIBRARIAN_EXCLUDED_PREFIXES (including Stubs/ and Templates/).
     """
     clean_path = path.replace("\\", "/").strip()
-    # Exclude non-note folders and hidden files
-    for prefix in ("Templates/", "templates/", "Attachments/", "attachments/", "Bases/", "bases/", "."):
-        if clean_path.startswith(prefix) or f"/{prefix}" in clean_path:
+    lowered = clean_path.lower()
+    # Exclude non-note folders, stubs, and hidden files
+    for prefix in (
+        "Templates/", "templates/",
+        "Attachments/", "attachments/",
+        "Bases/", "bases/",
+        "Stubs/", "stubs/",
+        ".",
+    ):
+        if clean_path.startswith(prefix) or f"/{prefix}" in clean_path or lowered.startswith(prefix.lower()):
+            return True
+
+    for prefix in getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_PREFIXES", []):
+        p_clean = prefix.replace("\\", "/").strip().lower()
+        if p_clean and (lowered.startswith(p_clean) or f"/{p_clean}" in lowered):
             return True
 
     excluded_paths = getattr(cfg, "TAG_LIBRARIAN_EXCLUDED_DOCUMENTS", [])
     for ex in excluded_paths:
-        clean_ex = ex.replace("\\", "/").strip()
-        if clean_path == clean_ex or clean_path.endswith("/" + clean_ex):
+        clean_ex = ex.replace("\\", "/").strip().lower()
+        if lowered == clean_ex or lowered.endswith("/" + clean_ex):
             return True
     return False
 
@@ -1439,6 +1452,15 @@ def audit_single_document_semantic(
             vault_db.update_document_semantic_tag_audit(doc_path)
         return {"status": "error", "path": doc_path, "message": f"Read error: {e}"}
 
+    # Stubs have type: [stub] and are explicitly excluded from subject tagging (taxonomy §3)
+    from Evelyn.tools.link_librarian import _is_stub_note
+
+    fm, _ = parse_frontmatter(content)
+    if _is_stub_note(fm, doc_path):
+        if not dry_run:
+            vault_db.update_document_semantic_tag_audit(doc_path)
+        return {"status": "skipped", "path": doc_path, "message": "Stub note is excluded from semantic tag auditing (taxonomy §3)."}
+
     changed, new_content, details = audit_document_tags(
         content=content,
         path=doc_path,
@@ -1816,24 +1838,76 @@ def withhold_unregistered_tags(
     return kept
 
 
-def release_deferred_admissions() -> int:
-    """Move deferred tag admissions back into the review queue, as far as the cap allows.
+def evaluate_tag_confidence(term: str) -> str:
+    """Evaluate confidence level ('high', 'medium', 'low') for tag admission.
 
-    Deferral is only half a mechanism: something has to put the backlog back. This runs on
-    the tag librarian's schedule rather than inside `propose_tag_admission`, because that
-    function returns early whenever a pass finds nothing unregistered — which is the normal
-    case — so hanging the release off it would drain the backlog only when a *new* term
-    happened to arrive. The backlog's release must depend on the queue having room, and on
-    nothing else.
+    A term qualifies for 'high' confidence when:
+      - It satisfies is_wellformed_term(term) (flat, lowercase alphanumeric/hyphen, zero-slash).
+      - It is a generic subject concept (is_subject_term(term) is True, not a facet prefix).
+      - It is not an umbrella/container term (is_umbrella_term(term) is False).
+      - It is not in the entity/names register.
+      - It is purely alphabetic (no numbers/hex codes/version numbers).
+      - Length is between 3 and 25 characters.
+      - Its nearest registered term distance >= TAG_SUBJECT_ACCEPT_DISTANCE (0.10).
+        (If distance < 0.10, it is an ambiguous duplicate/collision with an existing term -> 'medium').
 
     Returns:
-        int: How many proposals were promoted.
+        str: 'high', 'medium', or 'low'.
+    """
+    clean = normalize_tag_format(term)
+    if not clean or not is_wellformed_term(clean) or not is_subject_term(clean):
+        return "low"
+    if is_umbrella_term(clean) or is_excluded_tag(clean):
+        return "low"
+    if len(clean) < 3 or len(clean) > 25:
+        return "low"
+    if any(ch.isdigit() for ch in clean):
+        return "low"
+
+    # Check name register
+    with contextlib.suppress(ImportError, sqlite3.Error, OSError):
+        from Evelyn.tools import tag_entities
+        if clean in tag_entities.entity_terms():
+            return "low"
+
+    _match, dist, _ = nearest_registered_term(clean)
+    if dist < getattr(cfg, "TAG_SUBJECT_ACCEPT_DISTANCE", 0.10):
+        return "medium"
+
+    # For distant terms (dist >= 0.30), verify with Ollama if available that it isn't an obscure proper name
+    if dist >= getattr(cfg, "TAG_SUBJECT_REJECT_DISTANCE", 0.30):
+        with contextlib.suppress(Exception):
+            system = (
+                "Decide whether the given lowercase term is a standard, generic English dictionary subject concept "
+                "(e.g. 'office', 'humidity', 'script', 'temperature') VS a proper noun, fictional/game entity, brand, or esoteric term "
+                "(e.g. 'gallente', 'tardis', 'archon').\n"
+                'Output ONLY valid JSON: {"is_generic_concept": true} or {"is_generic_concept": false}.'
+            )
+            raw = _canonical_query_ollama(
+                prompt=f"Term: {clean}",
+                system=system,
+                options={"temperature": 0.0, "num_predict": 32},
+                timeout=15,
+                think=False,
+            )
+            if raw and '"is_generic_concept": false' in raw.lower():
+                return "low"
+
+    return "high" if bool(re.match(r"^[a-z]+(-[a-z]+)*$", clean)) else "medium"
+
+
+def release_deferred_admissions() -> int:
+    """Move deferred tag admissions back into the review queue or auto-admit them.
+
+    Only releases or auto-admits deferred terms that meet the quorum threshold
+    (TAG_ADMISSION_MIN_SOURCES >= 2). Terms with single-occurrence noise stay deferred.
+
+    Returns:
+        int: How many proposals were promoted or auto-applied.
     """
     from Evelyn.tools import memory_db
 
     try:
-        # Backlog first: it is empty in the ordinary case, and then this costs one indexed
-        # read and nothing else.
         backlog = memory_db.get_proposals_by_status(
             TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS
         )
@@ -1845,28 +1919,36 @@ def release_deferred_admissions() -> int:
         return 0
 
     room = TAG_ADMISSION_MAX_PENDING - pending
-    if room <= 0:
-        logger.info(
-            "[TAG LIBRARIAN] %d term(s) deferred, queue still full at %d; nothing released.",
-            len(backlog), pending,
-        )
-        return 0
+    min_sources = getattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 2)
+    auto_admit = getattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", True)
 
-    try:
-        promoted = memory_db.promote_deferred_proposals(TAG_ADMISSION_PROPOSAL, room)
-    except (sqlite3.Error, OSError) as exc:
-        logger.warning("[TAG LIBRARIAN] Could not release deferred admissions: %s", exc)
-        return 0
+    promoted_count = 0
+    for prop in backlog:
+        src_ids = prop.get("source_ids") or []
+        src_path_str = (prop.get("source_path") or "").strip()
+        paths = [p.strip() for p in src_path_str.split(",") if p.strip()]
+        distinct_sources = len(src_ids) + len(paths)
+        if not distinct_sources:
+            distinct_sources = 1
+        if distinct_sources < min_sources:
+            continue
 
-    if promoted:
-        # Both reads are oldest-first, so these are the rows that moved. Naming them matters:
-        # otherwise terms appear in the reviewer's queue with no record of where from.
-        released = [str(p.get("topic") or "") for p in backlog[:promoted]]
-        logger.info(
-            "[TAG LIBRARIAN] Released %d of %d deferred tag admission(s) into the queue: %s",
-            promoted, len(backlog), ", ".join(released),
-        )
-    return promoted
+        term = prop.get("topic") or ""
+        conf = evaluate_tag_confidence(term)
+        if conf == "high" and auto_admit:
+            admit_proposed_term(term)
+            backfill_admitted_term(term, src_ids)
+            for p in paths:
+                backfill_admitted_term_to_note(term, p)
+            memory_db.update_proposal(prop["id"], status="auto_applied", confidence="high")
+            logger.info("[TAG LIBRARIAN] Auto-admitted deferred high-confidence term '%s'.", term)
+            promoted_count += 1
+        elif room > 0:
+            memory_db.update_proposal(prop["id"], status="pending", confidence=conf)
+            promoted_count += 1
+            room -= 1
+
+    return promoted_count
 
 
 def propose_tag_admission(
@@ -1877,29 +1959,21 @@ def propose_tag_admission(
 
     This is the quarantine route for an unregistered term: rather than a writer silently
     minting vocabulary, or the term being dropped with no record of what wanted it, the
-    term goes to the same review queue that already carries merges and stubs (taxonomy §6).
+    term goes to the review queue or is auto-admitted if high-confidence quorum is met.
 
-    Proposing does **not** admit the term and does not decide whether the caller stores it.
-    Approval registers it, unprotected: it entered by inference rather than from the reviewed
-    vocabulary, so it is eligible for a retirement proposal once it has gone unused past the
-    grace period, which a curated term never is.
-
-    Already-pending terms are skipped, so a term requested by fifty facts yields one
-    proposal, and the queue is capped so a misbehaving writer cannot bury the review UI.
+    Already-pending terms are widened with incoming sources, terms meeting quorum
+    (TAG_ADMISSION_MIN_SOURCES) are evaluated for confidence, and high-confidence
+    terms are auto-admitted into the vocabulary without operator burden.
 
     Args:
         terms: Candidate terms, already in canonical §5 format.
         origin: Where the term came from (a vault path, a fact id, a subsystem name).
         reason: Why it was requested, shown to the reviewer.
-        source_ids: Memory entries that wanted the term. Recorded so approval can put the term
-            back onto them; without the trail an approved term has no way to reach the facts
-            that asked for it, which is what makes withholding unregistered tags possible.
-        source_path: The vault note that wanted it, for the same reason. `source_ids` holds
-            memory entry ids and cannot name a document, so a vault-sourced proposal used to
-            approve into a vocabulary and reach nothing (G5).
+        source_ids: Memory entries that wanted the term.
+        source_path: The vault note that wanted it.
 
     Returns:
-        list[str]: Terms newly proposed by this call.
+        list[str]: Terms newly proposed or auto-admitted by this call.
     """
     from Evelyn.tools import memory_db
 
@@ -1915,23 +1989,20 @@ def propose_tag_admission(
 
     try:
         pending = memory_db.get_pending_proposals(TAG_ADMISSION_PROPOSAL)
+        deferred_props = memory_db.get_proposals_by_status(TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS)
     except (sqlite3.Error, OSError) as exc:
-        logger.warning("[TAG LIBRARIAN] Could not read pending tag proposals: %s", exc)
+        logger.warning("[TAG LIBRARIAN] Could not read tag proposals: %s", exc)
         return []
 
-    by_topic = {(p.get("topic") or "").strip(): p for p in pending}
-    already = set(by_topic)
+    active_by_topic = {
+        (p.get("topic") or "").strip(): p
+        for p in (*pending, *deferred_props)
+        if (p.get("topic") or "").strip()
+    }
 
-    # A rejection is permanent (G1). Re-proposing a term the reviewer has already turned down
-    # offers them nothing but the chance to reject it a second time, which is what made the
-    # queue feel like busywork — `support` was rejected and back inside a day. Each further
-    # request counts against the rejected row instead, so a term the corpus keeps asking for
-    # arrives at review with the number that argues for admitting it.
     try:
         rejected = memory_db.get_rejected_topics(TAG_ADMISSION_PROPOSAL)
     except (sqlite3.Error, OSError) as exc:
-        # Cannot prove anything was rejected, so suppress nothing: a term that slips through is
-        # one more review, a term wrongly suppressed is invisible.
         logger.warning("[TAG LIBRARIAN] Could not read rejected tag proposals: %s", exc)
         rejected = {}
 
@@ -1948,19 +2019,12 @@ def propose_tag_admission(
     if not unregistered:
         return []
 
-    # A term registered as a name is decided, not pending. Re-proposing it as a subject asks
-    # the reviewer the one question they have already answered, and it is the question with
-    # no good answer — admitting puts a shop into a vocabulary of subjects, rejecting spends
-    # the word. Each further request is counted instead: a name the corpus keeps nominating
-    # is either one it keeps mentioning, which is expected, or a word that also has a subject
-    # sense the vocabulary is missing, and only the number tells those apart.
     tag_entities_mod = None
     try:
         from Evelyn.tools import tag_entities as tag_entities_mod
 
         names = tag_entities_mod.entity_terms()
     except (ImportError, sqlite3.Error, OSError) as exc:
-        # Cannot prove anything is a name, so suppress nothing.
         logger.warning("[TAG LIBRARIAN] Could not read the name register: %s", exc)
         names = set()
 
@@ -1977,67 +2041,157 @@ def propose_tag_admission(
     if not unregistered:
         return []
 
-    # A term a second fact also wants must widen the existing proposal rather than be dropped,
-    # or approval backfills only whichever fact happened to ask first.
-    for term in dict.fromkeys(unregistered) if source_ids else ():
-        prop = by_topic.get(term)
-        if not prop:
-            continue
-        merged = list(dict.fromkeys([*(prop.get("source_ids") or []), *(source_ids or [])]))
-        if merged != (prop.get("source_ids") or []):
-            try:
-                memory_db.update_proposal(prop["id"], source_ids=merged)
-            except (sqlite3.Error, OSError) as exc:
-                logger.warning("[TAG LIBRARIAN] Could not widen proposal for '%s': %s", term, exc)
-
+    min_sources = getattr(cfg, "TAG_ADMISSION_MIN_SOURCES", 2)
+    auto_admit = getattr(cfg, "TAG_ADMISSION_AUTO_ADMIT", True)
     room = TAG_ADMISSION_MAX_PENDING - len(pending)
 
     proposed: list[str] = []
     deferred: list[str] = []
+
     for term in dict.fromkeys(unregistered):
-        if term in already:
-            continue
-        # Past the cap the row is still written, as `deferred`. The cap exists to keep the
-        # queue reviewable, not to stop recording what the corpus asked for — and the two
-        # were the same thing while a full queue wrote nothing, because withholding needs a
-        # row to prove the term is recoverable. With none, the tag stayed on the entry and
-        # the gate switched itself off exactly when the vocabulary was under most pressure.
-        status = "pending" if len(proposed) < room else memory_db.DEFERRED_STATUS
-        # Only a facet-prefixed term states its own axis. A flat term's category is a
-        # curatorial judgement the reviewer makes, so it is left empty rather than filled
-        # with a placeholder that would enter the registry as if it meant something.
         facet = term.split("/")[0] if "/" in term else ""
-        try:
-            memory_db.insert_proposal(
-                type=TAG_ADMISSION_PROPOSAL,
-                source_ids=list(source_ids or []),
-                topic=term,
-                suggested_category=facet,
-                reason=reason or f"Requested by {origin or 'an unnamed writer'}; not in the controlled vocabulary.",
-                merged_observation=origin,
-                confidence="low",
-                status=status,
-                source_path=source_path or None,
-            )
-        except (sqlite3.Error, OSError) as exc:
-            # The one case where the tag must stay on the entry: no row exists, so nothing
-            # records that the term was ever wanted and withholding it would be deletion.
-            logger.warning("[TAG LIBRARIAN] Could not propose '%s': %s", term, exc)
+
+        if term in active_by_topic:
+            prop = active_by_topic[term]
+            existing_ids: list[int] = [int(x) for x in (prop.get("source_ids") or []) if x is not None]
+            seen_ids: set[int] = set()
+            merged_ids: list[int] = []
+            for item_id in [*existing_ids, *(source_ids or [])]:
+                i_val = int(item_id)
+                if i_val not in seen_ids:
+                    seen_ids.add(i_val)
+                    merged_ids.append(i_val)
+            existing_path = (prop.get("source_path") or "").strip()
+            paths = {p.strip() for p in existing_path.split(",") if p.strip()}
+            if source_path:
+                paths.update(p.strip() for p in source_path.split(",") if p.strip())
+            target_path = ", ".join(sorted(paths))
+            distinct_sources = len(merged_ids) + len(paths)
+            if not distinct_sources:
+                distinct_sources = 1
+
+            if distinct_sources >= min_sources:
+                conf = evaluate_tag_confidence(term)
+                if conf == "high" and auto_admit:
+                    admit_proposed_term(term)
+                    backfill_admitted_term(term, merged_ids)
+                    for p in paths:
+                        backfill_admitted_term_to_note(term, p)
+                    with contextlib.suppress(sqlite3.Error, OSError):
+                        memory_db.update_proposal(
+                            prop["id"], status="auto_applied", confidence="high",
+                            source_ids=merged_ids, source_path=target_path or None,
+                        )
+                    logger.info("[TAG LIBRARIAN] Auto-admitted high-confidence term '%s' (%d sources).", term, distinct_sources)
+                    proposed.append(term)
+                elif prop.get("status") == memory_db.DEFERRED_STATUS and room > 0:
+                    with contextlib.suppress(sqlite3.Error, OSError):
+                        memory_db.update_proposal(
+                            prop["id"], status="pending", confidence=conf,
+                            source_ids=merged_ids, source_path=target_path or None,
+                        )
+                    proposed.append(term)
+                    room -= 1
+                else:
+                    with contextlib.suppress(sqlite3.Error, OSError):
+                        memory_db.update_proposal(
+                            prop["id"], confidence=conf,
+                            source_ids=merged_ids, source_path=target_path or None,
+                        )
+            else:
+                if merged_ids != existing_ids or (target_path and not existing_path):
+                    with contextlib.suppress(sqlite3.Error, OSError):
+                        memory_db.update_proposal(
+                            prop["id"], source_ids=merged_ids, source_path=target_path or None,
+                        )
             continue
-        (proposed if status == "pending" else deferred).append(term)
+
+        # New term: evaluate initial distinct sources
+        initial_ids = list(source_ids or [])
+        paths = {p.strip() for p in (source_path or "").split(",") if p.strip()}
+        target_path = ", ".join(sorted(paths))
+        distinct_sources = len(initial_ids) + len(paths)
+        if not distinct_sources:
+            distinct_sources = 1
+
+        if distinct_sources >= min_sources:
+            conf = evaluate_tag_confidence(term)
+            if conf == "high" and auto_admit:
+                admit_proposed_term(term)
+                backfill_admitted_term(term, initial_ids)
+                for p in paths:
+                    backfill_admitted_term_to_note(term, p)
+                try:
+                    memory_db.insert_proposal(
+                        type=TAG_ADMISSION_PROPOSAL,
+                        source_ids=initial_ids,
+                        topic=term,
+                        suggested_category=facet,
+                        reason=reason or f"Requested by {origin or 'an unnamed writer'}; auto-admitted (high confidence, {distinct_sources} sources).",
+                        merged_observation=origin,
+                        confidence="high",
+                        status="auto_applied",
+                        source_path=target_path or None,
+                    )
+                except (sqlite3.Error, OSError) as exc:
+                    logger.warning("[TAG LIBRARIAN] Could not auto-apply proposal for '%s': %s", term, exc)
+                    continue
+                logger.info("[TAG LIBRARIAN] Auto-admitted high-confidence term '%s' (%d sources).", term, distinct_sources)
+                proposed.append(term)
+            else:
+                status = "pending" if room > 0 else memory_db.DEFERRED_STATUS
+                try:
+                    memory_db.insert_proposal(
+                        type=TAG_ADMISSION_PROPOSAL,
+                        source_ids=initial_ids,
+                        topic=term,
+                        suggested_category=facet,
+                        reason=reason or f"Requested by {origin or 'an unnamed writer'}; not in the controlled vocabulary.",
+                        merged_observation=origin,
+                        confidence=conf,
+                        status=status,
+                        source_path=target_path or None,
+                    )
+                except (sqlite3.Error, OSError) as exc:
+                    logger.warning("[TAG LIBRARIAN] Could not propose '%s': %s", term, exc)
+                    continue
+                if status == "pending":
+                    proposed.append(term)
+                    room -= 1
+                else:
+                    deferred.append(term)
+        else:
+            # Single-source candidate is recorded as deferred until quorum is met
+            status = memory_db.DEFERRED_STATUS
+            try:
+                memory_db.insert_proposal(
+                    type=TAG_ADMISSION_PROPOSAL,
+                    source_ids=initial_ids,
+                    topic=term,
+                    suggested_category=facet,
+                    reason=reason or f"Requested by {origin or 'an unnamed writer'}; deferred pending corroboration.",
+                    merged_observation=origin,
+                    confidence="low",
+                    status=status,
+                    source_path=target_path or None,
+                )
+            except (sqlite3.Error, OSError) as exc:
+                logger.warning("[TAG LIBRARIAN] Could not defer proposal for '%s': %s", term, exc)
+                continue
+            deferred.append(term)
 
     if deferred:
         backlog = 0
         with contextlib.suppress(sqlite3.Error, OSError):
             backlog = memory_db.count_proposals(TAG_ADMISSION_PROPOSAL, memory_db.DEFERRED_STATUS)
-        logger.warning(
-            "[TAG LIBRARIAN] Queue at capacity (%d); deferred %d term(s), backlog now %d: %s",
-            TAG_ADMISSION_MAX_PENDING, len(deferred), backlog, ", ".join(deferred),
+        logger.info(
+            "[TAG LIBRARIAN] Deferred %d term(s) (backlog: %d): %s",
+            len(deferred), backlog, ", ".join(deferred),
         )
 
     if proposed:
         logger.info(
-            "[TAG LIBRARIAN] Proposed %d term(s) for admission from %s: %s",
+            "[TAG LIBRARIAN] Proposed/admitted %d term(s) from %s: %s",
             len(proposed), origin or "unknown origin", ", ".join(proposed),
         )
     # Only the queued terms are "proposed". A deferred term is recorded, and covered for

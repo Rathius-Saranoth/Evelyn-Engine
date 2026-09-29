@@ -237,10 +237,82 @@ def test_ghost_link_stub_proposal_lifecycle():
         assert "## 🔗 References" in note_text
 
         # 6. Verify vault_db document record
+        # 6. Verify vault_db document record
         doc = vault_db.get_document("Stubs/hardware/Test Ghost Tool.md")
         assert doc is not None
         assert doc["title"] == "Test Ghost Tool"
         assert "type: [stub]" in note_text
+
+    finally:
+        if orig_vault_dir is not None:
+            cfg.VAULT_BASE_DIR = orig_vault_dir
+        if orig_vault_db_cfg is not None:
+            cfg.VAULT_DB_PATH = orig_vault_db_cfg
+        vault_db.DB_PATH = orig_vault_db_path
+        temp_vault_dir.cleanup()
+
+
+def test_ghost_link_stub_direct_field_approval():
+    """Verify that ghost_link_stub proposal can be approved with direct UI field overrides."""
+    from Evelyn.tools import link_librarian, vault_db
+
+    temp_vault_dir = tempfile.TemporaryDirectory()
+    temp_vdb_file = os.path.join(temp_vault_dir.name, "test_vault.db")
+
+    orig_vault_dir = getattr(cfg, "VAULT_BASE_DIR", None)
+    orig_vault_db_cfg = getattr(cfg, "VAULT_DB_PATH", None)
+    orig_vault_db_path = vault_db.DB_PATH
+
+    cfg.VAULT_BASE_DIR = temp_vault_dir.name
+    cfg.VAULT_DB_PATH = temp_vdb_file
+    vault_db.DB_PATH = temp_vdb_file
+    vault_db.init_db()
+
+    try:
+        payload = link_librarian.StubPayload(
+            target_name="Old Target",
+            source_path="Hardware/Toolhead.md",
+            context_excerpt="Old excerpt",
+            domain="hardware",
+            tags=["stub"],
+            min_refs=2,
+            ref_count=1,
+        )
+        xml_payload = link_librarian.render_stub_xml(payload)
+
+        prop_id = memory_db.insert_proposal(
+            type="ghost_link_stub",
+            source_ids=[],
+            topic="Old Target",
+            suggested_category="Hardware/Toolhead.md",
+            reason="Test",
+            merged_observation=xml_payload,
+            confidence="medium",
+        )
+
+        client = TestClient(app)
+        headers = {"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {}
+
+        # Approve with direct field overrides from UI
+        res_approve = client.post(
+            f"/api/review/proposals/{prop_id}/approve",
+            json={
+                "target_name": "Custom Toolhead",
+                "abstract": "A custom synthesized abstract for this toolhead.",
+                "domain": "tooling",
+                "tags": "hardware, custom",
+            },
+            headers=headers,
+        )
+        assert res_approve.status_code == 200
+
+        # Verify created file under Stubs/tooling/Custom Toolhead.md
+        created_file = os.path.join(temp_vault_dir.name, "Stubs", "tooling", "Custom Toolhead.md")
+        assert os.path.exists(created_file)
+        note_text = Path(created_file).read_text(encoding="utf-8")
+        assert "title: Custom Toolhead" in note_text
+        assert "A custom synthesized abstract for this toolhead." in note_text
+        assert "tags: [hardware, custom]" in note_text
 
     finally:
         if orig_vault_dir is not None:
@@ -400,8 +472,8 @@ def test_ghost_link_stub_multi_reference_approval():
         assert "> [!ABSTRACT]" in note_text
         assert "> Prince Caladorn is a renowned military commander and diplomatic advisor to the Queen." in note_text
         assert "## 🧭 Context & Mentions" in note_text
-        assert "- **[[Chronicles]]**: \"Prince Caladorn led the defense" in note_text
-        assert "- **[[Queen_Elora]]**: \"She consulted with Prince Caladorn" in note_text
+        assert "- **[[Chronicles]]**: \"… Prince Caladorn led the defense" in note_text
+        assert "- **[[Queen_Elora]]**: \"… She consulted with Prince Caladorn" in note_text
         assert "## 🔗 References" in note_text
         assert "- [[Chronicles]]" in note_text
         assert "- [[Queen_Elora]]" in note_text

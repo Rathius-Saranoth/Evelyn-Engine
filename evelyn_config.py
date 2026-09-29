@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-27 08:53:24
+# date modified: 2026-09-28 18:48:52
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -1179,6 +1179,7 @@ VAULT_STRUCTURAL_IGNORE = [
     "Templates/",
     "Attachments/",
     "Bases/",
+    "Stubs/",
     ".",
     # The assistant's own profile and context documents. These are *aspect* notes about the
     # two people — "Core Identity", "Emotional States & Responses" — so a pass that reads
@@ -1241,6 +1242,8 @@ TAG_SUBJECT_ACCEPT_DISTANCE = 0.10
 TAG_SUBJECT_REJECT_DISTANCE = 0.30
 TAG_SUBJECT_MARGIN_GUARD = 0.02
 TAG_SUBJECT_FUZZY_CUTOFF = 92
+TAG_ADMISSION_MIN_SOURCES = 2  # Minimum distinct sources (notes/facts) citing an unregistered term before it qualifies for review or admission
+TAG_ADMISSION_AUTO_ADMIT = True  # Automatically admit high-confidence terms that meet min_sources without human review
 
 # =============================================================================
 # Master Librarian Configuration (Unified Vault Health & Governance)

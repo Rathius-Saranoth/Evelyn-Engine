@@ -24,6 +24,7 @@ _.list_unindexed_media
 _.increment_entry_observed
 _.count_entries
 _.count_entries_by_category
+_.promote_deferred_proposals
 
 # Google API client helpers & Oura client
 _.get_tasks_service

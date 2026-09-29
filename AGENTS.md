@@ -1,7 +1,7 @@
 ---
 title: AGENTS.md
 date created: 2026-08-22 15:53:58
-date modified: 2026-09-27 17:35:04
+date modified: 2026-09-28 19:15:06
 tags: [agent-rules, guidelines, operations, protocol, evelyn]
 ---
 # Evelyn Workspace Agent Rules
@@ -115,5 +115,11 @@ tags: [agent-rules, guidelines, operations, protocol, evelyn]
   2. *Canonical Public Primitive*: An intentional public library method, dataclass telemetry field, or canonical parser/builder utility (e.g. in `string_utils.py`, `path_utils.py`). -> Register in `.vulture_whitelist.py`.
   3. *Unwired Feature ("Oops Forgot to Wire It Up")*: An authored routine that was intended to be invoked by downstream engine consumers. -> Wire up the caller in the engine.
   4. *Genuinely Superseded / Dead Code*: An abandoned helper, superseded duplicate facade, or legacy routine replaced by newer subsystems. -> Safely prune after verifying replacement.
+
+## 12. Web UI Usability, Information Architecture & Tooltip Standards
+- **Rulebook Location**: All frontend interfaces, dashboard views, curation workstations, and interactive controls across `evelyn_ui/` must adhere to the **UI Usability & Tooltip Standards** defined in `.agents/rules/ui-standards.md`.
+- **New-User Friendly Tooltip Mandate ("UI Docstrings")**: Just as backend Python functions require docstrings explaining parameters and side effects, every form input, editable field, action button, filter control, and metric badge must carry a beginner-friendly `title="..."` hover tooltip explaining what the element controls, what format is expected, and what action or persistence occurs.
+- **In-Place Usability Over Raw Payloads**: Interfaces must prioritize direct, structured inputs and live previews over raw serialized XML or JSON blocks. Technical details remain accessible via progressive disclosure (collapsible sections or tooltips).
+
 
 

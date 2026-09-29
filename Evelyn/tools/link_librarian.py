@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-27 21:28:55
+# date modified: 2026-09-28 18:48:52
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -534,6 +534,10 @@ def render_stub_markdown(payload: StubPayload, now_str: str | None = None) -> st
             s_stem = os.path.splitext(os.path.basename(r.get("source", "")))[0]
             ctx = r.get("context", "").strip()
             if ctx:
+                if not ctx.startswith(("…", "...")):
+                    ctx = f"… {ctx}"
+                if not ctx.endswith(("…", "...")):
+                    ctx = f"{ctx} …"
                 m_lines.append(f"- **[[{s_stem}]]**: \"{ctx}\"")
         if len(m_lines) > 1:
             mentions_section = "\n".join(m_lines) + "\n\n"
