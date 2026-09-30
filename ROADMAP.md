@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-30 18:41:33
+date modified: 2026-09-30 18:56:22
 ---
 # Evelyn Project Roadmap
 
@@ -103,11 +103,12 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Dual-Collection Vector Architecture**: Split ambient conversational RAG (`evelyn_memory`) from external reference documents into a dedicated collection (`evelyn_reference`) with an active semantic search tool (`search_reference_library`).
 - [x] **Deployment & Mesh Infrastructure Documentation**: Published comprehensive WSL2 and bare-metal deployment guide in `SETUP_GUIDE.md` covering Tailscale P2P mesh networking, port isolation, user lingering, and Syncthing synchronization.
 - [x] **Agentic Infrastructure & Retrieval Optimization**: Tri-vector agentic engine optimization across retrieval pathing (linear pre-hydration for 0-arg reads, phatic RAG gating), information density (contiguous chunk fusion, semantic consolidation pre-filtering, research chunk relevance gating), and strategic routing (dynamic tool schema pruning).
+- [x] **Prompt Intent & Domain Routing**: Integrated prompt domain heuristics and controlled taxonomy classification, dynamically surfacing specialist tools and resolving subject equivalence aliases on inbound queries.
+- [x] **Stub Evidence Independence & Review Architecture**: Enforced caller witness isolation preventing stubs from self-citing or inflating citation counts, implemented partial wikilink boundary trimming, and deployed in-place structured editing on DevUI proposal cards.
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, manage protected profile sections, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
-- [ ] **Prompt Taxonomy & Domain Classifier**: Semantic labeling and domain categorization for inbound user messages to enable granular conversational analytics.
 - [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
-- [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
+- [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt and fact taxonomy domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **FastAPI APIRouter Server Modularization (`evelyn_server.py`)**: Decompose monolithic 7,000-line server into domain-focused APIRouter modules (`routes/chat.py`, `routes/review.py`, `routes/terminal.py`, `routes/telemetry.py`) with shared auth and lifespan dependencies.
 - [ ] **CLI & Operational Scripts Modularization (`scripts/`)**: Reorganize flat 23+ operational scripts directory into domain subfolders (`scripts/services/`, `scripts/setup/`, `scripts/maintenance/`, `scripts/ingestion/`) with unified CLI entrypoints and updated systemd service/workflow references.
@@ -116,8 +117,6 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Canonical Systemd Service Repository & Root Cleanliness (`systemd/`)**: Consolidate all systemd unit templates (`evelyn.service`, `evelyn-tts.service`, `evelyn-vault-watcher.service`, `syncthing.service`) into `systemd/` and relocate root TLS certificates into a dedicated `certs/` directory.
 - [ ] **Local Independence & Cloud Decoupling**: Build self-hosted CalDAV / local `.ics` calendar adapter, peer-to-peer Syncthing Health Connect ingestion (bypassing Google Drive), and optional self-hosted SearXNG search gateway.
 - [ ] **Pinned System Action Cards (Unified Triage Queue)**: System conditions that need the user to act surface as cards pinned above the regular review items, instead of lines in the server log. Each card says what broke, why it matters, and the exact fix, and clears itself once a later check passes. The first producer is Google OAuth failures (Calendar / Drive / Tasks `invalid_grant`, with the matching `setup_*.py` command). The same hook takes later producers such as low disk space, a failed Chroma health probe, or a maintenance script refused by the writer lease.
-- [ ] **Stub Evidence Quality & Attribution Safety**: Rework what a generated entity stub is allowed to treat as evidence. A stub abstract is synthesized strictly from the text surrounding each inbound link, which is correct — the local model was measured answering from its own knowledge and got nationality, genre and collaborators wrong on three of three music artists, inventing one project outright — but the surrounding text is taken as a flat window. Where that window spans a curated list, a section's attributes are attributed to every member: five music stubs each inherited their section's entire genre list, filing a violinist under flamenco guitar. Separately, 22% of harvested reference lines mention the target only inside a run of linked names, which predicates nothing about it and should not count toward the stub threshold. Needs excerpt windows that stop at structural boundaries, a reference predicate that distinguishes description from co-membership, and a re-synthesis pass over the stubs already built.
-
 - [ ] **Security & TLS Infrastructure Setup Guide**: Expand `SETUP_GUIDE.md` to document TLS/SSL certificate provisioning, Subject Alternative Names (SAN), and external HTTPS gateway configuration.
 
 ---
