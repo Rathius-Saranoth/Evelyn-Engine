@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-28 21:18:11
+# date modified: 2026-09-29 20:55:44
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -2050,7 +2050,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
     if matching_procedures:
         for proc in matching_procedures:
             proc_children = [
-                f"<steps>\n{escape_xml_content(proc['steps'])}\n</steps>"
+                f"<steps>\n{escape_xml_content(proc.get('steps') or '')}\n</steps>"
             ]
             if proc.get("suggested_tools"):
                 proc_children.append(f"<suggested_tools>{escape_xml_content(proc['suggested_tools'])}</suggested_tools>")
@@ -2096,7 +2096,7 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
                 con = _memory_db.get_db()
                 placeholders = ",".join("?" * len(entry_ids))
                 rows = con.execute(
-                    f"SELECT id, category, subject, date, observation FROM context_entries WHERE id IN ({placeholders})",
+                    f"SELECT id, category, subject, date, tags, observation FROM context_entries WHERE id IN ({placeholders})",
                     entry_ids,
                 ).fetchall()
                 sqlite_entries_map = {r["id"]: dict(r) for r in rows}
@@ -2121,8 +2121,13 @@ def build_rag_context(query: str, message_id: int | None = None) -> str:
                 envelope_kwargs["subject"] = db_entry["subject"]
             if db_entry.get("date"):
                 envelope_kwargs["date"] = db_entry["date"]
+            if db_entry.get("tags"):
+                envelope_kwargs["tags"] = db_entry["tags"]
             payload_text = db_entry.get("observation") or chunk["content"]
         else:
+            meta = chunk.get("metadata") or {}
+            if meta.get("tags"):
+                envelope_kwargs["tags"] = meta["tags"]
             payload_text = chunk["content"]
 
         retrieval_items.append(

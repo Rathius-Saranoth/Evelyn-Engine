@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-29 19:15:09
+# date modified: 2026-09-29 20:55:44
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.286"
-__version_info__ = (0, 6, 286)
-__version_name__ = "Taxonomy Inspector Inline Related Concept Linking"
+__version__ = "000.006.289"
+__version_info__ = (0, 6, 289)
+__version_name__ = "Procedure Tag Librarian Governance"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

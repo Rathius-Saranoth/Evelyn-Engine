@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-26 07:45:55
+# date modified: 2026-09-29 20:55:44
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -126,6 +126,7 @@ def init_db() -> None:
         "ALTER TABLE proposals ADD COLUMN source_path TEXT",
         "ALTER TABLE procedures ADD COLUMN suggested_tools TEXT",
         "ALTER TABLE procedures ADD COLUMN merged_into_id INTEGER",
+        "ALTER TABLE procedures ADD COLUMN last_tag_audit_at REAL",
     ]:
         with contextlib.suppress(sqlite3.OperationalError):
             con.execute(_migration)
@@ -165,7 +166,8 @@ def init_db() -> None:
             last_retrieved_at REAL,
             retrieval_count   INTEGER NOT NULL DEFAULT 0,
             suggested_tools   TEXT,
-            merged_into_id    INTEGER
+            merged_into_id    INTEGER,
+            last_tag_audit_at REAL
         )
     """)
 
@@ -245,6 +247,7 @@ def init_db() -> None:
         "CREATE INDEX IF NOT EXISTS idx_proc_status ON procedures(status)",
         "CREATE INDEX IF NOT EXISTS idx_proc_trigger ON procedures(trigger_pattern)",
         "CREATE INDEX IF NOT EXISTS idx_proc_merged_into ON procedures(merged_into_id)",
+        "CREATE INDEX IF NOT EXISTS idx_proc_tag_audit ON procedures(status, last_tag_audit_at)",
         "CREATE INDEX IF NOT EXISTS idx_csq_status ON chroma_sync_queue(status)",
         "CREATE INDEX IF NOT EXISTS idx_csq_source ON chroma_sync_queue(source_path, collection_name)",
         "CREATE INDEX IF NOT EXISTS idx_sq_status ON split_queue(status)",
@@ -1858,7 +1861,7 @@ def update_procedure(proc_id: int, **fields) -> bool:
     valid_cols = {
         "trigger_pattern", "steps", "pitfalls", "verification",
         "source", "status", "tags", "suggested_tools", "last_retrieved_at", "retrieval_count",
-        "merged_into_id",
+        "merged_into_id", "last_tag_audit_at",
     }
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     if not updates:
@@ -1875,6 +1878,86 @@ def update_procedure(proc_id: int, **fields) -> bool:
     affected = cur.rowcount
     con.close()
     return affected > 0
+
+
+def fetch_next_procedures_for_tag_audit(
+    batch_size: int = 10,
+    statuses: list[str] | None = None,
+) -> list[dict]:
+    """Return the next procedures due a tag audit, untagged ones first.
+
+    Args:
+        batch_size: Maximum procedures to return.
+        statuses: Statuses to include (defaults to ['live', 'extracted']).
+
+    Returns:
+        list[dict]: Procedure dicts awaiting tag audit.
+    """
+    if statuses is None:
+        statuses = ["live", "extracted"]
+    placeholders = ",".join("?" for _ in statuses)
+    con = get_db()
+    rows = con.execute(
+        f"""
+        SELECT * FROM procedures
+         WHERE status IN ({placeholders}) AND last_tag_audit_at IS NULL
+         ORDER BY CASE WHEN COALESCE(tags, '') = '' THEN 0 ELSE 1 END ASC, id ASC
+         LIMIT ?
+        """,
+        (*statuses, batch_size),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def count_procedures_awaiting_tag_audit(
+    statuses: list[str] | None = None,
+) -> tuple[int, int]:
+    """Return (untagged, total) procedures that have never had a tag audit.
+
+    Args:
+        statuses: Statuses to include (defaults to ['live', 'extracted']).
+
+    Returns:
+        tuple[int, int]: (untagged_count, total_count).
+    """
+    if statuses is None:
+        statuses = ["live", "extracted"]
+    placeholders = ",".join("?" for _ in statuses)
+    con = get_db()
+    row = con.execute(
+        f"""
+        SELECT SUM(CASE WHEN COALESCE(tags, '') = '' THEN 1 ELSE 0 END), COUNT(*)
+          FROM procedures
+         WHERE status IN ({placeholders}) AND last_tag_audit_at IS NULL
+        """,
+        statuses,
+    ).fetchone()
+    con.close()
+    return (int(row[0] or 0), int(row[1] or 0))
+
+
+def mark_procedure_tag_audited(proc_id: int, tags: str | None = None) -> None:
+    """Stamp a procedure as tag-audited, optionally storing the updated tags.
+
+    Args:
+        proc_id: Database ID of the procedure.
+        tags: Tags string to store, or None to leave current tags intact.
+    """
+    con = get_db()
+    now = time.time()
+    if tags is None:
+        con.execute(
+            "UPDATE procedures SET last_tag_audit_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, proc_id),
+        )
+    else:
+        con.execute(
+            "UPDATE procedures SET last_tag_audit_at = ?, tags = ?, updated_at = ? WHERE id = ?",
+            (now, tags, now, proc_id),
+        )
+    con.commit()
+    con.close()
 
 
 def delete_procedure(proc_id: int) -> bool:

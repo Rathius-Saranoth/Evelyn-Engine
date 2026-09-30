@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-27 16:17:44
+# date modified: 2026-09-29 20:55:44
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6006,6 +6006,245 @@ def migrate_000_006_272_purge_legacy_facet_aliases(
     )
 
 
+def migrate_000_006_287_procedure_tag_rehydration_vault(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.287: Register procedure tag equivalence aliases in master_tag_aliases."""
+    from Evelyn.tools import chroma_rag, taxonomy_db
+
+    cursor = conn.cursor()
+    now = time.time()
+
+    aliases_to_register = [
+        ("manuals", "manual"),
+        ("groceries", "grocery"),
+        ("guides", "guide"),
+        ("specs", "specifications"),
+        ("appointments", "appointment"),
+        ("dnd", "ttrpg"),
+        ("research", "technical-research"),
+        ("to-do", "task"),
+        ("workout", "exercise"),
+        ("workouts", "exercise"),
+        ("agentic", "agentic-systems"),
+        ("summarization", "text-summarization"),
+        ("biometric", "wearable"),
+        ("chat-history", "lore"),
+        ("web-research", "technical-research"),
+        ("deep-research", "technical-research"),
+    ]
+
+    registered = 0
+    tag_col = getattr(cfg, "CHROMA_TAG_COLLECTION", "evelyn_tag_taxonomy")
+    for alias, canonical in aliases_to_register:
+        cursor.execute(
+            """INSERT INTO master_tag_aliases (alias, canonical, tier, created_at)
+               VALUES (?, ?, 'reviewed', ?)
+               ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, tier = excluded.tier""",
+            (alias, canonical, now),
+        )
+        registered += 1
+        meta = {
+            "tag": canonical,
+            "category": canonical.split("/")[0] if "/" in canonical else "general",
+            "description": "",
+            "usage_count": 0,
+            "type": "master_tag",
+            "surface": "alternate",
+        }
+        chroma_rag.enqueue_upsert(
+            f"alias::{alias}",
+            f"{alias} (alternate form of {canonical})",
+            collection_name=tag_col,
+            extra_metadata=meta,
+        )
+
+    taxonomy_db.invalidate_alias_cache()
+    logger.info(
+        "[MIGRATION 287] Registered %d procedure tag aliases in master_tag_aliases and enqueued Chroma vector indexing.",
+        registered,
+    )
+
+
+def migrate_000_006_287_procedure_tag_rehydration_memory(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.287: Rehydrate and normalize controlled subject tags across all procedures.
+
+    Procedures were stripped of tags during the Generated-Vocabulary Reset (000.006.187) and
+    left unpopulated. This migration rehydrates tags across all procedures:
+    1. For the 51 active (status = 'live') procedures, applies curated, high-precision subject tags
+       aligned with master_tag_taxonomy to ensure accurate runtime query-trigger matching.
+    2. For merged and archived procedures, extracts historical tags from the pre-reset backup,
+       strips generic container noise (skill, procedure, task, protocol), and normalizes remaining
+       subject tokens via normalize_tag_format() and canonicalize_tags().
+    """
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.tag_librarian import normalize_tag_format
+
+    cursor = conn.cursor()
+    now = time.time()
+
+    live_procedure_curated_tags = {
+        20: "language, linguistics, feedback, communication",
+        30: "scripting, software-development, testing, code-generation",
+        41: "habit, routine, focus, wellbeing",
+        84: "reasoning, logic, context, coordination",
+        94: "debugging, troubleshooting, diagnostics, problem-solving",
+        97: "documentation, software-architecture, planning, notes",
+        368: "documentation, reference, specifications, notes",
+        657: "dream, creative, reflection, journaling",
+        1034: "bedtime, sleep, routine, evening, journaling",
+        1062: "art, illustration, ttrpg, fantasy, image-generation",
+        1063: "task, schedule, reminder, routine, time-management",
+        1064: "character, art, portrait, persona, visual",
+        1065: "writing, editing, prose, style, text-summarization",
+        1066: "narrative, creative-writing, lore, storytelling, roleplaying",
+        1067: "health, wearable, fatigue, recovery, wellbeing",
+        1104: "type/list, grocery, food, organization",
+        1105: "appointment, schedule, calendar, time-management",
+        1106: "task, completion, productivity, chore",
+        1107: "exercise, fitness, health, activity",
+        1108: "memory, recall, history, communication, search",
+        1109: "technical-research, investigation, agency, analysis",
+        1110: "synchronization, health, database, backup",
+        1238: "contact, person, memory-management, organization",
+        1372: "art, creative, image-generation, prompting",
+        1466: "feedback, advice, communication, guidance",
+        1469: "safety, deletion, verification, confirmation",
+        1672: "notes, rule, idea, knowledge-management",
+        1744: "grocery, shopping, food, planning, ritual",
+        1751: "text-summarization, theory, notes, synthesis",
+        1754: "sleep, fatigue, health, wellbeing, support",
+        1781: "reading, url, web, content-optimization, search",
+        1865: "pkm, obsidian, notes, linking",
+        1891: "transparency, status, calibration, software",
+        1901: "schedule, appointment, routine, time-management",
+        2116: "retrieval, text-summarization, memory, search",
+        2184: "technical-research, learning, curiosity, agency",
+        2233: "technical-research, analysis, notes, file",
+        2235: "exercise, fitness, manual, reference",
+        2238: "language, correction, feedback, communication",
+        2268: "debugging, coding, software-development, problem-solving",
+        2270: "software-engineering, review, documentation, verification",
+        2300: "weather, location, forecast, context",
+        2309: "communication, casual, style, interaction",
+        2312: "manual, specifications, documentation, hardware, guide, reference",
+        2380: "software-architecture, system-orchestration, documentation, navigation",
+        2387: "task, routine, consistency, chore",
+        2388: "ttrpg, roleplaying, campaign, narrative",
+        2444: "notes, search, documentation, pkm, discovery",
+        2512: "proposal, review, software-engineering, documentation",
+        2553: "tools, discovery, agentic-systems, software-utilities, capability",
+        2584: "documentation, home-improvement, planning",
+    }
+
+    container_words = {
+        "skill", "procedure", "protocol", "task", "system", "rule",
+        "guideline", "meta", "method", "workflow", "management", "merged", "split",
+        "arch", "definition",
+    }
+
+    # 1. First, apply curated tags for live procedures
+    live_updated = 0
+    for pid, tag_str in live_procedure_curated_tags.items():
+        tokens = [t.strip() for t in tag_str.split(",") if t.strip()]
+        norm_tokens = []
+        for t in tokens:
+            n = normalize_tag_format(t)
+            canon = taxonomy_db.canonicalize_tags([n])
+            resolved = canon[0] if canon else n
+            if resolved and resolved not in norm_tokens:
+                norm_tokens.append(resolved)
+        clean_tag_str = ", ".join(norm_tokens)
+        cursor.execute(
+            "UPDATE procedures SET tags = ?, updated_at = ? WHERE id = ?",
+            (clean_tag_str, now, pid),
+        )
+        live_updated += 1
+
+    # 2. Next, rehydrate tags for merged and archived procedures from pre-187 backup
+    backup_file = os.path.join(
+        getattr(cfg, "DATA_DIR", "/home/rathius/evelyn/data"),
+        "backups/evelyn_memory.db_pre_000.006.187_20260920_230642.bak",
+    )
+    inactive_updated = 0
+    if os.path.exists(backup_file):
+        import sqlite3 as b_sqlite3
+        bk_conn = b_sqlite3.connect(backup_file)
+        bk_conn.row_factory = b_sqlite3.Row
+        bk_rows = bk_conn.execute(
+            "SELECT id, tags FROM procedures WHERE status != 'live'"
+        ).fetchall()
+        bk_conn.close()
+
+        for r in bk_rows:
+            pid = r["id"]
+            # Skip if already carrying tags in memory DB (e.g. ID 2583)
+            curr = cursor.execute("SELECT tags FROM procedures WHERE id = ?", (pid,)).fetchone()
+            if curr and curr[0] and curr[0].strip():
+                continue
+
+            raw = r["tags"] or ""
+            parts = [t.strip().strip("'\"#").lower() for t in raw.split(",") if t.strip().strip("'\"#")]
+            clean_tokens = []
+            for p in parts:
+                if p in container_words:
+                    continue
+                norm = normalize_tag_format(p)
+                if not norm or norm in container_words:
+                    continue
+                canon = taxonomy_db.canonicalize_tags([norm])
+                c = canon[0] if canon else norm
+                if c and c not in clean_tokens:
+                    clean_tokens.append(c)
+
+            final_tags = ", ".join(clean_tokens)
+            if final_tags:
+                cursor.execute(
+                    "UPDATE procedures SET tags = ?, updated_at = ? WHERE id = ?",
+                    (final_tags, now, pid),
+                )
+                inactive_updated += 1
+
+    logger.info(
+        "[MIGRATION 287] Successfully rehydrated procedure tags: %d live procedures curated, %d inactive procedures rehydrated.",
+        live_updated,
+        inactive_updated,
+    )
+
+
+def migrate_000_006_289_procedure_tag_librarian_audit_schema(
+    conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
+) -> None:
+    """Migration 000.006.289: Enable Procedure Tag Librarian Governance.
+
+    Adds last_tag_audit_at column and index to procedures table in evelyn_memory.db.
+    Initializes last_tag_audit_at timestamp for live procedures that have already been
+    curated, ensuring un-audited/extracted/untagged procedures are queued first.
+    """
+    cursor = conn.cursor()
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(procedures)").fetchall()}
+    if "last_tag_audit_at" not in cols:
+        cursor.execute("ALTER TABLE procedures ADD COLUMN last_tag_audit_at REAL DEFAULT NULL")
+        logger.info("[MIGRATION 289] Added procedures.last_tag_audit_at column.")
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proc_tag_audit ON procedures(status, last_tag_audit_at)"
+    )
+
+    now = time.time()
+    cursor.execute(
+        """
+        UPDATE procedures
+           SET last_tag_audit_at = ?
+         WHERE status = 'live' AND tags IS NOT NULL AND TRIM(tags) != ''
+        """,
+        (now,),
+    )
+    logger.info("[MIGRATION 289] Initialized procedures.last_tag_audit_at and created index idx_proc_tag_audit.")
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -6659,6 +6898,27 @@ MIGRATIONS: list[Migration] = [
         name="purge_legacy_facet_aliases",
         up_fn=migrate_000_006_272_purge_legacy_facet_aliases,
         post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="vault",
+        version="000.006.287",
+        name="procedure_tag_aliases_vault",
+        up_fn=migrate_000_006_287_procedure_tag_rehydration_vault,
+        post_sync_chroma=True,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.287",
+        name="procedure_tag_rehydration_memory",
+        up_fn=migrate_000_006_287_procedure_tag_rehydration_memory,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.289",
+        name="procedure_tag_librarian_audit_schema",
+        up_fn=migrate_000_006_289_procedure_tag_librarian_audit_schema,
+        post_sync_chroma=False,
     ),
 ]
 

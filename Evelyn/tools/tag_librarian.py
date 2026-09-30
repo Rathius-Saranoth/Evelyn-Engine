@@ -1,6 +1,6 @@
 # tag_librarian.py
 # date created: 2026-08-02 11:53:00
-# date modified: 2026-09-28 18:48:52
+# date modified: 2026-09-29 20:55:44
 # tags: #tag, #librarian, #taxonomy, #indexing, #obsidian, #idle_time, #rag, #chromadb
 
 """
@@ -17,6 +17,8 @@ Exports:
     normalize_tag_format()                — Standardizes tags to lowercase-hyphen-slash form (taxonomy §5).
     strip_subject_duplicate_tags()        — Drops tags that merely restate a record's own subject.
     audit_single_document()               — Audits one vault note against the Master Tag Taxonomy during idle windows using Tag RAG.
+    audit_single_fact_tags()              — Audits one memory fact against the controlled vocabulary.
+    audit_single_procedure_tags()         — Audits one operational procedure against the controlled vocabulary.
     sync_master_tags_to_vector_db()       — Syncs all SQLite master tags into Chroma vector store for Tag RAG.
     index_master_tag_in_chroma()          — Upserts an individual master tag into Chroma vector store.
     delete_tag_from_chroma()              — Removes a tag from Chroma vector store.
@@ -1397,6 +1399,126 @@ def audit_single_fact_tags(entry: dict[str, Any], dry_run: bool = False) -> dict
         # fact is stamped regardless, so the terms would otherwise look decided when nobody
         # has yet seen them.
         "held_back": list(proposals),
+        "status": "tagged" if final else "no_match",
+    }
+
+
+def audit_single_procedure_tags(proc: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
+    """Derive an operational procedure's subjects and align them to the controlled vocabulary.
+
+    The procedure counterpart of vault note and memory fact tag governance (§0.1, §6.1).
+    Procedures contain operational instructions, triggers, steps, pitfalls, and tool names.
+    This routine extracts candidate subjects from those operational fields, strips container
+    prefixes (e.g. skill/, procedure/, protocol/), canonicalizes existing tags through
+    registered aliases, and reconciles candidates against master_tag_taxonomy.
+
+    Unmatched subject terms are raised as tag_admission proposals with origin='procedure #{id}',
+    giving operator visibility into emerging tool domains and specialized workflows.
+
+    Args:
+        proc: A procedure record dict, as returned by `fetch_next_procedures_for_tag_audit`.
+        dry_run: Report what would change without writing to the database.
+
+    Returns:
+        dict[str, Any]: `id`, `applied`, `proposed`, `held_back`, and `status`.
+    """
+    from Evelyn.tools import memory_db
+
+    proc_id = int(proc["id"])
+    trigger = str(proc.get("trigger_pattern") or "").strip()
+    steps = str(proc.get("steps") or "").strip()
+    pitfalls = str(proc.get("pitfalls") or "").strip()
+    tools = str(proc.get("suggested_tools") or "").strip()
+
+    body_parts = []
+    if trigger:
+        body_parts.append(f"Trigger: {trigger}")
+    if steps:
+        body_parts.append(f"Steps: {steps}")
+    if pitfalls:
+        body_parts.append(f"Pitfalls: {pitfalls}")
+    if tools:
+        body_parts.append(f"Suggested Tools: {tools}")
+
+    full_body = "\n\n".join(body_parts).strip()
+    if not full_body:
+        if not dry_run:
+            memory_db.mark_procedure_tag_audited(proc_id)
+        return {"id": proc_id, "applied": [], "proposed": [], "held_back": [], "status": "empty"}
+
+    # Container markers that do not belong in controlled subject taxonomy
+    container_words = {
+        "skill", "skills", "procedure", "procedures", "protocol", "protocols",
+        "system", "systems", "workflow", "workflows", "rule", "rules", "task", "tasks",
+    }
+    container_prefixes = tuple(f"{w}/" for w in container_words)
+
+    # 1. Normalize and canonicalize existing tags through aliases
+    existing_raw = [
+        t for t in (normalize_tag_format(x) for x in str(proc.get("tags") or "").split(","))
+        if t and not is_excluded_tag(t)
+    ]
+    cleaned_existing: list[str] = []
+    for t in existing_raw:
+        for cp in container_prefixes:
+            if t.startswith(cp):
+                t = t[len(cp):]
+        norm = normalize_tag_format(t)
+        if norm and norm not in container_words:
+            canon = taxonomy_db.canonicalize_tags([norm])
+            c = canon[0] if canon else norm
+            if c and c not in cleaned_existing:
+                cleaned_existing.append(c)
+
+    title = f"Procedure #{proc_id}: {trigger[:80]}" if trigger else f"Procedure #{proc_id}"
+
+    try:
+        applied, proposals = classify_document_subjects(
+            body=full_body, gist="", title=title, existing=cleaned_existing
+        )
+    except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
+        logger.warning("[TAG LIBRARIAN] Procedure #%s classification failed: %s", proc_id, exc)
+        return {"id": proc_id, "applied": [], "proposed": [], "held_back": [], "status": "error"}
+
+    # Strip container words from applied
+    clean_applied: list[str] = []
+    for t in applied:
+        for cp in container_prefixes:
+            if t.startswith(cp):
+                t = t[len(cp):]
+        norm = normalize_tag_format(t)
+        if norm and norm not in container_words and norm not in clean_applied:
+            clean_applied.append(norm)
+
+    final = list(dict.fromkeys([*cleaned_existing, *clean_applied]))
+    if dry_run:
+        return {"id": proc_id, "applied": final, "proposed": [], "held_back": list(proposals), "status": "dry_run"}
+
+    proposed: list[str] = []
+    clean_proposals: list[str] = []
+    for p in proposals:
+        for cp in container_prefixes:
+            if p.startswith(cp):
+                p = p[len(cp):]
+        norm = normalize_tag_format(p)
+        if norm and norm not in container_words and norm not in clean_proposals:
+            clean_proposals.append(norm)
+
+    if clean_proposals:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            proposed = propose_tag_admission(
+                clean_proposals,
+                origin=f"procedure #{proc_id}",
+                reason="Subject named by an operational procedure but not in the controlled vocabulary.",
+                source_ids=[proc_id],
+            )
+
+    memory_db.mark_procedure_tag_audited(proc_id, tags=", ".join(final) if final else None)
+    return {
+        "id": proc_id,
+        "applied": final,
+        "proposed": proposed,
+        "held_back": clean_proposals,
         "status": "tagged" if final else "no_match",
     }
 

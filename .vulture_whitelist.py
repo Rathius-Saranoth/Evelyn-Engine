@@ -147,3 +147,11 @@ _.record_relation
 _.fetch_next_entries_for_tag_audit
 _.count_entries_awaiting_tag_audit
 _.audit_single_fact_tags
+
+# Procedure tag auditing (Taxonomy Consumption Loop): called by scripts/audit_procedures.py
+# (standalone CLI maintenance tool outside Vulture scan paths).
+# AGENTS.md §11 category 1 — external script consumers.
+_.fetch_next_procedures_for_tag_audit
+_.count_procedures_awaiting_tag_audit
+_.audit_single_procedure_tags
+

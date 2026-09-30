@@ -1,6 +1,6 @@
 # test_category_attribution.py
 # date created: 2026-09-06 08:58:00
-# date modified: 2026-09-06 09:00:37
+# date modified: 2026-09-29 20:55:44
 # tags: #tests, #fast-memory, #category-attribution, #temporal-grounding
 
 import re
@@ -101,10 +101,20 @@ facts:
             "subject": cfg.USER_NAME,
             "observation": "Evelyn admires Alex's thoughtful approach to engineering.",
             "date": "2026-05-15",
+            "tags": "engineering, software-development",
         }
 
         mock_conn = MagicMock()
-        mock_conn.execute.return_value.fetchall.return_value = [mock_db_row]
+
+        def mock_execute(sql, *args, **kwargs):
+            cur = MagicMock()
+            if "procedures" in sql:
+                cur.fetchall.return_value = []
+            else:
+                cur.fetchall.return_value = [mock_db_row]
+            return cur
+
+        mock_conn.execute.side_effect = mock_execute
 
         with patch("Evelyn.tools.chroma_rag.query_collection", return_value=mock_chunks), \
              patch("Evelyn.tools.chroma_rag.log_rag_retrieval"), \
@@ -115,6 +125,7 @@ facts:
             self.assertIn('<memory_entry id="101" category="Cat06-A"', xml_output)
             self.assertIn(f'subject="{cfg.USER_NAME}"', xml_output)
             self.assertIn('date="2026-05-15"', xml_output)
+            self.assertIn('tags="engineering, software-development"', xml_output)
 
     def test_profile_evolver_evidence_formatting(self):
         """Verify _cluster_entries_by_theme formats evidence lines with category code and subject."""

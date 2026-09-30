@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-27 16:02:11
+date modified: 2026-09-29 20:55:44
 ---
 # Evelyn Project Roadmap
 
@@ -36,10 +36,14 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Controlled-Vocabulary Matching Layer**: Rebuilt subject reconciliation as a deterministic cascade with exact and near-exact lexical lookups, splitting of post-coordinate compound phrases, and dense vector fallback gated by explicit margin-guard abstain decisions.
 - [x] **Inline Hashtag Ingestion Boundary**: Excluded note body hashtags from vault ingestion, ensuring the controlled vocabulary admits terms exclusively through YAML frontmatter `tags:`.
 - [x] **Standalone Taxonomy & Hierarchy Explorer (`ui/taxonomy.html`)**: Built a dedicated web dashboard for browsing dynamic hierarchy trees (broader/narrower DAGs), peer concept atoms, equivalence aliases with directionality controls, and live Library of Congress / FAST authority promotion.
+- [x] **Procedural Knowledge Vocabulary & Tag Backfill**: Rehydrated and standardized controlled taxonomy tags across all operational procedures in `evelyn_memory.db` and registered 16 procedure equivalence aliases, enabling keyword and trigger matching to reliably activate protocols and tool suggestions.
+- [x] **Context Envelope Metadata Parity for Memory Facts**: Exposed `tags` attributes on `<memory_entry>` XML envelopes in `build_rag_context` alongside `category`, `subject`, and `date`, achieving contextual metadata parity between memory facts and vault documents.
+- [x] **Operational Procedure Tag Librarian Governance**: Extended Tag Librarian auditing to operational procedures (`procedures` table), ensuring automatic alias canonicalization, container prefix pruning, controlled classification against the master taxonomy, and review proposal generation.
 - [ ] **Vocabulary Bootstrap & Term-Aggregated Review**: Derive a seed vocabulary from the corpus itself, surfacing candidate terms aggregated by term rather than per document so approval is a vocabulary decision rather than thousands of per-note ones, establishing the first curated subject vocabulary and the evaluation set that threshold tuning has lacked.
 - [ ] **Vault Classification Backfill**: Classify the full note corpus against the seeded vocabulary, accumulating unmatched subjects as batched proposals and applying the admission floor against observed usage.
 - [ ] **Vocabulary Maintenance Re-enablement**: Restore equivalence merging, stale-tag removal and registry rebalancing behind review gates, held until the vocabulary is stable enough that automated maintenance cannot compound its own errors.
 - [ ] **Dedicated Health Observation Module**: Route physiological and symptom observations out of the general context entry pool into a purpose-built health store queried on demand, so historical health patterns remain available for reference and trend recognition without occupying general retrieval space or biasing conversational framing.
+- [ ] **RAG Relation Re-Ranking & Associative Expansion**: Benchmark and activate `_apply_relation_boost` in `chroma_rag.py`, leveraging the curated `master_tag_related` graph to promote associative (`RT`) and hierarchical (`BT/NT`) concepts into retrieval context.
 
 ---
 
@@ -77,6 +81,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [ ] **Spell Breaker (Focus Check-In Timer)**: Reverse "Do Not Disturb" timer in Chat UI that dispatches a proactive system event to Evelyn when a project timer expires, prompting an empathetic break or check-in response with forced voice playback.
 - [ ] **System-Event Prompting Flow**: General server mechanism to inject proactive notifications and initiate unsolicited turns for high-priority background triggers (agenda alerts, completed research, health anomalies).
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
+- [ ] **Controlled Subject Discovery & Tag Filtering Tool**: Expose a model-facing `search_by_tag` tool and corresponding starter procedure in `MODEL_TOOL_DEFINITIONS`, allowing Evelyn to directly discover, filter, and inspect notes and memory facts by controlled taxonomy terms.
 
 ---
 
