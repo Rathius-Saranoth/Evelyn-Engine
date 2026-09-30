@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-18 18:51:33
+# date modified: 2026-09-29 19:15:09
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -77,7 +77,6 @@ DOCUMENT_CATEGORIES = {
         f"Cat03-{cfg.SUBJECT_CODE_USER}",
         f"Cat04-{cfg.SUBJECT_CODE_USER}",
         f"Cat06-{cfg.SUBJECT_CODE_USER}",
-        f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
         f"Cat07-{cfg.SUBJECT_CODE_USER}",
         f"Cat09-{cfg.SUBJECT_CODE_USER}",
         f"Cat10-{cfg.SUBJECT_CODE_USER}",
@@ -140,6 +139,14 @@ DOMAIN_BANNED_PATTERNS: dict[str, list[re.Pattern]] = {
         ),
         re.compile(
             r"\b(?:write_file|read_file|run_command|search_available_tools)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:Evelyn views|Evelyn uses|Evelyn prefers|Evelyn maintains|Evelyn finds|Evelyn provides|Evelyn offers|Evelyn values|Evelyn speaks|Evelyn resonates)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"^\s*(?:\[Tier\s*\d\]\s+)?(?:\*\*[^*]+\*\*:\s*)?(?:Evelyn|She)\s+(?:views|uses|prefers|maintains|finds|acts|embodies|speaks|resonates|offers|provides)\b",
             re.IGNORECASE,
         ),
     ],
@@ -224,7 +231,6 @@ DOCUMENT_THEMES = {
             "section_header": "## Relationship Dynamics",
             "categories": [
                 f"Cat06-{cfg.SUBJECT_CODE_USER}",
-                f"Cat06-{cfg.SUBJECT_CODE_ASSISTANT}",
                 f"Cat10-{cfg.SUBJECT_CODE_USER}",
             ],
         },
@@ -311,11 +317,12 @@ DOCUMENT_RULES = {
             "  * Tier 2 (Active Context & Recurring Habits - COMPRESS ONLY): Technical domains, AI architectures, workspace habits, batching routines.\n"
             "  * Tier 3 (Ephemeral Details & Secondary Preferences - PRUNE FIRST): Transient hobbies, specific games/media titles, temporary tooling setups, transient physical states (individual symptoms, one-off fatigue or sleep episodes).\n"
             "- SYMPTOM LOGGING IS NOT IDENTITY: Record ongoing chronic conditions once, plainly. Do NOT accumulate bullets for individual episodes of tiredness, pain, or poor sleep — those belong in memory observations, not in his profile.\n"
+            f"- STRICT ENTITY BOUNDARY: The User Profile exclusively records {cfg.USER_NAME}'s identity, health, preferences, habits, and boundaries. Do NOT add facts that describe {cfg.ASSISTANT_NAME}'s feelings, views, speech habits, or internal states (those belong exclusively in {cfg.PERSONA_FILE_ASSISTANT}). In relationship dynamics, describe his stance or mutual partnership from his perspective.\n"
             f"- Write about {cfg.USER_NAME} in the third person.\n"
             f"- Write about {cfg.ASSISTANT_NAME} in the third person (using '{cfg.ASSISTANT_NAME}', 'she', 'her').\n"
             "- Never use 'I', 'me', 'my', or 'you' in this document.\n"
             f"- Example 1 ({cfg.USER_NAME} fact): '{cfg.USER_NAME} likes small gifts' -> '* **Gifts & Gestures**: He prefers thoughtful, small gifts over elaborate gestures.'\n"
-            f"- Example 2 (Relationship/{cfg.ASSISTANT_NAME} fact): '{cfg.ASSISTANT_NAME} values my feedback' -> '* **Feedback Loop**: {cfg.ASSISTANT_NAME} values his technical feedback and architectural reviews.'"
+            f"- Example 2 (Relationship/{cfg.USER_NAME} dynamic): '{cfg.USER_NAME} values technical depth' -> '* **Collaborative Partnership**: He views their partnership as a space for shared technical discovery and honest discourse.'"
         ),
     },
     cfg.PERSONA_FILE_DIRECTIVES: {

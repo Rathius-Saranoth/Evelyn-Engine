@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-28 21:18:11
+# date modified: 2026-09-29 19:15:09
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -6279,10 +6279,275 @@ async def get_identity():
     }
 
 
+VALID_LEDGER_BASENAMES = {
+    "User_Profile_facts.md",
+    "Assistant_Profile_facts.md",
+    "System_Directives_facts.md",
+}
+
+
+class LedgerItemDeleteRequest(BaseModel):
+    section: str
+    label: str = ""
+    fact: str = ""
+
+
+class LedgerItemUpdateRequest(BaseModel):
+    section: str
+    orig_label: str = ""
+    label: str
+    fact: str
+    tier: int = 2
+
+
+@app.get("/api/persona/ledgers")
+async def list_persona_ledgers(_: None = Depends(check_auth)):
+    """List available profile facts ledgers with metadata and item counts."""
+    from Evelyn.tools import profile_ledger
+
+    limits = getattr(cfg, "PROFILE_EVOLUTION_LIMITS", {})
+    ledgers = [
+        {
+            "filename": "User_Profile_facts.md",
+            "profile_filename": "User_Profile.md",
+            "title": f"{cfg.USER_NAME} Profile Facts",
+            "description": f"Authoritative facts, health conditions, preferences, and lifestyle boundaries for {cfg.USER_NAME}.",
+            "word_limit": limits.get(cfg.PERSONA_FILE_USER, 600),
+        },
+        {
+            "filename": "Assistant_Profile_facts.md",
+            "profile_filename": "Assistant_Profile.md",
+            "title": f"{cfg.ASSISTANT_NAME} Profile Facts",
+            "description": f"Authoritative persona traits, creative style, voice cadence, and emotional warmth for {cfg.ASSISTANT_NAME}.",
+            "word_limit": limits.get(cfg.PERSONA_FILE_ASSISTANT, 600),
+        },
+        {
+            "filename": "System_Directives_facts.md",
+            "profile_filename": "System_Directives.md",
+            "title": "System Directives Facts",
+            "description": "Operational directives, tool rules, execution protocols, and behavioral defaults.",
+            "word_limit": limits.get(cfg.PERSONA_FILE_DIRECTIVES, 600),
+        },
+    ]
+
+    for led in ledgers:
+        fpath = PERSONA_DIR / led["filename"]
+        if fpath.exists():
+            content = fpath.read_text(encoding="utf-8")
+            _fm, sections = profile_ledger.parse_ledger(content)
+            led["total_items"] = sum(len(items) for items in sections.values())
+            led["total_words"] = profile_ledger.count_ledger_words(sections)
+        else:
+            led["total_items"] = 0
+            led["total_words"] = 0
+
+    return {"ledgers": ledgers}
+
+
+@app.get("/api/persona/ledger/{filename}")
+async def get_persona_ledger(filename: str, _: None = Depends(check_auth)):
+    """Read and parse an authoritative profile facts ledger."""
+    from Evelyn.tools import profile_ledger
+
+    ledger_fn = profile_ledger.get_ledger_filename(filename)
+    if ledger_fn not in VALID_LEDGER_BASENAMES:
+        raise HTTPException(status_code=400, detail=f"Invalid ledger filename: {filename}")
+
+    fpath = PERSONA_DIR / ledger_fn
+    if not fpath.exists():
+        raise HTTPException(status_code=404, detail=f"Ledger file not found: {ledger_fn}")
+
+    content = fpath.read_text(encoding="utf-8")
+    fm, sections = profile_ledger.parse_ledger(content)
+
+    sections_out: dict[str, list[dict[str, Any]]] = {}
+    total_items = 0
+    for header, items in sections.items():
+        total_items += len(items)
+        sections_out[header] = [
+            {
+                "tier": item.tier,
+                "label": item.label,
+                "fact": item.fact,
+                "word_count": item.word_count,
+                "raw_bullet": item.raw_bullet,
+                "clean_bullet": item.clean_bullet,
+            }
+            for item in items
+        ]
+
+    profile_fn = profile_ledger.get_profile_filename(ledger_fn)
+    return {
+        "filename": ledger_fn,
+        "profile_filename": profile_fn,
+        "frontmatter": fm,
+        "sections": sections_out,
+        "total_items": total_items,
+        "total_words": profile_ledger.count_ledger_words(sections),
+    }
+
+
+@app.post("/api/persona/ledger/{filename}/item/delete")
+async def delete_persona_ledger_item(
+    filename: str, req: LedgerItemDeleteRequest, _: None = Depends(check_auth)
+):
+    """Delete a single factoid from a profile facts ledger and re-compile presentation layer."""
+    from Evelyn.tools import profile_ledger
+
+    ledger_fn = profile_ledger.get_ledger_filename(filename)
+    if ledger_fn not in VALID_LEDGER_BASENAMES:
+        raise HTTPException(status_code=400, detail=f"Invalid ledger filename: {filename}")
+
+    fpath = PERSONA_DIR / ledger_fn
+    if not fpath.exists():
+        raise HTTPException(status_code=404, detail=f"Ledger file not found: {ledger_fn}")
+
+    def _delete():
+        content = fpath.read_text(encoding="utf-8")
+        fm, sections = profile_ledger.parse_ledger(content)
+
+        target_sec = None
+        for h in sections:
+            if h.strip().lower() == req.section.strip().lower() or h.strip().lower().endswith(req.section.replace("#", "").strip().lower()):
+                target_sec = h
+                break
+
+        if not target_sec or target_sec not in sections:
+            raise HTTPException(status_code=404, detail=f"Section not found: {req.section}")
+
+        before_count = len(sections[target_sec])
+        req_label_norm = req.label.strip().lower()
+        req_fact_norm = req.fact.strip().lower()
+
+        if req_label_norm:
+            sections[target_sec] = [it for it in sections[target_sec] if it.label.strip().lower() != req_label_norm]
+        elif req_fact_norm:
+            sections[target_sec] = [it for it in sections[target_sec] if it.fact.strip().lower() != req_fact_norm]
+
+        if len(sections[target_sec]) == before_count:
+            raise HTTPException(status_code=404, detail=f"Fact item not found in {req.section}")
+
+        # Re-render ledger
+        new_ledger_text = profile_ledger.render_ledger(fm, sections)
+        fpath.write_text(new_ledger_text, encoding="utf-8")
+        subprocess.run(
+            [sys.executable, "scripts/update_frontmatter.py", str(fpath)],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+        )
+
+        # Synchronize presentation file for bullet-structured documents
+        profile_fn = profile_ledger.get_profile_filename(ledger_fn)
+        if profile_fn in (cfg.PERSONA_FILE_USER, cfg.PERSONA_FILE_DIRECTIVES):
+            p_path = PERSONA_DIR / profile_fn
+            if p_path.exists():
+                p_content = p_path.read_text(encoding="utf-8")
+                p_fm, _ = profile_ledger.parse_ledger(p_content)
+                new_pres_text = profile_ledger.compile_clean_markdown(p_fm, sections)
+                p_path.write_text(new_pres_text, encoding="utf-8")
+                subprocess.run(
+                    [sys.executable, "scripts/update_frontmatter.py", str(p_path)],
+                    cwd=str(BASE_DIR),
+                    capture_output=True,
+                )
+
+        total_items = sum(len(items) for items in sections.values())
+        total_words = profile_ledger.count_ledger_words(sections)
+        return {
+            "status": "ok",
+            "message": f"Removed item from {req.section}",
+            "total_items": total_items,
+            "total_words": total_words,
+        }
+
+    return await asyncio.to_thread(_delete)
+
+
+@app.post("/api/persona/ledger/{filename}/item/update")
+async def update_persona_ledger_item(
+    filename: str, req: LedgerItemUpdateRequest, _: None = Depends(check_auth)
+):
+    """Add or update a factoid in a profile facts ledger and re-compile presentation layer."""
+    from Evelyn.tools import profile_ledger
+
+    ledger_fn = profile_ledger.get_ledger_filename(filename)
+    if ledger_fn not in VALID_LEDGER_BASENAMES:
+        raise HTTPException(status_code=400, detail=f"Invalid ledger filename: {filename}")
+
+    fpath = PERSONA_DIR / ledger_fn
+    if not fpath.exists():
+        raise HTTPException(status_code=404, detail=f"Ledger file not found: {ledger_fn}")
+
+    def _update():
+        content = fpath.read_text(encoding="utf-8")
+        fm, sections = profile_ledger.parse_ledger(content)
+
+        target_sec = None
+        for h in sections:
+            if h.strip().lower() == req.section.strip().lower() or h.strip().lower().endswith(req.section.replace("#", "").strip().lower()):
+                target_sec = h
+                break
+
+        if not target_sec:
+            target_sec = req.section if req.section.startswith("#") else f"## {req.section}"
+            sections[target_sec] = []
+
+        tier = req.tier if req.tier in (1, 2, 3) else 2
+        lookup_label = (req.orig_label or req.label).strip().lower()
+
+        existing = next((it for it in sections[target_sec] if it.label and it.label.strip().lower() == lookup_label), None)
+        if existing:
+            existing.label = req.label.strip()
+            existing.fact = req.fact.strip()
+            existing.tier = tier
+        else:
+            sections[target_sec].append(
+                profile_ledger.LedgerItem(
+                    section=target_sec,
+                    tier=tier,
+                    label=req.label.strip(),
+                    fact=req.fact.strip(),
+                )
+            )
+
+        new_ledger_text = profile_ledger.render_ledger(fm, sections)
+        fpath.write_text(new_ledger_text, encoding="utf-8")
+        subprocess.run(
+            [sys.executable, "scripts/update_frontmatter.py", str(fpath)],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+        )
+
+        profile_fn = profile_ledger.get_profile_filename(ledger_fn)
+        if profile_fn in (cfg.PERSONA_FILE_USER, cfg.PERSONA_FILE_DIRECTIVES):
+            p_path = PERSONA_DIR / profile_fn
+            if p_path.exists():
+                p_content = p_path.read_text(encoding="utf-8")
+                p_fm, _ = profile_ledger.parse_ledger(p_content)
+                new_pres_text = profile_ledger.compile_clean_markdown(p_fm, sections)
+                p_path.write_text(new_pres_text, encoding="utf-8")
+                subprocess.run(
+                    [sys.executable, "scripts/update_frontmatter.py", str(p_path)],
+                    cwd=str(BASE_DIR),
+                    capture_output=True,
+                )
+
+        total_items = sum(len(items) for items in sections.values())
+        total_words = profile_ledger.count_ledger_words(sections)
+        return {
+            "status": "ok",
+            "message": f"Updated '{req.label}' in {target_sec}",
+            "total_items": total_items,
+            "total_words": total_words,
+        }
+
+    return await asyncio.to_thread(_update)
+
+
 @app.get("/api/persona/{filename}")
 async def get_persona_file(filename: str, _: None = Depends(check_auth)):
     """Read a persona file's current content for diff display."""
-    safe_names = set(cfg.PERSONA_FILES)
+    safe_names = set(cfg.PERSONA_FILES) | VALID_LEDGER_BASENAMES
     if filename not in safe_names:
         raise HTTPException(status_code=400, detail="Invalid filename")
     fpath = PERSONA_DIR / filename
@@ -6453,6 +6718,21 @@ class TaxonomyRelationRequest(BaseModel):
     kind: str
 
 
+def _register_taxonomy_alias(alias: str, canonical: str) -> tuple[dict[str, int], bool]:
+    """Helper to record alias, repoint relations, prune standalone row, and invalidate cache."""
+    from Evelyn.tools import tag_librarian, taxonomy_db
+
+    taxonomy_db.upsert_master_tag(canonical)
+    taxonomy_db.record_alias(alias, canonical, tier="reviewed")
+    moves = taxonomy_db.repoint_relations(alias, canonical)
+    deleted = taxonomy_db.delete_master_tag(alias)
+    if deleted:
+        with contextlib.suppress(Exception):
+            tag_librarian.delete_tag_from_chroma(alias)
+    taxonomy_db.invalidate_alias_cache()
+    return moves, deleted
+
+
 @app.post("/api/taxonomy/relation")
 async def update_taxonomy_relation(
     req: TaxonomyRelationRequest, _: None = Depends(check_auth)
@@ -6460,8 +6740,8 @@ async def update_taxonomy_relation(
     """Add, update, or delete a relationship between two terms."""
     from Evelyn.tools import taxonomy_db, vault_db
 
-    a = req.term_a.strip().lower()
-    b = req.term_b.strip().lower()
+    a = req.term_a.strip().lstrip("#").strip().lower()
+    b = req.term_b.strip().lstrip("#").strip().lower()
     kind = req.kind.strip().lower()
 
     if not a or not b or a == b:
@@ -6483,11 +6763,52 @@ async def update_taxonomy_relation(
         await asyncio.to_thread(_delete)
         return {"status": "ok", "message": f"Relation between {a} and {b} deleted"}
 
-    if kind not in ("narrower", "related"):
-        raise HTTPException(status_code=400, detail="Kind must be 'narrower', 'related', or 'delete'")
+    if kind == "alias":
+        moves, deleted = await asyncio.to_thread(_register_taxonomy_alias, a, b)
+        return {
+            "status": "ok",
+            "message": f"Recorded alias: #{a} redirects to #{b}",
+            "moves": moves,
+            "pruned_standalone": deleted,
+        }
 
-    await asyncio.to_thread(taxonomy_db.record_relation, a, b, kind=kind, tier="reviewed")
-    return {"status": "ok", "message": f"Recorded relation: {a} --({kind})--> {b}"}
+    if kind not in ("narrower", "related"):
+        raise HTTPException(status_code=400, detail="Kind must be 'narrower', 'related', 'alias', or 'delete'")
+
+    def _record():
+        taxonomy_db.upsert_master_tag(a)
+        taxonomy_db.upsert_master_tag(b)
+        taxonomy_db.record_relation(a, b, kind=kind, tier="reviewed")
+
+    await asyncio.to_thread(_record)
+    return {"status": "ok", "message": f"Recorded relation: #{a} --({kind})--> #{b}"}
+
+
+class TaxonomyAliasCreateRequest(BaseModel):
+    """Pydantic model for creating a new alias."""
+
+    alias: str
+    canonical: str
+
+
+@app.post("/api/taxonomy/alias")
+async def create_taxonomy_alias(
+    req: TaxonomyAliasCreateRequest, _: None = Depends(check_auth)
+):
+    """Record an alias pointing to a canonical tag, repointing relations and pruning standalone records."""
+    alias = req.alias.strip().lstrip("#").strip().lower()
+    canonical = req.canonical.strip().lstrip("#").strip().lower()
+
+    if not alias or not canonical or alias == canonical:
+        raise HTTPException(status_code=400, detail="Invalid alias or canonical specified")
+
+    moves, deleted = await asyncio.to_thread(_register_taxonomy_alias, alias, canonical)
+    return {
+        "status": "ok",
+        "message": f"Recorded alias: #{alias} redirects to #{canonical}",
+        "moves": moves,
+        "pruned_standalone": deleted,
+    }
 
 
 class TaxonomyAliasFlipRequest(BaseModel):
@@ -6587,17 +6908,16 @@ async def sever_taxonomy_alias(
 
 @app.get("/api/taxonomy/authority/lookup")
 async def lookup_authority_terms(
-    term: str = "", max_results: int = 5, _: None = Depends(check_auth)
+    term: str = "", max_results: int = 8, _: None = Depends(check_auth)
 ):
     """Query Library of Congress Subject Headings / FAST for a search query."""
-    from scripts.lookup_authority_taxonomy import query_authority
+    from scripts.lookup_authority_taxonomy import query_authority_diagnostic
 
     clean = (term or "").strip()
     if not clean:
-        return {"results": []}
+        return {"results": [], "total": 0, "sources": [], "errors": []}
 
-    results = await asyncio.to_thread(query_authority, clean, max_results=max_results)
-    return {"results": results}
+    return await asyncio.to_thread(query_authority_diagnostic, clean, max_results=max_results)
 
 
 class TaxonomyAuthorityPromoteRequest(BaseModel):
@@ -6820,7 +7140,31 @@ async def _apply_proposal_action(
     elif action == "edit":
         if not req or req.modified_text is None:
             raise HTTPException(status_code=400, detail="edit requires modified_text in request body")
-        await asyncio.to_thread(memory_db.update_proposal, id, merged_observation=req.modified_text)
+
+        def _edit_proposal():
+            proposals = memory_db.get_pending_proposals()
+            prop = next((p for p in proposals if p["id"] == id), None)
+            if not prop:
+                return memory_db.update_proposal(id, merged_observation=req.modified_text)
+            new_reason = None
+            if prop["type"] == "profile_update" and prop.get("reason"):
+                try:
+                    reason_obj = json.loads(prop["reason"])
+                    if isinstance(reason_obj, dict) and reason_obj.get("candidate_ledger"):
+                        from Evelyn.tools import profile_ledger
+
+                        reconciled = profile_ledger.reconcile_ledger_with_presentation(
+                            reason_obj["candidate_ledger"], req.modified_text or ""
+                        )
+                        reason_obj["candidate_ledger"] = reconciled
+                        new_reason = json.dumps(reason_obj, indent=2)
+                except (json.JSONDecodeError, TypeError, KeyError, ValueError, OSError) as e_recon:
+                    print(f"[SERVER WARNING] Could not reconcile candidate ledger on proposal edit: {e_recon}", flush=True)
+            if new_reason:
+                return memory_db.update_proposal(id, merged_observation=req.modified_text, reason=new_reason)
+            return memory_db.update_proposal(id, merged_observation=req.modified_text)
+
+        await asyncio.to_thread(_edit_proposal)
         return {"status": "ok"}
     elif action == "unlink_source":
         if not req or req.source_id is None:
@@ -6877,7 +7221,12 @@ async def _apply_proposal_action(
 
                             ledger_filename = profile_ledger.get_ledger_filename(target_filename)
                             ledger_file = PERSONA_DIR / ledger_filename
-                            ledger_file.write_text(reason_obj["candidate_ledger"], encoding="utf-8")
+                            # Reconcile candidate ledger with the approved final_text so deletions persist
+                            candidate_ledger = reason_obj["candidate_ledger"]
+                            reconciled_ledger = profile_ledger.reconcile_ledger_with_presentation(
+                                candidate_ledger, final_text
+                            )
+                            ledger_file.write_text(reconciled_ledger, encoding="utf-8")
                             subprocess.run(
                                 [sys.executable, "scripts/update_frontmatter.py", str(ledger_file)],
                                 cwd=str(BASE_DIR),

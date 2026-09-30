@@ -1,6 +1,6 @@
 # profile_ledger.py
 # date created: 2026-09-12 09:40:00
-# date modified: 2026-09-12 09:44:29
+# date modified: 2026-09-29 19:15:09
 # tags: #profile, #ledger, #facts, #persona, #evolution
 
 """
@@ -389,3 +389,75 @@ def prune_ledger_to_budget(
             current_words = count_ledger_words(updated)
 
     return updated, total_pruned
+
+
+def reconcile_ledger_with_presentation(ledger_content: str, presentation_markdown: str) -> str:
+    """Synchronize an authoritative ledger with a human-edited presentation markdown document.
+
+    Ensures that manual edits to profile proposals or living profile notes (User_Profile.md,
+    System_Directives.md) update the underlying authoritative facts ledger (*_facts.md)
+    so deleted items do not resurrect on future evolution runs:
+      - Deleted bullets in the presentation layer are pruned from the ledger.
+      - Modified bullets update the factoid text while strictly preserving priority tiers.
+      - Brand new bullets in the presentation layer are admitted as new LedgerItems.
+
+    Args:
+        ledger_content: Raw markdown text of the authoritative *_facts.md ledger.
+        presentation_markdown: Raw markdown text of the presentation *.md document.
+
+    Returns:
+        str: Reconciled authoritative *_facts.md content.
+    """
+    ledger_fm, ledger_sections = parse_ledger(ledger_content)
+    _pres_fm, pres_sections = parse_ledger(presentation_markdown)
+
+    # Safety: If presentation markdown has no bullet items (e.g. pure narrative prose in
+    # Assistant_Profile.md or mangled text), do NOT wipe out the structured ledger.
+    has_pres_bullets = any(items for items in pres_sections.values())
+    if not has_pres_bullets:
+        return ledger_content
+
+    reconciled_sections: dict[str, list[LedgerItem]] = {}
+
+    for sec_header, pres_items in pres_sections.items():
+        existing_items = ledger_sections.get(sec_header, [])
+        reconciled_items: list[LedgerItem] = []
+
+        for p_item in pres_items:
+            matched: LedgerItem | None = None
+            if p_item.label:
+                matched = next(
+                    (it for it in existing_items if it.label and it.label.strip().lower() == p_item.label.strip().lower()),
+                    None,
+                )
+            if not matched:
+                matched = next(
+                    (it for it in existing_items if it.fact.strip().lower() == p_item.fact.strip().lower()),
+                    None,
+                )
+
+            if matched:
+                # Retain tier from ledger item, update fact & label
+                reconciled_items.append(
+                    LedgerItem(
+                        section=sec_header,
+                        tier=matched.tier,
+                        label=p_item.label,
+                        fact=p_item.fact,
+                    )
+                )
+            else:
+                # Brand new item authored by user
+                default_tier = 1 if any(k in sec_header.lower() for k in ("identity", "values", "boundar")) else 2
+                reconciled_items.append(
+                    LedgerItem(
+                        section=sec_header,
+                        tier=default_tier,
+                        label=p_item.label,
+                        fact=p_item.fact,
+                    )
+                )
+
+        reconciled_sections[sec_header] = reconciled_items
+
+    return render_ledger(ledger_fm, reconciled_sections)

@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evelyn — Profile Facts Ledger Workstation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #07090e;
+      --bg-surface: #0e131f;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-glow: rgba(99, 102, 241, 0.2);
+      --accent: #7c6af7;
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.2);
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.2);
+      --rose: #f43f5e;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --radius: 10px;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100vh;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      line-height: 1.5;
+    }
+
+    header {
+      background: rgba(14, 19, 31, 0.88);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      font-size: 24px;
+      filter: drop-shadow(0 0 8px var(--amber-glow));
+    }
+    .brand-text h1 {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-nav {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-nav:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 20px 80px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Ledger Selection Cards */
+    .ledger-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    .ledger-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+      user-select: none;
+    }
+    .ledger-card:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+    .ledger-card.active {
+      border-color: var(--amber);
+      background: rgba(245, 158, 11, 0.05);
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.12);
+    }
+    .ledger-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .ledger-card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ledger-card-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      flex: 1;
+    }
+    .ledger-card-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-dim);
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--amber);
+      transition: width 0.3s ease;
+    }
+
+    /* Controls & Filter Toolbar */
+    .toolbar {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .search-box {
+      flex: 1;
+      min-width: 220px;
+      position: relative;
+    }
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 8px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--primary);
+    }
+    .filter-select {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 8px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+    }
+    .filter-select:focus {
+      border-color: var(--primary);
+    }
+    .btn-action-primary {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+    .btn-action-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    /* Add Fact Card */
+    .add-fact-card {
+      display: none;
+      background: var(--bg-surface);
+      border: 1px solid var(--primary);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+    }
+    .add-fact-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 160px;
+      gap: 12px;
+    }
+    @media (max-width: 768px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-input, .form-textarea, .form-select {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+    }
+    .form-input:focus, .form-textarea:focus, .form-select:focus {
+      border-color: var(--primary);
+    }
+
+    /* Sections & Facts List */
+    .sections-container {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .section-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .section-header {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-badge {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.06);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .fact-row {
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      transition: background 0.15s ease;
+    }
+    .fact-row:last-child {
+      border-bottom: none;
+    }
+    .fact-row:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .fact-content-wrap {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .tier-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.6px;
+      cursor: pointer;
+      flex-shrink: 0;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .tier-badge:hover {
+      transform: scale(1.05);
+    }
+    .tier-1 {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+    .tier-2 {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+    .tier-3 {
+      background: rgba(156, 163, 175, 0.15);
+      color: #9ca3af;
+      border: 1px solid rgba(156, 163, 175, 0.4);
+    }
+
+    .fact-text {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-main);
+      word-break: break-word;
+    }
+    .fact-label {
+      font-weight: 600;
+      color: #fff;
+      margin-right: 6px;
+    }
+
+    .fact-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .btn-edit {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-edit:hover {
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .btn-delete {
+      background: rgba(244, 63, 94, 0.12);
+      color: #fda4af;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-delete:hover {
+      background: rgba(244, 63, 94, 0.25);
+      color: #fff;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid var(--primary);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      animation: slideUp 0.25s ease-out;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <span class="brand-icon">📋</span>
+      <div class="brand-text">
+        <h1>Profile Facts Ledger Workstation</h1>
+        <p>Curate atomic facts held in authoritative persona ledgers (*_facts.md) — edits instantly sync presentation documents</p>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <a href="/ui/taxonomy.html" class="btn-nav" title="Taxonomy & Vocabulary Explorer">🏷️ Taxonomy Explorer</a>
+      <a href="/ui/dev.html" class="btn-nav" title="Return to Developer Dashboard">⚙️ Dev Dashboard</a>
+      <a href="/ui/" class="btn-nav" title="Return to Chat Interface">💬 Back to Chat</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Ledger Selector Cards -->
+    <div class="ledger-cards-grid" id="ledger-cards-container">
+      <div class="ledger-card active" onclick="selectLedger('User_Profile_facts.md')" id="card-user" title="Curate User Profile atomic facts, conditions, preferences, and lifestyle boundaries">
+        <div class="ledger-card-header">
+          <span class="ledger-card-title">🙋‍♂️ User Profile</span>
+          <span class="badge tier-1" id="badge-count-user">0 facts</span>
+        </div>
+        <div class="ledger-card-desc" id="desc-user">Authoritative facts, conditions, and preferences for the user.</div>
+        <div class="ledger-card-meta">
+          <span id="words-user">0 / 600 words</span>
+          <span id="pct-user">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="fill-user" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="ledger-card" onclick="selectLedger('Assistant_Profile_facts.md')" id="card-assistant" title="Curate Assistant Profile persona traits, voice cadence, and emotional warmth">
+        <div class="ledger-card-header">
+          <span class="ledger-card-title">👤 Assistant Profile</span>
+          <span class="badge tier-2" id="badge-count-assistant">0 facts</span>
+        </div>
+        <div class="ledger-card-desc" id="desc-assistant">Authoritative persona traits, creative style, and voice cadence.</div>
+        <div class="ledger-card-meta">
+          <span id="words-assistant">0 / 600 words</span>
+          <span id="pct-assistant">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="fill-assistant" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="ledger-card" onclick="selectLedger('System_Directives_facts.md')" id="card-directives" title="Curate operational directives, tool rules, execution protocols, and behavioral defaults">
+        <div class="ledger-card-header">
+          <span class="ledger-card-title">⚙️ Directives</span>
+          <span class="badge tier-3" id="badge-count-directives">0 rules</span>
+        </div>
+        <div class="ledger-card-desc" id="desc-directives">Operational directives, tool constraints, and behavioral defaults.</div>
+        <div class="ledger-card-meta">
+          <span id="words-directives">0 / 500 words</span>
+          <span id="pct-directives">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="fill-directives" style="width: 0%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar: Search, Section Filter, Tier Filter & Add Fact Button -->
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="search-input" class="search-input" placeholder="🔍 Search facts or labels (Press '/' to focus)..." oninput="applyFilters()" title="Filter facts by text in label or body">
+      </div>
+      
+      <select id="section-filter" class="filter-select" onchange="applyFilters()" title="Filter by document section heading">
+        <option value="ALL">All Sections</option>
+      </select>
+
+      <select id="tier-filter" class="filter-select" onchange="applyFilters()" title="Filter by priority tier depth">
+        <option value="ALL">All Tiers (Core / Expanded / Archived)</option>
+        <option value="1">Core Only (Tier 1: Always Injected)</option>
+        <option value="2">Expanded Only (Tier 2: Context-Aware)</option>
+        <option value="3">Archived Only (Tier 3: Preserved But Inactive)</option>
+      </select>
+
+      <button class="btn-action-primary" onclick="toggleAddFactCard()" title="Add a new atomic fact to this ledger" type="button">
+        ➕ Add Fact
+      </button>
+
+      <div style="font-size: 12px; color: var(--text-muted); margin-left: auto;" id="filter-stats">
+        Showing 0 of 0 facts
+      </div>
+    </div>
+
+    <!-- Collapsible Add Fact Panel -->
+    <div class="add-fact-card" id="add-fact-panel">
+      <div class="add-fact-title">
+        <span>➕ Add New Fact to <code id="add-panel-target-name" style="color: #fff; font-family: var(--font-mono);">User_Profile_facts.md</code></span>
+        <button type="button" class="btn-edit" onclick="toggleAddFactCard(false)" title="Cancel adding fact">&times; Close</button>
+      </div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label class="form-label" for="add-section">Section Heading</label>
+          <input type="text" id="add-section" list="existing-sections-list" class="form-input" placeholder="e.g. Communication Style" title="Target section in the document">
+          <datalist id="existing-sections-list"></datalist>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="add-label">Label (Bold Anchor)</label>
+          <input type="text" id="add-label" class="form-input" placeholder="e.g. Tone Preference" title="Bold descriptive anchor phrase for this fact">
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="add-tier">Priority Tier</label>
+          <select id="add-tier" class="form-select" title="Priority tier determining context injection depth">
+            <option value="1">Core (Tier 1)</option>
+            <option value="2" selected>Expanded (Tier 2)</option>
+            <option value="3">Archived (Tier 3)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="add-text">Fact Statement</label>
+        <textarea id="add-text" rows="3" class="form-textarea" placeholder="e.g. Prefers direct, concise answers without conversational filler." title="The factual statement or observation"></textarea>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn-edit" type="button" onclick="toggleAddFactCard(false)">Cancel</button>
+        <button class="btn-action-primary" type="button" onclick="submitAddFact()">Save Fact to Ledger</button>
+      </div>
+    </div>
+
+    <!-- Main Facts List Container -->
+    <div class="sections-container" id="sections-container">
+      <div style="text-align: center; color: var(--text-muted); padding: 60px 20px;">Loading profile ledger facts...</div>
+    </div>
+  </main>
+
+  <!-- Floating Toast -->
+  <div class="toast" id="toast">
+    <span id="toast-icon">✓</span>
+    <span id="toast-message">Action completed</span>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const API_KEY = localStorage.getItem('evelyn_api_key') || '';
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      if (API_KEY) {
+        h['X-Evelyn-Key'] = API_KEY;
+        h['X-API-Key'] = API_KEY;
+      }
+      return h;
+    }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    const escapeAttr = escapeHtml;
+
+    function showToast(message, icon = '✓') {
+      const toast = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-message');
+      const iconEl = document.getElementById('toast-icon');
+      if (!toast || !msgEl) return;
+      msgEl.textContent = message;
+      if (iconEl) iconEl.textContent = icon;
+      toast.style.display = 'flex';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3500);
+    }
+
+    // Workstation State
+    let activeLedger = 'User_Profile_facts.md';
+    let currentLedgerData = null;
+    let editingItemKey = null; // null or 'secIdx-itemIdx'
+
+    // Parse deep-link parameter ?doc=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialDoc = urlParams.get('doc');
+    if (initialDoc && ['User_Profile_facts.md', 'Assistant_Profile_facts.md', 'System_Directives_facts.md'].includes(initialDoc)) {
+      activeLedger = initialDoc;
+    }
+
+    async function loadLedgerSummaries() {
+      try {
+        const res = await fetch(`${API_BASE}/api/persona/ledgers`, { headers: headers() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const ledgers = data.ledgers || [];
+
+        ledgers.forEach(l => {
+          let prefix = '';
+          if (l.filename === 'User_Profile_facts.md') prefix = 'user';
+          else if (l.filename === 'Assistant_Profile_facts.md') prefix = 'assistant';
+          else if (l.filename === 'System_Directives_facts.md') prefix = 'directives';
+          if (!prefix) return;
+
+          const badgeEl = document.getElementById(`badge-count-${prefix}`);
+          const wordsEl = document.getElementById(`words-${prefix}`);
+          const pctEl = document.getElementById(`pct-${prefix}`);
+          const fillEl = document.getElementById(`fill-${prefix}`);
+          const descEl = document.getElementById(`desc-${prefix}`);
+
+          if (badgeEl) badgeEl.textContent = `${l.total_items || 0} ${prefix === 'directives' ? 'rules' : 'facts'}`;
+          if (descEl && l.description) descEl.textContent = l.description;
+
+          const limit = l.word_limit || 600;
+          const words = l.total_words || 0;
+          const pct = Math.min(100, Math.round((words / limit) * 100));
+
+          if (wordsEl) wordsEl.textContent = `${words} / ${limit} words`;
+          if (pctEl) pctEl.textContent = `${pct}%`;
+          if (fillEl) {
+            fillEl.style.width = `${pct}%`;
+            if (pct >= 90) fillEl.style.background = 'var(--rose)';
+            else if (pct >= 75) fillEl.style.background = 'var(--amber)';
+            else fillEl.style.background = 'var(--emerald)';
+          }
+        });
+      } catch (err) {
+        console.warn('Failed to load ledger metadata:', err);
+      }
+    }
+
+    async function selectLedger(filename) {
+      activeLedger = filename;
+      editingItemKey = null;
+      toggleAddFactCard(false);
+
+      // Update card active states
+      document.getElementById('card-user').className = `ledger-card ${filename === 'User_Profile_facts.md' ? 'active' : ''}`;
+      document.getElementById('card-assistant').className = `ledger-card ${filename === 'Assistant_Profile_facts.md' ? 'active' : ''}`;
+      document.getElementById('card-directives').className = `ledger-card ${filename === 'System_Directives_facts.md' ? 'active' : ''}`;
+
+      const addTargetEl = document.getElementById('add-panel-target-name');
+      if (addTargetEl) addTargetEl.textContent = filename;
+
+      await loadLedgerContent(filename);
+    }
+
+    async function loadLedgerContent(filename) {
+      const container = document.getElementById('sections-container');
+      if (container) {
+        container.innerHTML = `
+          <div style="text-align: center; color: var(--primary); padding: 60px 20px;">
+            <div style="font-size: 16px; font-weight: 500;">Loading facts for ${escapeHtml(filename)}...</div>
+          </div>
+        `;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/persona/ledger/${encodeURIComponent(filename)}`, { headers: headers() });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (container) {
+            container.innerHTML = `<div style="color: var(--rose); padding: 30px; text-align: center;">Failed to load ledger: ${escapeHtml(err.detail || res.statusText)}</div>`;
+          }
+          return;
+        }
+
+        currentLedgerData = await res.json();
+        updateSectionFilterOptions();
+        renderSections();
+      } catch (err) {
+        if (container) {
+          container.innerHTML = `<div style="color: var(--rose); padding: 30px; text-align: center;">Network error loading ledger: ${escapeHtml(err.message || err)}</div>`;
+        }
+      }
+    }
+
+    function updateSectionFilterOptions() {
+      const select = document.getElementById('section-filter');
+      const datalist = document.getElementById('existing-sections-list');
+      if (!select || !currentLedgerData) return;
+
+      const currentVal = select.value;
+      const sections = Object.keys(currentLedgerData.sections || {});
+
+      select.innerHTML = '<option value="ALL">All Sections</option>' + 
+        sections.map(s => {
+          const clean = s.replace(/^#+\s*/, '');
+          const count = (currentLedgerData.sections[s] || []).length;
+          return `<option value="${escapeAttr(s)}">${escapeHtml(clean)} (${count})</option>`;
+        }).join('');
+
+      if (sections.includes(currentVal)) {
+        select.value = currentVal;
+      } else {
+        select.value = 'ALL';
+      }
+
+      if (datalist) {
+        datalist.innerHTML = sections.map(s => `<option value="${escapeAttr(s.replace(/^#+\s*/, ''))}">`).join('');
+      }
+    }
+
+    function applyFilters() {
+      renderSections();
+    }
+
+    function renderSections() {
+      const container = document.getElementById('sections-container');
+      const statsEl = document.getElementById('filter-stats');
+      const searchInput = document.getElementById('search-input');
+      const secSelect = document.getElementById('section-filter');
+      const tierSelect = document.getElementById('tier-filter');
+
+      if (!container || !currentLedgerData) return;
+
+      const query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+      const filterSec = secSelect ? secSelect.value : 'ALL';
+      const filterTier = tierSelect ? tierSelect.value : 'ALL';
+
+      const sections = currentLedgerData.sections || {};
+      const sectionKeys = Object.keys(sections);
+
+      let totalCount = 0;
+      let visibleCount = 0;
+      let cardsHtml = '';
+
+      sectionKeys.forEach((secHeading, secIdx) => {
+        const items = sections[secHeading] || [];
+        totalCount += items.length;
+
+        if (filterSec !== 'ALL' && secHeading !== filterSec) {
+          return;
+        }
+
+        const matchingItems = items.map((item, itemIdx) => ({ item, itemIdx })).filter(({ item }) => {
+          if (filterTier !== 'ALL') {
+            if (String(item.tier) !== filterTier) return false;
+          }
+          if (query) {
+            const labelMatch = (item.label || '').toLowerCase().includes(query);
+            const factMatch = (item.fact || '').toLowerCase().includes(query);
+            if (!labelMatch && !factMatch) return false;
+          }
+          return true;
+        });
+
+        if (matchingItems.length === 0) return;
+        visibleCount += matchingItems.length;
+
+        const cleanHeading = secHeading.replace(/^#+\s*/, '');
+        const rowsHtml = matchingItems.map(({ item, itemIdx }) => {
+          const itemKey = `${secIdx}-${itemIdx}`;
+          const isEditing = editingItemKey === itemKey;
+
+          const tierMap = {
+            1: { text: 'CORE', class: 'tier-1', title: 'Core tier: always injected into active conversational context' },
+            2: { text: 'EXPANDED', class: 'tier-2', title: 'Expanded tier: selectively injected when topically relevant' },
+            3: { text: 'ARCHIVED', class: 'tier-3', title: 'Archived tier: preserved in ledger history but inactive' },
+          };
+          const tierInfo = tierMap[item.tier] || tierMap[2];
+
+          if (isEditing) {
+            return `
+              <div class="fact-row" style="background: rgba(99, 102, 241, 0.08); flex-direction: column; gap: 12px;">
+                <div style="display: flex; gap: 12px; width: 100%;">
+                  <div style="flex: 2;">
+                    <label class="form-label" style="margin-bottom: 3px; display: block;">Label (Bold Anchor)</label>
+                    <input type="text" id="edit-label-${itemKey}" value="${escapeAttr(item.label)}" class="form-input" style="width: 100%; border-color: var(--primary);" title="Descriptive label">
+                  </div>
+                  <div style="flex: 1; min-width: 130px;">
+                    <label class="form-label" style="margin-bottom: 3px; display: block;">Priority Tier</label>
+                    <select id="edit-tier-${itemKey}" class="form-select" style="width: 100%; border-color: var(--primary);" title="Priority tier">
+                      <option value="1" ${item.tier === 1 ? 'selected' : ''}>Core (Tier 1)</option>
+                      <option value="2" ${item.tier === 2 ? 'selected' : ''}>Expanded (Tier 2)</option>
+                      <option value="3" ${item.tier === 3 ? 'selected' : ''}>Archived (Tier 3)</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="width: 100%;">
+                  <label class="form-label" style="margin-bottom: 3px; display: block;">Fact Statement</label>
+                  <textarea id="edit-fact-${itemKey}" rows="3" class="form-textarea" style="width: 100%; border-color: var(--primary);" title="Content statement of this atomic fact">${escapeHtml(item.fact)}</textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 8px; width: 100%;">
+                  <button class="btn-edit" onclick="cancelEdit()" type="button">Cancel</button>
+                  <button class="btn-action-primary" onclick="saveItem(${secIdx}, ${itemIdx})" type="button">Save Changes</button>
+                </div>
+              </div>
+            `;
+          }
+
+          return `
+            <div class="fact-row">
+              <div class="fact-content-wrap">
+                <span class="tier-badge ${tierInfo.class}" onclick="cycleTier(${secIdx}, ${itemIdx})" title="Click to cycle tier (Core → Expanded → Archived). Current: ${tierInfo.title}">
+                  ${tierInfo.text}
+                </span>
+                <div class="fact-text">
+                  ${item.label ? `<span class="fact-label">${escapeHtml(item.label)}:</span>` : ''}
+                  <span>${escapeHtml(item.fact)}</span>
+                </div>
+              </div>
+              <div class="fact-actions">
+                <button class="btn-edit" onclick="startEdit(${secIdx}, ${itemIdx})" title="Edit label, fact statement, or priority tier" type="button">✏️ Edit</button>
+                <button class="btn-delete" onclick="deleteItem(${secIdx}, ${itemIdx})" title="Permanently remove this fact and recompile presentation document" type="button">🗑️ Remove</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        cardsHtml += `
+          <div class="section-card">
+            <div class="section-header">
+              <span>## ${escapeHtml(cleanHeading)}</span>
+              <span class="section-badge">${matchingItems.length} facts</span>
+            </div>
+            <div>${rowsHtml}</div>
+          </div>
+        `;
+      });
+
+      if (statsEl) {
+        statsEl.textContent = `Showing ${visibleCount} of ${totalCount} facts`;
+      }
+
+      if (!cardsHtml) {
+        container.innerHTML = `
+          <div style="text-align: center; padding: 60px 20px; color: var(--text-dim);">
+            <div style="font-size: 15px; font-weight: 500;">No matching facts found.</div>
+            <div style="font-size: 12px; margin-top: 6px;">Try adjusting your search query or section filters.</div>
+          </div>
+        `;
+      } else {
+        container.innerHTML = cardsHtml;
+      }
+    }
+
+    function toggleAddFactCard(forceState) {
+      const panel = document.getElementById('add-fact-panel');
+      if (!panel) return;
+      const isVisible = panel.style.display === 'flex';
+      const newState = forceState !== undefined ? forceState : !isVisible;
+      panel.style.display = newState ? 'flex' : 'none';
+      if (newState) {
+        const input = document.getElementById('add-label');
+        if (input) input.focus();
+      }
+    }
+
+    function startEdit(secIdx, itemIdx) {
+      editingItemKey = `${secIdx}-${itemIdx}`;
+      renderSections();
+      setTimeout(() => {
+        const input = document.getElementById(`edit-label-${editingItemKey}`);
+        if (input) input.focus();
+      }, 50);
+    }
+
+    function cancelEdit() {
+      editingItemKey = null;
+      renderSections();
+    }
+
+    async function saveItem(secIdx, itemIdx) {
+      const sections = Object.keys(currentLedgerData.sections || {});
+      const secHeading = sections[secIdx];
+      const item = (currentLedgerData.sections[secHeading] || [])[itemIdx];
+      if (!item) return;
+
+      const itemKey = `${secIdx}-${itemIdx}`;
+      const labelInput = document.getElementById(`edit-label-${itemKey}`);
+      const factInput = document.getElementById(`edit-fact-${itemKey}`);
+      const tierSelect = document.getElementById(`edit-tier-${itemKey}`);
+
+      const newLabel = labelInput ? labelInput.value.trim() : item.label;
+      const newFact = factInput ? factInput.value.trim() : item.fact;
+      const newTier = tierSelect ? parseInt(tierSelect.value) : item.tier;
+
+      if (!newFact && !newLabel) {
+        alert('Fact statement or label cannot be empty.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/persona/ledger/${encodeURIComponent(activeLedger)}/item/update`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            section: secHeading,
+            orig_label: item.label,
+            label: newLabel,
+            fact: newFact,
+            tier: newTier
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to update fact: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        editingItemKey = null;
+        showToast(`Saved "${newLabel || 'fact'}" and recompiled profile`);
+        await loadLedgerSummaries();
+        await loadLedgerContent(activeLedger);
+      } catch (err) {
+        alert(`Network error saving fact: ${err.message || err}`);
+      }
+    }
+
+    async function cycleTier(secIdx, itemIdx) {
+      const sections = Object.keys(currentLedgerData.sections || {});
+      const secHeading = sections[secIdx];
+      const item = (currentLedgerData.sections[secHeading] || [])[itemIdx];
+      if (!item) return;
+
+      // Cycle: 1 -> 2 -> 3 -> 1
+      const nextTier = item.tier === 1 ? 2 : (item.tier === 2 ? 3 : 1);
+      const tierNames = { 1: 'Core', 2: 'Expanded', 3: 'Archived' };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/persona/ledger/${encodeURIComponent(activeLedger)}/item/update`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            section: secHeading,
+            orig_label: item.label,
+            label: item.label,
+            fact: item.fact,
+            tier: nextTier
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to update tier: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        item.tier = nextTier;
+        showToast(`Set tier to ${tierNames[nextTier]}`);
+        renderSections();
+      } catch (err) {
+        alert(`Network error cycling tier: ${err.message || err}`);
+      }
+    }
+
+    async function deleteItem(secIdx, itemIdx) {
+      const sections = Object.keys(currentLedgerData.sections || {});
+      const secHeading = sections[secIdx];
+      const item = (currentLedgerData.sections[secHeading] || [])[itemIdx];
+      if (!item) return;
+
+      const desc = item.label ? `"${item.label}"` : `"${item.fact.substring(0, 50)}..."`;
+      const confirmed = confirm(
+        `Permanently remove ${desc} from ${activeLedger}?\n\n` +
+        `This will delete it from the facts ledger, recompile the presentation profile note in your vault, ` +
+        `and permanently prevent it from resurrecting during future profile evolution runs.`
+      );
+
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/persona/ledger/${encodeURIComponent(activeLedger)}/item/delete`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            section: secHeading,
+            label: item.label,
+            fact: item.fact
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to delete fact: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        editingItemKey = null;
+        showToast(`Permanently removed ${desc}`);
+        await loadLedgerSummaries();
+        await loadLedgerContent(activeLedger);
+      } catch (err) {
+        alert(`Network error deleting fact: ${err.message || err}`);
+      }
+    }
+
+    async function submitAddFact() {
+      const secInput = document.getElementById('add-section');
+      const labelInput = document.getElementById('add-label');
+      const textInput = document.getElementById('add-text');
+      const tierSelect = document.getElementById('add-tier');
+
+      const rawSec = secInput ? secInput.value.trim() : '';
+      const label = labelInput ? labelInput.value.trim() : '';
+      const fact = textInput ? textInput.value.trim() : '';
+      const tier = tierSelect ? parseInt(tierSelect.value) : 2;
+
+      if (!rawSec) {
+        alert('Please specify a section name (e.g. Communication Style).');
+        if (secInput) secInput.focus();
+        return;
+      }
+      if (!fact && !label) {
+        alert('Please provide a fact statement or label.');
+        if (textInput) textInput.focus();
+        return;
+      }
+
+      const section = rawSec.startsWith('#') ? rawSec : `## ${rawSec}`;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/persona/ledger/${encodeURIComponent(activeLedger)}/item/update`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            section: section,
+            orig_label: '',
+            label: label,
+            fact: fact,
+            tier: tier
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to add fact: ${err.detail || res.statusText}`);
+          return;
+        }
+
+        if (labelInput) labelInput.value = '';
+        if (textInput) textInput.value = '';
+        toggleAddFactCard(false);
+
+        showToast(`Added "${label || 'new fact'}" to ${activeLedger}`);
+        await loadLedgerSummaries();
+        await loadLedgerContent(activeLedger);
+      } catch (err) {
+        alert(`Network error adding fact: ${err.message || err}`);
+      }
+    }
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        cancelEdit();
+        toggleAddFactCard(false);
+      } else if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.focus();
+      }
+    });
+
+    // Init Workstation
+    selectLedger(activeLedger);
+    loadLedgerSummaries();
+  </script>
+</body>
+</html>

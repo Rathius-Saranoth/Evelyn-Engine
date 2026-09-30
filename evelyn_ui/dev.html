@@ -440,7 +440,8 @@
   <header>
     <h1 id="header-title">Developer Dashboard</h1>
     <div style="display: flex; gap: 8px; align-items: center;">
-      <a href="/ui/taxonomy.html" class="back-btn" style="background: rgba(99, 102, 241, 0.15); border-color: rgba(99, 102, 241, 0.35); color: #818cf8;">🏷️ Taxonomy Explorer</a>
+      <a href="/ui/taxonomy.html" class="back-btn" style="background: rgba(99, 102, 241, 0.15); border-color: rgba(99, 102, 241, 0.35); color: #818cf8;" title="Taxonomy & Vocabulary Explorer">🏷️ Taxonomy Explorer</a>
+      <a href="/ui/profile_facts.html" class="back-btn" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.35); color: #fbbf24;" title="Open the standalone Profile Facts Ledger Workstation to curate atomic profile facts, edit tiers, or prune unwanted memories">📋 Profile Facts</a>
       <button class="back-btn" onclick="loadData()" style="cursor: pointer; border: none; font-family: inherit;">⟳ Refresh</button>
       <a href="/ui/" class="back-btn">← Back to Chat</a>
     </div>
@@ -5569,6 +5570,7 @@
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve this update: writes the proposed content to your profile note in the vault and archives the proposal">Approve Update</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this profile update without modifying your profile note">Reject Update</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently remove this proposal record from the database">🗑️ Remove</button>
+                <a href="/ui/profile_facts.html?doc=User_Profile_facts.md" target="_blank" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;" title="Open Profile Facts Ledger Workstation in a new tab to inspect or curate facts">📋 Curate Facts</a>
               </div>
 
               <details ${expandedProposalContexts.has(item.id) ? 'open' : ''} ontoggle="toggleProposalContext(${item.id}, this.open)" style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 4px;">

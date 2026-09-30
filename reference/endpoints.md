@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-09-28 19:30:05
+date modified: 2026-09-29 19:15:09
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -440,9 +440,14 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: JSON object `{"status": "ok", "roots": ["artificial-intelligence", "biology", ...], "trees": {"artificial-intelligence": ["machine-learning", "neural-networks", ...]}, "peers": ["astronomy", ...], "term_map": {...}, "relations": [...]}`
 
 ### `POST /api/taxonomy/relation`
-* **Purpose**: Creates or updates an associative (`related`) or hierarchical (`narrower` / `broader`) relationship between two taxonomy terms.
-* **Payload**: JSON object `{"term": "machine-learning", "related_term": "deep-learning", "kind": "narrower"}`
-* **Returns**: JSON object `{"status": "ok", "message": "Relation recorded", "relation": {...}}`
+* **Purpose**: Creates, updates, or deletes an associative (`related`), hierarchical (`narrower`), or equivalence (`alias`) relationship between two taxonomy terms. Ensures both endpoints exist in `master_tag_taxonomy` when creating relations, and executes full alias absorption and relation repointing when `kind="alias"`.
+* **Payload**: JSON object `{"term_a": "string", "term_b": "string", "kind": "narrower" | "related" | "alias" | "delete"}`
+* **Returns**: JSON object `{"status": "ok", "message": "Recorded relation...", "moves": {...}, "pruned_standalone": bool}`
+
+### `POST /api/taxonomy/alias`
+* **Purpose**: Directly registers an equivalence alias pointing to a canonical tag. Automatically ensures the canonical tag is registered in `master_tag_taxonomy`, transfers/repoints any existing relations from the alias onto the canonical tag, prunes the alias from `master_tag_taxonomy` if previously standalone, and invalidates the in-process alias cache for immediate write-path canonicalization.
+* **Payload**: JSON object `{"alias": "three-dimensional-printing", "canonical": "3d-printing"}`
+* **Returns**: JSON object `{"status": "ok", "message": "Recorded alias: #... redirects to #...", "moves": {"moved": int, "merged": int, "dropped": int}, "pruned_standalone": bool}`
 
 ### `POST /api/taxonomy/alias/flip`
 * **Purpose**: Inverts the directionality of an equivalence alias in `master_tag_aliases`, promoting the non-preferred surface form to the canonical term and making the former canonical term the alias.
@@ -455,14 +460,14 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: JSON object `{"status": "ok", "message": "Severed alias 'ml'; now independent canonical term"}`
 
 ### `GET /api/taxonomy/authority/lookup`
-* **Purpose**: Queries the external Library of Congress Linked Data Service (`id.loc.gov`) and OCLC FAST authority indexes for controlled vocabulary subject headings, variants, and LC classification notations.
-* **Query Parameters**: `query` (string, search term)
-* **Returns**: JSON object `{"status": "ok", "results": [{"uri": "http://id.loc.gov/authorities/subjects/sh85008180", "label": "Artificial intelligence", "scheme": "LCSH", "variants": ["AI", "Machine intelligence"]}]}`
+* **Purpose**: Queries the external Library of Congress Linked Data Service (`id.loc.gov`) and OCLC FAST authority indexes for controlled vocabulary subject headings, variants, and LC classification notations. Results are scored with multi-factor relevance ranking and hydrated with 4-facet thesaurus structures (UF - Used For / Aliases, BT - Broader Terms, NT - Narrower Terms, RT - Related Terms).
+* **Query Parameters**: `term` (string, query keyword), `max_results` (int, default 8)
+* **Returns**: JSON object `{"status": "ok", "results": [{"title": "...", "canonical_tag": "...", "source": "FAST + LOC", "uf": [...], "bt": [...], "nt": [...], "rt": [...]}]}`
 
 ### `POST /api/taxonomy/authority/promote`
 * **Purpose**: Promotes an authoritative heading retrieved from LOC/FAST into `master_tag_taxonomy`, automatically normalizing the label into a canonical hyphenated slug and registering variants as `UF` equivalence aliases.
-* **Payload**: JSON object `{"label": "Artificial intelligence", "uri": "...", "scheme": "LCSH", "variants": ["AI"]}`
-* **Returns**: JSON object `{"status": "ok", "tag": "artificial-intelligence", "aliases_registered": 1}`
+* **Payload**: JSON object `{"canonical_tag": "craft", "description": "...", "variants": ["crafts"]}`
+* **Returns**: JSON object `{"status": "ok", "promoted": "craft", "details": {...}}`
 
 ### `GET /api/taxonomy/names`
 * **Purpose**: Retrieves all registered named entities (individuals, organizations, locations, creative works) tracked in `tag_entities` (`evelyn_vault.db`).

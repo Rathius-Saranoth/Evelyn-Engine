@@ -1,6 +1,6 @@
 # test_profile_ledger.py
 # date created: 2026-09-12 09:40:00
-# date modified: 2026-09-12 09:48:20
+# date modified: 2026-09-29 19:15:09
 # tags: #testing, #ledger, #profile, #persona
 
 """
@@ -185,3 +185,52 @@ def test_draft_path_naming():
 
     path_asst = _draft_path("Assistant_Profile_facts.md")
     assert path_asst.endswith("evelyn_evolution_draft_Assistant_Profile_facts.md")
+
+
+def test_reconcile_ledger_with_presentation():
+    from Evelyn.tools.profile_ledger import reconcile_ledger_with_presentation
+
+    candidate_ledger = """---
+title: User_Profile_facts.md
+---
+
+## Communication Style
+* [Tier 1] **Direct Answers**: Prefers concise, unembellished answers.
+* [Tier 2] **Casual Tone**: Enjoys dry humor.
+* [Tier 1] **Unwanted Fact**: This was removed by the user in the presentation layer.
+
+## Technical Preferences
+* [Tier 1] **Python**: Loves modern Python with type hints.
+"""
+
+    # User pruned "Unwanted Fact", modified "Direct Answers", and added "New Rule"
+    presentation = """---
+title: User_Profile.md
+---
+
+## Communication Style
+* **Direct Answers**: Prefers concise, direct, unembellished answers.
+* **Casual Tone**: Enjoys dry humor.
+* **New Rule**: Always verify unit tests before committing.
+
+## Technical Preferences
+* **Python**: Loves modern Python with type hints.
+"""
+
+    reconciled = reconcile_ledger_with_presentation(candidate_ledger, presentation)
+
+    # 1. "Unwanted Fact" must be completely gone
+    assert "Unwanted Fact" not in reconciled
+
+    # 2. "Direct Answers" must preserve Tier 1 and have updated text
+    assert "* [Tier 1] **Direct Answers**: Prefers concise, direct, unembellished answers." in reconciled
+
+    # 3. "Casual Tone" must preserve Tier 2
+    assert "* [Tier 2] **Casual Tone**: Enjoys dry humor." in reconciled
+
+    # 4. "New Rule" should be added with default Tier 2
+    assert "* [Tier 2] **New Rule**: Always verify unit tests before committing." in reconciled
+
+    # 5. Technical Preferences intact
+    assert "## Technical Preferences" in reconciled
+    assert "* [Tier 1] **Python**: Loves modern Python with type hints." in reconciled

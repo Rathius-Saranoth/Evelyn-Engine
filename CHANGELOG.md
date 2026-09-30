@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-28 21:18:11
+date modified: 2026-09-29 19:15:09
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,119 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.286] - 2026-09-29 — *Taxonomy Inspector Inline Related Concept Linking*
+
+### Added
+
+- **Inspector Inline Related Concept Linking (`evelyn_ui/taxonomy.html`)**:
+  - Added dedicated inline input field and **`+ Add Related Concept`** button directly inside the **🔗 Related Concepts (Associative Peers)** inspector card (`#card-related`).
+  - Implemented `addRelatedFromInspector()` handler connecting associative peers via `POST /api/taxonomy/relation` (`kind="related"`), refreshing the graph and preserving active selection.
+  - Added input clearing in `selectTag()` to purge partially typed related and alias inputs when switching concepts.
+- **Controlled Vocabulary Registration on Relationship Linking (`evelyn_server.py`)**:
+  - Updated `update_taxonomy_relation()` to ensure both endpoints (`term_a` and `term_b`) are registered in `master_tag_taxonomy` via `taxonomy_db.upsert_master_tag()` before linking associative or hierarchical relations, guaranteeing referential integrity across graph views.
+
+## [000.006.285] - 2026-09-29 — *Taxonomy Alias Equivalence Linker & Absorption Invariants*
+
+### Added
+
+- **Multi-Point Alias Creation Workflow (`evelyn_ui/taxonomy.html`)**:
+  - **Quick Relationship Linker Integration**: Added `Alias / Equivalence (Term A redirects to canonical Term B)` option to the `#link-kind` dropdown. Implemented `updateQuickLinkerLabels()` to dynamically toggle input labels and placeholders between relationship hierarchy (`Child` / `Parent`), associative peers (`Concept A` / `Concept B`), and alias redirection (`Alias / Surface Form` / `Canonical Target`).
+  - **Inspector Card Inline Alias Addition**: Added an inline alias input field and `+ Add Alias` action directly inside the **🔀 Equivalent Aliases (Redirects Here)** card for the selected tag, allowing instant alias creation without typing the canonical term.
+  - **Authority UF 1-Click Alias Adoption**: Added interactive `+ Alias` buttons to every variant pill in the **🏷️ UF (Used For / Aliases)** section of authority search results, allowing one-click alias registration directly from institutional library records.
+  - **Relationship Modal Equivalence**: Added `Alias / Equivalence (Target redirects to Current)` to the modal relationship selector for inline tag linking.
+- **Backend Alias Absorption & Invariant Enforcement (`evelyn_server.py`)**:
+  - Implemented `_register_taxonomy_alias()` helper enforcing full ISO 25964 / SKOS equivalence semantics:
+    - **Canonical Guarantee**: Ensures the canonical target is registered in `master_tag_taxonomy`.
+    - **Vocabulary De-duplication / Absorption**: If the alias previously existed as a standalone tag in `master_tag_taxonomy`, prunes it from `master_tag_taxonomy` and enqueues Chroma vector deletion via `tag_librarian.delete_tag_from_chroma()`.
+    - **Relationship Inheritance & Repointing**: Invokes `taxonomy_db.repoint_relations(alias, canonical)` to move any existing hierarchical (`narrower`) or associative (`related`) relations from the retired alias onto the surviving canonical tag, pruning self-referential links.
+    - **Cache Invalidation**: Automatically drops `taxonomy_db._ALIAS_CACHE` so write-path canonicalization (`canonicalize_tags()`) immediately rewrites notes, facts, and queries across the engine.
+  - Updated `POST /api/taxonomy/relation` to support `kind="alias"`.
+  - Added dedicated endpoint `POST /api/taxonomy/alias` with Pydantic request validation (`TaxonomyAliasCreateRequest`).
+- **Targeted Unit Testing (`Evelyn/tests/test_authority_taxonomy.py`)**:
+  - Added `test_register_taxonomy_alias_absorption_and_repointing()` testing end-to-end alias registration, standalone tag pruning, relation inheritance, and instantaneous cache invalidation.
+
+## [000.006.284] - 2026-09-29 — *Taxonomy Authority 4-Facet Thesaurus Discovery (UF, BT, NT, RT)*
+
+### Added
+
+- **4-Facet Thesaurus Discovery Engine (`scripts/lookup_authority_taxonomy.py`)**:
+  - Implemented `fetch_loc_concept_facets()` extracting all 4 ISO 25964 / SKOS thesaurus facets directly from Library of Congress linked-data JSON-LD payloads:
+    - **UF (Used For / Aliases)**: Synonyms and alternative labels (`skos:altLabel` / `madsrdf:variantLabel`).
+    - **BT (Broader Terms / Parent Concepts)**: Direct hierarchical parents (`skos:broader` / `madsrdf:hasBroaderAuthority`).
+    - **NT (Narrower Terms / Sub-Concepts)**: Direct hierarchical children (`skos:narrower` / `madsrdf:hasNarrowerAuthority`).
+    - **RT (Related Terms / Associative Peers)**: Non-hierarchical associative concept peers (`skos:related` / `madsrdf:hasRelatedAuthority`).
+  - Added exact alias matching bonus (+850) in `score_authority_result()` so searching by an alias (e.g. `3d-printing`) immediately elevates the canonical authorized heading (`Three-dimensional printing`) to Rank 1.
+  - Hydrated top candidates in parallel without extra latency, taking advantage of self-contained JSON-LD concept graphs.
+- **Interactive Facet Curation & One-Click Linking (`evelyn_ui/taxonomy.html`)**:
+  - Upgraded authority result cards to display dedicated color-coded facet sections:
+    - 🏷️ **UF (Used For / Aliases)**: Amber/cyan pills displaying see-from aliases that are registered on promotion.
+    - 🌳 **BT (Broader / Parent Concepts)**: Indigo pills with clickable title links and an **`⬆ Parent`** quick-link button.
+    - 🌿 **NT (Narrower / Sub-Concepts)**: Violet pills with clickable title links and a **`⬇ Child`** quick-link button.
+    - ⚡ **RT (Related / Associative Peers)**: Gold pills with clickable title links and a **`⚡ Peer`** quick-link button.
+  - Implemented `quickLinkAuthorityRelation()`: one-click action that connects concepts directly into `master_tag_related` via `POST /api/taxonomy/relation` and refreshes the graph view.
+  - Implemented `searchAuthorityPivot()`: clicking on any broader, narrower, or related concept title pivots the authority search box to explore that concept's neighborhood, enabling seamless graph navigation across global library authorities.
+- **Targeted Facet Unit Testing (`Evelyn/tests/test_authority_taxonomy.py`)**:
+  - Added `test_fetch_loc_concept_facets_parser()` verifying graph parsing of UF, BT, NT, and RT nodes.
+  - Updated mock hydration tests validating that all 4 facets are returned and populated.
+
+## [000.006.283] - 2026-09-29 — *Taxonomy Authority Relevance Ranking & Controlled Search Trigger*
+
+### Added
+
+- **Taxonomy Authority Relevance Ranking & Anti-Starvation Engine (`scripts/lookup_authority_taxonomy.py`)**:
+  - Implemented `score_authority_result()` calculating multi-factor relevance scores prioritizing Library of Congress Subject Headings (LOC LCSH), dual authority confirmations (`FAST + LOC`), topical concepts (`MARC 150`), and exact title/atom matches.
+  - Applied corporate entity penalties (`MARC 110/111`) and personal name penalties (`MARC 100`) to demote organizational acronym noise (e.g. university research centers) below canonical subject concepts.
+  - Expanded candidate pools (`rows=30` in FAST, `count=25` in LOC) before merging and sorting, preventing FAST candidates from starving LOC results.
+  - Implemented deferred parallel see-from variant hydration (`fetch_loc_variants`), querying LOC concept JSON-LD only for winning top-ranked results to maintain sub-second response times.
+- **Acronym & Cross-Reference Transparency (`scripts/lookup_authority_taxonomy.py`, `evelyn_ui/taxonomy.html`)**:
+  - Detected when a FAST result matches via an alternative acronym or cross-reference (`type: "alt"`, `suggestall`) rather than direct heading title match, tracking `matched_via`.
+  - Surfaced a distinct amber badge in the UI (`matched: "ACRONYM"`) when a concept is retrieved via an acronym or see-from alias, providing immediate visual context for why the heading appeared.
+- **Controlled Search Triggering & Usability Standards (`evelyn_ui/taxonomy.html`)**:
+  - Removed automatic typing search listener, strictly binding authority queries to clicking the **Search** button or pressing **Enter** to prevent accidental lookups and rate limits.
+  - Added beginner-friendly tooltips (`title="..."`) to authority inputs and action controls per UI standards.
+- **Automated Authority Test Suite (`Evelyn/tests/test_authority_taxonomy.py`)**:
+  - Created hermetic unit tests verifying atom normalization, scoring hierarchy (dual authority > LOC > FAST > corporate noise), exact title match prioritization, and candidate deduplication.
+
+## [000.006.282] - 2026-09-29 — *Fast Authority Lookup & Profile Ledger Fact Curation*
+
+### Added
+
+- **OCLC FAST Suggest Authority Search & Multi-Authority Lookup (`scripts/lookup_authority_taxonomy.py`, `evelyn_server.py`)**:
+  - Integrated OCLC FAST (Faceted Application of Subject Terminology) suggest API (`https://fast.oclc.org/searchfast/fastsuggest...`), querying headings across topics, personal/corporate names, titles, and events in ~30ms.
+  - Implemented parallel multi-authority queries across OCLC FAST and Library of Congress (LOC LCSH) using `concurrent.futures.ThreadPoolExecutor`.
+  - Added deterministic result deduplication and authority source tagging (`FAST`, `LOC`, or `FAST + LOC`).
+  - Added an in-memory 30-minute query cache (`_QUERY_CACHE`) to avoid redundant roundtrips.
+  - Added `query_authority_diagnostic()` returning detailed diagnostics: results, total match counts, active authority sources queried, and granular error details (e.g. rate-limit, timeout, DNS resolution).
+  - Updated `/api/taxonomy/authority/lookup` endpoint in `evelyn_server.py` to return the enriched diagnostic payload.
+- **Taxonomy Authority UI Diagnostics & Debounced Search (`evelyn_ui/taxonomy.html`)**:
+  - Added 450ms input debouncing and explicit Enter key search triggering to prevent rapid request floods.
+  - Implemented `AbortController` cancellation for in-flight requests, eliminating stale race conditions.
+  - Added an animated CSS loading spinner during lookups.
+  - Enhanced error display: surfaces clear diagnostic alert banners distinguishing network timeouts and HTTP 429 rate-limits from genuine "No authoritative headings found" zero-match responses.
+  - Rendered authority source badges (`[FAST]`, `[LOC]`, `[FAST + LOC]`) with clickable concept record links.
+- **Authoritative Profile Facts Ledger Workstation (`evelyn_ui/profile_facts.html`, `evelyn_ui/dev.html`, `evelyn_server.py`)**:
+  - Built a dedicated standalone workstation page (`/ui/profile_facts.html`) to replace cramped modal windows with an expansive, full-viewport curation interface for `User_Profile_facts.md`, `Assistant_Profile_facts.md`, and `System_Directives_facts.md`.
+  - Added rich header and profile cards with live word budgets, progress bars, and fact count badges.
+  - Added interactive filtering by keyword, document section, and priority tier (`CORE`, `EXPANDED`, `ARCHIVED`).
+  - Added quick-add fact form with autocomplete datalist for existing section headings.
+  - Added spacious inline editing and one-click tier cycling on fact cards.
+  - Added permanent fact deletion with confirmation dialogs and instant presentation file recompilation.
+  - Streamlined access points: added prominent `📋 Profile Facts` navigation buttons directly in the top headers of `dev.html` and `taxonomy.html` beside `Taxonomy Explorer`, while decluttering task monitor and status cards.
+  - Implemented backend endpoints in `evelyn_server.py`: `GET /api/persona/ledgers`, `GET /api/persona/ledger/{filename}`, `POST /api/persona/ledger/{filename}/item/update`, and `POST /api/persona/ledger/{filename}/item/delete`.
+- **Presentation-to-Ledger Reconciliation Engine (`Evelyn/tools/profile_ledger.py`, `evelyn_server.py`)**:
+  - Implemented `reconcile_ledger_with_presentation(ledger_content, presentation_markdown)`: parses both layers, matches bullets by normalized bold label or content, preserves existing priority tiers on surviving bullets, prunes deleted bullets, updates modified facts, and inserts newly authored bullets.
+  - Updated proposal approval (`POST /api/review/proposals/{id}/approve`) and proposal editing (`action == "edit"`): when an operator edits or removes bullet points in the proposal text editor and approves, the candidate ledger is automatically reconciled against the approved markdown, permanently purging deleted facts from `*_facts.md` and preventing unwanted facts from resurrecting on subsequent evolution passes.
+- **Hermetic Ledger Endpoint Unit Tests (`Evelyn/tests/test_persona_ledger_endpoints.py`, `Evelyn/tests/test_profile_ledger.py`)**:
+  - Added test suite `test_persona_ledger_endpoints.py` validating metadata listing, retrieval, update, and deletion across sandbox files.
+  - Added unit test `test_reconcile_ledger_with_presentation` in `test_profile_ledger.py`.
+
+### Fixed
+
+- **Assistant Persona Cross-Contamination in User Profile (`Evelyn/tools/profile_evolver.py`, `Evelyn/persona/User_Profile_facts.md`)**:
+  - Removed assistant relationship category `Cat06-A` from `DOCUMENT_CATEGORIES[cfg.PERSONA_FILE_USER]` and `DOCUMENT_THEMES[cfg.PERSONA_FILE_USER]`.
+  - Added regex patterns in `DOMAIN_BANNED_PATTERNS[cfg.PERSONA_FILE_USER]` to reject facts where the subject is Evelyn/Assistant (`Evelyn views`, `Evelyn uses`, `She...`).
+  - Purged assistant-specific facts (e.g. `Shared Silence`, `Terms of Endearment`) from `User_Profile_facts.md`.
 
 ## [000.006.281] - 2026-09-28 — *Pinned Vector Store Alias Parsing & Chat Background Shielding*
 
