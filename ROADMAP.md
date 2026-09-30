@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-30 17:56:14
+date modified: 2026-09-30 18:41:33
 ---
 # Evelyn Project Roadmap
 
@@ -22,9 +22,9 @@ This roadmap is the primary source of truth for project milestones and future di
 
 ---
 
-## Phase 2: Long-Term Memory (Complete)
+## Phase 2: Long-Term Memory (Core Complete / Ongoing)
 
-*Goal: Give Evelyn access to shared history and specialized knowledge.*
+*Goal: Give Evelyn access to shared history, specialized knowledge, and controlled classification.*
 
 - [x] **Memory Databases**: Migrated flat-file context entries and vault map indexes into high-performance SQLite databases (`evelyn_memory.db`, `evelyn_vault.db`).
 - [x] **Semantic RAG Pipeline**: Built full-vault vector indexing in ChromaDB using `BAAI/bge-large-en-v1.5` embeddings with progressive gist-first disclosure and priority boosting.
@@ -40,9 +40,9 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Context Envelope Metadata Parity for Memory Facts**: Exposed `tags` attributes on `<memory_entry>` XML envelopes in `build_rag_context` alongside `category`, `subject`, and `date`, achieving contextual metadata parity between memory facts and vault documents.
 - [x] **Operational Procedure Tag Librarian Governance**: Extended Tag Librarian auditing to operational procedures (`procedures` table), ensuring automatic alias canonicalization, container prefix pruning, controlled classification against the master taxonomy, and review proposal generation.
 - [x] **RAG Relation Re-Ranking & Associative Expansion**: Benchmarked and activated `_apply_relation_boost` in `chroma_rag.py`, leveraging the curated `master_tag_related` graph to promote associative (`RT`) and hierarchical (`BT/NT`) concepts into retrieval context.
-- [ ] **Vocabulary Bootstrap & Term-Aggregated Review**: Derive a seed vocabulary from the corpus itself, surfacing candidate terms aggregated by term rather than per document so approval is a vocabulary decision rather than thousands of per-note ones, establishing the first curated subject vocabulary and the evaluation set that threshold tuning has lacked.
-- [ ] **Vault Classification Backfill**: Classify the full note corpus against the seeded vocabulary, accumulating unmatched subjects as batched proposals and applying the admission floor against observed usage.
-- [ ] **Vocabulary Maintenance Re-enablement**: Restore equivalence merging, stale-tag removal and registry rebalancing behind review gates, held until the vocabulary is stable enough that automated maintenance cannot compound its own errors.
+- [x] **Vocabulary Bootstrap & Term-Aggregated Review**: Seeded a canonical subject vocabulary from the corpus with term-aggregated review in the triage queue and FAST authority promotion, establishing 970+ curated terms.
+- [x] **Vault Classification Backfill**: Classified the full note corpus against the seeded vocabulary, accumulating unmatched subjects into batched admission proposals and completing audit passes across 4,300+ vault documents.
+- [x] **Vocabulary Maintenance Re-enablement**: Restored equivalence merging with absorption invariants, stale-tag removal, and registry rebalancing behind interactive review gates.
 - [ ] **Dedicated Health Observation Module**: Route physiological and symptom observations out of the general context entry pool into a purpose-built health store queried on demand, so historical health patterns remain available for reference and trend recognition without occupying general retrieval space or biasing conversational framing.
 
 ---
