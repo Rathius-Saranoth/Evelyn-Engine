@@ -1,6 +1,6 @@
 # test_dynamic_tools_and_direct_rag.py
 # date created: 2026-09-01
-# date modified: 2026-09-12 11:01:38
+# date modified: 2026-09-30 17:51:14
 # tags: #test, #tools, #dynamic_tools, #rag, #query_reformulation
 
 """Unit tests for Dynamic Tool Surfacing, Intent Heuristics, and Direct Vector RAG."""
@@ -112,6 +112,21 @@ class TestDynamicToolsAndDirectRAG(unittest.TestCase):
 
     def test_sharpened_research_and_troubleshooting_procedures(self):
         """Verify sharpened triggers for #1109 and #94 accurately surface their specialized tools."""
+        from Evelyn.tools import memory_db
+
+        memory_db.insert_procedure(
+            trigger_pattern="When initiating a deep research task, reviewing synthesized research findings, or managing active research tasks",
+            steps="Initiate or review research tasks",
+            suggested_tools="start_research, check_new_research, list_research_tasks, inspect_research_task, guide_research",
+            status="live",
+        )
+        memory_db.insert_procedure(
+            trigger_pattern="When diagnosing technical bugs, service startup failures, or system errors",
+            steps="Run diagnostic commands and search web",
+            suggested_tools="run_command, web_search",
+            status="live",
+        )
+
         # #1109: Deep research task initiation
         active_research = get_active_tools(
             user_message="Can you initiate a deep research task to investigate solid state battery tech?",

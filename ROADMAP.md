@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-29 20:55:44
+date modified: 2026-09-30 17:56:14
 ---
 # Evelyn Project Roadmap
 
@@ -39,11 +39,11 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Procedural Knowledge Vocabulary & Tag Backfill**: Rehydrated and standardized controlled taxonomy tags across all operational procedures in `evelyn_memory.db` and registered 16 procedure equivalence aliases, enabling keyword and trigger matching to reliably activate protocols and tool suggestions.
 - [x] **Context Envelope Metadata Parity for Memory Facts**: Exposed `tags` attributes on `<memory_entry>` XML envelopes in `build_rag_context` alongside `category`, `subject`, and `date`, achieving contextual metadata parity between memory facts and vault documents.
 - [x] **Operational Procedure Tag Librarian Governance**: Extended Tag Librarian auditing to operational procedures (`procedures` table), ensuring automatic alias canonicalization, container prefix pruning, controlled classification against the master taxonomy, and review proposal generation.
+- [x] **RAG Relation Re-Ranking & Associative Expansion**: Benchmarked and activated `_apply_relation_boost` in `chroma_rag.py`, leveraging the curated `master_tag_related` graph to promote associative (`RT`) and hierarchical (`BT/NT`) concepts into retrieval context.
 - [ ] **Vocabulary Bootstrap & Term-Aggregated Review**: Derive a seed vocabulary from the corpus itself, surfacing candidate terms aggregated by term rather than per document so approval is a vocabulary decision rather than thousands of per-note ones, establishing the first curated subject vocabulary and the evaluation set that threshold tuning has lacked.
 - [ ] **Vault Classification Backfill**: Classify the full note corpus against the seeded vocabulary, accumulating unmatched subjects as batched proposals and applying the admission floor against observed usage.
 - [ ] **Vocabulary Maintenance Re-enablement**: Restore equivalence merging, stale-tag removal and registry rebalancing behind review gates, held until the vocabulary is stable enough that automated maintenance cannot compound its own errors.
 - [ ] **Dedicated Health Observation Module**: Route physiological and symptom observations out of the general context entry pool into a purpose-built health store queried on demand, so historical health patterns remain available for reference and trend recognition without occupying general retrieval space or biasing conversational framing.
-- [ ] **RAG Relation Re-Ranking & Associative Expansion**: Benchmark and activate `_apply_relation_boost` in `chroma_rag.py`, leveraging the curated `master_tag_related` graph to promote associative (`RT`) and hierarchical (`BT/NT`) concepts into retrieval context.
 
 ---
 
@@ -75,13 +75,13 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Direct Web Browsing & Search**: Dedicated `read_url` tool with desktop client fingerprinting, bot-challenge diagnostics, query sanitization, and in-memory TTL caching.
 - [x] **Agentic Infrastructure & Information Density**: Tri-vector agentic loop optimization eliminating retrieval latency via empirical phatic classification and linear read pre-hydration, reducing cognitive degradation through dynamic tool schema pruning and contiguous chunk fusion, and filtering boilerplate web extraction.
 - [x] **Dynamic Tool Discovery & Multimodal Ingestion**: Autonomous tool discovery metatool dynamically binding tools mid-turn into Round N+1 schemas, context-relative dynamic upload budgets, delimited PDF grounding with native page reading, token-fuzzy vault matching, positive epistemic grounding, and unified drag-and-drop chat document ingestion.
+- [x] **Controlled Subject Discovery & Tag Filtering Tool**: Model-facing `search_by_tag` tool with dynamic intent heuristics and operational starter procedure, enabling topic-based discovery and alias canonicalization across vault notes, memory facts, and procedures.
 - [ ] **Third-Party & Multi-Entity Profiles**: Dynamic evolution and autonomous profiling for external contacts and collaborators encountered across channels into dedicated profile notes.
 - [ ] **Semantic & Embedding-Guided Profile Ingestion**: Hybrid category and vector distance memory retrieval for profile evolution to dynamically ingest cross-domain observations.
 - [ ] **Profile Evolution Protected Sections**: Configurable section-level invariants (`PROTECTED_SECTIONS` in `evelyn_config.py`) and validator locks preventing nocturnal profile evolution passes from modifying specified headers across persona triad files.
 - [ ] **Spell Breaker (Focus Check-In Timer)**: Reverse "Do Not Disturb" timer in Chat UI that dispatches a proactive system event to Evelyn when a project timer expires, prompting an empathetic break or check-in response with forced voice playback.
 - [ ] **System-Event Prompting Flow**: General server mechanism to inject proactive notifications and initiate unsolicited turns for high-priority background triggers (agenda alerts, completed research, health anomalies).
 - [ ] **Autonomous Engine Maintenance & Self-Coding**: Collaborative engine proposal workflow with sandboxed background code generation, test verification, and DevUI review.
-- [ ] **Controlled Subject Discovery & Tag Filtering Tool**: Expose a model-facing `search_by_tag` tool and corresponding starter procedure in `MODEL_TOOL_DEFINITIONS`, allowing Evelyn to directly discover, filter, and inspect notes and memory facts by controlled taxonomy terms.
 
 ---
 

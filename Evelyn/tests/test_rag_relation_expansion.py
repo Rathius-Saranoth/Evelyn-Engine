@@ -155,7 +155,7 @@ def test_stats_report_whether_anything_moved(one_seed, fake_relations):
     assert stats["reordered"] is False
 
 
-def test_the_feature_is_off_by_default():
-    """Measured: it promotes a bibliography page over the note that answers the question."""
+def test_the_feature_is_enabled_by_default():
+    """RAG relation expansion is active by default following Task 5 validation."""
     import evelyn_config as cfg
-    assert cfg.RAG_RELATION_EXPANSION_ENABLED is False
+    assert cfg.RAG_RELATION_EXPANSION_ENABLED is True

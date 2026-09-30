@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-29 20:55:44
+date modified: 2026-09-30 17:56:14
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,39 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.006.291] - 2026-09-30 — *RAG Relation Expansion Activation*
+
+### Added
+
+- **Relation Expansion Benchmark Harness (`scripts/benchmark_rag_relation_expansion.py`)**:
+  - Implemented standalone benchmarking harness measuring associative re-ranking latency, candidate distance closing (`min(cap, sum(weight) * cap)`), and result set mutation across domains (TTRPG, Exercise, Sleep).
+  - Benchmarking confirmed average pass latency of **2.64ms** against the 285-relation taxonomy graph with zero performance degradation, verified candidate promotion into top-ranked slots, and confirmed strict enforcement of the top-$k$ seed exclusion invariant preventing self-reinforcing loops.
+
+### Changed
+
+- **Default RAG Relation Expansion Activation (`evelyn_config.py`)**:
+  - Enabled `RAG_RELATION_EXPANSION_ENABLED = _env_flag("RAG_RELATION_EXPANSION_ENABLED", True)` by default, activating `_apply_relation_boost` during vector search in `chroma_rag.py`.
+  - Inbound candidate chunks now leverage associative (`RT`) and hierarchical (`BT`/`NT`) relations from `master_tag_related` in `evelyn_memory.db` with bounded 15% distance closing and 2x overfetch window.
+- **Unit Test Suite Update (`test_rag_relation_expansion.py`)**:
+  - Updated configuration assertions to expect `cfg.RAG_RELATION_EXPANSION_ENABLED is True` by default while retaining isolated mock tests for toggle behavior.
+
+## [000.006.290] - 2026-09-30 — *Controlled Subject Discovery Tool (search_by_tag)*
+
+### Added
+
+- **Model-Facing Subject Discovery Tool (`search_by_tag` in `evelyn_tools.py`)**:
+  - Implemented `search_by_tag(tags, target="all", match_all=True, limit=5)` allowing Evelyn to discover, filter, and inspect Obsidian Vault notes, long-term memory facts, and operational procedures by controlled subject taxonomy tags.
+  - Automatically resolves equivalence aliases through `taxonomy_db.canonicalize_tags()` (e.g. `dnd` $\rightarrow$ `ttrpg`, `workout` $\rightarrow$ `exercise`) with transparent user-facing mapping notes.
+  - Supports flexible knowledge substrate targeting (`target="all"`, `"vault"`, `"memory"`, or `"procedures"`) and logical tag combination modes (`match_all=True` for intersection or `match_all=False` for union).
+  - Enriches query responses by dynamically surfacing related concepts from the `master_tag_related` thesaurus graph (`💡 Related Taxonomy Concepts`).
+  - Enforces vault document access security by filtering out confidential notes via `is_tool_denied()`.
+- **Specialist Tool Intent Heuristic Patterns (`evelyn_config.py`)**:
+  - Added regex heuristics to `SPECIALIST_TOOL_INTENT_PATTERNS` dynamically activating `search_by_tag` into Round 1 tool schemas when prompts request finding, listing, or filtering notes, memories, or procedures by tag or subject.
+- **Operational Starter Procedure Registration (Migration `000.006.290`)**:
+  - Authored and applied Migration `000.006.290` to `evelyn_memory.db` per AGENTS.md Rule 10, registering `starter_procedure_search_by_tag` with trigger regex, step-by-step execution directives, failure pitfalls, verification criteria, and controlled vocabulary tags (`search, taxonomy, retrieval, knowledge-management`).
+- **Targeted Unit Test Suite (`test_search_by_tag.py`)**:
+  - Added hermetic unit tests verifying tool registration, intent heuristics, parameter normalization, alias canonicalization, substrate filtering, relation surfacing, and intersection/union matching.
 
 ## [000.006.289] - 2026-09-29 — *Operational Procedure Tag Librarian Governance*
 

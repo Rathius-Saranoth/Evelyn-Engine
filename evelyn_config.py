@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-28 18:48:52
+# date modified: 2026-09-30 17:56:14
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -274,6 +274,12 @@ SPECIALIST_TOOL_INTENT_PATTERNS: dict[str, list[str]] = {
         r"\b(search|find|lookup|look\s+up|locate|discover|list)\b.*?\b(?:vault\s+)?(notes?|documents?|docs?|files?)\b",
         r"\b(search|find|lookup|locate)\b.*?\bvault\b",
         r"\b(find|search\s+for|where\s+is|where\s+are)\s+(?:the\s+|my\s+)?.*?(?:note|document|doc)s?\b",
+    ],
+    "search_by_tag": [
+        r"\b(search|find|filter|list|lookup|show)\b.*?\b(?:by|with|under)\s+(?:the\s+)?(?:tags?|taxonomy|subject|subjects)\b",
+        r"\b(find|show|list|get|search)\b.*?\b(?:notes?|memories|memory|facts?|procedures?)\s+tagged\b",
+        r"\btagged\s+(?:with|as)\b",
+        r"\b(?:search|filter)\s+(?:by\s+)?tags?\b",
     ],
     "search_reference_library": [
         r"\b(search|find|lookup|look\s+up|consult|inspect|check)\s+(?:the\s+|our\s+|a\s+)?(?:reference\s+)?(library|manual|spec|specs|documentation|guide|handbook|troubleshooting)\b",
@@ -561,9 +567,9 @@ RAG_PINNED_MAX_CHUNKS = 2
 # statement that the two belong together. The curated relations table is now the sole place
 # that knowledge lives; these flags are what lets query time read it.
 #
-# Off by default and deliberately: this reorders what the model is shown, so it is turned on
-# against a measured before/after, not on the assumption that more signal is better.
-RAG_RELATION_EXPANSION_ENABLED = _env_flag("RAG_RELATION_EXPANSION_ENABLED", False)
+# Enabled by default: re-ranks candidate chunks using curated associative and hierarchical
+# tag relations from master_tag_related with bounded 15% distance closing and 2x overfetch.
+RAG_RELATION_EXPANSION_ENABLED = _env_flag("RAG_RELATION_EXPANSION_ENABLED", True)
 RAG_RELATION_OVERFETCH = 2  # Fetch K x this, re-rank, then cut back to K
 RAG_RELATION_SEED_K = 3  # Take expansion seeds from this many top results
 RAG_RELATION_BOOST_CAP = 0.15  # Most a relation match may close the distance (15%)

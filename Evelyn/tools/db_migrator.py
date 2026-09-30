@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-29 20:55:44
+# date modified: 2026-09-30 17:56:14
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6245,6 +6245,48 @@ def migrate_000_006_289_procedure_tag_librarian_audit_schema(
     logger.info("[MIGRATION 289] Initialized procedures.last_tag_audit_at and created index idx_proc_tag_audit.")
 
 
+def migrate_000_006_290_search_by_tag_procedure(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.006.290: Register starter procedure for search_by_tag model tool."""
+    cursor = conn.cursor()
+    now = time.time()
+
+    trigger = (
+        r"(?i)\b(?:search|find|filter|list|show|lookup)\b.*\b(?:by|with|under)\s+(?:the\s+)?(?:tags?|taxonomy|subject|subjects)\b|"
+        r"(?i)\b(?:find|show|list|get|search)\b.*\b(?:notes?|memories|memory|facts?|procedures?)\s+tagged\b|"
+        r"(?i)\btagged\s+(?:with|as)\b|"
+        r"(?i)\b(?:search|filter)\s+(?:by\s+)?tags?\b"
+    )
+    steps = (
+        "1. Identify the requested subject tag(s) and target knowledge substrate (all, vault, memory, procedures) from the user prompt.\n"
+        "2. Invoke search_by_tag(tags=[...], target=..., match_all=True) to discover relevant notes, long-term facts, or operational procedures.\n"
+        "3. Review returned matches, noting any automatic alias canonicalizations (e.g. 'dnd' -> 'ttrpg') or related taxonomy concepts.\n"
+        "4. If searching with match_all=True returns 0 hits, retry with match_all=False or consult the surfaced related concepts.\n"
+        "5. If inspecting full note content is required, invoke read_file(file_path=...) using the discovered exact relative path."
+    )
+    pitfalls = (
+        "- Do not guess arbitrary uncurated strings when a controlled vocabulary tag exists; search_by_tag automatically canonicalizes recorded aliases.\n"
+        "- Do not confuse search_by_tag (structured subject classification filtering) with search_vault_notes (unstructured keyword/title search).\n"
+        "- When multiple tags are provided, match_all defaults to True (intersection). Switch to match_all=False if the user wants matches for any of the tags."
+    )
+    verification = (
+        "Target vault notes, memory facts, or operational procedures matching the controlled subject tags are retrieved and displayed with preview snippets."
+    )
+    tags = "search, taxonomy, retrieval, knowledge-management"
+    suggested_tools = "search_by_tag, read_file"
+
+    cursor.execute(
+        """INSERT INTO procedures
+           (trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, last_tag_audit_at, retrieval_count)
+           VALUES (?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, ?, 0)""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now, now),
+    )
+    logger.info(f"Migration 000.006.290: Inserted starter procedure for search_by_tag (ID: {cursor.lastrowid}).")
+
+
 def migrate_000_006_246_base_taxonomy_layer(
     conn: sqlite3.Connection, db_paths: dict[str, str], cfg: object
 ) -> None:
@@ -6918,6 +6960,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.289",
         name="procedure_tag_librarian_audit_schema",
         up_fn=migrate_000_006_289_procedure_tag_librarian_audit_schema,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.006.290",
+        name="starter_procedure_search_by_tag",
+        up_fn=migrate_000_006_290_search_by_tag_procedure,
         post_sync_chroma=False,
     ),
 ]

@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-09-30 17:56:14
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -377,6 +377,215 @@ def search_vault_notes(query: str = "", limit: int = 5, **kwargs) -> str:
 
     out.append("\nTip: Use `read_file(file_path=...)` with the exact path above to read the document contents.")
     return "\n".join(out)
+
+
+def search_by_tag(
+    tags: list[str] | str = "",
+    target: str = "all",
+    match_all: bool = True,
+    limit: int = 5,
+    **kwargs: Any,
+) -> str:
+    """Discover and filter Obsidian Vault notes, long-term memory facts, and operational procedures by controlled taxonomy tags.
+
+    Resolves aliases through master_tag_aliases (e.g. 'dnd' -> 'ttrpg', 'workout' -> 'exercise')
+    and surfaces related taxonomy concepts.
+
+    Args:
+        tags: One or more subject tags to search (list of strings or comma-separated string).
+        target: Target knowledge substrate ('all', 'vault', 'memory', or 'procedures'). Default 'all'.
+        match_all: If True (default), requires all specified tags (intersection). If False, matches any (union).
+        limit: Maximum number of results to return per category (default: 5, max: 20).
+        **kwargs: Flexible keyword arguments (e.g. tag, query, search).
+
+    Returns:
+        str: Formatted markdown listing matching items across the requested substrates.
+    """
+    _reload()
+    from Evelyn.tools import taxonomy_db
+    from Evelyn.tools.frontmatter_utils import is_tool_denied
+    from Evelyn.tools.path_utils import to_vault_abspath
+
+    raw_input = tags if tags != "" else (kwargs.get("tag") or kwargs.get("query") or kwargs.get("search") or "")
+    if isinstance(raw_input, list):
+        items: list[str] = []
+        for item in raw_input:
+            items.extend(str(item).replace("#", "").split(","))
+    elif isinstance(raw_input, str):
+        items = raw_input.replace("#", "").split(",")
+    else:
+        items = [str(raw_input)] if raw_input else []
+
+    cleaned_tags: list[str] = []
+    for it in items:
+        tok = it.strip().lower()
+        if tok and tok not in cleaned_tags:
+            cleaned_tags.append(tok)
+
+    if not cleaned_tags:
+        return "Error: search_by_tag called without any tags. Please specify one or more tags (e.g. tags=['exercise'] or tags='ttrpg, fantasy')."
+
+    try:
+        limit_val = max(1, min(20, int(limit)))
+    except (ValueError, TypeError):
+        limit_val = 5
+
+    canonical_tags = taxonomy_db.canonicalize_tags(cleaned_tags)
+    alias_notes = []
+    for orig, canon in zip(cleaned_tags, canonical_tags, strict=False):
+        if orig != canon:
+            alias_notes.append(f"Mapped alias '{orig}' → canonical term '{canon}'")
+
+    target_clean = str(target or "all").strip().lower()
+    search_vault = target_clean in ("all", "vault", "notes", "documents", "doc")
+    search_memory = target_clean in ("all", "memory", "facts", "fact", "context")
+    search_procedures = target_clean in ("all", "procedures", "procedure", "skills", "protocols")
+
+    clauses = ["(',' || REPLACE(tags, ' ', '') || ',') LIKE ?" for _ in canonical_tags]
+    combine_op = " AND " if match_all else " OR "
+    where_sql = combine_op.join(clauses)
+    params = [f"%,{t},%" for t in canonical_tags]
+
+    vault_hits: list[dict[str, Any]] = []
+    memory_hits: list[dict[str, Any]] = []
+    proc_hits: list[dict[str, Any]] = []
+
+    # 1. Vault Documents
+    if search_vault:
+        vault_db_path = getattr(cfg, "VAULT_DB_PATH", "data/evelyn_vault.db")
+        if os.path.exists(vault_db_path):
+            try:
+                con = sqlite3.connect(f"file:{vault_db_path}?mode=ro", uri=True)
+                con.row_factory = sqlite3.Row
+                cursor = con.cursor()
+                sql = f"""
+                    SELECT path, title, tags, gist, mtime
+                      FROM vault_documents
+                     WHERE tags IS NOT NULL AND tags != '' AND ({where_sql})
+                     ORDER BY mtime DESC
+                     LIMIT ?
+                """
+                rows = cursor.execute(sql, (*params, limit_val * 2)).fetchall()
+                con.close()
+                for r in rows:
+                    if not is_tool_denied(to_vault_abspath(r["path"])):
+                        vault_hits.append(dict(r))
+                    if len(vault_hits) >= limit_val:
+                        break
+            except sqlite3.Error:
+                vault_hits = []
+
+    # 2. Context Entries (Memory Facts)
+    if search_memory:
+        mem_db_path = getattr(cfg, "MEMORY_DB_PATH", "data/evelyn_memory.db")
+        if os.path.exists(mem_db_path):
+            try:
+                con = sqlite3.connect(f"file:{mem_db_path}?mode=ro", uri=True)
+                con.row_factory = sqlite3.Row
+                cursor = con.cursor()
+                sql = f"""
+                    SELECT id, category, subject, observation, tags, date
+                      FROM context_entries
+                     WHERE status = 'live' AND tags IS NOT NULL AND tags != '' AND ({where_sql})
+                     ORDER BY id DESC
+                     LIMIT ?
+                """
+                rows = cursor.execute(sql, (*params, limit_val)).fetchall()
+                con.close()
+                memory_hits = [dict(r) for r in rows]
+            except sqlite3.Error:
+                memory_hits = []
+
+    # 3. Operational Procedures
+    if search_procedures:
+        mem_db_path = getattr(cfg, "MEMORY_DB_PATH", "data/evelyn_memory.db")
+        if os.path.exists(mem_db_path):
+            try:
+                con = sqlite3.connect(f"file:{mem_db_path}?mode=ro", uri=True)
+                con.row_factory = sqlite3.Row
+                cursor = con.cursor()
+                sql = f"""
+                    SELECT id, trigger_pattern, steps, tags, suggested_tools
+                      FROM procedures
+                     WHERE status = 'live' AND tags IS NOT NULL AND tags != '' AND ({where_sql})
+                     ORDER BY retrieval_count DESC, id DESC
+                     LIMIT ?
+                """
+                rows = cursor.execute(sql, (*params, limit_val)).fetchall()
+                con.close()
+                proc_hits = [dict(r) for r in rows]
+            except sqlite3.Error:
+                proc_hits = []
+
+    total_hits = len(vault_hits) + len(memory_hits) + len(proc_hits)
+    out: list[str] = []
+    tag_str = ", ".join(canonical_tags)
+    match_mode = "ALL" if match_all else "ANY"
+
+    if total_hits == 0:
+        out.append(f"No items found matching tag(s): '{tag_str}' (target='{target_clean}', match={match_mode}).")
+    else:
+        out.append(f"Found {total_hits} item(s) matching tag(s): '{tag_str}' (target='{target_clean}', match={match_mode}):")
+
+    if alias_notes:
+        out.extend(f"  *Note: {an}*" for an in alias_notes)
+    out.append("")
+
+    if vault_hits:
+        out.append(f"### 📄 Obsidian Vault Notes ({len(vault_hits)})")
+        for v in vault_hits:
+            t_str = f" [tags: {v['tags']}]" if v.get("tags") else ""
+            title = v.get("title") or "Untitled"
+            snippet = (v.get("gist") or "").replace("\n", " ").strip()
+            if len(snippet) > 160:
+                snippet = snippet[:160] + "..."
+            out.append(f"- **{v['path']}** — Title: *{title}*{t_str}")
+            if snippet:
+                out.append(f"  > {snippet}")
+        out.append("")
+
+    if memory_hits:
+        out.append(f"### 🧠 Long-Term Memory Facts ({len(memory_hits)})")
+        for m in memory_hits:
+            cat = m.get("category") or ""
+            subj = m.get("subject") or ""
+            date_str = f" ({m['date']})" if m.get("date") else ""
+            t_str = f" [tags: {m['tags']}]" if m.get("tags") else ""
+            obs = m.get("observation") or ""
+            out.append(f"- `#{m['id']}` [**{cat}** / **{subj}**]{date_str}: {obs}{t_str}")
+        out.append("")
+
+    if proc_hits:
+        out.append(f"### ⚙️ Operational Procedures ({len(proc_hits)})")
+        for p in proc_hits:
+            tools = f" (Tools: `{p['suggested_tools']}`)" if p.get("suggested_tools") else ""
+            t_str = f" [tags: {p['tags']}]" if p.get("tags") else ""
+            trig = p.get("trigger_pattern") or ""
+            steps = (p.get("steps") or "").replace("\n", " ").strip()
+            if len(steps) > 160:
+                steps = steps[:160] + "..."
+            out.append(f"- `Procedure #{p['id']}`: *{trig}*{tools}{t_str}")
+            if steps:
+                out.append(f"  > Steps: {steps}")
+        out.append("")
+
+    # Suggest related concepts from taxonomy
+    related_terms: set[str] = set()
+    for t in canonical_tags:
+        try:
+            for rel in taxonomy_db.get_related_terms(t):
+                rel_tag = rel.get("tag")
+                if rel_tag and rel_tag not in canonical_tags:
+                    related_terms.add(str(rel_tag))
+        except (sqlite3.Error, OSError, ValueError, KeyError):
+            pass
+
+    if related_terms:
+        sorted_rel = sorted(related_terms)[:8]
+        out.append(f"💡 **Related Taxonomy Concepts**: {', '.join(sorted_rel)}")
+
+    out.append("\nTip: Use `read_file(file_path=...)` with the exact path above to read the document contents.")
+    return "\n".join(out).strip()
 
 
 def recall_specific_memory(file_path: str = "", **kwargs) -> str:
@@ -2799,7 +3008,7 @@ def search_available_tools(query: str = "", **kwargs: Any) -> str:
     if not top_matches:
         return (
             f"No tools found matching query '{query}'. Available tool domains include: "
-            "file system (read_file, write_file, read_document_scratchpad), vault notes (search_vault_notes), "
+            "file system (read_file, write_file, read_document_scratchpad), vault notes & tags (search_vault_notes, search_by_tag), "
             "reference library (search_reference_library), research (start_research, list_research_tasks), "
             "calendar & tasks (create_calendar_event, list_tasks), daily journal (write_journal_entry), "
             "health metrics (get_health_metrics), and shell execution (run_command)."
@@ -2993,6 +3202,7 @@ def sync_google_drive(force: bool = False, **kwargs) -> str:
 #   run/read/write_file  → "medium": context-dependent
 TOOL_THINK_EFFORT: dict[str, str] = {
     "search_vault_notes": "low",
+    "search_by_tag": "low",
     "write_journal_entry": "high",
     "write_dream_entry": "medium",
     "generate_image": "medium",
@@ -3884,6 +4094,41 @@ MODEL_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "search_by_tag",
+            "description": (
+                "Discover, filter, and inspect Obsidian Vault notes, long-term memory facts, and operational procedures "
+                "by controlled subject taxonomy tags. Automatically resolves aliases (e.g. 'dnd' -> 'ttrpg', 'workout' -> 'exercise') "
+                "and surfaces related taxonomy concepts. Use when asked to find notes, memories, or procedures tagged with specific subjects."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "One or more subject tags to search for (e.g. ['ttrpg', 'campaign'] or ['exercise']).",
+                    },
+                    "target": {
+                        "type": "string",
+                        "enum": ["all", "vault", "memory", "procedures"],
+                        "description": "The knowledge substrate to search: 'all' (default), 'vault' (Obsidian notes), 'memory' (long-term facts), or 'procedures' (operational protocols).",
+                    },
+                    "match_all": {
+                        "type": "boolean",
+                        "description": "If true (default), matches items containing all specified tags (intersection). If false, matches items containing any of the tags (union).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return per category (default: 5, max: 20).",
+                    },
+                },
+                "required": ["tags"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_available_tools",
             "description": (
                 "Search and discover available engine tools and capabilities dynamically during reasoning. "
@@ -3942,6 +4187,7 @@ TOOL_FUNCTIONS = {
     "read_dream_entry": read_dream_entry,
     "search_vault": search_vault,
     "search_vault_notes": search_vault_notes,
+    "search_by_tag": search_by_tag,
     "search_reference_library": search_reference_library,
     "recall_specific_memory": recall_specific_memory,
     "generate_image": generate_image,
