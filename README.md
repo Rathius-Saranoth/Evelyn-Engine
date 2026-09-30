@@ -2,7 +2,7 @@
 title: README.md
 tags: [system/engine]
 date created: 2026-08-28 14:41:00
-date modified: 2026-09-13 16:17:52
+date modified: 2026-09-30 18:28:37
 ---
 > [!NOTE]
 > **Project Status: Personal / As-Is**  
@@ -35,6 +35,12 @@ date modified: 2026-09-13 16:17:52
 ### 📓 Native Obsidian Vault Synchronization
 - **Bidirectional Knowledge Loop**: Watches your Obsidian markdown vault in real-time with an inotify watchdog and updates vector indexes automatically.
 - **Direct Note & Journal Management**: Automatically logs daily reflections, structures reference summaries, and indexes your personal notes without third-party cloud lock-in.
+
+### 🏷️ Controlled Taxonomy & Cognitive Retrieval Loop
+- **Faceted Subject Classification**: Built on ANSI/NISO Z39.19 standards, uniting Obsidian vault notes, long-term memory facts, and operational procedures under a governed post-coordinate taxonomy.
+- **Associative RAG Re-Ranking**: Dynamically promotes related concepts from a curated thesaurus graph (`master_tag_related`) during dense vector retrieval with bounded distance closing.
+- **Model-Facing Subject Discovery**: Equips Evelyn with explicit substrate querying by tag (`search_by_tag`) with automated equivalence alias canonicalization (e.g. `dnd` $\rightarrow$ `ttrpg`, `workout` $\rightarrow$ `exercise`).
+- **Autonomous Vocabulary Governance**: Background Tag Librarian audits procedures, memories, and notes, pruning container markers and proposing candidate terms into unified review queues.
 
 ### 🔬 Autonomous Deep Research Engine
 - **Self-Directed Research Subprocess**: Formulates search plans, crawls the web with Trafilatura, extracts multi-source evidence with discovered technical aliases, and synthesizes 5-part reference guides directly into Obsidian.
@@ -175,6 +181,7 @@ The workspace documentation is fully structured with bidirectional `[[WikiLinks]
 - 🗺️ **[[ROADMAP.md]]** — Milestones, completed capabilities, and active enhancements.
 - 📜 **[[CHANGELOG.md]]** — Zero-padded version history and migration audit log.
 - 🤖 **[[AGENTS.md]]** — Operational rules, coding standards, and AI contracts.
+- 🏷️ **[[vault-tag-taxonomy.md]]** — Faceted Classification schema, facet axes, and controlled vocabulary rules.
 - 🛡️ **[[SUPPORT.md]]** & **[[ROLLBACK.md]]** — Support boundaries and pre-sanitization disaster recovery.
 - 🚀 **Workflows**: **[[start-services.md]]** · **[[restart-services.md]]** · **[[stop-services.md]]** · **[[debug-chat-db.md]]** · **[[backup-to-github.md]]** · **[[quality-review.md]]**
 

@@ -1,6 +1,6 @@
 # test_search_by_tag.py
 # date created: 2026-09-30
-# date modified: 2026-09-30 17:51:14
+# date modified: 2026-09-30 18:29:09
 # tags: #[test, #search, #taxonomy, #tools, #evelyn]
 
 """Unit tests for the model-facing search_by_tag tool and intent heuristics."""
@@ -16,6 +16,7 @@ if repo_root not in sys.path:
 if tools_dir not in sys.path:
     sys.path.insert(0, tools_dir)
 
+import evelyn_config as cfg
 from Evelyn.tools import memory_db, taxonomy_db, vault_db
 from Evelyn.tools.evelyn_tools import (
     MODEL_TOOL_DEFINITIONS,
@@ -58,7 +59,7 @@ class TestSearchByTag(unittest.TestCase):
         # Seed memory entry
         memory_db.insert_entry(
             category="Cat08-U",
-            subject="Ricky",
+            subject=cfg.USER_NAME,
             observation="Enjoys participating in tabletop roleplaying sessions.",
             tags="ttrpg",
             date="2026-09-30",

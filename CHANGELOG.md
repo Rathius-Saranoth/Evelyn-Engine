@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-30 17:56:14
+date modified: 2026-09-30 18:28:37
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.007.000] - 2026-09-30 — *Controlled Taxonomy & Cognitive Retrieval*
+
+### Milestone Summary
+
+Version `000.007.000` marks the successful culmination of the **Controlled Taxonomy Architecture & Cognitive Retrieval Loop**, bridging the gap between post-coordinate vocabulary standards (ANSI/NISO Z39.19) and Evelyn's runtime cognitive loop across all knowledge substrates (Obsidian vault documents, SQLite context memory facts, and operational procedures).
+
+Over a 291-patch evolutionary span (`000.006.000` $\rightarrow$ `000.006.291`), the engine transitioned from an unvetted, auto-generated tag space to a rigorous 2-tier governance and active retrieval ecosystem:
+1. **Structural Foundation & Vocabulary Reset**: Executed the clean reset of unvetted tags, codified the Faceted Classification standard (`.agents/rules/vault-tag-taxonomy.md`), established multi-stage subject reconciliation (lexical, equivalence alias, vector with abstain margins), and created the standalone Taxonomy & Hierarchy Explorer (`ui/taxonomy.html`).
+2. **Authority Thesaurus & Relation Graph**: Ingested and curated over 950 canonical terms, 195 equivalence aliases (`USE`/`UF`), and 285 associative/hierarchical relationships (`BT`, `NT`, `RT`) with FAST/Library of Congress authority promotion.
+3. **Substrate & Procedure Rehydration**: Standardized tags across all 326 operational procedures in `evelyn_memory.db`, achieved full metadata parity across `<document tags="...">` and `<memory_entry tags="...">` in `<context_retrieval>` XML envelopes, and extended Tag Librarian auditing to procedures.
+4. **Cognitive Retrieval & Model Agency**:
+   - **Associative RAG Re-Ranking**: Benchmarked and activated `_apply_relation_boost` in `chroma_rag.py` (2.64ms average latency), dynamically re-ranking candidate chunks using curated associative (`RT`) and hierarchical (`BT`/`NT`) relations with bounded distance closing (15%) and top-$k$ seed exclusion invariants.
+   - **Model-Facing Subject Discovery**: Added `search_by_tag` to `evelyn_tools.py` with automatic equivalence canonicalization (e.g. `dnd` $\rightarrow$ `ttrpg`, `workout` $\rightarrow$ `exercise`), privacy gating (`is_tool_denied()`), concept suggestions, and operational starter procedure `#2585` (Migration `000.006.290`).
+
+---
 
 ## [000.006.291] - 2026-09-30 — *RAG Relation Expansion Activation*
 

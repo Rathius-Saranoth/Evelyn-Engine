@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-30 17:56:14
+# date modified: 2026-09-30 18:28:37
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.006.291"
-__version_info__ = (0, 6, 291)
-__version_name__ = "RAG Relation Expansion Activation"
+__version__ = "000.007.000"
+__version_info__ = (0, 7, 0)
+__version_name__ = "Controlled Taxonomy & Cognitive Retrieval"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
