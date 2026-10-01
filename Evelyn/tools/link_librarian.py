@@ -1,6 +1,6 @@
 # link_librarian.py
 # date created: 2026-09-05 17:42:00
-# date modified: 2026-09-28 18:48:52
+# date modified: 2026-10-01 17:37:00
 # tags: #librarian, #links, #wikilinks, #ghost_links, #alias_hygiene, #attachments, #breadcrumbs
 
 """
@@ -1134,6 +1134,199 @@ def retarget_inbound_links(
             "%d note(s) to [[%s]].",
             written_target, sum(int(a.rsplit(":", 1)[1]) for a in actions), rewritten, canonical_stem,
         )
+    return rewritten, actions
+
+
+def find_canonical_note_path(
+    target_name: str,
+    vault_root: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Locate the vault-relative path and canonical stem of an existing note.
+
+    Handles direct filenames, note titles, stems, and aliases across both
+    the database index (vault_documents) and the filesystem.
+
+    Args:
+        target_name: Note title, stem, or relative path (e.g. 'Evelyn Engine').
+        vault_root: Optional vault root directory.
+
+    Returns:
+        tuple[str | None, str | None]: (vault_relpath, canonical_stem), or (None, None).
+    """
+    root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    clean = target_name.strip()
+    if clean.endswith(".md"):
+        clean = clean[:-3]
+    clean_base = os.path.basename(clean)
+
+    # 1. Direct path check on disk
+    direct_rel = f"{clean}.md"
+    if os.path.isfile(os.path.join(root, direct_rel)):
+        return direct_rel, clean_base
+
+    # 2. Database lookup (vault_documents)
+    try:
+        from Evelyn.tools import vault_db
+
+        con = vault_db.get_db()
+        cursor = con.cursor()
+        query = """
+            SELECT path, title FROM vault_documents
+            WHERE LOWER(title) = LOWER(?)
+               OR LOWER(path) = LOWER(?)
+               OR LOWER(path) = LOWER(?)
+               OR LOWER(path) LIKE LOWER(?)
+            ORDER BY (LOWER(title) = LOWER(?)) DESC, length(path) ASC
+            LIMIT 1
+        """
+        row = cursor.execute(
+            query,
+            (clean_base, f"{clean_base}.md", f"{clean}.md", f"%/{clean_base}.md", clean_base),
+        ).fetchone()
+        con.close()
+        if row and row[0]:
+            rel = row[0]
+            if os.path.isfile(os.path.join(root, rel)):
+                stem = os.path.splitext(os.path.basename(rel))[0]
+                return rel, stem
+    except (sqlite3.Error, OSError, ValueError, KeyError, AttributeError) as e:
+        logger.debug(f"find_canonical_note_path vault_db lookup skipped: {e}")
+
+    # 3. Direct disk search under root (case-insensitive filename walk)
+    if os.path.isdir(root):
+        target_fn = f"{clean_base.lower()}.md"
+        for dirpath, _, filenames in os.walk(root):
+            for fn in filenames:
+                if fn.lower() == target_fn:
+                    full = os.path.join(dirpath, fn)
+                    try:
+                        rel = Path(full).resolve().relative_to(Path(root).resolve()).as_posix()
+                    except (ValueError, OSError):
+                        rel = os.path.relpath(full, root).replace("\\", "/")
+                    stem = os.path.splitext(fn)[0]
+                    return rel, stem
+
+    return None, None
+
+
+def redirect_ghost_link_to_canonical(
+    ghost_target: str,
+    canonical_target: str,
+    vault_root: str | None = None,
+    sources: list[str] | None = None,
+    add_frontmatter_alias: bool = True,
+) -> tuple[int, list[str]]:
+    """Vault-wide redirect of a ghost link target to an existing canonical note.
+
+    1. Resolves and validates that the canonical note exists in the vault.
+    2. Rewrites all occurrences of [[ghost_target]] across the vault to point
+       to the canonical stem while retaining the author's wording as the display alias:
+       [[ghost_target]] -> [[canonical_stem|ghost_target]]
+    3. If add_frontmatter_alias is True, ensures ghost_target is recorded in the
+       canonical note's frontmatter `aliases:` list.
+    4. Updates vault_db document audit and mtime metadata for affected notes.
+
+    Args:
+        ghost_target: The ghost link concept being redirected (e.g. 'Local AI').
+        canonical_target: Title, stem, or path of the target note (e.g. 'Evelyn Engine').
+        vault_root: Optional vault root directory.
+        sources: Optional list of referencing files to retarget. If None, harvests
+            all referencing notes vault-wide.
+        add_frontmatter_alias: Whether to append ghost_target to canonical note aliases.
+
+    Returns:
+        tuple[int, list[str]]: (files_rewritten, action_logs).
+
+    Raises:
+        ValueError: If ghost_target is empty, or canonical note cannot be found.
+    """
+    root = vault_root or getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault")
+    actions: list[str] = []
+
+    clean_ghost = ghost_target.strip()
+    if not clean_ghost:
+        raise ValueError("ghost_target must not be empty.")
+
+    canon_rel, canon_stem = find_canonical_note_path(canonical_target, vault_root=root)
+    if not canon_rel or not canon_stem:
+        raise ValueError(f"Target note '{canonical_target}' does not exist in vault.")
+
+    # 1. Retarget inbound links across referencing notes
+    if sources is None:
+        harvested = harvest_entity_references(
+            clean_ghost,
+            vault_root=root,
+            max_refs=getattr(cfg, "LIBRARIAN_STUB_MAX_HARVEST_REFS", 12) * 50,
+        )
+        sources = [r["source"] for r in harvested]
+
+    rewritten, retarget_actions = retarget_inbound_links(
+        written_target=clean_ghost,
+        canonical_stem=canon_stem,
+        vault_root=root,
+        sources=sources,
+    )
+    actions.extend(retarget_actions)
+
+    # 2. Add alias to canonical note frontmatter if requested
+    if add_frontmatter_alias and canon_rel:
+        canon_abs = os.path.join(root, canon_rel)
+        if os.path.isfile(canon_abs):
+            try:
+                with open(canon_abs, encoding="utf-8") as f:
+                    content = f.read()
+
+                fm, _ = frontmatter_utils.parse_frontmatter(content)
+                existing_aliases_raw = fm.get("aliases")
+                existing_aliases: list[str] = []
+                if isinstance(existing_aliases_raw, list):
+                    existing_aliases = [str(a).strip() for a in existing_aliases_raw if str(a).strip()]
+                elif isinstance(existing_aliases_raw, str) and existing_aliases_raw.strip():
+                    raw = existing_aliases_raw.strip()
+                    if raw.startswith("[") and raw.endswith("]"):
+                        raw = raw[1:-1]
+                    existing_aliases = [a.strip().strip("'\"#") for a in raw.split(",") if a.strip().strip("'\"#")]
+
+                alias_lower_set = {a.lower() for a in existing_aliases}
+                if clean_ghost.lower() not in alias_lower_set and clean_ghost.lower() != canon_stem.lower():
+                    updated_aliases = [*existing_aliases, clean_ghost]
+                    new_content = frontmatter_utils.update_frontmatter_field(content, "aliases", updated_aliases)
+                    tmp_canon = f"{canon_abs}.tmp_{os.getpid()}"
+                    with open(tmp_canon, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    os.replace(tmp_canon, canon_abs)
+                    actions.append(f"added_alias:{canon_rel}:{clean_ghost}")
+
+                    try:
+                        from Evelyn.tools import vault_db
+
+                        vault_db.update_document_librarian_audit(
+                            canon_rel,
+                            aliases=", ".join(updated_aliases),
+                            mtime=os.path.getmtime(canon_abs),
+                        )
+                    except (sqlite3.Error, OSError, ValueError, KeyError, AttributeError) as e_vdb:
+                        logger.debug(f"Could not update vault_db for canonical note {canon_rel}: {e_vdb}")
+            except OSError as e_canon:
+                logger.warning(f"Could not update frontmatter aliases in {canon_rel}: {e_canon}")
+
+    # 3. Synchronize vault_db audit stats for rewritten files
+    for act in retarget_actions:
+        parts = act.split(":")
+        if len(parts) >= 3 and parts[0] == "retargeted_links":
+            rel_source = parts[1]
+            src_abs = os.path.join(root, rel_source)
+            if os.path.isfile(src_abs):
+                try:
+                    from Evelyn.tools import vault_db
+
+                    vault_db.update_document_librarian_audit(
+                        rel_source,
+                        mtime=os.path.getmtime(src_abs),
+                    )
+                except (sqlite3.Error, OSError, ValueError, KeyError, AttributeError) as e_vdb:
+                    logger.debug(f"Could not update vault_db for {rel_source}: {e_vdb}")
+
     return rewritten, actions
 
 

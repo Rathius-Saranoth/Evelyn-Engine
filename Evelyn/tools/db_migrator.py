@@ -1,6 +1,6 @@
 # db_migrator.py
 # date created: 2026-08-29 07:46:44
-# date modified: 2026-09-30 17:56:14
+# date modified: 2026-10-01 17:55:24
 # tags: #[database, #migrations, #schema, #evelyn]
 
 """
@@ -6386,6 +6386,53 @@ def migrate_000_006_239_proposal_source_path(
                 filled, len(rows))
 
 
+def migrate_000_007_002_procedure_1034_journal_evaluation_gate(
+    conn: sqlite3.Connection,
+    db_paths: dict[str, str],
+    cfg: object,
+) -> None:
+    """Migration 000.007.002: Update Procedure #1034 with journal status evaluation gate and amend workflow."""
+    cursor = conn.cursor()
+    now = time.time()
+    user_name = getattr(cfg, "USER_NAME", "the user")
+
+    trigger = f"When {user_name} says goodnight or is heading to bed for the night"
+    steps = (
+        f"1. Follow {user_name}'s lead on the transition; never declare wind-down before they do.\n"
+        "2. Once wind-down is initiated, adopt an unhurried tone and stop introducing new work.\n"
+        "3. Evaluate <journal_status> context:\n"
+        f"   - If status='recorded': Today's journal entry has already been written. For standard bedtime pleasantries ('goodnight', 'heading to sleep'), acknowledge warmly and affectionately without calling write_journal_entry again. If significant new events occurred after the entry was recorded or {user_name} explicitly requests updates, use read_file on the recorded path to inspect prior context, synthesize an updated reflection, and call write_journal_entry with mode='amend'.\n"
+        "   - If status='none': Directly execute write_journal_entry to record the day's reflection.\n"
+        "4. Ground any reflection in concrete specifics from the day's conversation rather than generic summaries."
+    )
+    pitfalls = (
+        f"Initiating wind-down before {user_name} does, or treating the hour of day as a shutdown trigger. "
+        "Declining to engage with technical work simply because it is evening. "
+        "Re-executing write_journal_entry when today's entry is already recorded in <journal_status status='recorded'> on simple goodnight pleasantries. "
+        "Never output raw text simulating tool execution (e.g. '[Tools Executed: ...]'); always execute write_journal_entry via native function calling. "
+        "Do not use write_journal_entry for user dream logs (use write_dream_entry) or discrete memory facts."
+    )
+    verification = (
+        "write_journal_entry is executed only when needed (status='none' or explicit amendment); simple goodnight exchanges do not trigger duplicate journal writes."
+    )
+    tags = "bedtime, sleep, routine, evening, journaling"
+    suggested_tools = "write_journal_entry, read_file"
+
+    cursor.execute(
+        """UPDATE procedures
+           SET trigger_pattern = ?, steps = ?, pitfalls = ?, verification = ?, tags = ?, suggested_tools = ?, updated_at = ?
+           WHERE id = 1034""",
+        (trigger, steps, pitfalls, verification, tags, suggested_tools, now),
+    )
+    if cursor.rowcount == 0:
+        cursor.execute(
+            """INSERT INTO procedures
+               (id, trigger_pattern, steps, pitfalls, verification, source, status, tags, suggested_tools, created_at, updated_at, retrieval_count)
+               VALUES (1034, ?, ?, ?, ?, 'starter', 'live', ?, ?, ?, ?, 0)""",
+            (trigger, steps, pitfalls, verification, tags, suggested_tools, now, now),
+        )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         target_db="chat",
@@ -6967,6 +7014,13 @@ MIGRATIONS: list[Migration] = [
         version="000.006.290",
         name="starter_procedure_search_by_tag",
         up_fn=migrate_000_006_290_search_by_tag_procedure,
+        post_sync_chroma=False,
+    ),
+    Migration(
+        target_db="memory",
+        version="000.007.002",
+        name="procedure_1034_journal_evaluation_gate",
+        up_fn=migrate_000_007_002_procedure_1034_journal_evaluation_gate,
         post_sync_chroma=False,
     ),
 ]

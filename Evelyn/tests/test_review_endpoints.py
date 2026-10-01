@@ -630,3 +630,116 @@ class TestReviewerChoosesUncategorised:
 
         assert res.status_code == 200, res.text
         assert admitted["category"] == ""
+
+
+def test_ghost_link_stub_proposal_redirect():
+    """Verify that redirecting a ghost_link_stub proposal rewrites links and marks proposal applied."""
+    from Evelyn.tools import link_librarian, vault_db
+
+    temp_vault_dir = tempfile.TemporaryDirectory()
+    temp_vdb_file = os.path.join(temp_vault_dir.name, "test_vault.db")
+
+    orig_vault_dir = getattr(cfg, "VAULT_BASE_DIR", None)
+    orig_vault_db_cfg = getattr(cfg, "VAULT_DB_PATH", None)
+    orig_vault_db_path = vault_db.DB_PATH
+
+    cfg.VAULT_BASE_DIR = temp_vault_dir.name
+    cfg.VAULT_DB_PATH = temp_vdb_file
+    vault_db.DB_PATH = temp_vdb_file
+    vault_db.init_db()
+
+    try:
+        # Create canonical target note
+        canon_rel = "Projects/Evelyn Engine/Evelyn Engine.md"
+        canon_abs = os.path.join(temp_vault_dir.name, canon_rel)
+        os.makedirs(os.path.dirname(canon_abs), exist_ok=True)
+        with open(canon_abs, "w", encoding="utf-8") as f:
+            f.write("---\ntitle: Evelyn Engine\naliases: []\n---\n# Evelyn Engine\nCanonical note content.\n")
+        vault_db.upsert_document(
+            path=canon_rel,
+            title="Evelyn Engine",
+            mtime=os.path.getmtime(canon_abs),
+            gist="Canonical doc",
+        )
+
+        # Create referencing note citing ghost link [[Local AI]]
+        ref_rel = "Notes/Programs/Replika.md"
+        ref_abs = os.path.join(temp_vault_dir.name, ref_rel)
+        os.makedirs(os.path.dirname(ref_abs), exist_ok=True)
+        with open(ref_abs, "w", encoding="utf-8") as f:
+            f.write("We are developing [[Local AI]] for the system.\n")
+        vault_db.upsert_document(
+            path=ref_rel,
+            title="Replika",
+            mtime=os.path.getmtime(ref_abs),
+            gist="Replika program note",
+        )
+
+        # Insert ghost_link_stub proposal
+        payload = link_librarian.StubPayload(
+            target_name="Local AI",
+            source_path=ref_rel,
+            context_excerpt="developing [[Local AI]]",
+            domain="general",
+            tags=[],
+        )
+        prop_id = memory_db.insert_proposal(
+            type="ghost_link_stub",
+            source_ids=[],
+            topic="Local AI",
+            suggested_category=ref_rel,
+            reason="Ghost link [[Local AI]] cited in notes.",
+            merged_observation=link_librarian.render_stub_xml(payload),
+            confidence="high",
+        )
+
+        client = TestClient(app)
+        headers = {"X-Evelyn-Key": cfg.API_KEY} if cfg.API_KEY else {}
+
+        # 1. Test redirect endpoint
+        res = client.post(
+            f"/api/review/proposals/{prop_id}/redirect",
+            json={"redirect_target": "Evelyn Engine", "add_alias": True},
+            headers=headers,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "ok"
+        assert data["action"] == "redirect"
+        assert data["rewritten_count"] == 1
+
+        # Verify proposal marked as applied
+        con = memory_db.get_db()
+        row = con.execute("SELECT status FROM proposals WHERE id = ?", (prop_id,)).fetchone()
+        con.close()
+        assert row is not None and row["status"] == "applied"
+
+        # Verify no stub note created
+        stubs_dir = os.path.join(temp_vault_dir.name, "Stubs")
+        assert not os.path.exists(stubs_dir) or not os.listdir(stubs_dir)
+
+        # Verify referencing note link was retargeted to [[Evelyn Engine|Local AI]]
+        with open(ref_abs, encoding="utf-8") as f:
+            updated_ref = f.read()
+        assert "[[Evelyn Engine|Local AI]]" in updated_ref
+
+        # Verify target note got alias
+        with open(canon_abs, encoding="utf-8") as f:
+            updated_canon = f.read()
+        assert 'aliases: ["Local AI"]' in updated_canon or "aliases: [Local AI]" in updated_canon
+
+        # 2. Test candidates endpoint
+        cand_res = client.get("/api/vault/candidates", headers=headers)
+        assert cand_res.status_code == 200
+        cand_data = cand_res.json()
+        assert "candidates" in cand_data
+        assert any(c["title"] == "Evelyn Engine" for c in cand_data["candidates"])
+
+    finally:
+        if orig_vault_dir is not None:
+            cfg.VAULT_BASE_DIR = orig_vault_dir
+        if orig_vault_db_cfg is not None:
+            cfg.VAULT_DB_PATH = orig_vault_db_cfg
+        vault_db.DB_PATH = orig_vault_db_path
+        temp_vault_dir.cleanup()
+

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-09-30 18:28:37
+date modified: 2026-10-01 17:55:24
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,55 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.007.002] - 2026-10-01 — *Journal Evaluation Gate & In-Place Reflection Amending*
+
+### Added
+
+- **Runtime `<journal_status>` Context Injection (`evelyn_server.py`)**:
+  - Injected `<journal_status status="recorded" date="..." path="..." />` into chat turn assembly at any hour of the day if a journal entry already exists on disk for the current date, giving the model zero-latency Round 0 awareness.
+  - Injected `<journal_status status="none" date="..." />` during evening wind-down or when bedtime/journal queries are active, omitting token overhead during standard daytime chatter.
+  - Added system prompt contract directive in `<system_telemetry_directives>` explicitly forbidding redundant journal rewrites on simple bedtime pleasantries when `status="recorded"`.
+- **In-Place Reflection Amending & Tag Merging (`Evelyn/tools/journal_manager.py`)**:
+  - Enhanced `create_journal_entry()` to support `mode="amend" | "overwrite" | "append"` (defaulting to `"amend"`).
+  - Retired legacy blind `## Supplemental Entry` section appends; amending now updates the note body in place with fresh reflections.
+  - Preserves and merges frontmatter tags from existing entries with newly supplied subject tags, preserving unique order and canonical taxonomy normalization.
+- **Model-Facing Tool Parameterization (`Evelyn/tools/evelyn_tools.py`)**:
+  - Added `mode` parameter (`enum: ["amend", "overwrite"]`) to `write_journal_entry` in `MODEL_TOOL_DEFINITIONS`.
+  - Updated tool description with explicit guidance instructing the model to check `<journal_status>` before invoking and avoid redundant calls on simple goodnights.
+- **Database Migration `000.007.002` (`Evelyn/tools/db_migrator.py`)**:
+  - Registered and applied migration `000.007.002` (`procedure_1034_journal_evaluation_gate`) updating canonical master Procedure `#1034` in `evelyn_memory.db`.
+  - Added step 3 Journal Evaluation Gate directives distinguishing between standard bedtime pleasantries (`status="recorded"` $\rightarrow$ acknowledge warmly without tool calls) and substantial new additions (`status="recorded"` with updates $\rightarrow$ `read_file` then `write_journal_entry` with `mode="amend"`).
+  - Wired `suggested_tools` to `"write_journal_entry, read_file"`.
+- **Unit Test Coverage (`Evelyn/tests/test_journal_status_and_amend.py`)**:
+  - Added 7 comprehensive unit tests verifying initial creation, in-place amend mode with frontmatter tag merging, overwrite mode, XML envelope escaping, tool binding, and Procedure `#1034` schema verification.
+
+### Changed
+
+- **UI Usability Debounce Optimization (`evelyn_ui/dev.html`)**:
+  - Increased redirect input debounce from 75ms to 200ms and added `lastDatalistQuery` caching, completely eliminating typing stutter and browser datalist teardown/rebuild hitches on the Review Workstation.
+
+---
+
+## [000.007.001] - 2026-10-01 — *Ghost Link Stub Redirection Engine*
+
+### Added
+
+- **Ghost Link Stub Redirection Primitive (`Evelyn/tools/link_librarian.py`)**:
+  - Implemented `redirect_ghost_link_to_canonical()` orchestrating vault-wide link retargeting, canonical alias updating, and index synchronization.
+  - Implemented `find_canonical_note_path()` resolving vault-relative paths and canonical note stems across both `vault_documents` and the filesystem with case-insensitive matching.
+  - Retargets all referencing ghost links vault-wide (`[[Ghost]]` $\rightarrow$ `[[Canonical|Ghost]]`, `[[Ghost|Display]]` $\rightarrow$ `[[Canonical|Display]]`, `[[Ghost#Subpath]]` $\rightarrow$ `[[Canonical#Subpath|Ghost]]`) while code-protecting markdown blocks.
+  - Automatically checks and records the ghost link term in the canonical note's frontmatter `aliases:` list if not already present, synchronizing `vault_db` librarian audit metadata and `mtime`.
+- **Review Workstation UI & API Route Wiring (`evelyn_server.py`, `evelyn_ui/dev.html`)**:
+  - Added `redirect_target: str | None = None` and `add_alias: bool = True` to `ProposalActionRequest` and `BulkProposalDecision`.
+  - Added `action == "redirect"` handler in `_apply_proposal_action` in `evelyn_server.py`, validating the canonical target note, executing vault-wide redirection, and marking the proposal applied.
+  - Added `GET /api/vault/candidates` endpoint in `evelyn_server.py` returning all indexed vault documents for fast UI autocomplete.
+  - Enhanced `ghost_link_stub` proposal cards in `evelyn_ui/dev.html` with a prominent `🔀 Redirect to Note...` controller, live link-rewriting preview, vault document `<datalist>` autocomplete, and one-click execution.
+- **Unit & Integration Test Coverage (`Evelyn/tests/test_stub_link_retarget.py`, `Evelyn/tests/test_review_endpoints.py`)**:
+  - Added `test_find_canonical_note_path_nested_and_missing` and `test_redirect_ghost_link_rewrites_links_and_adds_alias` asserting exact link transformations, alias insertion idempotency, and error handling.
+  - Added `test_ghost_link_stub_proposal_redirect` verifying the end-to-end REST endpoint execution, database status transition, and zero stub file creation.
+
+---
 
 ## [000.007.000] - 2026-09-30 — *Controlled Taxonomy & Cognitive Retrieval*
 

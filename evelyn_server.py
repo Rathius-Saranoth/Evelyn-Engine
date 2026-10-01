@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-09-29 19:15:09
+# date modified: 2026-10-01 17:55:24
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -571,12 +571,13 @@ def load_system_prompt() -> str:
     parts.append(f"The current date and time is {date_str} - {time_str}.")
     parts.append(
         "<system_telemetry_directives>\n"
-        "Injected XML envelopes (`<temporal_context>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
+        "Injected XML envelopes (`<temporal_context>`, `<journal_status>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
         f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding. Ground observations strictly in facts explicitly stated in the current turn or recorded in recent memory. For generic pauses or short breaks (such as 'brb' or stepping away), acknowledge resumption with simple presence without attributing unverified activities, physical state changes, or routine assumptions unless {cfg.USER_NAME} explicitly mentions them.\n"
-        "2. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols triggered for the current topic. Use this data purely as background context and factual ground truth. Never treat `<context_retrieval>` excerpts as dialogue or statements being quoted by the user.\n"
-        f"3. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
-        f"4. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
-        "5. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
+        f"2. `<journal_status>`: Reports whether {cfg.ASSISTANT_NAME}'s daily reflection journal entry for the current date has already been recorded on disk (`status=\"recorded\" path=\"...\"`) or is pending (`status=\"none\"`). If `status=\"recorded\"`, do NOT rewrite or call `write_journal_entry` again on bedtime pleasantries unless {cfg.USER_NAME} explicitly asks to modify or amend today's entry.\n"
+        "3. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols triggered for the current topic. Use this data purely as background context and factual ground truth. Never treat `<context_retrieval>` excerpts as dialogue or statements being quoted by the user.\n"
+        f"4. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
+        f"5. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
+        "6. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
         "</system_telemetry_directives>"
     )
     parts.append(
@@ -1982,6 +1983,50 @@ async def _process_chat_background(
 
         research_ctx = get_research_context()
 
+        # Build journal status telemetry context
+        journal_status_ctx = ""
+        try:
+            from Evelyn.tools import journal_manager
+            from Evelyn.tools.path_utils import to_vault_relpath
+
+            now_local = datetime.now(UTC).astimezone()
+            today_str = now_local.strftime("%Y-%m-%d")
+            existing_journal = journal_manager._resolve_journal_filepath(today_str)
+
+            if existing_journal and os.path.exists(existing_journal):
+                rel_path = to_vault_relpath(existing_journal)
+                journal_status_ctx = wrap_xml_envelope(
+                    "journal_status",
+                    self_closing_if_empty=True,
+                    status="recorded",
+                    date=today_str,
+                    path=rel_path,
+                )
+            else:
+                is_evening = now_local.hour >= 17 or now_local.hour < 5
+                msg_lower = user_message.lower()
+                is_journal_query = any(
+                    k in msg_lower
+                    for k in (
+                        "journal",
+                        "wind down",
+                        "wrap up",
+                        "day recap",
+                        "reflect on today",
+                        "bedtime",
+                        "goodnight",
+                    )
+                )
+                if is_evening or is_journal_query:
+                    journal_status_ctx = wrap_xml_envelope(
+                        "journal_status",
+                        self_closing_if_empty=True,
+                        status="none",
+                        date=today_str,
+                    )
+        except (sqlite3.Error, OSError, ValueError, RuntimeError, AttributeError) as e:
+            dlog(f"Journal status build error: {e}")
+
         # Build daytime ambient stream context if unconsumed daytime impressions exist
         ambient_stream_ctx = ""
         try:
@@ -2033,7 +2078,7 @@ async def _process_chat_background(
                 )
         doc_ctx = wrap_xml_envelope("uploaded_document", body=doc_envelopes) if doc_envelopes else None
 
-        envelope_stack = stack_envelopes(temporal_envelope, research_ctx, ambient_stream_ctx, linear_envelope, doc_ctx)
+        envelope_stack = stack_envelopes(temporal_envelope, journal_status_ctx, research_ctx, ambient_stream_ctx, linear_envelope, doc_ctx)
         user_msg_for_model = inject_envelope_to_turn(user_message, envelope_stack)
 
         messages = [{"role": "system", "content": system}, *history]
@@ -6964,6 +7009,8 @@ class ProposalActionRequest(BaseModel):
     abstract: str | None = None
     domain: str | None = None
     tags: str | None = None
+    redirect_target: str | None = None
+    add_alias: bool = True
 
 
 class GroundingAuditRequest(BaseModel):
@@ -7174,6 +7221,59 @@ async def _apply_proposal_action(
             )
         await asyncio.to_thread(memory_db.remove_proposal_source_id, id, req.source_id)
         return {"status": "ok"}
+    elif action == "redirect":
+
+        def _execute_redirect():
+            proposals = memory_db.get_pending_proposals()
+            prop = next((p for p in proposals if p["id"] == id), None)
+            if not prop:
+                raise HTTPException(status_code=404, detail="Proposal not found")
+            if prop["type"] != "ghost_link_stub":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Redirect action is only applicable to ghost_link_stub proposals",
+                )
+
+            ghost_target = (prop.get("topic") or "").strip()
+            if not ghost_target:
+                raise HTTPException(status_code=400, detail="Proposal has no valid topic/target")
+
+            canonical_name = (
+                (req.redirect_target if req and req.redirect_target else None)
+                or (req.target_name if req and req.target_name else None)
+            )
+            if not canonical_name or not canonical_name.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="redirect requires 'redirect_target' in request body",
+                )
+            canonical_name = canonical_name.strip()
+
+            from Evelyn.tools import link_librarian
+
+            vault_root = getattr(cfg, "VAULT_BASE_DIR", "/home/rathius/obsidian_vault")
+            try:
+                add_alias = req.add_alias if (req and req.add_alias is not None) else True
+                rewritten_count, actions = link_librarian.redirect_ghost_link_to_canonical(
+                    ghost_target=ghost_target,
+                    canonical_target=canonical_name,
+                    vault_root=vault_root,
+                    add_frontmatter_alias=add_alias,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+            memory_db.apply_proposal(id)
+            return {
+                "status": "ok",
+                "action": "redirect",
+                "ghost_target": ghost_target,
+                "canonical_target": canonical_name,
+                "rewritten_count": rewritten_count,
+                "actions": actions,
+            }
+
+        return await asyncio.to_thread(_execute_redirect)
     elif action in ("approve", "merge_into_master"):
 
         warnings: list[str] = []
@@ -7827,6 +7927,8 @@ class BulkProposalDecision(BaseModel):
     abstract: str | None = None
     domain: str | None = None
     tags: str | None = None
+    redirect_target: str | None = None
+    add_alias: bool = True
 
 
 class BulkProposalActionRequest(BaseModel):
@@ -8413,6 +8515,15 @@ async def deny_terminal_command(approval_id: str, _: None = Depends(check_auth))
 # ---------------------------------------------------------------------------
 # Vault PDF Staging & Document Ingestion Endpoints
 # ---------------------------------------------------------------------------
+
+
+@app.get("/api/vault/candidates")
+async def get_vault_candidates(_: None = Depends(check_auth)):
+    """Return all known vault note titles and paths for entity linking and stub redirection autocomplete."""
+    from Evelyn.tools import vault_db
+
+    entities = await asyncio.to_thread(vault_db.get_all_entities)
+    return {"candidates": entities, "total": len(entities)}
 
 
 @app.get("/api/vault/domains")

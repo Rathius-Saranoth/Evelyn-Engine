@@ -1,7 +1,7 @@
 ---
 title: xml_injection_conventions.md
 date created: 2026-08-29 12:55:00
-date modified: 2026-09-01 19:04:57
+date modified: 2026-10-01 18:24:10
 tags: [markdown, reference, xml, injection, prompt-engineering, telemetry, evelyn]
 ---
 
@@ -71,6 +71,7 @@ Engine components and background workers must use standardized tag names to prev
 | `<context_retrieval>` | RAG search results from Obsidian vault or ChromaDB. | `source`, `match_count` | `<document id="..." score="...">` child tags |
 | `<autonomous_trigger>` | Proactive scheduler events, task notifications, or alarms. | `type`, `entity_id`, `severity` | `<summary>`, `<directive>` child tags |
 | `<system_event>` | Runtime telemetry, tool execution outcomes, or daemon status. | `event`, `timestamp`, `status` | Human-readable event description |
+| `<journal_status>` | Runtime status of today's personal reflection journal entry. | `status`, `date`, `path` | Omitted (self-closing container) |
 | `<memory_context>` | Fast memory facts injected from `evelyn_memory.db`. | `category`, `subject` | Extracted fact / observation statement |
 
 ---
@@ -111,6 +112,12 @@ Engine components and background workers must use standardized tag names to prev
 <memory_context category="Cat01-U" subject="Alex">
   Operator prefers concise terminal commands with JSON output formatting.
 </memory_context>
+```
+
+### E. Daily Reflection Journal Status
+
+```xml
+<journal_status status="recorded" date="2026-10-01" path="Evelyn/Evelyn's Journal/Journal Entries/2026/10-Oct/Journal Entry 2026-10-01.md" />
 ```
 
 ---

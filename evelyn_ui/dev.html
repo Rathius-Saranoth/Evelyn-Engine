@@ -2544,6 +2544,138 @@
       }
     }
 
+    let cachedVaultCandidates = [];
+    let vaultCandidatesLoaded = false;
+    let redirectDebounceTimer = null;
+
+    async function ensureVaultCandidatesLoaded() {
+      if (vaultCandidatesLoaded) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/vault/candidates`, { headers: headers() });
+        if (!res.ok) return;
+        const data = await res.json();
+        cachedVaultCandidates = data.candidates || [];
+        vaultCandidatesLoaded = true;
+        updateDatalistOptions('');
+      } catch (err) {
+        console.debug('Could not load vault candidates:', err);
+      }
+    }
+
+    let lastDatalistQuery = null;
+
+    function updateDatalistOptions(query) {
+      const q = (query || '').trim().toLowerCase();
+      if (q === lastDatalistQuery) return;
+      lastDatalistQuery = q;
+
+      let datalist = document.getElementById('vault-doc-candidates');
+      if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.id = 'vault-doc-candidates';
+        document.body.appendChild(datalist);
+      }
+      let matches = [];
+      if (!q) {
+        matches = cachedVaultCandidates.slice(0, 30);
+      } else {
+        const exact = [];
+        const prefix = [];
+        const contains = [];
+        for (const c of cachedVaultCandidates) {
+          if (!c.title) continue;
+          const t = c.title.toLowerCase();
+          if (t === q) exact.push(c);
+          else if (t.startsWith(q)) prefix.push(c);
+          else if (t.includes(q)) contains.push(c);
+          if (exact.length + prefix.length + contains.length >= 60) break;
+        }
+        matches = [...exact, ...prefix, ...contains].slice(0, 40);
+      }
+
+      datalist.innerHTML = '';
+      for (const c of matches) {
+        const opt = document.createElement('option');
+        opt.value = c.title;
+        if (c.path && c.path !== c.title) {
+          opt.label = c.path;
+        }
+        datalist.appendChild(opt);
+      }
+    }
+
+    function toggleRedirectBox(id) {
+      const box = document.getElementById(`redirect-box-${id}`);
+      if (!box) return;
+      const isHidden = box.style.display === 'none';
+      box.style.display = isHidden ? 'block' : 'none';
+      if (isHidden) {
+        ensureVaultCandidatesLoaded();
+        const input = document.getElementById(`redirect-target-${id}`);
+        if (input) input.focus();
+      }
+    }
+
+    function handleRedirectInput(id, ghostTarget) {
+      const input = document.getElementById(`redirect-target-${id}`);
+      const preview = document.getElementById(`redirect-preview-${id}`);
+      const val = input ? input.value.trim() : '';
+      if (preview) {
+        preview.textContent = `Preview: [[${ghostTarget}]] → [[${val || 'Target Note'}|${ghostTarget}]]`;
+      }
+      clearTimeout(redirectDebounceTimer);
+      redirectDebounceTimer = setTimeout(() => {
+        updateDatalistOptions(val);
+      }, 200);
+    }
+
+    async function executeRedirect(id, ghostTarget, btn) {
+      const input = document.getElementById(`redirect-target-${id}`);
+      const aliasCheck = document.getElementById(`redirect-alias-${id}`);
+      const targetNote = input ? input.value.trim() : '';
+      if (!targetNote) {
+        alert('Please enter or select the canonical target note.');
+        if (input) input.focus();
+        return;
+      }
+      const addAlias = aliasCheck ? aliasCheck.checked : true;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Retargeting...';
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/review/proposals/${id}/redirect`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            redirect_target: targetNote,
+            add_alias: addAlias
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(`Error redirecting stub: ${data.detail || 'Request failed'}`);
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Apply Redirect & Retarget Links';
+          }
+          return;
+        }
+        // Success: remove proposal from unifiedItems and re-render
+        unifiedItems = unifiedItems.filter(x => !(x.id == id && x.item_type === 'proposal'));
+        updateCounts();
+        render();
+      } catch (err) {
+        alert(`Network error redirecting stub: ${err}`);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Apply Redirect & Retarget Links';
+        }
+      }
+    }
+
     async function loadSurroundingChat(proposalId, sourceEntryId, btn) {
       const container = document.getElementById(`chat-context-${proposalId}`);
       if (!container) return;
@@ -5288,11 +5420,37 @@
                   ` : '')}
                 </div>
               </div>
-              <div class="card-actions" style="display: flex; gap: 8px;">
+              <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
                 <button class="btn btn-approve" onclick="handleAction('proposals', ${item.id}, 'approve', null, this)" title="Approve this proposal: generates the stub note in Obsidian and resolves ghost links across your vault">Approve & Create Stub</button>
+                <button class="btn" onclick="toggleRedirectBox(${item.id})" title="Redirect this ghost link to an existing full note without creating a stub note" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-weight: 600;">🔀 Redirect to Note...</button>
                 <button class="btn btn-reject" onclick="handleAction('proposals', ${item.id}, 'deny', null, this)" title="Reject this proposal and archive it without creating a stub note">Reject</button>
                 <button class="btn btn-delete" onclick="handleAction('proposals', ${item.id}, 'delete', null, this)" title="Permanently delete this proposal record from the database">🗑️ Remove</button>
                 ${hintButton('ghost_link_stub')}
+              </div>
+              <div id="redirect-box-${item.id}" style="display: none; background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 12px; margin-top: 10px;">
+                <div style="font-size: 11px; color: #c084fc; font-weight: 700; text-transform: uppercase; margin-bottom: 6px;">
+                  Redirect Ghost Links to Existing Note
+                </div>
+                <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.4;">
+                  Choose an existing full note in your Obsidian vault. All ghost links (<code>[[${escapeHtml(targetName)}]]</code>) across the vault will be retargeted to <code>[[Target Note|${escapeHtml(targetName)}]]</code>, and <code>${escapeHtml(targetName)}</code> will be added to the target note's frontmatter aliases. <strong>No stub file will be created.</strong>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <div>
+                    <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; font-weight: 600; text-transform: uppercase;">Existing Canonical Note Name / Title</label>
+                    <input type="text" id="redirect-target-${item.id}" placeholder="e.g. Evelyn Engine" list="vault-doc-candidates" style="width: 100%; background: #07070a; border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; color: #fff; font-size: 13px; box-sizing: border-box;" oninput="handleRedirectInput(${item.id}, '${escapeAttr(targetName)}')" />
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text);">
+                    <input type="checkbox" id="redirect-alias-${item.id}" checked style="accent-color: #c084fc;" />
+                    <label for="redirect-alias-${item.id}" title="Automatically adds the ghost link name to the YAML aliases property in the canonical note">Add <code>${escapeHtml(targetName)}</code> to target note's aliases</label>
+                  </div>
+                  <div id="redirect-preview-${item.id}" style="font-size: 12px; font-family: monospace; color: #a5b4fc; background: rgba(0,0,0,0.3); padding: 6px 10px; border-radius: 4px; border: 1px dashed rgba(168, 85, 247, 0.4);">
+                    Preview: [[${escapeHtml(targetName)}]] → [[Target Note|${escapeHtml(targetName)}]]
+                  </div>
+                  <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+                    <button class="btn btn-secondary" onclick="toggleRedirectBox(${item.id})" style="padding: 6px 12px; font-size: 12px;">Cancel</button>
+                    <button class="btn" onclick="executeRedirect(${item.id}, '${escapeAttr(targetName)}', this)" style="background: #9333ea; color: #fff; padding: 6px 14px; font-size: 12px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer;">Apply Redirect & Retarget Links</button>
+                  </div>
+                </div>
               </div>
             </div>
           `;

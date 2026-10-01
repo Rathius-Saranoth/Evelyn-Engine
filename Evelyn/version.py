@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-09-30 18:28:37
+# date modified: 2026-10-01 17:55:24
 # tags: #versioning, #release
 
 """
@@ -15,8 +15,8 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.007.000"
-__version_info__ = (0, 7, 0)
+__version__ = "000.007.002"
+__version_info__ = (0, 7, 2)
 __version_name__ = "Controlled Taxonomy & Cognitive Retrieval"
 VERSION_NAME = __version_name__
 

@@ -1,6 +1,6 @@
 # journal_manager.py
 # date created: 2026-02-12 19:08:40
-# date modified: 2026-09-27 12:15:35
+# date modified: 2026-10-01 17:55:24
 # tags: #journal, #management, #entries, #logs, #protocols
 
 """
@@ -26,7 +26,7 @@ import os
 import sqlite3
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools.frontmatter_utils import render_frontmatter
+from Evelyn.tools.frontmatter_utils import parse_frontmatter, render_frontmatter
 from Evelyn.tools.tag_librarian import OCCURRED_PROPERTY, normalize_tag_format
 
 JOURNAL_DIR = getattr(cfg, "JOURNAL_DIR", os.path.join(getattr(cfg, "VAULT_BASE_DIR", r"/home/rathius/obsidian_vault"), getattr(cfg, "ASSISTANT_NAME", "Evelyn"), f"{getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}'s Journal"))
@@ -73,25 +73,35 @@ def _resolve_journal_filepath(date_str: str) -> str | None:
         str | None: Absolute path to the journal entry markdown file if found, else None.
     """
     filename = f"Journal Entry {date_str}.md"
+    base_journal = getattr(
+        cfg,
+        "JOURNAL_DIR",
+        os.path.join(
+            getattr(cfg, "VAULT_BASE_DIR", os.path.expanduser("~/obsidian_vault")),
+            getattr(cfg, "ASSISTANT_NAME", "Evelyn"),
+            f"{getattr(cfg, 'ASSISTANT_NAME', 'Evelyn')}'s Journal",
+        ),
+    )
 
     # 1. Structured archive folder
     try:
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.UTC)
         year = dt.strftime("%Y")
         month_str = f"{dt.strftime('%m')}-{dt.strftime('%b')}"
-        struct_path = os.path.join(JOURNAL_DIR, "Journal Entries", year, month_str, filename)
+        struct_path = os.path.join(base_journal, "Journal Entries", year, month_str, filename)
         if os.path.exists(struct_path):
             return struct_path
     except ValueError:
         pass
 
     # 2. Live vault root (legacy fallback)
-    root_path = os.path.join(JOURNAL_DIR, filename)
+    root_path = os.path.join(base_journal, filename)
     if os.path.exists(root_path):
         return root_path
 
     # 3. Pending quarantine folder
-    pending_path = os.path.join(PENDING_DIR, filename)
+    pending_dir = getattr(cfg, "PENDING_DIR", PENDING_DIR)
+    pending_path = os.path.join(pending_dir, filename)
     if os.path.exists(pending_path):
         return pending_path
 
@@ -105,14 +115,16 @@ def create_journal_entry(
     mood: str,
     tags: list | None = None,
     date_str: str | None = None,
+    mode: str = "amend",
 ):
     """
-    Writes a journal entry markdown file to the structured Journal Entries archive.
+    Writes or amends a journal entry markdown file in the structured Journal Entries archive.
 
-    If a file for the target date already exists in the archive, the new
-    content is appended as a "Supplemental Entry" section rather than
-    overwriting the existing file. This preserves multiple sessions in a
-    single day's entry.
+    If a file for the target date already exists in the archive:
+      - mode="amend" (default): Updates the entry in-place with the new reflection, merging
+        new subject tags with existing frontmatter tags and preserving date properties.
+      - mode="overwrite": Completely replaces the existing entry with the new content.
+      - mode="append": Appends a legacy "Supplemental Entry" section.
 
     Tags are normalized to atomic lowercase subject terms (zero slashes,
     singular count nouns) and paired with the frontmatter properties
@@ -126,10 +138,10 @@ def create_journal_entry(
             into the YAML frontmatter and Vibe Check section.
         tags: Optional list of atomic lowercase subject tags (zero slashes).
         date_str: Optional target date string in YYYY-MM-DD format (defaults to current date).
+        mode: Write mode when entry exists ('amend', 'overwrite', or 'append'). Defaults to 'amend'.
 
     Returns:
-        str: Confirmation message stating whether a new entry was created or
-        an existing one was appended to.
+        str: Confirmation message stating whether a new entry was created, amended, or overwritten.
     """
     if date_str:
         try:
@@ -144,7 +156,8 @@ def create_journal_entry(
 
     # Determine write target: check existing archive file or create in structured year/month dir
     existing_filepath = _resolve_journal_filepath(target_date_str)
-    if existing_filepath and os.path.exists(existing_filepath):
+    file_existed = bool(existing_filepath and os.path.exists(existing_filepath))
+    if file_existed and existing_filepath:
         filepath = existing_filepath
     else:
         target_dir = _resolve_journal_dir(target_date)
@@ -160,9 +173,65 @@ def create_journal_entry(
     # The time axis is the `occurred` property, not a tag (taxonomy §3.8).
     occurred = target_date.strftime("%Y-%m-%d")
 
-    append_content = f"\n\n---\n\n## Supplemental Entry ({datetime.datetime.now(datetime.UTC).astimezone().strftime('%H:%M')})\n### Vibe Check\n*Mood: {mood}*\n{vibe_check}\n\n### The Narrative\n{narrative}\n\n### Message in a Bottle\n*{message_in_a_bottle}*\n"
+    direct_write = getattr(cfg, "JOURNAL_DIRECT_WRITE", True)
 
-    body = f"""# Journal Entry {target_date_str}
+    if file_existed and mode == "amend":
+        # Parse existing frontmatter to merge tags and retain metadata
+        existing_fm = {}
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                existing_fm, _ = parse_frontmatter(f.read())
+        except (OSError, ValueError):
+            existing_fm = {}
+
+        raw_existing_tags = existing_fm.get("tags") or []
+        if isinstance(raw_existing_tags, str):
+            raw_existing_tags = [t.strip() for t in raw_existing_tags.split(",") if t.strip()]
+        existing_norm_tags = [n for n in (normalize_tag_format(str(t)) for t in raw_existing_tags) if n]
+        merged_tags = list(dict.fromkeys([*existing_norm_tags, *clean_tags]))
+
+        effective_mood = mood.strip() or str(existing_fm.get("mood", "Reflective"))
+        fm_data = {
+            "type": ["journal-entry"],
+            "mood": effective_mood,
+            "tags": merged_tags,
+            OCCURRED_PROPERTY: occurred,
+        }
+        body = f"""# Journal Entry {target_date_str}
+
+## Vibe Check
+*Mood: {effective_mood}*
+{vibe_check}
+
+## The Narrative
+{narrative}
+
+## Message in a Bottle
+*{message_in_a_bottle}*
+"""
+        file_content = render_frontmatter(fm_data, body=body)
+
+        if direct_write:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(file_content)
+            res = f"Journal entry for {target_date_str} successfully updated and amended in {filepath}"
+        else:
+            from Evelyn.tools import terminal_agent
+            res = terminal_agent.write_file(filepath, file_content, mode="overwrite")
+
+    elif file_existed and mode == "append":
+        append_content = f"\n\n---\n\n## Supplemental Entry ({datetime.datetime.now(datetime.UTC).astimezone().strftime('%H:%M')})\n### Vibe Check\n*Mood: {mood}*\n{vibe_check}\n\n### The Narrative\n{narrative}\n\n### Message in a Bottle\n*{message_in_a_bottle}*\n"
+        if direct_write:
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(append_content)
+            res = f"Supplemental entry successfully appended to {filepath}"
+        else:
+            from Evelyn.tools import terminal_agent
+            res = terminal_agent.write_file(filepath, append_content, mode="append")
+
+    else:
+        # New entry or explicit overwrite
+        body = f"""# Journal Entry {target_date_str}
 
 ## Vibe Check
 *Mood: {mood}*
@@ -174,32 +243,26 @@ def create_journal_entry(
 ## Message in a Bottle
 *{message_in_a_bottle}*
 """
-    file_content = render_frontmatter(
-        {"type": ["journal-entry"], "mood": mood, "tags": clean_tags, OCCURRED_PROPERTY: occurred}, body=body
-    )
+        file_content = render_frontmatter(
+            {"type": ["journal-entry"], "mood": mood, "tags": clean_tags, OCCURRED_PROPERTY: occurred}, body=body
+        )
 
-    from Evelyn.tools import memory_db
-    direct_write = getattr(cfg, "JOURNAL_DIRECT_WRITE", True)
-
-    if direct_write:
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        if os.path.exists(filepath):
-            with open(filepath, "a", encoding="utf-8") as f:
-                f.write(append_content)
-            res = f"Supplemental entry successfully appended to {filepath}"
-        else:
+        if direct_write:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(file_content)
-            res = f"Journal entry successfully written to {filepath}"
-    else:
-        from Evelyn.tools import terminal_agent
-        if os.path.exists(filepath):
-            res = terminal_agent.write_file(filepath, append_content, mode="append")
+            if file_existed:
+                res = f"Journal entry for {target_date_str} successfully overwritten in {filepath}"
+            else:
+                res = f"Journal entry successfully written to {filepath}"
         else:
+            from Evelyn.tools import terminal_agent
             res = terminal_agent.write_file(filepath, file_content, mode="overwrite")
 
     # Automatically mark unconsumed daytime ambient impressions as consumed for target date
     try:
+        from Evelyn.tools import memory_db
+
         unconsumed = memory_db.get_unconsumed_ambient_impressions(target_date_str)
         if unconsumed:
             consumed_ids = [imp["id"] for imp in unconsumed]

@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-09-30 17:56:14
+# date modified: 2026-10-01 17:55:24
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -125,9 +125,10 @@ def write_journal_entry(
     narrative: str = "",
     message_in_a_bottle: str = "",
     tags: str = "",
+    mode: str = "amend",
     **kwargs,
 ) -> str:
-    """Compose and queue a new journal entry for user review.
+    """Compose and record a daily journal reflection directly into the Obsidian vault.
 
     Args:
         mood: Descriptive keyword representing current emotional state.
@@ -135,10 +136,11 @@ def write_journal_entry(
         narrative: Main reflective text or journal body.
         message_in_a_bottle: A lingering question or message meant for future recall.
         tags: Comma-separated list of atomic lowercase subject tags (e.g. 'reflection, planning'; zero slashes, singular count nouns).
+        mode: Write mode when entry exists ('amend' to update and merge tags in-place, 'overwrite' to replace). Defaults to 'amend'.
         **kwargs: Flexible keyword arguments.
 
     Returns:
-        str: Outcome confirmation message or path to the pending entry.
+        str: Outcome confirmation message or path to the saved entry.
     """
     _reload()
     mood = mood or str(kwargs.get("feeling") or kwargs.get("emotion") or "Reflective")
@@ -146,11 +148,19 @@ def write_journal_entry(
     narrative = narrative or str(kwargs.get("body") or kwargs.get("text") or kwargs.get("journal_text") or "")
     message_in_a_bottle = message_in_a_bottle or str(kwargs.get("bottle_message") or kwargs.get("closing") or "")
     tags = tags or str(kwargs.get("tag_list") or kwargs.get("tag_string") or "")
+    mode = str(kwargs.get("mode") or mode or "amend").lower().strip()
 
     if not vibe_check.strip() and not narrative.strip() and not message_in_a_bottle.strip():
         return "Error: write_journal_entry called with completely blank text fields. Aborted."
     tag_list = [t.strip() for t in tags.split(",")] if tags.strip() else []
-    return journal_manager.create_journal_entry(vibe_check, narrative, message_in_a_bottle, mood, tag_list)
+    return journal_manager.create_journal_entry(
+        vibe_check=vibe_check,
+        narrative=narrative,
+        message_in_a_bottle=message_in_a_bottle,
+        mood=mood,
+        tags=tag_list,
+        mode=mode,
+    )
 
 
 def write_dream_entry(
@@ -3236,6 +3246,8 @@ MODEL_TOOL_DEFINITIONS = [
             "description": (
                 "Compose and record a personal daily reflection journal entry directly into the Obsidian vault from your persona's perspective. "
                 "Reflects on the day's events, shared interactions, and quiet observations. "
+                "Check <journal_status> before invoking: if status='recorded', do NOT write a redundant entry on simple bedtime pleasantries. "
+                "Only call write_journal_entry when no entry exists (status='none'), or when explicitly amending/updating today's entry with substantial new reflections (mode='amend'). "
                 "Use when asked for an entry, and also without being asked when the day is closing: "
                 "they say goodnight, mention heading to bed, or signal they are wrapping up for the night. "
                 "Recording the day is this tool's job rather than a background process, so a closing cue is enough on its own. "
@@ -3271,6 +3283,15 @@ MODEL_TOOL_DEFINITIONS = [
                     "message_in_a_bottle": {
                         "type": "string",
                         "description": "A brief closing thought, lingering question, or parting send-off tailored to your established dynamic with the user.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["amend", "overwrite"],
+                        "description": (
+                            "Write mode when an entry for today already exists. "
+                            "'amend' (default) updates the entry in place and merges tags; "
+                            "'overwrite' completely replaces the existing file."
+                        ),
                     },
                 },
                 "required": [

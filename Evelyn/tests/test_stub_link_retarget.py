@@ -1,6 +1,6 @@
 # test_stub_link_retarget.py
 # date created: 2026-09-26 19:02:40
-# date modified: 2026-09-26 19:05:18
+# date modified: 2026-10-01 17:37:00
 # tags:
 
 """Tests for filename-safety detection and inbound wikilink retargeting.
@@ -203,3 +203,87 @@ def test_stub_relpath_and_retarget_agree_on_the_stem(tmp_path):
     )
 
     assert f"[[{stem}|Nier: Automata]]" in (tmp_path / "a.md").read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------------------
+# redirect_ghost_link_to_canonical & find_canonical_note_path
+# --------------------------------------------------------------------------------------
+
+
+def test_find_canonical_note_path_nested_and_missing(tmp_path):
+    root = _vault(
+        tmp_path,
+        {
+            "Projects/Evelyn Engine/Evelyn Engine.md": "---\ntitle: Evelyn Engine\naliases: []\n---\n# Evelyn Engine\n",
+            "Notes/General/Scratchpad.md": "# Scratch\n",
+        },
+    )
+
+    rel, stem = link_librarian.find_canonical_note_path("Evelyn Engine", vault_root=root)
+    assert rel == "Projects/Evelyn Engine/Evelyn Engine.md"
+    assert stem == "Evelyn Engine"
+
+    rel2, stem2 = link_librarian.find_canonical_note_path("Scratchpad", vault_root=root)
+    assert rel2 == "Notes/General/Scratchpad.md"
+    assert stem2 == "Scratchpad"
+
+    rel3, stem3 = link_librarian.find_canonical_note_path("NonExistentNote", vault_root=root)
+    assert rel3 is None
+    assert stem3 is None
+
+
+def test_redirect_ghost_link_rewrites_links_and_adds_alias(tmp_path):
+    root = _vault(
+        tmp_path,
+        {
+            "Projects/Evelyn Engine/Evelyn Engine.md": (
+                "---\ntitle: Evelyn Engine\naliases: []\n---\n# Evelyn Engine\n"
+            ),
+            "Notes/Programs/Replika.md": "Building the [[Local AI]] project.\n",
+            "Notes/Journal/Entry.md": "Refined [[Local AI|the bot]] and [[Local AI#Architecture]].\n",
+        },
+    )
+
+    rewritten, _actions = link_librarian.redirect_ghost_link_to_canonical(
+        ghost_target="Local AI",
+        canonical_target="Evelyn Engine",
+        vault_root=root,
+        sources=["Notes/Programs/Replika.md", "Notes/Journal/Entry.md"],
+        add_frontmatter_alias=True,
+    )
+
+    assert rewritten == 2
+    # Verify links rewritten
+    replika_text = (tmp_path / "Notes/Programs/Replika.md").read_text(encoding="utf-8")
+    assert "[[Evelyn Engine|Local AI]]" in replika_text
+
+    journal_text = (tmp_path / "Notes/Journal/Entry.md").read_text(encoding="utf-8")
+    assert "[[Evelyn Engine|the bot]]" in journal_text
+    assert "[[Evelyn Engine#Architecture|Local AI]]" in journal_text
+
+    # Verify alias added to target note
+    target_text = (tmp_path / "Projects/Evelyn Engine/Evelyn Engine.md").read_text(encoding="utf-8")
+    assert "aliases: [\"Local AI\"]" in target_text or "aliases: [Local AI]" in target_text
+
+    # Verify idempotency: running again does not duplicate alias
+    rewritten2, _ = link_librarian.redirect_ghost_link_to_canonical(
+        ghost_target="Local AI",
+        canonical_target="Evelyn Engine",
+        vault_root=root,
+        sources=["Notes/Programs/Replika.md"],
+        add_frontmatter_alias=True,
+    )
+    assert rewritten2 == 0
+    target_text2 = (tmp_path / "Projects/Evelyn Engine/Evelyn Engine.md").read_text(encoding="utf-8")
+    assert target_text2.count("Local AI") == 1
+
+
+def test_redirect_ghost_link_missing_target_raises_value_error(tmp_path):
+    root = _vault(tmp_path, {"a.md": "[[GhostTarget]]\n"})
+    with pytest.raises(ValueError, match="does not exist in vault"):
+        link_librarian.redirect_ghost_link_to_canonical(
+            ghost_target="GhostTarget",
+            canonical_target="DoesNotExist",
+            vault_root=root,
+        )
+
