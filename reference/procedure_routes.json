@@ -1,0 +1,291 @@
+{
+  "version": "1.0.0",
+  "description": "Canonical semantic intent routes and sample user utterances for Evelyn operational procedures.",
+  "default_score_threshold": 0.58,
+  "routes": [
+    {
+      "procedure_id": 1067,
+      "route_name": "health_exertion_recovery",
+      "suggested_tools": ["get_health_metrics", "get_recent_workouts"],
+      "score_threshold": 0.55,
+      "utterances": [
+        "Just got back from mowing the whole yard in this heat. My legs are wrecked and I'm completely drained.",
+        "I'm totally exhausted from working outside all afternoon.",
+        "Just finished a brutal workout and my muscles are killing me.",
+        "Feeling completely wiped out and drained after lifting today.",
+        "How are my heart rate and recovery metrics looking right now?",
+        "Check my health stats and biometrics, I feel beat.",
+        "My legs are super sore and I feel run down from running in the heat.",
+        "Man, that was an intense physical session, I need to check my physical exertion.",
+        "I feel completely wiped and sore after doing yardwork all day.",
+        "My body is aching and exhausted after that heavy yard work session."
+      ]
+    },
+    {
+      "procedure_id": 1107,
+      "route_name": "workout_history",
+      "suggested_tools": ["get_recent_workouts"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "What workouts did I log this week?",
+        "Did my run sync to my exercise history?",
+        "Check my recent workouts and gym sessions.",
+        "How many miles did I log on my walk yesterday?",
+        "Show my exercise history for the past few days.",
+        "When was my last weight lifting session recorded?",
+        "Did my morning cardio sync over from my watch?",
+        "Check what exercise sessions I have recorded recently."
+      ]
+    },
+    {
+      "procedure_id": 1034,
+      "route_name": "night_reflection_journal",
+      "suggested_tools": ["write_journal_entry", "read_file"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Heading to bed now, goodnight Evelyn.",
+        "Time to turn in for the night.",
+        "Calling it a night, let's do the evening reflection.",
+        "I'm heading to sleep, see you tomorrow morning.",
+        "Wrapping up for the evening and going to sleep.",
+        "Good night, let's close out today's journal.",
+        "Ready to get some sleep now, good night.",
+        "I am turning in for the evening."
+      ]
+    },
+    {
+      "procedure_id": 657,
+      "route_name": "dream_journaling",
+      "suggested_tools": ["write_dream_entry"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "I had the strangest dream last night.",
+        "Log this dream for me before I forget.",
+        "I woke up from a crazy nightmare about falling.",
+        "Can we record what I dreamed about?",
+        "Had a vivid dream about wandering through an ancient castle.",
+        "Record a dream entry from last night.",
+        "I want to write down a dream I had before it slips away.",
+        "I had a really weird dream about floating in space."
+      ]
+    },
+    {
+      "procedure_id": 1105,
+      "route_name": "calendar_scheduling",
+      "suggested_tools": ["create_calendar_event", "delete_calendar_event", "sync_google_calendar", "get_agenda"],
+      "score_threshold": 0.56,
+      "utterances": [
+        "Schedule a dentist appointment on my calendar for Tuesday at 3pm.",
+        "Add an event to my calendar tomorrow morning at 10.",
+        "Cancel my meeting at noon on Friday.",
+        "Move my appointment on Thursday to 4pm.",
+        "Sync my Google Calendar.",
+        "Add a calendar event for dinner with friends on Saturday.",
+        "Remove the meeting from my calendar tomorrow.",
+        "Put an appointment on my calendar for next Monday."
+      ]
+    },
+    {
+      "procedure_id": 1901,
+      "route_name": "daily_agenda",
+      "suggested_tools": ["get_agenda", "sync_google_calendar"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "What's on my schedule for today?",
+        "Check my agenda and calendar for tomorrow.",
+        "What meetings do I have this afternoon?",
+        "What does my day look like tomorrow?",
+        "Do I have anything scheduled on my calendar for this morning?",
+        "What appointments do I have coming up today?",
+        "Check my schedule for the rest of the week."
+      ]
+    },
+    {
+      "procedure_id": 1106,
+      "route_name": "task_management",
+      "suggested_tools": ["list_tasks", "complete_task", "delete_task", "sync_google_tasks"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "What tasks are on my to-do list?",
+        "Mark the grocery shopping task as completed.",
+        "Check off pick up dry cleaning from my tasks.",
+        "Delete the old errand from my task list.",
+        "Sync my Google Tasks.",
+        "Show me my pending tasks and errands.",
+        "What do I have left to do on my task list?",
+        "Complete the task for ordering air filters."
+      ]
+    },
+    {
+      "procedure_id": 1063,
+      "route_name": "task_reminder_creation",
+      "suggested_tools": ["create_task", "get_agenda"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Remind me to change the air filters this weekend.",
+        "Add a task to call the plumber on Monday.",
+        "Create a new task to order motor oil.",
+        "Put fix the gate latch on my todo list.",
+        "Make a reminder for trash day tomorrow.",
+        "Create a task to inspect the roof before winter.",
+        "Add an errand to pick up welding rod."
+      ]
+    },
+    {
+      "procedure_id": 1104,
+      "route_name": "vault_checklist_lists",
+      "suggested_tools": ["manage_vault_list"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Add AA batteries and milk to my shopping list.",
+        "Check off bread on my grocery list.",
+        "What items are on my hardware store list?",
+        "Show my packing list for the camping trip.",
+        "Remove plywood from the project materials list.",
+        "Add coffee beans to the groceries list.",
+        "Uncheck milk on the shopping checklist.",
+        "Modify my supplies list in the vault."
+      ]
+    },
+    {
+      "procedure_id": 1109,
+      "route_name": "deep_research",
+      "suggested_tools": ["start_research", "check_new_research", "list_research_tasks", "inspect_research_task", "guide_research"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Start a deep research task on solid-state battery manufacturing.",
+        "Research the engineering tradeoffs between geothermal and air-source heat pumps.",
+        "What is the status of the ongoing research task?",
+        "Check if any new research findings have come in.",
+        "Guide the active research to focus on commercial availability.",
+        "List all active and completed background research tasks.",
+        "Inspect the notes and findings for research task 3."
+      ]
+    },
+    {
+      "procedure_id": 2312,
+      "route_name": "reference_library_manuals",
+      "suggested_tools": ["search_reference_library", "read_file"],
+      "score_threshold": 0.55,
+      "utterances": [
+        "Search the manual for torque specifications on the cylinder head.",
+        "Look up the wiring diagram in the equipment documentation.",
+        "Consult the reference library for the solar charge controller specs.",
+        "Find the oil capacity in the mower user guide.",
+        "Inspect the technical manual for error code 42.",
+        "Look up the maintenance schedule in the tractor service manual.",
+        "Search reference documents for the hydraulic pressure setting."
+      ]
+    },
+    {
+      "procedure_id": 2444,
+      "route_name": "vault_note_search",
+      "suggested_tools": ["search_vault_notes", "read_file"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Search my vault for notes on hydroponics and nutrient solution.",
+        "Where is the note about my trailer wiring project?",
+        "Find any notes discussing solar battery sizing in my vault.",
+        "Locate my note on raspberry pi home automation.",
+        "Look up notes in my vault about sourdough bread baking.",
+        "Search my obsidian notes for greenhouse temperature control."
+      ]
+    },
+    {
+      "procedure_id": 2585,
+      "route_name": "tag_taxonomy_search",
+      "suggested_tools": ["search_by_tag", "read_file"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Search by tag gardening to find related notes.",
+        "Filter notes with tag woodworking and joinery.",
+        "Find all documents tagged with 3d-printing.",
+        "Show me everything categorized under the tag home-maintenance.",
+        "Lookup notes and memory facts tagged under solar-power.",
+        "Filter my vault by tag electronics."
+      ]
+    },
+    {
+      "procedure_id": 1062,
+      "route_name": "image_generation",
+      "suggested_tools": ["generate_image"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Generate an image of a glowing magical broadsword in a stone pedestal.",
+        "Create a digital painting of an elven ranger in an autumn forest.",
+        "Draw a portrait of a grizzled dwarven blacksmith at his forge.",
+        "Generate art depicting a cyberpunk city street in the rain with neon signs.",
+        "Render a picture of a cozy log cabin nestled in snowy mountains.",
+        "Create an illustration of a majestic dragon perched on a crag."
+      ]
+    },
+    {
+      "procedure_id": 1781,
+      "route_name": "web_url_reader",
+      "suggested_tools": ["read_url", "web_search"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Can you read and summarize this article at https://example.com/post?",
+        "Inspect the webpage at this link: https://news.ycombinator.com.",
+        "Check what this web link says and summarize the main points.",
+        "What is on the webpage at https://github.com/torvalds/linux?",
+        "Fetch the contents of this URL for me: https://en.wikipedia.org/wiki/Special:Random"
+      ]
+    },
+    {
+      "procedure_id": 1108,
+      "route_name": "conversation_history_search",
+      "suggested_tools": ["search_history"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "What did we talk about last Tuesday?",
+        "Search our past chat history for the pasta recipe we discussed.",
+        "When was the last time we talked about upgrading the SSD?",
+        "Recall our conversation from last week about chainsaw safety.",
+        "Search past conversations to see what we decided on the solar panels.",
+        "Look through our chat history for mentions of brake pads."
+      ]
+    },
+    {
+      "procedure_id": 2553,
+      "route_name": "tool_discovery",
+      "suggested_tools": ["search_available_tools", "read_document_scratchpad", "read_file"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "What tools do you have for interacting with calendar and tasks?",
+        "Search available tools to see if you can manage files.",
+        "Do you have a tool for researching the web or finding articles?",
+        "Discover tools related to image generation and artwork.",
+        "Search your tool surface to see what tools can query health data.",
+        "Find out what tools are available in the engine for reading PDFs."
+      ]
+    },
+    {
+      "procedure_id": 1110,
+      "route_name": "health_connect_sync",
+      "suggested_tools": ["sync_google_drive"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Sync the latest Health Connect database export from Google Drive.",
+        "Pull down my newest health connect backup from drive.",
+        "Update my local health database from Google Drive.",
+        "Sync the health connect export from the cloud.",
+        "Download and import the latest health database from drive."
+      ]
+    },
+    {
+      "procedure_id": 30,
+      "route_name": "code_debugging_and_terminal",
+      "suggested_tools": ["run_command", "write_file", "read_file"],
+      "score_threshold": 0.58,
+      "utterances": [
+        "Run a terminal command to check disk space and memory usage.",
+        "Diagnose why this bash script returned exit code 1.",
+        "Debug this Python syntax error in the server script.",
+        "Execute git status and check recent branches.",
+        "Run pytest to verify the new test suite passes.",
+        "Check system processes using the command line."
+      ]
+    }
+  ]
+}

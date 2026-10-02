@@ -1,6 +1,6 @@
 # evelyn_tools.py
 # date created: 2026-03-23 15:38:53
-# date modified: 2026-10-01 17:55:24
+# date modified: 2026-10-02 17:26:33
 # tags: #tools, #definitions, #schema, #dispatch, #models
 
 """
@@ -4328,6 +4328,7 @@ def get_active_tools(
         except (sqlite3.Error, OSError, ValueError, RuntimeError, ImportError):
             procs_to_check = []
 
+    procedure_suggested_names: set[str] = set()
     for proc in procs_to_check:
         # Check suggested_tools (database column or direct key)
         sugg = proc.get("suggested_tools") or proc.get("tools") or proc.get("metadata", {}).get("tools", "")
@@ -4335,16 +4336,31 @@ def get_active_tools(
             for t_name in re.split(r"[\s,]+", sugg):
                 if t_name in _MODEL_TOOL_MAP:
                     active_names.add(t_name)
+                    procedure_suggested_names.add(t_name)
         elif isinstance(sugg, list):
             for t_name in sugg:
                 if str(t_name) in _MODEL_TOOL_MAP:
                     active_names.add(str(t_name))
+                    procedure_suggested_names.add(str(t_name))
 
         # Check procedure content/steps for declared tool names
         content = f"{proc.get('content', '')} {proc.get('steps', '')}"
         for tool_name in _MODEL_TOOL_MAP:
             if f"`{tool_name}`" in content or f"tool:{tool_name}" in content:
                 active_names.add(tool_name)
+                procedure_suggested_names.add(tool_name)
+
+    # 1b. Direct semantic route suggested tools (vector intent match)
+    if user_message:
+        try:
+            from Evelyn.tools.semantic_router import get_semantic_router
+
+            for t_name in get_semantic_router().get_suggested_tools(user_message):
+                if t_name in _MODEL_TOOL_MAP:
+                    active_names.add(t_name)
+                    procedure_suggested_names.add(t_name)
+        except (OSError, ValueError, RuntimeError, ImportError):
+            pass
 
     # 2. Intent-triggered specialist tools (Regex/Keyword heuristics)
     patterns_map: dict[str, list[str]] = getattr(cfg, "SPECIALIST_TOOL_INTENT_PATTERNS", {})
@@ -4412,6 +4428,7 @@ def get_active_tools(
                 if (
                     t in active_names
                     and t not in specialist_triggered
+                    and t not in procedure_suggested_names
                     and not (user_message and t.replace("_", " ") in user_message.lower())
                 ):
                     active_names.remove(t)

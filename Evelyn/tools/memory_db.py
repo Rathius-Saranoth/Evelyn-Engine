@@ -1,6 +1,6 @@
 # memory_db.py
 # date created: 2026-05-24 09:51:58
-# date modified: 2026-09-29 20:55:44
+# date modified: 2026-10-02 17:26:33
 # tags: #database, #sqlite, #memory, #schemas, #connections
 
 """
@@ -33,6 +33,7 @@ All functions use short-lived connections (no module-level state).
 
 import contextlib
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -40,6 +41,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import evelyn_config as cfg
+
+logger = logging.getLogger("evelyn.memory_db")
 
 # ---------------------------------------------------------------------------
 # Connection helper
@@ -1788,7 +1791,10 @@ def get_all_procedures(status: str | None = "live") -> list[dict]:
 
 
 def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]:
-    """Find procedures whose trigger pattern matches keywords in the query text.
+    """Find procedures whose trigger pattern or semantic intent matches the query text.
+
+    Combines dense vector semantic intent routing (bge-large-en-v1.5) with lexical
+    token overlap and domain synonym matching.
 
     Args:
         query: User message query string.
@@ -1797,34 +1803,79 @@ def search_procedures_by_trigger(query: str, status: str = "live") -> list[dict]
     Returns:
         list[dict]: List of matching procedure dictionaries sorted by relevance.
     """
+    if not query or not query.strip():
+        return []
+
+    # 1. Semantic intent routing (Vector Cosine Similarity via BGE-Large-en-v1.5)
+    semantic_scored: dict[int, dict] = {}
     try:
-        from Evelyn.tools.procedure_matcher import STOPWORDS
+        from Evelyn.tools.semantic_router import get_semantic_router
+
+        sem_matches = get_semantic_router().match_procedures(query, top_k=5, status=status)
+        for sm in sem_matches:
+            pid = sm.get("id")
+            if pid is not None:
+                semantic_scored[pid] = sm
+    except (OSError, ValueError, RuntimeError, ImportError) as e:
+        logger.debug("Semantic router lookup skipped/failed: %s", e)
+
+    # 2. Lexical keyword and domain token overlap (Fallback & Concordance)
+    extract_keywords_fn = None
+    try:
+        from Evelyn.tools.procedure_matcher import STOPWORDS, extract_procedure_keywords
+
+        extract_keywords_fn = extract_procedure_keywords
     except ImportError:
-        from procedure_matcher import STOPWORDS
+        try:
+            from procedure_matcher import STOPWORDS, extract_procedure_keywords
+
+            extract_keywords_fn = extract_procedure_keywords
+        except ImportError:
+            STOPWORDS = set()
 
     raw_words = [w.strip(".,;:!?\"'()[]{}") for w in query.lower().split()]
     query_kws = {w for w in raw_words if len(w) >= 3 and w not in STOPWORDS}
-    if not query_kws:
-        return []
+    expanded_query_kws = (
+        extract_keywords_fn(query) if extract_keywords_fn else query_kws
+    )
 
     con = get_db()
     rows = con.execute("SELECT * FROM procedures WHERE status = ?", (status,)).fetchall()
     con.close()
 
-    scored = []
+    # 3. Combine and rank candidates
+    scored_candidates: dict[int, tuple[float, int, dict]] = {}
+
+    # Seed candidates with semantic route matches
+    for pid, sm in semantic_scored.items():
+        sem_score = sm.get("semantic_score", 0.0)
+        # Scaled semantic score (e.g. 0.85 -> 8.5)
+        combined_score = sem_score * 10.0
+        scored_candidates[pid] = (combined_score, sm.get("retrieval_count", 0), sm)
+
+    # Evaluate lexical keyword overlap across all procedures
     for r in rows:
         p_dict = dict(r)
+        pid = p_dict["id"]
         trigger_text = f"{p_dict.get('trigger_pattern') or ''} {p_dict.get('tags') or ''}".lower()
-        trigger_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", trigger_text)) - STOPWORDS
-        overlap = query_kws & trigger_words
-        if not overlap:
-            continue
+        if extract_keywords_fn:
+            trigger_words = extract_keywords_fn(trigger_text)
+        else:
+            trigger_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", trigger_text)) - STOPWORDS
 
-        score = len(overlap)
-        scored.append((score, p_dict.get("retrieval_count", 0), p_dict))
+        overlap = expanded_query_kws & trigger_words
+        overlap_score = len(overlap)
 
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [item[2] for item in scored]
+        if pid in scored_candidates:
+            # Boost candidate that exhibits both semantic and lexical concordance
+            prev_score, ret_count, proc_obj = scored_candidates[pid]
+            scored_candidates[pid] = (prev_score + overlap_score, ret_count, proc_obj)
+        elif overlap_score > 0:
+            scored_candidates[pid] = (float(overlap_score), p_dict.get("retrieval_count", 0), p_dict)
+
+    scored_list = list(scored_candidates.values())
+    scored_list.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [item[2] for item in scored_list]
 
 
 def touch_procedure_retrieved(proc_id: int) -> None:
