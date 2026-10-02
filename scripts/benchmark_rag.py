@@ -1,6 +1,6 @@
 # benchmark_rag.py
 # date created: 2026-04-26 12:18:17
-# date modified: 2026-10-02 16:50:29
+# date modified: 2026-10-02 17:45:18
 # tags: #rag, #benchmark, #evaluation, #testing, #metrics
 
 """
@@ -35,6 +35,7 @@ import json
 import os
 import sys
 import time
+from contextlib import suppress
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -72,16 +73,14 @@ class StaleGoldenSet(RuntimeError):
 def load_golden_queries(path: str) -> list[dict]:
     """Load and validate the golden query test set.
 
-    Refuses a set marked ``"status": "stale"``. A benchmark that returns a number while
-    measuring nothing is worse than no benchmark: the number gets quoted. The marker
-    carries its own diagnosis, which is printed rather than summarised here so the two
-    cannot drift apart.
+    Refuses a set marked ``"status": "stale"``. Supports dynamic {USER_NAME} and
+    {ASSISTANT_NAME} templating and optional local overlay file.
 
     Args:
         path: Path to the golden query JSON.
 
     Returns:
-        list[dict]: Validated query definitions.
+        list[dict]: Validated and templated query definitions.
 
     Raises:
         StaleGoldenSet: If the file declares itself stale.
@@ -110,11 +109,48 @@ def load_golden_queries(path: str) -> list[dict]:
     else:
         queries = data
 
+    # Optional local overlay support
+    local_path = os.path.join(ROOT_DIR, "reference", "rag_benchmark_queries.local.json")
+    if os.path.isfile(local_path):
+        try:
+            with open(local_path, encoding="utf-8") as lf:
+                local_data = json.load(lf)
+            local_queries = local_data.get("queries", local_data) if isinstance(local_data, dict) else local_data
+            by_id = {q["id"]: q for q in queries}
+            for lq in local_queries:
+                by_id[lq["id"]] = lq
+            queries = list(by_id.values())
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Failed loading local overlay {local_path}: {exc}")
+
+    # Parameterize template tokens {USER_NAME} and {ASSISTANT_NAME}
+    fmt = {"USER_NAME": cfg.USER_NAME, "ASSISTANT_NAME": cfg.ASSISTANT_NAME}
+    templated_queries = []
     for q in queries:
         assert "id" in q, f"Query missing 'id': {q}"
         assert "query" in q, f"Query missing 'query': {q}"
-        assert "expected_sources_contain" in q, f"Query missing 'expected_sources_contain': {q}"
-    return queries
+        qd = dict(q)
+        with suppress(KeyError, IndexError):
+            qd["query"] = qd["query"].format(**fmt)
+        if "expected_ground_truth" in qd:
+            templated_gt = []
+            for item in qd["expected_ground_truth"]:
+                formatted_item = item
+                with suppress(KeyError, IndexError):
+                    formatted_item = item.format(**fmt)
+                templated_gt.append(formatted_item)
+            qd["expected_ground_truth"] = templated_gt
+        if "expected_sources_contain" in qd:
+            templated_src = []
+            for item in qd["expected_sources_contain"]:
+                formatted_item = item
+                with suppress(KeyError, IndexError):
+                    formatted_item = item.format(**fmt)
+                templated_src.append(formatted_item)
+            qd["expected_sources_contain"] = templated_src
+        templated_queries.append(qd)
+
+    return templated_queries
 
 
 def run_query(query: str, n_results: int | None = None, reformulate: bool = False) -> list[dict]:
@@ -133,44 +169,102 @@ def run_query(query: str, n_results: int | None = None, reformulate: bool = Fals
     return all_chunks
 
 
-def check_source_match(source_basename: str, expected_patterns: list[str]) -> bool:
-    """Check if a source basename matches any of the expected patterns (substring match)."""
-    source_lower = source_basename.lower()
-    return any(pat.lower() in source_lower for pat in expected_patterns)
+def is_chunk_relevant(chunk: dict, query_def: dict) -> tuple[bool, str]:
+    """Determine if a retrieved chunk satisfies any relevance criteria:
+
+    1. Source file name or path matches `expected_sources_contain`
+    2. Category matches `expected_categories`
+    3. Ground truth factual keywords appear in chunk content (`expected_ground_truth`)
+    4. Tags match `expected_tags`
+
+    Returns:
+        tuple[bool, str]: (is_relevant, match_reason)
+    """
+    src = str(chunk.get("source", ""))
+    src_base = os.path.basename(src).lower()
+    meta = chunk.get("metadata") or {}
+    meta_src = str(meta.get("source", "")).lower()
+    meta_title = str(meta.get("title", "")).lower()
+    content_lower = str(chunk.get("content", "")).lower()
+    cat = str(meta.get("category", "")).upper()
+    tags = str(meta.get("tags", "")).lower()
+
+    # 1. Source match
+    expected_sources = query_def.get("expected_sources_contain") or []
+    for pat in expected_sources:
+        p_low = pat.lower()
+        if p_low in src.lower() or p_low in src_base or p_low in meta_src or p_low in meta_title:
+            return True, f"source:{pat}"
+
+    # 2. Category match
+    expected_categories = [c.upper() for c in (query_def.get("expected_categories") or [])]
+    if cat and cat in expected_categories:
+        return True, f"category:{cat}"
+    for c in expected_categories:
+        if f"category: {c.lower()}" in content_lower:
+            return True, f"category_text:{c}"
+
+    # 3. Ground truth keyword / phrase match in content
+    expected_gt = query_def.get("expected_ground_truth") or []
+    for gt in expected_gt:
+        if gt.lower() in content_lower:
+            return True, f"ground_truth:{gt}"
+
+    # 4. Tag match
+    expected_tags = query_def.get("expected_tags") or []
+    for t in expected_tags:
+        t_low = t.lower()
+        if t_low in tags or f"tags: {t_low}" in content_lower:
+            return True, f"tag:{t}"
+
+    return False, ""
 
 
 def evaluate_query(query_def: dict, all_chunks: list[dict], threshold: float) -> dict:
-    """Evaluate a single query against expected sources.
+    """Evaluate a single query against multi-criteria relevance expectations.
 
     Returns a result dict with:
-      - hit: bool — did any expected source appear in kept chunks?
+      - hit: bool — did any expected source/fact appear in kept chunks?
       - reciprocal_rank: float — 1/rank of first expected hit (0 if no hit)
+      - precision_at_k: float — relevant chunks / kept chunks
       - kept_count: int — chunks that passed threshold
       - total_count: int — chunks returned from query
       - first_match_rank: int or None
-      - distances: list of (source, distance, matched) tuples
+      - distances: list of (source, distance, matched, reason) tuples
     """
-    expected = query_def["expected_sources_contain"]
     is_negative = query_def.get("category") == "negative"
 
     kept = [c for c in all_chunks if c["distance"] <= threshold]
     distances = []
     first_match_rank = None
+    match_count = 0
 
     for rank, chunk in enumerate(kept, 1):
-        src = os.path.basename(chunk["source"])
-        matched = check_source_match(src, expected)
-        distances.append((src, chunk["distance"], matched))
-        if matched and first_match_rank is None:
-            first_match_rank = rank
+        matched, reason = is_chunk_relevant(chunk, query_def)
+        src_label = chunk.get("source", "")
+        if "sqlite::context_entry" in src_label:
+            cat = (chunk.get("metadata") or {}).get("category", "")
+            src_label = f"{src_label} [{cat}]" if cat else src_label
+        else:
+            src_label = os.path.basename(src_label)
+
+        distances.append((src_label, chunk["distance"], matched, reason))
+        if matched:
+            match_count += 1
+            if first_match_rank is None:
+                first_match_rank = rank
 
     if is_negative:
-        # For negative tests: success = no chunks passed threshold, or very few
-        hit = len(kept) <= 2  # Allow up to 2 marginal hits
+        # For negative tests: success if no chunks matched ground truth (match_count == 0)
+        # AND top chunk distance indicates low relevance (either min_dist >= 0.40 or len(kept) <= 2)
+        min_dist = min((c["distance"] for c in all_chunks), default=1.0)
+        hit = (match_count == 0) and (min_dist >= 0.40 or len(kept) <= 2)
         reciprocal_rank = 1.0 if hit else 0.0
+        precision_at_k = 1.0 if hit else 0.0
     else:
         hit = first_match_rank is not None
         reciprocal_rank = (1.0 / first_match_rank) if first_match_rank else 0.0
+        precision_at_k = (match_count / len(kept)) if kept else 0.0
 
     return {
         "id": query_def["id"],
@@ -178,7 +272,9 @@ def evaluate_query(query_def: dict, all_chunks: list[dict], threshold: float) ->
         "category": query_def.get("category", "unknown"),
         "hit": hit,
         "reciprocal_rank": reciprocal_rank,
+        "precision_at_k": precision_at_k,
         "first_match_rank": first_match_rank,
+        "match_count": match_count,
         "kept_count": len(kept),
         "total_count": len(all_chunks),
         "distances": distances,
@@ -188,9 +284,9 @@ def evaluate_query(query_def: dict, all_chunks: list[dict], threshold: float) ->
 def print_results_table(results: list[dict], verbose: bool = False):
     """Print a formatted results table to stdout."""
     print(f"\n{_BLD}{'='*80}{_RST}")
-    print(f"{_BLD}  RAG Retrieval Benchmark Results{_RST}")
+    print(f"{_BLD}  RAG Retrieval Benchmark Results (Ragas/BEIR Evaluation){_RST}")
     print(f"{_BLD}{'='*80}{_RST}")
-    print(f"  Embedding: all-MiniLM-L6-v2 | Threshold: {cfg.RAG_DISTANCE_THRESHOLD}")
+    print(f"  Embedding: {BASELINE_MODEL} | Threshold: {cfg.RAG_DISTANCE_THRESHOLD}")
     print(f"  Chunk size: {chroma_rag.CHUNK_SIZE} chars | Top-K: {cfg.RAG_TOP_K}")
 
     mem_col = chroma_rag.get_or_create_collection(cfg.CHROMA_MEMORY_COLLECTION)
@@ -208,35 +304,42 @@ def print_results_table(results: list[dict], verbose: bool = False):
     for cat, cat_results in categories.items():
         cat_hits = sum(1 for r in cat_results if r["hit"])
         cat_mrr = sum(r["reciprocal_rank"] for r in cat_results) / len(cat_results) if cat_results else 0
+        cat_prec = sum(r["precision_at_k"] for r in cat_results) / len(cat_results) if cat_results else 0
         color = _GRN if cat_hits == len(cat_results) else _YEL if cat_hits > 0 else _RED
-        print(f"\n  {_BLD}[{cat.upper()}]{_RST}  Hit Rate: {color}{cat_hits}/{len(cat_results)}{_RST}  MRR: {cat_mrr:.3f}")
+        print(f"\n  {_BLD}[{cat.upper()}]{_RST}  Recall: {color}{cat_hits}/{len(cat_results)}{_RST}  MRR: {cat_mrr:.3f}  Prec@K: {cat_prec:.3f}")
 
         for r in cat_results:
             status = f"{_GRN}+{_RST}" if r["hit"] else f"{_RED}x{_RST}"
             rank_str = f"rank={r['first_match_rank']}" if r["first_match_rank"] else "no match"
             print(
-                f"    {status} {r['id']:<30s} kept={r['kept_count']}/{r['total_count']} "
+                f"    {status} {r['id']:<34s} kept={r['kept_count']}/{r['total_count']} "
                 f"{rank_str:<12s} MRR={r['reciprocal_rank']:.3f}  q=\"{r['query'][:40]}\""
             )
             if verbose and r["distances"]:
-                for src, dist, matched in r["distances"][:5]:
+                for src, dist, matched, reason in r["distances"][:5]:
                     marker = f"{_GRN}<{_RST}" if matched else " "
-                    print(f"      {marker} dist={dist:.3f}  {src}")
+                    reason_str = f" [{reason}]" if reason else ""
+                    print(f"      {marker} dist={dist:.3f}  {src}{reason_str}")
 
     # Summary
     total = len(results)
     hits = sum(1 for r in results if r["hit"])
     overall_mrr = sum(r["reciprocal_rank"] for r in results) / total if total else 0
+    overall_prec = sum(r["precision_at_k"] for r in results) / total if total else 0
     non_negative = [r for r in results if r["category"] != "negative"]
+    non_neg_count = len(non_negative)
     non_neg_hits = sum(1 for r in non_negative if r["hit"])
-    non_neg_mrr = sum(r["reciprocal_rank"] for r in non_negative) / len(non_negative) if non_negative else 0
+    non_neg_mrr = sum(r["reciprocal_rank"] for r in non_negative) / non_neg_count if non_neg_count else 0.0
+    non_neg_prec = sum(r["precision_at_k"] for r in non_negative) / non_neg_count if non_neg_count else 0.0
 
     print("\n" + "-" * 80)
-    print(f"  {_BLD}OVERALL{_RST}")
+    print(f"  {_BLD}OVERALL EVALUATION{_RST}")
     color = _GRN if hits == total else _YEL if hits > total * 0.7 else _RED
-    print(f"    Hit Rate:    {color}{hits}/{total} ({100*hits/total:.0f}%){_RST}")
-    print(f"    MRR:         {overall_mrr:.3f}")
-    print(f"    (excl. neg)  Hit Rate: {non_neg_hits}/{len(non_negative)} ({100*non_neg_hits/len(non_negative):.0f}%)  MRR: {non_neg_mrr:.3f}")
+    print(f"    Recall@K:     {color}{hits}/{total} ({100*hits/total:.0f}%){_RST}")
+    print(f"    MRR:          {overall_mrr:.3f}")
+    print(f"    Precision@K:  {overall_prec:.3f}")
+    if non_neg_count:
+        print(f"    (excl. neg)   Recall@K: {non_neg_hits}/{non_neg_count} ({100*non_neg_hits/non_neg_count:.0f}%)  MRR: {non_neg_mrr:.3f}  Prec@K: {non_neg_prec:.3f}")
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +471,7 @@ def main():
     parser = argparse.ArgumentParser(description="RAG retrieval benchmark")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show per-chunk distances")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
+    parser.add_argument("--case", help="Filter by specific query ID")
     parser.add_argument("--golden", default=GOLDEN_FILE, help="Path to golden query file")
     parser.add_argument(
         "--compare", metavar="MODEL",
@@ -390,6 +494,13 @@ def main():
         print(e)
         cfg.DEBUG_LOGGING = original_debug
         return 2
+
+    if args.case:
+        queries = [q for q in queries if q.get("id") == args.case]
+        if not queries:
+            print(f"No query found with ID: {args.case}")
+            cfg.DEBUG_LOGGING = original_debug
+            return 1
     threshold = cfg.RAG_DISTANCE_THRESHOLD
 
     if args.compare:

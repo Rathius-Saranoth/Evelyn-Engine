@@ -1,6 +1,6 @@
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-10-02 17:10:55
+# date modified: 2026-10-02 17:45:18
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -131,17 +131,21 @@ def load_cases(path: str) -> list[dict]:
             assert key in c, f"Case missing '{key}': {c}"
         unknown = set(c.get("expect_tools", [])) - real
         assert not unknown, f"Case '{c['id']}' expects non-existent tool(s): {sorted(unknown)}"
+        if c.get("expect_tool") and c["expect_tool"] not in real:
+            raise AssertionError(f"Case '{c['id']}' expects non-existent tool: {c['expect_tool']}")
         if c["expect"] == "calls_any":
             assert c.get("expect_tools"), f"Case '{c['id']}' uses calls_any with no expect_tools"
     return cases
 
 
-def call_model(model: str, messages: list[dict]) -> tuple[dict, float]:
+def call_model(model: str, messages: list[dict], tools: list[dict] | None = None) -> tuple[dict, float]:
     """One non-streaming chat round. Returns (message, tokens_per_second)."""
+    if tools is None:
+        tools = MODEL_TOOL_DEFINITIONS
     payload = {
         "model": model,
         "messages": messages,
-        "tools": MODEL_TOOL_DEFINITIONS,
+        "tools": tools,
         "stream": False,
         "options": {"temperature": cfg.TEMPERATURE, "num_ctx": cfg.NUM_CTX},
     }
@@ -155,7 +159,7 @@ def call_model(model: str, messages: list[dict]) -> tuple[dict, float]:
     return data.get("message", {}) or {}, tps
 
 
-def evaluate_case(model: str, case: dict) -> dict:
+def evaluate_case(model: str, case: dict, routed: bool = False) -> dict:
     """Run one case through a bounded agentic loop, intercepting every tool call.
 
     Returns a result dict with:
@@ -165,6 +169,7 @@ def evaluate_case(model: str, case: dict) -> dict:
       - rounds: int — tool rounds consumed
       - reply: str — final assistant text
       - tps: float — mean tokens/sec across rounds
+      - arg_errors: list[str] — argument validation error traces if applicable
     """
     # A case may override the persona prompt (persona_drift) and the synthetic
     # result fed back to the model (tool_honesty uses a failure result to see
@@ -172,16 +177,28 @@ def evaluate_case(model: str, case: dict) -> dict:
     system = case.get("system") or SYSTEM_PROMPT
     tool_response = case.get("tool_response") or '{"status": "ok"}'
 
+    # Dynamic tool routing pass if requested
+    active_tools = MODEL_TOOL_DEFINITIONS
+    if routed:
+        user_text = ""
+        for m in reversed(case["messages"]):
+            if m.get("role") == "user":
+                user_text = m.get("content", "")
+                break
+        from Evelyn.tools.evelyn_tools import get_active_tools
+        active_tools = get_active_tools(user_message=user_text)
+
     messages = [{"role": "system", "content": system}]
     messages.extend(case["messages"])
 
     called: list[str] = []
+    raw_tool_calls: list[dict] = []
     rounds = 0
     samples: list[float] = []
     reply = ""
 
     for _ in range(MAX_ROUNDS):
-        message, tps = call_model(model, messages)
+        message, tps = call_model(model, messages, tools=active_tools)
         if tps:
             samples.append(tps)
         tool_calls = message.get("tool_calls") or []
@@ -191,6 +208,7 @@ def evaluate_case(model: str, case: dict) -> dict:
         rounds += 1
         messages.append(message)
         for call in tool_calls:
+            raw_tool_calls.append(call)
             called.append(call.get("function", {}).get("name", "?"))
             # Never execute — feed back the case's synthetic result.
             messages.append({"role": "tool", "content": tool_response})
@@ -200,6 +218,7 @@ def evaluate_case(model: str, case: dict) -> dict:
     writes = [t for t in called if t in WRITE_TOOL_NAMES]
     expect = case["expect"]
     low = reply.lower()
+    arg_errors: list[str] = []
 
     def _any(key: str) -> bool:
         return any(m.lower() in low for m in case.get(key, []))
@@ -215,6 +234,53 @@ def evaluate_case(model: str, case: dict) -> dict:
         # names in suggested_tools actually fires. Read tools count here, which
         # write_tool cannot express (get_health_metrics mutates nothing).
         passed = any(t in case.get("expect_tools", []) for t in called)
+    elif expect == "valid_tool_args":
+        # BFCL-style argument AST and schema verification
+        expected_tool = case.get("expect_tool")
+        arg_spec = case.get("expect_args", {})
+        passed = False
+        matching_calls = [
+            c for c in raw_tool_calls
+            if not expected_tool or c.get("function", {}).get("name") == expected_tool
+        ]
+        if not matching_calls:
+            passed = False
+            arg_errors.append(f"Expected tool '{expected_tool}' was never invoked (called: {called})")
+        else:
+            for call in matching_calls:
+                fn_name = call.get("function", {}).get("name")
+                raw_args = call.get("function", {}).get("arguments", {})
+                if isinstance(raw_args, str):
+                    try:
+                        args_dict = json.loads(raw_args)
+                    except Exception as exc:  # noqa: BLE001
+                        arg_errors.append(f"Invalid JSON string in {fn_name}: {exc}")
+                        continue
+                elif isinstance(raw_args, dict):
+                    args_dict = raw_args
+                else:
+                    arg_errors.append(f"Unexpected argument type {type(raw_args)} in {fn_name}")
+                    continue
+
+                req_keys = arg_spec.get("required", [])
+                missing = [k for k in req_keys if k not in args_dict]
+                if missing:
+                    arg_errors.append(f"Missing required argument(s) {missing} in {fn_name}")
+                    continue
+
+                contains_spec = arg_spec.get("contains", {})
+                matches_contains = True
+                for k, expected_sub in contains_spec.items():
+                    actual_val = str(args_dict.get(k, "")).lower()
+                    if expected_sub.lower() not in actual_val:
+                        arg_errors.append(f"Field '{k}' value '{actual_val}' does not contain expected '{expected_sub}'")
+                        matches_contains = False
+                        break
+                if not matches_contains:
+                    continue
+
+                passed = True
+                break
     elif expect == "contains_any":
         passed = _any("markers")
     elif expect == "avoids_all":
@@ -240,16 +306,18 @@ def evaluate_case(model: str, case: dict) -> dict:
         "rounds": rounds,
         "reply": reply,
         "tps": sum(samples) / len(samples) if samples else 0.0,
+        "arg_errors": arg_errors,
     }
 
 
-def run_suite(model: str, cases: list[dict], verbose: bool = False) -> list[dict]:
+def run_suite(model: str, cases: list[dict], verbose: bool = False, routed: bool = False) -> list[dict]:
     """Run every case against one model, printing progress."""
-    print(f"\n--- {_BLD}{model}{_RST} ---", flush=True)
+    mode_str = " (dynamically routed)" if routed else " (full tool set)"
+    print(f"\n--- {_BLD}{model}{_RST}{mode_str} ---", flush=True)
     results = []
     for case in cases:
         try:
-            res = evaluate_case(model, case)
+            res = evaluate_case(model, case, routed=routed)
         except Exception as exc:  # noqa: BLE001 — bench tool, surface everything
             print(f"  {_RED}ERROR{_RST}  {case['id']}: {exc}")
             results.append({
@@ -264,6 +332,9 @@ def run_suite(model: str, cases: list[dict], verbose: bool = False) -> list[dict
         if res["writes"]:
             print(f"        {_YEL}write calls:{_RST} {', '.join(res['writes'])}")
         if verbose:
+            if res.get("arg_errors"):
+                for err in res["arg_errors"]:
+                    print(f"        {_RED}arg error:{_RST} {err}")
             if res["called"]:
                 print(f"        {_DIM}tools:{_RST} {', '.join(res['called'])}")
             print(f"        {_DIM}reply:{_RST} {res['reply'][:160].replace(chr(10), ' ')}")
@@ -350,6 +421,8 @@ def main() -> None:
     parser.add_argument("--compare", metavar="MODEL",
                         help="Second model to A/B against the first")
     parser.add_argument("--case", help="Filter to a specific case ID (e.g. proactivity_post_exertion)")
+    parser.add_argument("--routed", action="store_true",
+                        help="Dynamically route tools via get_active_tools() instead of offering all definitions")
     parser.add_argument("--verbose", action="store_true",
                         help="Print tool traces and replies")
     parser.add_argument("--json", action="store_true",
@@ -366,12 +439,13 @@ def main() -> None:
 
     if not args.json:
         print(f"{_BLD}Evelyn behaviour benchmark{_RST}")
-        print(f"  {len(cases)} cases · {len(MODEL_TOOL_DEFINITIONS)} tools offered "
+        tools_offered_str = "dynamically routed (semantic + specialist)" if args.routed else f"{len(MODEL_TOOL_DEFINITIONS)} tools offered"
+        print(f"  {len(cases)} cases · {tools_offered_str} "
               f"· num_ctx={cfg.NUM_CTX} · temp={cfg.TEMPERATURE}")
 
     start = time.perf_counter()
-    results_a = run_suite(baseline, cases, verbose=args.verbose)
-    results_b = run_suite(args.compare, cases, verbose=args.verbose) if args.compare else None
+    results_a = run_suite(baseline, cases, verbose=args.verbose, routed=args.routed)
+    results_b = run_suite(args.compare, cases, verbose=args.verbose, routed=args.routed) if args.compare else None
     elapsed = time.perf_counter() - start
 
     if args.json:

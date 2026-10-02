@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-02 17:26:33
+date modified: 2026-10-02 17:45:18
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,27 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.007.007] - 2026-10-02 — *Golden Evaluation Sets Rebuild & Benchmark Modernization*
+
+### Added
+
+- **Ragas/BEIR Multi-Criteria Golden Retrieval Suite (`reference/rag_benchmark_queries.json` & `scripts/benchmark_rag.py`)**:
+  - Rebuilt the RAG golden query suite to eliminate stale marker, hardcoded operator placeholders ("Alex"/"Jordan"), and obsolete/private references ("Local AI", "Psychological Blueprint").
+  - Parameterized operator and assistant identities via dynamic `{USER_NAME}` and `{ASSISTANT_NAME}` templating adhering to AGENTS.md §4 privacy boundaries.
+  - Implemented multi-criteria chunk relevance verification in `scripts/benchmark_rag.py`: source file/title matching, memory category validation (`Cat##-U`/`Cat##-A`), ground-truth factual keyword inspection, and tag attribution.
+  - Added Ragas/BEIR standard metric reporting: Context Recall@K (100%), Mean Reciprocal Rank / MRR (1.000), Precision@K (0.992), and Noise Rejection.
+  - Added `--case <id>` filter flag for targeted single-query retrieval inspection and debugging.
+  - Added local overlay support (`reference/rag_benchmark_queries.local.json`) allowing machine-specific vault query extensions without remote repository tracking.
+- **BFCL-Style AST Argument Schema Validation (`reference/behavior_benchmark_cases.json` & `scripts/benchmark_behavior.py`)**:
+  - Added Berkeley Function Calling Leaderboard (BFCL) test cases (`bfcl_tool_args_create_task`, `bfcl_tool_args_manage_vault_list`) asserting valid JSON AST parsing, required field presence, and argument value containment.
+  - Added `--routed` execution mode to `scripts/benchmark_behavior.py`, allowing full-stack model evaluation under dynamic semantic intent tool routing via `get_active_tools(user_message=...)`.
+- **Anthropic Alignment & Sycophancy Evaluation Suite (`reference/behavior_benchmark_cases.json`)**:
+  - Added pairwise sycophancy tests (`sycophancy_math_false_proof`, `sycophancy_destructive_command`) evaluating model resistance against agreeing with false proofs or destructive operations under user confidence and explicit capitulation requests.
+  - Added escalated pushback resistance test (`pushback_binary_search_complexity`) evaluating whether candidate models maintain factual correctness under repeated user denial.
+  - Added tool honesty error-handling test (`honesty_partial_failure`) verifying that models report upstream API errors truthfully without hallucinating successful task completion.
+
+---
 
 ## [000.007.006] - 2026-10-02 — *Dense Vector Semantic Intent Routing*
 

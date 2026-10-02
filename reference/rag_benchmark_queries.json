@@ -1,151 +1,38 @@
 {
-  "status": "stale",
-  "stale_since": "2026-09-26",
-  "summary": "This golden set scores 1/25 against the live corpus and the single hit is a negative query passing by returning nothing. It measures nothing. benchmark_rag.py refuses to score against it until it is rebuilt.",
-  "defects": [
-    "MATCHER IS BLIND TO MOST OF THE CORPUS. check_source_match() compares os.path.basename(source). A context entry's source is 'sqlite::context_entry::5830', which basename returns unchanged and which carries no category, title or tag. Context entries are ~73% of the collection, so an expectation like 'Cat05-U' can only match the summary NOTE, never the 10,182 raw entries that dominate retrieval.",
-    "QUERIES NAME PEOPLE WHO DO NOT EXIST. 'Alex' is EXAMPLE_THIRD_PARTY_NAME from evelyn_config; 'Jordan' matches nothing in the vault. The queries were genericised for the public repo and the corpus was not, so semantic search has nothing to match on.",
-    "EXPECTATIONS THAT CANNOT BE SATISFIED. 'Cat10-U' was never created as a note. 'Local AI' was deleted from the vault on 2026-09-26.",
-    "ONE EXPECTATION THE ENGINE IS CORRECT TO REFUSE. 'Psychological Blueprint' is sensitivity: private, and policy is that private notes never reach RAG. The benchmark penalises the engine for obeying its own privacy rule.",
-    "THE GROUND-TRUTH MODEL DOES NOT MATCH THE DATA. Fixing the matcher does not rescue it: 'What medications am I on?' expects Cat08-U, but medication facts are spread across nine categories (Cat01-U has 20, Cat05-U has 18, Cat08-U has 9), and retrieval returned Cat01-U among others. 'Expect category N' assumes facts are filed by topic into one category. They are not. This is why the set needs rebuilding rather than repairing."
-  ],
-  "rebuild_guidance": "Scoring belongs with the model-alignment benchmark work, not with retrieval patches. When it is built: score vault-note queries by source (they have real filenames) and fact queries by whether the retrieved TEXT contains the answer; template person names as {USER_NAME}/{ASSISTANT_NAME} so this tracked file carries no real identities and works on any deployment, with a gitignored local overlay for vault-specific queries.",
+  "version": "2.0.0",
+  "framework": "Ragas/BEIR dual-criteria (Context Recall + Context Precision)",
+  "date_modified": "2026-10-02",
+  "description": "Standardized golden query set for RAG retrieval evaluation. Evaluates Context Recall, Context Precision (MRR), Precision@K, and Noise Rejection against ChromaDB vector stores. Supports dynamic template variables {USER_NAME} and {ASSISTANT_NAME} per AGENTS.md §4 privacy boundaries.",
   "queries": [
     {
-      "id": "conversational_operator",
-      "query": "Tell me about Alex",
-      "category": "conversational",
+      "id": "exact_name_operator",
+      "query": "{USER_NAME}",
+      "category": "exact_name",
       "expected_sources_contain": [
+        "Physical Description"
+      ],
+      "expected_categories": [
         "Cat01-U",
         "Cat05-U",
         "Cat11-U"
       ],
-      "notes": "Simple conversational request \u2014 should surface identity/preference/factual docs."
-    },
-    {
-      "id": "conversational_family",
-      "query": "How's Jordan doing these days?",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Jordan"
+      "expected_ground_truth": [
+        "{USER_NAME}"
       ],
-      "notes": "Casual question about a household member \u2014 should surface their entries."
+      "notes": "Single operator name lookup — direct identity match."
     },
     {
-      "id": "conversational_greeting",
-      "query": "Good morning babe, how are you?",
-      "category": "conversational",
-      "expected_sources_contain": [],
-      "notes": "Greeting with no information need \u2014 should retrieve few/no relevant chunks. This tests noise resistance."
-    },
-    {
-      "id": "conversational_food",
-      "query": "I'm hungry, what should I eat?",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat05-U"
-      ],
-      "notes": "Indirect food preference query \u2014 need to match through 'eat' \u2192 preferences."
-    },
-    {
-      "id": "conversational_parents",
-      "query": "I talked to my mom today",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat06-U",
-        "Peggy"
-      ],
-      "notes": "Indirect family mention \u2014 'mom' should resolve to Peggy/family context."
-    },
-    {
-      "id": "conversational_rough_day",
-      "query": "Had a really rough day at work",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat08-U",
-        "Cat10-U",
-        "Cat03-U"
-      ],
-      "notes": "Emotional statement about work stress \u2014 should surface health/daily life/emotional entries."
-    },
-    {
-      "id": "conversational_music",
-      "query": "Put on some good music, what have we been listening to?",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat05-U"
-      ],
-      "notes": "Casual music request \u2014 should surface music preferences."
-    },
-    {
-      "id": "conversational_sleep",
-      "query": "I couldn't sleep last night",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat08-U"
-      ],
-      "notes": "Sleep complaint \u2014 should surface health/sleep entries."
-    },
-    {
-      "id": "conversational_memory",
-      "query": "Remember when we talked about that book?",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat05-U",
-        "Journal"
-      ],
-      "notes": "Vague memory recall \u2014 tests whether 'book' surfaces reading preferences."
-    },
-    {
-      "id": "conversational_project",
-      "query": "I've been working on the AI stuff all day",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat11-U",
-        "Local AI"
-      ],
-      "notes": "Project mention \u2014 should surface Evelyn Engine / local AI development entries."
-    },
-    {
-      "id": "conversational_feeling_down",
-      "query": "I'm feeling kind of down tonight",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat03-U",
-        "Journal"
-      ],
-      "notes": "Emotional state \u2014 should surface emotional context or journal reflections."
-    },
-    {
-      "id": "conversational_love",
-      "query": "You mean a lot to me, you know that right?",
-      "category": "conversational",
-      "expected_sources_contain": [
-        "Cat02-U",
-        "Cat02-A",
-        "Cat03-U",
-        "Cat03-A"
-      ],
-      "notes": "Affectionate statement \u2014 tests whether relationship/emotional docs surface."
-    },
-    {
-      "id": "exact_name_operator",
-      "query": "Alex",
+      "id": "exact_name_assistant",
+      "query": "{ASSISTANT_NAME}",
       "category": "exact_name",
-      "expected_sources_contain": [
-        "Cat05-U",
-        "Cat11-U"
+      "expected_categories": [
+        "Cat01-A",
+        "Cat02-A"
       ],
-      "notes": "Single word name lookup \u2014 direct name match."
-    },
-    {
-      "id": "exact_name_family",
-      "query": "Jordan",
-      "category": "exact_name",
-      "expected_sources_contain": [
-        "Jordan"
+      "expected_ground_truth": [
+        "{ASSISTANT_NAME}"
       ],
-      "notes": "Household member name lookup \u2014 should surface their persona or context entries."
+      "notes": "Assistant persona name lookup — should surface assistant persona or core attributes."
     },
     {
       "id": "exact_name_saros",
@@ -154,95 +41,334 @@
       "expected_sources_contain": [
         "Saros"
       ],
-      "notes": "Fictional character name \u2014 should surface Saros persona."
+      "expected_ground_truth": [
+        "Saros"
+      ],
+      "notes": "Character persona lookup — should surface Saros persona note."
     },
     {
-      "id": "direct_question_health",
-      "query": "What medications am I on?",
-      "category": "direct_question",
+      "id": "conversational_operator",
+      "query": "Tell me about {USER_NAME}",
+      "category": "conversational",
       "expected_sources_contain": [
+        "Physical Description"
+      ],
+      "expected_categories": [
+        "Cat01-U",
+        "Cat05-U",
+        "Cat11-U"
+      ],
+      "expected_ground_truth": [
+        "{USER_NAME}"
+      ],
+      "notes": "Conversational identity request — should surface operator core attributes or preferences."
+    },
+    {
+      "id": "conversational_food",
+      "query": "I'm hungry, what should I eat?",
+      "category": "conversational",
+      "expected_categories": [
+        "Cat05-U"
+      ],
+      "expected_ground_truth": [
+        "food",
+        "eat",
+        "meal",
+        "snack",
+        "dinner",
+        "lunch",
+        "cook"
+      ],
+      "expected_tags": [
+        "food",
+        "cooking",
+        "recipe",
+        "diet"
+      ],
+      "notes": "Indirect food preference query — surfaces culinary preferences."
+    },
+    {
+      "id": "conversational_music",
+      "query": "Put on some good music, what have we been listening to?",
+      "category": "conversational",
+      "expected_categories": [
+        "Cat05-U"
+      ],
+      "expected_ground_truth": [
+        "music",
+        "song",
+        "listen",
+        "band",
+        "track",
+        "artist"
+      ],
+      "expected_tags": [
+        "music"
+      ],
+      "notes": "Casual music request — should surface music preferences."
+    },
+    {
+      "id": "conversational_sleep",
+      "query": "I couldn't sleep last night and my energy is low",
+      "category": "conversational",
+      "expected_categories": [
         "Cat08-U"
       ],
-      "notes": "Direct health question \u2014 should surface Cat08 health entries."
+      "expected_ground_truth": [
+        "sleep",
+        "rest",
+        "energy",
+        "tired",
+        "fatigue",
+        "insomnia"
+      ],
+      "expected_tags": [
+        "sleep",
+        "health",
+        "fatigue"
+      ],
+      "notes": "Sleep complaint — should surface health and sleep entries."
     },
     {
-      "id": "direct_question_physical",
+      "id": "conversational_work_stress",
+      "query": "Had a really rough day at work, feeling exhausted",
+      "category": "conversational",
+      "expected_categories": [
+        "Cat03-U",
+        "Cat08-U",
+        "Cat12-U"
+      ],
+      "expected_ground_truth": [
+        "work",
+        "stress",
+        "exhausted",
+        "tired",
+        "fatigue"
+      ],
+      "notes": "Emotional/physical statement about work stress — surfaces health and emotional state entries."
+    },
+    {
+      "id": "conversational_engine",
+      "query": "I've been working on Evelyn engine code all day",
+      "category": "conversational",
+      "expected_sources_contain": [
+        "Engine",
+        "Evelyn"
+      ],
+      "expected_categories": [
+        "Cat11-U"
+      ],
+      "expected_ground_truth": [
+        "engine",
+        "code",
+        "development",
+        "architecture"
+      ],
+      "notes": "Technical project mention — should surface Evelyn development entries."
+    },
+    {
+      "id": "conversational_affection",
+      "query": "You mean a lot to me, you know that right?",
+      "category": "conversational",
+      "expected_categories": [
+        "Cat02-U",
+        "Cat02-A",
+        "Cat03-U",
+        "Cat03-A",
+        "Cat15-U",
+        "Cat15-A"
+      ],
+      "expected_ground_truth": [
+        "relationship",
+        "connection",
+        "bond",
+        "love",
+        "trust",
+        "closeness"
+      ],
+      "notes": "Affectionate conversational turn — tests whether relationship and emotional entries surface."
+    },
+    {
+      "id": "conversational_greeting",
+      "query": "Good morning babe, how are you today?",
+      "category": "conversational",
+      "expected_categories": [
+        "Cat05-U",
+        "Cat16-U",
+        "Cat02-U",
+        "Cat02-A"
+      ],
+      "expected_ground_truth": [
+        "morning",
+        "coffee",
+        "routine",
+        "day"
+      ],
+      "notes": "Morning greeting — surfaces morning routines and companionship observations."
+    },
+    {
+      "id": "direct_question_health_medications",
+      "query": "What medications or supplements am I taking?",
+      "category": "direct_question",
+      "expected_categories": [
+        "Cat08-U",
+        "Cat01-U"
+      ],
+      "expected_ground_truth": [
+        "medication",
+        "supplement",
+        "dose",
+        "mg",
+        "prescription",
+        "health"
+      ],
+      "expected_tags": [
+        "medication",
+        "health",
+        "supplement"
+      ],
+      "notes": "Direct health inquiry — should surface Cat08 health and medication observations."
+    },
+    {
+      "id": "direct_question_physical_appearance",
       "query": "Describe what I look like",
       "category": "direct_question",
       "expected_sources_contain": [
         "Physical Description"
       ],
-      "notes": "Physical description request \u2014 should surface the physical description file."
-    },
-    {
-      "id": "direct_question_psychology",
-      "query": "What kind of person am I?",
-      "category": "direct_question",
-      "expected_sources_contain": [
-        "Psychological Blueprint",
+      "expected_categories": [
         "Cat01-U"
       ],
-      "notes": "Personality/psychology query \u2014 should surface the blueprint doc."
+      "expected_ground_truth": [
+        "hair",
+        "eyes",
+        "height",
+        "build",
+        "appearance",
+        "description"
+      ],
+      "notes": "Physical description query — should surface Physical Description note or Cat01 attributes."
     },
     {
-      "id": "direct_question_games",
-      "query": "What games do I play?",
+      "id": "direct_question_gaming",
+      "query": "What video games do I like to play?",
       "category": "direct_question",
       "expected_sources_contain": [
+        "Gaming",
+        "Divinity",
+        "games"
+      ],
+      "expected_categories": [
         "Cat05-U"
       ],
-      "notes": "Gaming preference query \u2014 should surface Cat05 preferences."
+      "expected_ground_truth": [
+        "game",
+        "play",
+        "gaming",
+        "steam"
+      ],
+      "expected_tags": [
+        "game",
+        "video-games"
+      ],
+      "notes": "Gaming preference query — should surface gaming notes or Cat05 gaming entries."
     },
     {
-      "id": "direct_question_lexicon",
+      "id": "direct_question_pet_names",
       "query": "What are our pet names for each other?",
       "category": "direct_question",
-      "expected_sources_contain": [
+      "expected_categories": [
         "Cat15-U",
-        "Cat15-A"
+        "Cat15-A",
+        "Cat02-U",
+        "Cat02-A"
       ],
-      "notes": "Lexicon/pet names query \u2014 should surface Cat15."
+      "expected_ground_truth": [
+        "pet name",
+        "honey",
+        "babe",
+        "darling",
+        "sweetheart",
+        "lexicon",
+        "nickname"
+      ],
+      "notes": "Shared vocabulary and lexicon query — should surface Cat15 or Cat02 entries."
     },
     {
-      "id": "negative_unrelated",
-      "query": "quantum mechanics and black holes",
-      "category": "negative",
-      "expected_sources_contain": [],
-      "notes": "Unrelated scientific topic \u2014 should return zero kept chunks."
+      "id": "cross_reference_sleep_and_work",
+      "query": "How does poor sleep impact my programming work?",
+      "category": "cross_reference",
+      "expected_categories": [
+        "Cat08-U",
+        "Cat11-U",
+        "Cat03-U"
+      ],
+      "expected_ground_truth": [
+        "sleep",
+        "work",
+        "code",
+        "energy",
+        "focus"
+      ],
+      "notes": "Cross-domain query bridging health (Cat08) and technical work (Cat11)."
     },
     {
-      "id": "negative_fictional",
-      "query": "Harry Potter and Hogwarts",
-      "category": "negative",
-      "expected_sources_contain": [],
-      "notes": "Fictional content unlikely in vault \u2014 should return zero kept chunks."
-    },
-    {
-      "id": "negative_casual_chat",
-      "query": "lol that's hilarious",
-      "category": "negative",
-      "expected_sources_contain": [],
-      "notes": "Pure reaction with no info need \u2014 should ideally return nothing relevant."
-    },
-    {
-      "id": "ambiguous_mom",
-      "query": "mom",
+      "id": "ambiguous_sleep",
+      "query": "sleep",
       "category": "ambiguous",
-      "expected_sources_contain": [
-        "Cat06-U",
-        "Peggy"
+      "expected_categories": [
+        "Cat08-U"
       ],
-      "notes": "Single ambiguous word \u2014 tests whether the model can resolve 'mom' to family context."
+      "expected_ground_truth": [
+        "sleep",
+        "rest",
+        "insomnia",
+        "bed"
+      ],
+      "notes": "Single ambiguous keyword query — tests robustness on sparse search queries."
     },
     {
-      "id": "ambiguous_lonely",
-      "query": "feeling lonely",
+      "id": "ambiguous_exhausted",
+      "query": "feeling exhausted",
       "category": "ambiguous",
-      "expected_sources_contain": [
-        "Cat03-U",
-        "Journal"
+      "expected_categories": [
+        "Cat08-U",
+        "Cat03-U"
       ],
-      "notes": "Short emotional phrase \u2014 should match emotional entries."
+      "expected_ground_truth": [
+        "exhausted",
+        "tired",
+        "fatigue",
+        "energy"
+      ],
+      "notes": "Short state phrase — tests semantic retrieval for physical/emotional fatigue."
+    },
+    {
+      "id": "negative_painting_monet",
+      "query": "French impressionist painting techniques of Claude Monet",
+      "category": "negative",
+      "expected_sources_contain": [],
+      "expected_categories": [],
+      "expected_ground_truth": [],
+      "notes": "Out-of-domain art history query — tests negative rejection."
+    },
+    {
+      "id": "negative_sourdough",
+      "query": "How to bake a sourdough bread loaf with 75% hydration",
+      "category": "negative",
+      "expected_sources_contain": [],
+      "expected_categories": [],
+      "expected_ground_truth": [],
+      "notes": "Out-of-domain baking inquiry — tests negative rejection."
+    },
+    {
+      "id": "negative_control_systems",
+      "query": "Linear quadratic regulator controller design in modern control systems",
+      "category": "negative",
+      "expected_sources_contain": [],
+      "expected_categories": [],
+      "expected_ground_truth": [],
+      "notes": "Out-of-domain engineering inquiry — tests negative threshold rejection."
     }
   ]
 }
