@@ -1,7 +1,7 @@
 ---
 title: xml_injection_conventions.md
 date created: 2026-08-29 12:55:00
-date modified: 2026-10-01 18:24:10
+date modified: 2026-10-02 17:02:06
 tags: [markdown, reference, xml, injection, prompt-engineering, telemetry, evelyn]
 ---
 
@@ -73,6 +73,7 @@ Engine components and background workers must use standardized tag names to prev
 | `<system_event>` | Runtime telemetry, tool execution outcomes, or daemon status. | `event`, `timestamp`, `status` | Human-readable event description |
 | `<journal_status>` | Runtime status of today's personal reflection journal entry. | `status`, `date`, `path` | Omitted (self-closing container) |
 | `<memory_context>` | Fast memory facts injected from `evelyn_memory.db`. | `category`, `subject` | Extracted fact / observation statement |
+| `<visual_context>` | Structured OCR text and semantic captions from decoupled vision model. | `count` | `<image index="..." domain="...">` child tags with `<caption>` and `<ocr_text>` |
 
 ---
 
@@ -118,6 +119,17 @@ Engine components and background workers must use standardized tag names to prev
 
 ```xml
 <journal_status status="recorded" date="2026-10-01" path="Evelyn/Evelyn's Journal/Journal Entries/2026/10-Oct/Journal Entry 2026-10-01.md" />
+```
+
+### F. Decoupled Visual Perception
+
+```xml
+<visual_context count="1">
+  <image index="1" domain="Tech/Architecture">
+    <caption>System architecture diagram with SQLite and Ollama.</caption>
+    <ocr_text>FASTAPI ROUTER CHROMA_DB</ocr_text>
+  </image>
+</visual_context>
 ```
 
 ---

@@ -1,5 +1,6 @@
 # visual_indexer.py
 # date created: 2026-08-21 19:44:00
+# date modified: 2026-10-02 17:02:06
 # tags: #vision, #indexer, #chroma, #multimodal, #taxonomy, #rag
 
 """visual_indexer.py — Asynchronous Visual Memory Extraction and Vector Indexer.
@@ -79,7 +80,7 @@ async def extract_visual_metadata_from_ollama(
     )
 
     payload = {
-        "model": cfg.MODEL_NAME,
+        "model": getattr(cfg, "VISION_MODEL_NAME", cfg.MODEL_NAME),
         "messages": [
             {
                 "role": "user",

@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-01 17:55:24
+# date modified: 2026-10-02 17:02:06
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -105,6 +105,7 @@ from profile_evolver import (
     run_profile_evolution,
 )
 from string_utils import (
+    build_visual_context_envelope,
     detect_deterministic_read_intent,
     escape_xml_content,
     estimate_tokens,
@@ -2078,13 +2079,50 @@ async def _process_chat_background(
                 )
         doc_ctx = wrap_xml_envelope("uploaded_document", body=doc_envelopes) if doc_envelopes else None
 
-        envelope_stack = stack_envelopes(temporal_envelope, journal_status_ctx, research_ctx, ambient_stream_ctx, linear_envelope, doc_ctx)
+        visual_ctx = None
+        should_decouple_vision = bool(
+            getattr(cfg, "VISION_MODEL_NAME", None)
+            and cfg.VISION_MODEL_NAME != cfg.MODEL_NAME
+        )
+        if images and should_decouple_vision:
+            from Evelyn.tools.visual_indexer import extract_visual_metadata_from_ollama
+
+            await put("status", msg="Analyzing visual attachments...")
+            visual_metas = []
+            for idx, img in enumerate(images, 1):
+                try:
+                    meta = await extract_visual_metadata_from_ollama(
+                        base64_image=img,
+                        user_context=user_message,
+                    )
+                    meta["index"] = idx
+                    visual_metas.append(meta)
+                except Exception as exc:  # noqa: BLE001
+                    dlog(f"Visual perception extraction failed for image {idx}: {exc}")
+                    visual_metas.append({
+                        "index": idx,
+                        "caption": "Image attachment",
+                        "ocr_text": "",
+                        "domain": "General/Media",
+                    })
+            if visual_metas:
+                visual_ctx = build_visual_context_envelope(visual_metas)
+
+        envelope_stack = stack_envelopes(
+            temporal_envelope,
+            journal_status_ctx,
+            research_ctx,
+            ambient_stream_ctx,
+            linear_envelope,
+            doc_ctx,
+            visual_ctx,
+        )
         user_msg_for_model = inject_envelope_to_turn(user_message, envelope_stack)
 
         messages = [{"role": "system", "content": system}, *history]
 
         user_turn: dict[str, Any] = {"role": "user", "content": user_msg_for_model}
-        if images:
+        if images and not should_decouple_vision:
             user_turn["images"] = images
         messages.append(user_turn)
 
@@ -3571,6 +3609,7 @@ async def status(_: None = Depends(check_auth)):
         "version_name": getattr(cfg, "VERSION_NAME", "Sanctum Architecture & Guardrails"),
         "db_versions": {k: db_migrator.get_db_version(k) for k in db_migrator.DB_MAP},
         "model": cfg.MODEL_NAME,
+        "vision_model": getattr(cfg, "VISION_MODEL_NAME", cfg.MODEL_NAME),
         "think": cfg.THINK,
         "think_tool_loop": cfg.THINK_TOOL_LOOP,
         "debug": cfg.DEBUG_LOGGING,

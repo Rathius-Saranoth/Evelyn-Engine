@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-02 16:50:29
+date modified: 2026-10-02 17:02:06
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.007.004] - 2026-10-02 — *Decoupled Multimodal Vision Architecture*
+
+### Added
+
+- **Decoupled Multimodal Vision Architecture (`evelyn_config.py`, `Evelyn/tools/visual_indexer.py`, `evelyn_server.py`)**:
+  - Introduced `VISION_MODEL_NAME = os.getenv("EVELYN_VISION_MODEL", "gemma4:12b")` in `evelyn_config.py`, decoupling visual perception from conversational reasoning.
+  - Routed OCR text and caption extraction in `extract_visual_metadata_from_ollama()` exclusively to `VISION_MODEL_NAME`.
+  - Added structured `<visual_context count="...">` XML envelope builder (`build_visual_context_envelope()`) in `Evelyn/tools/string_utils.py` and registered at priority 3 in `stack_envelopes()`.
+  - Added asynchronous perception pass in `_stream_chat_task` in `evelyn_server.py`: when evaluating text-only models (`MODEL_NAME != VISION_MODEL_NAME`), uploaded chat images are processed via `VISION_MODEL_NAME`, structured into `<visual_context>`, and injected cleanly into the user turn without passing raw base64 images to the text model.
+  - Exposed `"vision_model"` in the `/status` API response.
+  - Documented `<visual_context>` specification and examples in `reference/xml_injection_conventions.md`.
+- **Targeted Unit Tests (`Evelyn/tests/test_vision_decoupling.py`, `Evelyn/tests/test_xml_envelopes.py`)**:
+  - Added 4 unit tests verifying configuration presence, vision model payload routing, `<visual_context>` formatting/pruning, and decoupled perception branching.
+
+---
 
 ## [000.007.003] - 2026-10-02 — *Isolated Benchmark & Test Vector Sandbox*
 

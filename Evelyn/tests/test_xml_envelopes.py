@@ -1,6 +1,6 @@
 # test_xml_envelopes.py
 # date created: 2026-08-29 13:14:00
-# date modified: 2026-08-29 13:14:00
+# date modified: 2026-10-02 17:02:06
 # tags: #test, #xml, #telemetry, #envelopes, #string_utils
 
 """Unit tests for XML envelope generation, sanitization, pruning, and turn injection."""
@@ -13,6 +13,7 @@ from Evelyn.tools.string_utils import (
     build_memory_context_envelope,
     build_system_event_envelope,
     build_temporal_envelope,
+    build_visual_context_envelope,
     escape_xml_attr,
     escape_xml_content,
     inject_envelope_to_turn,
@@ -164,15 +165,37 @@ class TestXMLEnvelopes(unittest.TestCase):
         self.assertIn("Prefers concise command line tools &amp; SQLite.", xml)
         self.assertTrue(xml.endswith("</memory_context>"))
 
+    def test_build_visual_context_envelope(self):
+        """Verify <visual_context> envelope formats structured captions, OCR, and domains."""
+        # Empty input prunes completely
+        self.assertEqual(build_visual_context_envelope([]), "")
+
+        # Valid input with caption and OCR text
+        metas = [
+            {
+                "index": 1,
+                "caption": "Screenshot of dashboard with system metrics.",
+                "ocr_text": "CPU: 12% | RAM: 4.2GB",
+                "domain": "Tech/Monitoring",
+            }
+        ]
+        xml = build_visual_context_envelope(metas)
+        self.assertTrue(xml.startswith('<visual_context count="1">'))
+        self.assertIn('<image index="1" domain="Tech/Monitoring">', xml)
+        self.assertIn("<caption>Screenshot of dashboard with system metrics.</caption>", xml)
+        self.assertIn("<ocr_text>CPU: 12% | RAM: 4.2GB</ocr_text>", xml)
+        self.assertTrue(xml.endswith("</visual_context>"))
+
     def test_stack_envelopes_canonical_ordering(self):
-        """Verify stacking orders envelopes deterministically: temporal -> system -> retrieval."""
+        """Verify stacking orders envelopes deterministically: temporal -> system -> retrieval/visual."""
         temporal = "<temporal_context>\n  <current_time>Now</current_time>\n</temporal_context>"
         retrieval = '<context_retrieval source="vault" query="q">\n  <doc />\n</context_retrieval>'
+        visual = '<visual_context count="1">\n  <image />\n</visual_context>'
         trigger = '<autonomous_trigger type="alert">\n  <summary>Alert</summary>\n</autonomous_trigger>'
 
         # Pass in reverse order
-        stacked = stack_envelopes(retrieval, temporal, trigger, "", None)
-        expected = f"{temporal}\n\n{trigger}\n\n{retrieval}"
+        stacked = stack_envelopes(visual, retrieval, temporal, trigger, "", None)
+        expected = f"{temporal}\n\n{trigger}\n\n{visual}\n\n{retrieval}"
         self.assertEqual(stacked, expected)
 
     def test_inject_envelope_to_turn(self):

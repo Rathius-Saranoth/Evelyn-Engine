@@ -1,6 +1,6 @@
 # evelyn_config.py
 # date created: 2026-03-23 15:37:14
-# date modified: 2026-09-30 17:56:14
+# date modified: 2026-10-02 17:02:06
 # tags: #config, #constants, #globals, #environment, #settings
 
 """
@@ -140,6 +140,10 @@ PERSONA_FILES = [
 # =============================================================================
 OLLAMA_URL = "http://localhost:11434"
 MODEL_NAME = "gemma4:12b"
+# Vision Model — Dedicated vision model for visual memory indexing (OCR, captions)
+# and decoupled chat perception passes. Decoupled from conversational MODEL_NAME
+# so text-only reasoning models can be evaluated without breaking image processing.
+VISION_MODEL_NAME = os.getenv("EVELYN_VISION_MODEL", "gemma4:12b")
 NUM_CTX = 16384
 
 # Thinking effort for the final streaming response (Evelyn's visible reply).

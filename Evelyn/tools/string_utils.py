@@ -1,6 +1,6 @@
 # string_utils.py
 # date created: 2026-08-28 12:25:00
-# date modified: 2026-09-26 19:53:18
+# date modified: 2026-10-02 17:02:06
 # tags: #utils, #strings, #sanitization, #slugify, #gist
 
 """
@@ -22,6 +22,7 @@ Exports:
     build_autonomous_trigger_envelope() — Constructs standardized <autonomous_trigger> envelopes.
     build_system_event_envelope() — Constructs standardized <system_event> telemetry envelopes.
     build_memory_context_envelope() — Constructs standardized <memory_context> envelopes.
+    build_visual_context_envelope() — Constructs standardized <visual_context> envelopes.
     stack_envelopes()       — Deterministically stacks multiple XML envelopes.
     inject_envelope_to_turn() — Prepends envelope(s) to message turns with clean boundary isolation.
     protect_code_blocks()   — Masks fenced code, inline code, and math blocks with safe tokens.
@@ -710,13 +711,54 @@ def build_memory_context_envelope(
     )
 
 
+def build_visual_context_envelope(
+    images_metadata: list[dict[str, Any]],
+) -> str:
+    """Build a standardized <visual_context> XML envelope for decoupled vision perception.
+
+    Enables text-only conversational models to perceive uploaded images, screenshots,
+    and diagrams via structured OCR and semantic captions from a dedicated vision model.
+
+    Args:
+        images_metadata: List of dicts containing 'index', 'caption', 'ocr_text', 'domain'.
+
+    Returns:
+        Structured <visual_context> XML block or empty string if input is empty.
+    """
+    if not images_metadata:
+        return ""
+
+    child_blocks: list[str] = []
+    for item in images_metadata:
+        idx = item.get("index", len(child_blocks) + 1)
+        domain = item.get("domain", "General/Media")
+        caption = (item.get("caption") or "").strip()
+        ocr_text = (item.get("ocr_text") or "").strip()
+
+        attrs: dict[str, Any] = {"index": str(idx)}
+        if domain:
+            attrs["domain"] = domain
+
+        body_parts: list[str] = []
+        if caption:
+            body_parts.append(f"<caption>{escape_xml_content(caption)}</caption>")
+        if ocr_text:
+            body_parts.append(f"<ocr_text>{escape_xml_content(ocr_text)}</ocr_text>")
+
+        body = "\n  ".join(body_parts) if body_parts else "Image attachment"
+        child_blocks.append(wrap_xml_envelope("image", body=body, **attrs))
+
+    container_body = "\n".join(child_blocks)
+    return wrap_xml_envelope("visual_context", body=container_body, count=str(len(images_metadata)))
+
+
 def stack_envelopes(*envelopes: str | None) -> str:
     """Stack multiple XML envelopes in canonical deterministic order.
 
     Canonical Order:
       1. <temporal_context>
       2. <system_event> / <autonomous_trigger>
-      3. <context_retrieval> / <memory_context>
+      3. <context_retrieval> / <memory_context> / <visual_context>
       4. Other custom XML envelopes
 
     Args:
@@ -734,7 +776,7 @@ def stack_envelopes(*envelopes: str | None) -> str:
             return 1
         if env_str.startswith(("<system_event", "<autonomous_trigger")):
             return 2
-        if env_str.startswith(("<context_retrieval", "<memory_context")):
+        if env_str.startswith(("<context_retrieval", "<memory_context", "<visual_context")):
             return 3
         return 4
 

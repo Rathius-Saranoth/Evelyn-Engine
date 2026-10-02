@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-02 16:50:29
+# date modified: 2026-10-02 17:02:06
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.007.003"
-__version_info__ = (0, 7, 3)
-__version_name__ = "Isolated Benchmark & Test Vector Sandbox"
+__version__ = "000.007.004"
+__version_info__ = (0, 7, 4)
+__version_name__ = "Decoupled Multimodal Vision Architecture"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
