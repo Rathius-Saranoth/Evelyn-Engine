@@ -1,5 +1,6 @@
 # procedure_matcher.py
 # date created: 2026-09-03 18:09:14
+# date modified: 2026-10-02 17:10:55
 # tags: #procedures, #matcher, #tokens, #canonical
 
 """Canonical utility for procedure tokenization, similarity scoring, deduplication, and master detection.
@@ -125,16 +126,27 @@ COLLOQUIAL_SYNONYMS: dict[str, str] = {
     "calendar": "domain_agenda",
     "meeting": "domain_agenda",
     "appointment": "domain_agenda",
-    # Health & Wellness
+    # Health & Wellness / Physical Exertion
     "health": "domain_health",
     "biometrics": "domain_health",
     "fatigue": "domain_health",
     "pacing": "domain_health",
     "unwell": "domain_health",
     "exhaustion": "domain_health",
+    "exhausted": "domain_health",
+    "sore": "domain_health",
+    "soreness": "domain_health",
+    "drained": "domain_health",
+    "wrecked": "domain_health",
+    "wiped": "domain_health",
+    "beat": "domain_health",
+    "exertion": "domain_health",
     "workout": "domain_exercise",
     "workouts": "domain_exercise",
     "exercise": "domain_exercise",
+    "mowing": "domain_exercise",
+    "lifting": "domain_exercise",
+    "running": "domain_exercise",
     # Research
     "research": "domain_research",
     "explore": "domain_research",

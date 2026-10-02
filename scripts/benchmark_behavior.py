@@ -1,6 +1,6 @@
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-09-20 09:25:41
+# date modified: 2026-10-02 17:10:55
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -349,6 +349,7 @@ def main() -> None:
     parser.add_argument("--model", help="Model to test (default: cfg.MODEL_NAME)")
     parser.add_argument("--compare", metavar="MODEL",
                         help="Second model to A/B against the first")
+    parser.add_argument("--case", help="Filter to a specific case ID (e.g. proactivity_post_exertion)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print tool traces and replies")
     parser.add_argument("--json", action="store_true",
@@ -356,6 +357,11 @@ def main() -> None:
     args = parser.parse_args()
 
     cases = load_cases(CASES_FILE)
+    if args.case:
+        cases = [c for c in cases if c.get("id") == args.case]
+        if not cases:
+            print(f"No case found with ID: {args.case}")
+            return
     baseline = args.model or cfg.MODEL_NAME
 
     if not args.json:

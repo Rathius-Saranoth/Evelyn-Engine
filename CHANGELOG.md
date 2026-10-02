@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-02 17:02:06
+date modified: 2026-10-02 17:11:35
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,24 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.007.005] - 2026-10-02 — *Procedure Grounding & Colloquial Trigger Matching*
+
+### Added
+
+- **Targeted Behavioral Case Evaluation (`scripts/benchmark_behavior.py`)**:
+  - Added `--case <id>` CLI argument to filter behavioral benchmark execution to a specific test case (e.g. `proactivity_post_exertion`) for rapid, targeted behavioral debugging.
+- **Hermetic Test Isolation Coverage Fallback (`Evelyn/tests/test_procedures_upgrade.py`)**:
+  - Updated `test_all_specific_purpose_tools_have_live_procedure_coverage` to fall back to inspecting canonical `data/evelyn_memory.db` in read-only mode when running inside isolated, empty test fixtures.
+
+### Changed
+
+- **Colloquial Synonym Expansion (`Evelyn/tools/procedure_matcher.py`)**:
+  - Expanded `COLLOQUIAL_SYNONYMS` dictionary to map natural vernacular terms for physical exertion, muscle fatigue, and soreness (`exhausted`, `sore`, `soreness`, `drained`, `wrecked`, `wiped`, `beat`, `exertion` $\rightarrow$ `domain_health`; `mowing`, `lifting`, `running` $\rightarrow$ `domain_exercise`).
+- **Procedure 1067 Curation (`data/evelyn_memory.db`)**:
+  - Curated Procedure 1067 (`trigger_pattern` and `tags`) to include natural colloquial phrases for fatigue and strenuous physical tasks (*"exhausted, sore, drained, wrecked, wiped out, beat, post-workout, finished mowing/running/lifting"* and tags `exertion, workout, fatigue, soreness, physical-labor`), resolving the zero-keyword-overlap defect and allowing `get_health_metrics` and `get_recent_workouts` to fire proactively on implicit user cues.
+
+---
 
 ## [000.007.004] - 2026-10-02 — *Decoupled Multimodal Vision Architecture*
 
