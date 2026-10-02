@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-02 17:45:18
+# date modified: 2026-10-02 18:38:04
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.007.007"
-__version_info__ = (0, 7, 7)
-__version_name__ = "Golden Evaluation Sets Rebuild & Benchmark Modernization"
+__version__ = "000.008.000"
+__version_info__ = (0, 8, 0)
+__version_name__ = "Continuous Evaluation & Model Benchmarking Suite"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

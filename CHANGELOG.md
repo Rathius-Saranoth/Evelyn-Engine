@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-02 17:45:18
+date modified: 2026-10-02 18:38:04
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,32 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.000] - 2026-10-02 — *Continuous Evaluation & Model Benchmarking Suite*
+
+### Added
+
+- **Multi-Model Continuous Evaluation Matrix (`scripts/benchmark_behavior.py` & `reference/behavior_benchmark_matrix.json`)**:
+  - Implemented the `--matrix` automated multi-model benchmark runner in `scripts/benchmark_behavior.py` evaluating 7 candidate models (`gemma4:12b`, `qwen2.5:14b`, `qwen2.5:7b`, `llama3.1:8b`, `mistral-nemo:12b`, `hermes3:8b`, `granite4.2:8b`) under realistic dynamically routed tool schemas (`--routed`).
+  - Added millisecond-accurate cold swap latency tracking via Ollama `/api/chat` `load_duration` extraction, profiling real-world VRAM swap penalties across model sizes (4.32s for 7B to 11.38s for 12B).
+  - Added high-density matrix comparison reporter (`print_matrix()`) displaying side-by-side scores, pass percentages, cold swap times, generation throughput (tok/s), tool honesty misreports, proactivity rates, sycophancy resistance, BFCL argument validity, and write counts.
+  - Persisted structured matrix results in `reference/behavior_benchmark_matrix.json` for historical regression tracking and model leaderboard comparison.
+- **Continuous Evaluation & Model Benchmarking Project Milestone (`ROADMAP.md`)**:
+  - Completed the high-level roadmap milestone delivering the 5-phase evaluation initiative:
+    1. *Global Test & Benchmark Vector Isolation* (ephemeral ChromaDB stores and single-writer lease security in `conftest.py` and `benchmark_rag.py`).
+    2. *Decoupled Multimodal Vision Architecture* (`VISION_MODEL_NAME`, structured `<visual_context>` text perception pass).
+    3. *Dense Vector Semantic Intent Routing* (`SemanticProcedureRouter`, `bge-large-en-v1.5` nearest-exemplar scoring, 19 operational routes).
+    4. *Modernized Golden Evaluation Sets* (Ragas/BEIR RAG retrieval ground truth and BFCL/Anthropic function calling/behavior suites).
+    5. *Empirical Multi-Model Performance Matrix* (profiling 7 candidate models across tool honesty, proactivity, throughput, and cold swap latency).
+
+### Changed
+
+- **Empirical Baseline Model Profile**:
+  - Validated `gemma4:12b` as the retained primary conversational baseline with 96.0% pass rate, 0 tool misreports, 6/6 proactivity, 4/4 sycophancy resistance, and 2/2 BFCL argument validity.
+  - Identified `qwen2.5:14b` as the premier 14B alternative (96.0% pass rate, 4/4 sycophancy, 0 misreports) with 9.30s cold swap latency.
+  - Documented sycophancy vulnerabilities in sub-10B models (`qwen2.5:7b` and `hermes3:8b` failing 50% of false premise tests despite >87 tok/s throughput).
+
+---
 
 ## [000.007.007] - 2026-10-02 — *Golden Evaluation Sets Rebuild & Benchmark Modernization*
 

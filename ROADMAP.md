@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-09-30 18:56:22
+date modified: 2026-10-02 18:38:04
 ---
 # Evelyn Project Roadmap
 
@@ -105,9 +105,9 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Agentic Infrastructure & Retrieval Optimization**: Tri-vector agentic engine optimization across retrieval pathing (linear pre-hydration for 0-arg reads, phatic RAG gating), information density (contiguous chunk fusion, semantic consolidation pre-filtering, research chunk relevance gating), and strategic routing (dynamic tool schema pruning).
 - [x] **Prompt Intent & Domain Routing**: Integrated prompt domain heuristics and controlled taxonomy classification, dynamically surfacing specialist tools and resolving subject equivalence aliases on inbound queries.
 - [x] **Stub Evidence Independence & Review Architecture**: Enforced caller witness isolation preventing stubs from self-citing or inflating citation counts, implemented partial wikilink boundary trimming, and deployed in-place structured editing on DevUI proposal cards.
+- [x] **Continuous Evaluation & Regression Benchmarking Suite**: Automated evaluation harness with Ragas/BEIR RAG retrieval validation, BFCL AST tool argument schema checks, Anthropic alignment/sycophancy suites, cold swap latency profiling, and cross-model performance matrix.
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, manage protected profile sections, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
-- [ ] **Continuous Evaluation & Regression Benchmarking Suite**: Scheduled evaluation harness with golden query suites, persona/tool accuracy scoring, and historical benchmark regression tracking.
 - [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt and fact taxonomy domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.
 - [ ] **Domain Subpackage Modularization (`Evelyn/tools/`)**: Decompose flat 44+ module directory into clean domain packages (`vault/`, `journal/`, `memory/`, `research/`, `integrations/`, `core/`) with unified facade exports and zero-breakage backwards compatibility.
 - [ ] **FastAPI APIRouter Server Modularization (`evelyn_server.py`)**: Decompose monolithic 7,000-line server into domain-focused APIRouter modules (`routes/chat.py`, `routes/review.py`, `routes/terminal.py`, `routes/telemetry.py`) with shared auth and lifespan dependencies.
