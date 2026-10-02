@@ -1,6 +1,6 @@
 # chroma_rag.py
 # date created: 2026-03-23 15:39:48
-# date modified: 2026-09-29 20:55:44
+# date modified: 2026-10-02 16:50:29
 # tags: #rag, #vector, #chromadb, #embeddings, #query
 
 """
@@ -1138,7 +1138,8 @@ def list_collection_names() -> list[str]:
     Returns:
         list[str]: Collection names, alphabetically.
     """
-    catalogue = os.path.join(_CHROMA_DIR, "chroma.sqlite3")
+    chroma_dir = getattr(cfg, "CHROMA_DB_PATH", _CHROMA_DIR)
+    catalogue = os.path.join(chroma_dir, "chroma.sqlite3")
     if not os.path.exists(catalogue):
         return []
     con = sqlite3.connect(catalogue)

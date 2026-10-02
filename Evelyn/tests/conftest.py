@@ -1,6 +1,6 @@
 # conftest.py
 # date created: 2026-08-31 17:47:00
-# date modified: 2026-09-23 17:41:57
+# date modified: 2026-10-02 16:50:29
 # tags: #pytest, #fixtures, #testing, #sandbox
 
 """Pytest configuration and global test harness isolation.
@@ -10,12 +10,12 @@ hermetic temporary sandbox directory. Automatically isolates ``cfg.VAULT_BASE_DI
 ``cfg.JOURNAL_DIR``, ``cfg.LISTS_DIR``, ``cfg.PENDING_DIR``, and related write paths
 to prevent any test execution from touching the user's production Obsidian vault.
 
-Also isolates ``cfg.MEMORY_DB_PATH`` and ``cfg.CHAT_DB_PATH``. The vault database was
-sandboxed here from the start but the memory database was not, so any code path a test
-exercised that wrote to memory reached the real store: a YAML-parsing unit test raised four
-tag-admission proposals into production because the parser proposes unregistered terms
-(AGENTS.md §2). A test that needs these may still point them wherever it likes; the default
-is simply no longer the user's data.
+Also isolates ``cfg.MEMORY_DB_PATH``, ``cfg.CHAT_DB_PATH``, and ``cfg.CHROMA_DB_PATH``.
+The vault database was sandboxed here from the start but the memory database and ChromaDB
+were not, leaving tests that touched memory or vectors vulnerable to writing to the live
+store or colliding with the engine's single-writer lease (AGENTS.md §2). A test that needs
+these may still point them wherever it likes; the default is completely isolated in the
+ephemeral test sandbox.
 """
 
 import os
@@ -25,12 +25,12 @@ from collections.abc import Generator
 import pytest
 
 import evelyn_config as cfg  # [[evelyn_config.py]]
-from Evelyn.tools import memory_db, terminal_agent, vault_db
+from Evelyn.tools import chroma_rag, memory_db, terminal_agent, vault_db
 
 
 @pytest.fixture(autouse=True, scope="function")
 def isolate_test_vault_environment() -> Generator[str]:
-    """Isolate vault write paths and vault SQLite database to a temporary directory for every test run."""
+    """Isolate vault write paths, SQLite databases, and ChromaDB store to a temporary directory."""
     orig_vault_base = getattr(cfg, "VAULT_BASE_DIR", None)
     orig_assistant_write = getattr(cfg, "ASSISTANT_WRITE_DIR", None)
     orig_journal = getattr(cfg, "JOURNAL_DIR", None)
@@ -42,6 +42,8 @@ def isolate_test_vault_environment() -> Generator[str]:
     orig_vault_db_mod = getattr(vault_db, "DB_PATH", None)
     orig_memory_db = getattr(cfg, "MEMORY_DB_PATH", None)
     orig_chat_db = getattr(cfg, "CHAT_DB_PATH", None)
+    orig_chroma_db_cfg = getattr(cfg, "CHROMA_DB_PATH", None)
+    orig_chroma_dir_mod = getattr(chroma_rag, "_CHROMA_DIR", None)
     orig_approvals_cfg = getattr(cfg, "TERMINAL_APPROVALS_PATH", None)
     orig_approvals_mod = getattr(terminal_agent, "APPROVALS_FILE", None)
 
@@ -87,9 +89,18 @@ def isolate_test_vault_environment() -> Generator[str]:
         cfg.TERMINAL_APPROVALS_PATH = approvals
         terminal_agent.APPROVALS_FILE = approvals
 
+        # Isolate ChromaDB vector store into ephemeral sandbox and reset client singleton
+        test_chroma_dir = os.path.join(tmp_vault, "test_chroma_db")
+        os.makedirs(test_chroma_dir, exist_ok=True)
+        cfg.CHROMA_DB_PATH = test_chroma_dir
+        chroma_rag._CHROMA_DIR = test_chroma_dir
+        chroma_rag._client = None
+
         try:
             yield tmp_vault
         finally:
+            chroma_rag.release_chroma_writer()
+            chroma_rag._client = None
             if orig_vault_base is not None:
                 cfg.VAULT_BASE_DIR = orig_vault_base
             if orig_assistant_write is not None:
@@ -112,6 +123,10 @@ def isolate_test_vault_environment() -> Generator[str]:
                 cfg.MEMORY_DB_PATH = orig_memory_db
             if orig_chat_db is not None:
                 cfg.CHAT_DB_PATH = orig_chat_db
+            if orig_chroma_db_cfg is not None:
+                cfg.CHROMA_DB_PATH = orig_chroma_db_cfg
+            if orig_chroma_dir_mod is not None:
+                chroma_rag._CHROMA_DIR = orig_chroma_dir_mod
             if orig_approvals_cfg is not None:
                 cfg.TERMINAL_APPROVALS_PATH = orig_approvals_cfg
             if orig_approvals_mod is not None:

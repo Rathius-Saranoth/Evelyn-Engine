@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-01 17:55:24
+date modified: 2026-10-02 16:50:29
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,29 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.007.003] - 2026-10-02 — *Isolated Benchmark & Test Vector Sandbox*
+
+### Added
+
+- **Isolated Benchmark Store Protocol (`scripts/benchmark_rag.py`)**:
+  - Implemented `setup_benchmark_store()` to create isolated ChromaDB client instances in ephemeral `tempfile.mkdtemp(prefix="chroma_bench_")` or custom directories.
+  - Implemented `_ingest_into_candidate_collection()` copying documents from production Chroma collections strictly read-only, ensuring candidate embedding models never touch `data/chroma_db` or acquire single-writer leases.
+  - Implemented `run_query_with_collection()` running retrieval evaluations directly against candidate collections while honoring priority boost weights.
+  - Added `--keep-temp` flag to preserve benchmark stores in `data/chroma_bench/` when comparative debugging is needed.
+- **Hermetic Benchmark Isolation Unit Tests (`Evelyn/tests/test_benchmark_rag_isolation.py`)**:
+  - Added 4 targeted unit tests verifying ephemeral directory isolation, custom directory routing, candidate ingestion without writer locks, and query ranking.
+
+### Changed
+
+- **Global Test Suite Vector Store Sandboxing (`Evelyn/tests/conftest.py`, `Evelyn/tools/chroma_rag.py`)**:
+  - Extended `isolate_test_vault_environment` in `conftest.py` to sandbox `cfg.CHROMA_DB_PATH` and `chroma_rag._CHROMA_DIR` into `tmp_vault/test_chroma_db`.
+  - Enforced client cache reset and `chroma_rag.release_chroma_writer()` in teardown to prevent writer lock leakage across pytest workers.
+  - Updated `chroma_rag.list_collection_names()` to dynamically resolve `getattr(cfg, "CHROMA_DB_PATH", _CHROMA_DIR)` instead of binding solely to startup defaults.
+- **Model Registry Alignment (`scripts/benchmark_rag.py`)**:
+  - Updated `BASELINE_MODEL` to `BAAI/bge-large-en-v1.5` and candidate models to `all-MiniLM-L6-v2`, `all-MiniLM-L12-v2`, `BAAI/bge-base-en-v1.5`, `BAAI/bge-small-en-v1.5`, and `nomic-ai/nomic-embed-text-v1.5`.
+
+---
 
 ## [000.007.002] - 2026-10-01 — *Journal Evaluation Gate & In-Place Reflection Amending*
 

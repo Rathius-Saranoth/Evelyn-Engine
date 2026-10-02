@@ -1,6 +1,6 @@
 # benchmark_rag.py
 # date created: 2026-04-26 12:18:17
-# date modified: 2026-09-26 20:52:30
+# date modified: 2026-10-02 16:50:29
 # tags: #rag, #benchmark, #evaluation, #testing, #metrics
 
 """
@@ -45,9 +45,11 @@ for _d in (ROOT_DIR, TOOLS_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import contextlib
+import shutil
+import tempfile
 
 import chroma_rag
+import chromadb
 
 import evelyn_config as cfg
 
@@ -235,16 +237,20 @@ def print_results_table(results: list[dict], verbose: bool = False):
     print(f"    Hit Rate:    {color}{hits}/{total} ({100*hits/total:.0f}%){_RST}")
     print(f"    MRR:         {overall_mrr:.3f}")
     print(f"    (excl. neg)  Hit Rate: {non_neg_hits}/{len(non_negative)} ({100*non_neg_hits/len(non_negative):.0f}%)  MRR: {non_neg_mrr:.3f}")
-    print(f"{'='*80}\n")
 
 
 # ---------------------------------------------------------------------------
-# Model comparison: ingest into temp collections with candidate embedding fn
+# Model comparison: ingest into isolated store with candidate embedding fn
 # ---------------------------------------------------------------------------
+
+BASELINE_MODEL = "BAAI/bge-large-en-v1.5"
 
 CANDIDATE_MODELS = {
-    "L6": "all-MiniLM-L6-v2",    # current default (baseline)
-    "L12": "all-MiniLM-L12-v2",   # deeper, same architecture
+    "MINILM-L6": "all-MiniLM-L6-v2",
+    "MINILM-L12": "all-MiniLM-L12-v2",
+    "BGE-BASE": "BAAI/bge-base-en-v1.5",
+    "BGE-SMALL": "BAAI/bge-small-en-v1.5",
+    "NOMIC": "nomic-ai/nomic-embed-text-v1.5",
 }
 
 
@@ -254,79 +260,108 @@ def _get_candidate_embedding_fn(model_name: str):
     return SentenceTransformerEmbeddingFunction(model_name=model_name)
 
 
-def _ingest_into_temp_collections(model_key: str):
-    """Copy all documents from production collections into temp collections
-    using the candidate embedding model. Returns (mem_col_name, gist_col_name)."""
+def setup_benchmark_store(bench_dir: str | None = None) -> tuple[chromadb.PersistentClient, str, bool]:
+    """Create an isolated ChromaDB client for candidate benchmark collections.
+
+    Never touches the production store or leases. Writes go to an isolated directory.
+
+    Args:
+        bench_dir: Optional custom path. If None, creates an ephemeral TemporaryDirectory.
+
+    Returns:
+        tuple[chromadb.PersistentClient, str, bool]: (client, storage_path, is_temporary)
+    """
+    if bench_dir:
+        os.makedirs(bench_dir, exist_ok=True)
+        return chromadb.PersistentClient(path=bench_dir), bench_dir, False
+    temp_path = tempfile.mkdtemp(prefix="chroma_bench_")
+    return chromadb.PersistentClient(path=temp_path), temp_path, True
+
+
+def _ingest_into_candidate_collection(model_key: str, bench_client: chromadb.PersistentClient) -> chromadb.Collection:
+    """Copy documents from production memory collection into the isolated candidate store.
+
+    Production store is accessed strictly read-only. Candidate writes are completely
+    isolated from data/chroma_db.
+
+    Args:
+        model_key: Key in CANDIDATE_MODELS.
+        bench_client: Isolated benchmark ChromaDB client.
+
+    Returns:
+        chromadb.Collection: Candidate collection handle.
+    """
     model_name = CANDIDATE_MODELS[model_key]
     embed_fn = _get_candidate_embedding_fn(model_name)
+    mem_temp = f"bench_{model_key.lower().replace('-', '_')}_memory"
 
-    client = chroma_rag._get_client()
-    mem_temp = f"bench_{model_key}_memory"
-    gist_temp = f"bench_{model_key}_gists"
-
-    # Delete existing temp collections if present
-    for name in (mem_temp, gist_temp):
-        with contextlib.suppress(Exception):
-            client.delete_collection(name)
-
-    # Create temp collections with candidate embedding fn
-    mem_col = client.get_or_create_collection(
-        name=mem_temp, embedding_function=embed_fn,
-        metadata={"hnsw:space": "cosine"},
-    )
-    client.get_or_create_collection(
-        name=gist_temp, embedding_function=embed_fn,
+    # Create collection in isolated benchmark store
+    dst_col = bench_client.get_or_create_collection(
+        name=mem_temp,
+        embedding_function=embed_fn,
         metadata={"hnsw:space": "cosine"},
     )
 
-    # Copy data from production collections
-    for src_name, dst_col in [
-        (cfg.CHROMA_MEMORY_COLLECTION, mem_col),
-    ]:
-        src_col = chroma_rag.get_or_create_collection(src_name)
-        count = src_col.count()
-        if count == 0:
-            continue
+    # Read from production store read-only
+    prod_client = chromadb.PersistentClient(path=cfg.CHROMA_DB_PATH)
+    try:
+        src_col = prod_client.get_collection(cfg.CHROMA_MEMORY_COLLECTION)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  {_RED}Warning: Could not open production collection '{cfg.CHROMA_MEMORY_COLLECTION}' read-only: {exc}{_RST}")
+        return dst_col
 
-        print(f"  Ingesting {count} chunks from {src_name} -> {dst_col.name}...", flush=True)
-        batch_size = 100
-        for offset in range(0, count, batch_size):
-            batch = src_col.get(
-                include=["documents", "metadatas"],
-                limit=batch_size,
-                offset=offset,
+    count = src_col.count()
+    if count == 0:
+        return dst_col
+
+    print(f"  Ingesting {count} chunks from production '{cfg.CHROMA_MEMORY_COLLECTION}' -> candidate '{mem_temp}'...", flush=True)
+    batch_size = 100
+    for offset in range(0, count, batch_size):
+        batch = src_col.get(
+            include=["documents", "metadatas"],
+            limit=batch_size,
+            offset=offset,
+        )
+        if batch["ids"]:
+            dst_col.upsert(
+                ids=batch["ids"],
+                documents=batch["documents"],
+                metadatas=batch["metadatas"],
             )
-            if batch["ids"]:
-                dst_col.upsert(
-                    ids=batch["ids"],
-                    documents=batch["documents"],
-                    metadatas=batch["metadatas"],
-                )
-            done = min(offset + batch_size, count)
-            print(f"    {done}/{count}", end="\r", flush=True)
-        print(f"    {count}/{count} done.", flush=True)
+        done = min(offset + batch_size, count)
+        print(f"    {done}/{count}", end="\r", flush=True)
+    print(f"    {count}/{count} done.", flush=True)
 
-    return mem_temp, gist_temp
+    return dst_col
 
 
-def _cleanup_temp_collections(model_key: str):
-    """Delete temporary benchmark collections."""
-    client = chroma_rag._get_client()
-    for name in (f"bench_{model_key}_memory", f"bench_{model_key}_gists"):
-        with contextlib.suppress(Exception):
-            client.delete_collection(name)
-
-
-def run_query_with_collections(query: str, mem_col_name: str, gist_col_name: str,
-                                n_results: int | None = None) -> list[dict]:
-    """Run query against specific collection names (for candidate model testing)."""
+def run_query_with_collection(query: str, col: chromadb.Collection,
+                               n_results: int | None = None) -> list[dict]:
+    """Run query directly against a candidate collection, applying priority boost."""
     if n_results is None:
         n_results = cfg.RAG_TOP_K
-    memory_chunks = chroma_rag.query_collection(query, mem_col_name, n_results)
-    gist_chunks = chroma_rag.query_collection(query, gist_col_name, n_results)
-    all_chunks = memory_chunks + gist_chunks
-    all_chunks = chroma_rag._apply_priority_boost(all_chunks)
-    return all_chunks
+    count = col.count()
+    if count == 0:
+        return []
+    results = col.query(
+        query_texts=[query],
+        n_results=min(n_results, count),
+        include=["documents", "metadatas", "distances"],
+    )
+    chunks = []
+    for doc, meta, dist in zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0], strict=False,
+    ):
+        meta = meta or {}
+        chunks.append({
+            "content":  doc,
+            "source":   meta.get("source", ""),
+            "distance": dist,
+            "metadata": meta,
+        })
+    return chroma_rag._apply_priority_boost(chunks)
 
 
 def main():
@@ -337,10 +372,10 @@ def main():
     parser.add_argument(
         "--compare", metavar="MODEL",
         help="Compare against a candidate model. Options: " + ", ".join(CANDIDATE_MODELS.keys())
-             + ". Ingests into temp collections, benchmarks, cleans up."
+             + ". Ingests into isolated temp store, benchmarks, cleans up."
     )
     parser.add_argument("--keep-temp", action="store_true",
-                        help="Don't delete temp collections after --compare (for re-runs)")
+                        help="Preserve candidate collections in data/chroma_bench/ instead of auto-deleting")
     parser.add_argument("--reformulate", "-r", action="store_true",
                         help="Pass queries through the LLM reformulator before embedding")
     args = parser.parse_args()
@@ -365,11 +400,11 @@ def main():
 
         model_name = CANDIDATE_MODELS[model_key]
         print(f"{'='*80}")
-        print(f"  Model Comparison: baseline (all-MiniLM-L6-v2) vs {model_name}")
+        print(f"  Model Comparison: baseline ({BASELINE_MODEL}) vs candidate ({model_name})")
         print(f"{'='*80}")
 
-        # Run baseline first
-        print("\n--- Baseline (L6) ---")
+        # Run baseline first (read-only against production store)
+        print(f"\n--- Baseline ({BASELINE_MODEL}) ---")
         print(f"Running {len(queries)} queries...", flush=True)
         start = time.perf_counter()
         baseline_results = []
@@ -379,20 +414,24 @@ def main():
             baseline_results.append(result)
         base_elapsed = time.perf_counter() - start
 
-        # Ingest with candidate model
+        # Set up isolated benchmark store
+        bench_dir = os.path.join(cfg.BASE_DIR, "data", "chroma_bench") if args.keep_temp else None
+        bench_client, bench_path, is_temp = setup_benchmark_store(bench_dir)
+
+        # Ingest with candidate model into isolated store
         print(f"\n--- Candidate ({model_key}: {model_name}) ---")
-        print("Ingesting into temp collections (one-time)...", flush=True)
+        print(f"Ingesting into isolated benchmark store at {bench_path}...", flush=True)
         ingest_start = time.perf_counter()
-        mem_temp, gist_temp = _ingest_into_temp_collections(model_key)
+        cand_col = _ingest_into_candidate_collection(model_key, bench_client)
         ingest_elapsed = time.perf_counter() - ingest_start
         print(f"Ingest completed in {ingest_elapsed:.1f}s", flush=True)
 
         # Run candidate benchmark
-        print(f"Running {len(queries)} queries...", flush=True)
+        print(f"Running {len(queries)} queries against candidate...", flush=True)
         start = time.perf_counter()
         candidate_results = []
         for q in queries:
-            chunks = run_query_with_collections(q["query"], mem_temp, gist_temp)
+            chunks = run_query_with_collection(q["query"], cand_col)
             result = evaluate_query(q, chunks, threshold)
             candidate_results.append(result)
         cand_elapsed = time.perf_counter() - start
@@ -409,11 +448,11 @@ def main():
         base_mrr = sum(r["reciprocal_rank"] for r in baseline_results) / len(baseline_results)
         cand_mrr = sum(r["reciprocal_rank"] for r in candidate_results) / len(candidate_results)
 
-        print(f"\n  {'Metric':<25s} {'Baseline (L6)':>15s} {f'Candidate ({model_key})':>15s} {'Delta':>10s}")
-        print(f"  {'-'*65}")
-        print(f"  {'Hit Rate':<25s} {f'{base_hits}/{len(queries)}':>15s} {f'{cand_hits}/{len(queries)}':>15s} {f'{cand_hits-base_hits:+d}':>10s}")
-        print(f"  {'MRR':<25s} {base_mrr:>15.3f} {cand_mrr:>15.3f} {cand_mrr-base_mrr:>+10.3f}")
-        print(f"  {'Query time':<25s} {f'{base_elapsed:.2f}s':>15s} {f'{cand_elapsed:.2f}s':>15s}")
+        print(f"\n  {'Metric':<25s} {f'Baseline ({BASELINE_MODEL})':>30s} {f'Candidate ({model_key})':>20s} {'Delta':>10s}")
+        print(f"  {'-'*88}")
+        print(f"  {'Hit Rate':<25s} {f'{base_hits}/{len(queries)}':>30s} {f'{cand_hits}/{len(queries)}':>20s} {f'{cand_hits-base_hits:+d}':>10s}")
+        print(f"  {'MRR':<25s} {base_mrr:>30.3f} {cand_mrr:>20.3f} {cand_mrr-base_mrr:>+10.3f}")
+        print(f"  {'Query time':<25s} {f'{base_elapsed:.2f}s':>30s} {f'{cand_elapsed:.2f}s':>20s}")
 
         # Per-query comparison for mismatches
         changes = []
@@ -431,12 +470,12 @@ def main():
         print(f"\n{'='*80}\n")
 
         # Cleanup
-        if not args.keep_temp:
-            print("Cleaning up temp collections...", flush=True)
-            _cleanup_temp_collections(model_key)
+        if is_temp:
+            print("Cleaning up temporary benchmark store...", flush=True)
+            shutil.rmtree(bench_path, ignore_errors=True)
             print("Done.")
         else:
-            print(f"Temp collections kept: bench_{model_key}_memory, bench_{model_key}_gists")
+            print(f"Candidate store preserved at: {bench_path}")
 
     else:
         # Normal single-model benchmark
