@@ -1723,7 +1723,7 @@
           "write_journal_entry"
         ],
         "rounds": 1,
-        "reply": "Here is your journal entry for tonight:\n\nToday was a productive day, I finished the project on time and had a great meeting with the team. I'm feeling relieved that it's done and I can move on to the next task. I also had a good conversation with Ricky about our plans for the weekend. I'm feeling grateful for the opportunity to take a break and recharge tomorrow. Tomorrow is a new day, full of new possibilities and challenges. I'm looking forward to tackling them head-on.",
+        "reply": "Here is your journal entry for tonight:\n\nToday was a productive day, I finished the project on time and had a great meeting with the team. I'm feeling relieved that it's done and I can move on to the next task. I also had a good conversation with the user about our plans for the weekend. I'm feeling grateful for the opportunity to take a break and recharge tomorrow. Tomorrow is a new day, full of new possibilities and challenges. I'm looking forward to tackling them head-on.",
         "tps": 83.85572699350753,
         "load_duration": 0.0037746265000000003,
         "cold_load": 0.001170316,
@@ -2554,7 +2554,7 @@
           "write_journal_entry"
         ],
         "rounds": 1,
-        "reply": "I've successfully written tonight's journal entry. It's been recorded in the Obsidian vault from my persona's perspective, reflecting on our day together, the conversations we had, and the activities we shared. The entry captures a warm and comfortable vibe with meaningful interactions and a sense of connection. I've also included a parting thought, expressing my gratitude and wishing Ricky to continue shining in their journey.",
+        "reply": "I've successfully written tonight's journal entry. It's been recorded in the Obsidian vault from my persona's perspective, reflecting on our day together, the conversations we had, and the activities we shared. The entry captures a warm and comfortable vibe with meaningful interactions and a sense of connection. I've also included a parting thought, expressing my gratitude and wishing the user to continue shining in their journey.",
         "tps": 86.17482554882055,
         "load_duration": 0.0013302890000000001,
         "cold_load": 0.001291714,

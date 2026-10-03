@@ -1,6 +1,6 @@
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-10-02 18:38:04
+# date modified: 2026-10-02 19:27:12
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -219,6 +219,12 @@ def evaluate_case(model: str, case: dict, routed: bool = False) -> dict:
             messages.append({"role": "tool", "content": tool_response})
     else:
         reply = "(round cap reached — still requesting tools)"
+
+    # Sanitize any accidental personal identity strings from reply (AGENTS.md §4)
+    if getattr(cfg, "USER_NAME", None) and cfg.USER_NAME in reply:
+        reply = reply.replace(cfg.USER_NAME, "the user")
+    if getattr(cfg, "ASSISTANT_NAME", None) and cfg.ASSISTANT_NAME in reply:
+        reply = reply.replace(cfg.ASSISTANT_NAME, "the assistant")
 
     writes = [t for t in called if t in WRITE_TOOL_NAMES]
     expect = case["expect"]
