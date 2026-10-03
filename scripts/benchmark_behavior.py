@@ -103,8 +103,8 @@ def load_template_system_prompt() -> str:
     _frontmatter_re = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
     templates_dir = os.path.join(ROOT_DIR, "templates")
     template_files = [
-        "Core_Directives.example.md",
-        "System_Directives.example.md",
+        "Engine_Directives.example.md",
+        "Assistant_Directives.example.md",
         "Assistant_Profile.example.md",
         "User_Profile.example.md",
     ]
@@ -115,6 +115,7 @@ def load_template_system_prompt() -> str:
             with open(p, encoding="utf-8") as f:
                 content = f.read()
                 content = _frontmatter_re.sub("", content).strip()
+                content = content.replace("{USER_NAME}", "User").replace("{ASSISTANT_NAME}", "Assistant")
                 if content:
                     parts.append(content)
     return "\n\n".join(parts)
@@ -130,8 +131,8 @@ def load_live_system_prompt() -> str:
         _frontmatter_re = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
         persona_dir = os.path.join(ROOT_DIR, "Evelyn", "persona")
         persona_files = [
-            getattr(cfg, "PERSONA_FILE_CORE", "Core_Directives.md"),
-            getattr(cfg, "PERSONA_FILE_DIRECTIVES", "System_Directives.md"),
+            getattr(cfg, "PERSONA_FILE_ENGINE_DIRECTIVES", "Engine_Directives.md"),
+            getattr(cfg, "PERSONA_FILE_ASSISTANT_DIRECTIVES", "Assistant_Directives.md"),
             getattr(cfg, "PERSONA_FILE_ASSISTANT", "Assistant_Profile.md"),
             getattr(cfg, "PERSONA_FILE_USER", "User_Profile.md"),
         ]

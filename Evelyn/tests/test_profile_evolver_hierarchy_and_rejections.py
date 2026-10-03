@@ -1,6 +1,6 @@
 # test_profile_evolver_hierarchy_and_rejections.py
 # date created: 2026-09-18
-# date modified: 2026-09-18 17:42:28
+# date modified: 2026-10-03 07:46:08
 # tags: #test, #profile_evolver, #hierarchy, #deduplication, #rejection, #audit
 
 """Unit tests for profile evolver hierarchy, adaptive deduplication, domain guards, and rejection telemetry."""
@@ -56,8 +56,8 @@ class TestProfileEvolverHierarchyAndRejections(unittest.TestCase):
         docs_str, bullets = profile_evolver._load_precedent_documents(
             cfg.PERSONA_FILE_ASSISTANT, persona_dir
         )
-        self.assertIn("DOCUMENT: Core_Directives.md", docs_str)
-        self.assertIn("DOCUMENT: System_Directives.md", docs_str)
+        self.assertIn(f"DOCUMENT: {cfg.PERSONA_FILE_ENGINE_DIRECTIVES}", docs_str)
+        self.assertIn(f"DOCUMENT: {cfg.PERSONA_FILE_ASSISTANT_DIRECTIVES}", docs_str)
 
         # Confirm extracted bullets contain core rules
         bullet_labels = [b[1] for b in bullets]
@@ -144,6 +144,34 @@ class TestProfileEvolverHierarchyAndRejections(unittest.TestCase):
         self.assertEqual(len(rejections), 1)
         self.assertEqual(rejections[0]["reason"], "domain_violation")
         self.assertEqual(rejections[0]["target_doc"], cfg.PERSONA_FILE_ASSISTANT)
+
+    def test_domain_boundary_guard_blocks_wire_protocol_and_engine_truth_in_directives(self):
+        """Verify DOMAIN_BANNED_PATTERNS blocks wire protocol envelopes and engine tool truth duplicates in Assistant Directives."""
+        delta = {
+            "added": [
+                {
+                    "section": "## Operational Guidelines",
+                    "tier": 1,
+                    "label": "Telemetry Wrapper",
+                    "fact": "Always parse <temporal_context> before processing user input.",
+                },
+                {
+                    "section": "## Authenticity & Operational Transparency",
+                    "tier": 1,
+                    "label": "Ground Truth Rule",
+                    "fact": "Authoritative Tool Ground Truth must be observed at all times.",
+                },
+            ],
+            "modified": [],
+            "removed": [],
+        }
+        filtered_delta, rejections = profile_evolver._filter_delta_against_precedents(
+            cfg.PERSONA_FILE_DIRECTIVES, delta, []
+        )
+        self.assertEqual(len(filtered_delta["added"]), 0)
+        self.assertEqual(len(rejections), 2)
+        self.assertTrue(all(r["reason"] == "domain_violation" for r in rejections))
+        self.assertTrue(all(r["target_doc"] == cfg.PERSONA_FILE_DIRECTIVES for r in rejections))
 
     def test_narrative_sanitization_surgical_strip(self):
         """Verify _sanitize_and_validate_narrative_boundaries surgically strips offending sentences in Voice & Communication."""

@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-02 21:26:22
+date modified: 2026-10-03 07:48:22
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,35 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.003] - 2026-10-03 — *Prompt Stack Directives Architecture & Clean Wire Protocol*
+
+### Changed
+
+- **Directives Architecture & Hierarchy Clarification**:
+  - Renamed `Core_Directives` to `Engine_Directives` (`Engine_Directives.example.md` & `Engine_Directives.md`) to clearly signify the immutable substrate engine wire protocol and runtime rules.
+  - Renamed `System_Directives` to `Assistant_Directives` (`Assistant_Directives.example.md` & `Assistant_Directives.md`) to establish the companion's operational, interaction, and formatting guidelines.
+  - Updated `evelyn_config.py` (`PERSONA_FILE_ENGINE_DIRECTIVES`, `PERSONA_FILE_ASSISTANT_DIRECTIVES`, retaining backward-compatible aliases for legacy callers), server endpoints (`/api/identity`, `/api/persona/ledgers`), and UI ledger cards (`profile_facts.html`).
+- **Clean Wire Protocol & Prompt Assembly (`evelyn_server.py:load_system_prompt()`)**:
+  - Migrated hardcoded telemetry envelope definitions (`<system_telemetry_directives>`, `<user_attachments_directive>`, `<proactive_tool_discovery>`) out of Python server code and directly into `Engine_Directives`.
+  - Stripped the tool-forcing line (`"When actions or lookups are needed, call the tool directly, when in doubt use the tool."`), resolving benchmark proactivity/restraint false positives and tool hallucinations.
+  - Replaced with balanced "Balanced Action Discernment" explicitly guiding models to invoke tools when actions or lookups are needed while conversing directly on opinions and pleasantries.
+  - Made `load_system_prompt()` purely procedural: prepends dynamic localized clock and iterates over `cfg.PERSONA_FILES`, interpolating `{USER_NAME}` and `{ASSISTANT_NAME}` dynamically while keeping templates clean and privacy-compliant.
+- **Cross-Stack De-duplication across 4-Tier Hierarchy**:
+  - Pruned duplicate capability honesty and verification rules from `Assistant_Directives`, relying on `Engine_Directives` as the single authoritative source for execution truth.
+  - Consolidated behavioral pacing (`Dual-Horizon Reasoning`, `Anti-Regression`, `Forward Momentum Default`, `Stated Needs Only`, `Pacing Authority`) into `Assistant_Directives`.
+  - Pruned legacy prompt relics ("docstring cues", nonsensical file extension rules) from `Assistant_Directives` and synced facts ledger.
+- **Profile Evolver 4-Tier Stack Awareness & Domain Boundary Guards (`profile_evolver.py`)**:
+  - Wired full 4-tier stack precedence model into delta generation and synthesis prompts (`Engine_Directives` Tier 1 Precedent ➔ `Assistant_Directives` Tier 2 ➔ `Assistant_Profile` Tier 3 ➔ `User_Profile` Tier 4).
+  - Configured `DOCUMENT_CATEGORIES` and `DOCUMENT_THEMES` to properly route `Cat05-U` (Communication & Interaction Details) to `User_Profile` under "Personal Context & State".
+  - Enforced `DOMAIN_BANNED_PATTERNS` to reject wire protocol XML envelopes (`<system_telemetry_directives>`, `<temporal_context>`, etc.) across all subordinate documents, and engine tool ground truth duplicates from leaking into `Assistant_Directives` or `Assistant_Profile`.
+  - Protected behavioral pacing rules (`dual-horizon`, `anti-regression`, `stated needs`, `pacing authority`) as Tier 1 invariants in `_DIRECTIVES_TIER_1_PATTERNS`.
+  - Updated `DOCUMENT_RULES` and LLM few-shot guidance with non-duplication constraints prohibiting candidate facts from restating superior precedent rules.
+
+### Fixed
+
+- **Hermetic Test Harness Chat Schema (`conftest.py`)**: Initialized chat DB tables (`messages`, `tasks`, `calendar_events`) inside the sandboxed test environment fixture to prevent `no such table` errors during isolated test executions.
+- **Profile Evolver Test Tier Alignment (`test_profile_evolver_hardening.py`)**: Aligned test fixtures with the anti-symptom-ratchet contract (`test_profile_evolver_tiers.py`) using explicit `[Tier 1]` invariant markers for condition management and balancing section pruning assertions.
 
 ## [000.008.002] - 2026-10-02 — *Benchmark Workstation UI Polish & Trend Tracking*
 

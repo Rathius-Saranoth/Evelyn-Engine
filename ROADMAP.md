@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-02 20:02:03
+date modified: 2026-10-03 07:53:54
 ---
 # Evelyn Project Roadmap
 
@@ -16,7 +16,7 @@ This roadmap is the primary source of truth for project milestones and future di
 
 *Goal: Port Evelyn from Gemini to a local model while keeping her personality intact.*
 
-- [x] **Persona & Directives**: Refactored narrative profile, system directives, and personal instructions into structured local configurations.
+- [x] **Persona & Directives Architecture**: Refactored system directives and profile documents into a clean 4-tier precedence stack (Engine Directives substrate, Assistant Directives operational standards, Assistant Profile persona, User Profile context) with deterministic cross-stack deduplication and clean wire protocol isolation.
 - [x] **Model & Architecture**: Transitioned from OpenWebUI/Modelfile architecture to a lean, authoritative FastAPI server (`evelyn_server.py`) with dynamic parameter tuning and system prompt assembly.
 - [x] **Local Model Deployment**: Successfully ported to local models (Mistral-Small $\rightarrow$ Gemma 4 12B/26B) with 100% GPU offload and optimized context budgeting.
 

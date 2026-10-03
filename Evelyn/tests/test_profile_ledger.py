@@ -137,8 +137,10 @@ def test_prune_ledger_to_budget_tier_order():
 def test_filename_mapping():
     assert get_ledger_filename("Assistant_Profile.md") == "Assistant_Profile_facts.md"
     assert get_ledger_filename("User_Profile.md") == "User_Profile_facts.md"
+    assert get_ledger_filename("Assistant_Directives.md") == "Assistant_Directives_facts.md"
     assert get_profile_filename("Assistant_Profile_facts.md") == "Assistant_Profile.md"
     assert get_profile_filename("System_Directives_facts.md") == "System_Directives.md"
+    assert get_profile_filename("Assistant_Directives_facts.md") == "Assistant_Directives.md"
 
 
 def test_json_delta_parsing():

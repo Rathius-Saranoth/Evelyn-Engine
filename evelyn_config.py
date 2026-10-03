@@ -122,16 +122,21 @@ PRIVATE_IDENTITY_NAMES: list[str] = [
 EXAMPLE_PET_NAME = os.getenv("EVELYN_EXAMPLE_PET", "Biscuit")
 EXAMPLE_THIRD_PARTY_NAME = os.getenv("EVELYN_EXAMPLE_THIRD_PARTY", "Alex")
 
-# Persona document basenames — Core Directives + Canonical Persona Triad
-PERSONA_FILE_CORE_DIRECTIVES = "Core_Directives.md"
+# Persona document basenames — Engine Directives + Companion Directives & Persona Triad
+PERSONA_FILE_ENGINE_DIRECTIVES = "Engine_Directives.md"
+PERSONA_FILE_ASSISTANT_DIRECTIVES = "Assistant_Directives.md"
 PERSONA_FILE_ASSISTANT = "Assistant_Profile.md"
 PERSONA_FILE_USER = "User_Profile.md"
-PERSONA_FILE_DIRECTIVES = "System_Directives.md"
+
+# Backward compatibility aliases
+PERSONA_FILE_CORE_DIRECTIVES = PERSONA_FILE_ENGINE_DIRECTIVES
+PERSONA_FILE_DIRECTIVES = PERSONA_FILE_ASSISTANT_DIRECTIVES
+
 PERSONA_FILES = [
-    PERSONA_FILE_CORE_DIRECTIVES,
+    PERSONA_FILE_ENGINE_DIRECTIVES,
+    PERSONA_FILE_ASSISTANT_DIRECTIVES,
     PERSONA_FILE_ASSISTANT,
     PERSONA_FILE_USER,
-    PERSONA_FILE_DIRECTIVES,
 ]
 
 

@@ -514,7 +514,7 @@
         </div>
       </div>
 
-      <div class="ledger-card" onclick="selectLedger('System_Directives_facts.md')" id="card-directives" title="Curate operational directives, tool rules, execution protocols, and behavioral defaults">
+      <div class="ledger-card" onclick="selectLedger(directivesLedgerFilename)" id="card-directives" title="Curate operational directives, tool rules, execution protocols, and behavioral defaults">
         <div class="ledger-card-header">
           <span class="ledger-card-title">⚙️ Directives</span>
           <span class="badge tier-3" id="badge-count-directives">0 rules</span>
@@ -642,13 +642,14 @@
 
     // Workstation State
     let activeLedger = 'User_Profile_facts.md';
+    let directivesLedgerFilename = 'Assistant_Directives_facts.md';
     let currentLedgerData = null;
     let editingItemKey = null; // null or 'secIdx-itemIdx'
 
     // Parse deep-link parameter ?doc=...
     const urlParams = new URLSearchParams(window.location.search);
     const initialDoc = urlParams.get('doc');
-    if (initialDoc && ['User_Profile_facts.md', 'Assistant_Profile_facts.md', 'System_Directives_facts.md'].includes(initialDoc)) {
+    if (initialDoc && ['User_Profile_facts.md', 'Assistant_Profile_facts.md', 'Assistant_Directives_facts.md', 'System_Directives_facts.md'].includes(initialDoc)) {
       activeLedger = initialDoc;
     }
 
@@ -663,7 +664,10 @@
           let prefix = '';
           if (l.filename === 'User_Profile_facts.md') prefix = 'user';
           else if (l.filename === 'Assistant_Profile_facts.md') prefix = 'assistant';
-          else if (l.filename === 'System_Directives_facts.md') prefix = 'directives';
+          else if (l.filename === 'Assistant_Directives_facts.md' || l.filename === 'System_Directives_facts.md') {
+            prefix = 'directives';
+            directivesLedgerFilename = l.filename;
+          }
           if (!prefix) return;
 
           const badgeEl = document.getElementById(`badge-count-${prefix}`);
@@ -701,7 +705,7 @@
       // Update card active states
       document.getElementById('card-user').className = `ledger-card ${filename === 'User_Profile_facts.md' ? 'active' : ''}`;
       document.getElementById('card-assistant').className = `ledger-card ${filename === 'Assistant_Profile_facts.md' ? 'active' : ''}`;
-      document.getElementById('card-directives').className = `ledger-card ${filename === 'System_Directives_facts.md' ? 'active' : ''}`;
+      document.getElementById('card-directives').className = `ledger-card ${(filename === 'Assistant_Directives_facts.md' || filename === 'System_Directives_facts.md') ? 'active' : ''}`;
 
       const addTargetEl = document.getElementById('add-panel-target-name');
       if (addTargetEl) addTargetEl.textContent = filename;

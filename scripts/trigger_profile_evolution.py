@@ -70,7 +70,7 @@ async def main() -> None:
         dest="doc",
         type=str,
         default=None,
-        help="Target a specific document filename (e.g. System_Directives.md).",
+        help="Target a specific document filename (e.g. Assistant_Directives.md).",
     )
     parser.add_argument(
         "--limit",

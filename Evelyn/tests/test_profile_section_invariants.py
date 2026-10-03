@@ -1,6 +1,6 @@
 # test_profile_section_invariants.py
 # date created: 2026-08-30
-# date modified: 2026-09-20 08:34:58
+# date modified: 2026-10-03 07:46:08
 # tags: #test, #profile_evolver, #invariants, #sections, #guardrails
 
 """Unit tests for section structural invariance, canonical schema validation, and topic density guardrails."""
@@ -298,10 +298,12 @@ I am Alex's sanctuary—a comforting and comfortable space where he finds profou
         self.assertTrue(is_valid, f"Live System_Directives.md failed validation: {reason} (failed: {failed})")
 
     def test_template_system_directives_passes_validation(self):
-        """Verify templates/System_Directives.example.md satisfies canonical structure and bullet invariants."""
-        template_path = os.path.join(repo_root, "templates/System_Directives.example.md")
+        """Verify templates/Assistant_Directives.example.md satisfies canonical structure and bullet invariants."""
+        template_path = os.path.join(repo_root, "templates/Assistant_Directives.example.md")
         if not os.path.exists(template_path):
-            self.skipTest("templates/System_Directives.example.md not found")
+            template_path = os.path.join(repo_root, "templates/System_Directives.example.md")
+        if not os.path.exists(template_path):
+            self.skipTest("templates/Assistant_Directives.example.md not found")
         with open(template_path, encoding="utf-8") as f:
             content = f.read()
         _, body = profile_evolver.split_frontmatter(content)
@@ -312,7 +314,7 @@ I am Alex's sanctuary—a comforting and comfortable space where he finds profou
             min_section_words=15,
         )
         self.assertTrue(
-            is_valid, f"Template System_Directives.example.md failed validation: {reason} (failed: {failed})"
+            is_valid, f"Template Assistant_Directives.example.md failed validation: {reason} (failed: {failed})"
         )
 
     def test_validate_user_profile_structure_success(self):

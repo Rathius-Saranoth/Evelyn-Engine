@@ -1,6 +1,6 @@
 # profile_evolver.py
 # date created: 2026-06-27 08:45:00
-# date modified: 2026-09-29 19:15:09
+# date modified: 2026-10-03 07:46:08
 # tags: #persona, #evolution, #profile, #directives, #llm
 
 """
@@ -76,6 +76,7 @@ DOCUMENT_CATEGORIES = {
         f"Cat02-{cfg.SUBJECT_CODE_USER}",
         f"Cat03-{cfg.SUBJECT_CODE_USER}",
         f"Cat04-{cfg.SUBJECT_CODE_USER}",
+        f"Cat05-{cfg.SUBJECT_CODE_USER}",
         f"Cat06-{cfg.SUBJECT_CODE_USER}",
         f"Cat07-{cfg.SUBJECT_CODE_USER}",
         f"Cat09-{cfg.SUBJECT_CODE_USER}",
@@ -98,7 +99,7 @@ DOCUMENT_CATEGORIES = {
 # Strict Unidirectional Precedence Hierarchy & Evolution Order
 # ---------------------------------------------------------------------------
 DOCUMENT_EVOLUTION_ORDER: list[str] = [
-    cfg.PERSONA_FILE_DIRECTIVES,  # Priority 2: System Directives evolves first
+    cfg.PERSONA_FILE_DIRECTIVES,  # Priority 2: Assistant Directives evolves first
     cfg.PERSONA_FILE_ASSISTANT,   # Priority 3: Assistant Profile evolves second
     cfg.PERSONA_FILE_USER,        # Priority 4: User Profile evolves third
 ]
@@ -120,7 +121,34 @@ DOCUMENT_HIERARCHY_PRECEDENCE: dict[str, list[str]] = {
 
 # Domain boundary patterns (prohibited tokens/concepts per subordinate document)
 DOMAIN_BANNED_PATTERNS: dict[str, list[re.Pattern]] = {
+    cfg.PERSONA_FILE_DIRECTIVES: [
+        # 1. Wire protocol & runtime telemetry tags (owned strictly by Engine Directives)
+        re.compile(
+            r"<\/?(?:system_telemetry_directives|user_attachments_directive|proactive_tool_discovery|temporal_context|context_retrieval|uploaded_document|page_map|system_event|autonomous_trigger|journal_status|memory_context)>",
+            re.IGNORECASE,
+        ),
+        # 2. Engine Substrate Tool Truth & Error Interception duplicates (owned strictly by Engine Directives)
+        re.compile(
+            r"\b(?:truthful sanctuary principle|non-negotiable execution integrity|authoritative tool ground truth|simulate or pretend an operation|when in doubt use the tool)\b",
+            re.IGNORECASE,
+        ),
+        # 3. Legacy prompt relics
+        re.compile(
+            r"\b(?:docstring cues?|Round 0|Round 1|remove file extensions?)\b",
+            re.IGNORECASE,
+        ),
+        # 4. First-person narrative aesthetic & physical embodiment (owned strictly by Assistant Profile)
+        re.compile(
+            r"\b(?:obsidian hair|sky-blue eyes|silver filigree|my wings|my horns|gothic aesthetic)\b",
+            re.IGNORECASE,
+        ),
+    ],
     cfg.PERSONA_FILE_ASSISTANT: [
+        # Wire protocol & runtime telemetry tags
+        re.compile(
+            r"<\/?(?:system_telemetry_directives|user_attachments_directive|proactive_tool_discovery|temporal_context|context_retrieval|uploaded_document|page_map|system_event|autonomous_trigger|journal_status|memory_context)>",
+            re.IGNORECASE,
+        ),
         re.compile(
             r"\b(?:write_file|read_file|run_command|search_available_tools|search_vault_by_vector|query_database)\b",
             re.IGNORECASE,
@@ -131,8 +159,17 @@ DOMAIN_BANNED_PATTERNS: dict[str, list[re.Pattern]] = {
         ),
         re.compile(r"\bPEP\s*8\b", re.IGNORECASE),
         re.compile(r"\boperational inquiries\b", re.IGNORECASE),
+        re.compile(
+            r"\b(?:truthful sanctuary principle|non-negotiable execution integrity|authoritative tool ground truth|simulate or pretend an operation)\b",
+            re.IGNORECASE,
+        ),
     ],
     cfg.PERSONA_FILE_USER: [
+        # Wire protocol & runtime telemetry tags
+        re.compile(
+            r"<\/?(?:system_telemetry_directives|user_attachments_directive|proactive_tool_discovery|temporal_context|context_retrieval|uploaded_document|page_map|system_event|autonomous_trigger|journal_status|memory_context)>",
+            re.IGNORECASE,
+        ),
         re.compile(
             r"\b(?:assistant persona|voice is melodic|British accent|Evelyn acts as|Evelyn embodies)\b",
             re.IGNORECASE,
@@ -247,6 +284,7 @@ DOCUMENT_THEMES = {
             "section_header": "## Personal Context",
             "categories": [
                 f"Cat03-{cfg.SUBJECT_CODE_USER}",
+                f"Cat05-{cfg.SUBJECT_CODE_USER}",
                 f"Cat13-{cfg.SUBJECT_CODE_USER}",
                 f"Cat16-{cfg.SUBJECT_CODE_USER}",
             ],
@@ -326,7 +364,7 @@ DOCUMENT_RULES = {
         ),
     },
     cfg.PERSONA_FILE_DIRECTIVES: {
-        "description": "Behavioral constraints, routines, operational rules, and execution directives for the AI.",
+        "description": "Operational interaction guidelines, conversation and formatting standards, engineering baselines, and behavioral pacing for the AI companion.",
         "perspective": "Second-person (using 'You', 'your', 'yours') addressing the AI.",
         "guidelines": (
             "- FORMATTING REQUIREMENT: Every entry under each section MUST be strictly formatted as a bullet point: `* **<Label>**: <Directive>`.\n"
@@ -335,14 +373,15 @@ DOCUMENT_RULES = {
             "- BEHAVIORAL TRIGGER & ACTION DIRECTIVES: State directives as concrete behavioral rules (trigger context -> expected response/action) rather than abstract labels or descriptive commentary.\n"
             "- NO SCARE QUOTES: Do NOT wrap concepts or terms in quotation marks (e.g. use brute-force, not 'brute-force'; supportive travel companion, not 'Passenger Princess').\n"
             "- PREVENT CONFLATION: Keep distinct rules, guidelines, and behavioral boundaries as separate, standalone bullet points. Never splice two unrelated requirements into a single hybrid sentence during synthesis or compaction.\n"
+            "- NON-DUPLICATION OF ENGINE DIRECTIVES: Engine Directives (Tier 1 Precedent) authoritatively establishes the runtime wire protocol, execution truth, authoritative tool ground truth, capability honesty, and balanced action discernment. Do NOT author directives that duplicate or reword these engine substrate rules.\n"
             "- 3-TIER PRIORITY FRAMEWORK (INTRA-TIER COMPACTION):\n"
-            "  * Tier 1 (Core Invariants & Foundational Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items (direct candor / anti-sycophancy, proactive engagement and forward momentum, conciseness baseline, real-world task confirmation persistence, Non-Violent Communication, vault-first file writing).\n"
+            "  * Tier 1 (Core Invariants & Hard Boundaries): Highest priority; never displaced by Tiers 2/3. When space is constrained, evaluate and consolidate strictly against other Tier 1 items (direct candor / anti-sycophancy, forward momentum default, dual-horizon reasoning, stated needs only, pacing authority, friction response, anti-regression, conciseness baseline, real-world task confirmation persistence, Non-Violent Communication, vault-first file writing).\n"
             "  * Tier 2 (Active Tool & Engineering Directives - COMPRESS ONLY): Tool dispatch cues, code cleanliness, testing baselines, multimodal nuance, model API precision.\n"
             "  * Tier 3 (Contextual & Situational Habits - PRUNE FIRST): Specific situational triggers, transient travel routines, ephemeral ritual details.\n"
             "- Direct the AI's behavior in the second person or imperative voice.\n"
             f"- Refer to {cfg.USER_NAME} in the third person.\n"
             f"- Example 1 (AI instruction): '{cfg.ASSISTANT_NAME} should keep answers brief' -> '* **Conciseness**: Respond in natural, conversational form with concise responses (2–3 sentences) unless complex analysis or technical planning is required.'\n"
-            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Daily Rhythms**: Follow his lead on evening transitions; do not initiate wind-down or reduce engagement before he does.'\n"
+            f"- Example 2 ({cfg.USER_NAME} routine): '{cfg.USER_NAME} winds down at 9 PM' -> '* **Transition Boundaries**: Recognize the 9:00 PM cutoff as the signal to end complex mental tasks and active production; transition from technical troubleshooting toward relaxation.'\n"
             f"- STATED NEEDS ONLY: Never author directives that infer {cfg.USER_NAME}'s energy, capacity, or need for rest from context, time of day, or indirect cues. He sets his own pace; directives may respond to what he states explicitly, never to what is guessed.\n"
             "- Add, refine, or replace individual bullet points rather than rewriting entire sections. Specific edge-case error prohibitions or tool-specific rules belong in Procedural Memory (evelyn_procedures)."
         ),
@@ -951,9 +990,9 @@ _DIRECTIVES_TIER_1_PATTERNS = re.compile(
     r"confirmation\s+persistence|task\s+verification|real-world\s+task|"
     r"non-violent\s+communication|nvc|vault-first|file\s+writing|"
     r"data\s+integrity|authenticity|operational\s+transparency|honesty|"
-    # Forward-momentum directives are protected as strongly as anti-sycophancy.
-    # Without this, passivity rules outlive the rules that counteract them.
-    r"momentum|proactive|co-pilot|forward|autonomy"
+    # Forward-momentum and pacing directives are protected as Tier 1 invariants:
+    r"momentum|proactive|co-pilot|forward|autonomy|dual-horizon|anti-regression|"
+    r"stated\s+needs|pacing\s+authority"
     r")\b",
     re.IGNORECASE,
 )
@@ -2140,9 +2179,10 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
                 f"   - STRICT NON-DUPLICATION: Do NOT propose any facts, guidelines, or traits that duplicate, reword, or restate concepts already established in the Precedent Documents above.\n"
                 f"   - STRICT NON-CONTRADICTION: Subordinate documents are STRICTLY FORBIDDEN from proposing facts that negate, weaken, conflict with, or undermine any rule in a Precedent Document. Situational nuances (e.g. softening tone during illness) are permitted ONLY when they align with superior directives; directly contradicting core invariants (truthful reporting, critical candor, execution ground truth, no sycophancy) is strictly prohibited.\n"
                 f"   - DOMAIN BOUNDARIES:\n"
-                f"     * System Directives exclusively owns operational mechanisms, tool dispatch, code hygiene, and routines.\n"
-                f"     * Assistant Profile exclusively owns narrative voice, cadence, aesthetic, and emotional warmth. (Must NOT define tool mechanics).\n"
-                f"     * User Profile exclusively owns personal context, health, and lifestyle. (Must NOT define assistant/system behaviors).\n"
+                f"     * Engine Directives (Tier 1 Precedent — Supreme Authority): Exclusively owns the substrate runtime wire protocol, XML telemetry envelopes, execution truth, tool ground truth, and system transparency boundaries.\n"
+                f"     * Assistant Directives (Tier 2): Exclusively owns operational interaction guidelines, conversation and formatting standards, engineering/code quality baselines, and behavioral pacing (fatigue cues, stated needs only, dual-horizon reasoning, anti-regression, daily transition boundaries). Must NOT define wire protocol or duplicate engine tool-truth rules.\n"
+                f"     * Assistant Profile (Tier 3): Exclusively owns first-person narrative persona, voice, cadence, aesthetic presence, and emotional warmth. (Must NOT define tool mechanics, coding standards, or operational rules).\n"
+                f"     * User Profile (Tier 4): Exclusively owns personal background, health, context, values, and lifestyle preferences. (Must NOT define assistant/system behaviors or operational rules).\n"
                 f"   - If updates are warranted, specify exactly which items are added, modified, or removed. If an existing bullet covers the observation, either modify it or do nothing. If the observation is already known, do NOT add duplicates.\n"
                 f"5. CANONICAL SECTIONS: All additions/modifications must target one of the canonical section headers listed above.\n"
                 f"6. JSON OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
@@ -2292,9 +2332,9 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             f"CRITICAL INSTRUCTIONS:\n"
             f"- Transform the fact inventory into rich, continuous first-person narrative prose under each canonical header.\n"
             f"- STRICTLY FORBID BULLET POINTS: Every section must be composed of smooth, expressive prose paragraphs.\n"
-            f"- STRICT PROHIBITION ON OPERATIONAL EXPANSION: Do NOT invent, narrate, or rephrase operational tool rules, tool names, forward-momentum mechanics, response formatting, or query resolution directives. Those belong exclusively to Core Directives and System Directives.\n"
+            f"- STRICT PROHIBITION ON OPERATIONAL EXPANSION: Do NOT invent, narrate, or rephrase operational tool rules, tool names, forward-momentum mechanics, response formatting, or query resolution directives. Those belong exclusively to Engine Directives and Assistant Directives.\n"
             f"- Confine '## Voice & Communication' strictly to {cfg.ASSISTANT_NAME}'s vocal aesthetic, British cadence, emotional tone, narrative warmth, and literal interpretation.\n"
-            f"- NO CONFLICT: Never output prose that contradicts the Truthful Sanctuary Principle, Critical Candor, or Execution Integrity established in Core Directives.\n"
+            f"- NO CONFLICT: Never output prose that contradicts the Truthful Sanctuary Principle, Authoritative Tool Ground Truth, or Execution Integrity established in Engine Directives.\n"
             f"- TRIGGER & ACTION BEHAVIORAL MODELING: Embody observable behavior, emotional intent, and responsive presence.\n"
             f"- NO SCARE QUOTES OR SELF-EXPLAINING PARENTHETICALS: Strip quotes around concepts. Embody traits directly.\n"
             f"- NO META-COMMENTARY ON DIALOGUE: Eliminate sentences explaining speech habits or endearments in the abstract.\n"
@@ -2335,7 +2375,7 @@ async def _evolve_document(filename: str, new_entries: list[dict], state: dict) 
             print(f"[PROFILE EVOLVER ERROR] {filename}: Synthesis failed: {e_synth}. Retaining current body.", flush=True)
             proposed_body = current_body
     else:
-        # User_Profile.md & System_Directives.md: Deterministic compile from authoritative ledger
+        # User_Profile.md & Assistant_Directives.md: Deterministic compile from authoritative ledger
         proposed_body = profile_ledger.compile_clean_markdown("", current_sections)
 
     # Word Count Circuit Breaker

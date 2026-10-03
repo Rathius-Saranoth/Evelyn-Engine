@@ -58,7 +58,7 @@ class TestProfileEvolverHardening(unittest.IsolatedAsyncioTestCase):
         t1_bullet = "* **Health Management**: He manages chronic physical conditions and respiratory needs."
         self.assertEqual(profile_evolver.score_bullet_tier(cfg.PERSONA_FILE_USER, "## Identity & Core Values", t1_bullet), 3)
 
-        t1_migraine = "* **Migraine Management**: During migraines, he requires low-stimulation environments."
+        t1_migraine = "* [Tier 1] **Migraine Management**: During migraines, he requires low-stimulation environments."
         self.assertEqual(profile_evolver.score_bullet_tier(cfg.PERSONA_FILE_USER, "## Interaction Preferences & Constraints", t1_migraine), 3)
 
         # User profile Tier 2 (Technical Context)
@@ -86,7 +86,7 @@ class TestProfileEvolverHardening(unittest.IsolatedAsyncioTestCase):
 * **Supportive Presence**: He relies on her presence during stress, physical discomfort, or low focus.
 
 ## Interaction Preferences & Constraints
-* **Migraine Management**: During migraines, he requires low-stimulation environments and no bright lights.
+* [Tier 1] **Migraine Management**: During migraines, he requires low-stimulation environments and no bright lights.
 * **Energy Limits**: He treats end-of-day exhaustion as a physical constraint requiring lower-demand interaction.
 * **Technical Exploration**: He enjoys inquiry into complex system mechanics, software pipelines, and architectures.
 
@@ -109,11 +109,11 @@ class TestProfileEvolverHardening(unittest.IsolatedAsyncioTestCase):
         # Tier 1 core invariants MUST be preserved
         self.assertIn("* **Health Management**:", pruned)
         self.assertIn("* **Allergen Awareness**:", pruned)
-        self.assertIn("* **Migraine Management**:", pruned)
+        self.assertIn("* [Tier 1] **Migraine Management**:", pruned)
         self.assertIn("* **Collaborative Partnership**:", pruned)
 
         # Tier 3 ephemeral bullets in Personal Context should have been pruned first down to section min
-        self.assertNotIn("* **Home Transition**:", pruned)
+        self.assertNotIn("* **Morning Routine**:", pruned)
         self.assertNotIn("* **Evening Routine**:", pruned)
         self.assertNotIn("* **Caffeine Monitoring**:", pruned)
 

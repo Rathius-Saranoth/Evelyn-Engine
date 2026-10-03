@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-02 19:59:59
+date modified: 2026-10-03 07:53:54
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -21,7 +21,7 @@ This document is the single source of truth for the custom REST and Server-Sent 
 
 ### `GET /api/identity`
 * **Purpose**: Exposes dynamic engine identity parameters, operator names, subject codes, and configured persona markdown files.
-* **Returns**: JSON object `{"assistant_name": "Evelyn", "user_name": "Alex", "subject_code_user": "U", "subject_code_assistant": "A", "persona_files": {"core_directives": "Core_Directives.md", "assistant": "...", "user": "...", "directives": "..."}}`.
+* **Returns**: JSON object `{"assistant_name": "Evelyn", "user_name": "Alex", "subject_code_user": "U", "subject_code_assistant": "A", "persona_files": {"engine_directives": "Engine_Directives.md", "assistant_directives": "Assistant_Directives.md", "assistant": "...", "user": "..."}}`.
 
 ### `POST /chat`
 * **Purpose**: Processes a new conversational message from the UI.
@@ -142,7 +142,7 @@ Endpoints driving the cards in `dev.html` to manage memories during idle-time ba
   * `edit`: Updates the given fields. If the entry is currently `extracted`, it is promoted to `live` and a memory refresh is triggered. If the entry is already `live` (e.g., a source entry within a profile update proposal), only the field values are updated — status is not touched.
 
 ### `GET /api/persona/{filename}`
-* **Purpose**: Fetches the current content of a core persona file (`Assistant_Profile.md`, `User_Profile.md`, or `System_Directives.md`) to display side-by-side or line-by-line diffs.
+* **Purpose**: Fetches the current content of a core persona file (`Engine_Directives.md`, `Assistant_Directives.md`, `Assistant_Profile.md`, or `User_Profile.md`) to display side-by-side or line-by-line diffs.
 * **Returns**: Plain text markdown file content.
 
 ### `GET /api/review/proposals`

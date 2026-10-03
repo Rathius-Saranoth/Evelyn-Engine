@@ -2,7 +2,7 @@
 title: engine_architecture.md
 tags: [no-rag, architecture, backend, design, system, map, evelyn]
 date created: 2026-05-25 20:38:00
-date modified: 2026-09-30 17:56:14
+date modified: 2026-10-03 07:53:54
 ---
 # Evelyn Engine Architecture Map
 
@@ -17,8 +17,8 @@ This document serves as the master structural blueprint of the **Evelyn Engine**
 | **API & Integrations** | [[endpoints.md]] · [[google_access.md]] |
 | **Hardware & Environment** | [[system_specs.md]] · [[HPE Server Specs.md]] · [[REQUIREMENTS.md]] · [[SETUP_GUIDE.md]] |
 | **Microservices & Vision** | [[REQUIREMENTS_IMAGE_HOST.md]] |
-| **Persona & Behavior** | [[Core_Directives.md]] · [[System_Directives.md]] · [[Assistant_Profile.md]] · [[User_Profile.md]] |
-| **Templates & Scaffolding** | [[Core_Directives.example.md]] · [[System_Directives.example.md]] · [[Assistant_Profile.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
+| **Persona & Behavior** | [[Engine_Directives.md]] · [[Assistant_Directives.md]] · [[Assistant_Profile.md]] · [[User_Profile.md]] |
+| **Templates & Scaffolding** | [[Engine_Directives.example.md]] · [[Assistant_Directives.example.md]] · [[Assistant_Profile.example.md]] · [[User_Profile.example.md]] · [[Physical_Description.example.md]] |
 | **Standards & Workflows** | [[AGENTS.md]] · [[docstring_guide.md]] · [[quality-review.md]] · [[start-services.md]] · [[restart-services.md]] · [[debug-chat-db.md]] · [[backup-to-github.md]] |
 | **Roadmap & History** | [[ROADMAP.md]] · [[CHANGELOG.md]] · [[ROLLBACK.md]] · [[SUPPORT.md]] |
 
@@ -211,9 +211,10 @@ Handles the end-to-end direct ingestion, metadata extraction, and vector indexin
 
 ### 2.8 The Cognitive Persona & Directives
 The standing narrative parameters, constraints, and profile baselines injected dynamically into the model's system prompt at startup.
+* **[[Engine_Directives.md]]**: Substrate engine runtime wire protocol, XML telemetry envelopes, execution truth, and authoritative tool ground truth.
+* **[[Assistant_Directives.md]]**: Operational interaction guidelines, tool dispatch, engineering baselines, and behavioral defaults.
 * **[[Assistant_Profile.md]]**: Core psychological identity and conversational style parameters for Evelyn.
 * **[[User_Profile.md]]**: User context profile and emotional/cognitive baseline mappings.
-* **[[System_Directives.md]]**: Definitive instructions governing tool call behaviors, priority matrices, and interaction boundaries.
 
 ### 2.9 Canonical Utilities & Shared Core Layer
 The unified single-source-of-truth utility modules serving as the leaf layer of the engine architecture:

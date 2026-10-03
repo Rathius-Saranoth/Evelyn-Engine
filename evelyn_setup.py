@@ -90,12 +90,12 @@ def copy_starter_templates(vault_dir: str, assistant_name: str, user_name: str) 
     """Deploy starter markdown templates to the configured vault directories."""
     persona_dst = os.path.join(vault_dir, assistant_name, "Assistant Profile.md")
     user_dst = os.path.join(vault_dir, user_name, "User Profile.md")
-    directives_dst = os.path.join(vault_dir, assistant_name, "System Directives.md")
+    directives_dst = os.path.join(vault_dir, assistant_name, "Assistant Directives.md")
 
     template_map = {
         "Assistant_Profile.example.md": persona_dst,
         "User_Profile.example.md": user_dst,
-        "System_Directives.example.md": directives_dst,
+        "Assistant_Directives.example.md": directives_dst,
     }
 
     for src_name, dst_path in template_map.items():

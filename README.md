@@ -2,7 +2,7 @@
 title: README.md
 tags: [system/engine]
 date created: 2026-08-28 14:41:00
-date modified: 2026-09-30 18:28:37
+date modified: 2026-10-03 07:53:54
 ---
 > [!NOTE]
 > **Project Status: Personal / As-Is**  
@@ -186,8 +186,8 @@ The workspace documentation is fully structured with bidirectional `[[WikiLinks]
 - 🚀 **Workflows**: **[[start-services.md]]** · **[[restart-services.md]]** · **[[stop-services.md]]** · **[[debug-chat-db.md]]** · **[[backup-to-github.md]]** · **[[quality-review.md]]**
 
 ### Persona & Starter Templates
-- 🧠 **Active Persona**: **[[System_Directives.md]]** · **[[Assistant_Profile.md]]** · **[[User_Profile.md]]**
-- 📄 **Starter Templates**: **[[System_Directives.example.md]]** · **[[Assistant_Profile.example.md]]** · **[[User_Profile.example.md]]** · **[[Physical_Description.example.md]]**
+- 🧠 **Active Persona**: **[[Engine_Directives.md]]** · **[[Assistant_Directives.md]]** · **[[Assistant_Profile.md]]** · **[[User_Profile.md]]**
+- 📄 **Starter Templates**: **[[Engine_Directives.example.md]]** · **[[Assistant_Directives.example.md]]** · **[[Assistant_Profile.example.md]]** · **[[User_Profile.example.md]]** · **[[Physical_Description.example.md]]**
 
 ---
 

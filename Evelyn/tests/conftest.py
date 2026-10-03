@@ -77,10 +77,12 @@ def isolate_test_vault_environment() -> Generator[str]:
 
         cfg.MEMORY_DB_PATH = os.path.join(tmp_vault, "test_evelyn_memory.db")
         cfg.CHAT_DB_PATH = os.path.join(tmp_vault, "test_evelyn_chat.db")
-        # Created empty, so a test that reaches memory incidentally gets a valid empty store
+        # Created empty, so a test that reaches memory or chat incidentally gets a valid empty store
         # rather than "no such table" — the failure mode that previously pushed such tests
         # onto the production database.
         memory_db.init_db()
+        from evelyn_server import init_db as init_chat_db
+        init_chat_db()
 
         # Staging a write appends to the terminal approvals store. That file was the
         # production one, so a test exercising write_file left a real pending approval in

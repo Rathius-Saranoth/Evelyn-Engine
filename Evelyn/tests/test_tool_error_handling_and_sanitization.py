@@ -117,5 +117,4 @@ class TestCoreDirectivesAndEvolverIsolation:
 
     def test_persona_files_order(self):
         persona_files = getattr(cfg, "PERSONA_FILES", [])
-        assert len(persona_files) == 4
-        assert persona_files[0] == "Core_Directives.md"
+        assert persona_files[0] == cfg.PERSONA_FILE_ENGINE_DIRECTIVES

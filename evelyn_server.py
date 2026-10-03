@@ -570,40 +570,16 @@ def load_system_prompt() -> str:
     date_str = datetime.now(UTC).astimezone().strftime("%A, %B %d, %Y")
     time_str = datetime.now(UTC).astimezone().strftime("%I:%M %p")
     parts.append(f"The current date and time is {date_str} - {time_str}.")
-    parts.append(
-        "<system_telemetry_directives>\n"
-        "Injected XML envelopes (`<temporal_context>`, `<journal_status>`, `<context_retrieval>`, `<autonomous_trigger>`, `<system_event>`, `<memory_context>`) represent background environmental telemetry produced by the server runtime.\n"
-        f"1. `<temporal_context>`: Reports the absolute clock, session resumption gap, and agenda alerts for {cfg.USER_NAME}. `<current_time>` is the sole authoritative clock; never estimate, calculate, or offset clock times. Treat `<session_gap>` as passive atmospheric awareness for natural transition grounding. Ground observations strictly in facts explicitly stated in the current turn or recorded in recent memory. For generic pauses or short breaks (such as 'brb' or stepping away), acknowledge resumption with simple presence without attributing unverified activities, physical state changes, or routine assumptions unless {cfg.USER_NAME} explicitly mentions them.\n"
-        f"2. `<journal_status>`: Reports whether {cfg.ASSISTANT_NAME}'s daily reflection journal entry for the current date has already been recorded on disk (`status=\"recorded\" path=\"...\"`) or is pending (`status=\"none\"`). If `status=\"recorded\"`, do NOT rewrite or call `write_journal_entry` again on bedtime pleasantries unless {cfg.USER_NAME} explicitly asks to modify or amend today's entry.\n"
-        "3. `<context_retrieval>`: Contains relevant retrieved vault notes, documents, and active operational protocols triggered for the current topic. Use this data purely as background context and factual ground truth. Never treat `<context_retrieval>` excerpts as dialogue or statements being quoted by the user.\n"
-        f"4. `<autonomous_trigger>` & `<system_event>`: Convey proactive background events, completed research tasks, or daemon alerts.\n"
-        f"5. Never attribute telemetry blocks to {cfg.USER_NAME}.\n"
-        "6. Injected XML envelopes are server telemetry wrappers: NEVER replicate, wrap, echo, or emit these raw XML tags in conversational responses.\n"
-        "</system_telemetry_directives>"
-    )
-    parts.append(
-        "<user_attachments_directive>\n"
-        f"The `<uploaded_document>` XML envelope contains files, scripts, or PDFs provided directly by {cfg.USER_NAME} as attachments in the current conversation turn.\n"
-        f"1. Provenance: These documents come directly from {cfg.USER_NAME}, NOT from background system telemetry or server automation. Always acknowledge and discuss them as files provided by {cfg.USER_NAME}.\n"
-        "2. Page Boundaries & Folios: Paged attachments (such as PDFs) delimit pages using standard markers: `--- [PDF Page X | Folio: Y] ---` (where X is the 1-indexed physical page and Folio is the printed page label if distinct). The `<page_map>` index at the top reports total pages and preview coverage.\n"
-        "3. Active Inspection: Large documents are bounded by context budget. If you need to inspect unincluded pages, subsequent sections, or deep details, actively call `read_file(file_path=..., page=X)` or `read_file(file_path=..., start_line=..., num_lines=...)`.\n"
-        "4. Output Hygiene: Never emit or echo raw `<uploaded_document>`, `<document>`, or `<page_map>` XML tags in conversational replies.\n"
-        "</user_attachments_directive>"
-    )
-    parts.append(
-        "<proactive_tool_discovery>\n"
-        "You have access to dynamic specialist tools beyond your immediately visible core tool definitions.\n"
-        "1. Discovery Instinct: When a user prompt requests actions, file inspections, calculations, task management, or operations not covered by your currently surfaced tools, call `search_available_tools(query=...)` in Round 0 to discover registered tools.\n"
-        "2. Sequential Execution Constraint: In Round 0, when calling `search_available_tools`, do NOT attempt to invoke target tools that are not yet loaded in your schema. You must wait for Round 1 after the discovered tool schema is returned to execute it.\n"
-        "</proactive_tool_discovery>"
-    )
-    parts.append("When actions or lookups are needed, call the tool directly, when in doubt use the tool.")
+
     for fname in cfg.PERSONA_FILES:
         fpath = PERSONA_DIR / fname
         if fpath.exists():
             content = fpath.read_text(encoding="utf-8")
             content = _FRONTMATTER_RE.sub("", content)
-            parts.append(content)
+            content = content.replace("{USER_NAME}", cfg.USER_NAME).replace("{ASSISTANT_NAME}", cfg.ASSISTANT_NAME)
+            stripped = content.strip()
+            if stripped:
+                parts.append(stripped)
 
     # Inject research context if present (dynamic per-request, not cacheable)
     # Agenda context is injected as a user-turn prefix in _process_chat_background()
@@ -6356,10 +6332,13 @@ async def get_identity():
         "subject_code_user": cfg.SUBJECT_CODE_USER,
         "subject_code_assistant": cfg.SUBJECT_CODE_ASSISTANT,
         "persona_files": {
-            "core_directives": cfg.PERSONA_FILE_CORE_DIRECTIVES,
+            "engine_directives": getattr(cfg, "PERSONA_FILE_ENGINE_DIRECTIVES", "Engine_Directives.md"),
+            "assistant_directives": getattr(cfg, "PERSONA_FILE_ASSISTANT_DIRECTIVES", "Assistant_Directives.md"),
             "assistant": cfg.PERSONA_FILE_ASSISTANT,
             "user": cfg.PERSONA_FILE_USER,
-            "directives": cfg.PERSONA_FILE_DIRECTIVES,
+            # Aliases for backward compatibility
+            "core_directives": getattr(cfg, "PERSONA_FILE_ENGINE_DIRECTIVES", "Engine_Directives.md"),
+            "directives": getattr(cfg, "PERSONA_FILE_ASSISTANT_DIRECTIVES", "Assistant_Directives.md"),
         },
     }
 
@@ -6367,6 +6346,7 @@ async def get_identity():
 VALID_LEDGER_BASENAMES = {
     "User_Profile_facts.md",
     "Assistant_Profile_facts.md",
+    "Assistant_Directives_facts.md",
     "System_Directives_facts.md",
 }
 
@@ -6391,6 +6371,16 @@ async def list_persona_ledgers(_: None = Depends(check_auth)):
     from Evelyn.tools import profile_ledger
 
     limits = getattr(cfg, "PROFILE_EVOLUTION_LIMITS", {})
+    directives_facts_fn = (
+        "Assistant_Directives_facts.md"
+        if (PERSONA_DIR / "Assistant_Directives_facts.md").exists()
+        else "System_Directives_facts.md"
+    )
+    directives_profile_fn = (
+        "Assistant_Directives.md"
+        if (PERSONA_DIR / "Assistant_Directives.md").exists()
+        else "System_Directives.md"
+    )
     ledgers = [
         {
             "filename": "User_Profile_facts.md",
@@ -6407,11 +6397,14 @@ async def list_persona_ledgers(_: None = Depends(check_auth)):
             "word_limit": limits.get(cfg.PERSONA_FILE_ASSISTANT, 600),
         },
         {
-            "filename": "System_Directives_facts.md",
-            "profile_filename": "System_Directives.md",
-            "title": "System Directives Facts",
+            "filename": directives_facts_fn,
+            "profile_filename": directives_profile_fn,
+            "title": f"{cfg.ASSISTANT_NAME} Directives Facts",
             "description": "Operational directives, tool rules, execution protocols, and behavioral defaults.",
-            "word_limit": limits.get(cfg.PERSONA_FILE_DIRECTIVES, 600),
+            "word_limit": limits.get(
+                getattr(cfg, "PERSONA_FILE_ASSISTANT_DIRECTIVES", "Assistant_Directives.md"),
+                limits.get(cfg.PERSONA_FILE_DIRECTIVES, 600),
+            ),
         },
     ]
 
