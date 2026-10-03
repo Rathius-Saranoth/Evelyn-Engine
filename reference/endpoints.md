@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-01 18:24:10
+date modified: 2026-10-02 19:59:59
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -481,6 +481,37 @@ Endpoints driving the background research engine and the interactive developer d
 ### `POST /api/taxonomy/names/{term}/forget`
 * **Purpose**: Prunes or unregisters a named entity from `tag_entities`.
 * **Returns**: JSON object `{"status": "ok", "deleted": true, "term": "..."}`
+
+---
+
+## ⚡ Continuous Evaluation & Model Benchmarking Endpoints
+
+### `GET /api/benchmark/matrix`
+* **Purpose**: Returns the pre-computed 7-model empirical evaluation matrix, topline summaries, throughput figures, cold-swap latencies, and case outcomes from `reference/behavior_benchmark_matrix.json`.
+* **Returns**: JSON object `{"timestamp": "...", "routed": true, "cases_count": 25, "summaries": {...}, "details": [...]}`
+
+### `GET /api/benchmark/history`
+* **Purpose**: Retrieves historical benchmark run summaries sorted newest first from `data/benchmark_history.json`.
+* **Query Parameters**: `partition` (string, optional: `'live'`, `'template'`, or `None` for all).
+* **Returns**: JSON array of compact run records `[{"run_id": "...", "timestamp": float, "model": "...", "prompt_mode": "...", "prompt_hash": "...", "summary": {...}}, ...]`.
+
+### `GET /api/benchmark/run/{run_id}`
+* **Purpose**: Retrieves full snapshot details for a single benchmark run, including the character-accurate assembled system prompt and active tool schemas.
+* **Returns**: JSON object `{"run_id": "...", "model": "...", "prompt_text": "...", "tools": [...], "summary": {...}, "results": [...]}`.
+
+### `GET /api/benchmark/diff`
+* **Purpose**: Computes structured diff between Run A (baseline) and Run B (target), returning line-level prompt differences, tool schema alterations, metric deltas, and case-by-case behavioral flips.
+* **Query Parameters**: `run_a` (string, required), `run_b` (string, required).
+* **Returns**: JSON object `{"run_a": "...", "run_b": "...", "prompt_identical": bool, "prompt_diff": [...], "tool_diffs": [...], "metrics_delta": {...}, "divergences": [...]}`.
+
+### `GET /api/benchmark/status`
+* **Purpose**: Returns real-time task manager execution status and recent stdout/stderr output lines for the background benchmark runner.
+* **Returns**: JSON object `{"running": bool, "task_manager_status": "idle" | "running", "state": {"status": "...", "phase": "...", "logs": [...]}}`.
+
+### `POST /api/benchmark/run`
+* **Purpose**: Dispatches an evaluation benchmark run as an isolated subprocess managed by `task_manager`.
+* **Payload**: JSON object `{"model": "gemma4:12b", "prompt_mode": "template" | "live", "routed": bool}`.
+* **Returns**: JSON object `{"status": "started", "model": "...", "prompt_mode": "...", "routed": bool}`.
 
 ---
 

@@ -1,0 +1,2003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evelyn — Model Benchmark & Prompt Drift Workstation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #07090e;
+      --bg-surface: #0e131f;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-glow: rgba(99, 102, 241, 0.25);
+      --accent: #7c6af7;
+      --cyan: #06b6d4;
+      --cyan-glow: rgba(6, 182, 212, 0.2);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.2);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.2);
+      --rose: #f43f5e;
+      --rose-glow: rgba(244, 63, 94, 0.2);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --radius: 10px;
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100vh;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      line-height: 1.5;
+    }
+
+    header {
+      background: rgba(14, 19, 31, 0.88);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      font-size: 26px;
+      filter: drop-shadow(0 0 10px var(--primary-glow));
+    }
+    .brand-text h1 {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-nav {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-nav:hover, .btn-nav.active {
+      color: #fff;
+      background: rgba(99, 102, 241, 0.15);
+      border-color: var(--primary);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 0 12px var(--primary-glow);
+      transition: all 0.2s ease;
+    }
+    .btn-primary:hover {
+      filter: brightness(1.15);
+      transform: translateY(-1px);
+    }
+
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px 24px 80px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* KPI Highlights */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.16);
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--accent-gradient, var(--primary));
+    }
+    .kpi-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .kpi-value {
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .kpi-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      gap: 4px;
+    }
+    .badge-emerald { background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+    .badge-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-rose { background: rgba(244, 63, 94, 0.15); color: var(--rose); border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-purple { background: rgba(99, 102, 241, 0.15); color: var(--accent); border: 1px solid rgba(99, 102, 241, 0.3); }
+
+    /* Tab Navigation */
+    .tabs-header {
+      display: flex;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tab-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .tab-btn.active {
+      color: #fff;
+      background: rgba(99, 102, 241, 0.15);
+      border-bottom: 2px solid var(--primary);
+      border-radius: 6px 6px 0 0;
+    }
+
+    /* Content Panels */
+    .tab-pane {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .tab-pane.active {
+      display: flex;
+    }
+
+    /* Visual Charts Section */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 1024px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+    .chart-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chart-title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chart-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .chart-container {
+      position: relative;
+      height: 260px;
+      width: 100%;
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .filter-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .chip:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .chip.active {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* Matrix Table */
+    .table-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .table-header-bar {
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .table-title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+    .data-table th {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 12px 16px;
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .data-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-main);
+      vertical-align: middle;
+    }
+    .data-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .data-table tr.clickable {
+      cursor: pointer;
+    }
+
+    /* Diff Viewer Styling */
+    .diff-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .diff-header {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .diff-delta-grid {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .diff-delta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .diff-delta-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .diff-delta-val {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .diff-split-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .diff-split-columns { grid-template-columns: 1fr; }
+    }
+    .diff-col {
+      background: #05070b;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .diff-col-header {
+      background: rgba(255, 255, 255, 0.04);
+      padding: 10px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+    .diff-text-area {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 16px;
+      overflow-x: auto;
+      max-height: 550px;
+      white-space: pre-wrap;
+    }
+    .diff-del {
+      background-color: rgba(244, 63, 94, 0.15);
+      color: #fda4af;
+      display: block;
+      border-left: 3px solid var(--rose);
+      padding-left: 6px;
+      margin: 1px 0;
+    }
+    .diff-add {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #86efac;
+      display: block;
+      border-left: 3px solid var(--emerald);
+      padding-left: 6px;
+      margin: 1px 0;
+    }
+
+    /* Modal / Drawer */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 840px;
+      max-height: 90vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    }
+    .modal-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    /* Terminal Console */
+    .terminal-box {
+      background: #030508;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #cbd5e1;
+      padding: 16px;
+      min-height: 280px;
+      max-height: 480px;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+    .term-line { margin-bottom: 2px; }
+    .term-green { color: var(--emerald); }
+    .term-yellow { color: var(--amber); }
+    .term-red { color: var(--rose); }
+    .term-cyan { color: var(--cyan); }
+    .term-dim { color: var(--text-dim); }
+
+    /* Form Inputs */
+    .input-field {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    select.input-field,
+    select {
+      background-color: #0d121f !important;
+      color: #f1f5f9 !important;
+      cursor: pointer;
+    }
+    select.input-field option,
+    select option {
+      background-color: #0d121f !important;
+      color: #f1f5f9 !important;
+      padding: 10px 14px;
+    }
+    select.input-field option:hover,
+    select.input-field option:focus,
+    select.input-field option:checked {
+      background-color: #1e293b !important;
+      color: #38bdf8 !important;
+    }
+
+    /* Custom Checkbox */
+    .checkbox-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <h1>Evelyn Continuous Evaluation & Behavior Benchmark</h1>
+        <p>Empirical Model Matrix, Cold Swap & Throughput Profiles, Historical Prompt Drift & Diff Inspector</p>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <button class="btn-primary" id="btn-open-run-modal" title="Open the continuous test runner modal to execute a benchmark run against Ollama">
+        ▶ Run Benchmark
+      </button>
+      <a href="/ui/taxonomy.html" class="btn-nav" title="Taxonomy & Vocabulary Explorer">🏷️ Taxonomy</a>
+      <a href="/ui/profile_facts.html" class="btn-nav" title="Persona Facts & Ledgers Workstation">📖 Ledgers</a>
+      <a href="/ui/dev.html" class="btn-nav" title="Return to Developer Dashboard">⚙️ Dev Dashboard</a>
+      <a href="/ui/" class="btn-nav" title="Return to Main Chat Interface">💬 Back to Chat</a>
+    </div>
+  </header>
+
+  <!-- Main Workstation Container -->
+  <div class="container">
+
+    <!-- KPI Metric Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--accent-gradient: var(--emerald);" title="The reigning champion model leading overall pass rate across the 25 behavioral evaluation cases">
+        <div class="kpi-title">
+          <span>Active Champion Core</span>
+          <span class="badge badge-emerald">Optimal Sovereign</span>
+        </div>
+        <div class="kpi-value" id="kpi-champion-model">Gemma 4 12B</div>
+        <div class="kpi-desc" id="kpi-champion-score">24/25 Passed (96.0%) · 0 Misreports</div>
+      </div>
+
+      <div class="kpi-card" style="--accent-gradient: var(--cyan);" title="Fastest cold model swap from disk into GPU memory">
+        <div class="kpi-title">
+          <span>Cold Swap Champion</span>
+          <span class="badge badge-cyan">0.00s Preloaded</span>
+        </div>
+        <div class="kpi-value" id="kpi-fastest-swap">Llama 3.1 8B</div>
+        <div class="kpi-desc" id="kpi-fastest-swap-desc">2.3s Cold Swap vs 11.4s (12B)</div>
+      </div>
+
+      <div class="kpi-card" style="--accent-gradient: var(--primary);" title="Highest sustained text generation speed in tokens per second under active tool prompts">
+        <div class="kpi-title">
+          <span>Peak Generation Throughput</span>
+          <span class="badge badge-purple">Inference Speed</span>
+        </div>
+        <div class="kpi-value" id="kpi-peak-tps">49.8 tok/s</div>
+        <div class="kpi-desc">Gemma 4 12B · Real-time streaming</div>
+      </div>
+
+      <div class="kpi-card" style="--accent-gradient: var(--amber);" title="Rolling ring-buffer storage capacity: retains up to 30 historical benchmark snapshots per partition">
+        <div class="kpi-title">
+          <span>Prompt Snapshot Retention</span>
+          <span class="badge badge-amber" id="kpi-retention-badge">30 Max / Partition</span>
+        </div>
+        <div class="kpi-value" id="kpi-history-count" style="font-size: 20px; line-height: 1.5;"><div>Live: 0 / 30</div><div>Template: 0 / 30</div></div>
+        <div class="kpi-desc">30-run ring buffer isolates live persona from template baseline</div>
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="tabs-header">
+      <button class="tab-btn active" id="tab-btn-matrix" onclick="switchTab('matrix')" title="View comprehensive comparative model matrix, throughput curves, and category breakdowns">
+        📊 Comparative Matrix & Visuals
+      </button>
+      <button class="tab-btn" id="tab-btn-history" onclick="switchTab('history')" title="Inspect historical run snapshots, prompt drift, tool mutations, and side-by-side diffs">
+        📜 Historical Runs & Prompt Drift
+      </button>
+      <button class="tab-btn" id="tab-btn-runner" onclick="switchTab('runner')" title="Trigger continuous single-model or template-vs-live evaluations with real-time log streaming">
+        🚀 Benchmark Runner & Live Logs
+      </button>
+    </div>
+
+    <!-- Tab 1: Comparative Matrix & Charts -->
+    <div class="tab-pane active" id="pane-matrix">
+
+      <!-- Visual Charts Section -->
+      <div class="charts-grid">
+        <!-- Throughput vs Cold Swap Bar Chart -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">⚡ Throughput vs Cold Swap Latency</div>
+              <div class="chart-subtitle">Tokens/sec (higher is better) vs Cold Load Seconds (lower is better)</div>
+            </div>
+            <span class="badge badge-cyan">Dynamic Routed</span>
+          </div>
+          <div class="chart-container" style="height: 330px; min-height: 330px;">
+            <canvas id="chart-throughput-swap" width="600" height="330"></canvas>
+          </div>
+        </div>
+
+        <!-- Pass Rate Trend Chart (Regression/Improvement Over Time) -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">📈 Pass Rate Trend</div>
+              <div class="chart-subtitle">Track behavioral regression and improvement across benchmark runs over time</div>
+            </div>
+            <span class="badge badge-cyan" id="trend-chart-badge">Historical Trend</span>
+          </div>
+          <div class="chart-container" style="height: 330px; min-height: 330px;">
+            <canvas id="chart-pass-trend" width="600" height="330"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Chips Bar -->
+      <div class="filter-bar">
+        <div class="filter-group">
+          <span class="filter-label">Model:</span>
+          <div id="model-chips" class="filter-group">
+            <div class="chip active" onclick="filterByModel('ALL')" title="Show results for all profiled models">All Models</div>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Category:</span>
+          <div id="category-chips" class="filter-group">
+            <div class="chip active" onclick="filterByCategory('ALL')" title="Show all evaluation categories">All Categories</div>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Status:</span>
+          <div class="filter-group">
+            <div class="chip active" id="chip-status-all" onclick="filterByStatus('ALL')" title="Show both passed and failed cases">All</div>
+            <div class="chip" id="chip-status-pass" onclick="filterByStatus('PASS')" title="Show only passed cases">Passed</div>
+            <div class="chip" id="chip-status-fail" onclick="filterByStatus('FAIL')" title="Show only failed cases (flips or regressions)">Failed</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparative Matrix Table -->
+      <div class="table-card">
+        <div class="table-header-bar">
+          <div class="table-title">
+            <span>📋 Behavioral Test Cases & Model Matrix</span>
+            <span class="badge badge-purple" id="matrix-count-badge">25 Cases</span>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted);">
+            Click any row to drill down into input prompt, model reasoning, and tool calls
+          </div>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="data-table" id="matrix-table">
+            <thead id="matrix-table-head">
+              <tr>
+                <th style="width: 130px;">Model</th>
+                <th style="width: 140px;">Case ID</th>
+                <th style="width: 130px;">Category</th>
+                <th>Test Prompt</th>
+                <th style="width: 180px;">Expected Behavior</th>
+                <th style="width: 140px;">Model Outcome</th>
+                <th style="width: 100px;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="matrix-table-body">
+              <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">Loading benchmark matrix data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tab 2: Historical Runs & Prompt Drift (Diff Engine) -->
+    <div class="tab-pane" id="pane-history">
+
+      <!-- History Filter & Actions -->
+      <div class="filter-bar">
+        <div class="filter-group">
+          <span class="filter-label">Partition:</span>
+          <div class="filter-group">
+            <div class="chip active" id="part-all" onclick="filterHistoryPartition('all')" title="Show all snapshots">All Partitions</div>
+            <div class="chip" id="part-template" onclick="filterHistoryPartition('template')" title="Show starter template baseline runs">Template Baseline</div>
+            <div class="chip" id="part-live" onclick="filterHistoryPartition('live')" title="Show live operator persona runs">Live Persona</div>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <button class="btn-primary" id="btn-compare-runs" onclick="compareSelectedRuns()" title="Compute line-by-line prompt diff and behavioral case divergences between two selected runs" disabled>
+            🔍 Compare Selected Runs (Diff)
+          </button>
+        </div>
+      </div>
+
+      <!-- Historical Runs Table -->
+      <div class="table-card">
+        <div class="table-header-bar">
+          <div class="table-title">
+            <span>📜 Historical Evaluation Snapshots</span>
+            <span class="badge badge-amber" id="history-table-badge">Select 2 runs to diff</span>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted);">
+            Each partition holds a rolling ring buffer of up to 30 snapshots
+          </div>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="data-table" id="history-table">
+            <thead>
+              <tr>
+                <th style="width: 40px;">Diff</th>
+                <th>Run ID / Timestamp</th>
+                <th>Model</th>
+                <th>Partition</th>
+                <th>Prompt Hash</th>
+                <th>Prompt Chars</th>
+                <th>Score</th>
+                <th>TPS</th>
+                <th>Cold Load</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body">
+              <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">Loading historical snapshots...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Diff Viewer Container (Shown when 2 runs compared) -->
+      <div class="diff-container" id="diff-viewer-section" style="display: none;">
+        <div class="diff-header">
+          <div>
+            <div style="font-family: var(--font-display); font-size: 17px; font-weight: 700; color: #fff;" id="diff-title">
+              Diff Comparison
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted);" id="diff-subtitle">
+              Run A (Baseline) vs Run B (Target)
+            </div>
+          </div>
+
+          <div class="diff-delta-grid">
+            <div class="diff-delta-item">
+              <span class="diff-delta-label">Score Delta</span>
+              <span class="diff-delta-val" id="delta-score">0</span>
+            </div>
+            <div class="diff-delta-item">
+              <span class="diff-delta-label">TPS Delta</span>
+              <span class="diff-delta-val" id="delta-tps">0.0</span>
+            </div>
+            <div class="diff-delta-item">
+              <span class="diff-delta-label">Cold Load Delta</span>
+              <span class="diff-delta-val" id="delta-load">0.0s</span>
+            </div>
+            <div class="diff-delta-item">
+              <span class="diff-delta-label">Prompt Status</span>
+              <span class="diff-delta-val" id="delta-prompt-status">Identical</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Case Divergence Alerts -->
+        <div class="table-card" id="divergence-card" style="display: none;">
+          <div class="table-header-bar" style="background: rgba(245, 158, 11, 0.08);">
+            <div class="table-title" style="color: var(--amber);">
+              ⚠️ Behavioral Case Divergences (Flips)
+            </div>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Case ID</th>
+                <th>Category</th>
+                <th>Run A Outcome</th>
+                <th>Run B Outcome</th>
+                <th>Impact</th>
+              </tr>
+            </thead>
+            <tbody id="divergence-table-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Tool Schema Differences -->
+        <div class="table-card" id="tool-diff-card" style="display: none;">
+          <div class="table-header-bar" style="background: rgba(6, 182, 212, 0.08);">
+            <div class="table-title" style="color: var(--cyan);">
+              🛠️ Active Tool Schema Changes
+            </div>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tool Name</th>
+                <th>Status</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="tool-diff-table-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Side-by-Side Prompt Diff -->
+        <div class="diff-split-columns">
+          <div class="diff-col">
+            <div class="diff-col-header">
+              <span id="diff-col-a-title">Run A (Baseline Prompt)</span>
+              <span id="diff-col-a-chars">0 chars</span>
+            </div>
+            <div class="diff-text-area" id="diff-left-text"></div>
+          </div>
+
+          <div class="diff-col">
+            <div class="diff-col-header">
+              <span id="diff-col-b-title">Run B (Target Prompt)</span>
+              <span id="diff-col-b-chars">0 chars</span>
+            </div>
+            <div class="diff-text-area" id="diff-right-text"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tab 3: Benchmark Runner & Live Terminal Logs -->
+    <div class="tab-pane" id="pane-runner">
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">🚀 Continuous Behavior Evaluator</div>
+            <div class="chart-subtitle">Run single-model or comparison evaluations in background without server stalls</div>
+          </div>
+          <div id="runner-task-badge" class="badge badge-cyan">Task Manager: Idle</div>
+        </div>
+
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; padding: 8px 0;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="filter-label" for="run-model-select">Model Identifier:</label>
+            <select class="input-field" id="run-model-select" style="min-width: 200px;" title="Select the model target to evaluate">
+              <option value="gemma4:12b">gemma4:12b (Recommended)</option>
+              <option value="llama3.1:8b">llama3.1:8b</option>
+              <option value="qwen2.5:14b">qwen2.5:14b</option>
+              <option value="mistral-small:24b">mistral-small:24b</option>
+              <option value="gemma2:9b">gemma2:9b</option>
+              <option value="hermes3:8b">hermes3:8b</option>
+              <option value="nemotron-mini:4b">nemotron-mini:4b</option>
+            </select>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="filter-label" for="run-prompt-select">Prompt Architecture:</label>
+            <select class="input-field" id="run-prompt-select" style="min-width: 220px;" title="Select prompt source: clean archetype templates or live evolving persona">
+              <option value="template">Template Baseline (Starter Templates)</option>
+              <option value="live">Live Persona (Active Profiles)</option>
+            </select>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; padding-bottom: 8px;">
+            <label class="checkbox-wrap" title="Enable dynamic tool subset routing based on case intent to avoid context dilution">
+              <input type="checkbox" id="run-routed-check" checked>
+              <span>Dynamic Tool Routing (--routed)</span>
+            </label>
+          </div>
+
+          <div>
+            <button class="btn-primary" id="btn-trigger-run" onclick="triggerBenchmarkExecution()" title="Spawn background evaluation subprocess managed by task_manager">
+              ▶ Start Evaluation
+            </button>
+          </div>
+        </div>
+
+        <!-- Terminal Logs -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+          <div style="font-size: 13px; font-weight: 600; color: #fff;">Execution Output Stream</div>
+          <button class="btn-nav" onclick="clearTerminalLogs()" title="Clear current terminal log display">Clear Logs</button>
+        </div>
+
+        <div class="terminal-box" id="runner-terminal">
+          <div class="term-line term-dim">// Continuous behavior evaluation engine initialized.</div>
+          <div class="term-line term-dim">// Click "Start Evaluation" to benchmark model or observe scheduled passes.</div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Case Drill-Down Modal -->
+  <div class="modal-overlay" id="case-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div style="font-family: var(--font-display); font-size: 16px; font-weight: 700; color: #fff;" id="modal-case-title">
+            Case Details
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;" id="modal-case-cat">
+            Category
+          </div>
+        </div>
+        <button class="btn-nav" onclick="closeCaseModal()" title="Close details modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Verdict Banner -->
+        <div id="modal-verdict-box" style="padding: 14px 18px; border-radius: var(--radius); font-size: 13px; line-height: 1.5; font-weight: 500;">
+          <div style="font-weight: 700; margin-bottom: 4px;" id="modal-verdict-title">VERDICT</div>
+          <div id="modal-verdict-detail">Detailed diagnosis</div>
+        </div>
+
+        <!-- Cognitive Trap / Test Scenario Notes -->
+        <div id="modal-notes-container">
+          <span class="filter-label" style="display: flex; align-items: center; gap: 6px;">
+            <span>🧠</span> Test Scenario & Cognitive Intent:
+          </span>
+          <div class="input-field" style="margin-top: 6px; font-size: 13px; line-height: 1.5; background: rgba(0,0,0,0.3); color: #cbd5e1;" id="modal-notes"></div>
+        </div>
+
+        <!-- Input Prompt -->
+        <div>
+          <span class="filter-label" style="display: flex; align-items: center; gap: 6px;">
+            <span>💬</span> Input Prompt to Model:
+          </span>
+          <div class="input-field" style="margin-top: 6px; white-space: pre-wrap; font-size: 13px; background: rgba(0,0,0,0.3);" id="modal-prompt"></div>
+        </div>
+
+        <!-- Evaluation Rule & Criteria -->
+        <div>
+          <span class="filter-label" style="display: flex; align-items: center; gap: 6px;">
+            <span>⚖️</span> Evaluation Rule & Expected Behavior:
+          </span>
+          <div class="input-field" style="margin-top: 6px; background: rgba(0,0,0,0.3);" id="modal-expected"></div>
+        </div>
+
+        <!-- Target Markers / Evaluated Phrases -->
+        <div id="modal-markers-container">
+          <span class="filter-label" style="display: flex; align-items: center; gap: 6px;">
+            <span>🎯</span> Target Evaluation Markers / Expected Tools:
+          </span>
+          <div id="modal-markers-list" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;"></div>
+        </div>
+
+        <!-- Tools Executed -->
+        <div>
+          <span class="filter-label" style="display: flex; align-items: center; gap: 6px;">
+            <span>🛠️</span> Tools Executed by Model:
+          </span>
+          <div class="input-field" style="margin-top: 6px; font-family: var(--font-mono); font-size: 12px; background: rgba(0,0,0,0.3);" id="modal-tools"></div>
+        </div>
+
+        <!-- Model Reasoning & Response -->
+        <div>
+          <span class="filter-label" style="display: flex; align-items: center; gap: 6px;">
+            <span>🤖</span> Model Response:
+          </span>
+          <div class="input-field" style="margin-top: 6px; white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; max-height: 250px; overflow-y: auto; background: rgba(0,0,0,0.3);" id="modal-reply"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="closeCaseModal()" title="Close modal">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Global state
+    let matrixData = null;
+    let allDetailsList = [];
+    let filteredDetailsList = [];
+    let historyData = [];
+    let selectedRuns = [];
+    let activeModelFilter = 'ALL';
+    let activeCategoryFilter = 'ALL';
+    let activeStatusFilter = 'ALL';
+    let activeHistoryPartition = 'all';
+    let pollingInterval = null;
+
+    // Authentication headers helper
+    function getHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      const apiKey = localStorage.getItem('evelyn_api_key') || '';
+      if (apiKey) headers['X-Evelyn-Key'] = apiKey;
+      return headers;
+    }
+
+    // Switch workstation tabs
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+
+      const btn = document.getElementById(`tab-btn-${tabId}`);
+      const pane = document.getElementById(`pane-${tabId}`);
+      if (btn) btn.classList.add('active');
+      if (pane) pane.classList.add('active');
+
+      if (tabId === 'history') loadHistory();
+      if (tabId === 'matrix') renderCharts();
+    }
+
+    // Load benchmark matrix from server
+    async function loadMatrix() {
+      try {
+        const res = await fetch('/api/benchmark/matrix', { headers: getHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        matrixData = await res.json();
+
+        // Normalize matrix details into flat array
+        if (matrixData.flat_details && Array.isArray(matrixData.flat_details)) {
+          allDetailsList = matrixData.flat_details;
+        } else if (matrixData.details) {
+          allDetailsList = [];
+          if (Array.isArray(matrixData.details)) {
+            allDetailsList = matrixData.details;
+          } else if (typeof matrixData.details === 'object') {
+            for (const [m, list] of Object.entries(matrixData.details)) {
+              if (Array.isArray(list)) {
+                list.forEach(c => allDetailsList.push({ ...c, model: m }));
+              }
+            }
+          }
+        }
+
+        renderKPIs();
+        renderFilterChips();
+        renderMatrixTable();
+        // Give layout a tick to calculate bounding rects before drawing canvas
+        requestAnimationFrame(() => renderCharts());
+      } catch (err) {
+        console.error('Failed to load benchmark matrix:', err);
+        document.getElementById('matrix-table-body').innerHTML = `
+          <tr><td colspan="6" style="text-align: center; color: var(--rose); padding: 30px;">
+            ⚠️ Failed to load benchmark matrix: ${err.message}. Ensure evelyn_server is running.
+          </td></tr>
+        `;
+      }
+    }
+
+    // Render KPI values from matrix
+    function renderKPIs() {
+      if (!matrixData || !matrixData.summaries) return;
+      const summaries = matrixData.summaries;
+
+      let champion = 'gemma4:12b';
+      let maxRate = 0;
+      let fastestSwapModel = '';
+      let minColdSwap = 999;
+      let peakTps = 0;
+
+      for (const [model, s] of Object.entries(summaries)) {
+        if (s.pass_rate > maxRate) {
+          maxRate = s.pass_rate;
+          champion = model;
+        }
+        if (s.cold_load < minColdSwap) {
+          minColdSwap = s.cold_load;
+          fastestSwapModel = model;
+        }
+        if (s.avg_tps > peakTps) {
+          peakTps = s.avg_tps;
+        }
+      }
+
+      const champ = summaries[champion] || {};
+      document.getElementById('kpi-champion-model').textContent = champion;
+      document.getElementById('kpi-champion-score').textContent = `${champ.passed || 0}/${champ.total || 25} Passed (${((champ.pass_rate || 0) * 100).toFixed(1)}%) · ${champ.misreports || 0} Misreports`;
+
+      document.getElementById('kpi-fastest-swap').textContent = fastestSwapModel || 'Llama 3.1 8B';
+      document.getElementById('kpi-fastest-swap-desc').textContent = `${minColdSwap.toFixed(2)}s Cold Load Latency`;
+
+      document.getElementById('kpi-peak-tps').textContent = `${peakTps.toFixed(1)} tok/s`;
+    }
+
+    // Render dynamic filter chips for models and categories
+    function renderFilterChips() {
+      if (!matrixData || !matrixData.summaries) return;
+
+      const modelChips = document.getElementById('model-chips');
+      const categoryChips = document.getElementById('category-chips');
+
+      // Models
+      const models = Object.keys(matrixData.summaries);
+      let mHtml = `<div class="chip ${activeModelFilter === 'ALL' ? 'active' : ''}" onclick="filterByModel('ALL')" title="Show results for all profiled models">All Models</div>`;
+      models.forEach(m => {
+        mHtml += `<div class="chip ${activeModelFilter === m ? 'active' : ''}" onclick="filterByModel('${m}')" title="Filter by ${m}">${m}</div>`;
+      });
+      modelChips.innerHTML = mHtml;
+
+      // Categories extracted from normalized allDetailsList
+      const categories = new Set();
+      allDetailsList.forEach(d => { if (d.category) categories.add(d.category); });
+
+      let cHtml = `<div class="chip ${activeCategoryFilter === 'ALL' ? 'active' : ''}" onclick="filterByCategory('ALL')" title="Show all categories">All Categories</div>`;
+      Array.from(categories).sort().forEach(c => {
+        cHtml += `<div class="chip ${activeCategoryFilter === c ? 'active' : ''}" onclick="filterByCategory('${c}')" title="Filter by ${c}">${c}</div>`;
+      });
+      categoryChips.innerHTML = cHtml;
+    }
+
+    function filterByModel(m) {
+      activeModelFilter = m;
+      renderFilterChips();
+      renderMatrixTable();
+      requestAnimationFrame(() => renderCharts());
+    }
+
+    function filterByCategory(c) {
+      activeCategoryFilter = c;
+      renderFilterChips();
+      renderMatrixTable();
+    }
+
+    function filterByStatus(s) {
+      activeStatusFilter = s;
+      document.getElementById('chip-status-all').classList.toggle('active', s === 'ALL');
+      document.getElementById('chip-status-pass').classList.toggle('active', s === 'PASS');
+      document.getElementById('chip-status-fail').classList.toggle('active', s === 'FAIL');
+      renderMatrixTable();
+    }
+
+    // Render matrix table rows
+    function renderMatrixTable() {
+      const tbody = document.getElementById('matrix-table-body');
+      const thead = document.getElementById('matrix-table-head');
+      const showModelCol = (activeModelFilter === 'ALL');
+
+      if (thead) {
+        thead.innerHTML = `
+          <tr>
+            ${showModelCol ? '<th style="width: 130px;">Model</th>' : ''}
+            <th style="width: 140px;">Case ID</th>
+            <th style="width: 130px;">Category</th>
+            <th>Test Prompt</th>
+            <th style="width: 180px;">Expected Behavior</th>
+            <th style="width: 140px;">Model Outcome</th>
+            <th style="width: 100px;">Status</th>
+          </tr>
+        `;
+      }
+
+      filteredDetailsList = allDetailsList.filter(d => {
+        if (activeModelFilter !== 'ALL' && d.model !== activeModelFilter) return false;
+        if (activeCategoryFilter !== 'ALL' && d.category !== activeCategoryFilter) return false;
+        if (activeStatusFilter === 'PASS' && !d.passed) return false;
+        if (activeStatusFilter === 'FAIL' && d.passed) return false;
+        return true;
+      });
+
+      document.getElementById('matrix-count-badge').textContent = `${filteredDetailsList.length} Results`;
+
+      const colSpan = showModelCol ? 7 : 6;
+      if (filteredDetailsList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: var(--text-muted); padding: 30px;">No benchmark cases match the selected filters.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filteredDetailsList.map((r, idx) => {
+        const statusBadge = r.passed
+          ? `<span class="badge badge-emerald">✔ PASS</span>`
+          : `<span class="badge badge-rose">✖ FAIL</span>`;
+        const calledTools = (r.called && r.called.length) ? r.called.join(', ') : 'none';
+        const promptSnippet = (r.prompt || '').length > 60 ? (r.prompt.substring(0, 60) + '...') : (r.prompt || '-');
+        const ruleLabel = r.human_expect || (r.expected ? r.expected.replace(/_/g, ' ') : '-');
+        const ruleType = r.rule || r.expected || '';
+        const modelCell = showModelCol
+          ? `<td><span class="badge" style="background: rgba(245, 158, 11, 0.12); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); font-family: var(--font-mono); font-size: 11px;">${escapeHtml(r.model || '-')}</span></td>`
+          : '';
+
+        return `
+          <tr class="clickable" onclick="openCaseModal(${idx})" title="Click to view full test prompt, rationale, and model reply">
+            ${modelCell}
+            <td style="font-family: var(--font-mono); font-weight: 600;">${r.id || '-'}</td>
+            <td><span class="badge badge-purple">${r.category || '-'}</span></td>
+            <td>${escapeHtml(promptSnippet)}</td>
+            <td style="font-size: 12px;">
+              <div style="color: var(--text-main); font-weight: 500;" title="Evaluation Rule: ${escapeHtml(ruleType)}">${escapeHtml(ruleLabel)}</div>
+              <div style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(ruleType)}</div>
+            </td>
+            <td style="font-family: var(--font-mono); font-size: 12px; color: var(--cyan);">${escapeHtml(calledTools)}</td>
+            <td>${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Helper to setup retina-sharp canvas context
+    function setupCanvas(canvas, customHeight = 330) {
+      if (!canvas || !canvas.parentElement) return null;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(320, rect.width || 560);
+      const height = customHeight;
+
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      return { ctx, width, height };
+    }
+
+    // Render Canvas Charts
+    function renderCharts() {
+      if (!matrixData || !matrixData.summaries) return;
+
+      // 1. Throughput & Cold Swap Bar Chart
+      const canvasSwap = document.getElementById('chart-throughput-swap');
+      if (canvasSwap) {
+        const cSetup = setupCanvas(canvasSwap, 330);
+        if (cSetup) {
+          const { ctx, width, height } = cSetup;
+          const models = Object.keys(matrixData.summaries);
+          const tpsValues = models.map(m => matrixData.summaries[m].avg_tps || 0);
+          const swapValues = models.map(m => matrixData.summaries[m].cold_load || 0);
+
+          ctx.clearRect(0, 0, width, height);
+
+          // Legend
+          ctx.fillStyle = '#6366f1';
+          ctx.fillRect(16, 14, 10, 10);
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = '11px Inter, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText('Throughput (tok/s)', 32, 23);
+
+          ctx.fillStyle = '#06b6d4';
+          ctx.fillRect(170, 14, 10, 10);
+          ctx.fillStyle = '#cbd5e1';
+          ctx.fillText('Cold Swap Latency (s)', 186, 23);
+
+          const baseY = height - 55;
+          const maxBarH = height - 120;
+          const barWidth = Math.min(22, (width - 40) / (models.length * 2.8));
+          const totalSlot = barWidth * 2 + 6;
+          const gap = (width - 32 - (models.length * totalSlot)) / (models.length + 1);
+
+          models.forEach((m, i) => {
+            const x = 16 + gap + i * (totalSlot + gap);
+
+            // TPS Bar (Indigo)
+            const tpsH = Math.min(maxBarH, (tpsValues[i] / 65) * maxBarH);
+            ctx.fillStyle = '#6366f1';
+            ctx.beginPath();
+            ctx.roundRect(x, baseY - tpsH, barWidth, tpsH, [4, 4, 0, 0]);
+            ctx.fill();
+
+            // Cold Swap Bar (Cyan)
+            const swapH = Math.min(maxBarH, (swapValues[i] / 20) * maxBarH);
+            ctx.fillStyle = '#06b6d4';
+            ctx.beginPath();
+            ctx.roundRect(x + barWidth + 3, baseY - swapH, barWidth, swapH, [4, 4, 0, 0]);
+            ctx.fill();
+
+            // Label
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '10px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            const shortName = m.split(':')[0].substring(0, 6) + (m.includes(':') ? ':' + m.split(':')[1] : '');
+            ctx.fillText(shortName, x + barWidth, baseY + 20);
+          });
+        }
+      }
+
+      // 2. Pass Rate Trend Line Chart (historical regression/improvement tracking)
+      renderTrendChart();
+    }
+
+    // Drill-down modal
+    function openCaseModal(idx) {
+      if (!filteredDetailsList || !filteredDetailsList[idx]) return;
+      const c = filteredDetailsList[idx];
+      document.getElementById('modal-case-title').textContent = `${c.id || 'Case'} — ${c.model || ''}`;
+      document.getElementById('modal-case-cat').textContent = `Category: ${c.category || 'General'} | Status: ${c.passed ? 'PASSED' : 'FAILED'}`;
+
+      // Verdict Box
+      const verdictBox = document.getElementById('modal-verdict-box');
+      const verdictTitle = document.getElementById('modal-verdict-title');
+      const verdictDetail = document.getElementById('modal-verdict-detail');
+      if (c.passed) {
+        verdictBox.style.background = 'rgba(16, 185, 129, 0.12)';
+        verdictBox.style.border = '1px solid rgba(16, 185, 129, 0.35)';
+        verdictTitle.innerHTML = `<span style="color: var(--emerald);">✔ PASSED</span>`;
+        verdictDetail.textContent = c.verdict_detail || 'Evaluation criteria satisfied.';
+      } else {
+        verdictBox.style.background = 'rgba(244, 63, 94, 0.12)';
+        verdictBox.style.border = '1px solid rgba(244, 63, 94, 0.35)';
+        verdictTitle.innerHTML = `<span style="color: var(--rose);">✖ FAILED</span>`;
+        verdictDetail.textContent = c.verdict_detail || 'Evaluation criteria failed.';
+      }
+
+      // Notes / Cognitive Intent
+      const notesEl = document.getElementById('modal-notes');
+      notesEl.textContent = c.test_notes || 'Standard behavioral probe.';
+
+      // Prompt
+      document.getElementById('modal-prompt').textContent = c.prompt || 'No prompt recorded';
+
+      // Expected Rule & Behavior
+      const expectedEl = document.getElementById('modal-expected');
+      expectedEl.innerHTML = `
+        <div style="font-weight: 600; color: #fff;">${escapeHtml(c.human_expect || c.expected || 'None specified')}</div>
+        <div style="font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); margin-top: 2px;">Rule: ${escapeHtml(c.rule || c.expected || 'rule')}</div>
+        <div style="font-size: 12px; color: var(--cyan); margin-top: 4px;">${escapeHtml(c.criteria || '')}</div>
+      `;
+
+      // Markers List
+      const markersList = document.getElementById('modal-markers-list');
+      const markers = c.markers || [];
+      const matched = c.matched_markers || [];
+      if (markers.length > 0) {
+        markersList.innerHTML = markers.map(m => {
+          const isMatched = matched.includes(m) || matched.some(match => match.toLowerCase() === m.toLowerCase());
+          if (c.rule === 'avoids_all') {
+            return isMatched
+              ? `<span class="badge badge-rose" style="font-family: var(--font-mono); font-size: 11px;" title="Forbidden phrase was used!">⚠️ "${escapeHtml(m)}"</span>`
+              : `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-muted); font-family: var(--font-mono); font-size: 11px;">"${escapeHtml(m)}"</span>`;
+          } else {
+            return isMatched
+              ? `<span class="badge badge-emerald" style="font-family: var(--font-mono); font-size: 11px;" title="Matched target!">✔ "${escapeHtml(m)}"</span>`
+              : `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-muted); font-family: var(--font-mono); font-size: 11px;">"${escapeHtml(m)}"</span>`;
+          }
+        }).join('');
+      } else {
+        markersList.innerHTML = `<span style="font-size: 12px; color: var(--text-muted);">None specified</span>`;
+      }
+
+      // Tools
+      document.getElementById('modal-tools').textContent = (c.called && c.called.length) ? JSON.stringify(c.called, null, 2) : 'No tools called';
+      // Reply
+      document.getElementById('modal-reply').textContent = c.reply || 'No output captured';
+
+      document.getElementById('case-modal').classList.add('open');
+    }
+
+    function closeCaseModal() {
+      document.getElementById('case-modal').classList.remove('open');
+    }
+
+    // ── Pass Rate Trend Line Chart ──────────────────────────────────────
+    const TREND_MODEL_PALETTE = [
+      '#6366f1', // Indigo
+      '#f59e0b', // Amber
+      '#10b981', // Emerald
+      '#06b6d4', // Cyan
+      '#8b5cf6', // Violet
+      '#f43f5e', // Rose
+      '#ec4899', // Pink
+      '#84cc16', // Lime
+      '#f97316', // Orange
+    ];
+
+    function renderTrendChart() {
+      const canvas = document.getElementById('chart-pass-trend');
+      if (!canvas) return;
+      const cSetup = setupCanvas(canvas, 330);
+      if (!cSetup) return;
+      const { ctx, width, height } = cSetup;
+      ctx.clearRect(0, 0, width, height);
+
+      const badgeEl = document.getElementById('trend-chart-badge');
+
+      // Require history data
+      if (!historyData || historyData.length === 0) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '13px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No historical benchmark runs yet — run a benchmark to begin tracking.', width / 2, height / 2);
+        if (badgeEl) { badgeEl.textContent = 'No Data'; badgeEl.className = 'badge badge-amber'; }
+        return;
+      }
+
+      // Group runs by model, sorted by timestamp (oldest first)
+      const modelMap = {};
+      historyData.forEach(h => {
+        const model = h.model || 'unknown';
+        if (!modelMap[model]) modelMap[model] = [];
+        const passRate = h.summary ? (h.summary.pass_rate || 0) : 0;
+        modelMap[model].push({
+          ts: h.timestamp || 0,
+          dt: h.datetime || '',
+          passRate: passRate,
+          passed: h.summary?.passed || 0,
+          total: h.summary?.total || 0,
+          mode: h.prompt_mode || 'live',
+        });
+      });
+      // Sort each model's runs oldest → newest
+      Object.values(modelMap).forEach(arr => arr.sort((a, b) => a.ts - b.ts));
+
+      const models = Object.keys(modelMap);
+      const colorMap = {};
+      models.forEach((m, i) => colorMap[m] = TREND_MODEL_PALETTE[i % TREND_MODEL_PALETTE.length]);
+
+      // Chart geometry
+      const padL = 52, padR = 20, padT = 46, padB = 60;
+      const plotW = width - padL - padR;
+      const plotH = height - padT - padB;
+
+      // Global time range across all models
+      let tsMin = Infinity, tsMax = -Infinity;
+      Object.values(modelMap).forEach(arr => {
+        arr.forEach(p => {
+          if (p.ts < tsMin) tsMin = p.ts;
+          if (p.ts > tsMax) tsMax = p.ts;
+        });
+      });
+      // If all runs have same timestamp, widen the range slightly
+      if (tsMax - tsMin < 60) { tsMin -= 3600; tsMax += 3600; }
+
+      const tsRange = tsMax - tsMin;
+      const toX = (ts) => padL + ((ts - tsMin) / tsRange) * plotW;
+      const toY = (pct) => padT + plotH - (pct * plotH);
+
+      // Draw grid and axes
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.lineWidth = 1;
+      for (let pct = 0; pct <= 1.0; pct += 0.25) {
+        const y = toY(pct);
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(width - padR, y);
+        ctx.stroke();
+
+        // Y-axis label
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px JetBrains Mono, monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${Math.round(pct * 100)}%`, padL - 8, y + 4);
+      }
+
+      // X-axis date labels (spread evenly, max 6)
+      const allTs = [];
+      Object.values(modelMap).forEach(arr => arr.forEach(p => allTs.push(p)));
+      allTs.sort((a, b) => a.ts - b.ts);
+      const uniqueDates = [];
+      const seenDates = new Set();
+      allTs.forEach(p => {
+        const dateStr = p.dt.substring(0, 16); // 'YYYY-MM-DD HH:MM'
+        if (!seenDates.has(dateStr)) {
+          seenDates.add(dateStr);
+          uniqueDates.push({ ts: p.ts, label: dateStr });
+        }
+      });
+      const maxLabels = Math.min(6, uniqueDates.length);
+      const step = Math.max(1, Math.floor(uniqueDates.length / maxLabels));
+      ctx.fillStyle = '#64748b';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      for (let i = 0; i < uniqueDates.length; i += step) {
+        const d = uniqueDates[i];
+        const x = toX(d.ts);
+        // Show just date or date+time depending on range
+        const label = tsRange > 86400 * 2 ? d.label.substring(5, 10) : d.label.substring(11, 16);
+        ctx.fillText(label, x, height - padB + 20);
+      }
+
+      // Draw lines + dots for each model
+      models.forEach(model => {
+        const runs = modelMap[model];
+        const color = colorMap[model];
+
+        // Draw connecting line
+        if (runs.length > 1) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          runs.forEach((p, i) => {
+            const x = toX(p.ts);
+            const y = toY(p.passRate);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        }
+
+        // Draw dots
+        runs.forEach(p => {
+          const x = toX(p.ts);
+          const y = toY(p.passRate);
+
+          // Outer glow
+          ctx.fillStyle = color + '40';
+          ctx.beginPath();
+          ctx.arc(x, y, 7, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Inner dot (solid for live, ring for template)
+          if (p.mode === 'template') {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = '#0f172a';
+            ctx.beginPath();
+            ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Pass rate label above dot
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = '9px JetBrains Mono, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(`${Math.round(p.passRate * 100)}%`, x, y - 12);
+        });
+      });
+
+      // Legend
+      let legendX = padL + 4;
+      const legendY = 14;
+      ctx.font = '11px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      models.forEach(model => {
+        const color = colorMap[model];
+        const shortName = model.length > 16 ? model.substring(0, 14) + '…' : model;
+
+        // Color swatch (filled circle)
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(legendX + 5, legendY + 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Model name
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillText(shortName, legendX + 14, legendY + 7);
+        legendX += ctx.measureText(shortName).width + 30;
+      });
+
+      // Dot style legend (solid = live, ring = template)
+      ctx.fillStyle = '#64748b';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'right';
+      // Solid dot
+      ctx.fillStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.arc(width - padR - 90, legendY + 3, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('Live', width - padR - 80, legendY + 7);
+      // Ring dot
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(width - padR - 42, legendY + 3, 3.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('Template', width - padR - 32, legendY + 7);
+
+      // Update badge
+      if (badgeEl) {
+        const totalRuns = historyData.length;
+        badgeEl.textContent = `${totalRuns} Run${totalRuns !== 1 ? 's' : ''} Tracked`;
+        badgeEl.className = 'badge badge-cyan';
+      }
+    }
+
+    // Auto-resize charts on window resize
+    window.addEventListener('resize', () => {
+      requestAnimationFrame(() => { renderCharts(); renderTrendChart(); });
+    });
+
+    // Historical Runs & Diff Engine
+    async function loadHistory() {
+      try {
+        const url = activeHistoryPartition === 'all'
+          ? '/api/benchmark/history'
+          : `/api/benchmark/history?partition=${activeHistoryPartition}`;
+        const res = await fetch(url, { headers: getHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        historyData = await res.json();
+        renderHistoryTable();
+
+        const liveCount = historyData.filter(h => h.prompt_mode === 'live').length;
+        const tempCount = historyData.filter(h => h.prompt_mode === 'template').length;
+        document.getElementById('kpi-history-count').innerHTML = `<div>Live: ${liveCount} / 30</div><div>Template: ${tempCount} / 30</div>`;
+
+        // Re-render trend chart with fresh history data
+        renderTrendChart();
+      } catch (err) {
+        console.error('Failed to load history:', err);
+        document.getElementById('history-table-body').innerHTML = `
+          <tr><td colspan="9" style="text-align: center; color: var(--rose); padding: 30px;">
+            ⚠️ Failed to load history: ${err.message}
+          </td></tr>
+        `;
+      }
+    }
+
+    function filterHistoryPartition(p) {
+      activeHistoryPartition = p;
+      document.getElementById('part-all').classList.toggle('active', p === 'all');
+      document.getElementById('part-template').classList.toggle('active', p === 'template');
+      document.getElementById('part-live').classList.toggle('active', p === 'live');
+      loadHistory();
+    }
+
+    function renderHistoryTable() {
+      const tbody = document.getElementById('history-table-body');
+      if (!historyData || historyData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">No historical benchmark runs recorded in this partition yet.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = historyData.map(h => {
+        const isChecked = selectedRuns.includes(h.run_id);
+        const sum = h.summary || {};
+        const score = `${sum.passed || 0}/${sum.total || 0}`;
+        const tps = sum.avg_tps ? `${sum.avg_tps.toFixed(1)} tok/s` : '-';
+        const cold = sum.cold_load ? `${sum.cold_load.toFixed(2)}s` : '-';
+        const badgeClass = h.prompt_mode === 'live' ? 'badge-amber' : 'badge-cyan';
+
+        return `
+          <tr>
+            <td>
+              <input type="checkbox" onchange="toggleRunSelection('${h.run_id}')" ${isChecked ? 'checked' : ''} title="Select run for comparative diff">
+            </td>
+            <td style="font-family: var(--font-mono); font-weight: 600;">${h.run_id}</td>
+            <td>${h.model}</td>
+            <td><span class="badge ${badgeClass}">${h.prompt_mode}</span></td>
+            <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">${h.prompt_hash || '-'}</td>
+            <td>${h.prompt_length || 0}</td>
+            <td style="font-weight: 600; color: var(--emerald);">${score}</td>
+            <td>${tps}</td>
+            <td>${cold}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleRunSelection(runId) {
+      if (selectedRuns.includes(runId)) {
+        selectedRuns = selectedRuns.filter(r => r !== runId);
+      } else {
+        if (selectedRuns.length >= 2) selectedRuns.shift();
+        selectedRuns.push(runId);
+      }
+
+      const btn = document.getElementById('btn-compare-runs');
+      btn.disabled = selectedRuns.length !== 2;
+      document.getElementById('history-table-badge').textContent = selectedRuns.length === 2
+        ? `Ready to diff: ${selectedRuns[0]} vs ${selectedRuns[1]}`
+        : `${selectedRuns.length}/2 runs selected`;
+      renderHistoryTable();
+    }
+
+    async function compareSelectedRuns() {
+      if (selectedRuns.length !== 2) return;
+      const [runA, runB] = selectedRuns;
+
+      try {
+        const res = await fetch(`/api/benchmark/diff?run_a=${encodeURIComponent(runA)}&run_b=${encodeURIComponent(runB)}`, {
+          headers: getHeaders(),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const diff = await res.json();
+        renderDiffView(diff);
+      } catch (err) {
+        alert(`Failed to compute run diff: ${err.message}`);
+      }
+    }
+
+    function renderDiffView(diff) {
+      const viewer = document.getElementById('diff-viewer-section');
+      viewer.style.display = 'flex';
+
+      document.getElementById('diff-title').textContent = `Prompt & Case Diff: ${diff.run_a} ➔ ${diff.run_b}`;
+      document.getElementById('diff-subtitle').textContent = `Baseline Model: ${diff.model_a} | Target Model: ${diff.model_b}`;
+
+      const delta = diff.metrics_delta || {};
+      const scoreEl = document.getElementById('delta-score');
+      scoreEl.textContent = (delta.score_delta > 0 ? `+${delta.score_delta}` : `${delta.score_delta}`);
+      scoreEl.style.color = delta.score_delta >= 0 ? 'var(--emerald)' : 'var(--rose)';
+
+      const tpsEl = document.getElementById('delta-tps');
+      tpsEl.textContent = (delta.tps_delta > 0 ? `+${delta.tps_delta.toFixed(1)}` : `${delta.tps_delta.toFixed(1)}`) + ' tok/s';
+
+      const loadEl = document.getElementById('delta-load');
+      loadEl.textContent = (delta.cold_load_delta > 0 ? `+${delta.cold_load_delta.toFixed(2)}s` : `${delta.cold_load_delta.toFixed(2)}s`);
+
+      const promptStatusEl = document.getElementById('delta-prompt-status');
+      promptStatusEl.textContent = diff.prompt_identical ? 'Identical' : 'Modified (Drift)';
+      promptStatusEl.style.color = diff.prompt_identical ? 'var(--emerald)' : 'var(--amber)';
+
+      // Case Divergences
+      const divCard = document.getElementById('divergence-card');
+      const divBody = document.getElementById('divergence-table-body');
+      if (diff.divergences && diff.divergences.length > 0) {
+        divCard.style.display = 'block';
+        divBody.innerHTML = diff.divergences.map(d => `
+          <tr>
+            <td style="font-family: var(--font-mono); font-weight: 600;">${d.id}</td>
+            <td><span class="badge badge-purple">${d.category}</span></td>
+            <td>${d.passed_a ? '<span class="badge badge-emerald">PASS</span>' : '<span class="badge badge-rose">FAIL</span>'}</td>
+            <td>${d.passed_b ? '<span class="badge badge-emerald">PASS</span>' : '<span class="badge badge-rose">FAIL</span>'}</td>
+            <td>${d.flip === 'REGRESSION' ? '<span class="badge badge-rose">⚠️ REGRESSION</span>' : '<span class="badge badge-emerald">⭐ IMPROVEMENT</span>'}</td>
+          </tr>
+        `).join('');
+      } else {
+        divCard.style.display = 'none';
+      }
+
+      // Tool Differences
+      const toolCard = document.getElementById('tool-diff-card');
+      const toolBody = document.getElementById('tool-diff-table-body');
+      if (diff.tool_diffs && diff.tool_diffs.length > 0) {
+        toolCard.style.display = 'block';
+        toolBody.innerHTML = diff.tool_diffs.map(t => `
+          <tr>
+            <td style="font-family: var(--font-mono);">${t.tool}</td>
+            <td><span class="badge badge-amber">${t.status}</span></td>
+            <td style="font-size: 12px; color: var(--text-muted);">${escapeHtml(t.desc_b || t.desc_a || '')}</td>
+          </tr>
+        `).join('');
+      } else {
+        toolCard.style.display = 'none';
+      }
+
+      // Side-by-side prompt diff rendering
+      const leftArea = document.getElementById('diff-left-text');
+      const rightArea = document.getElementById('diff-right-text');
+      leftArea.innerHTML = '';
+      rightArea.innerHTML = '';
+
+      if (diff.prompt_identical) {
+        leftArea.textContent = '// Prompts are identical between both runs.';
+        rightArea.textContent = '// Prompts are identical between both runs.';
+      } else if (diff.prompt_diff) {
+        let leftHtml = '';
+        let rightHtml = '';
+        diff.prompt_diff.forEach(block => {
+          const text = escapeHtml(block.text);
+          if (block.op === 'equal') {
+            leftHtml += text;
+            rightHtml += text;
+          } else if (block.op === 'delete') {
+            leftHtml += `<span class="diff-del">${text}</span>`;
+          } else if (block.op === 'insert') {
+            rightHtml += `<span class="diff-add">${text}</span>`;
+          }
+        });
+        leftArea.innerHTML = leftHtml;
+        rightArea.innerHTML = rightHtml;
+      }
+
+      viewer.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Benchmark Runner Execution
+    async function triggerBenchmarkExecution() {
+      const model = document.getElementById('run-model-select').value;
+      const promptMode = document.getElementById('run-prompt-select').value;
+      const routed = document.getElementById('run-routed-check').checked;
+
+      const btn = document.getElementById('btn-trigger-run');
+      btn.disabled = true;
+      btn.textContent = 'Launching...';
+
+      try {
+        const res = await fetch('/api/benchmark/run', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ model, prompt_mode: promptMode, routed }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        appendTerminalLog(`[LAUNCH] Benchmark task dispatched for ${model} (${promptMode}, routed=${routed})`, 'term-green');
+        lastRenderedLogsLength = 0;
+        lastRenderedLogSignature = '';
+        startStatusPolling();
+      } catch (err) {
+        alert(`Failed to trigger benchmark: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = '▶ Start Evaluation';
+      }
+    }
+
+    function startStatusPolling() {
+      if (pollingInterval) clearInterval(pollingInterval);
+      pollingInterval = setInterval(pollBenchmarkStatus, 2000);
+      pollBenchmarkStatus();
+    }
+
+    async function pollBenchmarkStatus() {
+      try {
+        const res = await fetch('/api/benchmark/status', { headers: getHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const badge = document.getElementById('runner-task-badge');
+        const btn = document.getElementById('btn-trigger-run');
+
+        if (data.running) {
+          badge.textContent = `Running: ${data.state.phase || 'Evaluating...'}`;
+          badge.className = 'badge badge-amber';
+          btn.disabled = true;
+          btn.textContent = 'Evaluating...';
+        } else {
+          badge.textContent = `Status: ${data.state.status || 'Idle'}`;
+          badge.className = data.state.status === 'completed' ? 'badge badge-emerald' : 'badge badge-cyan';
+          btn.disabled = false;
+          btn.textContent = '▶ Start Evaluation';
+          if (data.state.status === 'completed') {
+            loadHistory();
+            loadMatrix();
+          }
+        }
+
+        if (data.state && data.state.logs && data.state.logs.length) {
+          renderTerminalLogs(data.state.logs, data.running);
+        }
+      } catch (err) {
+        console.warn('Status poll error:', err);
+      }
+    }
+
+    let lastRenderedLogsLength = 0;
+    let lastRenderedLogSignature = '';
+
+    function ansiToHtml(str) {
+      if (!str) return '';
+      // If line contains carriage return (e.g. tqdm updates), isolate the last segment
+      if (str.includes('\r')) {
+        const parts = str.split('\r');
+        str = parts[parts.length - 1];
+      }
+      return escapeHtml(str)
+        .replace(/\x1b\[1m/g, '<span style="font-weight: 700; color: #fff;">')
+        .replace(/\x1b\[2m/g, '<span style="color: var(--text-dim);">')
+        .replace(/\x1b\[(?:92|32)m/g, '<span style="color: var(--emerald); font-weight: 700;">')
+        .replace(/\x1b\[(?:91|31)m/g, '<span style="color: var(--rose); font-weight: 700;">')
+        .replace(/\x1b\[(?:93|33)m/g, '<span style="color: var(--amber); font-weight: 600;">')
+        .replace(/\x1b\[(?:96|36)m/g, '<span style="color: var(--cyan); font-weight: 600;">')
+        .replace(/\x1b\[(?:94|34)m/g, '<span style="color: #60a5fa;">')
+        .replace(/\x1b\[0m/g, '</span>')
+        // Strip any residual unhandled escape codes: \x1b[...m
+        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/\x1b/g, '');
+    }
+
+    function renderTerminalLogs(logs, isRunning = false) {
+      const term = document.getElementById('runner-terminal');
+      if (!term || !logs) return;
+
+      const signature = `${logs.length}_${logs[logs.length - 1] || ''}`;
+      // Prevent redundant DOM replacement and scroll resetting when evaluation is done/idle
+      if (signature === lastRenderedLogSignature && !isRunning) {
+        return;
+      }
+
+      // Check if user is scrolled near the bottom (within 50px threshold)
+      const isAtBottom = (term.scrollHeight - term.scrollTop - term.clientHeight) < 50;
+      const isFirstRender = (lastRenderedLogsLength === 0);
+
+      lastRenderedLogSignature = signature;
+      lastRenderedLogsLength = logs.length;
+
+      term.innerHTML = logs.map(l => {
+        let cls = 'term-dim';
+        if (l.includes('PASS') || l.includes('100%') || l.includes('Passed')) cls = 'term-green';
+        else if (l.includes('FAIL') || l.includes('Error')) cls = 'term-red';
+        else if (l.includes('Running:') || l.includes('[BENCHMARK]')) cls = 'term-cyan';
+        return `<div class="term-line ${cls}">${ansiToHtml(l)}</div>`;
+      }).join('');
+
+      // Stick-to-bottom: only autoscroll if user was already at the bottom or on initial load
+      if (isAtBottom || isFirstRender) {
+        term.scrollTop = term.scrollHeight;
+      }
+    }
+
+    function appendTerminalLog(msg, cls = 'term-dim') {
+      const term = document.getElementById('runner-terminal');
+      term.innerHTML += `<div class="term-line ${cls}">${ansiToHtml(msg)}</div>`;
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function clearTerminalLogs() {
+      lastRenderedLogsLength = 0;
+      lastRenderedLogSignature = '';
+      document.getElementById('runner-terminal').innerHTML = '<div class="term-line term-dim">// Terminal output cleared.</div>';
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Modal launch button hookup
+    document.getElementById('btn-open-run-modal').addEventListener('click', () => {
+      switchTab('runner');
+    });
+
+    // Initial boot
+    document.addEventListener('DOMContentLoaded', () => {
+      loadMatrix();
+      loadHistory();
+      startStatusPolling();
+    });
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-09-05 19:48:51
+# date modified: 2026-10-02 19:59:59
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -72,6 +72,7 @@ TASK_SCHEDULE_MAP: dict[str, TaskSchedule] = {
     "profile_evolver": TaskSchedule.NOCTURNAL,
     "auto_journaler": TaskSchedule.NOCTURNAL,
     "ambient_reflector": TaskSchedule.DIURNAL,
+    "benchmark": TaskSchedule.REFLEX,
 }
 
 # All known heavy-task keys. Used for documentation and validation only —
@@ -88,6 +89,7 @@ HEAVY_TASK_KEYS = frozenset({
     "vault_map",
     "tag_librarian",
     "master_librarian",
+    "benchmark",
     # Research subprocess tasks are keyed as "task_<id>" — handled by prefix check.
 })
 
@@ -103,6 +105,7 @@ DEFAULT_SOFT_TIMEOUTS = {
     "auto_journaler": 900.0,         # 15 minutes
     "ambient_reflector": 300.0,      # 5 minutes
     "refresh_memory": 1800.0,        # 30 minutes
+    "benchmark": 900.0,              # 15 minutes
     "vault_map": 600.0,              # 10 minutes
     "sync": 1800.0,                  # 30 minutes
     "tag_librarian": 600.0,          # 10 minutes

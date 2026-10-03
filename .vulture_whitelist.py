@@ -155,3 +155,11 @@ _.fetch_next_procedures_for_tag_audit
 _.count_procedures_awaiting_tag_audit
 _.audit_single_procedure_tags
 
+# Model benchmarking store & diff engine (Evelyn/tools/benchmark_store.py)
+# save_run_snapshot is called by scripts/benchmark_behavior.py (standalone CLI,
+# outside Vulture scan paths per AGENTS.md §11 category 1).
+_.save_run_snapshot
+_.list_history
+_.compute_run_diff
+
+

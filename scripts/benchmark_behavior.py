@@ -97,13 +97,66 @@ WRITE_TOOL_NAMES = {
 # above is asserted against MODEL_TOOL_DEFINITIONS at load time.
 
 # Neutral stand-in for the persona prompt. Deliberately carries no real identity
-# strings (AGENTS.md §4) while preserving the operative behavioural directives.
-SYSTEM_PROMPT = (
-    "You are a personal assistant with access to the user's vault, memory, and "
-    "system tools. Act with judgement: call a tool only when it is genuinely "
-    "required to answer. Prefer a direct reply when no tool is needed. "
-    "Correct the user when they are factually wrong. Do not flatter."
-)
+def load_template_system_prompt() -> str:
+    """Assemble the system prompt from the clean-slate starter templates."""
+    import re
+    _frontmatter_re = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
+    templates_dir = os.path.join(ROOT_DIR, "templates")
+    template_files = [
+        "Core_Directives.example.md",
+        "System_Directives.example.md",
+        "Assistant_Profile.example.md",
+        "User_Profile.example.md",
+    ]
+    parts = []
+    for tf in template_files:
+        p = os.path.join(templates_dir, tf)
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                content = f.read()
+                content = _frontmatter_re.sub("", content).strip()
+                if content:
+                    parts.append(content)
+    return "\n\n".join(parts)
+
+
+def load_live_system_prompt() -> str:
+    """Assemble the live system prompt from Evelyn/persona/ or evelyn_server."""
+    try:
+        from evelyn_server import load_system_prompt
+        return load_system_prompt()
+    except Exception:  # noqa: BLE001
+        import re
+        _frontmatter_re = re.compile(r"^---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
+        persona_dir = os.path.join(ROOT_DIR, "Evelyn", "persona")
+        persona_files = [
+            getattr(cfg, "PERSONA_FILE_CORE", "Core_Directives.md"),
+            getattr(cfg, "PERSONA_FILE_DIRECTIVES", "System_Directives.md"),
+            getattr(cfg, "PERSONA_FILE_ASSISTANT", "Assistant_Profile.md"),
+            getattr(cfg, "PERSONA_FILE_USER", "User_Profile.md"),
+        ]
+        parts = []
+        for pf in persona_files:
+            p = os.path.join(persona_dir, pf)
+            if os.path.exists(p):
+                with open(p, encoding="utf-8") as f:
+                    content = f.read()
+                    content = _frontmatter_re.sub("", content).strip()
+                    if content:
+                        parts.append(content)
+        return "\n\n".join(parts) if parts else load_template_system_prompt()
+
+
+# Default prompt cache
+_CACHED_TEMPLATE_PROMPT: str | None = None
+
+
+def get_default_prompt() -> str:
+    global _CACHED_TEMPLATE_PROMPT
+    if _CACHED_TEMPLATE_PROMPT is None:
+        _CACHED_TEMPLATE_PROMPT = load_template_system_prompt()
+    return _CACHED_TEMPLATE_PROMPT
+
 
 # Match the engine's real budget. A lower cap truncates multi-round turns into
 # "(round cap reached)" with no final text, which then fails every marker-based
@@ -139,15 +192,31 @@ def load_cases(path: str) -> list[dict]:
 
 
 def call_model(model: str, messages: list[dict], tools: list[dict] | None = None) -> tuple[dict, float, float]:
-    """One non-streaming chat round. Returns (message, tokens_per_second, load_duration_seconds)."""
+    """One non-streaming chat round with full engine sampling options. Returns (message, tokens_per_second, load_duration_seconds)."""
     if tools is None:
         tools = MODEL_TOOL_DEFINITIONS
+
+    options = {
+        k: v
+        for k, v in {
+            "num_ctx": cfg.NUM_CTX,
+            "temperature": cfg.TEMPERATURE,
+            "min_p": getattr(cfg, "MIN_P", None),
+            "top_k": getattr(cfg, "TOP_K", None),
+            "top_p": getattr(cfg, "TOP_P", None),
+            "repeat_penalty": getattr(cfg, "REPEAT_PENALTY", None),
+            "repeat_last_n": getattr(cfg, "REPEAT_LAST_N", None),
+        }.items()
+        if v is not None
+    }
+
     payload = {
         "model": model,
         "messages": messages,
         "tools": tools,
         "stream": False,
-        "options": {"temperature": cfg.TEMPERATURE, "num_ctx": cfg.NUM_CTX},
+        "options": options,
+        "think": getattr(cfg, "THINK", "medium"),
     }
     with httpx.Client(timeout=300.0) as client:
         resp = client.post(f"{cfg.OLLAMA_URL}/api/chat", json=payload)
@@ -160,7 +229,7 @@ def call_model(model: str, messages: list[dict], tools: list[dict] | None = None
     return data.get("message", {}) or {}, tps, load_dur
 
 
-def evaluate_case(model: str, case: dict, routed: bool = False) -> dict:
+def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: str | None = None) -> dict:
     """Run one case through a bounded agentic loop, intercepting every tool call.
 
     Returns a result dict with:
@@ -176,7 +245,7 @@ def evaluate_case(model: str, case: dict, routed: bool = False) -> dict:
     # A case may override the persona prompt (persona_drift) and the synthetic
     # result fed back to the model (tool_honesty uses a failure result to see
     # whether success is claimed anyway).
-    system = case.get("system") or SYSTEM_PROMPT
+    system = case.get("system") or system_prompt or get_default_prompt()
     tool_response = case.get("tool_response") or '{"status": "ok"}'
 
     # Dynamic tool routing pass if requested
@@ -323,14 +392,23 @@ def evaluate_case(model: str, case: dict, routed: bool = False) -> dict:
     }
 
 
-def run_suite(model: str, cases: list[dict], verbose: bool = False, routed: bool = False) -> list[dict]:
+def run_suite(
+    model: str,
+    cases: list[dict],
+    verbose: bool = False,
+    routed: bool = False,
+    system_prompt: str | None = None,
+    prompt_mode: str = "template",
+    save_snapshot: bool = True,
+) -> list[dict]:
     """Run every case against one model, printing progress."""
     mode_str = " (dynamically routed)" if routed else " (full tool set)"
-    print(f"\n--- {_BLD}{model}{_RST}{mode_str} ---", flush=True)
+    prompt_tag = f" [{prompt_mode} prompt]"
+    print(f"\n--- {_BLD}{model}{_RST}{mode_str}{prompt_tag} ---", flush=True)
     results = []
     for case in cases:
         try:
-            res = evaluate_case(model, case, routed=routed)
+            res = evaluate_case(model, case, routed=routed, system_prompt=system_prompt)
         except Exception as exc:  # noqa: BLE001 — bench tool, surface everything
             print(f"  {_RED}ERROR{_RST}  {case['id']}: {exc}")
             results.append({
@@ -352,6 +430,22 @@ def run_suite(model: str, cases: list[dict], verbose: bool = False, routed: bool
             if res["called"]:
                 print(f"        {_DIM}tools:{_RST} {', '.join(res['called'])}")
             print(f"        {_DIM}reply:{_RST} {res['reply'][:160].replace(chr(10), ' ')}")
+
+    if save_snapshot:
+        try:
+            from Evelyn.tools import benchmark_store
+            prompt_str = system_prompt or get_default_prompt()
+            benchmark_store.save_run_snapshot(
+                model=model,
+                prompt_mode=prompt_mode,
+                prompt_text=prompt_str,
+                tools=MODEL_TOOL_DEFINITIONS,
+                summary=summarise(results),
+                results=results,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {_DIM}(Notice: Failed to persist benchmark snapshot: {exc}){_RST}")
+
     return results
 
 
@@ -445,6 +539,42 @@ def print_comparison(model_a: str, res_a: list[dict], model_b: str, res_b: list[
     print()
 
 
+def print_prompt_comparison(
+    model: str,
+    res_a: list[dict],
+    prompt_mode_a: str,
+    res_b: list[dict],
+    prompt_mode_b: str,
+) -> None:
+    """Print an A/B table comparing two prompt suites on the same model."""
+    sa, sb = summarise(res_a), summarise(res_b)
+    print(f"\n{'=' * 78}\n  {_BLD}PROMPT COMPARISON — {model}{_RST}\n{'=' * 78}\n")
+    label_a = f"{prompt_mode_a.title()} Prompt"
+    label_b = f"{prompt_mode_b.title()} Prompt"
+    print(f"  {'Metric':<24s} {label_a:>22s} {label_b:>22s}")
+    print(f"  {'-' * 70}")
+    print(f"  {'Passed':<24s} {f'{sa['passed']}/{sa['total']} ({sa['pass_rate']*100:.1f}%)':>22s} "
+          f"{f'{sb['passed']}/{sb['total']} ({sb['pass_rate']*100:.1f}%)':>22s}")
+    print(f"  {'Misreports':<24s} {sa['misreports']:>22d} {sb['misreports']:>22d}")
+    print(f"  {'Cold swap latency':<24s} {f'{sa['cold_load']:.2f}s':>22s} {f'{sb['cold_load']:.2f}s':>22s}")
+    print(f"  {'Write actions':<24s} {sa['actions']:>22d} {sb['actions']:>22d}")
+    print(f"  {'Mean tok/s':<24s} {sa['avg_tps']:>22.1f} {sb['avg_tps']:>22.1f}")
+
+    by_id_b = {r["id"]: r for r in res_b}
+    diffs = [
+        (r, by_id_b[r["id"]]) for r in res_a
+        if r["id"] in by_id_b and r["passed"] != by_id_b[r["id"]]["passed"]
+    ]
+    if diffs:
+        print("\n  Behavioral Divergence (Prompt Sensitivity):")
+        for a, b in diffs:
+            winner = prompt_mode_b if b["passed"] else prompt_mode_a
+            print(f"    {_CYN}{a['id']:<32s}{_RST} passes only under {_BLD}{winner}{_RST} prompt")
+    else:
+        print(f"\n  {_DIM}No behavioral divergence across prompt suites.{_RST}")
+    print()
+
+
 def print_matrix(matrix: dict[str, dict]) -> None:
     """Print a multi-model comparative leaderboard / matrix table."""
     print(f"\n{'=' * 98}\n  {_BLD}CANDIDATE MODEL BENCHMARK MATRIX{_RST}\n{'=' * 98}\n")
@@ -495,6 +625,14 @@ def main() -> None:
     parser.add_argument("--model", help="Model to test (default: cfg.MODEL_NAME)")
     parser.add_argument("--compare", metavar="MODEL",
                         help="Second model to A/B against the first")
+    parser.add_argument("--prompt", choices=["template", "live"], default="template",
+                        help="Select prompt suite to evaluate against (default: template)")
+    parser.add_argument("--compare-prompt", action="store_true",
+                        help="A/B evaluate template prompt against live persona prompt on the model")
+    parser.add_argument("--diff", nargs=2, metavar=("RUN_A", "RUN_B"),
+                        help="Compare two historical benchmark snapshots from benchmark_store")
+    parser.add_argument("--history", action="store_true",
+                        help="List recent benchmark history runs from benchmark_store")
     parser.add_argument("--matrix", action="store_true",
                         help="Run full candidate benchmark matrix across all candidate models")
     parser.add_argument("--models", metavar="MODELS",
@@ -510,6 +648,64 @@ def main() -> None:
                         help="Emit results as JSON")
     args = parser.parse_args()
 
+    # CLI History Inspector
+    if args.history:
+        from Evelyn.tools import benchmark_store
+        runs = benchmark_store.list_history()
+        print(f"\n{'=' * 78}\n  {_BLD}BENCHMARK RUN HISTORY (Last 30 Snapshots per Partition){_RST}\n{'=' * 78}\n")
+        print(f"  {'Run ID':<26s} {'Mode':<10s} {'Model':<16s} {'Score':>8s} {'tok/s':>8s} {'Cold':>7s}")
+        print(f"  {'-' * 74}")
+        for r in runs:
+            sm = r.get("summary", {})
+            sc = f"{sm.get('passed', 0)}/{sm.get('total', 0)}"
+            print(f"  {r.get('run_id', ''):<26s} {r.get('prompt_mode', ''):<10s} "
+                  f"{r.get('model', ''):<16s} {sc:>8s} {sm.get('avg_tps', 0.0):>8.1f} {sm.get('cold_load', 0.0):>6.2f}s")
+        print()
+        return
+
+    # CLI Diff Inspector
+    if args.diff:
+        from Evelyn.tools import benchmark_store
+        run_a, run_b = args.diff
+        try:
+            d = benchmark_store.compute_run_diff(run_a, run_b)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Diff error: {exc}")
+            return
+
+        print(f"\n{'=' * 78}\n  {_BLD}BENCHMARK RUN DIFF: {run_a} -> {run_b}{_RST}\n{'=' * 78}\n")
+        delta = d["metrics_delta"]
+        print(f"  Score Delta:     {delta['score_delta']:+d}")
+        print(f"  Throughput:      {delta['tps_delta']:+.1f} tok/s")
+        print(f"  Cold Swap Delay: {delta['cold_load_delta']:+.2f}s\n")
+
+        if d["prompt_identical"]:
+            print(f"  {_GRN}✔ System prompts are identical.{_RST}")
+        else:
+            print(f"  {_YEL}⚠ System Prompt Differences:{_RST}")
+            for b in d["prompt_diff"]:
+                if b["op"] == "delete":
+                    for ln in b["text"].splitlines():
+                        print(f"    {_RED}- {ln}{_RST}")
+                elif b["op"] == "insert":
+                    for ln in b["text"].splitlines():
+                        print(f"    {_GRN}+ {ln}{_RST}")
+
+        if d["tool_diffs"]:
+            print(f"\n  {_YEL}⚠ Tool Schema Discrepancies:{_RST}")
+            for td in d["tool_diffs"]:
+                print(f"    Tool '{td['tool']}': {td['status']}")
+
+        if d["divergences"]:
+            print(f"\n  {_CYN}Behavioral Case Divergences:{_RST}")
+            for div in d["divergences"]:
+                stat = f"{'PASS' if div['passed_a'] else 'FAIL'} -> {'PASS' if div['passed_b'] else 'FAIL'}"
+                print(f"    {div['id']:<32s} {stat}")
+        else:
+            print(f"\n  {_DIM}No behavioral case divergences.{_RST}")
+        print()
+        return
+
     cases = load_cases(CASES_FILE)
     if args.case:
         cases = [c for c in cases if c.get("id") == args.case]
@@ -517,6 +713,11 @@ def main() -> None:
             print(f"No case found with ID: {args.case}")
             return
     baseline = args.model or cfg.MODEL_NAME
+
+    # Load appropriate prompt
+    prompt_template = load_template_system_prompt()
+    prompt_live = load_live_system_prompt()
+    chosen_prompt = prompt_live if args.prompt == "live" else prompt_template
 
     if args.matrix:
         model_list = [m.strip() for m in args.models.split(",")] if args.models else DEFAULT_MATRIX_MODELS
@@ -527,12 +728,15 @@ def main() -> None:
             print(f"\n{_BLD}Evelyn Candidate Model Benchmark Matrix{_RST}")
             tools_offered_str = "dynamically routed (semantic + specialist)" if args.routed else f"{len(MODEL_TOOL_DEFINITIONS)} tools offered"
             print(f"  {len(model_list)} models · {len(cases)} cases · {tools_offered_str} "
-                  f"· num_ctx={cfg.NUM_CTX} · temp={cfg.TEMPERATURE}")
+                  f"· prompt={args.prompt} · num_ctx={cfg.NUM_CTX} · temp={cfg.TEMPERATURE}")
 
         matrix_start = time.perf_counter()
         for m in model_list:
             m_start = time.perf_counter()
-            res = run_suite(m, cases, verbose=args.verbose, routed=args.routed)
+            res = run_suite(
+                m, cases, verbose=args.verbose, routed=args.routed,
+                system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
+            )
             matrix_details[m] = res
             matrix_summaries[m] = summarise(res)
             m_elapsed = time.perf_counter() - m_start
@@ -544,6 +748,7 @@ def main() -> None:
         out_payload = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "routed": args.routed,
+            "prompt_mode": args.prompt,
             "cases_count": len(cases),
             "summaries": matrix_summaries,
             "details": matrix_details,
@@ -562,15 +767,43 @@ def main() -> None:
             print(f"  Benchmark matrix saved to: {out_path}")
         return
 
+    if args.compare_prompt:
+        # A/B evaluate template prompt vs live persona prompt on the same model
+        if not args.json:
+            print(f"\n{_BLD}Evelyn Prompt Sensitivity A/B Benchmark{_RST}")
+            print(f"  Model: {baseline} · Comparing Template vs. Live Persona")
+
+        res_tmpl = run_suite(
+            baseline, cases, verbose=args.verbose, routed=args.routed,
+            system_prompt=prompt_template, prompt_mode="template", save_snapshot=True,
+        )
+        res_live = run_suite(
+            baseline, cases, verbose=args.verbose, routed=args.routed,
+            system_prompt=prompt_live, prompt_mode="live", save_snapshot=True,
+        )
+
+        if args.json:
+            print(json.dumps({"template": res_tmpl, "live": res_live}, indent=2))
+            return
+
+        print_prompt_comparison(baseline, res_tmpl, "template", res_live, "live")
+        return
+
     if not args.json:
         print(f"{_BLD}Evelyn behaviour benchmark{_RST}")
         tools_offered_str = "dynamically routed (semantic + specialist)" if args.routed else f"{len(MODEL_TOOL_DEFINITIONS)} tools offered"
-        print(f"  {len(cases)} cases · {tools_offered_str} "
+        print(f"  {len(cases)} cases · {tools_offered_str} · prompt={args.prompt} "
               f"· num_ctx={cfg.NUM_CTX} · temp={cfg.TEMPERATURE}")
 
     start = time.perf_counter()
-    results_a = run_suite(baseline, cases, verbose=args.verbose, routed=args.routed)
-    results_b = run_suite(args.compare, cases, verbose=args.verbose, routed=args.routed) if args.compare else None
+    results_a = run_suite(
+        baseline, cases, verbose=args.verbose, routed=args.routed,
+        system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
+    )
+    results_b = run_suite(
+        args.compare, cases, verbose=args.verbose, routed=args.routed,
+        system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
+    ) if args.compare else None
     elapsed = time.perf_counter() - start
 
     if args.json:

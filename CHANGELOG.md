@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-02 18:38:04
+date modified: 2026-10-02 21:26:22
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,52 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.002] - 2026-10-02 — *Benchmark Workstation UI Polish & Trend Tracking*
+
+### Added
+
+- **Rich Diagnostic Modal (`benchmark.html`)**: Click-to-inspect test case modal with verdict banners (Pass/Fail), cognitive intent reasoning, evaluation criteria display, and target marker chips showing matched vs. missed keywords.
+- **Pass Rate Trend Chart**: Replaced static Cognitive Category bar chart with a multi-line temporal trend chart tracking pass rate evolution per model over benchmark runs, with distinct dot styles for live vs. template partitions.
+- **Dynamic Model Column**: Table now shows a "Model" column when "All Models" filter is active, hidden when viewing a single model.
+- **ANSI Terminal Parser**: Built `ansiToHtml()` converter to render colored pass/fail markers in benchmark runner logs instead of raw escape sequences.
+- **`analyze_benchmark_case()` (`benchmark_store.py`)**: Backend diagnostic function providing cognitive category reasoning, evaluation criteria, and human-readable expectation labels for drill-down modal.
+
+### Fixed
+
+- **Dropdown Styling**: Fixed blinding white background on `<select>` / `<option>` dropdown menus with proper dark-theme CSS overrides.
+- **Sticky Scroll**: Benchmark runner terminal logs no longer forcibly snap to bottom; auto-scroll only triggers when already at end of log.
+- **KPI Card Formatting**: "Prompt Snapshot Retention" card now displays Live and Template counts on separate lines to prevent awkward wrapping.
+
+### Removed
+
+- Removed misleading test benchmark run (`template_20261002_200119`) from history store.
+
+## [000.008.001] - 2026-10-02 — *Continuous Evaluation Workstation & Prompt Drift Diff Engine*
+
+### Added
+
+- **Dedicated Standalone Benchmark Workstation (`evelyn_ui/benchmark.html`)**:
+  - Built modern standalone evaluation workstation featuring executive KPI highlights (Active Champion, Cold Swap Champion, Peak Throughput, Prompt Snapshot Retention).
+  - Interactive comparative model matrix with dynamic filter chips (Model, Category, Status) and click-to-inspect test case modal.
+  - Responsive visual charts: Throughput vs Cold Swap latency and Cognitive Category accuracy breakdown.
+  - Interactive benchmark runner with live terminal log streaming and background execution.
+- **Historical Snapshot Retention & Prompt Drift Diff Engine (`Evelyn/tools/benchmark_store.py` & `scripts/benchmark_behavior.py`)**:
+  - Implemented partitioned rolling ring buffer retaining up to 30 snapshots each for `live` (operator persona) and `template` (clean-slate baseline), preventing persona evolution and baseline runs from evicting each other.
+  - Character-accurate system prompt capture and active tool schema hashing for deterministic regression tracing.
+  - Line-level side-by-side prompt diff viewer and AST tool definition change detector.
+  - Case divergence tracking automatically highlighting regressions (`PASS -> FAIL`) and improvements (`FAIL -> PASS`).
+- **Continuous Evaluation REST API Endpoints (`evelyn_server.py`)**:
+  - Added `GET /api/benchmark/matrix`: Returns pre-computed model comparison matrix and metadata.
+  - Added `GET /api/benchmark/history`: Returns partitioned historical run records.
+  - Added `GET /api/benchmark/run/{run_id}`: Retrieves full snapshot details including prompt and tool definitions.
+  - Added `GET /api/benchmark/diff`: Computes structured line-level prompt diff and case divergences between two runs.
+  - Added `GET /api/benchmark/status`: Returns real-time execution status and recent stdout/stderr output lines.
+  - Added `POST /api/benchmark/run`: Triggers background evaluation subprocess managed by `task_manager`.
+- **Navigation Integration across Evelyn UI Suite**:
+  - Added `⚡ Benchmark` navigation buttons across `evelyn_ui/dev.html`, `evelyn_ui/profile_facts.html`, and `evelyn_ui/taxonomy.html`.
+
+---
 
 ## [000.008.000] - 2026-10-02 — *Continuous Evaluation & Model Benchmarking Suite*
 

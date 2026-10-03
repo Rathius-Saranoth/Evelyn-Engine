@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-02 17:02:06
+# date modified: 2026-10-02 21:26:22
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -5537,6 +5537,7 @@ async def get_heavy_tasks(_: None = Depends(check_auth)):
         ("refresh_memory", "Memory Refresh"),
         ("sync", "Chroma Sync"),
         ("vault_map", "Vault Map Generator"),
+        ("benchmark", "Model Benchmark"),
     ]
 
     tasks_info = []
@@ -8841,6 +8842,224 @@ async def trigger_librarian_audit(
     _server_background_tasks.add(t_ml)
     t_ml.add_done_callback(_server_background_tasks.discard)
     return {"status": "started", "batch_size": batch_size, "max_batches": max_batches}
+
+
+# ---------------------------------------------------------------------------
+# Continuous Evaluation & Model Benchmarking Endpoints
+# ---------------------------------------------------------------------------
+
+_benchmark_run_state: dict[str, Any] = {
+    "status": "idle",
+    "phase": "Ready",
+    "logs": [],
+    "last_run_id": None,
+    "error": None,
+}
+
+
+async def run_benchmark_task(
+    model: str = "gemma4:12b",
+    prompt_mode: str = "template",
+    routed: bool = True,
+):
+    """Run model behavior benchmark in an isolated worker subprocess."""
+    import task_manager
+
+    if is_any_heavy_task_running():
+        return
+
+    _benchmark_run_state["status"] = "running"
+    _benchmark_run_state["phase"] = f"Initializing benchmark ({model}, {prompt_mode})..."
+    _benchmark_run_state["logs"] = []
+    _benchmark_run_state["error"] = None
+
+    script_path = str(BASE_DIR / "scripts" / "benchmark_behavior.py")
+    cmd = [
+        sys.executable,
+        "-u",
+        script_path,
+        "--model",
+        model,
+        "--prompt",
+        prompt_mode,
+    ]
+    if routed:
+        cmd.append("--routed")
+
+    task_manager.set_running("benchmark", phase=f"Benchmarking {model} ({prompt_mode})")
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(BASE_DIR),
+        )
+        task_manager.register_subprocess(proc)
+        task_manager._active_handles["benchmark"] = proc
+
+        if proc.stdout:
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    break
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if line:
+                    _benchmark_run_state["logs"].append(line)
+                    if len(_benchmark_run_state["logs"]) > 100:
+                        _benchmark_run_state["logs"] = _benchmark_run_state["logs"][-100:]
+                    if line.startswith(("[", "Running:", "Saved run snapshot", "=== Final Results")):
+                        _benchmark_run_state["phase"] = line[:80]
+                        task_manager.set_running("benchmark", phase=line[:60])
+                    if "Saved run snapshot:" in line:
+                        parts = line.split("Saved run snapshot:")
+                        if len(parts) > 1:
+                            _benchmark_run_state["last_run_id"] = parts[1].strip()
+
+        await proc.wait()
+        if proc.returncode == 0:
+            _benchmark_run_state["status"] = "completed"
+            _benchmark_run_state["phase"] = "Benchmark completed successfully."
+            task_manager.clear_running("benchmark", status="idle")
+        else:
+            _benchmark_run_state["status"] = "error"
+            _benchmark_run_state["error"] = f"Benchmark exited with code {proc.returncode}"
+            task_manager.clear_running("benchmark", status="error", error=_benchmark_run_state["error"])
+    except asyncio.CancelledError:
+        if proc:
+            task_manager.terminate_task_subprocess("benchmark")
+        _benchmark_run_state["status"] = "cancelled"
+        _benchmark_run_state["phase"] = "Benchmark cancelled."
+        task_manager.clear_running("benchmark", status="idle")
+        raise
+    except (sqlite3.Error, OSError, ValueError, KeyError, RuntimeError) as e:
+        _benchmark_run_state["status"] = "error"
+        _benchmark_run_state["error"] = str(e)
+        task_manager.clear_running("benchmark", status="error", error=str(e))
+    finally:
+        if proc:
+            task_manager.unregister_subprocess(proc)
+        task_manager._active_handles.pop("benchmark", None)
+        if task_manager.get_status("benchmark") == "running":
+            task_manager.clear_running("benchmark", status="idle")
+
+
+class BenchmarkRunRequest(BaseModel):
+    model: str = "gemma4:12b"
+    prompt_mode: str = "template"
+    routed: bool = True
+
+
+@app.get("/api/benchmark/matrix")
+async def get_benchmark_matrix(_: None = Depends(check_auth)):
+    """Return the pre-computed behavior benchmark matrix and model scores."""
+    matrix_path = BASE_DIR / "reference" / "behavior_benchmark_matrix.json"
+    cases_path = BASE_DIR / "reference" / "behavior_benchmark_cases.json"
+    if not matrix_path.exists():
+        raise HTTPException(status_code=404, detail="Benchmark matrix file not found")
+    try:
+        raw_text = await asyncio.to_thread(matrix_path.read_text, encoding="utf-8")
+        data = json.loads(raw_text)
+
+        cases_map: dict[str, dict[str, Any]] = {}
+        if cases_path.exists():
+            cases_raw = await asyncio.to_thread(cases_path.read_text, encoding="utf-8")
+            cases_list = json.loads(cases_raw)
+            for c in cases_list:
+                cid = c.get("id")
+                if cid:
+                    cases_map[cid] = c
+
+        from Evelyn.tools import benchmark_store
+
+        flat_details: list[dict[str, Any]] = []
+        raw_details = data.get("details", {})
+        if isinstance(raw_details, dict):
+            for model_name, case_runs in raw_details.items():
+                if isinstance(case_runs, list):
+                    for r in case_runs:
+                        c_def = cases_map.get(r.get("id", ""), {})
+                        enriched = benchmark_store.analyze_benchmark_case(r, c_def)
+                        enriched["model"] = model_name
+                        flat_details.append(enriched)
+        data["flat_details"] = flat_details
+        return data
+    except (json.JSONDecodeError, OSError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read benchmark matrix: {e}") from e
+
+
+@app.get("/api/benchmark/history")
+async def get_benchmark_history(partition: str | None = None, _: None = Depends(check_auth)):
+    """Return historical benchmark run snapshots (partition='live', 'template', or None)."""
+    from Evelyn.tools import benchmark_store
+
+    return benchmark_store.list_history(partition=partition, include_text=False)
+
+
+@app.get("/api/benchmark/run/{run_id}")
+async def get_benchmark_run(run_id: str, _: None = Depends(check_auth)):
+    """Return full snapshot details including prompt_text and tools schema for a run."""
+    from Evelyn.tools import benchmark_store
+
+    run = benchmark_store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+    return run
+
+
+@app.get("/api/benchmark/diff")
+async def get_benchmark_diff(run_a: str, run_b: str, _: None = Depends(check_auth)):
+    """Compute prompt, tool, metric, and case divergence diff between two runs."""
+    from Evelyn.tools import benchmark_store
+
+    try:
+        return benchmark_store.compute_run_diff(run_a, run_b)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (KeyError, TypeError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compute diff: {e}") from e
+
+
+@app.get("/api/benchmark/status")
+async def get_benchmark_status(_: None = Depends(check_auth)):
+    """Return the real-time execution status and recent logs for the benchmark runner."""
+    from Evelyn.tools import task_manager
+
+    is_running = task_manager.get_status("benchmark") == "running"
+    return {
+        "running": is_running,
+        "task_manager_status": task_manager.get_status("benchmark"),
+        "state": _benchmark_run_state,
+    }
+
+
+@app.post("/api/benchmark/run")
+async def trigger_benchmark_run(
+    req: BenchmarkRunRequest,
+    _: None = Depends(check_auth),
+):
+    """Trigger a behavior benchmark run in the background."""
+    if is_any_heavy_task_running():
+        raise HTTPException(
+            status_code=409,
+            detail="A heavy background task is currently running. Try again when idle.",
+        )
+
+    t_bench = asyncio.create_task(
+        run_benchmark_task(
+            model=req.model,
+            prompt_mode=req.prompt_mode,
+            routed=req.routed,
+        )
+    )
+    _server_background_tasks.add(t_bench)
+    t_bench.add_done_callback(_server_background_tasks.discard)
+    return {
+        "status": "started",
+        "model": req.model,
+        "prompt_mode": req.prompt_mode,
+        "routed": req.routed,
+    }
 
 
 if __name__ == "__main__":
