@@ -1759,8 +1759,13 @@
       const viewer = document.getElementById('diff-viewer-section');
       viewer.style.display = 'flex';
 
-      document.getElementById('diff-title').textContent = `Prompt & Case Diff: ${diff.run_a} ➔ ${diff.run_b}`;
-      document.getElementById('diff-subtitle').textContent = `Baseline Model: ${diff.model_a} | Target Model: ${diff.model_b}`;
+      const runAId = typeof diff.run_a === 'object' ? (diff.run_a.run_id || '') : (diff.run_a || '');
+      const runBId = typeof diff.run_b === 'object' ? (diff.run_b.run_id || '') : (diff.run_b || '');
+      const modelA = (typeof diff.run_a === 'object' && diff.run_a.model) ? diff.run_a.model : (diff.model_a || '');
+      const modelB = (typeof diff.run_b === 'object' && diff.run_b.model) ? diff.run_b.model : (diff.model_b || '');
+
+      document.getElementById('diff-title').textContent = `Prompt & Case Diff: ${runAId} ➔ ${runBId}`;
+      document.getElementById('diff-subtitle').textContent = `Baseline Model: ${modelA} | Target Model: ${modelB}`;
 
       const delta = diff.metrics_delta || {};
       const scoreEl = document.getElementById('delta-score');
@@ -1782,15 +1787,18 @@
       const divBody = document.getElementById('divergence-table-body');
       if (diff.divergences && diff.divergences.length > 0) {
         divCard.style.display = 'block';
-        divBody.innerHTML = diff.divergences.map(d => `
+        divBody.innerHTML = diff.divergences.map(d => {
+          const isImprovement = d.flip ? (d.flip === 'IMPROVEMENT') : (!d.passed_a && d.passed_b);
+          return `
           <tr>
             <td style="font-family: var(--font-mono); font-weight: 600;">${d.id}</td>
             <td><span class="badge badge-purple">${d.category}</span></td>
             <td>${d.passed_a ? '<span class="badge badge-emerald">PASS</span>' : '<span class="badge badge-rose">FAIL</span>'}</td>
             <td>${d.passed_b ? '<span class="badge badge-emerald">PASS</span>' : '<span class="badge badge-rose">FAIL</span>'}</td>
-            <td>${d.flip === 'REGRESSION' ? '<span class="badge badge-rose">⚠️ REGRESSION</span>' : '<span class="badge badge-emerald">⭐ IMPROVEMENT</span>'}</td>
+            <td>${isImprovement ? '<span class="badge badge-emerald">⭐ IMPROVEMENT</span>' : '<span class="badge badge-rose">⚠️ REGRESSION</span>'}</td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
       } else {
         divCard.style.display = 'none';
       }

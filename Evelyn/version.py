@@ -1,6 +1,6 @@
 # version.py
 # date created: 2026-08-22 15:53:23
-# date modified: 2026-10-03 07:38:18
+# date modified: 2026-10-03 10:14:08
 # tags: #versioning, #release
 
 """
@@ -15,9 +15,9 @@ from __future__ import annotations
 import re
 
 # Zero-padded 3-digit semantic version: MAJOR.MINOR.PATCH
-__version__ = "000.008.003"
-__version_info__ = (0, 8, 3)
-__version_name__ = "Prompt Stack Directives Architecture & Clean Wire Protocol"
+__version__ = "000.008.004"
+__version_info__ = (0, 8, 4)
+__version_name__ = "Benchmark Case Divergence Diagnostics & Proactive Logging Directives"
 VERSION_NAME = __version_name__
 
 VERSION_PATTERN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")

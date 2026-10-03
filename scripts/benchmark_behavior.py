@@ -1,6 +1,6 @@
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-10-02 19:27:12
+# date modified: 2026-10-03 10:14:08
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -299,10 +299,12 @@ def evaluate_case(model: str, case: dict, routed: bool = False, system_prompt: s
     writes = [t for t in called if t in WRITE_TOOL_NAMES]
     expect = case["expect"]
     low = reply.lower()
+    low_clean = low.replace("$", "").replace("\\dots", "...").replace("\\", "")
     arg_errors: list[str] = []
 
     def _any(key: str) -> bool:
-        return any(m.lower() in low for m in case.get(key, []))
+        markers = case.get(key, [])
+        return any(m.lower() in low or m.lower() in low_clean for m in markers)
 
     if expect == "no_tool_call":
         passed = not called

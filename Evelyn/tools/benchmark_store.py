@@ -1,6 +1,6 @@
 # benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-02 21:26:22
+# date modified: 2026-10-03 10:14:08
 # tags: #benchmark, #evaluation, #history, #diff, #storage
 
 """
@@ -261,11 +261,13 @@ def compute_run_diff(run_id_a: str, run_id_b: str) -> dict[str, Any]:
         if cid in cases_b:
             res_b = cases_b[cid]
             if res_a.get("passed") != res_b.get("passed"):
+                is_improved = bool(res_b.get("passed")) and not bool(res_a.get("passed"))
                 divergences.append({
                     "id": cid,
                     "category": res_a.get("category", ""),
                     "passed_a": res_a.get("passed"),
                     "passed_b": res_b.get("passed"),
+                    "flip": "IMPROVEMENT" if is_improved else "REGRESSION",
                     "called_a": res_a.get("called", []),
                     "called_b": res_b.get("called", []),
                     "reply_a": res_a.get("reply", "")[:160],
@@ -295,6 +297,8 @@ def compute_run_diff(run_id_a: str, run_id_b: str) -> dict[str, Any]:
             "datetime": run_b.get("datetime"),
             "summary": sum_b,
         },
+        "model_a": run_a.get("model", ""),
+        "model_b": run_b.get("model", ""),
         "metrics_delta": {
             "score_delta": score_delta,
             "tps_delta": round(tps_delta, 1),
@@ -343,6 +347,7 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
     passed = bool(entry.get("passed", False))
     reply = entry.get("reply", "") or ""
     reply_low = reply.lower()
+    reply_low_clean = reply_low.replace("$", "").replace("\\dots", "...").replace("\\", "")
     called = entry.get("called", []) or []
     writes = entry.get("writes", []) or []
     arg_errors = entry.get("arg_errors", []) or []
@@ -355,7 +360,10 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
     denial_markers = case_def.get("denial_markers", [])
     expect_tools = case_def.get("expect_tools", [])
 
-    matched_markers = [m for m in markers if m.lower() in reply_low] if markers else []
+    matched_markers = [
+        m for m in markers
+        if m.lower() in reply_low or m.lower() in reply_low_clean
+    ] if markers else []
     matched_claims = [m for m in claim_markers if m.lower() in reply_low] if claim_markers else []
     matched_denials = [m for m in denial_markers if m.lower() in reply_low] if denial_markers else []
 

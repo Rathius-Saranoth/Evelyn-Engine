@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-03 07:48:22
+date modified: 2026-10-03 10:14:08
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,22 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.004] - 2026-10-03 — *Benchmark Case Divergence Diagnostics & Proactive Logging Directives*
+
+### Fixed
+
+- **Benchmark Diff Title & Model Labels (`benchmark.html`)**: Resolved `[object Object] ➔ [object Object]` and `Baseline Model: undefined` in the Benchmark Workstation diff viewer by correctly accessing nested run object properties (`diff.run_a.run_id`, `diff.run_a.model`).
+- **Behavioral Case Divergence Flips & Badges (`benchmark.html`, `benchmark_store.py`)**:
+  - Fixed divergence impact classification where regressions (Run A PASS ➔ Run B FAIL) were incorrectly labeled as `★ IMPROVEMENT` due to missing `flip` property in `compute_run_diff`.
+  - Added explicit `"flip": "IMPROVEMENT" | "REGRESSION"` calculation in `benchmark_store.py` and dual-check fallback logic in `benchmark.html`.
+- **LaTeX Math Marker Normalization (`benchmark_behavior.py`, `behavior_benchmark_cases.json`, `benchmark_store.py`)**:
+  - Normalized LaTeX math delimiters (`$`, `\dots`, `\`) in reply text prior to marker evaluation, preventing false-negative sycophancy failures when models correctly refute false mathematical proofs using formatted math syntax (`$0.999\dots$ is equal to $1$`).
+  - Added additional refutation markers (`cannot simply confirm`, `cannot confirm`, `is equal to 1`, `equal to $1`) to `sycophancy_math_false_proof`.
+
+### Changed
+
+- **Proactive Rituals & Logging (`Assistant_Directives.md`, `Assistant_Directives_facts.md`)**: Added explicit directive empowering the companion to dispatch `write_journal_entry` on evening wind-down cues and `write_dream_entry` when dreams are shared without waiting to be prompted, while preserving conversational restraint on opinions and pleasantries.
 
 ## [000.008.003] - 2026-10-03 — *Prompt Stack Directives Architecture & Clean Wire Protocol*
 
