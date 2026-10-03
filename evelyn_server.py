@@ -2955,6 +2955,18 @@ async def lifespan(app: FastAPI):
                     t_ar = asyncio.create_task(ambient_reflector.run_ambient_reflection())
                     _server_background_tasks.add(t_ar)
                     t_ar.add_done_callback(_server_background_tasks.discard)
+                elif dispatched_task == "benchmark":
+                    meta = item.get("metadata", {})
+                    t_bench = asyncio.create_task(
+                        run_benchmark_task(
+                            model=meta.get("model", getattr(cfg, "MODEL_NAME", "gemma4:12b")),
+                            prompt_mode=meta.get("prompt_mode", "live"),
+                            routed=meta.get("routed", True),
+                            category=meta.get("category"),
+                        )
+                    )
+                    _server_background_tasks.add(t_bench)
+                    t_bench.add_done_callback(_server_background_tasks.discard)
                 else:
                     print(
                         f"{_YEL}[IDLE DISPATCHER]{_RST} Unknown task '{dispatched_task}' in queue.",
@@ -6675,7 +6687,7 @@ async def get_taxonomy_vocabulary(
         # were the ones furthest down it.
         categories = sorted(
             ({"name": k, "count": v} for k, v in counts.items() if k),
-            key=lambda c: (-c["count"], c["name"]),
+            key=lambda c: (-int(c["count"]), str(c["name"])),
         )
 
         similar: list[dict[str, Any]] = []
@@ -8748,7 +8760,7 @@ async def update_vault_note(req: VaultNoteUpdateRequest, _: None = Depends(check
         # since the edit may well have been to the tags themselves. Gist and RAG
         # priority are left unset so the indexer's computed values survive the save.
         saved_meta, _saved_body = frontmatter_utils.parse_frontmatter(req.content)
-        saved_tags, _ = tag_librarian.parse_frontmatter_tags(req.content)
+        saved_tags, _tag_err = tag_librarian.parse_frontmatter_tags(req.content)
         raw_aliases = saved_meta.get("aliases") or []
         if isinstance(raw_aliases, str):
             raw_aliases = [a.strip() for a in raw_aliases.split(",")]
@@ -8854,6 +8866,7 @@ async def run_benchmark_task(
     model: str = "gemma4:12b",
     prompt_mode: str = "template",
     routed: bool = True,
+    category: str | None = None,
 ):
     """Run model behavior benchmark in an isolated worker subprocess."""
     import task_manager
@@ -8861,8 +8874,9 @@ async def run_benchmark_task(
     if is_any_heavy_task_running():
         return
 
+    phase_cat = f", category: {category}" if category else ""
     _benchmark_run_state["status"] = "running"
-    _benchmark_run_state["phase"] = f"Initializing benchmark ({model}, {prompt_mode})..."
+    _benchmark_run_state["phase"] = f"Initializing benchmark ({model}, {prompt_mode}{phase_cat})..."
     _benchmark_run_state["logs"] = []
     _benchmark_run_state["error"] = None
 
@@ -8878,8 +8892,10 @@ async def run_benchmark_task(
     ]
     if routed:
         cmd.append("--routed")
+    if category:
+        cmd.extend(["--category", category])
 
-    task_manager.set_running("benchmark", phase=f"Benchmarking {model} ({prompt_mode})")
+    task_manager.set_running("benchmark", phase=f"Benchmarking {model} ({prompt_mode}{phase_cat})")
     proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -8941,6 +8957,7 @@ class BenchmarkRunRequest(BaseModel):
     model: str = "gemma4:12b"
     prompt_mode: str = "template"
     routed: bool = True
+    category: str | None = None
 
 
 @app.get("/api/benchmark/matrix")
@@ -8965,8 +8982,25 @@ async def get_benchmark_matrix(_: None = Depends(check_auth)):
 
         from Evelyn.tools import benchmark_store
 
-        flat_details: list[dict[str, Any]] = []
+        raw_summaries = data.get("summaries", {})
         raw_details = data.get("details", {})
+
+        # Overlay newest full run from history store for each model if available
+        # so matrix and swimlane scores always reflect the freshest evaluation state.
+        recent_history = benchmark_store.list_history(include_text=False, include_probes=False)
+        latest_runs_by_model: dict[str, dict[str, Any]] = {}
+        for h in recent_history:
+            m = h.get("model")
+            if m and m not in latest_runs_by_model:
+                latest_runs_by_model[m] = h
+
+        for model_name, latest_h in latest_runs_by_model.items():
+            if latest_h.get("summary"):
+                raw_summaries[model_name] = latest_h["summary"]
+            if latest_h.get("results"):
+                raw_details[model_name] = latest_h["results"]
+
+        flat_details: list[dict[str, Any]] = []
         if isinstance(raw_details, dict):
             for model_name, case_runs in raw_details.items():
                 if isinstance(case_runs, list):
@@ -8976,6 +9010,7 @@ async def get_benchmark_matrix(_: None = Depends(check_auth)):
                         enriched["model"] = model_name
                         flat_details.append(enriched)
         data["flat_details"] = flat_details
+        data["active_model"] = getattr(cfg, "MODEL_NAME", "gemma4:12b")
         return data
     except (json.JSONDecodeError, OSError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to read benchmark matrix: {e}") from e
@@ -9019,8 +9054,10 @@ async def get_benchmark_status(_: None = Depends(check_auth)):
     from Evelyn.tools import task_manager
 
     is_running = task_manager.get_status("benchmark") == "running"
+    is_queued = task_manager.is_task_queued("benchmark")
     return {
         "running": is_running,
+        "queued": is_queued,
         "task_manager_status": task_manager.get_status("benchmark"),
         "state": _benchmark_run_state,
     }
@@ -9032,17 +9069,39 @@ async def trigger_benchmark_run(
     _: None = Depends(check_auth),
 ):
     """Trigger a behavior benchmark run in the background."""
+    from Evelyn.tools import task_manager
+
     if is_any_heavy_task_running():
-        raise HTTPException(
-            status_code=409,
-            detail="A heavy background task is currently running. Try again when idle.",
+        meta = {
+            "model": req.model,
+            "prompt_mode": req.prompt_mode,
+            "routed": req.routed,
+            "category": req.category,
+            "manual": True,
+        }
+        task_manager.enqueue_idle_task("benchmark", metadata=meta, front=True)
+        active_task = next(
+            (k for k in task_manager.HEAVY_TASK_KEYS if task_manager.get_status(k) in task_manager.RUNNING_STATUSES),
+            "background task",
         )
+        _benchmark_run_state["status"] = "enqueued"
+        _benchmark_run_state["phase"] = f"Enqueued — Waiting for {active_task} to complete..."
+        return {
+            "status": "enqueued",
+            "model": req.model,
+            "prompt_mode": req.prompt_mode,
+            "routed": req.routed,
+            "category": req.category,
+            "waiting_for": active_task,
+            "queue_size": len(task_manager.get_idle_queue()),
+        }
 
     t_bench = asyncio.create_task(
         run_benchmark_task(
             model=req.model,
             prompt_mode=req.prompt_mode,
             routed=req.routed,
+            category=req.category,
         )
     )
     _server_background_tasks.add(t_bench)
@@ -9052,6 +9111,7 @@ async def trigger_benchmark_run(
         "model": req.model,
         "prompt_mode": req.prompt_mode,
         "routed": req.routed,
+        "category": req.category,
     }
 
 

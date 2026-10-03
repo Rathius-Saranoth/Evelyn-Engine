@@ -39,18 +39,19 @@ def _hash_content(content: str) -> str:
 def _load_raw_store() -> dict[str, list[dict[str, Any]]]:
     """Load the raw partitioned history store from disk."""
     if not os.path.exists(HISTORY_FILE):
-        return {"template": [], "live": []}
+        return {"template": [], "live": [], "probes": []}
     try:
         with open(HISTORY_FILE, encoding="utf-8") as f:
             data = json.load(f)
             if not isinstance(data, dict):
-                return {"template": [], "live": []}
+                return {"template": [], "live": [], "probes": []}
             return {
                 "template": data.get("template", []),
                 "live": data.get("live", []),
+                "probes": data.get("probes", []),
             }
     except (json.JSONDecodeError, OSError):
-        return {"template": [], "live": []}
+        return {"template": [], "live": [], "probes": []}
 
 
 def _save_raw_store(store: dict[str, list[dict[str, Any]]]) -> None:
@@ -70,6 +71,8 @@ def save_run_snapshot(
     summary: dict[str, Any],
     results: list[dict[str, Any]],
     max_capacity: int = MAX_SNAPSHOTS_PER_PARTITION,
+    run_type: str = "full",
+    category: str | None = None,
 ) -> dict[str, Any]:
     """Save an evaluation run snapshot into the partitioned ring buffer.
 
@@ -81,15 +84,19 @@ def save_run_snapshot(
         summary: Topline evaluation summary metrics.
         results: Case-by-case evaluation results.
         max_capacity: Maximum snapshots retained for this partition.
+        run_type: 'full' for canonical full-suite runs, or 'probe' for isolated diagnostic checks.
+        category: Specific category name if running a single-category probe.
 
     Returns:
         dict: The newly created run snapshot record.
     """
     store = _load_raw_store()
-    partition = "live" if prompt_mode.lower() == "live" else "template"
+    is_probe = run_type.lower() == "probe"
+    partition = "probes" if is_probe else ("live" if prompt_mode.lower() == "live" else "template")
 
     ts = time.time()
-    run_id = f"{partition}_{time.strftime('%Y%m%d_%H%M%S', time.localtime(ts))}"
+    prefix = f"probe_{prompt_mode.lower()}" if is_probe else partition
+    run_id = f"{prefix}_{time.strftime('%Y%m%d_%H%M%S', time.localtime(ts))}"
     prompt_hash = _hash_content(prompt_text)
     tools_json = json.dumps(tools, sort_keys=True)
     tools_hash = _hash_content(tools_json)
@@ -102,10 +109,12 @@ def save_run_snapshot(
 
     snapshot = {
         "run_id": run_id,
+        "run_type": "probe" if is_probe else "full",
+        "category": category,
         "timestamp": ts,
         "datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)),
         "model": model,
-        "prompt_mode": partition,
+        "prompt_mode": prompt_mode.lower(),
         "prompt_hash": prompt_hash,
         "prompt_length": len(prompt_text),
         "prompt_text": prompt_text,
@@ -131,21 +140,31 @@ def save_run_snapshot(
 def list_history(
     partition: str | None = None,
     include_text: bool = False,
+    include_probes: bool = False,
 ) -> list[dict[str, Any]]:
     """Return historical run summaries sorted newest first.
 
     Args:
-        partition: 'live', 'template', or None for all.
+        partition: 'live', 'template', 'probes', or None for full-suite partitions.
         include_text: If False, omits raw prompt_text and tools payload to keep payload compact.
+        include_probes: If True when partition is None, includes probe runs alongside full runs.
     """
     store = _load_raw_store()
     runs: list[dict[str, Any]] = []
 
     if partition:
-        runs = list(store.get(partition, []))
+        raw_runs = list(store.get(partition, []))
+        if not include_probes and partition != "probes":
+            runs = [r for r in raw_runs if r.get("run_type") != "probe" and r.get("summary", {}).get("total", 0) >= 10]
+        else:
+            runs = raw_runs
     else:
-        runs.extend(store.get("live", []))
-        runs.extend(store.get("template", []))
+        for p in ("live", "template"):
+            for r in store.get(p, []):
+                if include_probes or (r.get("run_type") != "probe" and r.get("summary", {}).get("total", 0) >= 10):
+                    runs.append(r)
+        if include_probes:
+            runs.extend(store.get("probes", []))
         runs.sort(key=lambda r: r.get("timestamp", 0), reverse=True)
 
     if not include_text:

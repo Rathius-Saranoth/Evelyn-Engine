@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-03 10:14:08
+date modified: 2026-10-03 12:07:32
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -12,6 +12,39 @@ All notable changes to the Evelyn Engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.000.000`).
+
+## [000.008.005] - 2026-10-03 — *Behavioral Capability Swimlanes, Isolated Probes & Task-Queued Benchmarking*
+
+### Added
+
+- **Model Capability & Behavioral Drift Swimlanes (`benchmark.html`)**:
+  - Replaced the fleet-wide pass rate line chart with a full-width **Model Capability & Behavioral Drift Swimlane** table focusing on the active model and its self-comparisons.
+  - Interactive per-category sparklines rendered on high-DPR HTML5 canvas with hover tooltips detailing snapshot timestamp, case score fraction, and run ID.
+  - Flexible baseline comparison selector (`Previous Run (N-1)`, `Template Baseline`, `Personal Best`) with automated delta indicators (`+X%`, `-X%`, `Stable`, `PB`).
+  - Health classification badges (`⭐ Optimal`, `✅ Solid`, `⚠️ At Risk`, `🚨 Critical`) for instant visual telemetry across 10 behavioral dimensions.
+  - Interactive row filtering: clicking a capability swimlane filters the case matrix table directly to that category with synchronized filter chips and smooth scrolling.
+- **Isolated Single-Category Probes (`benchmark_store.py`, `scripts/benchmark_behavior.py`, `evelyn_server.py`)**:
+  - Added `--category` flag to the evaluation CLI to run targeted single-category probes (10–15s runtime).
+  - Segregated fast probe runs into an isolated `"probes"` partition (`probe_` prefix) separate from the 30-run canonical rolling ring buffers (`"live"` and `"template"`), preventing metric distortion and data pollution on overall pass rate trends.
+  - Added `include_probes: bool = False` filter to `list_history()` to guarantee default historical charts and matrices reflect only complete full-suite runs.
+- **Task Queue Head-Prepend & Non-Blocking Benchmark Scheduling (`task_manager.py`, `evelyn_server.py`)**:
+  - Extended `enqueue_idle_task()` with `front: bool = False` to allow high-priority interactive tasks to prepend to the head of the idle task queue.
+  - Updated `POST /api/benchmark/run`: when a background heavy task is running, benchmark requests enqueue at the front of the queue (`{"status": "enqueued", "waiting_for": active_task}`) instead of rejecting user requests with HTTP 409 Conflict.
+  - Extended `GET /api/benchmark/status` with `"queued"` state, surfacing real-time `⏳ Enqueued (Waiting for <task>)` badges in the workstation runner.
+- **Explicit Source & Target Diff Selection (`benchmark.html`)**:
+  - Replaced ambiguous multi-checkbox selection with explicit `[Source]` (Baseline) and `[Target]` action buttons in the Historical Snapshots table.
+  - Dedicated visual chips (`chip-source-run`, `chip-target-run`) and a `[✕ Reset]` button clearly denote diff polarity prior to running prompt and case divergence diffs.
+- **Model-Centric KPI Header Cards (`benchmark.html`)**:
+  - Shifted generation throughput (tok/s) and cold swap latency (s) into compact header cards focused on the active live model.
+  - Added dynamic pass rate delta badge (`+X% vs prev`, `-X% vs prev`, `Stable`) comparing current performance to historical baseline.
+
+### Fixed
+
+- **Swimlane Metric Alignment & Score Consistency (`benchmark.html`, `benchmark_history.json`, `evelyn_server.py`)**:
+  - Resolved visual score discrepancies (such as Technical Objectivity showing 75% in the table while the sparkline showed 100%) by enforcing a single source of truth: `renderSwimlanes()` now calculates `curTotal`, `curPassed`, and baseline deltas directly from `latestRun.results` rather than falling back to potentially stale summary blocks or older static matrix files.
+  - Synchronized all `summary.by_cat` records across historical run partitions in `data/benchmark_history.json` to 100% parity with individual case results.
+  - Updated `GET /api/benchmark/matrix` in `evelyn_server.py` to overlay the newest full evaluation run from the history store onto `summaries` and `details`, ensuring workstation matrix views always reflect real-time evaluation states.
+- **Hermetic Task Queue Test Sandboxing (`test_benchmark_endpoints.py`)**: Sandboxed `test_benchmark_run_enqueues_when_heavy_task_running` with a `tempfile.TemporaryDirectory()` and patched `QUEUE_STATE_FILE` so test task queue operations never persist to or execute against the production `data/evelyn_task_queue.json` file.
 
 ## [000.008.004] - 2026-10-03 — *Benchmark Case Divergence Diagnostics & Proactive Logging Directives*
 

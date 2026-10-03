@@ -92,4 +92,35 @@ def test_benchmark_status_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert "running" in data
+    assert "queued" in data
     assert "state" in data
+
+
+def test_benchmark_run_enqueues_when_heavy_task_running():
+    from Evelyn.tools import task_manager
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_queue_file = os.path.join(tmp_dir, "test_task_queue.json")
+        orig_queue = list(task_manager._idle_queue)
+        try:
+            task_manager._idle_queue = []
+            with (
+                patch.object(task_manager, "QUEUE_STATE_FILE", tmp_queue_file),
+                patch("evelyn_server.is_any_heavy_task_running", return_value=True),
+            ):
+                client = TestClient(app)
+                res = client.post(
+                    "/api/benchmark/run",
+                    json={"model": "gemma4:12b", "prompt_mode": "live", "routed": True, "category": "pushback"},
+                    headers=_get_auth_headers(),
+                )
+                assert res.status_code == 200
+                data = res.json()
+                assert data["status"] == "enqueued"
+                assert data["category"] == "pushback"
+                assert "waiting_for" in data
+
+                # Verify task is queued in task_manager
+                assert task_manager.is_task_queued("benchmark")
+        finally:
+            task_manager._idle_queue = orig_queue

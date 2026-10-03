@@ -651,15 +651,20 @@ def get_idle_queue() -> list[dict]:
     return list(_idle_queue)
 
 
-def enqueue_idle_task(name: str, metadata: dict | None = None) -> bool:
-    """Enqueue a task at the tail of the FIFO idle queue.
+def enqueue_idle_task(
+    name: str,
+    metadata: dict | None = None,
+    front: bool = False,
+) -> bool:
+    """Enqueue a task in the idle queue.
 
     Idempotent: Prevents duplicate queue entries if the task is already
     waiting in _idle_queue or currently actively running.
 
     Args:
-        name: The task key (e.g. 'extractor', 'consolidator', 'tag_librarian').
+        name: The task key (e.g. 'extractor', 'consolidator', 'tag_librarian', 'benchmark').
         metadata: Optional metadata dictionary associated with the task run.
+        front: If True, prepends to head of queue for next execution after current task.
 
     Returns:
         bool: True if newly enqueued, False if already queued or running.
@@ -678,9 +683,13 @@ def enqueue_idle_task(name: str, metadata: dict | None = None) -> bool:
         "enqueued_at": time.time(),
         "metadata": metadata or {},
     }
-    _idle_queue.append(entry)
+    if front:
+        _idle_queue.insert(0, entry)
+        print(f"[TASK QUEUE] Enqueued '{name}' at head (queue size: {len(_idle_queue)}).", flush=True)
+    else:
+        _idle_queue.append(entry)
+        print(f"[TASK QUEUE] Enqueued '{name}' at tail (queue size: {len(_idle_queue)}).", flush=True)
     save_persistent_queue()
-    print(f"[TASK QUEUE] Enqueued '{name}' at tail (queue size: {len(_idle_queue)}).", flush=True)
     return True
 
 

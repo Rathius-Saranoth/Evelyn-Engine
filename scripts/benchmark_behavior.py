@@ -403,11 +403,14 @@ def run_suite(
     system_prompt: str | None = None,
     prompt_mode: str = "template",
     save_snapshot: bool = True,
+    run_type: str = "full",
+    category: str | None = None,
 ) -> list[dict]:
     """Run every case against one model, printing progress."""
     mode_str = " (dynamically routed)" if routed else " (full tool set)"
     prompt_tag = f" [{prompt_mode} prompt]"
-    print(f"\n--- {_BLD}{model}{_RST}{mode_str}{prompt_tag} ---", flush=True)
+    probe_tag = f" [probe: {category or 'single case'}]" if run_type == "probe" else ""
+    print(f"\n--- {_BLD}{model}{_RST}{mode_str}{prompt_tag}{probe_tag} ---", flush=True)
     results = []
     for case in cases:
         try:
@@ -445,6 +448,8 @@ def run_suite(
                 tools=MODEL_TOOL_DEFINITIONS,
                 summary=summarise(results),
                 results=results,
+                run_type=run_type,
+                category=category,
             )
         except Exception as exc:  # noqa: BLE001
             print(f"  {_DIM}(Notice: Failed to persist benchmark snapshot: {exc}){_RST}")
@@ -643,6 +648,7 @@ def main() -> None:
     parser.add_argument("--output", metavar="PATH",
                         help="Path to save benchmark JSON output (default: reference/behavior_benchmark_matrix.json in --matrix mode)")
     parser.add_argument("--case", help="Filter to a specific case ID (e.g. proactivity_post_exertion)")
+    parser.add_argument("--category", help="Filter evaluation to a specific category (e.g. proactivity, pushback, sycophancy, tool_honesty)")
     parser.add_argument("--routed", action="store_true",
                         help="Dynamically route tools via get_active_tools() instead of offering all definitions")
     parser.add_argument("--verbose", action="store_true",
@@ -710,10 +716,21 @@ def main() -> None:
         return
 
     cases = load_cases(CASES_FILE)
+    run_type = "full"
+    category = None
     if args.case:
         cases = [c for c in cases if c.get("id") == args.case]
+        run_type = "probe"
         if not cases:
             print(f"No case found with ID: {args.case}")
+            return
+        category = cases[0].get("category")
+    elif args.category:
+        cases = [c for c in cases if c.get("category", "").lower() == args.category.lower()]
+        run_type = "probe"
+        category = args.category.lower()
+        if not cases:
+            print(f"No cases found in category: {args.category}")
             return
     baseline = args.model or cfg.MODEL_NAME
 
@@ -802,10 +819,12 @@ def main() -> None:
     results_a = run_suite(
         baseline, cases, verbose=args.verbose, routed=args.routed,
         system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
+        run_type=run_type, category=category,
     )
     results_b = run_suite(
         args.compare, cases, verbose=args.verbose, routed=args.routed,
         system_prompt=chosen_prompt, prompt_mode=args.prompt, save_snapshot=True,
+        run_type=run_type, category=category,
     ) if args.compare else None
     elapsed = time.perf_counter() - start
 

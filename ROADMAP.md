@@ -2,7 +2,7 @@
 title: ROADMAP.md
 tags: [roadmap, goals, features, implementation, planning, evelyn, system/engine]
 date created: 2026-03-14 22:34:06
-date modified: 2026-10-03 07:53:54
+date modified: 2026-10-03 12:07:32
 ---
 # Evelyn Project Roadmap
 
@@ -107,6 +107,7 @@ This roadmap is the primary source of truth for project milestones and future di
 - [x] **Stub Evidence Independence & Review Architecture**: Enforced caller witness isolation preventing stubs from self-citing or inflating citation counts, implemented partial wikilink boundary trimming, and deployed in-place structured editing on DevUI proposal cards.
 - [x] **Continuous Evaluation & Regression Benchmarking Suite**: Automated evaluation harness with Ragas/BEIR RAG retrieval validation, BFCL AST tool argument schema checks, Anthropic alignment/sycophancy suites, cold swap latency profiling, and cross-model performance matrix.
 - [x] **Standalone Benchmark Workstation & Prompt Drift Diff Engine**: Dedicated continuous evaluation dashboard (`ui/benchmark.html`) featuring interactive comparative matrices, visual throughput vs cold swap charts, partitioned 30-run historical snapshot retention, and line-level side-by-side prompt diffing.
+- [ ] **Pre-Acceptance Proposal Behavioral Benchmarking**: Speculative prompt compilation and lightweight behavior benchmark execution for staged profile evolution proposals, surfacing regression/drift impact badges directly on proposal review cards prior to operator acceptance.
 - [ ] **Dynamic Configuration Manager (`dev.html`)**: Touch-friendly web settings interface in DevUI to toggle features on/off, edit idle/circadian timers, configure assistant/user identity, manage protected profile sections, and adjust custom directories without direct file edits.
 - [ ] **Chat History Soft-Deletion & Trace Preservation**: Retain regenerated and edited assistant turns with soft-delete flags (`is_deleted`) to preserve failed responses, thinking traces, and tool logs in DevUI feedback review while isolating them from active context.
 - [ ] **Engine & Lifecycle Analytics Dashboard (`dev.html`)**: Comprehensive metrics dashboard to track engine usage, prompt and fact taxonomy domains, evaluation regressions, RAG/vault knowledge utilization, and tool/procedure frequency with time-range drill-downs.

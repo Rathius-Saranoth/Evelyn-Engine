@@ -130,6 +130,44 @@ class TestBenchmarkStore(unittest.TestCase):
         div_ids = {d["id"] for d in diff["divergences"]}
         self.assertEqual(div_ids, {"case1", "case2"})
 
+    def test_probe_runs_isolated_from_full_suite(self):
+        # Save a full run
+        benchmark_store.save_run_snapshot(
+            model="gemma4:12b",
+            prompt_mode="live",
+            prompt_text="Full live prompt",
+            tools=[],
+            summary={"passed": 24, "total": 25, "avg_tps": 50.0},
+            results=[{"id": "case1", "category": "cat1", "passed": True}],
+            run_type="full",
+        )
+
+        # Save a single-category probe run
+        probe = benchmark_store.save_run_snapshot(
+            model="gemma4:12b",
+            prompt_mode="live",
+            prompt_text="Full live prompt",
+            tools=[],
+            summary={"passed": 1, "total": 1, "avg_tps": 52.0},
+            results=[{"id": "proactivity_1", "category": "proactivity", "passed": True}],
+            run_type="probe",
+            category="proactivity",
+        )
+
+        self.assertTrue(probe["run_id"].startswith("probe_"))
+        self.assertEqual(probe["run_type"], "probe")
+        self.assertEqual(probe["category"], "proactivity")
+
+        # Standard list_history excludes probes by default
+        default_history = benchmark_store.list_history()
+        self.assertEqual(len(default_history), 1)
+        self.assertFalse(default_history[0]["run_id"].startswith("probe_"))
+
+        # Explicit probe query returns probes
+        probe_history = benchmark_store.list_history(partition="probes")
+        self.assertEqual(len(probe_history), 1)
+        self.assertEqual(probe_history[0]["run_id"], probe["run_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

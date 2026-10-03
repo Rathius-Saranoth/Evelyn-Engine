@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-03 07:53:54
+date modified: 2026-10-03 12:19:01
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -487,11 +487,11 @@ Endpoints driving the background research engine and the interactive developer d
 ## ⚡ Continuous Evaluation & Model Benchmarking Endpoints
 
 ### `GET /api/benchmark/matrix`
-* **Purpose**: Returns the pre-computed 7-model empirical evaluation matrix, topline summaries, throughput figures, cold-swap latencies, and case outcomes from `reference/behavior_benchmark_matrix.json`.
-* **Returns**: JSON object `{"timestamp": "...", "routed": true, "cases_count": 25, "summaries": {...}, "details": [...]}`
+* **Purpose**: Returns the pre-computed evaluation matrix, topline summaries, throughput figures, cold-swap latencies, enriched case outcomes, and engine active model. Overlays the newest full evaluation run from `data/benchmark_history.json` for live models.
+* **Returns**: JSON object `{"timestamp": "...", "routed": true, "cases_count": 25, "active_model": "...", "summaries": {...}, "details": [...], "flat_details": [...]}`.
 
 ### `GET /api/benchmark/history`
-* **Purpose**: Retrieves historical benchmark run summaries sorted newest first from `data/benchmark_history.json`.
+* **Purpose**: Retrieves historical benchmark run summaries sorted newest first from `data/benchmark_history.json`. Excludes isolated probe runs by default.
 * **Query Parameters**: `partition` (string, optional: `'live'`, `'template'`, or `None` for all).
 * **Returns**: JSON array of compact run records `[{"run_id": "...", "timestamp": float, "model": "...", "prompt_mode": "...", "prompt_hash": "...", "summary": {...}}, ...]`.
 
@@ -505,13 +505,13 @@ Endpoints driving the background research engine and the interactive developer d
 * **Returns**: JSON object `{"run_a": "...", "run_b": "...", "prompt_identical": bool, "prompt_diff": [...], "tool_diffs": [...], "metrics_delta": {...}, "divergences": [...]}`.
 
 ### `GET /api/benchmark/status`
-* **Purpose**: Returns real-time task manager execution status and recent stdout/stderr output lines for the background benchmark runner.
-* **Returns**: JSON object `{"running": bool, "task_manager_status": "idle" | "running", "state": {"status": "...", "phase": "...", "logs": [...]}}`.
+* **Purpose**: Returns real-time task manager execution status, queue status, and recent stdout/stderr output lines for the background benchmark runner.
+* **Returns**: JSON object `{"running": bool, "queued": bool, "task_manager_status": "idle" | "running", "state": {"status": "...", "phase": "...", "logs": [...]}}`.
 
 ### `POST /api/benchmark/run`
-* **Purpose**: Dispatches an evaluation benchmark run as an isolated subprocess managed by `task_manager`.
-* **Payload**: JSON object `{"model": "gemma4:12b", "prompt_mode": "template" | "live", "routed": bool}`.
-* **Returns**: JSON object `{"status": "started", "model": "...", "prompt_mode": "...", "routed": bool}`.
+* **Purpose**: Dispatches an evaluation benchmark run as an isolated subprocess managed by `task_manager`. Prepend-enqueues to the head of the task queue if a background heavy task is currently active.
+* **Payload**: JSON object `{"model": "gemma4:12b", "prompt_mode": "template" | "live", "routed": bool, "category": "pushback" | null}`.
+* **Returns**: JSON object `{"status": "started" | "enqueued", "model": "...", "prompt_mode": "...", "routed": bool, "waiting_for": str | null}`.
 
 ---
 

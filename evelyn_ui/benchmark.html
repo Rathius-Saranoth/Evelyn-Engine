@@ -142,7 +142,7 @@
     /* KPI Highlights */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 16px;
     }
     .kpi-card {
@@ -247,15 +247,7 @@
       display: flex;
     }
 
-    /* Visual Charts Section */
-    .charts-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-    @media (max-width: 1024px) {
-      .charts-grid { grid-template-columns: 1fr; }
-    }
+    /* Visual Charts & Capability Swimlanes Section */
     .chart-card {
       background: var(--bg-surface);
       border: 1px solid var(--border);
@@ -287,6 +279,163 @@
       position: relative;
       height: 260px;
       width: 100%;
+    }
+
+    /* Capability Swimlanes Styling */
+    .swimlane-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .swimlane-toolbar {
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .swimlane-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .swimlane-select {
+      background: rgba(14, 19, 31, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 6px 12px;
+      font-size: 13px;
+      font-family: var(--font-body);
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s ease;
+    }
+    .swimlane-select:focus {
+      border-color: var(--primary);
+    }
+    .swimlane-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+    .swimlane-table th {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 12px 18px;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+    .swimlane-row {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .swimlane-row:hover {
+      background: rgba(99, 102, 241, 0.07);
+    }
+    .swimlane-row.active-cat {
+      background: rgba(99, 102, 241, 0.14);
+      box-shadow: inset 3px 0 0 var(--primary);
+    }
+    .swimlane-row td {
+      padding: 12px 18px;
+      vertical-align: middle;
+    }
+    .swimlane-cat-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .swimlane-cat-title {
+      font-weight: 600;
+      color: #fff;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .swimlane-cat-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .swimlane-score-cell {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      white-space: nowrap;
+      color: #fff;
+    }
+    .swimlane-score-fraction {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-muted);
+      margin-left: 4px;
+    }
+    .sparkline-wrapper {
+      position: relative;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .sparkline-canvas {
+      display: block;
+      width: 240px;
+      height: 38px;
+      border-radius: 4px;
+    }
+    .sparkline-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 1000;
+      background: rgba(14, 19, 31, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      white-space: nowrap;
+      transform: translate(-50%, -120%);
+    }
+    .sparkline-tooltip .tt-date { color: var(--text-dim); font-size: 10px; margin-bottom: 2px; }
+    .sparkline-tooltip .tt-val { font-family: var(--font-mono); font-weight: 600; color: var(--emerald); }
+
+    /* History Table Diff Selection Buttons */
+    .btn-diff-sel {
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      transition: all 0.15s ease;
+    }
+    .btn-diff-sel:hover {
+      color: #fff;
+    }
+    .btn-diff-sel.active-source {
+      background: rgba(6, 182, 212, 0.25);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+    .btn-diff-sel.active-target {
+      background: rgba(124, 106, 247, 0.25);
+      border-color: var(--accent);
+      color: var(--accent);
     }
 
     /* Filter Bar */
@@ -618,89 +767,118 @@
   <!-- Main Workstation Container -->
   <div class="container">
 
-    <!-- KPI Metric Cards -->
+    <!-- KPI Metric Cards (Active Model Focused) -->
     <div class="kpi-grid">
-      <div class="kpi-card" style="--accent-gradient: var(--emerald);" title="The reigning champion model leading overall pass rate across the 25 behavioral evaluation cases">
+      <div class="kpi-card" style="--accent-gradient: var(--emerald);" title="Model overall pass rate across the behavioral evaluation suite">
         <div class="kpi-title">
-          <span>Active Champion Core</span>
-          <span class="badge badge-emerald">Optimal Sovereign</span>
+          <span>Model Pass Rate</span>
+          <span class="badge badge-emerald" id="kpi-pass-delta">+0.0% vs prev</span>
         </div>
-        <div class="kpi-value" id="kpi-champion-model">Gemma 4 12B</div>
-        <div class="kpi-desc" id="kpi-champion-score">24/25 Passed (96.0%) · 0 Misreports</div>
+        <div class="kpi-value" id="kpi-model-pass-rate">--%</div>
+        <div class="kpi-desc" id="kpi-model-pass-desc">Active Target Model</div>
       </div>
 
-      <div class="kpi-card" style="--accent-gradient: var(--cyan);" title="Fastest cold model swap from disk into GPU memory">
+      <div class="kpi-card" style="--accent-gradient: var(--primary);" title="Sustained token generation throughput under active tool prompts">
         <div class="kpi-title">
-          <span>Cold Swap Champion</span>
-          <span class="badge badge-cyan">0.00s Preloaded</span>
+          <span>Generation Speed</span>
+          <span class="badge badge-purple">Throughput</span>
         </div>
-        <div class="kpi-value" id="kpi-fastest-swap">Llama 3.1 8B</div>
-        <div class="kpi-desc" id="kpi-fastest-swap-desc">2.3s Cold Swap vs 11.4s (12B)</div>
+        <div class="kpi-value" id="kpi-model-tps">-- tok/s</div>
+        <div class="kpi-desc" id="kpi-model-tps-desc">Live streaming inference</div>
       </div>
 
-      <div class="kpi-card" style="--accent-gradient: var(--primary);" title="Highest sustained text generation speed in tokens per second under active tool prompts">
+      <div class="kpi-card" style="--accent-gradient: var(--cyan);" title="Cold model swap latency from disk into GPU memory">
         <div class="kpi-title">
-          <span>Peak Generation Throughput</span>
-          <span class="badge badge-purple">Inference Speed</span>
+          <span>Cold Swap Delay</span>
+          <span class="badge badge-cyan">Swap Latency</span>
         </div>
-        <div class="kpi-value" id="kpi-peak-tps">49.8 tok/s</div>
-        <div class="kpi-desc">Gemma 4 12B · Real-time streaming</div>
+        <div class="kpi-value" id="kpi-model-cold-swap">--s</div>
+        <div class="kpi-desc" id="kpi-model-cold-desc">Disk to VRAM load delay</div>
+      </div>
+
+      <div class="kpi-card" style="--accent-gradient: var(--accent);" title="Prompt character delta compared to comparison baseline">
+        <div class="kpi-title">
+          <span>Prompt Drift</span>
+          <span class="badge badge-purple" id="kpi-drift-badge">Clean</span>
+        </div>
+        <div class="kpi-value" id="kpi-model-drift">Identical</div>
+        <div class="kpi-desc" id="kpi-model-drift-desc">No prompt mutations detected</div>
       </div>
 
       <div class="kpi-card" style="--accent-gradient: var(--amber);" title="Rolling ring-buffer storage capacity: retains up to 30 historical benchmark snapshots per partition">
         <div class="kpi-title">
-          <span>Prompt Snapshot Retention</span>
-          <span class="badge badge-amber" id="kpi-retention-badge">30 Max / Partition</span>
+          <span>Snapshot Buffer</span>
+          <span class="badge badge-amber" id="kpi-retention-badge">30 Max / Part</span>
         </div>
-        <div class="kpi-value" id="kpi-history-count" style="font-size: 20px; line-height: 1.5;"><div>Live: 0 / 30</div><div>Template: 0 / 30</div></div>
-        <div class="kpi-desc">30-run ring buffer isolates live persona from template baseline</div>
+        <div class="kpi-value" id="kpi-history-count" style="font-size: 18px; line-height: 1.4;"><div>Live: 0 / 30</div><div>Template: 0 / 30</div></div>
+        <div class="kpi-desc">Isolated canonical partitions</div>
       </div>
     </div>
 
     <!-- Tab Navigation -->
     <div class="tabs-header">
-      <button class="tab-btn active" id="tab-btn-matrix" onclick="switchTab('matrix')" title="View comprehensive comparative model matrix, throughput curves, and category breakdowns">
-        📊 Comparative Matrix & Visuals
+      <button class="tab-btn active" id="tab-btn-matrix" onclick="switchTab('matrix')" title="View comprehensive comparative model matrix, capability swimlanes, and category breakdowns">
+        📊 Model Capabilities & Matrix
       </button>
       <button class="tab-btn" id="tab-btn-history" onclick="switchTab('history')" title="Inspect historical run snapshots, prompt drift, tool mutations, and side-by-side diffs">
         📜 Historical Runs & Prompt Drift
       </button>
-      <button class="tab-btn" id="tab-btn-runner" onclick="switchTab('runner')" title="Trigger continuous single-model or template-vs-live evaluations with real-time log streaming">
+      <button class="tab-btn" id="tab-btn-runner" onclick="switchTab('runner')" title="Trigger continuous single-model, category probes, or template-vs-live evaluations">
         🚀 Benchmark Runner & Live Logs
       </button>
     </div>
 
-    <!-- Tab 1: Comparative Matrix & Charts -->
+    <!-- Tab 1: Comparative Matrix & Capability Swimlanes -->
     <div class="tab-pane active" id="pane-matrix">
 
-      <!-- Visual Charts Section -->
-      <div class="charts-grid">
-        <!-- Throughput vs Cold Swap Bar Chart -->
-        <div class="chart-card">
-          <div class="chart-header">
-            <div>
-              <div class="chart-title">⚡ Throughput vs Cold Swap Latency</div>
-              <div class="chart-subtitle">Tokens/sec (higher is better) vs Cold Load Seconds (lower is better)</div>
-            </div>
-            <span class="badge badge-cyan">Dynamic Routed</span>
+      <!-- Model Capability & Drift Swimlanes (Full Width Centerpiece) -->
+      <div class="swimlane-card">
+        <div class="swimlane-toolbar">
+          <div>
+            <div class="chart-title">🎯 Model Capability & Behavioral Drift Swimlanes</div>
+            <div class="chart-subtitle">Category pass rates, delta vs comparative baseline, and regression sparklines across historical runs</div>
           </div>
-          <div class="chart-container" style="height: 330px; min-height: 330px;">
-            <canvas id="chart-throughput-swap" width="600" height="330"></canvas>
+          <div class="swimlane-controls">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="filter-label">Model:</span>
+              <select class="swimlane-select" id="swimlane-model-select" onchange="onSwimlaneModelChange()" title="Select model for capability swimlanes and historical sparklines">
+                <option value="ACTIVE">Loading models...</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="filter-label">Compare With:</span>
+              <select class="swimlane-select" id="swimlane-compare-select" onchange="renderSwimlanes()" title="Select baseline comparison: previous run, clean template, personal best, or specific snapshot">
+                <option value="PREV">Previous Run (N-1)</option>
+                <option value="TEMPLATE">Template Baseline</option>
+                <option value="BEST">Personal Best</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="filter-label">Scope:</span>
+              <select class="swimlane-select" id="swimlane-scope-select" onchange="onSwimlaneScopeChange()" title="Filter history between live evolving persona and template baseline runs">
+                <option value="live">Live Persona</option>
+                <option value="template">Template Baseline</option>
+                <option value="all">All Full Runs</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <!-- Pass Rate Trend Chart (Regression/Improvement Over Time) -->
-        <div class="chart-card">
-          <div class="chart-header">
-            <div>
-              <div class="chart-title">📈 Pass Rate Trend</div>
-              <div class="chart-subtitle">Track behavioral regression and improvement across benchmark runs over time</div>
-            </div>
-            <span class="badge badge-cyan" id="trend-chart-badge">Historical Trend</span>
-          </div>
-          <div class="chart-container" style="height: 330px; min-height: 330px;">
-            <canvas id="chart-pass-trend" width="600" height="330"></canvas>
-          </div>
+        <div style="overflow-x: auto;">
+          <table class="swimlane-table">
+            <thead>
+              <tr>
+                <th style="min-width: 250px;">Capability Category</th>
+                <th style="width: 140px;">Current Score</th>
+                <th style="width: 130px;">vs Baseline</th>
+                <th style="min-width: 260px;">Historical Trend (Recent Full Runs)</th>
+                <th style="width: 120px;">Health</th>
+              </tr>
+            </thead>
+            <tbody id="swimlane-table-body">
+              <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 30px;">Loading model capability swimlanes...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -777,8 +955,17 @@
           </div>
         </div>
 
-        <div class="filter-group">
-          <button class="btn-primary" id="btn-compare-runs" onclick="compareSelectedRuns()" title="Compute line-by-line prompt diff and behavioral case divergences between two selected runs" disabled>
+        <div class="filter-group" style="gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="filter-label">Source (Baseline):</span>
+            <span id="chip-source-run" class="badge" style="background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.3); color: var(--cyan); font-family: var(--font-mono); font-size: 11px;">None Selected</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="filter-label">Target:</span>
+            <span id="chip-target-run" class="badge" style="background: rgba(124, 106, 247, 0.15); border: 1px solid rgba(124, 106, 247, 0.3); color: var(--accent); font-family: var(--font-mono); font-size: 11px;">None Selected</span>
+          </div>
+          <button class="btn-nav" id="btn-clear-selection" onclick="clearSelectedRuns()" style="display: none;" title="Clear source and target selection">✕ Reset</button>
+          <button class="btn-primary" id="btn-compare-runs" onclick="compareSelectedRuns()" title="Compute line-by-line prompt diff and behavioral case divergences between Source and Target" disabled>
             🔍 Compare Selected Runs (Diff)
           </button>
         </div>
@@ -789,7 +976,7 @@
         <div class="table-header-bar">
           <div class="table-title">
             <span>📜 Historical Evaluation Snapshots</span>
-            <span class="badge badge-amber" id="history-table-badge">Select 2 runs to diff</span>
+            <span class="badge badge-amber" id="history-table-badge">Select Source and Target to diff</span>
           </div>
           <div style="font-size: 12px; color: var(--text-muted);">
             Each partition holds a rolling ring buffer of up to 30 snapshots
@@ -799,7 +986,7 @@
           <table class="data-table" id="history-table">
             <thead>
               <tr>
-                <th style="width: 40px;">Diff</th>
+                <th style="width: 140px;">Diff Selection</th>
                 <th>Run ID / Timestamp</th>
                 <th>Model</th>
                 <th>Partition</th>
@@ -918,7 +1105,7 @@
         <div class="chart-header">
           <div>
             <div class="chart-title">🚀 Continuous Behavior Evaluator</div>
-            <div class="chart-subtitle">Run single-model or comparison evaluations in background without server stalls</div>
+            <div class="chart-subtitle">Run single-model evaluations, fast category probes, or A/B comparisons in background</div>
           </div>
           <div id="runner-task-badge" class="badge badge-cyan">Task Manager: Idle</div>
         </div>
@@ -938,10 +1125,34 @@
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="filter-label" for="run-scope-select">Evaluation Scope:</label>
+            <select class="input-field" id="run-scope-select" style="min-width: 210px;" onchange="toggleRunnerScope()" title="Run canonical full-suite evaluation or fast isolated single-category probe">
+              <option value="full">Full Suite (25 Cases — Canonical)</option>
+              <option value="probe">Single Category Probe (Fast 10-15s)</option>
+            </select>
+          </div>
+
+          <div id="runner-category-group" style="display: none; flex-direction: column; gap: 6px;">
+            <label class="filter-label" for="run-category-select">Probe Category:</label>
+            <select class="input-field" id="run-category-select" style="min-width: 200px;" title="Select single category to evaluate">
+              <option value="proactivity">⚡ Autonomous Proactivity</option>
+              <option value="pushback">🛡️ Pushback & Skepticism</option>
+              <option value="sycophancy">🧭 Sycophancy & Pushback</option>
+              <option value="tool_honesty">🎯 Tool Honesty & Truth</option>
+              <option value="over_protection">⚖️ Anti-Nanny & Voice</option>
+              <option value="bfcl_tool_arguments">🧩 Schema Validation</option>
+              <option value="restraint">🛑 Operational Restraint</option>
+              <option value="tool_awareness">👁️ Tool Result Awareness</option>
+              <option value="control">🕹️ Explicit Control</option>
+              <option value="persona_drift">🎭 Voice Resilience</option>
+            </select>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px;">
             <label class="filter-label" for="run-prompt-select">Prompt Architecture:</label>
-            <select class="input-field" id="run-prompt-select" style="min-width: 220px;" title="Select prompt source: clean archetype templates or live evolving persona">
+            <select class="input-field" id="run-prompt-select" style="min-width: 200px;" title="Select prompt source: clean archetype templates or live evolving persona">
               <option value="template">Template Baseline (Starter Templates)</option>
-              <option value="live">Live Persona (Active Profiles)</option>
+              <option value="live" selected>Live Persona (Active Profiles)</option>
             </select>
           </div>
 
@@ -1056,12 +1267,30 @@
     let allDetailsList = [];
     let filteredDetailsList = [];
     let historyData = [];
-    let selectedRuns = [];
+    let selectedModel = null;
+    let selectedScope = 'live';
+    let selectedCompareMode = 'PREV';
+    let selectedSourceRun = null;
+    let selectedTargetRun = null;
     let activeModelFilter = 'ALL';
     let activeCategoryFilter = 'ALL';
     let activeStatusFilter = 'ALL';
     let activeHistoryPartition = 'all';
     let pollingInterval = null;
+
+    // Behavioral category taxonomy for capability swimlanes
+    const BEHAVIOR_CATEGORIES = [
+      { key: 'pushback', title: '🛡️ Pushback & Skepticism', desc: 'Rejects false premises and flawed user designs under flat denial' },
+      { key: 'over_protection', title: '⚖️ Anti-Nanny & Voice', desc: 'Avoids paternalistic lecturing, unsolicited disclaimers, or groveling' },
+      { key: 'proactivity', title: '⚡ Autonomous Proactivity', desc: 'Auto-captures tasks, health metrics, and journal entries on implicit cues' },
+      { key: 'tool_honesty', title: '🎯 Tool Honesty & Truth', desc: 'Truthfully reports tool outcomes and API errors without fabricating' },
+      { key: 'bfcl_tool_arguments', title: '🧩 Schema Validation', desc: 'Valid JSON parameters and schema compliance for complex tool calls' },
+      { key: 'restraint', title: '🛑 Operational Restraint', desc: 'Direct conversational replies with zero unwanted write actions' },
+      { key: 'tool_awareness', title: '👁️ Tool Result Awareness', desc: 'Notices and utilizes returned tool execution results in conversational response' },
+      { key: 'control', title: '🕹️ Explicit Control', desc: 'Executes mutations when explicitly commanded by the operator' },
+      { key: 'sycophancy', title: '🧭 Technical Objectivity', desc: 'Points out architectural design flaws instead of blind agreement' },
+      { key: 'persona_drift', title: '🎭 Voice Resilience', desc: 'Maintains configured assistant tone and identity under irritation' },
+    ];
 
     // Authentication headers helper
     function getHeaders() {
@@ -1092,6 +1321,11 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         matrixData = await res.json();
 
+        // Default selected model to engine's active model
+        if (!selectedModel || selectedModel === 'ACTIVE') {
+          selectedModel = matrixData.active_model || 'qwen2.5:14b';
+        }
+
         // Normalize matrix details into flat array
         if (matrixData.flat_details && Array.isArray(matrixData.flat_details)) {
           allDetailsList = matrixData.flat_details;
@@ -1108,54 +1342,107 @@
           }
         }
 
+        // Populate model dropdown in runner if empty
+        const runnerModelSelect = document.getElementById('run-model-select');
+        if (runnerModelSelect && matrixData.summaries) {
+          const mList = Object.keys(matrixData.summaries);
+          if (mList.includes(selectedModel)) {
+            runnerModelSelect.value = selectedModel;
+          }
+        }
+
         renderKPIs();
         renderFilterChips();
         renderMatrixTable();
-        // Give layout a tick to calculate bounding rects before drawing canvas
-        requestAnimationFrame(() => renderCharts());
+        renderSwimlanes();
       } catch (err) {
         console.error('Failed to load benchmark matrix:', err);
         document.getElementById('matrix-table-body').innerHTML = `
-          <tr><td colspan="6" style="text-align: center; color: var(--rose); padding: 30px;">
+          <tr><td colspan="7" style="text-align: center; color: var(--rose); padding: 30px;">
             ⚠️ Failed to load benchmark matrix: ${err.message}. Ensure evelyn_server is running.
           </td></tr>
         `;
       }
     }
 
-    // Render KPI values from matrix
+    // Render model-centric KPI values
     function renderKPIs() {
       if (!matrixData || !matrixData.summaries) return;
-      const summaries = matrixData.summaries;
 
-      let champion = 'gemma4:12b';
-      let maxRate = 0;
-      let fastestSwapModel = '';
-      let minColdSwap = 999;
-      let peakTps = 0;
+      const activeModel = matrixData.active_model || 'qwen2.5:14b';
+      const targetModel = selectedModel || activeModel;
+      const s = matrixData.summaries[targetModel] || matrixData.summaries[activeModel] || {};
 
-      for (const [model, s] of Object.entries(summaries)) {
-        if (s.pass_rate > maxRate) {
-          maxRate = s.pass_rate;
-          champion = model;
-        }
-        if (s.cold_load < minColdSwap) {
-          minColdSwap = s.cold_load;
-          fastestSwapModel = model;
-        }
-        if (s.avg_tps > peakTps) {
-          peakTps = s.avg_tps;
+      // 1. Pass Rate & Delta
+      const total = s.total || 25;
+      const passed = s.passed || 0;
+      const rate = s.pass_rate || (total > 0 ? passed / total : 0);
+      const passRateEl = document.getElementById('kpi-model-pass-rate');
+      if (passRateEl) passRateEl.textContent = `${passed}/${total} (${(rate * 100).toFixed(1)}%)`;
+
+      const passDescEl = document.getElementById('kpi-model-pass-desc');
+      if (passDescEl) {
+        passDescEl.textContent = `${targetModel} ${targetModel === activeModel ? '· Active Live Model' : ''}`;
+      }
+
+      const deltaEl = document.getElementById('kpi-pass-delta');
+      if (deltaEl) {
+        const modelRuns = (historyData || []).filter(h => h.model === targetModel);
+        modelRuns.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // newest first
+        if (modelRuns.length >= 2) {
+          const curR = modelRuns[0].summary?.pass_rate || 0;
+          const prevR = modelRuns[1].summary?.pass_rate || 0;
+          const diffPct = Math.round((curR - prevR) * 100);
+          if (diffPct > 0) {
+            deltaEl.textContent = `+${diffPct}% vs prev`;
+            deltaEl.className = 'badge badge-emerald';
+          } else if (diffPct < 0) {
+            deltaEl.textContent = `${diffPct}% vs prev`;
+            deltaEl.className = 'badge badge-rose';
+          } else {
+            deltaEl.textContent = `Stable (0% Δ)`;
+            deltaEl.className = 'badge badge-cyan';
+          }
+        } else {
+          deltaEl.textContent = rate === 1.0 ? 'Optimal (100%)' : `${(rate * 100).toFixed(0)}% Baseline`;
+          deltaEl.className = 'badge badge-emerald';
         }
       }
 
-      const champ = summaries[champion] || {};
-      document.getElementById('kpi-champion-model').textContent = champion;
-      document.getElementById('kpi-champion-score').textContent = `${champ.passed || 0}/${champ.total || 25} Passed (${((champ.pass_rate || 0) * 100).toFixed(1)}%) · ${champ.misreports || 0} Misreports`;
+      // 2. Generation Throughput
+      const tpsEl = document.getElementById('kpi-model-tps');
+      if (tpsEl) tpsEl.textContent = s.avg_tps ? `${s.avg_tps.toFixed(1)} tok/s` : '-- tok/s';
 
-      document.getElementById('kpi-fastest-swap').textContent = fastestSwapModel || 'Llama 3.1 8B';
-      document.getElementById('kpi-fastest-swap-desc').textContent = `${minColdSwap.toFixed(2)}s Cold Load Latency`;
+      // 3. Cold Swap Delay
+      const coldEl = document.getElementById('kpi-model-cold-swap');
+      if (coldEl) coldEl.textContent = s.cold_load ? `${s.cold_load.toFixed(2)}s` : '--s';
 
-      document.getElementById('kpi-peak-tps').textContent = `${peakTps.toFixed(1)} tok/s`;
+      // 4. Prompt Drift Status
+      const driftEl = document.getElementById('kpi-model-drift');
+      const driftBadge = document.getElementById('kpi-drift-badge');
+      const driftDesc = document.getElementById('kpi-model-drift-desc');
+      if (driftEl) {
+        const modelRuns = (historyData || []).filter(h => h.model === targetModel);
+        if (modelRuns.length >= 2) {
+          const runA = modelRuns[1];
+          const runB = modelRuns[0];
+          const identical = runA.prompt_hash === runB.prompt_hash;
+          if (identical) {
+            driftEl.textContent = 'Identical';
+            if (driftBadge) { driftBadge.textContent = 'Clean'; driftBadge.className = 'badge badge-emerald'; }
+            if (driftDesc) driftDesc.textContent = `Prompt hash matches baseline (${runB.prompt_hash || ''})`;
+          } else {
+            const charDiff = (runB.prompt_length || 0) - (runA.prompt_length || 0);
+            driftEl.textContent = `${charDiff >= 0 ? '+' : ''}${charDiff} chars`;
+            if (driftBadge) { driftBadge.textContent = 'Mutated'; driftBadge.className = 'badge badge-amber'; }
+            if (driftDesc) driftDesc.textContent = `Hash ${runA.prompt_hash || ''} ➔ ${runB.prompt_hash || ''}`;
+          }
+        } else {
+          driftEl.textContent = 'Baseline';
+          if (driftBadge) { driftBadge.textContent = 'Initial'; driftBadge.className = 'badge badge-cyan'; }
+          if (driftDesc) driftDesc.textContent = 'First canonical snapshot recorded';
+        }
+      }
     }
 
     // Render dynamic filter chips for models and categories
@@ -1288,70 +1575,9 @@
       return { ctx, width, height };
     }
 
-    // Render Canvas Charts
+    // Render Canvas Charts forwarder
     function renderCharts() {
-      if (!matrixData || !matrixData.summaries) return;
-
-      // 1. Throughput & Cold Swap Bar Chart
-      const canvasSwap = document.getElementById('chart-throughput-swap');
-      if (canvasSwap) {
-        const cSetup = setupCanvas(canvasSwap, 330);
-        if (cSetup) {
-          const { ctx, width, height } = cSetup;
-          const models = Object.keys(matrixData.summaries);
-          const tpsValues = models.map(m => matrixData.summaries[m].avg_tps || 0);
-          const swapValues = models.map(m => matrixData.summaries[m].cold_load || 0);
-
-          ctx.clearRect(0, 0, width, height);
-
-          // Legend
-          ctx.fillStyle = '#6366f1';
-          ctx.fillRect(16, 14, 10, 10);
-          ctx.fillStyle = '#cbd5e1';
-          ctx.font = '11px Inter, sans-serif';
-          ctx.textAlign = 'left';
-          ctx.fillText('Throughput (tok/s)', 32, 23);
-
-          ctx.fillStyle = '#06b6d4';
-          ctx.fillRect(170, 14, 10, 10);
-          ctx.fillStyle = '#cbd5e1';
-          ctx.fillText('Cold Swap Latency (s)', 186, 23);
-
-          const baseY = height - 55;
-          const maxBarH = height - 120;
-          const barWidth = Math.min(22, (width - 40) / (models.length * 2.8));
-          const totalSlot = barWidth * 2 + 6;
-          const gap = (width - 32 - (models.length * totalSlot)) / (models.length + 1);
-
-          models.forEach((m, i) => {
-            const x = 16 + gap + i * (totalSlot + gap);
-
-            // TPS Bar (Indigo)
-            const tpsH = Math.min(maxBarH, (tpsValues[i] / 65) * maxBarH);
-            ctx.fillStyle = '#6366f1';
-            ctx.beginPath();
-            ctx.roundRect(x, baseY - tpsH, barWidth, tpsH, [4, 4, 0, 0]);
-            ctx.fill();
-
-            // Cold Swap Bar (Cyan)
-            const swapH = Math.min(maxBarH, (swapValues[i] / 20) * maxBarH);
-            ctx.fillStyle = '#06b6d4';
-            ctx.beginPath();
-            ctx.roundRect(x + barWidth + 3, baseY - swapH, barWidth, swapH, [4, 4, 0, 0]);
-            ctx.fill();
-
-            // Label
-            ctx.fillStyle = '#94a3b8';
-            ctx.font = '10px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            const shortName = m.split(':')[0].substring(0, 6) + (m.includes(':') ? ':' + m.split(':')[1] : '');
-            ctx.fillText(shortName, x + barWidth, baseY + 20);
-          });
-        }
-      }
-
-      // 2. Pass Rate Trend Line Chart (historical regression/improvement tracking)
-      renderTrendChart();
+      renderSwimlanes();
     }
 
     // Drill-down modal
@@ -1425,253 +1651,435 @@
       document.getElementById('case-modal').classList.remove('open');
     }
 
-    // ── Pass Rate Trend Line Chart ──────────────────────────────────────
-    const TREND_MODEL_PALETTE = [
-      '#6366f1', // Indigo
-      '#f59e0b', // Amber
-      '#10b981', // Emerald
-      '#06b6d4', // Cyan
-      '#8b5cf6', // Violet
-      '#f43f5e', // Rose
-      '#ec4899', // Pink
-      '#84cc16', // Lime
-      '#f97316', // Orange
-    ];
+    // ── Model Capability & Behavioral Drift Swimlanes ────────────────────
+    function onSwimlaneModelChange() {
+      const sel = document.getElementById('swimlane-model-select');
+      if (sel) selectedModel = sel.value;
+      renderKPIs();
+      renderSwimlanes();
+    }
 
-    function renderTrendChart() {
-      const canvas = document.getElementById('chart-pass-trend');
+    function onSwimlaneScopeChange() {
+      const sel = document.getElementById('swimlane-scope-select');
+      if (sel) selectedScope = sel.value;
+      renderSwimlanes();
+    }
+
+    function onSwimlaneRowClick(catKey) {
+      if (activeCategoryFilter === catKey) {
+        activeCategoryFilter = 'ALL';
+      } else {
+        activeCategoryFilter = catKey;
+      }
+      renderFilterChips();
+      renderMatrixTable();
+      document.querySelectorAll('.swimlane-row').forEach(r => {
+        r.classList.toggle('active-cat', r.dataset.cat === activeCategoryFilter);
+      });
+      if (activeCategoryFilter !== 'ALL') {
+        const tableCard = document.querySelector('.table-card');
+        if (tableCard) tableCard.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    let sparklineTooltipEl = null;
+    function showSparklineTooltip(e, pt, catTitle) {
+      if (!sparklineTooltipEl) {
+        sparklineTooltipEl = document.createElement('div');
+        sparklineTooltipEl.className = 'sparkline-tooltip';
+        document.body.appendChild(sparklineTooltipEl);
+      }
+      sparklineTooltipEl.innerHTML = `
+        <div class="tt-date">${escapeHtml(pt.dt || 'Snapshot')} · ${escapeHtml(catTitle || '')}</div>
+        <div class="tt-val">${Math.round(pt.rate * 100)}% Pass Rate <span style="color: var(--text-dim); font-size: 10px;">(${pt.passed}/${pt.total})</span></div>
+        <div style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;">${escapeHtml(pt.run_id || '')}</div>
+      `;
+      sparklineTooltipEl.style.display = 'block';
+      sparklineTooltipEl.style.left = e.clientX + 'px';
+      sparklineTooltipEl.style.top = e.clientY + 'px';
+    }
+
+    function hideSparklineTooltip() {
+      if (sparklineTooltipEl) {
+        sparklineTooltipEl.style.display = 'none';
+      }
+    }
+
+    function renderSwimlanes() {
+      if (!matrixData || !matrixData.summaries) return;
+
+      const activeModel = matrixData.active_model || 'qwen2.5:14b';
+      const targetModel = selectedModel || activeModel;
+
+      // Ensure model select is populated
+      const modelSel = document.getElementById('swimlane-model-select');
+      if (modelSel) {
+        const models = Object.keys(matrixData.summaries);
+        const optionsHtml = models.map(m => {
+          const isAct = (m === activeModel);
+          const isSel = (m === targetModel);
+          return `<option value="${escapeHtml(m)}" ${isSel ? 'selected' : ''}>${escapeHtml(m)}${isAct ? ' (Active Live)' : ''}</option>`;
+        }).join('');
+        if (modelSel.innerHTML !== optionsHtml) {
+          modelSel.innerHTML = optionsHtml;
+        }
+      }
+
+      const compareSelect = document.getElementById('swimlane-compare-select');
+      const compareMode = compareSelect ? compareSelect.value : 'PREV';
+      const scopeSelect = document.getElementById('swimlane-scope-select');
+      const scope = scopeSelect ? scopeSelect.value : selectedScope || 'live';
+
+      // Historical runs for targetModel (filtered: probes are excluded from historyData)
+      let modelRuns = (historyData || []).filter(h => h.model === targetModel && h.run_type !== 'probe');
+      if (scope === 'live') {
+        modelRuns = modelRuns.filter(h => h.prompt_mode === 'live');
+      } else if (scope === 'template') {
+        modelRuns = modelRuns.filter(h => h.prompt_mode === 'template');
+      }
+      modelRuns.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)); // oldest -> newest
+
+      const latestRun = modelRuns.length > 0 ? modelRuns[modelRuns.length - 1] : null;
+
+      // Find comparison baseline run
+      let baselineRun = null;
+      if (compareMode === 'PREV') {
+        if (modelRuns.length >= 2) {
+          baselineRun = modelRuns[modelRuns.length - 2];
+        }
+      } else if (compareMode === 'TEMPLATE') {
+        const templateRuns = (historyData || []).filter(h => h.model === targetModel && h.prompt_mode === 'template');
+        templateRuns.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        baselineRun = templateRuns[0] || null;
+      }
+
+      const tbody = document.getElementById('swimlane-table-body');
+      if (!tbody) return;
+
+      const pointsMap = {};
+
+      const rowsHtml = BEHAVIOR_CATEGORIES.map(cat => {
+        // Current score from latest evaluation run if available, else matrix details
+        let curTotal = 0;
+        let curPassed = 0;
+        let curRate = 0;
+
+        if (latestRun && latestRun.results && latestRun.results.length > 0) {
+          const catResults = latestRun.results.filter(r => r.category === cat.key);
+          if (catResults.length > 0) {
+            curTotal = catResults.length;
+            curPassed = catResults.filter(r => r.passed).length;
+            curRate = curPassed / curTotal;
+          }
+        } else if (latestRun && latestRun.summary && latestRun.summary.by_cat && latestRun.summary.by_cat[cat.key]) {
+          const catStat = latestRun.summary.by_cat[cat.key];
+          curTotal = catStat.total || 0;
+          curPassed = catStat.passed || 0;
+          curRate = curTotal > 0 ? (curPassed / curTotal) : 0;
+        } else {
+          const curCases = allDetailsList.filter(d => (d.model === targetModel) && d.category === cat.key);
+          curTotal = curCases.length;
+          curPassed = curCases.filter(d => d.passed).length;
+          curRate = curTotal > 0 ? (curPassed / curTotal) : 0;
+        }
+
+        // Historical points for sparkline
+        const points = [];
+        modelRuns.forEach(h => {
+          const catRes = (h.results || []).filter(r => r.category === cat.key);
+          if (catRes.length > 0) {
+            const p = catRes.filter(r => r.passed).length;
+            points.push({
+              rate: p / catRes.length,
+              passed: p,
+              total: catRes.length,
+              ts: h.timestamp || 0,
+              dt: h.datetime || '',
+              run_id: h.run_id || '',
+            });
+          }
+        });
+
+        // If no prior history snapshots exist, seed with current evaluation point
+        if (points.length === 0 && curTotal > 0) {
+          points.push({
+            rate: curRate,
+            passed: curPassed,
+            total: curTotal,
+            ts: Date.now() / 1000,
+            dt: 'Current Eval',
+            run_id: 'current',
+          });
+        }
+        pointsMap[cat.key] = points;
+
+        // Comparison delta calculation
+        let deltaHtml = `<span class="badge badge-cyan" title="Initial baseline recording">Baseline</span>`;
+        if (compareMode === 'BEST') {
+          if (points.length > 0) {
+            const maxRate = Math.max(...points.map(p => p.rate));
+            const diffPct = Math.round((curRate - maxRate) * 100);
+            if (diffPct >= 0) {
+              deltaHtml = `<span class="badge badge-emerald" title="Matching or exceeding personal best">⭐ PB (0% Δ)</span>`;
+            } else {
+              deltaHtml = `<span class="badge badge-rose" title="${diffPct}% below personal best">${diffPct}% vs PB</span>`;
+            }
+          }
+        } else if (baselineRun) {
+          let baseRate = null;
+          if (baselineRun.results && baselineRun.results.length > 0) {
+            const baseRes = baselineRun.results.filter(r => r.category === cat.key);
+            if (baseRes.length > 0) {
+              baseRate = baseRes.filter(r => r.passed).length / baseRes.length;
+            }
+          } else if (baselineRun.summary && baselineRun.summary.by_cat && baselineRun.summary.by_cat[cat.key]) {
+            const bStat = baselineRun.summary.by_cat[cat.key];
+            if (bStat.total > 0) {
+              baseRate = (bStat.passed || 0) / bStat.total;
+            }
+          }
+
+          if (baseRate !== null) {
+            const diffPct = Math.round((curRate - baseRate) * 100);
+            if (diffPct > 0) {
+              deltaHtml = `<span class="badge badge-emerald" title="+${diffPct}% improvement vs comparative baseline">+${diffPct}%</span>`;
+            } else if (diffPct < 0) {
+              deltaHtml = `<span class="badge badge-rose" title="${diffPct}% regression vs comparative baseline">${diffPct}%</span>`;
+            } else {
+              deltaHtml = `<span class="badge badge-cyan" title="Score is stable compared to baseline">Stable (0%)</span>`;
+            }
+          }
+        }
+
+        // Health Badge
+        let healthBadge = '';
+        if (curTotal === 0) {
+          healthBadge = `<span class="badge" style="background: rgba(255,255,255,0.06); color: var(--text-dim);" title="No benchmark cases registered in this category">No Cases</span>`;
+        } else if (curRate === 1.0) {
+          healthBadge = `<span class="badge badge-emerald" title="100% Pass Rate: Optimal adherence with zero observed failures">⭐ Optimal</span>`;
+        } else if (curRate >= 0.8) {
+          healthBadge = `<span class="badge badge-cyan" title="${Math.round(curRate * 100)}% Pass Rate: Solid behavioral compliance">✅ Solid</span>`;
+        } else if (curRate >= 0.6) {
+          healthBadge = `<span class="badge badge-amber" title="${Math.round(curRate * 100)}% Pass Rate: Behavioral drift or partial failures detected">⚠️ At Risk</span>`;
+        } else {
+          healthBadge = `<span class="badge badge-rose" title="${Math.round(curRate * 100)}% Pass Rate: Critical behavioral regression">🚨 Critical</span>`;
+        }
+
+        const isActive = (activeCategoryFilter === cat.key);
+
+        return `
+          <tr class="swimlane-row ${isActive ? 'active-cat' : ''}" data-cat="${escapeHtml(cat.key)}" onclick="onSwimlaneRowClick('${escapeHtml(cat.key)}')" title="Click row to filter evaluation matrix to ${escapeHtml(cat.title)}">
+            <td>
+              <div class="swimlane-cat-info">
+                <div class="swimlane-cat-title">${cat.title}</div>
+                <div class="swimlane-cat-desc">${cat.desc}</div>
+              </div>
+            </td>
+            <td>
+              <div class="swimlane-score-cell">
+                <span>${Math.round(curRate * 100)}%</span>
+                <span class="swimlane-score-fraction">(${curPassed}/${curTotal})</span>
+              </div>
+            </td>
+            <td>${deltaHtml}</td>
+            <td>
+              <div class="sparkline-wrapper">
+                <canvas class="sparkline-canvas" id="sparkline-${escapeHtml(cat.key)}"></canvas>
+              </div>
+            </td>
+            <td>${healthBadge}</td>
+          </tr>
+        `;
+      }).join('');
+
+      tbody.innerHTML = rowsHtml;
+
+      // Draw all sparklines on canvas elements
+      requestAnimationFrame(() => {
+        BEHAVIOR_CATEGORIES.forEach(cat => {
+          drawSparkline(cat.key, pointsMap[cat.key], cat.title);
+        });
+      });
+    }
+
+    function drawSparkline(catKey, points, catTitle) {
+      const canvas = document.getElementById('sparkline-' + catKey);
       if (!canvas) return;
-      const cSetup = setupCanvas(canvas, 330);
-      if (!cSetup) return;
-      const { ctx, width, height } = cSetup;
+
+      const dpr = window.devicePixelRatio || 1;
+      const width = 240;
+      const height = 38;
+
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
-      const badgeEl = document.getElementById('trend-chart-badge');
+      // Mouse interactive state
+      canvas._sparklinePoints = points || [];
+      canvas._sparklineCat = catTitle || '';
 
-      // Require history data
-      if (!historyData || historyData.length === 0) {
+      if (!points || points.length === 0) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(10, height / 2);
+        ctx.lineTo(width - 10, height / 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
         ctx.fillStyle = '#64748b';
-        ctx.font = '13px Inter, sans-serif';
+        ctx.font = '10px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('No historical benchmark runs yet — run a benchmark to begin tracking.', width / 2, height / 2);
-        if (badgeEl) { badgeEl.textContent = 'No Data'; badgeEl.className = 'badge badge-amber'; }
+        ctx.fillText('Awaiting history', width / 2, height / 2 + 3);
         return;
       }
 
-      // Group runs by model, sorted by timestamp (oldest first)
-      const modelMap = {};
-      historyData.forEach(h => {
-        const model = h.model || 'unknown';
-        if (!modelMap[model]) modelMap[model] = [];
-        const passRate = h.summary ? (h.summary.pass_rate || 0) : 0;
-        modelMap[model].push({
-          ts: h.timestamp || 0,
-          dt: h.datetime || '',
-          passRate: passRate,
-          passed: h.summary?.passed || 0,
-          total: h.summary?.total || 0,
-          mode: h.prompt_mode || 'live',
-        });
-      });
-      // Sort each model's runs oldest → newest
-      Object.values(modelMap).forEach(arr => arr.sort((a, b) => a.ts - b.ts));
+      if (points.length === 1) {
+        const pt = points[0];
+        const y = Math.round(8 + (1.0 - pt.rate) * (height - 16));
+        const color = pt.rate >= 0.8 ? '#10b981' : (pt.rate >= 0.6 ? '#f59e0b' : '#f43f5e');
 
-      const models = Object.keys(modelMap);
-      const colorMap = {};
-      models.forEach((m, i) => colorMap[m] = TREND_MODEL_PALETTE[i % TREND_MODEL_PALETTE.length]);
-
-      // Chart geometry
-      const padL = 52, padR = 20, padT = 46, padB = 60;
-      const plotW = width - padL - padR;
-      const plotH = height - padT - padB;
-
-      // Global time range across all models
-      let tsMin = Infinity, tsMax = -Infinity;
-      Object.values(modelMap).forEach(arr => {
-        arr.forEach(p => {
-          if (p.ts < tsMin) tsMin = p.ts;
-          if (p.ts > tsMax) tsMax = p.ts;
-        });
-      });
-      // If all runs have same timestamp, widen the range slightly
-      if (tsMax - tsMin < 60) { tsMin -= 3600; tsMax += 3600; }
-
-      const tsRange = tsMax - tsMin;
-      const toX = (ts) => padL + ((ts - tsMin) / tsRange) * plotW;
-      const toY = (pct) => padT + plotH - (pct * plotH);
-
-      // Draw grid and axes
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-      ctx.lineWidth = 1;
-      for (let pct = 0; pct <= 1.0; pct += 0.25) {
-        const y = toY(pct);
+        ctx.strokeStyle = color + '40';
+        ctx.setLineDash([2, 2]);
         ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(width - padR, y);
+        ctx.moveTo(12, y);
+        ctx.lineTo(width - 12, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = color + '40';
+        ctx.beginPath();
+        ctx.arc(width / 2, y, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(width / 2, y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = '10px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${Math.round(pt.rate * 100)}%`, width / 2 + 24, y + 3);
+      } else {
+        const padX = 12;
+        const padTop = 6;
+        const padBottom = 8;
+        const plotW = width - padX * 2;
+        const plotH = height - padTop - padBottom;
+
+        const coords = points.map((p, idx) => ({
+          x: padX + (idx / (points.length - 1)) * plotW,
+          y: padTop + (1.0 - Math.max(0, Math.min(1, p.rate))) * plotH,
+          rate: p.rate,
+        }));
+
+        const latestRate = points[points.length - 1].rate;
+        const color = latestRate >= 0.8 ? '#10b981' : (latestRate >= 0.6 ? '#f59e0b' : '#f43f5e');
+
+        const grad = ctx.createLinearGradient(0, padTop, 0, height);
+        grad.addColorStop(0, latestRate >= 0.8 ? 'rgba(16, 185, 129, 0.25)' : (latestRate >= 0.6 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(244, 63, 94, 0.25)'));
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
+
+        ctx.beginPath();
+        ctx.moveTo(coords[0].x, coords[0].y);
+        for (let i = 1; i < coords.length; i++) {
+          ctx.lineTo(coords[i].x, coords[i].y);
+        }
+        ctx.lineTo(coords[coords.length - 1].x, height);
+        ctx.lineTo(coords[0].x, height);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(coords[0].x, coords[0].y);
+        for (let i = 1; i < coords.length; i++) {
+          ctx.lineTo(coords[i].x, coords[i].y);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Y-axis label
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px JetBrains Mono, monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${Math.round(pct * 100)}%`, padL - 8, y + 4);
-      }
-
-      // X-axis date labels (spread evenly, max 6)
-      const allTs = [];
-      Object.values(modelMap).forEach(arr => arr.forEach(p => allTs.push(p)));
-      allTs.sort((a, b) => a.ts - b.ts);
-      const uniqueDates = [];
-      const seenDates = new Set();
-      allTs.forEach(p => {
-        const dateStr = p.dt.substring(0, 16); // 'YYYY-MM-DD HH:MM'
-        if (!seenDates.has(dateStr)) {
-          seenDates.add(dateStr);
-          uniqueDates.push({ ts: p.ts, label: dateStr });
-        }
-      });
-      const maxLabels = Math.min(6, uniqueDates.length);
-      const step = Math.max(1, Math.floor(uniqueDates.length / maxLabels));
-      ctx.fillStyle = '#64748b';
-      ctx.font = '10px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      for (let i = 0; i < uniqueDates.length; i += step) {
-        const d = uniqueDates[i];
-        const x = toX(d.ts);
-        // Show just date or date+time depending on range
-        const label = tsRange > 86400 * 2 ? d.label.substring(5, 10) : d.label.substring(11, 16);
-        ctx.fillText(label, x, height - padB + 20);
-      }
-
-      // Draw lines + dots for each model
-      models.forEach(model => {
-        const runs = modelMap[model];
-        const color = colorMap[model];
-
-        // Draw connecting line
-        if (runs.length > 1) {
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2.5;
-          ctx.lineJoin = 'round';
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          runs.forEach((p, i) => {
-            const x = toX(p.ts);
-            const y = toY(p.passRate);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          });
-          ctx.stroke();
-        }
-
-        // Draw dots
-        runs.forEach(p => {
-          const x = toX(p.ts);
-          const y = toY(p.passRate);
-
-          // Outer glow
-          ctx.fillStyle = color + '40';
-          ctx.beginPath();
-          ctx.arc(x, y, 7, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Inner dot (solid for live, ring for template)
-          if (p.mode === 'template') {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
+        coords.forEach((c, idx) => {
+          const isLatest = (idx === coords.length - 1);
+          if (isLatest) {
+            ctx.fillStyle = color + '50';
             ctx.beginPath();
-            ctx.arc(x, y, 4, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = '#0f172a';
+            ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+            ctx.arc(c.x, c.y, 3, 0, Math.PI * 2);
             ctx.fill();
           } else {
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.arc(c.x, c.y, 2, 0, Math.PI * 2);
             ctx.fill();
           }
-
-          // Pass rate label above dot
-          ctx.fillStyle = '#e2e8f0';
-          ctx.font = '9px JetBrains Mono, monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(`${Math.round(p.passRate * 100)}%`, x, y - 12);
         });
-      });
+      }
 
-      // Legend
-      let legendX = padL + 4;
-      const legendY = 14;
-      ctx.font = '11px Inter, sans-serif';
-      ctx.textAlign = 'left';
-      models.forEach(model => {
-        const color = colorMap[model];
-        const shortName = model.length > 16 ? model.substring(0, 14) + '…' : model;
+      if (!canvas._hasSparklineListeners) {
+        canvas._hasSparklineListeners = true;
+        canvas.addEventListener('mousemove', (e) => {
+          const pts = canvas._sparklinePoints;
+          if (!pts || pts.length === 0) return;
+          const rect = canvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const padX = 12;
+          const plotW = width - padX * 2;
 
-        // Color swatch (filled circle)
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(legendX + 5, legendY + 3, 4, 0, Math.PI * 2);
-        ctx.fill();
+          let bestIdx = 0;
+          let bestDist = Infinity;
+          pts.forEach((p, idx) => {
+            const x = pts.length === 1 ? (width / 2) : (padX + (idx / (pts.length - 1)) * plotW);
+            const dist = Math.abs(x - mouseX);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestIdx = idx;
+            }
+          });
 
-        // Model name
-        ctx.fillStyle = '#cbd5e1';
-        ctx.fillText(shortName, legendX + 14, legendY + 7);
-        legendX += ctx.measureText(shortName).width + 30;
-      });
+          showSparklineTooltip(e, pts[bestIdx], canvas._sparklineCat);
+        });
 
-      // Dot style legend (solid = live, ring = template)
-      ctx.fillStyle = '#64748b';
-      ctx.font = '10px Inter, sans-serif';
-      ctx.textAlign = 'right';
-      // Solid dot
-      ctx.fillStyle = '#94a3b8';
-      ctx.beginPath();
-      ctx.arc(width - padR - 90, legendY + 3, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#64748b';
-      ctx.fillText('Live', width - padR - 80, legendY + 7);
-      // Ring dot
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(width - padR - 42, legendY + 3, 3.5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = '#64748b';
-      ctx.fillText('Template', width - padR - 32, legendY + 7);
-
-      // Update badge
-      if (badgeEl) {
-        const totalRuns = historyData.length;
-        badgeEl.textContent = `${totalRuns} Run${totalRuns !== 1 ? 's' : ''} Tracked`;
-        badgeEl.className = 'badge badge-cyan';
+        canvas.addEventListener('mouseleave', () => {
+          hideSparklineTooltip();
+        });
       }
     }
 
-    // Auto-resize charts on window resize
+    // Auto-resize swimlanes on window resize
     window.addEventListener('resize', () => {
-      requestAnimationFrame(() => { renderCharts(); renderTrendChart(); });
+      requestAnimationFrame(() => { renderSwimlanes(); });
     });
 
     // Historical Runs & Diff Engine
     async function loadHistory() {
       try {
-        const url = activeHistoryPartition === 'all'
-          ? '/api/benchmark/history'
-          : `/api/benchmark/history?partition=${activeHistoryPartition}`;
-        const res = await fetch(url, { headers: getHeaders() });
+        const res = await fetch('/api/benchmark/history', { headers: getHeaders() });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         historyData = await res.json();
         renderHistoryTable();
 
         const liveCount = historyData.filter(h => h.prompt_mode === 'live').length;
         const tempCount = historyData.filter(h => h.prompt_mode === 'template').length;
-        document.getElementById('kpi-history-count').innerHTML = `<div>Live: ${liveCount} / 30</div><div>Template: ${tempCount} / 30</div>`;
+        const kpiCountEl = document.getElementById('kpi-history-count');
+        if (kpiCountEl) {
+          kpiCountEl.innerHTML = `<div>Live: ${liveCount} / 30</div><div>Template: ${tempCount} / 30</div>`;
+        }
 
-        // Re-render trend chart with fresh history data
-        renderTrendChart();
+        // Re-render swimlanes with fresh history sparkline data
+        renderSwimlanes();
       } catch (err) {
         console.error('Failed to load history:', err);
         document.getElementById('history-table-body').innerHTML = `
@@ -1687,18 +2095,93 @@
       document.getElementById('part-all').classList.toggle('active', p === 'all');
       document.getElementById('part-template').classList.toggle('active', p === 'template');
       document.getElementById('part-live').classList.toggle('active', p === 'live');
-      loadHistory();
+      renderHistoryTable();
+    }
+
+    function setSourceRun(runId) {
+      if (selectedSourceRun === runId) {
+        selectedSourceRun = null;
+      } else {
+        selectedSourceRun = runId;
+        if (selectedTargetRun === runId) selectedTargetRun = null;
+      }
+      updateDiffToolbar();
+      renderHistoryTable();
+    }
+
+    function setTargetRun(runId) {
+      if (selectedTargetRun === runId) {
+        selectedTargetRun = null;
+      } else {
+        selectedTargetRun = runId;
+        if (selectedSourceRun === runId) selectedSourceRun = null;
+      }
+      updateDiffToolbar();
+      renderHistoryTable();
+    }
+
+    function clearSelectedRuns() {
+      selectedSourceRun = null;
+      selectedTargetRun = null;
+      updateDiffToolbar();
+      renderHistoryTable();
+      const viewer = document.getElementById('diff-viewer-section');
+      if (viewer) viewer.style.display = 'none';
+    }
+
+    function updateDiffToolbar() {
+      const srcChip = document.getElementById('chip-source-run');
+      const tgtChip = document.getElementById('chip-target-run');
+      const clearBtn = document.getElementById('btn-clear-selection');
+      const cmpBtn = document.getElementById('btn-compare-runs');
+      const badge = document.getElementById('history-table-badge');
+
+      if (srcChip) {
+        srcChip.textContent = selectedSourceRun ? selectedSourceRun : 'None Selected';
+        srcChip.style.color = selectedSourceRun ? 'var(--cyan)' : 'var(--text-dim)';
+      }
+      if (tgtChip) {
+        tgtChip.textContent = selectedTargetRun ? selectedTargetRun : 'None Selected';
+        tgtChip.style.color = selectedTargetRun ? 'var(--accent)' : 'var(--text-dim)';
+      }
+      if (clearBtn) {
+        clearBtn.style.display = (selectedSourceRun || selectedTargetRun) ? 'inline-flex' : 'none';
+      }
+      const canCompare = Boolean(selectedSourceRun && selectedTargetRun);
+      if (cmpBtn) {
+        cmpBtn.disabled = !canCompare;
+      }
+      if (badge) {
+        if (canCompare) {
+          badge.textContent = `Ready to diff: ${selectedSourceRun} ➔ ${selectedTargetRun}`;
+          badge.className = 'badge badge-emerald';
+        } else if (selectedSourceRun) {
+          badge.textContent = 'Baseline selected — choose Target run';
+          badge.className = 'badge badge-amber';
+        } else if (selectedTargetRun) {
+          badge.textContent = 'Target selected — choose Baseline (Source) run';
+          badge.className = 'badge badge-amber';
+        } else {
+          badge.textContent = 'Select Source and Target to diff';
+          badge.className = 'badge badge-amber';
+        }
+      }
     }
 
     function renderHistoryTable() {
       const tbody = document.getElementById('history-table-body');
-      if (!historyData || historyData.length === 0) {
+      const filtered = (historyData || []).filter(h => {
+        if (activeHistoryPartition === 'all') return true;
+        return h.prompt_mode === activeHistoryPartition;
+      });
+      if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">No historical benchmark runs recorded in this partition yet.</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = historyData.map(h => {
-        const isChecked = selectedRuns.includes(h.run_id);
+      tbody.innerHTML = filtered.map(h => {
+        const isSrc = (selectedSourceRun === h.run_id);
+        const isTgt = (selectedTargetRun === h.run_id);
         const sum = h.summary || {};
         const score = `${sum.passed || 0}/${sum.total || 0}`;
         const tps = sum.avg_tps ? `${sum.avg_tps.toFixed(1)} tok/s` : '-';
@@ -1708,7 +2191,10 @@
         return `
           <tr>
             <td>
-              <input type="checkbox" onchange="toggleRunSelection('${h.run_id}')" ${isChecked ? 'checked' : ''} title="Select run for comparative diff">
+              <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <button class="btn-diff-sel ${isSrc ? 'active-source' : ''}" onclick="setSourceRun('${h.run_id}')" title="Set this run as comparative Baseline (Source)">Source</button>
+                <button class="btn-diff-sel ${isTgt ? 'active-target' : ''}" onclick="setTargetRun('${h.run_id}')" title="Set this run as Target to compare against Baseline">Target</button>
+              </div>
             </td>
             <td style="font-family: var(--font-mono); font-weight: 600;">${h.run_id}</td>
             <td>${h.model}</td>
@@ -1723,25 +2209,10 @@
       }).join('');
     }
 
-    function toggleRunSelection(runId) {
-      if (selectedRuns.includes(runId)) {
-        selectedRuns = selectedRuns.filter(r => r !== runId);
-      } else {
-        if (selectedRuns.length >= 2) selectedRuns.shift();
-        selectedRuns.push(runId);
-      }
-
-      const btn = document.getElementById('btn-compare-runs');
-      btn.disabled = selectedRuns.length !== 2;
-      document.getElementById('history-table-badge').textContent = selectedRuns.length === 2
-        ? `Ready to diff: ${selectedRuns[0]} vs ${selectedRuns[1]}`
-        : `${selectedRuns.length}/2 runs selected`;
-      renderHistoryTable();
-    }
-
     async function compareSelectedRuns() {
-      if (selectedRuns.length !== 2) return;
-      const [runA, runB] = selectedRuns;
+      if (!selectedSourceRun || !selectedTargetRun) return;
+      const runA = selectedSourceRun;
+      const runB = selectedTargetRun;
 
       try {
         const res = await fetch(`/api/benchmark/diff?run_a=${encodeURIComponent(runA)}&run_b=${encodeURIComponent(runB)}`, {
@@ -1850,10 +2321,27 @@
     }
 
     // Benchmark Runner Execution
+    function toggleRunnerScope() {
+      const scopeSel = document.getElementById('run-scope-select');
+      const catGroup = document.getElementById('runner-category-group');
+      const btn = document.getElementById('btn-trigger-run');
+      const isProbe = (scopeSel && scopeSel.value === 'probe');
+
+      if (catGroup) {
+        catGroup.style.display = isProbe ? 'flex' : 'none';
+      }
+      if (btn && !btn.disabled) {
+        btn.textContent = isProbe ? '▶ Start Probe Evaluation' : '▶ Start Evaluation';
+      }
+    }
+
     async function triggerBenchmarkExecution() {
       const model = document.getElementById('run-model-select').value;
       const promptMode = document.getElementById('run-prompt-select').value;
       const routed = document.getElementById('run-routed-check').checked;
+      const scopeSel = document.getElementById('run-scope-select');
+      const isProbe = (scopeSel && scopeSel.value === 'probe');
+      const category = isProbe ? document.getElementById('run-category-select').value : null;
 
       const btn = document.getElementById('btn-trigger-run');
       btn.disabled = true;
@@ -1863,20 +2351,31 @@
         const res = await fetch('/api/benchmark/run', {
           method: 'POST',
           headers: getHeaders(),
-          body: JSON.stringify({ model, prompt_mode: promptMode, routed }),
+          body: JSON.stringify({ model, prompt_mode: promptMode, routed, category }),
         });
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.detail || `HTTP ${res.status}`);
         }
-        appendTerminalLog(`[LAUNCH] Benchmark task dispatched for ${model} (${promptMode}, routed=${routed})`, 'term-green');
+        const data = await res.json();
+        if (data.status === 'enqueued') {
+          appendTerminalLog(`[ENQUEUED] Active heavy task '${data.waiting_for}' is running. Benchmark queued at head of task manager; execution will begin automatically when ${data.waiting_for} completes.`, 'term-cyan');
+          const badge = document.getElementById('runner-task-badge');
+          if (badge) {
+            badge.textContent = `Queued (Waiting for ${data.waiting_for})`;
+            badge.className = 'badge badge-purple';
+          }
+          btn.textContent = '⏳ Enqueued...';
+        } else {
+          appendTerminalLog(`[LAUNCH] Benchmark task dispatched for ${model} (${promptMode}, scope=${isProbe ? 'probe:' + category : 'full'}, routed=${routed})`, 'term-green');
+        }
         lastRenderedLogsLength = 0;
         lastRenderedLogSignature = '';
         startStatusPolling();
       } catch (err) {
         alert(`Failed to trigger benchmark: ${err.message}`);
         btn.disabled = false;
-        btn.textContent = '▶ Start Evaluation';
+        btn.textContent = isProbe ? '▶ Start Probe Evaluation' : '▶ Start Evaluation';
       }
     }
 
@@ -1893,17 +2392,24 @@
         const data = await res.json();
         const badge = document.getElementById('runner-task-badge');
         const btn = document.getElementById('btn-trigger-run');
+        const scopeSel = document.getElementById('run-scope-select');
+        const isProbe = (scopeSel && scopeSel.value === 'probe');
 
         if (data.running) {
           badge.textContent = `Running: ${data.state.phase || 'Evaluating...'}`;
           badge.className = 'badge badge-amber';
           btn.disabled = true;
           btn.textContent = 'Evaluating...';
+        } else if (data.queued) {
+          badge.textContent = `Queued: Waiting for heavy task...`;
+          badge.className = 'badge badge-purple';
+          btn.disabled = true;
+          btn.textContent = '⏳ Enqueued...';
         } else {
           badge.textContent = `Status: ${data.state.status || 'Idle'}`;
           badge.className = data.state.status === 'completed' ? 'badge badge-emerald' : 'badge badge-cyan';
           btn.disabled = false;
-          btn.textContent = '▶ Start Evaluation';
+          btn.textContent = isProbe ? '▶ Start Probe Evaluation' : '▶ Start Evaluation';
           if (data.state.status === 'completed') {
             loadHistory();
             loadMatrix();
