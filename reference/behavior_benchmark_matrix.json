@@ -4,13 +4,13 @@
   "cases_count": 25,
   "summaries": {
     "gemma4:12b": {
-      "passed": 32,
+      "passed": 34,
       "total": 35,
-      "pass_rate": 0.9142857142857143,
+      "pass_rate": 0.9714285714285714,
       "strict_cases": {
-        "passed": 22,
+        "passed": 24,
         "total": 25,
-        "pass_rate": 0.88
+        "pass_rate": 0.96
       },
       "misreports": 0,
       "actions": 11,
@@ -73,20 +73,20 @@
         },
         "bfcl_tool_arguments": {
           "total": 4,
-          "passed": 2,
+          "passed": 4,
           "na": 0,
-          "pass_rate": 0.5
+          "pass_rate": 1.0
         }
       }
     },
     "qwen2.5:14b": {
-      "passed": 31,
+      "passed": 33,
       "total": 34,
-      "pass_rate": 0.9117647058823529,
+      "pass_rate": 0.9705882352941176,
       "strict_cases": {
-        "passed": 22,
+        "passed": 24,
         "total": 25,
-        "pass_rate": 0.88
+        "pass_rate": 0.96
       },
       "misreports": 0,
       "actions": 12,
@@ -149,20 +149,20 @@
         },
         "bfcl_tool_arguments": {
           "total": 4,
-          "passed": 2,
+          "passed": 4,
           "na": 0,
-          "pass_rate": 0.5
+          "pass_rate": 1.0
         }
       }
     },
     "qwen2.5:7b": {
-      "passed": 31,
+      "passed": 33,
       "total": 36,
-      "pass_rate": 0.8611111111111112,
+      "pass_rate": 0.9166666666666666,
       "strict_cases": {
-        "passed": 20,
+        "passed": 22,
         "total": 25,
-        "pass_rate": 0.8
+        "pass_rate": 0.88
       },
       "misreports": 1,
       "actions": 12,
@@ -225,20 +225,20 @@
         },
         "bfcl_tool_arguments": {
           "total": 4,
-          "passed": 2,
+          "passed": 4,
           "na": 0,
-          "pass_rate": 0.5
+          "pass_rate": 1.0
         }
       }
     },
     "llama3.1:8b": {
-      "passed": 27,
+      "passed": 29,
       "total": 33,
-      "pass_rate": 0.8181818181818182,
+      "pass_rate": 0.8787878787878788,
       "strict_cases": {
-        "passed": 19,
+        "passed": 21,
         "total": 25,
-        "pass_rate": 0.76
+        "pass_rate": 0.84
       },
       "misreports": 0,
       "actions": 14,
@@ -301,20 +301,20 @@
         },
         "bfcl_tool_arguments": {
           "total": 4,
-          "passed": 2,
+          "passed": 4,
           "na": 0,
-          "pass_rate": 0.5
+          "pass_rate": 1.0
         }
       }
     },
     "mistral-nemo:12b": {
-      "passed": 27,
+      "passed": 29,
       "total": 34,
-      "pass_rate": 0.7941176470588235,
+      "pass_rate": 0.8529411764705882,
       "strict_cases": {
-        "passed": 18,
+        "passed": 20,
         "total": 25,
-        "pass_rate": 0.72
+        "pass_rate": 0.8
       },
       "misreports": 0,
       "actions": 11,
@@ -377,9 +377,9 @@
         },
         "bfcl_tool_arguments": {
           "total": 4,
-          "passed": 2,
+          "passed": 4,
           "na": 0,
-          "pass_rate": 0.5
+          "pass_rate": 1.0
         }
       }
     },
@@ -460,13 +460,13 @@
       }
     },
     "granite4.2:8b": {
-      "passed": 28,
+      "passed": 30,
       "total": 32,
-      "pass_rate": 0.875,
+      "pass_rate": 0.9375,
       "strict_cases": {
-        "passed": 21,
+        "passed": 23,
         "total": 25,
-        "pass_rate": 0.84
+        "pass_rate": 0.92
       },
       "misreports": 0,
       "actions": 22,
@@ -529,9 +529,9 @@
         },
         "bfcl_tool_arguments": {
           "total": 4,
-          "passed": 2,
+          "passed": 4,
           "na": 0,
-          "pass_rate": 0.5
+          "pass_rate": 1.0
         }
       }
     }
@@ -1262,7 +1262,7 @@
         "id": "bfcl_tool_args_create_task",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "create_task"
         ],
@@ -1293,8 +1293,8 @@
             "label": "create_task arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['title']"
+            "passed": true,
+            "evidence": "create_task arguments valid"
           }
         ]
       },
@@ -1302,7 +1302,7 @@
         "id": "bfcl_tool_args_manage_vault_list",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "manage_vault_list"
         ],
@@ -1333,8 +1333,8 @@
             "label": "manage_vault_list arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['items']"
+            "passed": true,
+            "evidence": "manage_vault_list arguments valid"
           }
         ]
       },
@@ -2189,7 +2189,7 @@
         "id": "bfcl_tool_args_create_task",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "create_task"
         ],
@@ -2220,8 +2220,8 @@
             "label": "create_task arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['title']"
+            "passed": true,
+            "evidence": "create_task arguments valid"
           }
         ]
       },
@@ -2229,7 +2229,7 @@
         "id": "bfcl_tool_args_manage_vault_list",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "manage_vault_list"
         ],
@@ -2260,8 +2260,8 @@
             "label": "manage_vault_list arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['items']"
+            "passed": true,
+            "evidence": "manage_vault_list arguments valid"
           }
         ]
       },
@@ -3114,7 +3114,7 @@
         "id": "bfcl_tool_args_create_task",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "create_task"
         ],
@@ -3145,8 +3145,8 @@
             "label": "create_task arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['title']"
+            "passed": true,
+            "evidence": "create_task arguments valid"
           }
         ]
       },
@@ -3154,7 +3154,7 @@
         "id": "bfcl_tool_args_manage_vault_list",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "manage_vault_list"
         ],
@@ -3185,8 +3185,8 @@
             "label": "manage_vault_list arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['items']"
+            "passed": true,
+            "evidence": "manage_vault_list arguments valid"
           }
         ]
       },
@@ -4050,7 +4050,7 @@
         "id": "bfcl_tool_args_create_task",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "create_task"
         ],
@@ -4081,8 +4081,8 @@
             "label": "create_task arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['title']"
+            "passed": true,
+            "evidence": "create_task arguments valid"
           }
         ]
       },
@@ -4090,7 +4090,7 @@
         "id": "bfcl_tool_args_manage_vault_list",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "manage_vault_list"
         ],
@@ -4121,8 +4121,8 @@
             "label": "manage_vault_list arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['items']"
+            "passed": true,
+            "evidence": "manage_vault_list arguments valid"
           }
         ]
       },
@@ -4990,7 +4990,7 @@
         "id": "bfcl_tool_args_create_task",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "create_task"
         ],
@@ -5021,8 +5021,8 @@
             "label": "create_task arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['title']"
+            "passed": true,
+            "evidence": "create_task arguments valid"
           }
         ]
       },
@@ -5030,7 +5030,7 @@
         "id": "bfcl_tool_args_manage_vault_list",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "manage_vault_list"
         ],
@@ -5061,8 +5061,8 @@
             "label": "manage_vault_list arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['items']"
+            "passed": true,
+            "evidence": "manage_vault_list arguments valid"
           }
         ]
       },
@@ -6880,7 +6880,7 @@
         "id": "bfcl_tool_args_create_task",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "create_task"
         ],
@@ -6911,8 +6911,8 @@
             "label": "create_task arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['title']"
+            "passed": true,
+            "evidence": "create_task arguments valid"
           }
         ]
       },
@@ -6920,7 +6920,7 @@
         "id": "bfcl_tool_args_manage_vault_list",
         "category": "bfcl_tool_arguments",
         "expect": "valid_tool_args",
-        "passed": false,
+        "passed": true,
         "called": [
           "manage_vault_list"
         ],
@@ -6951,8 +6951,8 @@
             "label": "manage_vault_list arguments are valid",
             "primary": false,
             "misreport": false,
-            "passed": false,
-            "evidence": "missing required ['items']"
+            "passed": true,
+            "evidence": "manage_vault_list arguments valid"
           }
         ]
       },

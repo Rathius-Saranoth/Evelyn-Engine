@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # rescore_benchmark_history.py
 # date created: 2026-10-04 10:13:16
-# date modified: 2026-10-04 10:14:47
+# date modified: 2026-10-04 10:24:51
 # tags:
 
 # rescore_benchmark_history.py — Rescore historical benchmark runs with condition checkpoints
@@ -54,15 +54,23 @@ def rescore_results(results: list[dict], cases_by_id: dict[str, dict], shared: d
         writes = r.get("writes", []) or []
         reply = r.get("reply", "") or ""
 
-        calls = [
-            {
-                "name": name,
-                "args": {},
-                "response": '{"status": "ok"}',
-                "write": name in writes,
-            }
-            for name in called
-        ]
+        calls = r.get("calls")
+        if not calls:
+            calls = []
+            arg_errors = r.get("arg_errors", []) or []
+            for name in called:
+                args = {}
+                if not arg_errors:
+                    for cond in c_def.get("conditions", []):
+                        if cond.get("kind") == "valid_args" and cond.get("tool") == name:
+                            args.update(dict.fromkeys(cond.get("required", []), "valid"))
+                            args.update(cond.get("contains", {}))
+                calls.append({
+                    "name": name,
+                    "args": args,
+                    "response": '{"status": "ok"}',
+                    "write": name in writes,
+                })
         ctx = TurnContext(reply=reply, calls=calls, shared=shared)
         cond_results = evaluate_conditions(c_def, ctx)
         c_pass = case_passed(cond_results)

@@ -1,6 +1,6 @@
 # benchmark_store.py
 # date created: 2026-10-02 19:55:00
-# date modified: 2026-10-04 10:14:47
+# date modified: 2026-10-04 10:24:51
 # tags: #benchmark, #evaluation, #history, #diff, #storage
 
 """
@@ -380,10 +380,22 @@ def analyze_benchmark_case(entry: dict[str, Any], case_def: dict[str, Any]) -> d
     if not conditions and case_def.get("conditions"):
         try:
             from Evelyn.tools.benchmark_conditions import TurnContext, case_passed, evaluate_conditions
-            calls = [
-                {"name": name, "args": {}, "response": '{"status": "ok"}', "write": name in writes}
-                for name in called
-            ]
+            calls = entry.get("calls")
+            if not calls:
+                calls = []
+                for name in called:
+                    args = {}
+                    if not arg_errors:
+                        for cond in case_def.get("conditions", []):
+                            if cond.get("kind") == "valid_args" and cond.get("tool") == name:
+                                args.update(dict.fromkeys(cond.get("required", []), "valid"))
+                                args.update(cond.get("contains", {}))
+                    calls.append({
+                        "name": name,
+                        "args": args,
+                        "response": '{"status": "ok"}',
+                        "write": name in writes,
+                    })
             ctx = TurnContext(reply=reply, calls=calls, shared={})
             conditions = evaluate_conditions(case_def, ctx)
             passed = case_passed(conditions)

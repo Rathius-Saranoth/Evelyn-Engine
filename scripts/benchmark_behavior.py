@@ -1,6 +1,6 @@
 # benchmark_behavior.py
 # date created: 2026-09-20 08:32:30
-# date modified: 2026-10-04 09:56:37
+# date modified: 2026-10-04 10:24:51
 # tags: #benchmark, #evaluation, #testing, #persona, #tools
 
 """
@@ -316,6 +316,7 @@ def evaluate_case(
         "passed": passed,
         "conditions": conditions,
         "called": called,
+        "calls": calls,
         "writes": writes,
         "rounds": rounds,
         "reply": reply,
