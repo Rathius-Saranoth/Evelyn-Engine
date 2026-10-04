@@ -1,6 +1,6 @@
 # task_manager.py
 # date created: 2026-08-01
-# date modified: 2026-10-02 19:59:59
+# date modified: 2026-10-04 10:36:02
 # tags: #tasks, #concurrency, #mutual_exclusion, #background
 
 """task_manager.py — Centralized registry and mutual-exclusion layer for all heavy background tasks.
@@ -693,6 +693,17 @@ def enqueue_idle_task(
     return True
 
 
+def dequeue_idle_task(name: str) -> bool:
+    """Remove any pending entries for a task from the idle queue."""
+    global _idle_queue
+    orig_len = len(_idle_queue)
+    _idle_queue = [item for item in _idle_queue if item.get("task") != name]
+    if len(_idle_queue) != orig_len:
+        save_persistent_queue()
+        return True
+    return False
+
+
 def get_task_schedule(name: str) -> TaskSchedule:
     """Return the TaskSchedule tier for a given task name."""
     if name.startswith("task_"):
@@ -1012,6 +1023,9 @@ def load_persistent_state() -> None:
             if isinstance(data, dict):
                 for key, val in data.items():
                     if isinstance(val, dict) and key not in tasks:
+                        if val.get("status") in RUNNING_STATUSES or val.get("status") == "running":
+                            val["status"] = "idle"
+                            val["phase"] = "Idle"
                         tasks[key] = val
                 print(f"[TASK MANAGER] Restored heavy tasks state from disk ({len(tasks)} tasks).", flush=True)
         except (OSError, json.JSONDecodeError, ValueError) as e:

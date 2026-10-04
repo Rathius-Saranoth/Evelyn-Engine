@@ -1,7 +1,7 @@
 ---
 title: endpoints.md
 date created: 2026-02-26 20:05:15
-date modified: 2026-10-03 12:19:01
+date modified: 2026-10-04 10:36:02
 tags: [api, endpoints, routing, backend, local_server, evelyn]
 ---
 
@@ -512,6 +512,10 @@ Endpoints driving the background research engine and the interactive developer d
 * **Purpose**: Dispatches an evaluation benchmark run as an isolated subprocess managed by `task_manager`. Prepend-enqueues to the head of the task queue if a background heavy task is currently active.
 * **Payload**: JSON object `{"model": "gemma4:12b", "prompt_mode": "template" | "live", "routed": bool, "category": "pushback" | null}`.
 * **Returns**: JSON object `{"status": "started" | "enqueued", "model": "...", "prompt_mode": "...", "routed": bool, "waiting_for": str | null}`.
+
+### `POST /api/benchmark/cancel`
+* **Purpose**: Terminates any active or enqueued behavior benchmark run, cleans up subprocess handles, dequeues from the idle task queue, and resets runner state to idle.
+* **Returns**: JSON object `{"status": "idle", "message": "Benchmark run successfully cancelled."}`.
 
 ---
 

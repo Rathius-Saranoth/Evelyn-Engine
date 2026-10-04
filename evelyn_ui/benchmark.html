@@ -928,7 +928,7 @@
                 <th style="width: 130px;">Category</th>
                 <th>Test Prompt</th>
                 <th style="width: 180px;">Expected Behavior</th>
-                <th style="width: 140px;">Model Outcome</th>
+                <th style="width: 140px;">Tools Used</th>
                 <th style="width: 100px;">Status</th>
               </tr>
             </thead>
@@ -1163,9 +1163,12 @@
             </label>
           </div>
 
-          <div>
+          <div style="display: flex; gap: 8px;">
             <button class="btn-primary" id="btn-trigger-run" onclick="triggerBenchmarkExecution()" title="Spawn background evaluation subprocess managed by task_manager">
               ▶ Start Evaluation
+            </button>
+            <button class="btn-primary" id="btn-cancel-run" onclick="cancelBenchmarkExecution()" style="display: none; background: rgba(244, 63, 94, 0.2); border: 1px solid rgba(244, 63, 94, 0.4); color: var(--rose);" title="Cancel the active or stuck benchmark run and reset state">
+              ⏹ Cancel Run
             </button>
           </div>
         </div>
@@ -1511,7 +1514,7 @@
             <th style="width: 130px;">Category</th>
             <th>Test Prompt</th>
             <th style="width: 180px;">Expected Behavior</th>
-            <th style="width: 140px;">Model Outcome</th>
+            <th style="width: 140px;">Tools Used</th>
             <th style="width: 100px;">Status</th>
           </tr>
         `;
@@ -2461,6 +2464,13 @@
         const scopeSel = document.getElementById('run-scope-select');
         const isProbe = (scopeSel && scopeSel.value === 'probe');
 
+        const cancelBtn = document.getElementById('btn-cancel-run');
+        if (data.running || data.queued) {
+          if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+        } else {
+          if (cancelBtn) cancelBtn.style.display = 'none';
+        }
+
         if (data.running) {
           badge.textContent = `Running: ${data.state.phase || 'Evaluating...'}`;
           badge.className = 'badge badge-amber';
@@ -2487,6 +2497,24 @@
         }
       } catch (err) {
         console.warn('Status poll error:', err);
+      }
+    }
+
+    async function cancelBenchmarkExecution() {
+      const cancelBtn = document.getElementById('btn-cancel-run');
+      if (cancelBtn) { cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelling...'; }
+      try {
+        const res = await fetch('/api/benchmark/cancel', {
+          method: 'POST',
+          headers: getHeaders(),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        appendTerminalLog('[CANCEL] Benchmark run cancelled and runner state reset to idle.', 'term-rose');
+        await pollBenchmarkStatus();
+      } catch (err) {
+        alert(`Failed to cancel benchmark: ${err.message}`);
+      } finally {
+        if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = '⏹ Cancel Run'; }
       }
     }
 

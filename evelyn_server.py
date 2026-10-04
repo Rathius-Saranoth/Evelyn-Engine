@@ -1,6 +1,6 @@
 # evelyn_server.py
 # date created: 2026-03-23 15:43:21
-# date modified: 2026-10-04 09:56:37
+# date modified: 2026-10-04 10:36:02
 # tags: #server, #fastAPI, #RAG, #async, #backend
 
 """
@@ -9055,6 +9055,16 @@ async def get_benchmark_status(_: None = Depends(check_auth)):
     """Return the real-time execution status and recent logs for the benchmark runner."""
     from Evelyn.tools import task_manager
 
+    # Self-healing watchdog: check if process handle is actually alive
+    proc = task_manager._active_handles.get("benchmark")
+    if (proc is not None and proc.returncode is not None) or (
+        proc is None and task_manager.get_status("benchmark") == "running"
+    ):
+        task_manager.clear_running("benchmark", status="idle")
+        if _benchmark_run_state.get("status") == "running":
+            _benchmark_run_state["status"] = "idle"
+            _benchmark_run_state["phase"] = "Idle"
+
     is_running = task_manager.get_status("benchmark") == "running"
     is_queued = task_manager.is_task_queued("benchmark")
     return {
@@ -9063,6 +9073,19 @@ async def get_benchmark_status(_: None = Depends(check_auth)):
         "task_manager_status": task_manager.get_status("benchmark"),
         "state": _benchmark_run_state,
     }
+
+
+@app.post("/api/benchmark/cancel")
+async def cancel_benchmark_run(_: None = Depends(check_auth)):
+    """Cancel any active or enqueued behavior benchmark run and reset state."""
+    from Evelyn.tools import task_manager
+
+    task_manager.terminate_task_subprocess("benchmark")
+    task_manager.clear_running("benchmark", status="idle", summary="Cancelled by operator")
+    task_manager.dequeue_idle_task("benchmark")
+    _benchmark_run_state["status"] = "idle"
+    _benchmark_run_state["phase"] = "Idle (Cancelled by operator)"
+    return {"status": "idle", "message": "Benchmark run successfully cancelled."}
 
 
 @app.post("/api/benchmark/run")

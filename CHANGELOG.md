@@ -1,7 +1,7 @@
 ---
 title: CHANGELOG.md
 date created: 2026-08-22 15:53:28
-date modified: 2026-10-04 10:24:51
+date modified: 2026-10-04 10:37:20
 tags: [changelog, versioning, history, release-notes, evelyn]
 ---
 # 📜 Changelog
@@ -41,6 +41,11 @@ and this project adheres to **3-digit zero-padded Semantic Versioning** (`000.00
 - **Harness & Store Aggregation (`scripts/benchmark_behavior.py`, `Evelyn/tools/benchmark_store.py`)**:
   - Summary metrics now aggregate condition-level pass counts (`passed`, `total`, `pass_rate`) while retaining strict all-or-nothing case metrics (`strict_cases`).
   - `--category` probe evaluation now targets and isolates category-specific conditions.
+- **Benchmark Interruption Recovery & UI Matrix Refinement (`evelyn_server.py`, `Evelyn/tools/task_manager.py`, `evelyn_ui/benchmark.html`)**:
+  - Added `POST /api/benchmark/cancel` endpoint and UI button to terminate interrupted/stuck benchmark runs and clean idle queues.
+  - Implemented startup self-healing in `task_manager.py` to reset any tasks saved as `"running"` or `"starting"` back to `"idle"` on engine boot.
+  - Added dead-process watchdog in `/api/benchmark/status` to automatically reconcile lingering running flags when subprocesses die unexpectedly.
+  - Renamed benchmark test matrix column from "Model Outcome" to "Tools Used" to accurately reflect invoked model tools.
 
 ## [000.008.006] - 2026-10-04 — *Benchmark Vocabulary Audit*
 
